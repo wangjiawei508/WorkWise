@@ -228,7 +228,6 @@ jobs:
       - prepare
       - build-macos
       - build-windows
-      - build-linux
     env:
       GH_TOKEN: ${{ github.token }}
       TAG_NAME: ${{ needs.prepare.outputs.tag }}
@@ -280,7 +279,6 @@ jobs:
             "Kun-*-linux-x86_64.AppImage"
             "latest-mac.yml"
             "latest.yml"
-            "latest-linux.yml"
           )
 
           for pattern in "${required[@]}"; do
@@ -313,7 +311,7 @@ jobs:
             echo "- Branch: \`master\`"
             echo "- Commit: \`${GITHUB_SHA::7}\`"
             echo "- macOS: Developer ID signed and notarized"
-            echo "- Platforms: macOS arm64/x64, Windows x64, Linux x64"
+            echo "- Platforms: macOS arm64/x64, Windows x64"
           } >> release-notes.md
 
       - name: Ensure release tag
@@ -371,14 +369,13 @@ jobs:
           set -euo pipefail
           node ./scripts/publish-r2.mjs upload --platform mac --dist release-artifacts --tag "${TAG_NAME}" --channel "${RELEASE_CHANNEL}"
           node ./scripts/publish-r2.mjs upload --platform win --dist release-artifacts --tag "${TAG_NAME}" --channel "${RELEASE_CHANNEL}"
-          node ./scripts/publish-r2.mjs upload --platform linux --dist release-artifacts --tag "${TAG_NAME}" --channel "${RELEASE_CHANNEL}"
 
       - name: Promote R2 latest
         run: >
           node ./scripts/publish-r2.mjs promote
           --tag "${TAG_NAME}"
           --channel "${RELEASE_CHANNEL}"
-          --platforms mac,win,linux
+          --platforms mac,win
 
       - name: Publish GitHub Release
         run: gh release edit "${TAG_NAME}" --draft=false --prerelease=false --latest

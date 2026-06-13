@@ -75,7 +75,7 @@ The result: Kun is built for real project work with long tasks, long sessions, a
 - Connect phone automation with Feishu / Lark / WeChat integration, dedicated IM agents, local webhook / relay support, and scheduled tasks.
 - A dedicated Write workbench with writing spaces, a Markdown file tree, live editing/preview, inline completion, and selection-based inline agent actions.
 - New requirement drafts, plans, thread todos, long-running goals, and code review so tasks can move from idea to execution to review.
-- Pre-built macOS, Windows, and Linux installers; source builds remain available.
+- Pre-built macOS and Windows installers; source builds remain available.
 
 ## Highlights
 
@@ -98,7 +98,7 @@ The result: Kun is built for real project work with long tasks, long sessions, a
 - **Friendly first launch**: choose language, add your DeepSeek API key, and optionally set a compatible Base URL.
 - **Local-first**: preferences, sessions, logs, and runtime config stay on your machine; model calls use your own DeepSeek API key.
 - **English and Chinese UI**: switch languages from Settings at any time.
-- **Cross-platform use**: macOS `.dmg/.zip`, Windows `.exe`, and Linux `.AppImage`; source builds remain available.
+- **Cross-platform use**: macOS `.dmg/.zip` for Apple Silicon and Intel, plus Windows x64 `.exe`; source builds remain available.
 
 ## Runtime: Kun
 
@@ -244,7 +244,6 @@ Download the latest build from [GitHub Releases](https://github.com/KunAgent/Kun
 | --- | --- |
 | macOS | `.dmg` or `.zip`, Intel and Apple Silicon |
 | Windows | `.exe`, NSIS installer, x64 |
-| Linux | `.AppImage`, x64 |
 
 On first launch, enter your [DeepSeek API key](https://platform.deepseek.com/api_keys). If you use a DeepSeek/OpenAI-compatible endpoint, you can set a custom Base URL in Settings.
 
@@ -348,11 +347,6 @@ The Windows installer creates Start Menu and desktop shortcuts by default. It do
 npm run mac:unquarantine -- '/Applications/Kun.app'
 ```
 
-### Linux
-
-- If you built a Linux package from source, delete the related `.AppImage` or installed files.
-- If you manually created a desktop entry or shortcut, delete that too.
-
 ### Remove Local Data
 
 By default, uninstalling removes the app but keeps local settings, sessions, and runtime config so reinstalling is smoother. For a full cleanup, remove these paths if needed:
@@ -392,9 +386,8 @@ See [CONTRIBUTING.md](./docs/CONTRIBUTING.md) and [DEVELOPMENT.md](./docs/DEVELO
 
 ```bash
 npm run build           # production build
-npm run dist:mac        # macOS packages
+npm run dist:mac        # macOS packages (Apple Silicon + Intel)
 npm run dist:win        # Windows installer (run on Windows)
-npm run dist:linux      # Linux AppImage
 npm run release:mac     # manual fallback for macOS release assets
 npm run release:win     # manual fallback for Windows release assets
 ```

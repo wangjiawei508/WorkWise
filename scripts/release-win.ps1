@@ -162,8 +162,7 @@ New-Item -ItemType Directory -Force -Path $env:ELECTRON_BUILDER_CACHE | Out-Null
 Remove-Item -Recurse -Force -ErrorAction SilentlyContinue `
   (Join-Path $Root 'dist\win-unpacked'), `
   (Join-Path $Root 'dist\mac'), `
-  (Join-Path $Root 'dist\mac-arm64'), `
-  (Join-Path $Root 'dist\linux-unpacked')
+  (Join-Path $Root 'dist\mac-arm64')
 Remove-Item -Force -ErrorAction SilentlyContinue `
   (Join-Path $Root 'dist\Kun-*'), `
   (Join-Path $Root 'dist\DeepSeek-GUI-*'), `

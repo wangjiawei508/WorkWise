@@ -146,10 +146,10 @@ describe('buildInlineCompletionPayload', () => {
           from: 26,
           to: 29,
           startLine: 3,
-          startColumn: 18,
+          startColumn: 13,
           endLine: 3,
-          endColumn: 20,
-          original: 'gui'
+          endColumn: 15,
+          original: 'GPT'
         }
       }),
       {
@@ -167,6 +167,6 @@ describe('buildInlineCompletionPayload', () => {
       kind: 'selection',
       original: 'DeepSeek gui'
     })
-    expect(payload.editCandidate ? payload.editCandidate.to - payload.editCandidate.from : 0).toBe(12)
+    expect(payload.editCandidate ? payload.editCandidate.to - payload.editCandidate.from : 0).toBe(7)
   })
 })

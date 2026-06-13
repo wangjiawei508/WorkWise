@@ -16,7 +16,7 @@ import { fileURLToPath } from 'node:url'
 const PRODUCT_NAME = 'Kun'
 const DEFAULT_RELEASE_PREFIX = 'deepseek-gui'
 const DEFAULT_RELEASE_CHANNEL = 'frontier'
-const PLATFORMS = ['mac', 'win', 'linux']
+const PLATFORMS = ['mac', 'win']
 const RELEASE_CHANNELS = ['frontier', 'stable']
 const SCRIPT_DIR = fileURLToPath(new URL('.', import.meta.url))
 const ROOT = resolve(SCRIPT_DIR, '..')
@@ -38,8 +38,8 @@ const PLATFORM_SPECS = {
 
 function usage() {
   console.log(`Usage:
-  node scripts/publish-r2.mjs upload --platform mac|win|linux --tag vX.Y.Z [--channel frontier|stable] [--dry-run]
-  node scripts/publish-r2.mjs promote --tag vX.Y.Z [--channel frontier|stable] [--platforms mac,win,linux] [--dry-run]
+  node scripts/publish-r2.mjs upload --platform mac|win --tag vX.Y.Z [--channel frontier|stable] [--dry-run]
+  node scripts/publish-r2.mjs promote --tag vX.Y.Z [--channel frontier|stable] [--platforms mac,win] [--dry-run]
 
 If --platforms is omitted, promote uses the platform manifests already uploaded for that tag.
 If --channel is omitted, the default channel is frontier.
@@ -310,16 +310,14 @@ function cacheControlFor(key) {
   if (/\/latest\/latest(?:-[\w]+)?\.(?:json|yml)$/.test(key)) {
     return 'public, max-age=60, must-revalidate'
   }
-  if (/\/latest\/.+\.(?:dmg|zip|exe|AppImage|blockmap)$/.test(key)) {
+  if (/\/latest\/.+\.(?:dmg|zip|exe|blockmap)$/.test(key)) {
     return 'public, max-age=31536000, immutable'
   }
   return 'public, max-age=31536000, immutable'
 }
 
 function classifyDownload(fileName, platform) {
-  const extension = fileName.endsWith('.AppImage')
-    ? 'AppImage'
-    : fileName.endsWith('.dmg')
+  const extension = fileName.endsWith('.dmg')
       ? 'dmg'
       : fileName.endsWith('.zip')
         ? 'zip'
@@ -339,7 +337,7 @@ function classifyDownload(fileName, platform) {
   if (platform === 'win') {
     return { platform, arch: 'x64', format: extension, label: 'Windows x64 installer' }
   }
-  return { platform, arch: 'x64', format: extension, label: 'Linux x64 AppImage' }
+  throw new Error(`Unsupported platform: ${platform}`)
 }
 
 async function collectPlatformRelease({ distDir, platform, tag, channel, config }) {

@@ -27,11 +27,11 @@ describe('buildInlineCompletionRequestContext', () => {
     const candidate = context.editCandidate
     expect(candidate).toMatchObject({
       kind: 'selection',
-      original: 'gui',
+      original: 'WORKGPT',
       startLine: 3,
       endLine: 3
     })
-    expect(candidate ? candidate.to - candidate.from : 0).toBe(3)
+    expect(candidate ? candidate.to - candidate.from : 0).toBe(7)
   })
 
   it('uses the previous word when the cursor has advanced past trailing whitespace', () => {

@@ -22,7 +22,6 @@
     "dist:mac:arm64:zip": "node ./scripts/zip-mac-app.cjs arm64",
     "dist:mac:x64:zip": "node ./scripts/zip-mac-app.cjs x64",
     "dist:win": "npm run dist -- --win nsis --x64",
-    "dist:linux": "npm run dist -- --linux AppImage --x64",
     "release:all": "bash ./scripts/release-mac.sh",
     "release:mac": "bash ./scripts/release-mac.sh",
     "release:win": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/release-win.ps1",
