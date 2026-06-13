@@ -10,7 +10,7 @@ ARGS=()
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --skip-win|--skip-linux)
-      echo "release-all-mac.sh: ignoring legacy $1; macOS builds no Windows/Linux assets." >&2
+      echo "release-all-mac.sh: ignoring legacy $1; macOS builds macOS assets only." >&2
       shift
       ;;
     --skip-mac)

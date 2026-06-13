@@ -144,11 +144,6 @@ module.exports = {
     uninstallDisplayName: 'WORKGPT',
     deleteAppDataOnUninstall: false
   },
-  linux: {
-    category: 'Development',
-    icon: './src/asset/img/workgpt.png',
-    target: [{ target: 'AppImage', arch: ['x64'] }]
-  },
   extraMetadata: {
     ...(releaseAppVersion ? { version: releaseAppVersion } : {}),
     updateChannel,

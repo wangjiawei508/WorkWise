@@ -5,6 +5,10 @@ import { nativeImage } from 'electron'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 
+function isWindowsAbsolutePath(source: string): boolean {
+  return /^[A-Za-z]:[\\/]/.test(source) || /^\\\\[^\\]+\\[^\\]+/.test(source)
+}
+
 /**
  * 解析 Vite/Rollup 给出的资产 URL,得到一个真实可读的文件系统路径。
  *
@@ -22,6 +26,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url))
  */
 export function resolveAppIconPath(source: string, baseDir: string = __dirname): string {
   if (source.startsWith('data:')) return source
+  if (isWindowsAbsolutePath(source)) return source
   // Vite ?url import 在 dev 模式下会返回带前导斜杠的路径(例如 '/chunks/...')。
   // 在 Windows 上 path.isAbsolute('/foo') === true(Node 把 /foo 解释成"当前盘根下的 foo"),
   // 但实际文件并不在 d:\chunks\...,而是在 main bundle 输出目录里。必须先把
