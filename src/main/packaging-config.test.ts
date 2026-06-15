@@ -53,11 +53,13 @@ function loadBuilderConfigWithEnv(env: Record<string, string | undefined>): type
 function createMacPackContext(root: string): {
   appOutDir: string
   electronPlatformName: string
+  arch: string
   packager: { appInfo: { productFilename: string } }
 } {
   return {
     appOutDir: join(root, 'mac-arm64'),
     electronPlatformName: 'darwin',
+    arch: 'arm64',
     packager: {
       appInfo: {
         productFilename: 'WORKGPT'
@@ -126,6 +128,25 @@ describe('electron-builder Kun packaging', () => {
       command: 'npm',
       args: ['prune']
     })
+  })
+
+  it('selects only the matching platform Markdown converter directory', () => {
+    expect(afterPack._internals.converterDirNameForContext({
+      electronPlatformName: 'darwin',
+      arch: 'arm64'
+    })).toBe('darwin-arm64')
+    expect(afterPack._internals.converterDirNameForContext({
+      electronPlatformName: 'darwin',
+      arch: 0
+    })).toBe('darwin-x64')
+    expect(afterPack._internals.converterDirNameForContext({
+      electronPlatformName: 'win',
+      arch: 'x64'
+    })).toBe('win32-x64')
+    expect(afterPack._internals.converterDirNameForContext({
+      electronPlatformName: 'linux',
+      arch: 'x64'
+    })).toBeNull()
   })
 
   it('requires Apple secure timestamps when Developer ID signing is enabled', () => {

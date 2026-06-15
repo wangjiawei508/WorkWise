@@ -17,6 +17,7 @@ import { DEFAULT_GUI_UPDATE_CHANNEL, normalizeGuiUpdateChannel } from '../shared
 
 const DEFAULT_R2_PUBLIC_BASE_URL = 'https://downloads.example.com/workgpt'
 const DEFAULT_R2_RELEASE_PREFIX = 'workgpt'
+const DEFAULT_GITHUB_REPO = 'wangjiawei508/WORKGPT'
 const { autoUpdater } = electronUpdater
 
 let initialized = false
@@ -36,6 +37,25 @@ let backgroundCheckTimer: NodeJS.Timeout | null = null
 let backgroundCheckPromise: Promise<void> | null = null
 
 const GUI_UPDATE_SCHEDULE_FILE = 'gui-update-schedule.json'
+
+type UpdateFeedConfig =
+  | { kind: 'generic'; url: string }
+  | { kind: 'github'; owner: string; repo: string; fullName: string }
+
+type GithubReleaseAsset = {
+  name?: unknown
+  browser_download_url?: unknown
+}
+
+type GithubRelease = {
+  tag_name?: unknown
+  name?: unknown
+  html_url?: unknown
+  draft?: unknown
+  prerelease?: unknown
+  published_at?: unknown
+  assets?: GithubReleaseAsset[]
+}
 
 function trimSlashes(value: string): string {
   return value.replace(/^\/+|\/+$/g, '')
@@ -57,13 +77,25 @@ function envUpdateUrl(channel: GuiUpdateChannel): string {
   return direct ? direct.replace(/\{channel\}/g, channel).replace(/\/?$/, '/') : ''
 }
 
-function updateFeedUrl(channel: GuiUpdateChannel): string {
+function genericUpdateFeedUrl(channel: GuiUpdateChannel): string {
   const direct = envUpdateUrl(channel)
   if (direct) return direct
 
-  const base = process.env.R2_PUBLIC_BASE_URL?.trim() || DEFAULT_R2_PUBLIC_BASE_URL
-  const prefix = process.env.R2_RELEASE_PREFIX?.trim() || DEFAULT_R2_RELEASE_PREFIX
+  const configuredBase = process.env.R2_PUBLIC_BASE_URL?.trim()
+  const configuredPrefix = process.env.R2_RELEASE_PREFIX?.trim()
+  if (!configuredBase && !configuredPrefix) return ''
+
+  const base = configuredBase || DEFAULT_R2_PUBLIC_BASE_URL
+  const prefix = configuredPrefix || DEFAULT_R2_RELEASE_PREFIX
   return `${joinUrl(base, prefix, 'channels', channel, 'latest')}/`
+}
+
+function updateFeedUrl(channel: GuiUpdateChannel): string {
+  return (
+    genericUpdateFeedUrl(channel) ||
+    resolveGithubReleaseUrl() ||
+    `${joinUrl(DEFAULT_R2_PUBLIC_BASE_URL, DEFAULT_R2_RELEASE_PREFIX, 'channels', channel, 'latest')}/`
+  )
 }
 
 function guiUpdateSchedulePath(): string {
@@ -117,9 +149,9 @@ function readPackageJson(): Record<string, unknown> | null {
   }
 }
 
-function resolveGithubReleaseUrl(): string | null {
+function resolveGithubRepo(): string | null {
   const envRepo = normalizeGithubOwnerRepo(process.env.WORKGPT_GITHUB_REPO?.trim() ?? '')
-  if (envRepo) return `https://github.com/${envRepo}/releases`
+  if (envRepo) return envRepo
 
   const pkg = readPackageJson()
   const repository = pkg?.repository
@@ -129,19 +161,43 @@ function resolveGithubReleaseUrl(): string | null {
       : repository && typeof repository === 'object' && 'url' in repository
         ? String((repository as { url?: unknown }).url ?? '')
         : ''
-  const repo = normalizeGithubOwnerRepo(raw)
+  const repo = normalizeGithubOwnerRepo(raw) || normalizeGithubOwnerRepo(
+    typeof pkg?.homepage === 'string' ? pkg.homepage : ''
+  )
+  return repo || DEFAULT_GITHUB_REPO
+}
+
+function resolveGithubReleaseUrl(): string | null {
+  const repo = resolveGithubRepo()
   return repo ? `https://github.com/${repo}/releases` : null
+}
+
+function resolveUpdateFeedConfig(channel: GuiUpdateChannel): UpdateFeedConfig {
+  const genericUrl = genericUpdateFeedUrl(channel)
+  if (genericUrl) return { kind: 'generic', url: genericUrl }
+
+  const fullName = resolveGithubRepo()
+  const [owner, repo] = fullName?.split('/') ?? []
+  if (owner && repo) return { kind: 'github', owner, repo, fullName: `${owner}/${repo}` }
+
+  return {
+    kind: 'generic',
+    url: `${joinUrl(DEFAULT_R2_PUBLIC_BASE_URL, DEFAULT_R2_RELEASE_PREFIX, 'channels', channel, 'latest')}/`
+  }
 }
 
 function downloadPageUrl(): string {
   const direct = process.env.WORKGPT_DOWNLOAD_URL?.trim()
   if (direct) return direct
 
+  const releaseUrl = resolveGithubReleaseUrl()
+  if (releaseUrl) return releaseUrl
+
   const pkg = readPackageJson()
   const homepage = typeof pkg?.homepage === 'string' ? pkg.homepage.trim() : ''
   if (homepage) return homepage
 
-  return resolveGithubReleaseUrl() ?? updateFeedUrl(configuredChannel)
+  return updateFeedUrl(configuredChannel)
 }
 
 function releaseUrlForVersion(version: string): string {
@@ -168,6 +224,39 @@ function isVersionGreater(latest: string, current: string): boolean {
     if (av < bv) return false
   }
   return false
+}
+
+function versionFromTag(value: string, channel: GuiUpdateChannel): string | null {
+  const trimmed = value.trim()
+  const pattern =
+    channel === 'stable'
+      ? /^v?(\d+\.\d+\.\d+)$/i
+      : /^v?(\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?)$/i
+  const match = trimmed.match(pattern)
+  return match?.[1] ?? null
+}
+
+function versionFromGithubRelease(release: GithubRelease, channel: GuiUpdateChannel): string | null {
+  const tag = typeof release.tag_name === 'string' ? versionFromTag(release.tag_name, channel) : null
+  if (tag) return tag
+  const name = typeof release.name === 'string' ? versionFromTag(release.name, channel) : null
+  return name
+}
+
+function selectGithubRelease(
+  releases: GithubRelease[],
+  channel: GuiUpdateChannel
+): { release: GithubRelease; version: string } | null {
+  for (const release of releases) {
+    if (release.draft === true) continue
+    if (channel === 'stable' && release.prerelease === true) continue
+    const version = versionFromGithubRelease(release, channel)
+    if (!version) continue
+    const htmlUrl = typeof release.html_url === 'string' ? release.html_url.trim() : ''
+    if (!htmlUrl) continue
+    return { release, version }
+  }
+  return null
 }
 
 function platformManifestName(): string {
@@ -330,12 +419,24 @@ async function resolveUpdateChannel(requested?: GuiUpdateChannel): Promise<GuiUp
 
 function configureUpdaterChannel(channel: GuiUpdateChannel): void {
   const normalized = normalizeGuiUpdateChannel(channel)
-  const feedUrl = updateFeedUrl(normalized)
+  const feed = resolveUpdateFeedConfig(normalized)
+  const feedUrl =
+    feed.kind === 'generic'
+      ? feed.url
+      : `github:${feed.fullName}`
   const changed = normalized !== configuredChannel || feedUrl !== configuredFeedUrl
   configuredChannel = normalized
   configuredFeedUrl = feedUrl
   autoUpdater.allowPrerelease = normalized === 'frontier'
-  autoUpdater.setFeedURL({ provider: 'generic', url: feedUrl })
+  if (feed.kind === 'generic') {
+    autoUpdater.setFeedURL({ provider: 'generic', url: feed.url })
+  } else {
+    autoUpdater.setFeedURL({
+      provider: 'github',
+      owner: feed.owner,
+      repo: feed.repo
+    })
+  }
   if (!changed) return
   downloaded = false
   downloadPromise = null
@@ -352,8 +453,97 @@ async function checkManualUpdate(
   code: GuiUpdateFailureCode = 'unsupported'
 ): Promise<GuiUpdateInfo> {
   const currentVersion = app.getVersion()
+  const releaseUrl = downloadPageUrl()
+
+  const githubFallback = async (): Promise<GuiUpdateInfo | null> => {
+    const repo = resolveGithubRepo()
+    if (!repo) return null
+
+    try {
+      const res = await fetch(`https://api.github.com/repos/${repo}/releases`, {
+        headers: {
+          Accept: 'application/vnd.github+json',
+          'User-Agent': `workgpt/${currentVersion}`,
+          'X-GitHub-Api-Version': '2022-11-28'
+        }
+      })
+
+      if (res.status === 404) {
+        return {
+          ok: false,
+          currentVersion,
+          code: 'github_repo_not_found',
+          message: `GitHub repository ${repo} was not found.`,
+          releaseUrl,
+          channel,
+          repo
+        }
+      }
+      if (res.status === 403) {
+        const remaining = res.headers.get('x-ratelimit-remaining')
+        return {
+          ok: false,
+          currentVersion,
+          code: remaining === '0' ? 'github_rate_limited' : 'github_forbidden',
+          message: 'GitHub denied the update metadata request.',
+          releaseUrl,
+          channel,
+          repo
+        }
+      }
+      if (!res.ok) return null
+
+      const parsed = await res.json()
+      const releases = Array.isArray(parsed) ? (parsed as GithubRelease[]) : []
+      const selected = selectGithubRelease(releases, channel)
+      if (!selected) {
+        return {
+          ok: false,
+          currentVersion,
+          code: 'no_stable_version',
+          message: `No ${channel} release is available on GitHub yet.`,
+          releaseUrl,
+          channel,
+          repo
+        }
+      }
+
+      const info: Extract<GuiUpdateInfo, { ok: true }> = {
+        ok: true,
+        currentVersion,
+        latestVersion: selected.version,
+        hasUpdate: isVersionGreater(selected.version, currentVersion),
+        releaseUrl: String(selected.release.html_url),
+        releaseDate:
+          typeof selected.release.published_at === 'string' ? selected.release.published_at : undefined,
+        channel,
+        manualOnly: true,
+        downloaded: false
+      }
+      lastInfo = info
+      emitGuiUpdateState(info.hasUpdate ? { status: 'available', info } : { status: 'not_available', info })
+      return info
+    } catch {
+      return null
+    }
+  }
+
+  const genericFeed = genericUpdateFeedUrl(channel)
+  if (!genericFeed) {
+    const github = await githubFallback()
+    if (github) return github
+    return {
+      ok: false,
+      currentVersion,
+      code: 'not_configured',
+      message: 'No online update source is configured.',
+      releaseUrl,
+      channel
+    }
+  }
+
   try {
-    const url = `${updateFeedUrl(channel)}${platformManifestName()}`
+    const url = `${genericFeed}${platformManifestName()}`
     const res = await fetch(url, {
       headers: {
         Accept: 'application/x-yaml,text/yaml,text/plain,*/*',
@@ -361,24 +551,28 @@ async function checkManualUpdate(
       }
     })
     if (!res.ok) {
+      const github = await githubFallback()
+      if (github) return github
       return {
         ok: false,
         currentVersion,
         code,
         message: `${unsupportedMessage()} Update metadata returned ${res.status}.`,
-        releaseUrl: downloadPageUrl(),
+        releaseUrl,
         channel
       }
     }
     const text = await res.text()
     const latestVersion = parseYamlScalar(text, 'version')
     if (!latestVersion) {
+      const github = await githubFallback()
+      if (github) return github
       return {
         ok: false,
         currentVersion,
         code,
         message: `${unsupportedMessage()} Update metadata is missing a version.`,
-        releaseUrl: downloadPageUrl(),
+        releaseUrl,
         channel
       }
     }
@@ -397,12 +591,14 @@ async function checkManualUpdate(
     emitGuiUpdateState(info.hasUpdate ? { status: 'available', info } : { status: 'not_available', info })
     return info
   } catch (e) {
+    const github = await githubFallback()
+    if (github) return github
     return {
       ok: false,
       currentVersion,
       code,
       message: `${unsupportedMessage()} ${e instanceof Error ? e.message : String(e)}`,
-      releaseUrl: downloadPageUrl(),
+      releaseUrl,
       channel
     }
   }
@@ -499,6 +695,8 @@ export async function checkGuiUpdate(channel?: GuiUpdateChannel): Promise<GuiUpd
     return info
   } catch (e) {
     const message = sanitizeUpdaterError(e instanceof Error ? e.message : String(e), selectedChannel)
+    const manualInfo = await checkManualUpdate(selectedChannel, 'unknown')
+    if (manualInfo.ok || manualInfo.code !== 'not_configured') return manualInfo
     const info: GuiUpdateInfo = {
       ok: false,
       currentVersion: app.getVersion(),
@@ -584,4 +782,11 @@ export async function installGuiUpdate(): Promise<GuiUpdateInstallResult> {
       message
     }
   }
+}
+
+export const _internals = {
+  normalizeGithubOwnerRepo,
+  selectGithubRelease,
+  genericUpdateFeedUrl,
+  resolveUpdateFeedConfig
 }

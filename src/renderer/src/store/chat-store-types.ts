@@ -72,7 +72,15 @@ export type SendMessageOverrides = {
 }
 
 export type InitialSetupMode = 'required' | 'preview'
-export type SettingsRouteSection = 'general' | 'write' | 'agents' | 'skill' | 'mcp' | 'shortcuts' | 'claw'
+export type SettingsRouteSection =
+  | 'general'
+  | 'write'
+  | 'agents'
+  | 'skill'
+  | 'mcp'
+  | 'shortcuts'
+  | 'claw'
+  | 'help'
 export type AppRoute = 'chat' | 'write' | 'settings' | 'plugins' | 'claw' | 'schedule'
 export type PluginHostRoute = 'chat' | 'claw'
 

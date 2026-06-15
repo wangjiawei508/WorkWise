@@ -1,5 +1,5 @@
 const { execFileSync } = require('node:child_process')
-const { existsSync, rmSync } = require('node:fs')
+const { cpSync, existsSync, mkdirSync, rmSync } = require('node:fs')
 const { join } = require('node:path')
 
 const KUN_RUNTIME_REQUIRED_PATHS = [
@@ -24,6 +24,21 @@ function packedResourcesDir(context) {
     return join(appBundlePath(context), 'Contents', 'Resources')
   }
   return join(context.appOutDir, 'resources')
+}
+
+function normalizeArch(arch) {
+  if (arch === 'x64' || arch === 'arm64') return arch
+  if (arch === 0 || arch === 1) return 'x64'
+  if (arch === 3) return 'arm64'
+  return String(arch)
+}
+
+function converterDirNameForContext(context) {
+  const platform = normalizePlatform(context.electronPlatformName)
+  const arch = normalizeArch(context.arch)
+  if (platform === 'darwin' && (arch === 'arm64' || arch === 'x64')) return `darwin-${arch}`
+  if (platform === 'win32' && arch === 'x64') return 'win32-x64'
+  return null
 }
 
 function unpackedAppRoot(context) {
@@ -85,6 +100,31 @@ function validateBundledKunRuntime(context) {
   )
 }
 
+function copyBundledMarkdownConverters(context) {
+  const converterDirName = converterDirNameForContext(context)
+  if (!converterDirName) return
+
+  const sourceRoot = join(__dirname, '..', 'converters')
+  const sourceDir = join(sourceRoot, converterDirName)
+  if (!existsSync(sourceDir)) {
+    console.log(`[after-pack] No Markdown converters for ${converterDirName}.`)
+    return
+  }
+
+  const targetRoot = join(packedResourcesDir(context), 'converters')
+  const targetDir = join(targetRoot, converterDirName)
+  rmSync(targetDir, { recursive: true, force: true })
+  mkdirSync(targetRoot, { recursive: true })
+  cpSync(sourceDir, targetDir, {
+    recursive: true,
+    filter: (source) => !source.endsWith('.gitkeep') && !source.endsWith('.DS_Store')
+  })
+
+  const readmePath = join(sourceRoot, 'README.md')
+  if (existsSync(readmePath)) cpSync(readmePath, join(targetRoot, 'README.md'))
+  console.log(`[after-pack] Bundled Markdown converters: ${converterDirName}`)
+}
+
 function maybeAdhocSignMacApp(context) {
   if (normalizePlatform(context.electronPlatformName) !== 'darwin') {
     return
@@ -115,16 +155,20 @@ function maybeAdhocSignMacApp(context) {
 async function afterPack(context) {
   prunePackedKunDependencies(context)
   validateBundledKunRuntime(context)
+  copyBundledMarkdownConverters(context)
   maybeAdhocSignMacApp(context)
 }
 
-exports.KUN_RUNTIME_REQUIRED_PATHS = KUN_RUNTIME_REQUIRED_PATHS
-exports._internals = {
+module.exports = afterPack
+module.exports.KUN_RUNTIME_REQUIRED_PATHS = KUN_RUNTIME_REQUIRED_PATHS
+module.exports._internals = {
   appBundlePath,
   packedResourcesDir,
   unpackedAppRoot,
   npmCommand,
   prunePackedKunDependencies,
-  validateBundledKunRuntime
+  validateBundledKunRuntime,
+  copyBundledMarkdownConverters,
+  converterDirNameForContext,
+  normalizeArch
 }
-exports.default = afterPack

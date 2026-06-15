@@ -1,5 +1,7 @@
-import { BrowserWindow, clipboard, dialog } from 'electron'
+import { app, BrowserWindow, clipboard, dialog } from 'electron'
+import { spawn } from 'node:child_process'
 import { createRequire } from 'node:module'
+import { existsSync } from 'node:fs'
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { basename, dirname, extname, join } from 'node:path'
@@ -18,6 +20,7 @@ import type {
 } from '../../shared/write-export'
 import { resolveWriteMarkdownResource } from '../../shared/write-markdown-resource'
 import { resolveWorkspaceFile } from './workspace-service'
+import { buildDocxFromMarkdown } from './write-docx-service'
 
 type HtmlToDocxDocumentOptions = {
   title?: string
@@ -132,6 +135,20 @@ const EXPORT_CSS = `
     margin-top: 0.3em;
   }
 
+  .markdown-body .contains-task-list {
+    list-style: none;
+    padding-left: 0;
+  }
+
+  .markdown-body .task-list-item {
+    list-style: none;
+  }
+
+  .markdown-body input[type="checkbox"] {
+    margin: 0 0.45em 0 0;
+    transform: translateY(0.1em);
+  }
+
   .markdown-body blockquote {
     padding: 0.3em 0 0.3em 1em;
     border-left: 4px solid #dbe4ff;
@@ -202,6 +219,15 @@ const EXPORT_CSS = `
     margin: 1rem auto;
   }
 
+  .markdown-body h1,
+  .markdown-body h2,
+  .markdown-body h3,
+  .markdown-body img,
+  .markdown-body table,
+  .markdown-body pre {
+    break-inside: avoid;
+  }
+
   .plain-text {
     margin: 0;
     white-space: pre-wrap;
@@ -212,6 +238,13 @@ const EXPORT_CSS = `
   @page {
     size: A4;
     margin: 0;
+  }
+
+  @media print {
+    body {
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
+    }
   }
 `
 
@@ -248,6 +281,94 @@ function exportDialogFilter(format: WriteExportFormat): Electron.FileFilter {
   if (format === 'pdf') return { name: 'PDF', extensions: ['pdf'] }
   if (format === 'doc') return { name: 'DOC', extensions: ['doc'] }
   return { name: 'DOCX', extensions: ['docx'] }
+}
+
+function platformConverterDirName(): string {
+  if (process.platform === 'win32') return 'win32-x64'
+  if (process.platform === 'darwin' && process.arch === 'arm64') return 'darwin-arm64'
+  if (process.platform === 'darwin' && process.arch === 'x64') return 'darwin-x64'
+  return `${process.platform}-${process.arch}`
+}
+
+function converterSearchRoots(): string[] {
+  const envRoot = process.env.WORKGPT_CONVERTER_ROOT?.trim()
+  return [
+    envRoot,
+    join(process.resourcesPath || '', 'converters'),
+    join(app.getAppPath(), 'converters'),
+    join(process.cwd(), 'converters')
+  ].filter((value): value is string => Boolean(value))
+}
+
+function firstExistingPath(candidates: string[]): string {
+  return candidates.find((candidate) => candidate && existsSync(candidate)) ?? ''
+}
+
+function configuredPandocPath(): string {
+  const direct = process.env.WORKGPT_PANDOC_PATH?.trim() || process.env.PANDOC_PATH?.trim()
+  if (direct) return direct
+
+  const executable = process.platform === 'win32' ? 'pandoc.exe' : 'pandoc'
+  const platformDir = platformConverterDirName()
+  return firstExistingPath(
+    converterSearchRoots().flatMap((root) => [
+      join(root, platformDir, executable),
+      join(root, executable)
+    ])
+  )
+}
+
+export function resolveBundledMarkdownConverter(): { pandocPath: string; md2docxPath: string } {
+  const md2docxDirect = process.env.WORKGPT_MD2DOCX_PATH?.trim() || ''
+  const executable = process.platform === 'win32' ? 'md2docx.exe' : 'md2docx.bin'
+  const platformDir = platformConverterDirName()
+  const md2docxPath = md2docxDirect || firstExistingPath(
+    converterSearchRoots().flatMap((root) => [
+      join(root, platformDir, executable),
+      join(root, executable)
+    ])
+  )
+  return {
+    pandocPath: configuredPandocPath(),
+    md2docxPath
+  }
+}
+
+function runCommand(
+  command: string,
+  args: string[],
+  options: { cwd?: string; timeoutMs?: number } = {}
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(command, args, {
+      cwd: options.cwd,
+      stdio: ['ignore', 'ignore', 'pipe']
+    })
+    let stderr = ''
+    const timer = options.timeoutMs
+      ? setTimeout(() => {
+          child.kill('SIGTERM')
+          reject(new Error(`Command timed out after ${options.timeoutMs}ms: ${command}`))
+        }, options.timeoutMs)
+      : null
+
+    child.stderr?.on('data', (chunk: Buffer) => {
+      stderr += chunk.toString('utf8')
+      if (stderr.length > 16_000) stderr = stderr.slice(-16_000)
+    })
+    child.on('error', (error) => {
+      if (timer) clearTimeout(timer)
+      reject(error)
+    })
+    child.on('close', (code) => {
+      if (timer) clearTimeout(timer)
+      if (code === 0) {
+        resolve()
+        return
+      }
+      reject(new Error(`${command} exited with code ${code ?? 'unknown'}${stderr ? `: ${stderr.trim()}` : ''}`))
+    })
+  })
 }
 
 function mimeTypeForPath(filePath: string): string | null {
@@ -386,7 +507,7 @@ export async function buildWriteExportHtmlDocument(options: {
 
   return [
     '<!DOCTYPE html>',
-    `<html lang="en"${namespaces}>`,
+    `<html lang="zh-CN"${namespaces}>`,
     '<head>',
     '  <meta charset="utf-8" />',
     '  <meta name="viewport" content="width=device-width, initial-scale=1" />',
@@ -448,6 +569,75 @@ async function bufferFromDocxResult(result: ArrayBuffer | Blob): Promise<Buffer>
     return Buffer.from(await result.arrayBuffer())
   }
   throw new TypeError('Unsupported DOCX export result.')
+}
+
+async function exportDocxWithPandoc(options: {
+  sourcePath: string
+  content: string
+  title: string
+  targetPath: string
+}): Promise<boolean> {
+  const pandoc = resolveBundledMarkdownConverter().pandocPath
+  if (!pandoc || !isMarkdownFile(options.sourcePath)) return false
+
+  const tempDir = await mkdtemp(join(tmpdir(), 'workgpt-pandoc-'))
+  const tempMarkdownPath = join(tempDir, basename(options.sourcePath) || 'document.md')
+  try {
+    await writeFile(tempMarkdownPath, options.content, 'utf8')
+    await runCommand(
+      pandoc,
+      [
+        tempMarkdownPath,
+        '--from',
+        'gfm+yaml_metadata_block+tex_math_dollars+tex_math_single_backslash',
+        '--to',
+        'docx',
+        '--standalone',
+        '--resource-path',
+        dirname(options.sourcePath),
+        '--metadata',
+        `title=${options.title}`,
+        '--output',
+        options.targetPath
+      ],
+      {
+        cwd: dirname(options.sourcePath),
+        timeoutMs: 90_000
+      }
+    )
+    return true
+  } finally {
+    await rm(tempDir, { recursive: true, force: true })
+  }
+}
+
+async function exportDocxWithMd2docx(options: {
+  sourcePath: string
+  content: string
+  targetPath: string
+}): Promise<boolean> {
+  const md2docx = resolveBundledMarkdownConverter().md2docxPath
+  if (!md2docx || !isMarkdownFile(options.sourcePath)) return false
+
+  const tempDir = await mkdtemp(join(tmpdir(), 'workgpt-md2docx-'))
+  const tempMarkdownPath = join(tempDir, basename(options.sourcePath) || 'document.md')
+  try {
+    await writeFile(tempMarkdownPath, options.content, 'utf8')
+    await runCommand(
+      md2docx,
+      [
+        tempMarkdownPath,
+        options.targetPath
+      ],
+      {
+        cwd: dirname(options.sourcePath),
+        timeoutMs: 45_000
+      }
+    )
+    return existsSync(options.targetPath)
+  } finally {
+    await rm(tempDir, { recursive: true, force: true })
+  }
 }
 
 async function renderHtmlToPdf(html: string): Promise<Buffer> {
@@ -545,15 +735,48 @@ export async function exportWriteDocument(
     if (payload.format === 'html' || payload.format === 'doc') {
       await writeFile(targetPath, html, 'utf8')
     } else if (payload.format === 'docx') {
-      const docx = await htmlToDocx(html, null, {
-        title,
-        creator: 'WORKGPT',
-        keywords: ['markdown', 'export'],
-        description: `Exported from ${basename(sourcePath)}`,
-        font: 'Arial',
-        fontSize: 24
-      })
-      await writeFile(targetPath, await bufferFromDocxResult(docx))
+      let pandocExported = false
+      try {
+        pandocExported = await exportDocxWithPandoc({
+          sourcePath,
+          content: payload.content,
+          title,
+          targetPath
+        })
+      } catch (error) {
+        console.warn('[write-export] pandoc DOCX export failed, falling back:', error)
+      }
+      if (!pandocExported) {
+        let md2docxExported = false
+        try {
+          md2docxExported = await exportDocxWithMd2docx({
+            sourcePath,
+            content: payload.content,
+            targetPath
+          })
+        } catch (error) {
+          console.warn('[write-export] md2docx DOCX export failed, falling back:', error)
+        }
+        if (!md2docxExported) {
+          try {
+            await writeFile(targetPath, await buildDocxFromMarkdown({
+              sourcePath,
+              content: payload.content,
+              title
+            }))
+          } catch {
+            const docx = await htmlToDocx(html, null, {
+              title,
+              creator: 'WORKGPT',
+              keywords: ['markdown', 'export'],
+              description: `Exported from ${basename(sourcePath)}`,
+              font: 'Arial',
+              fontSize: 24
+            })
+            await writeFile(targetPath, await bufferFromDocxResult(docx))
+          }
+        }
+      }
     } else {
       await writeFile(targetPath, await renderHtmlToPdf(html))
     }

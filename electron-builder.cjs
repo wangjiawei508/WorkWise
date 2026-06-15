@@ -50,7 +50,20 @@ const r2ReleasePrefix = (process.env.R2_RELEASE_PREFIX || 'workgpt')
   .trim()
   .replace(/^\/+|\/+$/g, '')
 const updateChannel = normalizeUpdateChannel(process.env.WORKGPT_UPDATE_CHANNEL || 'stable')
-const genericUpdateUrl = `${r2PublicBaseUrl}/${r2ReleasePrefix}/channels/${updateChannel}/latest/`
+const hasGenericUpdateFeed = Boolean(
+  process.env.WORKGPT_UPDATE_URL ||
+    process.env[`WORKGPT_UPDATE_URL_${updateChannel.toUpperCase()}`] ||
+    process.env.R2_PUBLIC_BASE_URL ||
+    process.env.R2_RELEASE_PREFIX
+)
+const explicitUpdateUrl = (
+  process.env[`WORKGPT_UPDATE_URL_${updateChannel.toUpperCase()}`] ||
+  process.env.WORKGPT_UPDATE_URL ||
+  ''
+).trim()
+const genericUpdateUrl = explicitUpdateUrl
+  ? explicitUpdateUrl.replace(/\{channel\}/g, updateChannel).replace(/\/?$/, '/')
+  : `${r2PublicBaseUrl}/${r2ReleasePrefix}/channels/${updateChannel}/latest/`
 const releaseAppVersion = (process.env.WORKGPT_APP_VERSION || '').trim()
 const artifactVersion = releaseAppVersion || '${version}'
 
@@ -98,12 +111,20 @@ module.exports = {
     '!**/node_modules/openclaw/**/*'
   ],
   artifactName: `WORKGPT-${artifactVersion}-\${os}-\${arch}.\${ext}`,
-  publish: [
-    {
-      provider: 'generic',
-      url: genericUpdateUrl
-    }
-  ],
+  publish: hasGenericUpdateFeed
+    ? [
+        {
+          provider: 'generic',
+          url: genericUpdateUrl
+        }
+      ]
+    : [
+        {
+          provider: 'github',
+          owner: 'wangjiawei508',
+          repo: 'WORKGPT'
+        }
+      ],
   afterPack: './scripts/after-pack.cjs',
   afterSign: './scripts/mac-notarize.cjs',
   mac: {

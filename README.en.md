@@ -95,7 +95,9 @@ The result: Kun is built for real project work with long tasks, long sessions, a
 - **Feature-flagged agent extensions**: Kun can enable MCP, web fetch/search, Skills, standalone CLI use, image attachments, cross-session memory, and delegated subagents by config; Settings shows the runtime-reported capability and diagnostics state.
 - **Connect phone**: run a background agent alongside normal chat, with current support for Feishu / Lark / WeChat, IM webhook / relay flows, and scheduled tasks.
 - **Scheduled tasks**: create one-time, daily, interval, or manual tasks with their own workspace, model, and reasoning effort so Kun can run while the computer is awake.
-- **Write mode**: manage `~/.workgpt/write_workspace` and custom writing spaces, browse Markdown files, use live Markdown editing, preview relative images, get DeepSeek FIM short completion / inspiration completion with optional cross-document BM25 + keyword retrieval, export the current document as `HTML / PDF / DOC / DOCX`, and invoke the writing assistant directly from selected text.
+- **Write mode**: manage `~/.workgpt/write_workspace` and custom writing spaces, browse Markdown files, use Live / Source / Split / Preview views, preview relative images, get DeepSeek FIM short completion / inspiration completion with optional cross-document BM25 + keyword retrieval, export the current document as `HTML / PDF / DOC / DOCX`, and invoke the writing assistant directly from selected text.
+- **Markdown export**: PDF uses the bundled Chromium renderer; DOC is saved as Word-compatible HTML; DOCX prefers bundled/configured pandoc, then a platform `md2docx` helper, then the built-in WORKGPT DOCX generator.
+- **Help and updates**: Settings includes a Help section with GitHub, downloads, README, and issue links. GUI updates use the configured generic feed when available and fall back to GitHub Releases online checks.
 - **High token ROI**: Kun keeps prompt prefixes stable, tracks DeepSeek-native cache hit/miss fields, compacts context and tool output, and uses MCP search to discover tools progressively so tokens stay focused on requirements, code, decisions, and results.
 - **Friendly first launch**: choose language, add your DeepSeek API key, and optionally set a compatible Base URL.
 - **Local-first**: preferences, sessions, logs, and runtime config stay on your machine; model calls use your own DeepSeek API key.
@@ -217,8 +219,25 @@ A dedicated Markdown writing workbench that keeps writing files, save state, and
 
 - Manage `~/.workgpt/write_workspace` plus custom writing spaces from the left file tree.
 - Switch between **Live / Source / Split / Preview**; Live keeps Markdown source on the active line and renders the rest.
-- Export the current Markdown document from the toolbar as `HTML / PDF / DOC / DOCX`, with best-effort preservation for headings, lists, code blocks, tables, and local images.
+- Export the current Markdown document from the toolbar as `HTML / PDF / DOC / DOCX`, with best-effort preservation for headings, lists, task lists, code blocks, tables, and local images.
 - DeepSeek FIM short and inspiration completion, plus selection-based inline agent actions and a right-side writing assistant for summaries, outlines, and polish.
+
+#### Markdown Rendering And Export
+
+| Capability | Notes |
+| --- | --- |
+| Live / Split / Preview | Live keeps the active line editable as Markdown source; Split and Preview are useful for review. Relative images resolve from the current document folder. |
+| Rich text copy | Copy the current Markdown as HTML for editors such as mail clients, Feishu, Word, or other rich text surfaces. |
+| HTML / PDF | HTML includes print-friendly styles and inlined local images where possible. PDF is printed from an offscreen Chromium window after fonts and images finish loading. |
+| DOC / DOCX | DOC is Word-compatible HTML. DOCX prefers a bundled/configured pandoc executable, then a platform `md2docx` helper, then the built-in generator for headings, paragraphs, lists, blockquotes, code blocks, tables, links, and local images. |
+
+Platform converter packages can be prepared from the ZIPs you supplied:
+
+```bash
+npm run prepare:converters
+```
+
+The build only packages `converters/darwin-arm64`, `converters/darwin-x64`, and `converters/win32-x64`. Linux converter folders are intentionally excluded. The provided macOS ZIP currently contains an Apple Silicon pandoc; Intel macOS packages still build and fall back to WORKGPT's built-in DOCX generator unless `converters/darwin-x64/pandoc` is added.
 
 ### Connect Phone
 
@@ -362,6 +381,8 @@ Kun data lives under `~/.workgpt/kun` or the configured Kun data dir. Check it b
 ## Updates
 
 - For regular users: check GUI updates in Settings or download the latest installer from [GitHub Releases](https://github.com/wangjiawei508/WORKGPT/releases).
+- The app checks a configured generic/R2 feed first and falls back to GitHub Releases when no feed is configured.
+- Signed and notarized macOS builds and Windows x64 builds can download and install in the app; unsigned local builds open the download page for manual installation.
 
 ## Contributing
 

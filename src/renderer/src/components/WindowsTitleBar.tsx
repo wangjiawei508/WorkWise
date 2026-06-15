@@ -14,6 +14,9 @@ import { useChatStore } from '../store/chat-store'
 type MenuAction = () => void | Promise<void>
 type TitleBarTranslate = (key: string, options?: Record<string, unknown>) => string
 
+const WORKGPT_GITHUB_URL = 'https://github.com/wangjiawei508/WORKGPT'
+const WORKGPT_RELEASES_URL = 'https://github.com/wangjiawei508/WORKGPT/releases'
+
 export type WindowsTitleBarMenuItem =
   | {
       kind?: 'item'
@@ -37,6 +40,9 @@ export type WindowsTitleBarActions = {
   createThread: MenuAction
   chooseWorkspace: MenuAction
   openSettings: MenuAction
+  openHelp: MenuAction
+  openGithubHome: MenuAction
+  openReleases: MenuAction
   runDesktopCommand: (command: DesktopCommand) => void | Promise<void>
   openLogDir: MenuAction
   showAbout: MenuAction
@@ -63,6 +69,13 @@ function defaultOpenLogDir(): Promise<void> {
     return Promise.resolve()
   }
   return window.workgpt.openLogDir().then(() => undefined)
+}
+
+function defaultOpenExternal(url: string): Promise<void> {
+  if (typeof window === 'undefined' || typeof window.workgpt?.openExternal !== 'function') {
+    return Promise.resolve()
+  }
+  return window.workgpt.openExternal(url)
 }
 
 export function supportsDesktopTitleBar(platform: string): boolean {
@@ -132,6 +145,10 @@ export function buildWindowsTitleBarMenuSections(
       id: 'help',
       label: t('windowsMenuHelp'),
       items: [
+        { id: 'help-center', label: t('windowsMenuHelpCenter'), onSelect: actions.openHelp },
+        { id: 'github-home', label: t('windowsMenuGithubHome'), onSelect: actions.openGithubHome },
+        { id: 'releases', label: t('windowsMenuReleases'), onSelect: actions.openReleases },
+        { kind: 'separator', id: 'help-1' },
         { id: 'about', label: t('windowsMenuAbout'), onSelect: actions.showAbout },
         { id: 'open-log-dir', label: t('windowsMenuOpenLogDir'), onSelect: actions.openLogDir }
       ]
@@ -193,6 +210,9 @@ export function WindowsTitleBar({ platform, actions }: Props): ReactElement | nu
     createThread: () => void createThread(),
     chooseWorkspace: () => void chooseWorkspace(),
     openSettings: () => openSettings('general'),
+    openHelp: () => openSettings('help'),
+    openGithubHome: () => defaultOpenExternal(WORKGPT_GITHUB_URL),
+    openReleases: () => defaultOpenExternal(WORKGPT_RELEASES_URL),
     runDesktopCommand: defaultRunDesktopCommand,
     openLogDir: defaultOpenLogDir,
     showAbout: async () => {

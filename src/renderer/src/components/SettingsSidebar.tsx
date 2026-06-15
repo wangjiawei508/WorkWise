@@ -1,7 +1,7 @@
 import type { Dispatch, ReactElement, SetStateAction } from 'react'
-import { Bot, ChevronLeft, Globe, Keyboard, PencilLine, Settings, Smartphone } from 'lucide-react'
+import { Bot, ChevronLeft, Globe, HelpCircle, Keyboard, PencilLine, Settings, Smartphone } from 'lucide-react'
 
-type SettingsCategory = 'general' | 'write' | 'agents' | 'shortcuts' | 'claw'
+type SettingsCategory = 'general' | 'write' | 'agents' | 'shortcuts' | 'claw' | 'help'
 
 export function SettingsSidebar({
   category,
@@ -54,6 +54,10 @@ export function SettingsSidebar({
         <button type="button" className={catCls('claw')} onClick={() => setCategory('claw')}>
           <Smartphone className="h-4 w-4 shrink-0 opacity-70" strokeWidth={1.75} />
           {t('claw')}
+        </button>
+        <button type="button" className={catCls('help')} onClick={() => setCategory('help')}>
+          <HelpCircle className="h-4 w-4 shrink-0 opacity-70" strokeWidth={1.75} />
+          {t('help')}
         </button>
       </nav>
       <div className="ds-no-drag mt-auto border-t border-ds-border p-3">
