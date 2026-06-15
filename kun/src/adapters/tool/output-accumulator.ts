@@ -114,6 +114,14 @@ function chooseOutputEncoding(buffer: Buffer, final: boolean): OutputTextEncodin
   if (startsWithUtf16LeBom(buffer) || looksLikeUtf16Le(buffer)) return 'utf-16le'
   if (startsWithUtf8Bom(buffer)) return 'utf-8'
   if (buffer.length >= 32 || final) return 'utf-8'
+  // Short, BOM-less buffers normally wait for more bytes so UTF-16LE detection
+  // has a large enough sample. But a buffer with no NUL bytes cannot be
+  // UTF-16LE-encoded ASCII (those carry a NUL high byte per character) and
+  // looksLikeUtf16Le already covers the rare NUL-less CJK case above, so it is
+  // safe to commit to UTF-8 immediately. This lets short foreground output
+  // (e.g. `echo ready`) appear in a yield snapshot instead of staying buffered
+  // until the process exits.
+  if (buffer.length > 0 && !buffer.includes(0)) return 'utf-8'
   return null
 }
 

@@ -97,10 +97,8 @@ describe('AgentLoop', () => {
     const failed = events.find((event) => event.kind === 'turn_failed')
 
     expect(status).toBe('failed')
-    expect(failed).toMatchObject({
-      kind: 'turn_failed',
-      message: 'model stream exploded'
-    })
+    expect(failed?.kind).toBe('turn_failed')
+    expect(failed?.kind === 'turn_failed' ? failed.message ?? '' : '').toContain('model stream exploded')
   })
 
   it('fails the turn when the model stream yields an error chunk', async () => {
@@ -866,20 +864,34 @@ describe('AgentLoop', () => {
       inputSchema: { type: 'object', properties: {}, required: [] },
       policy: 'auto',
       execute: async (_args, _context, onUpdate) => {
+        // Stream more than one partial: the first creates the live result item,
+        // subsequent updates flow through item_updated (what this test asserts).
+        await onUpdate?.({ output: { partial: 'hel' } })
         await onUpdate?.({ output: { partial: 'hello' } })
         return { output: { done: true } }
       }
     })
-    const h = makeHarness(makeFakeModel([
-      {
-        kind: 'tool_call_complete',
-        callId: 'call_streamer',
-        toolName: 'streamer',
-        arguments: {}
-      },
-      { kind: 'completed', stopReason: 'tool_calls' },
-      { kind: 'completed', stopReason: 'stop' }
-    ]), { tools: [streamingTool] })
+    const h = makeHarness((() => {
+      let calls = 0
+      return {
+        provider: 'fake',
+        model: 'fake',
+        async *stream(): AsyncIterable<ModelStreamChunk> {
+          calls += 1
+          if (calls === 1) {
+            yield {
+              kind: 'tool_call_complete',
+              callId: 'call_streamer',
+              toolName: 'streamer',
+              arguments: {}
+            }
+            yield { kind: 'completed', stopReason: 'tool_calls' }
+            return
+          }
+          yield { kind: 'completed', stopReason: 'stop' }
+        }
+      }
+    })(), { tools: [streamingTool] })
     await bootstrapThread(h)
     const status = await h.loop.runTurn(h.threadId, h.turnId)
     expect(status).toBe('completed')

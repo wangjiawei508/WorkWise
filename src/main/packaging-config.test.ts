@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 
 const require = createRequire(import.meta.url)
-const builderConfig = require('../../electron-builder.config.cjs')
+const builderConfig = require('../../electron-builder.cjs')
 const afterPack = require('../../scripts/after-pack.cjs')
 const macNotarize = require('../../scripts/mac-notarize.cjs')
 
@@ -23,7 +23,7 @@ function touch(path: string): void {
 }
 
 function loadBuilderConfigWithEnv(env: Record<string, string | undefined>): typeof builderConfig {
-  const configPath = require.resolve('../../electron-builder.config.cjs')
+  const configPath = require.resolve('../../electron-builder.cjs')
   const previous = new Map<string, string | undefined>()
   for (const [key, value] of Object.entries(env)) {
     previous.set(key, process.env[key])

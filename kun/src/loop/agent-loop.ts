@@ -906,7 +906,18 @@ export class AgentLoop {
         )
         return 'failed'
       }
-      if (stopReason === 'stop' && activeGoalInstruction) return 'continue'
+      // An active goal keeps the turn going so the model can drive toward the
+      // objective and eventually call update_goal. But only continue when this
+      // step actually made progress (produced assistant text or reasoning):
+      // a bare `stop` with no output would otherwise re-prompt identically
+      // forever, spinning the loop and burning model calls.
+      if (
+        stopReason === 'stop' &&
+        activeGoalInstruction &&
+        (textAccumulator.value.trim() !== '' || reasoningAccumulator.value.trim() !== '')
+      ) {
+        return 'continue'
+      }
       return 'stop'
     }
     const dispatched = await this.dispatchToolCalls({
