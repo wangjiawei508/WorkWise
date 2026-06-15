@@ -13,6 +13,9 @@ function testActions(): WindowsTitleBarActions {
     createThread: vi.fn(),
     chooseWorkspace: vi.fn(),
     openSettings: vi.fn(),
+    openHelp: vi.fn(),
+    openGithubHome: vi.fn(),
+    openReleases: vi.fn(),
     runDesktopCommand: vi.fn(),
     openLogDir: vi.fn(),
     showAbout: vi.fn()
@@ -67,6 +70,9 @@ describe('WindowsTitleBar', () => {
     await item('copy').onSelect()
     await item('reload').onSelect()
     await item('maximize').onSelect()
+    await item('help-center').onSelect()
+    await item('github-home').onSelect()
+    await item('releases').onSelect()
     await item('open-log-dir').onSelect()
 
     expect(actions.createThread).toHaveBeenCalledTimes(1)
@@ -75,6 +81,9 @@ describe('WindowsTitleBar', () => {
     expect(actions.runDesktopCommand).toHaveBeenCalledWith('copy')
     expect(actions.runDesktopCommand).toHaveBeenCalledWith('reload')
     expect(actions.runDesktopCommand).toHaveBeenCalledWith('toggleMaximize')
+    expect(actions.openHelp).toHaveBeenCalledTimes(1)
+    expect(actions.openGithubHome).toHaveBeenCalledTimes(1)
+    expect(actions.openReleases).toHaveBeenCalledTimes(1)
     expect(actions.openLogDir).toHaveBeenCalledTimes(1)
   })
 })

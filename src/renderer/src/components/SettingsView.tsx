@@ -236,6 +236,10 @@ export function SettingsView(): ReactElement {
       setCategory('shortcuts')
       return
     }
+    if (settingsSection === 'help') {
+      setCategory('help')
+      return
+    }
     setCategory('agents')
   }, [settingsSection])
 
@@ -247,6 +251,7 @@ export function SettingsView(): ReactElement {
       settingsSection === 'write' ||
       settingsSection === 'imageGeneration' ||
       settingsSection === 'claw' ||
+      settingsSection === 'help' ||
       settingsSection === 'shortcuts' ||
       category !== 'agents'
     ) {
@@ -854,6 +859,7 @@ export function SettingsView(): ReactElement {
           {category === 'agents' ? <AgentsSettingsSection ctx={settingsSectionContext} /> : null}
           {category === 'shortcuts' ? <KeyboardShortcutsSettingsSection ctx={settingsSectionContext} /> : null}
           {category === 'claw' ? <ClawSettingsSection ctx={settingsSectionContext} /> : null}
+          {category === 'help' ? <HelpSettingsSection ctx={settingsSectionContext} /> : null}
         </div>
       </div>
       {writeDebugModalOpen ? (

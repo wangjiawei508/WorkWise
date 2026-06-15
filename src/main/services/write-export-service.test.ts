@@ -1,10 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { mkdtemp, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
+import JSZip from 'jszip'
 
 vi.mock('electron', () => ({
+  app: {
+    getAppPath: () => '/tmp/workgpt-test-app'
+  },
   BrowserWindow: class BrowserWindow {},
   clipboard: {
     write: vi.fn()
@@ -18,9 +22,16 @@ import {
   buildWriteClipboardHtmlFragment,
   buildWriteExportFileName,
   buildWriteExportHtmlDocument,
-  copyWriteDocumentAsRichText
+  copyWriteDocumentAsRichText,
+  resolveBundledMarkdownConverter
 } from './write-export-service'
+import { buildDocxFromMarkdown } from './write-docx-service'
 import { clipboard } from 'electron'
+
+const TINY_PNG = Buffer.from(
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAFgwJ/lJYfWQAAAABJRU5ErkJggg==',
+  'base64'
+)
 
 describe('write-export-service helpers', () => {
   let workspaceRoot = ''
@@ -50,18 +61,20 @@ describe('write-export-service helpers', () => {
     expect(html).toContain('<h1>Heading</h1>')
     expect(html).toContain('src="data:image/png;base64,')
     expect(html).toContain(`href="${pathToFileURL(join(workspaceRoot, 'notes.md')).href}"`)
+    expect(html).toContain('<html lang="zh-CN">')
   })
 
   it('renders clipboard html fragments for markdown content', async () => {
     const sourcePath = join(workspaceRoot, 'draft.md')
     const html = await buildWriteClipboardHtmlFragment({
       sourcePath,
-      content: '# Heading\n\n**Bold**\n\n| A | B |\n| --- | --- |\n| 1 | 2 |\n\n[Notes](./notes.md)'
+      content: '# Heading\n\n**Bold**\n\n- [x] Done\n\n| A | B |\n| --- | --- |\n| 1 | 2 |\n\n[Notes](./notes.md)'
     })
 
     expect(html).toContain('<article class="markdown-body">')
     expect(html).toContain('<h1>Heading</h1>')
     expect(html).toContain('<strong>Bold</strong>')
+    expect(html).toContain('type="checkbox"')
     expect(html).toContain('<table>')
     expect(html).toContain(`href="${pathToFileURL(join(workspaceRoot, 'notes.md')).href}"`)
   })
@@ -101,5 +114,73 @@ describe('write-export-service helpers', () => {
         html: expect.stringContaining('src="data:image/png;base64,')
       })
     )
+  })
+
+  it('generates a real docx from markdown with tables and local images', async () => {
+    const sourcePath = join(workspaceRoot, 'draft.md')
+    const imagePath = join(workspaceRoot, 'cover.png')
+    await writeFile(imagePath, TINY_PNG)
+
+    const docx = await buildDocxFromMarkdown({
+      sourcePath,
+      content: [
+        '# 标题',
+        '',
+        '正文包含 **加粗**、`code` 和 [链接](https://example.com)。',
+        '',
+        '- 项目一',
+        '- 项目二',
+        '',
+        '| A | B |',
+        '| --- | --- |',
+        '| 1 | 2 |',
+        '',
+        '![封面](./cover.png)',
+        '',
+        '```ts',
+        'export const ok = true',
+        '```'
+      ].join('\n')
+    })
+
+    const zip = await JSZip.loadAsync(docx)
+    const documentXml = await zip.file('word/document.xml')?.async('string')
+    expect(documentXml).toContain('标题')
+    expect(documentXml).toContain('加粗')
+    expect(documentXml).toContain('export')
+    expect(documentXml).toContain('const')
+    expect(documentXml).toContain('ok = ')
+    expect(documentXml).toContain('true')
+    expect(documentXml).toContain('<w:tbl>')
+    expect(Object.keys(zip.files).some((name) => name.startsWith('word/media/'))).toBe(true)
+  })
+
+  it('discovers bundled platform converters from WORKGPT_CONVERTER_ROOT', async () => {
+    const previous = process.env.WORKGPT_CONVERTER_ROOT
+    const converterRoot = join(workspaceRoot, 'converters')
+    const platformDir = process.platform === 'win32'
+      ? 'win32-x64'
+      : process.platform === 'darwin' && process.arch === 'arm64'
+        ? 'darwin-arm64'
+        : `${process.platform}-${process.arch}`
+    const pandocName = process.platform === 'win32' ? 'pandoc.exe' : 'pandoc'
+    const md2docxName = process.platform === 'win32' ? 'md2docx.exe' : 'md2docx.bin'
+    await mkdir(join(converterRoot, platformDir), { recursive: true })
+    await writeFile(join(converterRoot, platformDir, pandocName), '')
+    await writeFile(join(converterRoot, platformDir, md2docxName), '')
+    process.env.WORKGPT_CONVERTER_ROOT = converterRoot
+
+    try {
+      expect(resolveBundledMarkdownConverter()).toEqual({
+        pandocPath: join(converterRoot, platformDir, pandocName),
+        md2docxPath: join(converterRoot, platformDir, md2docxName)
+      })
+    } finally {
+      if (previous === undefined) {
+        delete process.env.WORKGPT_CONVERTER_ROOT
+      } else {
+        process.env.WORKGPT_CONVERTER_ROOT = previous
+      }
+    }
   })
 })

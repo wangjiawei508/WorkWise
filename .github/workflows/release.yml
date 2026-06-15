@@ -365,12 +365,26 @@ jobs:
           gh release upload "${TAG_NAME}" "${assets[@]}" --clobber
 
       - name: Upload release archive to R2
+        if: >-
+          env.R2_BUCKET != '' &&
+          env.R2_ACCOUNT_ID != '' &&
+          env.R2_ENDPOINT != '' &&
+          env.R2_ACCESS_KEY_ID != '' &&
+          env.R2_SECRET_ACCESS_KEY != '' &&
+          env.R2_PUBLIC_BASE_URL != ''
         run: |
           set -euo pipefail
           node ./scripts/publish-r2.mjs upload --platform mac --dist release-artifacts --tag "${TAG_NAME}" --channel "${RELEASE_CHANNEL}"
           node ./scripts/publish-r2.mjs upload --platform win --dist release-artifacts --tag "${TAG_NAME}" --channel "${RELEASE_CHANNEL}"
 
       - name: Promote R2 latest
+        if: >-
+          env.R2_BUCKET != '' &&
+          env.R2_ACCOUNT_ID != '' &&
+          env.R2_ENDPOINT != '' &&
+          env.R2_ACCESS_KEY_ID != '' &&
+          env.R2_SECRET_ACCESS_KEY != '' &&
+          env.R2_PUBLIC_BASE_URL != ''
         run: >
           node ./scripts/publish-r2.mjs promote
           --tag "${TAG_NAME}"

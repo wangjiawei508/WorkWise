@@ -107,3 +107,79 @@ describe('installGuiUpdate', () => {
     expect(updater.quitAndInstall).toHaveBeenCalledWith(false, true)
   })
 })
+
+describe('gui updater source helpers', () => {
+  it('normalizes common GitHub repository URL forms', async () => {
+    const module = await import('./gui-updater')
+
+    expect(module._internals.normalizeGithubOwnerRepo('wangjiawei508/WORKGPT')).toBe(
+      'wangjiawei508/WORKGPT'
+    )
+    expect(module._internals.normalizeGithubOwnerRepo('https://github.com/wangjiawei508/WORKGPT.git')).toBe(
+      'wangjiawei508/WORKGPT'
+    )
+    expect(module._internals.normalizeGithubOwnerRepo('git@github.com:wangjiawei508/WORKGPT.git')).toBe(
+      'wangjiawei508/WORKGPT'
+    )
+  })
+
+  it('selects the newest usable release for stable and frontier channels', async () => {
+    const module = await import('./gui-updater')
+    const releases = [
+      {
+        tag_name: 'v0.3.0-beta.1',
+        html_url: 'https://github.com/wangjiawei508/WORKGPT/releases/tag/v0.3.0-beta.1',
+        prerelease: true
+      },
+      {
+        tag_name: 'v0.2.0',
+        html_url: 'https://github.com/wangjiawei508/WORKGPT/releases/tag/v0.2.0'
+      },
+      {
+        tag_name: 'draft',
+        html_url: 'https://github.com/wangjiawei508/WORKGPT/releases/tag/draft',
+        draft: true
+      }
+    ]
+
+    expect(module._internals.selectGithubRelease(releases, 'stable')?.version).toBe('0.2.0')
+    expect(module._internals.selectGithubRelease(releases, 'frontier')?.version).toBe('0.3.0-beta.1')
+  })
+
+  it('uses GitHub Releases by default and generic feeds when configured', async () => {
+    const previous = {
+      WORKGPT_UPDATE_URL: process.env.WORKGPT_UPDATE_URL,
+      WORKGPT_UPDATE_URL_STABLE: process.env.WORKGPT_UPDATE_URL_STABLE,
+      R2_PUBLIC_BASE_URL: process.env.R2_PUBLIC_BASE_URL,
+      R2_RELEASE_PREFIX: process.env.R2_RELEASE_PREFIX
+    }
+    delete process.env.WORKGPT_UPDATE_URL
+    delete process.env.WORKGPT_UPDATE_URL_STABLE
+    delete process.env.R2_PUBLIC_BASE_URL
+    delete process.env.R2_RELEASE_PREFIX
+
+    try {
+      const module = await import('./gui-updater')
+      expect(module._internals.resolveUpdateFeedConfig('stable')).toMatchObject({
+        kind: 'github',
+        owner: 'wangjiawei508',
+        repo: 'WORKGPT'
+      })
+
+      process.env.R2_PUBLIC_BASE_URL = 'https://downloads.example.test/workgpt'
+      process.env.R2_RELEASE_PREFIX = 'desktop'
+      expect(module._internals.resolveUpdateFeedConfig('stable')).toEqual({
+        kind: 'generic',
+        url: 'https://downloads.example.test/workgpt/desktop/channels/stable/latest/'
+      })
+    } finally {
+      for (const [key, value] of Object.entries(previous)) {
+        if (value === undefined) {
+          delete process.env[key]
+        } else {
+          process.env[key] = value
+        }
+      }
+    }
+  })
+})

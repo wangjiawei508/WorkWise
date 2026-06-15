@@ -216,8 +216,25 @@ A dedicated Markdown writing workbench that keeps writing files, save state, and
 
 - Manage `~/.kun/write_workspace` plus custom writing spaces from the left file tree.
 - Switch between **Live / Source / Split / Preview**; Live keeps Markdown source on the active line and renders the rest.
-- Export the current Markdown document from the toolbar as `HTML / PDF / DOC / DOCX`, with best-effort preservation for headings, lists, code blocks, tables, and local images.
+- Export the current Markdown document from the toolbar as `HTML / PDF / DOC / DOCX`, with best-effort preservation for headings, lists, task lists, code blocks, tables, and local images.
 - DeepSeek FIM short and inspiration completion, plus selection-based inline agent actions and a right-side writing assistant for summaries, outlines, and polish.
+
+#### Markdown Rendering And Export
+
+| Capability | Notes |
+| --- | --- |
+| Live / Split / Preview | Live keeps the active line editable as Markdown source; Split and Preview are useful for review. Relative images resolve from the current document folder. |
+| Rich text copy | Copy the current Markdown as HTML for editors such as mail clients, Feishu, Word, or other rich text surfaces. |
+| HTML / PDF | HTML includes print-friendly styles and inlined local images where possible. PDF is printed from an offscreen Chromium window after fonts and images finish loading. |
+| DOC / DOCX | DOC is Word-compatible HTML. DOCX prefers a bundled/configured pandoc executable, then a platform `md2docx` helper, then the built-in generator for headings, paragraphs, lists, blockquotes, code blocks, tables, links, and local images. |
+
+Platform converter packages can be prepared from the ZIPs you supplied:
+
+```bash
+npm run prepare:converters
+```
+
+The build only packages `converters/darwin-arm64`, `converters/darwin-x64`, and `converters/win32-x64`. Linux converter folders are intentionally excluded. The provided macOS ZIP currently contains an Apple Silicon pandoc; Intel macOS packages still build and fall back to WORKGPT's built-in DOCX generator unless `converters/darwin-x64/pandoc` is added.
 
 ### Connect Phone
 
