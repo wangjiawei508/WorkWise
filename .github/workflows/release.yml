@@ -1,17 +1,15 @@
 name: Release
 
 on:
-  pull_request:
-    types:
-      - closed
-    branches:
-      - master
+  push:
+    tags:
+      - 'v*'
 
 permissions:
   contents: write
 
 concurrency:
-  group: release-master
+  group: release-${{ github.ref_name }}
   cancel-in-progress: false
 
 env:
@@ -22,11 +20,6 @@ jobs:
   prepare:
     name: Prepare release version
     runs-on: ubuntu-latest
-    if: >-
-      github.event.pull_request.merged == true &&
-      github.event.pull_request.base.ref == 'master' &&
-      github.event.pull_request.head.ref == 'develop' &&
-      github.event.pull_request.head.repo.full_name == github.repository
     outputs:
       version: ${{ steps.version.outputs.version }}
       tag: ${{ steps.version.outputs.tag }}
@@ -34,20 +27,15 @@ jobs:
       previous_tag: ${{ steps.version.outputs.previous_tag }}
       existing_tag: ${{ steps.version.outputs.existing_tag }}
     steps:
-      - name: Check out merge commit
+      - name: Check out tag
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          ref: ${{ github.event.pull_request.merge_commit_sha }}
+          ref: ${{ github.ref }}
 
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-
-      - name: Compute release version
+      - name: Compute release version from tag
         id: version
-        run: node ./scripts/compute-ci-release-version.cjs
+        run: node ./scripts/compute-ci-release-version.cjs --no-fetch
 
   build-macos:
     name: Build macOS
@@ -57,16 +45,20 @@ jobs:
       WORKGPT_APP_VERSION: ${{ needs.prepare.outputs.version }}
       WORKGPT_UPDATE_CHANNEL: stable
       RELEASE_CHANNEL: stable
+      # Mapped to env so steps can branch on presence (secrets are not allowed
+      # in step-level `if:` conditions). When the signing secrets are absent the
+      # job builds an unsigned package instead of failing.
+      MAC_CODESIGN_P12_BASE64: ${{ secrets.MAC_CODESIGN_P12_BASE64 }}
       CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+      APPLE_API_KEY_BASE64: ${{ secrets.APPLE_API_KEY_BASE64 }}
       APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
       APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
-      CSC_FOR_PULL_REQUEST: 'true'
     steps:
-      - name: Check out merge commit
+      - name: Check out tag
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          ref: ${{ github.event.pull_request.merge_commit_sha }}
+          ref: ${{ github.ref }}
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -77,20 +69,26 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Decode Apple signing credentials
-        env:
-          MAC_CODESIGN_P12_BASE64: ${{ secrets.MAC_CODESIGN_P12_BASE64 }}
-          APPLE_API_KEY_BASE64: ${{ secrets.APPLE_API_KEY_BASE64 }}
+      - name: Resolve signing mode
+        id: signing
         run: |
           set -euo pipefail
+          if [[ -n "${MAC_CODESIGN_P12_BASE64:-}" \
+                && -n "${CSC_KEY_PASSWORD:-}" \
+                && -n "${APPLE_API_KEY_BASE64:-}" \
+                && -n "${APPLE_API_KEY_ID:-}" \
+                && -n "${APPLE_API_ISSUER:-}" ]]; then
+            echo "enabled=true" >> "${GITHUB_OUTPUT}"
+            echo "Apple signing credentials present: building a signed, notarized package."
+          else
+            echo "enabled=false" >> "${GITHUB_OUTPUT}"
+            echo "::warning::Apple signing secrets are not configured; building an UNSIGNED macOS package. Users must clear the quarantine attribute (see scripts/mac-unquarantine.sh)."
+          fi
 
-          for name in MAC_CODESIGN_P12_BASE64 CSC_KEY_PASSWORD APPLE_API_KEY_BASE64 APPLE_API_KEY_ID APPLE_API_ISSUER; do
-            if [[ -z "${!name:-}" ]]; then
-              echo "::error::Missing required secret or environment value: ${name}"
-              exit 1
-            fi
-          done
-
+      - name: Decode Apple signing credentials
+        if: steps.signing.outputs.enabled == 'true'
+        run: |
+          set -euo pipefail
           cert_path="${RUNNER_TEMP}/developer-id.p12"
           key_path="${RUNNER_TEMP}/AuthKey_${APPLE_API_KEY_ID}.p8"
           export CERT_PATH="${cert_path}"
@@ -109,6 +107,7 @@ jobs:
           } >> "${GITHUB_ENV}"
 
       - name: Verify Apple signing credentials
+        if: steps.signing.outputs.enabled == 'true'
         run: >
           npm run verify:apple -- --p12 "${CSC_LINK}"
           --p12-password "${CSC_KEY_PASSWORD}"
@@ -118,7 +117,12 @@ jobs:
           --check-notary
 
       - name: Build signed macOS packages
+        if: steps.signing.outputs.enabled == 'true'
         run: npm run dist:mac:signed
+
+      - name: Build unsigned macOS packages
+        if: steps.signing.outputs.enabled != 'true'
+        run: npm run dist:mac
 
       - name: Upload macOS artifacts
         uses: actions/upload-artifact@v4
@@ -142,11 +146,11 @@ jobs:
       RELEASE_CHANNEL: stable
       CSC_IDENTITY_AUTO_DISCOVERY: 'false'
     steps:
-      - name: Check out merge commit
+      - name: Check out tag
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          ref: ${{ github.event.pull_request.merge_commit_sha }}
+          ref: ${{ github.ref }}
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -186,6 +190,7 @@ jobs:
       PREVIOUS_TAG: ${{ needs.prepare.outputs.previous_tag }}
       RELEASE_CHANNEL: stable
       WORKGPT_UPDATE_CHANNEL: stable
+      MAC_SIGNED: ${{ secrets.MAC_CODESIGN_P12_BASE64 != '' && secrets.APPLE_API_KEY_BASE64 != '' }}
       R2_BUCKET: ${{ secrets.R2_BUCKET }}
       R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
       R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
@@ -194,11 +199,11 @@ jobs:
       R2_PUBLIC_BASE_URL: ${{ secrets.R2_PUBLIC_BASE_URL }}
       R2_RELEASE_PREFIX: ${{ secrets.R2_RELEASE_PREFIX }}
     steps:
-      - name: Check out merge commit
+      - name: Check out tag
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          ref: ${{ github.event.pull_request.merge_commit_sha }}
+          ref: ${{ github.ref }}
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -248,6 +253,12 @@ jobs:
             node ./scripts/generate-release-notes.cjs > release-notes.md
           fi
 
+          if [[ "${MAC_SIGNED}" == "true" ]]; then
+            mac_line="- macOS: Developer ID signed and notarized"
+          else
+            mac_line="- macOS: UNSIGNED build — run \`xattr -dr com.apple.quarantine /Applications/WORKGPT.app\` (or scripts/mac-unquarantine.sh) before first launch"
+          fi
+
           {
             echo
             echo "---"
@@ -256,30 +267,11 @@ jobs:
             echo
             echo "- Release version: \`${RELEASE_VERSION}\`"
             echo "- Release channel: \`${RELEASE_CHANNEL}\`"
-            echo "- Branch: \`master\`"
+            echo "- Tag: \`${TAG_NAME}\`"
             echo "- Commit: \`${GITHUB_SHA::7}\`"
-            echo "- macOS: Developer ID signed and notarized"
+            echo "${mac_line}"
             echo "- Platforms: macOS arm64/x64, Windows x64"
           } >> release-notes.md
-
-      - name: Ensure release tag
-        run: |
-          set -euo pipefail
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-
-          head_sha="$(git rev-parse HEAD)"
-          if git rev-parse -q --verify "refs/tags/${TAG_NAME}" > /dev/null; then
-            tag_sha="$(git rev-list -n 1 "${TAG_NAME}")"
-            if [[ "${tag_sha}" != "${head_sha}" ]]; then
-              echo "::error::Tag ${TAG_NAME} points at ${tag_sha}, expected ${head_sha}"
-              exit 1
-            fi
-            echo "Reusing existing tag ${TAG_NAME}"
-          else
-            git tag -a "${TAG_NAME}" -m "${RELEASE_NAME}" "${head_sha}"
-            git push origin "refs/tags/${TAG_NAME}"
-          fi
 
       - name: Create or update draft GitHub Release
         run: |
