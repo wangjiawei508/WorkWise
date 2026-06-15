@@ -878,6 +878,9 @@ describe('AgentLoop', () => {
       inputSchema: { type: 'object', properties: {}, required: [] },
       policy: 'auto',
       execute: async (_args, _context, onUpdate) => {
+        // Stream more than one partial: the first creates the live result item,
+        // subsequent updates flow through item_updated (what this test asserts).
+        await onUpdate?.({ output: { partial: 'hel' } })
         await onUpdate?.({ output: { partial: 'hello' } })
         return { output: { done: true } }
       }
