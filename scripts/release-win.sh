@@ -80,6 +80,10 @@ release_clean_dist_artifacts
 cyan "Building Windows (tag ${TAG_NAME}, channel ${RELEASE_CHANNEL})..."
 npm run dist:win || die "Windows build failed"
 
+cyan "Verifying Windows release artifacts..."
+node "${ROOT}/scripts/verify-release-assets.cjs" dist --write-sha256 SHA256SUMS-win.txt \
+  || die "Windows release artifact verification failed"
+
 ASSETS=()
 collect() {
   local label="$1"
@@ -109,6 +113,8 @@ collect() {
 
 collect "Windows exe" "dist/WORKGPT-*-win-*.exe"
 collect "Windows blockmap" "dist/WORKGPT-*-win-*.exe.blockmap"
+collect "Windows update metadata" "dist/latest.yml"
+collect "Windows checksums" "dist/SHA256SUMS-win.txt"
 
 cyan "Uploading ${#ASSETS[@]} Windows asset(s) to ${TAG_NAME}..."
 for asset in "${ASSETS[@]}"; do

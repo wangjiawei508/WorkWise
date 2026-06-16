@@ -169,10 +169,19 @@ if ($LASTEXITCODE -ne 0) {
   exit 1
 }
 
+Write-Info 'Verifying Windows release artifacts...'
+& node (Join-Path $Root 'scripts\verify-release-assets.cjs') dist --write-sha256 SHA256SUMS-win.txt
+if ($LASTEXITCODE -ne 0) {
+  Write-Err 'Windows release artifact verification failed.'
+  exit 1
+}
+
 $DistDir = Join-Path $Root 'dist'
 $AssetSpecs = @(
   @{ Label = 'Windows exe'; Filter = '*-win-*.exe' },
-  @{ Label = 'Windows blockmap'; Filter = '*-win-*.exe.blockmap' }
+  @{ Label = 'Windows blockmap'; Filter = '*-win-*.exe.blockmap' },
+  @{ Label = 'Windows update metadata'; Filter = 'latest.yml' },
+  @{ Label = 'Windows checksums'; Filter = 'SHA256SUMS-win.txt' }
 )
 
 $Assets = @()

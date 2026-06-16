@@ -192,6 +192,10 @@ release_clean_dist_artifacts
 cyan "Building macOS..."
 build_macos
 
+cyan "Verifying macOS release artifacts..."
+node "${ROOT}/scripts/verify-release-assets.cjs" dist --write-sha256 SHA256SUMS-mac.txt \
+  || die "macOS release artifact verification failed"
+
 release_write_meta_file
 
 ASSETS=()
@@ -253,6 +257,8 @@ collect "macOS x64 dmg" "dist/WORKGPT-*-mac-x64.dmg"
 collect "macOS arm64 zip" "dist/WORKGPT-*-mac-arm64.zip"
 collect "macOS x64 zip" "dist/WORKGPT-*-mac-x64.zip"
 collect_optional "macOS blockmap" "dist/WORKGPT-*-mac-*.zip.blockmap"
+collect "macOS update metadata" "dist/latest-mac.yml"
+collect "macOS checksums" "dist/SHA256SUMS-mac.txt"
 
 upload_github_assets() {
   local tag="$1"

@@ -1,7 +1,7 @@
 {
   "name": "workgpt",
   "productName": "WORKGPT",
-  "version": "0.1.0",
+  "version": "0.1.2",
   "description": "Electron workbench for the Kun runtime (HTTP/SSE)",
   "main": "./out/main/index.js",
   "type": "module",
@@ -30,9 +30,11 @@
     "r2:promote": "node ./scripts/publish-r2.mjs promote",
     "postinstall": "node ./scripts/postinstall.cjs",
     "verify:apple": "node ./scripts/verify-apple-signing.cjs",
+    "verify:release-assets": "node ./scripts/verify-release-assets.cjs",
     "preview": "electron-vite preview",
     "typecheck": "tsc --noEmit -p tsconfig.web.json && tsc --noEmit -p tsconfig.node.json",
-    "mac:unquarantine": "bash ./scripts/mac-unquarantine.sh"
+    "mac:unquarantine": "bash ./scripts/mac-unquarantine.sh",
+    "generate:icons": "electron ./scripts/generate-icons.mjs"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1049.0",

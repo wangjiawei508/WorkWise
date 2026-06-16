@@ -149,7 +149,7 @@ module.exports = {
     sign: hasExplicitMacSigningIdentity
   },
   win: {
-    icon: './src/asset/img/workgpt.png',
+    icon: './src/asset/img/workgpt.ico',
     target: [{ target: 'nsis', arch: ['x64'] }]
   },
   nsis: {
