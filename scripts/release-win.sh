@@ -80,6 +80,10 @@ release_clean_dist_artifacts
 cyan "Building Windows (tag ${TAG_NAME}, channel ${RELEASE_CHANNEL})..."
 npm run dist:win || die "Windows build failed"
 
+cyan "Verifying Windows release artifacts..."
+node "${ROOT}/scripts/verify-release-assets.cjs" dist --write-sha256 SHA256SUMS-win.txt \
+  || die "Windows release artifact verification failed"
+
 ASSETS=()
 collect() {
   local label="$1"

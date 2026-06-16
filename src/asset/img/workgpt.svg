@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="utf-8"?>
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="115" y1="75" x2="925" y2="940" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#48D5FF"/>
+      <stop offset="0.48" stop-color="#096DFF"/>
+      <stop offset="1" stop-color="#0037D6"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(330 195) rotate(45) scale(610 560)">
+      <stop stop-color="#8EEBFF" stop-opacity="0.7"/>
+      <stop offset="0.55" stop-color="#1C8BFF" stop-opacity="0.15"/>
+      <stop offset="1" stop-color="#0028B8" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="white3d" x1="256" y1="210" x2="760" y2="790" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#FFFFFF"/>
+      <stop offset="0.62" stop-color="#F8FBFF"/>
+      <stop offset="1" stop-color="#D9E9FF"/>
+    </linearGradient>
+    <linearGradient id="wShade" x1="366" y1="334" x2="690" y2="615" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFFFFF"/>
+      <stop offset="0.8" stop-color="#DCEBFF"/>
+      <stop offset="1" stop-color="#BBD8FF"/>
+    </linearGradient>
+    <linearGradient id="textGrad" x1="200" y1="828" x2="890" y2="828" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#FFFFFF"/>
+      <stop offset="0.62" stop-color="#FFFFFF"/>
+      <stop offset="1" stop-color="#8FE9FF"/>
+    </linearGradient>
+    <filter id="softShadow" x="120" y="130" width="790" height="650" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feDropShadow dx="0" dy="28" stdDeviation="28" flood-color="#001E86" flood-opacity="0.42"/>
+      <feDropShadow dx="12" dy="10" stdDeviation="14" flood-color="#00105F" flood-opacity="0.22"/>
+    </filter>
+    <filter id="innerW" x="250" y="250" width="530" height="380" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feDropShadow dx="0" dy="18" stdDeviation="15" flood-color="#002A8F" flood-opacity="0.38"/>
+      <feDropShadow dx="8" dy="6" stdDeviation="8" flood-color="#0038B5" flood-opacity="0.22"/>
+    </filter>
+  </defs>
+  <rect width="1024" height="1024" rx="190" fill="url(#bg)"/>
+  <rect width="1024" height="1024" rx="190" fill="url(#glow)"/>
+  <path d="M-48 674C170 808 480 788 734 660C856 598 946 510 1080 493" stroke="#6DDCFF" stroke-opacity="0.20" stroke-width="36"/>
+  <path d="M-38 715C198 850 501 826 798 680C904 628 1000 578 1090 570" stroke="#9AEFFF" stroke-opacity="0.13" stroke-width="18"/>
+  <path d="M667 120C827 167 934 300 927 466C919 659 747 772 551 774C677 733 781 643 822 520C880 346 799 197 667 120Z" fill="#002AC5" opacity="0.16"/>
+  <g filter="url(#softShadow)">
+    <path fill-rule="evenodd" clip-rule="evenodd" d="M349 172H694C797 172 858 231 858 329V513C858 611 797 670 694 670H520L359 778C339 792 311 777 314 753L324 670H330C227 670 166 611 166 513V329C166 231 227 172 349 172ZM354 250C294 250 244 298 244 357V493C244 552 294 600 354 600H382L374 660L491 600H684C744 600 781 552 781 493V357C781 298 744 250 684 250H354Z" fill="url(#white3d)"/>
+  </g>
+  <g filter="url(#innerW)" transform="matrix(0.885241, 0, 0, 0.885241, 59.970818, 26.923988)" style="">
+    <path d="M267 336C262 321 273 305 289 305H330C341 305 351 312 355 323L402 486L469 326C474 313 486 305 500 305H525C539 305 551 314 556 327L619 486L669 323C672 312 683 305 694 305H734C751 305 762 321 757 337L667 588C663 601 651 610 637 610H603C589 610 576 601 571 588L512 437L451 588C446 601 434 610 420 610H385C371 610 359 601 355 588L267 336Z" fill="url(#wShade)"/>
+    <path d="M402 486L436 405L474 524L451 588C446 601 434 610 420 610H385C371 610 359 601 355 588L402 486Z" fill="#CFE3FF" opacity="0.6"/>
+    <path d="M619 486L586 403L551 514L571 588C576 601 589 610 603 610H637C651 610 663 601 667 588L619 486Z" fill="#CFE3FF" opacity="0.55"/>
+  </g>
+  <circle cx="677" cy="572" r="16" fill="#9BEAFF" opacity="0.85"/>
+  <circle cx="720" cy="572" r="16" fill="#9BEAFF" opacity="0.78"/>
+  <circle cx="763" cy="572" r="16" fill="#9BEAFF" opacity="0.70"/>
+  <text x="512" y="892" text-anchor="middle" font-family="Inter, Arial, Helvetica, sans-serif" font-size="92" font-weight="800" letter-spacing="4" fill="url(#textGrad)" style="white-space: pre;">WORKGPT</text>
+</svg>

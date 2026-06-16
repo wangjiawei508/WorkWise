@@ -295,6 +295,9 @@ jobs:
 
           find release-artifacts -maxdepth 2 -type f -print | sort
 
+      - name: Verify release metadata and write checksums
+        run: node ./scripts/verify-release-assets.cjs release-artifacts --write-sha256
+
       - name: Generate release notes
         run: |
           set -euo pipefail
@@ -354,6 +357,18 @@ jobs:
           fi
 
           gh release upload "${TAG_NAME}" "${assets[@]}" --clobber
+
+      - name: Verify GitHub Release downloads
+        run: |
+          set -euo pipefail
+          mkdir downloaded-release
+          gh release download "${TAG_NAME}" \
+            --dir downloaded-release \
+            --pattern 'WORKGPT-*' \
+            --pattern 'latest*.yml' \
+            --pattern 'SHA256SUMS.txt' \
+            --clobber
+          node ./scripts/verify-release-assets.cjs downloaded-release --check-sha256 SHA256SUMS.txt
 
       - name: Upload release archive to R2
         if: >-

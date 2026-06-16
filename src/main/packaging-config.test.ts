@@ -103,6 +103,11 @@ describe('electron-builder Kun packaging', () => {
     ]))
   })
 
+  it('uses the Windows ICO asset for NSIS installers', () => {
+    expect(builderConfig.win.icon).toBe('./src/asset/img/workgpt.ico')
+    expect(builderConfig.win.target).toEqual([{ target: 'nsis', arch: ['x64'] }])
+  })
+
   it('validates the unpacked Kun runtime before release artifacts are created', () => {
     const root = tempRoot()
     const context = createMacPackContext(root)

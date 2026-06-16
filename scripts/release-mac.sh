@@ -192,6 +192,10 @@ release_clean_dist_artifacts
 cyan "Building macOS..."
 build_macos
 
+cyan "Verifying macOS release artifacts..."
+node "${ROOT}/scripts/verify-release-assets.cjs" dist --write-sha256 SHA256SUMS-mac.txt \
+  || die "macOS release artifact verification failed"
+
 release_write_meta_file
 
 ASSETS=()
