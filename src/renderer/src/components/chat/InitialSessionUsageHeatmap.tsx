@@ -16,7 +16,7 @@ import {
   type ModelUsageState,
   useModelUsageState
 } from '../../hooks/use-model-usage'
-import { WhaleHeroStage } from './WhaleHeroStage'
+import { WorkHeroStage } from './WorkHeroStage'
 
 type CalendarCell = DailyUsageBucket | null
 type CalendarWeek = {
@@ -708,7 +708,7 @@ function UsageHeroSection({
   return (
     <div className="flex w-full min-w-0 flex-col items-center text-center">
       <div>
-        <WhaleHeroStage />
+        <WorkHeroStage />
       </div>
       {showText ? (
         <>

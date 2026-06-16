@@ -45,7 +45,7 @@ describe('MessageTimeline initial heatmap empty hero routing', () => {
     expect(renderHero({ hasWorkspace: false })).toContain('Choose working directory')
     const clawHtml = renderHero({ route: 'claw' })
     expect(clawHtml).toContain('Start a conversation with this assistant')
-    expect(clawHtml).toContain('ds-claw-empty-whale-logo')
+    expect(clawHtml).toContain('ds-claw-empty-work-logo')
     expect(clawHtml).toContain('ds-work-logo')
     expect(clawHtml).not.toContain('Kun usage')
   })

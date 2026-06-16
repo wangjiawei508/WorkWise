@@ -25,24 +25,21 @@ export function AnimatedWorkLogo({
         .join(' ')}
       aria-hidden="true"
     >
-      <span className="ds-work-logo-gust" />
-      <span className="ds-work-logo-current" />
-      <span className="ds-work-logo-swell" />
-      <span className="ds-work-logo-wave ds-work-logo-wave-back" />
-      <span className="ds-work-logo-ripple" />
-      <span className="ds-work-logo-wave ds-work-logo-wave-front" />
-      <span className="ds-work-logo-breaker" />
-      <span className="ds-work-logo-wake" />
-      <span className="ds-work-logo-foam" />
-      <span className="ds-work-logo-crest" />
-      <span className="ds-work-logo-splash" />
-      <span className="ds-work-logo-spray" />
-      <span className="ds-work-logo-bubbles" />
+      <span className="ds-work-logo-halo" />
+      <span className="ds-work-logo-orbit ds-work-logo-orbit-outer" />
+      <span className="ds-work-logo-orbit ds-work-logo-orbit-inner" />
+      <span className="ds-work-logo-signal ds-work-logo-signal-a" />
+      <span className="ds-work-logo-signal ds-work-logo-signal-b" />
+      <span className="ds-work-logo-node ds-work-logo-node-a" />
+      <span className="ds-work-logo-node ds-work-logo-node-b" />
+      <span className="ds-work-logo-node ds-work-logo-node-c" />
+      <span className="ds-work-logo-scan" />
+      <span className="ds-work-logo-spark ds-work-logo-spark-a" />
+      <span className="ds-work-logo-spark ds-work-logo-spark-b" />
       <img className="ds-work-logo-echo" src={workgptLogo} alt="" draggable={false} decoding="async" />
       <span className="ds-work-logo-track">
         <span className="ds-work-logo-body">
           <img className="ds-work-logo-image" src={workgptLogo} alt="" draggable={false} decoding="async" />
-          <img className="ds-work-logo-tail" src={workgptLogo} alt="" draggable={false} decoding="async" />
         </span>
       </span>
     </span>

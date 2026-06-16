@@ -4,7 +4,7 @@ import { FolderOpen, GitFork, RefreshCw, Settings } from 'lucide-react'
 import type { ClawImChannelV1 } from '@shared/app-settings'
 import { AnimatedWorkLogo } from './AnimatedWorkLogo'
 import { InitialSessionUsageHeatmap } from './InitialSessionUsageHeatmap'
-import { WhaleHeroStage } from './WhaleHeroStage'
+import { WorkHeroStage } from './WorkHeroStage'
 
 /**
  * Empty / hero states rendered by `MessageTimeline` when there is no
@@ -49,7 +49,7 @@ function ClawEmptyHero({
           <div className="mx-auto flex h-20 w-20 items-center justify-center rounded-[24px] border border-ds-border-muted bg-ds-main/55 text-accent">
             <AnimatedWorkLogo
               active
-              className="ds-claw-empty-whale-logo"
+              className="ds-claw-empty-work-logo"
               phase="lead"
               size="md"
             />
@@ -81,7 +81,7 @@ function RuntimeWakeHero({
 
   return (
     <div className="ds-runtime-wake-hero ds-no-drag px-6 pb-8 pt-12 text-center md:pt-16">
-      <WhaleHeroStage />
+      <WorkHeroStage />
 
       <p className="text-[12px] font-semibold uppercase tracking-[0] text-accent">
         {t('runtimeOfflineHeroKicker')}

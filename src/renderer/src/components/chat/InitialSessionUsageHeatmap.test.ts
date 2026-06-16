@@ -240,7 +240,7 @@ describe('InitialSessionUsageHeatmap', () => {
     expect(errorHtml).not.toContain('Explain this project&#x27;s structure')
   })
 
-  it('renders the whale hero with a collapsed calendar card', () => {
+  it('renders the WORKGPT hero with a collapsed calendar card', () => {
     const html = render(state({ usage: usage(), loaded: true }), { initialCollapsed: true })
 
     expect(html).toContain('Expand calendar')
