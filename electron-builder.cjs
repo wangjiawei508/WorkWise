@@ -92,6 +92,7 @@ module.exports = {
   productName: 'Kun',
   asar: true,
   asarUnpack: [
+    'src/asset/skills/**/*',
     '**/kun/dist/**/*',
     '**/kun/package*.json',
     '**/kun/node_modules/**/*',

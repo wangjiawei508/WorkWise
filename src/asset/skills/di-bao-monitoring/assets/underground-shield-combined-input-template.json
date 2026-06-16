@@ -1,0 +1,119 @@
+{
+  "schema": "di-bao-underground-shield-combined-input/v1",
+  "requires_manual_confirmation": true,
+  "confirmed_by": "{{确认人}}",
+  "confirmed_at": "{{YYYY-MM-DD HH:mm}}",
+  "project": {
+    "project_name": "{{项目全称}}",
+    "short_name": "{{工程简称}}",
+    "implementation_unit": "{{项目实施单位}}",
+    "involved_line": "{{涉及轨道线路/区间}}",
+    "crossing_type": "地下盾构/综合管廊穿越既有地下区间"
+  },
+  "report": {
+    "cadence": "{{15min/2h/4h/custom}}",
+    "cutoff_time": "{{YYYY-MM-DD HH:mm:ss}}",
+    "previous_time": "{{YYYY-MM-DD HH:mm:ss}}",
+    "period_label": "{{第N期/名义时段}}",
+    "output_name_rule": "{{项目全称}}_{{YYYYMMDD}}_{{小时}}点_{{频率标签}}联合快报.xlsx"
+  },
+  "source_priority": {
+    "settlement": "{{static_level/total_station/待确认}}",
+    "horizontal_displacement": "total_station",
+    "horizontal_convergence": "total_station",
+    "construction_condition": "manual_confirmed",
+    "images": "manual_confirmed"
+  },
+  "total_station": {
+    "enabled": true,
+    "source_type": "adjusted_total_station_csv",
+    "csv_path": "{{fetch_adjusted_total_station.py输出CSV}}",
+    "platform": {
+      "base_url_env": "DIBAO_PLATFORM_BASE_URL",
+      "project_id_env": "DIBAO_PLATFORM_PRJID",
+      "adjust_net_id_env": "DIBAO_ADJUST_NET_ID",
+      "username_env": "DIBAO_PLATFORM_USER",
+      "password_env": "DIBAO_PLATFORM_PASSWORD"
+    },
+    "fetch_command": "python scripts/fetch_adjusted_total_station.py --project-template underground-shield --base-url \"$DIBAO_PLATFORM_BASE_URL\" --prjid \"$DIBAO_PLATFORM_PRJID\" --adjust-net-id \"$DIBAO_ADJUST_NET_ID\" --report-cadence \"{{cadence}}\" --report-cutoff-time \"{{cutoff_time}}\" --previous-report-cutoff-time \"{{previous_time}}\" --cumulative-source coordinate-formula --current-change-source previous-batch --output-dir \"{{输出目录}}\"",
+    "exclude_point_prefixes": ["CZ", "JD"],
+    "coordinate_direction": {
+      "east_west": "Y",
+      "north_south": "X",
+      "vertical": "H"
+    }
+  },
+  "static_level": {
+    "enabled": true,
+    "source_type": "shanghai_huahuan_csv",
+    "csv_path": "{{fetch_shhh_static_level.py输出CSV}}",
+    "platform": {
+      "api_base_env": "SHHH_API_BASE",
+      "project_id_env": "SHHH_PROJECT_ID"
+    },
+    "fetch_command": "python scripts/fetch_shhh_static_level.py --project-id \"$SHHH_PROJECT_ID\" --project-name \"{{项目全称}}\" --report-cadence \"{{cadence}}\" --report-cutoff-time \"{{cutoff_time}}\" --previous-time \"{{previous_time}}\" --samp-minutes {{samp_minutes}} --output-dir \"{{输出目录}}\"",
+    "samp_minutes": 60,
+    "settlement_fields": {
+      "current_change_mm": "curOffset",
+      "cumulative_mm": "totalOffset",
+      "current_value": "curValue",
+      "previous_value": "refValue"
+    }
+  },
+  "work_condition": {
+    "text": "{{当前施工工况}}",
+    "progress": "{{推进/拼装/注浆等施工进度}}",
+    "influence_scope": "{{正投影区/重点影响区说明}}"
+  },
+  "images": {
+    "left": "{{左侧工况/影响范围图}}",
+    "right": "{{右侧布点/现场图}}",
+    "fit_mode": "crop_to_fill"
+  },
+  "point_mapping": {
+    "requires_manual_confirmation": true,
+    "line_rules": {
+      "S": "上行线",
+      "X": "下行线"
+    },
+    "points": {
+      "{{平台点号}}": {
+        "display_point": "{{报表点号}}",
+        "ring_no": "{{环号}}",
+        "line": "{{上行线/下行线}}",
+        "structure_zone": "{{区段/断面}}",
+        "influence_zone": "{{正投影区/重点影响区/非重点区}}"
+      }
+    },
+    "convergence_pairs": {
+      "{{点A/点B}}": {
+        "display_point": "{{收敛报表点号}}",
+        "line": "{{上行线/下行线}}",
+        "ring_no": "{{环号}}"
+      }
+    }
+  },
+  "workbook_mapping": {
+    "template_path": "{{工程师模板.xlsx}}",
+    "front_sheet": "前台",
+    "static_level_front_sheet": "前台 (静力水准)",
+    "total_station_data_sheet": "Z1 全 (2)",
+    "static_level_data_sheet": "Z1 （静力水准)",
+    "chart_sheets": ["盾构总累计曲线图", "日变量曲线图"],
+    "fill_strategy": "source_csv_to_data_sheets_then_front_formula_summary"
+  },
+  "display_precision": {
+    "front_mm": 1,
+    "data_mm": 3,
+    "coordinate_m": 5,
+    "static_level_mm": "{{按模板确认}}"
+  },
+  "quality_checks": [
+    "确认沉降来源是静力水准还是全站仪",
+    "确认点名/线别/环号/影响区映射已由工程师确认",
+    "确认报表截止时间不晚于平台实际成果时间",
+    "确认前台最大值来自数据页同一行点号和值",
+    "确认图表引用数据页时间序列而不是截图",
+    "确认导出PDF分页、图片裁切、图表位置无明显错位"
+  ]
+}

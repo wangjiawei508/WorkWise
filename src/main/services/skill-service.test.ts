@@ -178,6 +178,68 @@ describe('skill-service', () => {
     }))
   })
 
+  it('installs the bundled Railwise di-bao monitoring skill with its assets', async () => {
+    const workspaceRoot = join(tempRoot, 'workspace-bundled-dibao')
+    const skillInstallRoot = join(workspaceRoot, '.agents', 'skills')
+
+    const installed = await installBundledSkill(skillInstallRoot, {
+      id: 'di-bao-monitoring'
+    })
+
+    expect(installed.ok).toBe(true)
+    if (!installed.ok) return
+    expect(installed.path).toBe(join(skillInstallRoot, 'di-bao-monitoring', 'SKILL.md'))
+    expect(await readFile(join(skillInstallRoot, 'di-bao-monitoring', 'assets', 'daily-report-template.md'), 'utf8'))
+      .toContain('日报')
+    const source = JSON.parse(
+      await readFile(join(skillInstallRoot, 'di-bao-monitoring', '.workgpt-skill-source.json'), 'utf8')
+    ) as Record<string, unknown>
+    expect(source).toMatchObject({
+      type: 'bundled',
+      id: 'di-bao-monitoring',
+      autoUpdate: false
+    })
+  })
+
+  it('prefers bundled skills unpacked beside app.asar in packaged apps', async () => {
+    const workspaceRoot = join(tempRoot, 'workspace-packaged-bundled')
+    const skillInstallRoot = join(workspaceRoot, '.agents', 'skills')
+    const resourcesPath = join(tempRoot, 'packaged-resources')
+    const cwd = join(tempRoot, 'empty-cwd')
+    const unpackedSkill = join(resourcesPath, 'app.asar.unpacked', 'src', 'asset', 'skills', 'packaged-skill')
+    const archivedSkill = join(resourcesPath, 'app.asar', 'src', 'asset', 'skills', 'packaged-skill')
+    await mkdir(unpackedSkill, { recursive: true })
+    await mkdir(archivedSkill, { recursive: true })
+    await mkdir(cwd, { recursive: true })
+    await writeFile(join(unpackedSkill, 'SKILL.md'), '# Unpacked Skill\n', 'utf8')
+    await writeFile(join(archivedSkill, 'SKILL.md'), '# Archived Skill\n', 'utf8')
+
+    const originalCwd = process.cwd()
+    const originalResourcesPath = Object.getOwnPropertyDescriptor(process, 'resourcesPath')
+    Object.defineProperty(process, 'resourcesPath', {
+      configurable: true,
+      value: resourcesPath
+    })
+    process.chdir(cwd)
+    try {
+      const installed = await installBundledSkill(skillInstallRoot, {
+        id: 'packaged-skill'
+      })
+
+      expect(installed.ok).toBe(true)
+      if (!installed.ok) return
+      expect(await readFile(join(skillInstallRoot, 'packaged-skill', 'SKILL.md'), 'utf8'))
+        .toBe('# Unpacked Skill\n')
+    } finally {
+      process.chdir(originalCwd)
+      if (originalResourcesPath) {
+        Object.defineProperty(process, 'resourcesPath', originalResourcesPath)
+      } else {
+        Reflect.deleteProperty(process, 'resourcesPath')
+      }
+    }
+  })
+
   it('does not overwrite a user-created skill with the same bundled name', async () => {
     const workspaceRoot = join(tempRoot, 'workspace-conflict')
     const skillInstallRoot = join(workspaceRoot, '.agents', 'skills')

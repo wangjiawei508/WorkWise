@@ -1,0 +1,2 @@
+report_date,period_label,monitoring_item,monitoring_method,structure_zone,point_id,current_change_mm,rate_mm_per_d,cumulative_mm,warning_threshold_mm,alarm_threshold_mm,control_threshold_mm,same_direction_count,mean_rate_3_times_mm_per_d,note
+{{YYYY-MM-DD}},{{第N期}},{{道床沉降}},{{automated}},{{上行线}},{{SDz001}},{{0.0}},{{0.00}},{{0.0}},{{}},{{}},{{}},{{}},{{}},{{来源说明}}

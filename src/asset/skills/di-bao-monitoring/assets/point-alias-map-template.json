@@ -1,0 +1,25 @@
+{
+  "requires_manual_confirmation": true,
+  "confirmed_by": "{{确认人}}",
+  "confirmed_at": "{{YYYY-MM-DD HH:MM}}",
+  "rule": "按原始点号中的结构编号映射到报表点号；确认后方可用于出报。",
+  "points": {
+    "S12": {
+      "display_point": "MCC012",
+      "structure_zone": "12号桥墩",
+      "position": "12#桥墩上"
+    },
+    "X12": {
+      "display_point": "MCC012",
+      "structure_zone": "12号桥墩",
+      "position": "12#桥墩下"
+    }
+  },
+  "tilt_pairs": {
+    "S12/X12": {
+      "display_point": "MCQX012",
+      "structure_zone": "12号桥墩",
+      "position": "12#桥墩"
+    }
+  }
+}

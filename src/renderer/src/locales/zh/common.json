@@ -515,7 +515,7 @@
   "pluginMcpSlackTitle": "Slack",
   "pluginMcpSlackDesc": "读取和整理 Slack 团队消息、频道和协作上下文。",
   "pluginSkillRailwiseDibaoTitle": "Railwise 地保监测",
-  "pluginSkillRailwiseDibaoDesc": "内置 railwise-cn 地保监测 Skill，可随 GitHub 源自动同步更新。",
+  "pluginSkillRailwiseDibaoDesc": "内置 railwise-cn 地保监测 Skill，包含方案、日报周报月报、预警消警、项目总结和评审回复模板。",
   "pluginSkillOperationalMonitoringTitle": "运营期结构长期变形监测",
   "pluginSkillOperationalMonitoringDesc": "从你提供的 operational-monitoring 源码包内置，包含方案、期报、总结、预警和归档模板。",
   "pluginSkillReviewTitle": "Code Review",
