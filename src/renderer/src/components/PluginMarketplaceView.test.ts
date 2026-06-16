@@ -189,7 +189,7 @@ describe('skillMarketplaceItemsFromDiscoveredSkills', () => {
         scope: 'global',
         legacy: true
       }
-    ], { project: 'Project', global: 'Global' })
+    ], { project: 'Project', global: 'Global', github: 'GitHub', bundled: 'Built-in' })
 
     expect(items).toEqual([
       expect.objectContaining({
@@ -203,6 +203,56 @@ describe('skillMarketplaceItemsFromDiscoveredSkills', () => {
         group: 'personal',
         title: 'Remotion Best Practices',
         sourceLabel: 'Global'
+      })
+    ])
+  })
+
+  it('labels managed GitHub and bundled skills by source', () => {
+    const items = skillMarketplaceItemsFromDiscoveredSkills([
+      {
+        id: 'di-bao-monitoring',
+        name: 'Di-bao Monitoring',
+        description: 'Railwise monitoring.',
+        root: '/workspace/.agents/skills/di-bao-monitoring',
+        entryPath: '/workspace/.agents/skills/di-bao-monitoring/SKILL.md',
+        scope: 'project',
+        legacy: true,
+        source: {
+          type: 'github',
+          owner: 'railwise-cn',
+          repo: 'di-bao-monitoring-skill',
+          path: 'skill/di-bao-monitoring',
+          ref: 'main',
+          installedSha: 'abc123',
+          autoUpdate: true
+        }
+      },
+      {
+        id: 'operational-monitoring',
+        name: 'Operational Monitoring',
+        description: 'Operational monitoring.',
+        root: '/workspace/.agents/skills/operational-monitoring',
+        entryPath: '/workspace/.agents/skills/operational-monitoring/SKILL.md',
+        scope: 'project',
+        legacy: true,
+        source: {
+          type: 'bundled',
+          id: 'operational-monitoring',
+          autoUpdate: false
+        }
+      }
+    ], { project: 'Project', global: 'Global', github: 'GitHub', bundled: 'Built-in' })
+
+    expect(items).toEqual([
+      expect.objectContaining({
+        id: 'di-bao-monitoring',
+        sourceLabel: 'GitHub',
+        statusTone: 'success'
+      }),
+      expect.objectContaining({
+        id: 'operational-monitoring',
+        sourceLabel: 'Built-in',
+        statusTone: 'success'
       })
     ])
   })

@@ -1,5 +1,6 @@
 import {
   DEFAULT_CLAW_MODEL,
+  DEFAULT_PHONE_AGENT_NAME,
   DEFAULT_WEIXIN_BRIDGE_RPC_URL,
   type ClawImChannelV1,
   type ClawImConversationV1,
@@ -32,19 +33,21 @@ type LegacyClawImSettingsPatch = Partial<ClawImSettingsV1> & {
 }
 
 function defaultClawChannelLabel(provider: ClawImProvider): string {
-  return provider === 'weixin' ? 'weixin agent' : 'feishu agent'
+  void provider
+  return DEFAULT_PHONE_AGENT_NAME
 }
 
 function normalizeLegacyDefaultClawChannelName(provider: ClawImProvider, value: string): string {
   const trimmed = value.trim()
   const lower = trimmed.toLowerCase()
+  if (lower === 'kun' || lower === 'workgpt') return DEFAULT_PHONE_AGENT_NAME
   if (provider === 'weixin') {
     return lower === 'weixin agent' || lower === 'wechat agent' || lower === 'wechat'
-      ? 'weixin agent'
+      ? DEFAULT_PHONE_AGENT_NAME
       : trimmed
   }
-  if (lower === 'feishu agent' || lower === 'feishu / lark') return 'feishu agent'
-  if (lower === 'lark agent') return 'lark agent'
+  if (lower === 'feishu agent' || lower === 'feishu / lark') return DEFAULT_PHONE_AGENT_NAME
+  if (lower === 'lark agent') return DEFAULT_PHONE_AGENT_NAME
   return trimmed
 }
 

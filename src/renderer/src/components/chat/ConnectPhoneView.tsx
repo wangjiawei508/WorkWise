@@ -117,7 +117,7 @@ export function connectPhoneInstallRequestOptions(
 
 export function createConnectPhoneAgentProfile(): ClawImAgentProfileV1 {
   return {
-    name: 'kun',
+    name: DEFAULT_PHONE_AGENT_NAME,
     description: '',
     identity: '',
     personality: '',

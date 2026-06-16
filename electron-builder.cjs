@@ -105,6 +105,7 @@ module.exports = {
   },
   files: [
     'out/**/*',
+    'src/asset/skills/**/*',
     'package.json',
     'kun/dist/**/*',
     'kun/package.json',

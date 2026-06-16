@@ -81,6 +81,27 @@ export const DESKTOP_COMMANDS = [
 ] as const
 export type DesktopCommand = typeof DESKTOP_COMMANDS[number]
 export type SkillSaveResult = { ok: true; path: string } | { ok: false; message: string }
+export type GithubSkillSource = {
+  owner: string
+  repo: string
+  path: string
+  ref?: string
+  skillName?: string
+  autoUpdate?: boolean
+}
+export type BundledSkillSource = {
+  id: string
+  skillName?: string
+}
+export type GithubSkillInstallResult =
+  | { ok: true; path: string; sha: string; updated: boolean }
+  | { ok: false; message: string }
+export type GithubSkillSyncResult =
+  | { ok: true; checked: number; updated: number; errors: Array<{ path: string; message: string }> }
+  | { ok: false; message: string }
+export type BundledSkillInstallResult =
+  | { ok: true; path: string; updated: boolean }
+  | { ok: false; message: string }
 export type SkillListItem = {
   id: string
   name: string
@@ -89,6 +110,19 @@ export type SkillListItem = {
   entryPath: string
   scope: 'project' | 'global'
   legacy: boolean
+  source?: {
+    type: 'github'
+    owner: string
+    repo: string
+    path: string
+    ref: string
+    installedSha?: string
+    autoUpdate: boolean
+  } | {
+    type: 'bundled'
+    id: string
+    autoUpdate: false
+  }
 }
 export type SkillListResult =
   | { ok: true; skills: SkillListItem[]; validationErrors: Array<{ root: string; message: string }> }
@@ -158,6 +192,9 @@ export type KunGuiApi = {
   confirmDialog: (options: ConfirmDialogOptions) => Promise<boolean>
   listSkills: (workspaceRoot?: string) => Promise<SkillListResult>
   saveSkillFile: (rootPath: string, skillName: string, content: string) => Promise<SkillSaveResult>
+  installGithubSkill: (rootPath: string, source: GithubSkillSource) => Promise<GithubSkillInstallResult>
+  installBundledSkill: (rootPath: string, source: BundledSkillSource) => Promise<BundledSkillInstallResult>
+  syncGithubSkills: (workspaceRoot?: string) => Promise<GithubSkillSyncResult>
   openSkillRoot: (rootPath: string) => Promise<PathOpenResult>
   getKunConfigFile: () => Promise<DeepseekConfigFileResult>
   setKunConfigFile: (content: string) => Promise<DeepseekConfigSaveResult>

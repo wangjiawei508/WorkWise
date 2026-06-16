@@ -3,6 +3,7 @@ import { DEFAULT_COMPOSER_MODEL_IDS } from '@shared/default-composer-models'
 import {
   CLAW_MANAGED_INSTRUCTIONS_HEADING,
   CLAW_MODEL_IDS,
+  DEFAULT_PHONE_AGENT_NAME,
   type ClawImAgentProfileV1,
   type ClawImChannelV1,
   type ClawImPlatformCredentialV1,
@@ -224,8 +225,8 @@ export function hydrateBlockModelLabels(threadId: string, blocks: ChatBlock[]): 
 }
 
 function defaultClawProviderLabel(provider: ClawImProvider): string {
-  if (provider === 'weixin') return 'weixin agent'
-  return 'feishu agent'
+  void provider
+  return DEFAULT_PHONE_AGENT_NAME
 }
 
 function loadTurnModelMap(): Record<string, string> {

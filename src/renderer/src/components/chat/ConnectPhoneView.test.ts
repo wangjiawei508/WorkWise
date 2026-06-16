@@ -26,7 +26,7 @@ function channel(enabled: boolean, provider: ClawImChannelV1['provider'] = 'feis
     threadId: '',
     workspaceRoot: '',
     agentProfile: {
-      name: 'kun',
+      name: 'WORKGPT',
       description: '',
       identity: '',
       personality: '',
@@ -54,7 +54,7 @@ describe('ConnectPhoneView', () => {
       })
     )
 
-    expect(html).toContain('Use your phone to connect kun')
+    expect(html).toContain('Use your phone to connect WORKGPT')
     expect(html).toContain('Generate authorization QR')
     expect(html).not.toContain('Kun usage')
   })
@@ -81,9 +81,9 @@ describe('ConnectPhoneView', () => {
     expect(formatConnectPhoneUserCode('', 'abcd1234-rest-of-token')).toBe('ABCD-1234')
   })
 
-  it('builds the default kun channel payload after a successful scan', () => {
+  it('builds the default WORKGPT channel payload after a successful scan', () => {
     expect(createConnectPhoneAgentProfile()).toEqual({
-      name: 'kun',
+      name: 'WORKGPT',
       description: '',
       identity: '',
       personality: '',
