@@ -84,6 +84,7 @@ module.exports = {
   productName: 'WORKGPT',
   asar: true,
   asarUnpack: [
+    'src/asset/skills/**/*',
     '**/kun/dist/**/*',
     '**/kun/package*.json',
     '**/kun/node_modules/**/*',

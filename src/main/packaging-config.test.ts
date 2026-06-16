@@ -84,6 +84,7 @@ describe('electron-builder Kun packaging', () => {
       'kun/node_modules/**/*'
     ]))
     expect(builderConfig.asarUnpack).toEqual(expect.arrayContaining([
+      'src/asset/skills/**/*',
       '**/kun/dist/**/*',
       '**/kun/package*.json',
       '**/kun/node_modules/**/*'

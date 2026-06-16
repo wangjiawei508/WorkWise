@@ -544,15 +544,11 @@ const RECOMMENDED_ITEMS: MarketplaceItem[] = [
     titleKey: 'pluginSkillRailwiseDibaoTitle',
     descriptionKey: 'pluginSkillRailwiseDibaoDesc',
     group: 'recommended',
-    sourceLabelKey: 'pluginSkillSourceGitHub',
+    sourceLabelKey: 'pluginSkillSourceBundled',
     statusTone: 'success',
-    githubSkill: {
-      owner: 'railwise-cn',
-      repo: 'di-bao-monitoring-skill',
-      path: 'skill/di-bao-monitoring',
-      ref: 'main',
-      skillName: 'di-bao-monitoring',
-      autoUpdate: true
+    bundledSkill: {
+      id: 'di-bao-monitoring',
+      skillName: 'di-bao-monitoring'
     }
   },
   {

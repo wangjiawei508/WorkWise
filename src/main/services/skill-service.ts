@@ -580,9 +580,9 @@ function encodeGithubPath(path: string): string {
 function bundledSkillRootCandidates(): string[] {
   const resourcesPath = stringValue((process as NodeJS.Process & { resourcesPath?: string }).resourcesPath)
   return uniqueStrings([
-    resolve(process.cwd(), 'src', 'asset', 'skills'),
-    resourcesPath ? join(resourcesPath, 'app.asar', 'src', 'asset', 'skills') : '',
-    resourcesPath ? join(resourcesPath, 'src', 'asset', 'skills') : ''
+    resourcesPath ? join(resourcesPath, 'app.asar.unpacked', 'src', 'asset', 'skills') : '',
+    resourcesPath ? join(resourcesPath, 'src', 'asset', 'skills') : '',
+    resolve(process.cwd(), 'src', 'asset', 'skills')
   ])
 }
 

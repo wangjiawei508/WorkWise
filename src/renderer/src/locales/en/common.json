@@ -515,7 +515,7 @@
   "pluginMcpSlackTitle": "Slack",
   "pluginMcpSlackDesc": "Read and organize Slack team messages, channels, and collaboration context.",
   "pluginSkillRailwiseDibaoTitle": "Railwise Di-bao Monitoring",
-  "pluginSkillRailwiseDibaoDesc": "Built-in railwise-cn monitoring Skill with automatic GitHub source sync.",
+  "pluginSkillRailwiseDibaoDesc": "Built-in railwise-cn monitoring Skill with scheme, daily, weekly, monthly, warning, summary, and review-response templates.",
   "pluginSkillOperationalMonitoringTitle": "Operational Monitoring",
   "pluginSkillOperationalMonitoringDesc": "Bundled from your operational-monitoring source package, including scheme, report, warning, and archive templates.",
   "pluginSkillReviewTitle": "Code Review",
