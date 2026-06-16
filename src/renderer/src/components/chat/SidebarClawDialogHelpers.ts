@@ -7,6 +7,7 @@ import type {
   ClawImPlatformCredentialV1,
   ClawImProvider
 } from '@shared/app-settings'
+import { DEFAULT_PHONE_AGENT_NAME } from '@shared/app-settings'
 
 export type ClawImDialogMode = 'add' | 'edit'
 export type ClawConnectionMode = 'official-install-qr'
@@ -239,8 +240,8 @@ export function clawInstallTargetLabel(
 }
 
 export function clawDefaultAgentName(target: ClawInstallTarget): string {
-  if (target === 'weixin') return 'weixin agent'
-  return target === 'lark' ? 'lark agent' : 'feishu agent'
+  void target
+  return DEFAULT_PHONE_AGENT_NAME
 }
 
 export function clawDefaultChannelWorkspacePreview(

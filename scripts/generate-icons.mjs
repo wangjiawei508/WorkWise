@@ -29,6 +29,13 @@ function extractPngDimensions(buffer) {
   }
 }
 
+function assertPngHasAlpha(buffer, label) {
+  const colorType = buffer.readUInt8(25)
+  if (colorType !== 6) {
+    throw new Error(`${label} must keep transparency; expected PNG color type 6, got ${colorType}.`)
+  }
+}
+
 function buildIco(entries) {
   const header = Buffer.alloc(6)
   header.writeUInt16LE(0, 0)
@@ -60,6 +67,9 @@ async function renderPng(svgText, size) {
     width: size,
     height: size,
     useContentSize: true,
+    frame: false,
+    transparent: true,
+    backgroundColor: '#00000000',
     webPreferences: {
       offscreen: true,
       sandbox: true
@@ -85,7 +95,9 @@ async function renderPng(svgText, size) {
   try {
     await window.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`)
     const image = await window.webContents.capturePage()
-    return image.resize({ width: size, height: size, quality: 'best' }).toPNG()
+    const png = image.resize({ width: size, height: size, quality: 'best' }).toPNG()
+    assertPngHasAlpha(png, `${size}x${size} icon`)
+    return png
   } finally {
     window.destroy()
   }

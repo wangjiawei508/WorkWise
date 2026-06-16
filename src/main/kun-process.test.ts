@@ -394,6 +394,8 @@ describe('syncGuiManagedKunConfig', () => {
           maxArrayItems: 40
         }
       }
+    }, {
+      mcpConfigPath: join(tempRoot, 'empty-mcp.json')
     })
 
     const parsed = JSON.parse(readFileSync(configPath, 'utf8')) as any

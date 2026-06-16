@@ -21,7 +21,7 @@ import {
 import { readBrowserStorageItem, writeBrowserStorageItem } from '../lib/browser-storage'
 import { normalizeWorkspaceRoot } from '../lib/workspace-path'
 import { getProvider } from '../agent/registry'
-import type { SkillListItem } from '@shared/workgpt-api'
+import type { BundledSkillSource, GithubSkillSource, SkillListItem } from '@shared/workgpt-api'
 import type {
   CoreRuntimeInfoJson,
   CoreRuntimeToolDiagnosticsJson
@@ -48,11 +48,14 @@ type MarketplaceItem = {
   title?: string
   description?: string
   group: 'recommended' | 'personal'
+  sourceLabelKey?: string
   sourceLabel?: string
   statusTone?: 'default' | 'success' | 'warning' | 'error'
   systemManaged?: boolean
   mcpConfig?: (workspaceRoot: string) => JsonRecord
   skillInstructions?: string
+  githubSkill?: GithubSkillSource
+  bundledSkill?: BundledSkillSource
 }
 
 type JsonRecord = Record<string, unknown>
@@ -268,9 +271,37 @@ function itemDescription(item: MarketplaceItem, t: (key: string) => string): str
   return item.description ?? (item.descriptionKey ? t(item.descriptionKey) : '')
 }
 
+function itemSourceLabel(item: MarketplaceItem, t: (key: string) => string): string {
+  return item.sourceLabel ?? (item.sourceLabelKey ? t(item.sourceLabelKey) : '')
+}
+
+function normalizeGithubSourcePath(path: string): string {
+  return path.trim().replace(/\\/g, '/').replace(/^\/+|\/+$/g, '')
+}
+
+function githubSkillSourceKey(source: GithubSkillSource): string {
+  return [
+    'github',
+    source.owner.trim().toLowerCase(),
+    source.repo.trim().toLowerCase(),
+    normalizeGithubSourcePath(source.path),
+    source.ref?.trim() || 'main'
+  ].join(':')
+}
+
+function bundledSkillSourceKey(source: BundledSkillSource): string {
+  return `bundled:${source.id.trim()}`
+}
+
+function discoveredSkillSourceKey(skill: SkillListItem): string {
+  if (skill.source?.type === 'github') return githubSkillSourceKey(skill.source)
+  if (skill.source?.type === 'bundled') return bundledSkillSourceKey(skill.source)
+  return ''
+}
+
 export function skillMarketplaceItemsFromDiscoveredSkills(
   skills: SkillListItem[],
-  labels: { project: string; global: string }
+  labels: { project: string; global: string; github: string; bundled: string }
 ): MarketplaceItem[] {
   return skills.map((skill) => ({
     id: skill.id,
@@ -278,7 +309,11 @@ export function skillMarketplaceItemsFromDiscoveredSkills(
     title: skill.name,
     description: skill.description ?? skill.root,
     group: 'personal' as const,
-    sourceLabel: skill.scope === 'project' ? labels.project : labels.global
+    sourceLabel:
+      skill.source?.type === 'github' ? labels.github :
+      skill.source?.type === 'bundled' ? labels.bundled :
+      skill.scope === 'project' ? labels.project : labels.global,
+    statusTone: skill.source ? 'success' as const : 'default' as const
   }))
 }
 
@@ -393,7 +428,12 @@ const RECOMMENDED_ITEMS: MarketplaceItem[] = [
       buildMcpConfig(
         'github',
         'npx',
-        ['-y', '@modelcontextprotocol/server-github']
+        ['-y', '@modelcontextprotocol/server-github'],
+        {
+          env: {
+            GITHUB_PERSONAL_ACCESS_TOKEN: '${GITHUB_PERSONAL_ACCESS_TOKEN}'
+          }
+        }
       )
   },
   {
@@ -408,6 +448,125 @@ const RECOMMENDED_ITEMS: MarketplaceItem[] = [
         'npx',
         ['-y', '@upstash/context7-mcp@latest']
       )
+  },
+  {
+    id: 'memory',
+    kind: 'mcp',
+    titleKey: 'pluginMcpMemoryTitle',
+    descriptionKey: 'pluginMcpMemoryDesc',
+    group: 'recommended',
+    mcpConfig: () =>
+      buildMcpConfig(
+        'memory',
+        'npx',
+        ['-y', '@modelcontextprotocol/server-memory']
+      )
+  },
+  {
+    id: 'sequential-thinking',
+    kind: 'mcp',
+    titleKey: 'pluginMcpSequentialThinkingTitle',
+    descriptionKey: 'pluginMcpSequentialThinkingDesc',
+    group: 'recommended',
+    mcpConfig: () =>
+      buildMcpConfig(
+        'sequential-thinking',
+        'npx',
+        ['-y', '@modelcontextprotocol/server-sequential-thinking']
+      )
+  },
+  {
+    id: 'brave-search',
+    kind: 'mcp',
+    titleKey: 'pluginMcpBraveSearchTitle',
+    descriptionKey: 'pluginMcpBraveSearchDesc',
+    group: 'recommended',
+    mcpConfig: () =>
+      buildMcpConfig(
+        'brave-search',
+        'npx',
+        ['-y', '@modelcontextprotocol/server-brave-search'],
+        {
+          env: {
+            BRAVE_API_KEY: '${BRAVE_API_KEY}'
+          }
+        }
+      )
+  },
+  {
+    id: 'postgres',
+    kind: 'mcp',
+    titleKey: 'pluginMcpPostgresTitle',
+    descriptionKey: 'pluginMcpPostgresDesc',
+    group: 'recommended',
+    mcpConfig: () =>
+      buildMcpConfig(
+        'postgres',
+        'npx',
+        ['-y', '@modelcontextprotocol/server-postgres', 'postgresql://user:password@localhost:5432/db']
+      )
+  },
+  {
+    id: 'puppeteer',
+    kind: 'mcp',
+    titleKey: 'pluginMcpPuppeteerTitle',
+    descriptionKey: 'pluginMcpPuppeteerDesc',
+    group: 'recommended',
+    mcpConfig: () =>
+      buildMcpConfig(
+        'puppeteer',
+        'npx',
+        ['-y', '@modelcontextprotocol/server-puppeteer']
+      )
+  },
+  {
+    id: 'slack',
+    kind: 'mcp',
+    titleKey: 'pluginMcpSlackTitle',
+    descriptionKey: 'pluginMcpSlackDesc',
+    group: 'recommended',
+    mcpConfig: () =>
+      buildMcpConfig(
+        'slack',
+        'npx',
+        ['-y', '@modelcontextprotocol/server-slack'],
+        {
+          env: {
+            SLACK_BOT_TOKEN: '${SLACK_BOT_TOKEN}',
+            SLACK_TEAM_ID: '${SLACK_TEAM_ID}'
+          }
+        }
+      )
+  },
+  {
+    id: 'di-bao-monitoring',
+    kind: 'skill',
+    titleKey: 'pluginSkillRailwiseDibaoTitle',
+    descriptionKey: 'pluginSkillRailwiseDibaoDesc',
+    group: 'recommended',
+    sourceLabelKey: 'pluginSkillSourceGitHub',
+    statusTone: 'success',
+    githubSkill: {
+      owner: 'railwise-cn',
+      repo: 'di-bao-monitoring-skill',
+      path: 'skill/di-bao-monitoring',
+      ref: 'main',
+      skillName: 'di-bao-monitoring',
+      autoUpdate: true
+    }
+  },
+  {
+    id: 'operational-monitoring',
+    kind: 'skill',
+    titleKey: 'pluginSkillOperationalMonitoringTitle',
+    descriptionKey: 'pluginSkillOperationalMonitoringDesc',
+    group: 'recommended',
+    sourceLabelKey: 'pluginSkillSourceBundled',
+    statusTone: 'success',
+    bundledSkill: {
+      id: 'operational-monitoring',
+      skillName: 'operational-monitoring'
+    }
   },
   {
     id: 'code-review',
@@ -444,6 +603,69 @@ const RECOMMENDED_ITEMS: MarketplaceItem[] = [
     group: 'recommended',
     skillInstructions:
       'Use this skill when preparing release notes. Group user-facing changes by outcome, call out migrations or risks, and keep wording concise and scannable.'
+  },
+  {
+    id: 'doc-brief',
+    kind: 'skill',
+    titleKey: 'pluginSkillDocBriefTitle',
+    descriptionKey: 'pluginSkillDocBriefDesc',
+    group: 'recommended',
+    skillInstructions:
+      'Use this skill when turning rough notes, files, or meeting context into a structured document brief. Clarify audience, purpose, source material, constraints, outline, and acceptance criteria before drafting.'
+  },
+  {
+    id: 'test-plan',
+    kind: 'skill',
+    titleKey: 'pluginSkillTestPlanTitle',
+    descriptionKey: 'pluginSkillTestPlanDesc',
+    group: 'recommended',
+    skillInstructions:
+      'Use this skill when planning verification. Cover happy paths, edge cases, regression risks, fixtures, automation targets, manual checks, and release blockers.'
+  },
+  {
+    id: 'sql-analysis',
+    kind: 'skill',
+    titleKey: 'pluginSkillSqlAnalysisTitle',
+    descriptionKey: 'pluginSkillSqlAnalysisDesc',
+    group: 'recommended',
+    skillInstructions:
+      'Use this skill when inspecting relational data or writing SQL. Identify tables, joins, filters, aggregation grain, null handling, indexes, and validation queries before presenting conclusions.'
+  },
+  {
+    id: 'meeting-notes',
+    kind: 'skill',
+    titleKey: 'pluginSkillMeetingNotesTitle',
+    descriptionKey: 'pluginSkillMeetingNotesDesc',
+    group: 'recommended',
+    skillInstructions:
+      'Use this skill when cleaning up meeting notes. Extract decisions, owners, dates, blockers, open questions, and follow-ups, then keep the final note concise and action-oriented.'
+  },
+  {
+    id: 'incident-response',
+    kind: 'skill',
+    titleKey: 'pluginSkillIncidentResponseTitle',
+    descriptionKey: 'pluginSkillIncidentResponseDesc',
+    group: 'recommended',
+    skillInstructions:
+      'Use this skill during incidents. Stabilize first, preserve facts, build a timeline, separate confirmed signals from guesses, propose rollback or mitigation, and capture postmortem actions.'
+  },
+  {
+    id: 'data-cleaning',
+    kind: 'skill',
+    titleKey: 'pluginSkillDataCleaningTitle',
+    descriptionKey: 'pluginSkillDataCleaningDesc',
+    group: 'recommended',
+    skillInstructions:
+      'Use this skill when cleaning spreadsheet, CSV, or database exports. Profile missing values, duplicates, units, encodings, date formats, outliers, and reconciliation totals before transforming data.'
+  },
+  {
+    id: 'product-requirements',
+    kind: 'skill',
+    titleKey: 'pluginSkillProductRequirementsTitle',
+    descriptionKey: 'pluginSkillProductRequirementsDesc',
+    group: 'recommended',
+    skillInstructions:
+      'Use this skill when shaping product requirements. Define users, jobs-to-be-done, non-goals, workflows, edge cases, metrics, rollout, and acceptance criteria in implementation-ready language.'
   }
 ]
 
@@ -583,6 +805,18 @@ export function PluginMarketplaceView(): ReactElement {
     setSkillListLoading(true)
     setSkillListError('')
     try {
+      let syncError = ''
+      if (typeof window.workgpt?.syncGithubSkills === 'function') {
+        const syncResult = await window.workgpt.syncGithubSkills(workspaceRoot || undefined)
+        if (syncResult.ok) {
+          if (syncResult.updated > 0) {
+            setNotice({ tone: 'success', message: t('pluginSkillSynced', { count: syncResult.updated }) })
+          }
+          syncError = syncResult.errors[0]?.message ?? ''
+        } else {
+          syncError = syncResult.message
+        }
+      }
       const result = await window.workgpt.listSkills(workspaceRoot || undefined)
       if (!result.ok) {
         setDiscoveredSkills([])
@@ -592,6 +826,8 @@ export function PluginMarketplaceView(): ReactElement {
       setDiscoveredSkills(result.skills)
       if (result.validationErrors.length > 0) {
         setSkillListError(result.validationErrors[0]?.message ?? t('pluginSkillScanPartial'))
+      } else if (syncError) {
+        setSkillListError(syncError)
       }
     } catch (error) {
       setDiscoveredSkills([])
@@ -623,10 +859,16 @@ export function PluginMarketplaceView(): ReactElement {
     () => new Set(discoveredSkills.map((skill) => skill.id)),
     [discoveredSkills]
   )
+  const discoveredSkillSourceKeys = useMemo(
+    () => new Set(discoveredSkills.map(discoveredSkillSourceKey).filter(Boolean)),
+    [discoveredSkills]
+  )
   const discoveredSkillItems = useMemo(
     () => skillMarketplaceItemsFromDiscoveredSkills(discoveredSkills, {
       project: t('pluginSkillSourceProject'),
-      global: t('pluginSkillSourceGlobal')
+      global: t('pluginSkillSourceGlobal'),
+      github: t('pluginSkillSourceGitHub'),
+      bundled: t('pluginSkillSourceBundled')
     }),
     [discoveredSkills, t]
   )
@@ -650,16 +892,22 @@ export function PluginMarketplaceView(): ReactElement {
     [activeKind, discoveredMcpItems, discoveredSkillItems]
   )
 
-  const isInstalled = useCallback((item: Pick<MarketplaceItem, 'kind' | 'id'>): boolean => {
-    if ('group' in item && item.group === 'personal') return true
+  const isInstalled = useCallback((item: MarketplaceItem): boolean => {
+    if (item.group === 'personal') return true
     const catalogItem = RECOMMENDED_ITEMS.find((candidate) => candidate.kind === item.kind && candidate.id === item.id)
     if (catalogItem?.systemManaged) return true
+    if (item.githubSkill && discoveredSkillSourceKeys.has(githubSkillSourceKey(item.githubSkill))) {
+      return true
+    }
+    if (item.bundledSkill && discoveredSkillSourceKeys.has(bundledSkillSourceKey(item.bundledSkill))) {
+      return true
+    }
     if (item.kind === 'skill' && discoveredSkillIds.has(item.id)) return true
     if (item.kind === 'mcp' && discoveredMcpIds.has(item.id)) return true
     const key = storageKey(item.kind, item.id)
     if (installed.includes(key)) return true
     return item.kind === 'mcp' && mcpConfigHasServer(mcpConfigText, item.id)
-  }, [discoveredMcpIds, discoveredSkillIds, installed, mcpConfigText])
+  }, [discoveredMcpIds, discoveredSkillIds, discoveredSkillSourceKeys, installed, mcpConfigText])
 
   const visibleItems = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase()
@@ -667,7 +915,7 @@ export function PluginMarketplaceView(): ReactElement {
       .filter((item) => {
         const title = itemTitle(item, t).toLowerCase()
         const description = itemDescription(item, t).toLowerCase()
-        const source = item.sourceLabel?.toLowerCase() ?? ''
+        const source = itemSourceLabel(item, t).toLowerCase()
         return !normalizedQuery ||
           title.includes(normalizedQuery) ||
           description.includes(normalizedQuery) ||
@@ -726,6 +974,36 @@ export function PluginMarketplaceView(): ReactElement {
         return
       }
       if (item.group === 'personal') return
+      if (item.githubSkill) {
+        if (typeof window.workgpt?.installGithubSkill !== 'function') {
+          setNotice({ tone: 'error', message: t('pluginSkillScanUnavailable') })
+          return
+        }
+        const result = await window.workgpt.installGithubSkill(selectedSkillRoot.path, item.githubSkill)
+        if (!result.ok) {
+          setNotice({ tone: 'error', message: result.message })
+          return
+        }
+        markInstalled(storageKey('skill', item.id))
+        await refreshSkillList()
+        setNotice({ tone: 'success', message: t('pluginSkillAdded', { path: result.path }) })
+        return
+      }
+      if (item.bundledSkill) {
+        if (typeof window.workgpt?.installBundledSkill !== 'function') {
+          setNotice({ tone: 'error', message: t('pluginSkillScanUnavailable') })
+          return
+        }
+        const result = await window.workgpt.installBundledSkill(selectedSkillRoot.path, item.bundledSkill)
+        if (!result.ok) {
+          setNotice({ tone: 'error', message: result.message })
+          return
+        }
+        markInstalled(storageKey('skill', item.id))
+        await refreshSkillList()
+        setNotice({ tone: 'success', message: t('pluginSkillAdded', { path: result.path }) })
+        return
+      }
       const title = itemTitle(item, t)
       const description = itemDescription(item, t)
       const content = buildSkillContent(
@@ -1137,7 +1415,7 @@ function PluginSection({
   emptyText: string
   items: MarketplaceItem[]
   busyId: string | null
-  isInstalled: (item: Pick<MarketplaceItem, 'kind' | 'id'>) => boolean
+  isInstalled: (item: MarketplaceItem) => boolean
   onAdd: (item: MarketplaceItem) => Promise<void>
   t: (key: string, values?: Record<string, unknown>) => string
 }): ReactElement {
@@ -1154,6 +1432,7 @@ function PluginSection({
             const itemKey = storageKey(item.kind, item.id)
             const installed = isInstalled(item)
             const busy = busyId === itemKey
+            const sourceLabel = itemSourceLabel(item, t)
             return (
               <div
                 key={itemKey}
@@ -1164,11 +1443,11 @@ function PluginSection({
                     <span className="truncate text-[17px] font-semibold text-ds-ink">
                       {itemTitle(item, t)}
                     </span>
-                    {item.sourceLabel ? (
+                    {sourceLabel ? (
                       <span
                         className={`shrink-0 rounded-md px-2 py-0.5 text-[11px] font-semibold ${marketplaceSourceTone(item.statusTone)}`}
                       >
-                        {item.sourceLabel}
+                        {sourceLabel}
                       </span>
                     ) : null}
                   </div>

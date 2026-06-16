@@ -515,6 +515,32 @@ export const skillSaveFilePayloadSchema = z
   })
   .strict()
 
+export const githubSkillSourceSchema = z.object({
+  owner: trimmedString(128),
+  repo: trimmedString(128),
+  path: z.string().trim().max(MAX_PATH_LENGTH),
+  ref: z.string().trim().max(256).optional(),
+  skillName: z.string().trim().max(128).optional(),
+  autoUpdate: z.boolean().optional()
+}).strict()
+
+export const githubSkillInstallPayloadSchema = z.object({
+  rootPath: trimmedString(MAX_PATH_LENGTH),
+  source: githubSkillSourceSchema
+}).strict()
+
+export const bundledSkillInstallPayloadSchema = z.object({
+  rootPath: trimmedString(MAX_PATH_LENGTH),
+  source: z.object({
+    id: trimmedString(128),
+    skillName: z.string().trim().max(128).optional()
+  }).strict()
+}).strict()
+
+export const githubSkillSyncPayloadSchema = z.object({
+  workspaceRoot: z.string().trim().max(MAX_PATH_LENGTH).optional()
+}).strict()
+
 export const skillListPayloadSchema = z
   .object({
     workspaceRoot: z.string().trim().max(MAX_PATH_LENGTH).optional()

@@ -246,8 +246,8 @@ describe('claw settings', () => {
       label: channel.label,
       name: channel.agentProfile.name
     }))).toEqual([
-      { label: 'weixin agent', name: 'weixin agent' },
-      { label: 'feishu agent', name: 'feishu agent' },
+      { label: 'WORKGPT', name: 'WORKGPT' },
+      { label: 'WORKGPT', name: 'WORKGPT' },
       { label: 'Support Bot', name: 'Support Bot' }
     ])
   })

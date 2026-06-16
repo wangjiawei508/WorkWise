@@ -96,6 +96,7 @@ describe('electron-builder Kun packaging', () => {
       '**/node_modules/@tencent-weixin/openclaw-weixin/**/*'
     ]))
     expect(builderConfig.files).toEqual(expect.arrayContaining([
+      'src/asset/skills/**/*',
       '!**/node_modules/openclaw/**/*'
     ]))
   })

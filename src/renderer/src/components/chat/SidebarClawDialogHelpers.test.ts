@@ -3,8 +3,8 @@ import { clawDefaultAgentName } from './SidebarClawDialogHelpers'
 
 describe('SidebarClawDialogHelpers', () => {
   it('uses product default agent names for phone providers', () => {
-    expect(clawDefaultAgentName('feishu')).toBe('feishu agent')
-    expect(clawDefaultAgentName('lark')).toBe('lark agent')
-    expect(clawDefaultAgentName('weixin')).toBe('weixin agent')
+    expect(clawDefaultAgentName('feishu')).toBe('WORKGPT')
+    expect(clawDefaultAgentName('lark')).toBe('WORKGPT')
+    expect(clawDefaultAgentName('weixin')).toBe('WORKGPT')
   })
 })

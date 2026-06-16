@@ -22,6 +22,7 @@ export type ClawModel = ScheduleModel
 
 export const DEFAULT_DEEPSEEK_BASE_URL = 'https://api.deepseek.com'
 export const DEFAULT_CLAW_MODEL = 'auto'
+export const DEFAULT_PHONE_AGENT_NAME = 'WORKGPT'
 export const CLAW_MODEL_IDS = ['auto', 'deepseek-v4-pro', 'deepseek-v4-flash'] as const
 export const DEFAULT_SCHEDULE_MODEL = DEFAULT_CLAW_MODEL
 export const SCHEDULE_MODEL_IDS = CLAW_MODEL_IDS

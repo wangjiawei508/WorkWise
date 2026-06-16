@@ -25,6 +25,12 @@ const api = {
     ipcRenderer.invoke('skill:list', { workspaceRoot }),
   saveSkillFile: (rootPath, skillName, content) =>
     ipcRenderer.invoke('skill:save-file', { rootPath, skillName, content }),
+  installGithubSkill: (rootPath, source) =>
+    ipcRenderer.invoke('skill:install-github', { rootPath, source }),
+  installBundledSkill: (rootPath, source) =>
+    ipcRenderer.invoke('skill:install-bundled', { rootPath, source }),
+  syncGithubSkills: (workspaceRoot) =>
+    ipcRenderer.invoke('skill:sync-github', { workspaceRoot }),
   openSkillRoot: (rootPath) =>
     ipcRenderer.invoke('skill:open-root', rootPath),
   getDeepseekConfigFile: () =>

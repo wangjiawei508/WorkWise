@@ -28,6 +28,7 @@ import type {
   ClawImSettingsV1,
   ClawModel
 } from '@shared/app-settings'
+import { DEFAULT_PHONE_AGENT_NAME } from '@shared/app-settings'
 import type { ClawImInstallPollResult, ClawImInstallQrResult } from '@shared/workgpt-api'
 import {
   type ClawInstallQrState,
@@ -116,7 +117,7 @@ export function connectPhoneInstallRequestOptions(
 
 export function createConnectPhoneAgentProfile(): ClawImAgentProfileV1 {
   return {
-    name: 'kun',
+    name: DEFAULT_PHONE_AGENT_NAME,
     description: '',
     identity: '',
     personality: '',

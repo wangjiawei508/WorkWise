@@ -29,10 +29,13 @@ import {
   clawMirrorPayloadSchema,
   clawImInstallPollPayloadSchema,
   clawTaskFromTextPayloadSchema,
+  bundledSkillInstallPayloadSchema,
   deepseekConfigContentSchema,
   desktopCommandSchema,
   defaultPathSchema,
   gitBranchPayloadSchema,
+  githubSkillInstallPayloadSchema,
+  githubSkillSyncPayloadSchema,
   guiUpdateChannelSchema,
   logErrorPayloadSchema,
   notificationPayloadSchema,
@@ -87,7 +90,12 @@ import {
   requestWriteInlineCompletion
 } from '../services/write-inline-completion-service'
 import { copyWriteDocumentAsRichText, exportWriteDocument } from '../services/write-export-service'
-import { listGuiSkills } from '../services/skill-service'
+import {
+  installBundledSkill,
+  installGithubSkill,
+  listGuiSkills,
+  syncGithubManagedSkills
+} from '../services/skill-service'
 
 type GuiUpdaterModule = typeof import('../gui-updater')
 
@@ -505,6 +513,22 @@ export function registerAppIpcHandlers(options: RegisterAppIpcHandlersOptions): 
     const request = parseIpcPayload('skill:list', skillListPayloadSchema, payload)
     const settings = await store.load()
     return listGuiSkills(settings, request.workspaceRoot)
+  })
+
+  ipcMain.handle('skill:install-github', async (_, payload: unknown) => {
+    const request = parseIpcPayload('skill:install-github', githubSkillInstallPayloadSchema, payload)
+    return installGithubSkill(request.rootPath, request.source)
+  })
+
+  ipcMain.handle('skill:install-bundled', async (_, payload: unknown) => {
+    const request = parseIpcPayload('skill:install-bundled', bundledSkillInstallPayloadSchema, payload)
+    return installBundledSkill(request.rootPath, request.source)
+  })
+
+  ipcMain.handle('skill:sync-github', async (_, payload: unknown) => {
+    const request = parseIpcPayload('skill:sync-github', githubSkillSyncPayloadSchema, payload)
+    const settings = await store.load()
+    return syncGithubManagedSkills(settings, request.workspaceRoot)
   })
 
   ipcMain.handle('skill:open-root', async (_, rootPath: unknown) => {
