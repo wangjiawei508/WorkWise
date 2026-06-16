@@ -126,7 +126,7 @@ jobs:
         if: steps.signing.outputs.enabled != 'true'
         run: npm run dist:mac
 
-      - name: Upload macOS artifacts
+      - name: Upload macOS installers
         uses: actions/upload-artifact@v4
         with:
           name: release-mac
@@ -168,7 +168,7 @@ jobs:
       - name: Build Windows installer
         run: npm run dist:win
 
-      - name: Upload Windows artifacts
+      - name: Upload Windows installer
         uses: actions/upload-artifact@v4
         with:
           name: release-win
@@ -226,7 +226,7 @@ jobs:
             dist/latest-linux.yml
 
   publish:
-    name: Publish GitHub Release and R2
+    name: Publish GitHub Release
     runs-on: ubuntu-latest
     needs:
       - prepare
@@ -271,6 +271,30 @@ jobs:
           path: release-artifacts
           merge-multiple: true
 
+      - name: Prepare public installer names
+        run: |
+          set -euo pipefail
+          rm -rf public-release-assets
+          mkdir -p public-release-assets
+
+          copy_one() {
+            local pattern="$1"
+            local target="$2"
+            mapfile -t matches < <(compgen -G "release-artifacts/${pattern}" || true)
+            if [[ "${#matches[@]}" -ne 1 ]]; then
+              echo "::error::Expected exactly one artifact matching ${pattern}, found ${#matches[@]}"
+              find release-artifacts -maxdepth 2 -type f -print | sort
+              exit 1
+            fi
+            cp "${matches[0]}" "public-release-assets/${target}"
+          }
+
+          copy_one "WORKGPT-*-mac-arm64.dmg" "WORKGPT-${RELEASE_VERSION}-mac-Apple-Silicon.dmg"
+          copy_one "WORKGPT-*-mac-x64.dmg" "WORKGPT-${RELEASE_VERSION}-mac-Intel.dmg"
+          copy_one "WORKGPT-*-win-x64.exe" "WORKGPT-${RELEASE_VERSION}-win-x64.exe"
+
+          find public-release-assets -maxdepth 1 -type f -print | sort
+
       - name: Verify release artifacts
         run: |
           set -euo pipefail
@@ -285,18 +309,15 @@ jobs:
             "latest.yml"
           )
 
-          for pattern in "${required[@]}"; do
-            if ! compgen -G "release-artifacts/${pattern}" > /dev/null; then
-              echo "::error::Missing release artifact matching ${pattern}"
-              find release-artifacts -maxdepth 2 -type f -print | sort
+          for file in "${required[@]}"; do
+            if [[ ! -s "public-release-assets/${file}" ]]; then
+              echo "::error::Missing release artifact ${file}"
+              find public-release-assets -maxdepth 1 -type f -print | sort
               exit 1
             fi
           done
 
-          find release-artifacts -maxdepth 2 -type f -print | sort
-
-      - name: Verify release metadata and write checksums
-        run: node ./scripts/verify-release-assets.cjs release-artifacts --write-sha256
+          find public-release-assets -maxdepth 1 -type f -print | sort
 
       - name: Generate release notes
         run: |
@@ -324,7 +345,9 @@ jobs:
             echo "- Tag: \`${TAG_NAME}\`"
             echo "- Commit: \`${GITHUB_SHA::7}\`"
             echo "${mac_line}"
-            echo "- Platforms: macOS arm64/x64, Windows x64"
+            echo "- macOS Apple Silicon: \`WORKGPT-${RELEASE_VERSION}-mac-Apple-Silicon.dmg\`"
+            echo "- macOS Intel: \`WORKGPT-${RELEASE_VERSION}-mac-Intel.dmg\`"
+            echo "- Windows x64: \`WORKGPT-${RELEASE_VERSION}-win-x64.exe\`"
           } >> release-notes.md
 
       - name: Create or update draft GitHub Release
@@ -364,38 +387,22 @@ jobs:
           mkdir downloaded-release
           gh release download "${TAG_NAME}" \
             --dir downloaded-release \
-            --pattern 'WORKGPT-*' \
-            --pattern 'latest*.yml' \
-            --pattern 'SHA256SUMS.txt' \
+            --pattern 'WORKGPT-*-mac-Apple-Silicon.dmg' \
+            --pattern 'WORKGPT-*-mac-Intel.dmg' \
+            --pattern 'WORKGPT-*-win-x64.exe' \
             --clobber
-          node ./scripts/verify-release-assets.cjs downloaded-release --check-sha256 SHA256SUMS.txt
-
-      - name: Upload release archive to R2
-        if: >-
-          env.R2_BUCKET != '' &&
-          env.R2_ACCOUNT_ID != '' &&
-          env.R2_ENDPOINT != '' &&
-          env.R2_ACCESS_KEY_ID != '' &&
-          env.R2_SECRET_ACCESS_KEY != '' &&
-          env.R2_PUBLIC_BASE_URL != ''
-        run: |
-          set -euo pipefail
-          node ./scripts/publish-r2.mjs upload --platform mac --dist release-artifacts --tag "${TAG_NAME}" --channel "${RELEASE_CHANNEL}"
-          node ./scripts/publish-r2.mjs upload --platform win --dist release-artifacts --tag "${TAG_NAME}" --channel "${RELEASE_CHANNEL}"
-
-      - name: Promote R2 latest
-        if: >-
-          env.R2_BUCKET != '' &&
-          env.R2_ACCOUNT_ID != '' &&
-          env.R2_ENDPOINT != '' &&
-          env.R2_ACCESS_KEY_ID != '' &&
-          env.R2_SECRET_ACCESS_KEY != '' &&
-          env.R2_PUBLIC_BASE_URL != ''
-        run: >
-          node ./scripts/publish-r2.mjs promote
-          --tag "${TAG_NAME}"
-          --channel "${RELEASE_CHANNEL}"
-          --platforms mac,win
+          required=(
+            "WORKGPT-${RELEASE_VERSION}-mac-Apple-Silicon.dmg"
+            "WORKGPT-${RELEASE_VERSION}-mac-Intel.dmg"
+            "WORKGPT-${RELEASE_VERSION}-win-x64.exe"
+          )
+          for file in "${required[@]}"; do
+            test -s "downloaded-release/${file}" || {
+              echo "::error::Missing downloaded release asset ${file}"
+              find downloaded-release -maxdepth 1 -type f -print | sort
+              exit 1
+            }
+          done
 
       - name: Publish GitHub Release
         run: gh release edit "${TAG_NAME}" --draft=false --prerelease=false --latest

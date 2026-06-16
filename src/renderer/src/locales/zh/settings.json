@@ -129,7 +129,7 @@
   "helpUpdateItemPlatforms": "发布包只保留 macOS Apple Silicon、macOS Intel 和 Windows x64；不发布 Linux 客户端。",
   "helpDownloadTitle": "下载链接",
   "helpDownloadBody": "所有正式桌面端安装包都发布在 GitHub Releases。README 也会说明每个平台应该下载哪个文件。",
-  "helpDownloadItemMac": "macOS：Apple 芯片下载 arm64 版本，Intel 芯片下载 x64 版本，可选择 dmg 或 zip。",
+  "helpDownloadItemMac": "macOS：Apple 芯片下载 mac-Apple-Silicon.dmg，Intel 芯片下载 mac-Intel.dmg。",
   "helpDownloadItemWindows": "Windows：下载 x64 NSIS 安装器 exe。",
   "helpDownloadItemLinux": "Linux：当前不提供客户端构建。",
   "helpPathsTitle": "本地数据位置",

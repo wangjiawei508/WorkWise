@@ -129,7 +129,7 @@
   "helpUpdateItemPlatforms": "Published desktop packages are macOS Apple Silicon, macOS Intel, and Windows x64 only; Linux clients are not shipped.",
   "helpDownloadTitle": "Download links",
   "helpDownloadBody": "Official desktop packages are published on GitHub Releases. The README explains which file to download for each platform.",
-  "helpDownloadItemMac": "macOS: Apple Silicon uses arm64, Intel uses x64, with dmg or zip packages.",
+  "helpDownloadItemMac": "macOS: Apple Silicon downloads mac-Apple-Silicon.dmg; Intel downloads mac-Intel.dmg.",
   "helpDownloadItemWindows": "Windows: download the x64 NSIS installer exe.",
   "helpDownloadItemLinux": "Linux: no client build is currently provided.",
   "helpPathsTitle": "Local data",

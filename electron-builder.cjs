@@ -144,8 +144,7 @@ module.exports = {
     icon: './src/asset/img/deepseek.png',
     // arm64 (Apple Silicon) + x64 (Intel). On M 系列 Mac 本地打包会各出一组 dmg/zip。
     target: [
-      { target: 'dmg', arch: ['arm64', 'x64'] },
-      { target: 'zip', arch: ['arm64', 'x64'] }
+      { target: 'dmg', arch: ['arm64', 'x64'] }
     ]
   },
   dmg: {
