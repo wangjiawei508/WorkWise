@@ -13,9 +13,9 @@
 
 | 系统 | 下载说明 |
 | --- | --- |
-| macOS Apple 芯片 | 下载 `arm64` 的 `.dmg` 或 `.zip` |
-| macOS Intel 芯片 | 下载 `x64` 的 `.dmg` 或 `.zip` |
-| Windows 64 位 | 下载 `x64` 的 `.exe` 安装器 |
+| macOS Apple 芯片 | 下载 `WORKGPT-版本号-mac-Apple-Silicon.dmg` |
+| macOS Intel 芯片 | 下载 `WORKGPT-版本号-mac-Intel.dmg` |
+| Windows 64 位 | 下载 `WORKGPT-版本号-win-x64.exe` |
 | Linux | 当前不发布 Linux 客户端 |
 
 如果应用内更新不可用，直接从 Releases 下载新安装包覆盖安装即可。

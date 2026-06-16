@@ -140,10 +140,9 @@ module.exports = {
     entitlements: 'build/entitlements.mac.plist',
     entitlementsInherit: 'build/entitlements.mac.inherit.plist',
     icon: './src/asset/img/workgpt.png',
-    // arm64 (Apple Silicon) + x64 (Intel). On M 系列 Mac 本地打包会各出一组 dmg/zip。
+    // arm64 (Apple Silicon) + x64 (Intel). Release builds publish DMG installers only.
     target: [
-      { target: 'dmg', arch: ['arm64', 'x64'] },
-      { target: 'zip', arch: ['arm64', 'x64'] }
+      { target: 'dmg', arch: ['arm64', 'x64'] }
     ]
   },
   dmg: {
