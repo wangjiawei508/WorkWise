@@ -1,0 +1,557 @@
+.ds-work-logo {
+  --work-logo-duration: 2.4s;
+  --work-logo-body-duration: 1.8s;
+  --work-logo-track-delay: 0s;
+  --work-logo-body-delay: -0.08s;
+  --work-logo-echo-delay: -0.34s;
+  --work-logo-halo-delay: -0.2s;
+  --work-logo-orbit-outer-delay: -0.12s;
+  --work-logo-orbit-inner-delay: -0.48s;
+  --work-logo-signal-a-delay: -0.26s;
+  --work-logo-signal-b-delay: -0.78s;
+  --work-logo-node-a-delay: -0.1s;
+  --work-logo-node-b-delay: -0.62s;
+  --work-logo-node-c-delay: -1.02s;
+  --work-logo-scan-delay: -0.18s;
+  --work-logo-spark-a-delay: -0.36s;
+  --work-logo-spark-b-delay: -0.84s;
+  --work-logo-glow: rgba(77, 107, 254, 0.24);
+  --work-logo-glow-strong: rgba(77, 107, 254, 0.38);
+  --work-logo-node: rgba(0, 136, 255, 0.64);
+  --work-logo-node-alt: rgba(18, 138, 74, 0.58);
+  --work-logo-line: rgba(77, 107, 254, 0.2);
+  --work-logo-line-strong: rgba(77, 107, 254, 0.42);
+  --work-logo-scan: rgba(255, 255, 255, 0.78);
+  align-items: center;
+  contain: layout style;
+  display: inline-flex;
+  flex: 0 0 auto;
+  isolation: isolate;
+  justify-content: center;
+  line-height: 0;
+  overflow: visible;
+  position: relative;
+  transform: translateZ(0);
+}
+
+[data-theme='dark'] .ds-work-logo {
+  --work-logo-glow: rgba(135, 170, 255, 0.34);
+  --work-logo-glow-strong: rgba(135, 170, 255, 0.48);
+  --work-logo-node: rgba(92, 174, 255, 0.72);
+  --work-logo-node-alt: rgba(76, 217, 129, 0.64);
+  --work-logo-line: rgba(135, 170, 255, 0.24);
+  --work-logo-line-strong: rgba(135, 170, 255, 0.48);
+  --work-logo-scan: rgba(239, 246, 255, 0.82);
+}
+
+.ds-work-logo-sm {
+  height: 15px;
+  width: 22px;
+}
+
+.ds-work-logo-md {
+  height: 18px;
+  width: 26px;
+}
+
+.ds-work-logo-phase-trail {
+  --work-logo-track-delay: -0.42s;
+  --work-logo-body-delay: -0.36s;
+  --work-logo-echo-delay: -0.88s;
+  --work-logo-halo-delay: -0.72s;
+  --work-logo-orbit-outer-delay: -0.58s;
+  --work-logo-orbit-inner-delay: -1.04s;
+  --work-logo-signal-a-delay: -0.76s;
+  --work-logo-signal-b-delay: -1.22s;
+  --work-logo-node-a-delay: -0.62s;
+  --work-logo-node-b-delay: -1.08s;
+  --work-logo-node-c-delay: -1.44s;
+  --work-logo-scan-delay: -0.82s;
+  --work-logo-spark-a-delay: -0.92s;
+  --work-logo-spark-b-delay: -1.32s;
+}
+
+.ds-work-logo-slot {
+  align-items: center;
+  display: flex;
+  flex: 0 0 auto;
+  justify-content: center;
+  overflow: visible;
+}
+
+.ds-work-logo-slot-sm {
+  height: 15px;
+  width: 22px;
+}
+
+.ds-work-logo-slot-md {
+  height: 18px;
+  width: 26px;
+}
+
+.ds-claw-empty-work-logo.ds-work-logo {
+  transform: translateZ(0) scale(2.35);
+}
+
+.ds-work-logo::after {
+  background: var(--work-logo-glow);
+  border-radius: 999px;
+  bottom: -2px;
+  content: '';
+  filter: blur(4px);
+  height: 5px;
+  left: 3px;
+  opacity: 0.24;
+  position: absolute;
+  right: 2px;
+  transform: translateY(3px) scaleX(0.82);
+}
+
+.ds-work-logo-track,
+.ds-work-logo-body,
+.ds-work-logo-image,
+.ds-work-logo-echo {
+  display: block;
+  height: 100%;
+  width: 100%;
+}
+
+.ds-work-logo-track,
+.ds-work-logo-body {
+  line-height: 0;
+  position: relative;
+  transform-origin: 52% 55%;
+  z-index: 2;
+}
+
+.ds-work-logo-body::after {
+  content: none;
+}
+
+.ds-work-logo-image,
+.ds-work-logo-echo {
+  object-fit: contain;
+  pointer-events: none;
+  user-select: none;
+}
+
+.ds-work-logo-image {
+  filter: drop-shadow(0 4px 8px var(--work-logo-glow));
+}
+
+.ds-work-logo.is-active .ds-work-logo-image {
+  clip-path: none;
+}
+
+.ds-work-logo-echo {
+  filter: blur(0.7px) drop-shadow(0 4px 8px var(--work-logo-glow));
+  inset: 0;
+  opacity: 0;
+  position: absolute;
+  transform: scale(0.98);
+  z-index: 1;
+}
+
+.ds-work-logo-halo,
+.ds-work-logo-orbit,
+.ds-work-logo-signal,
+.ds-work-logo-node,
+.ds-work-logo-scan,
+.ds-work-logo-spark {
+  pointer-events: none;
+  position: absolute;
+}
+
+.ds-work-logo-halo {
+  background:
+    radial-gradient(circle at 50% 50%, var(--work-logo-glow-strong) 0 18%, transparent 58%),
+    radial-gradient(circle at 50% 50%, var(--work-logo-glow) 0 28%, transparent 70%);
+  border-radius: 999px;
+  inset: -7px -6px;
+  opacity: 0;
+  transform: scale(0.86);
+  z-index: 0;
+}
+
+.ds-work-logo-orbit {
+  border: 1px solid var(--work-logo-line);
+  border-radius: 999px;
+  opacity: 0;
+  z-index: 1;
+}
+
+.ds-work-logo-orbit-outer {
+  inset: -5px -7px;
+}
+
+.ds-work-logo-orbit-inner {
+  inset: -1px -3px;
+  transform: rotate(18deg);
+}
+
+.ds-work-logo-signal {
+  background: linear-gradient(90deg, transparent, var(--work-logo-line-strong), transparent);
+  height: 1px;
+  opacity: 0;
+  transform-origin: left center;
+  width: 18px;
+  z-index: 1;
+}
+
+.ds-work-logo-signal-a {
+  left: -9px;
+  top: 4px;
+  transform: rotate(-8deg) scaleX(0.42);
+}
+
+.ds-work-logo-signal-b {
+  bottom: 3px;
+  right: -9px;
+  transform: rotate(12deg) scaleX(0.42);
+}
+
+.ds-work-logo-node {
+  background: var(--work-logo-node);
+  border: 1px solid rgba(255, 255, 255, 0.74);
+  border-radius: 999px;
+  box-shadow: 0 0 0 3px rgba(77, 107, 254, 0.08);
+  height: 4px;
+  opacity: 0;
+  width: 4px;
+  z-index: 3;
+}
+
+.ds-work-logo-node-a {
+  left: -2px;
+  top: 0;
+}
+
+.ds-work-logo-node-b {
+  background: var(--work-logo-node-alt);
+  right: -2px;
+  top: 4px;
+}
+
+.ds-work-logo-node-c {
+  bottom: -1px;
+  left: 9px;
+}
+
+.ds-work-logo-scan {
+  background: linear-gradient(90deg, transparent, var(--work-logo-scan), transparent);
+  border-radius: 999px;
+  height: 120%;
+  left: -35%;
+  opacity: 0;
+  top: -10%;
+  transform: skewX(-18deg) translateX(-8px);
+  width: 44%;
+  z-index: 4;
+}
+
+.ds-work-logo-spark {
+  background: var(--work-logo-node);
+  border-radius: 999px;
+  height: 2px;
+  opacity: 0;
+  width: 2px;
+  z-index: 3;
+}
+
+.ds-work-logo-spark-a {
+  right: 1px;
+  top: -3px;
+}
+
+.ds-work-logo-spark-b {
+  bottom: -2px;
+  left: 2px;
+}
+
+.ds-work-logo.is-active::after {
+  animation: ds-work-logo-shadow var(--work-logo-duration) ease-in-out infinite;
+}
+
+.ds-work-logo.is-active .ds-work-logo-track {
+  animation: ds-work-logo-track var(--work-logo-duration) ease-in-out infinite;
+  animation-delay: var(--work-logo-track-delay);
+}
+
+.ds-work-logo.is-active .ds-work-logo-body {
+  animation: ds-work-logo-body var(--work-logo-body-duration) ease-in-out infinite;
+  animation-delay: var(--work-logo-body-delay);
+}
+
+.ds-work-logo.is-active .ds-work-logo-echo {
+  animation: ds-work-logo-echo var(--work-logo-duration) ease-out infinite;
+  animation-delay: var(--work-logo-echo-delay);
+}
+
+.ds-work-logo.is-active .ds-work-logo-halo {
+  animation: ds-work-logo-halo var(--work-logo-duration) ease-in-out infinite;
+  animation-delay: var(--work-logo-halo-delay);
+}
+
+.ds-work-logo.is-active .ds-work-logo-orbit-outer {
+  animation: ds-work-logo-orbit var(--work-logo-duration) ease-in-out infinite;
+  animation-delay: var(--work-logo-orbit-outer-delay);
+}
+
+.ds-work-logo.is-active .ds-work-logo-orbit-inner {
+  animation: ds-work-logo-orbit-reverse var(--work-logo-duration) ease-in-out infinite;
+  animation-delay: var(--work-logo-orbit-inner-delay);
+}
+
+.ds-work-logo.is-active .ds-work-logo-signal-a {
+  animation: ds-work-logo-signal-a var(--work-logo-duration) ease-out infinite;
+  animation-delay: var(--work-logo-signal-a-delay);
+}
+
+.ds-work-logo.is-active .ds-work-logo-signal-b {
+  animation: ds-work-logo-signal-b var(--work-logo-duration) ease-out infinite;
+  animation-delay: var(--work-logo-signal-b-delay);
+}
+
+.ds-work-logo.is-active .ds-work-logo-node-a {
+  animation: ds-work-logo-node var(--work-logo-duration) ease-in-out infinite;
+  animation-delay: var(--work-logo-node-a-delay);
+}
+
+.ds-work-logo.is-active .ds-work-logo-node-b {
+  animation: ds-work-logo-node var(--work-logo-duration) ease-in-out infinite;
+  animation-delay: var(--work-logo-node-b-delay);
+}
+
+.ds-work-logo.is-active .ds-work-logo-node-c {
+  animation: ds-work-logo-node var(--work-logo-duration) ease-in-out infinite;
+  animation-delay: var(--work-logo-node-c-delay);
+}
+
+.ds-work-logo.is-active .ds-work-logo-scan {
+  animation: ds-work-logo-scan var(--work-logo-duration) ease-in-out infinite;
+  animation-delay: var(--work-logo-scan-delay);
+}
+
+.ds-work-logo.is-active .ds-work-logo-spark-a {
+  animation: ds-work-logo-spark-a var(--work-logo-duration) ease-out infinite;
+  animation-delay: var(--work-logo-spark-a-delay);
+}
+
+.ds-work-logo.is-active .ds-work-logo-spark-b {
+  animation: ds-work-logo-spark-b var(--work-logo-duration) ease-out infinite;
+  animation-delay: var(--work-logo-spark-b-delay);
+}
+
+.ds-runtime-wake-logo.ds-work-logo {
+  transform: translateZ(0) scale(2.08);
+  z-index: 2;
+}
+
+[data-theme='dark'] .ds-runtime-wake-logo.ds-work-logo {
+  --work-logo-glow: rgba(135, 170, 255, 0.4);
+  --work-logo-glow-strong: rgba(135, 170, 255, 0.56);
+}
+
+@keyframes ds-work-logo-track {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0) rotate(0deg);
+  }
+  50% {
+    transform: translate3d(0, -0.6px, 0) rotate(1.2deg);
+  }
+}
+
+@keyframes ds-work-logo-body {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.035);
+  }
+}
+
+@keyframes ds-work-logo-shadow {
+  0%,
+  100% {
+    opacity: 0.22;
+    transform: translateY(3px) scaleX(0.72);
+  }
+  50% {
+    opacity: 0.36;
+    transform: translateY(3px) scaleX(1);
+  }
+}
+
+@keyframes ds-work-logo-echo {
+  0% {
+    opacity: 0;
+    transform: scale(0.98);
+  }
+  30% {
+    opacity: 0.16;
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.18);
+  }
+}
+
+@keyframes ds-work-logo-halo {
+  0%,
+  100% {
+    opacity: 0.12;
+    transform: scale(0.86);
+  }
+  50% {
+    opacity: 0.46;
+    transform: scale(1.08);
+  }
+}
+
+@keyframes ds-work-logo-orbit {
+  0% {
+    opacity: 0.18;
+    transform: rotate(0deg) scale(0.92);
+  }
+  50% {
+    opacity: 0.58;
+    transform: rotate(18deg) scale(1.04);
+  }
+  100% {
+    opacity: 0.18;
+    transform: rotate(42deg) scale(0.92);
+  }
+}
+
+@keyframes ds-work-logo-orbit-reverse {
+  0% {
+    opacity: 0.18;
+    transform: rotate(22deg) scale(0.96);
+  }
+  50% {
+    opacity: 0.5;
+    transform: rotate(-12deg) scale(1.06);
+  }
+  100% {
+    opacity: 0.18;
+    transform: rotate(-38deg) scale(0.96);
+  }
+}
+
+@keyframes ds-work-logo-signal-a {
+  0% {
+    opacity: 0;
+    transform: rotate(-8deg) translateX(7px) scaleX(0.34);
+  }
+  34% {
+    opacity: 0.72;
+  }
+  100% {
+    opacity: 0;
+    transform: rotate(-8deg) translateX(-5px) scaleX(1.04);
+  }
+}
+
+@keyframes ds-work-logo-signal-b {
+  0% {
+    opacity: 0;
+    transform: rotate(12deg) translateX(-7px) scaleX(0.34);
+  }
+  34% {
+    opacity: 0.66;
+  }
+  100% {
+    opacity: 0;
+    transform: rotate(12deg) translateX(5px) scaleX(1.04);
+  }
+}
+
+@keyframes ds-work-logo-node {
+  0%,
+  100% {
+    opacity: 0.28;
+    transform: scale(0.74);
+  }
+  48% {
+    opacity: 1;
+    transform: scale(1.2);
+  }
+}
+
+@keyframes ds-work-logo-scan {
+  0% {
+    opacity: 0;
+    transform: skewX(-18deg) translateX(-8px);
+  }
+  32% {
+    opacity: 0.42;
+  }
+  72%,
+  100% {
+    opacity: 0;
+    transform: skewX(-18deg) translateX(34px);
+  }
+}
+
+@keyframes ds-work-logo-spark-a {
+  0%,
+  28% {
+    opacity: 0;
+    transform: translate3d(0, 0, 0) scale(0.6);
+  }
+  44% {
+    opacity: 0.86;
+  }
+  100% {
+    opacity: 0;
+    transform: translate3d(5px, -4px, 0) scale(1.05);
+  }
+}
+
+@keyframes ds-work-logo-spark-b {
+  0%,
+  22% {
+    opacity: 0;
+    transform: translate3d(0, 0, 0) scale(0.6);
+  }
+  44% {
+    opacity: 0.76;
+  }
+  100% {
+    opacity: 0;
+    transform: translate3d(-4px, 4px, 0) scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ds-work-logo,
+  .ds-work-logo::after,
+  .ds-work-logo-track,
+  .ds-work-logo-body,
+  .ds-work-logo-echo,
+  .ds-work-logo-halo,
+  .ds-work-logo-orbit,
+  .ds-work-logo-signal,
+  .ds-work-logo-node,
+  .ds-work-logo-scan,
+  .ds-work-logo-spark {
+    animation: none;
+  }
+
+  .ds-work-logo-echo,
+  .ds-work-logo-halo,
+  .ds-work-logo-orbit,
+  .ds-work-logo-signal,
+  .ds-work-logo-node,
+  .ds-work-logo-scan,
+  .ds-work-logo-spark {
+    opacity: 0;
+  }
+
+  .ds-work-logo-track,
+  .ds-work-logo-body {
+    transform: none;
+  }
+}

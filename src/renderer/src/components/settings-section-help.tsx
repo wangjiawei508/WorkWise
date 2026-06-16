@@ -1,11 +1,25 @@
 import type { ReactElement, ReactNode } from 'react'
-import { BookOpen, Download, ExternalLink, FileText, Github, RefreshCw } from 'lucide-react'
+import {
+  BookOpen,
+  Download,
+  ExternalLink,
+  FileText,
+  Github,
+  Keyboard,
+  MessageCircle,
+  Puzzle,
+  RefreshCw,
+  Rocket,
+  UserRound
+} from 'lucide-react'
 import { SettingsCard } from './settings-controls'
 
 const WORKGPT_GITHUB_URL = 'https://github.com/wangjiawei508/WORKGPT'
 const WORKGPT_RELEASES_URL = 'https://github.com/wangjiawei508/WORKGPT/releases'
 const WORKGPT_ISSUES_URL = 'https://github.com/wangjiawei508/WORKGPT/issues'
 const WORKGPT_README_URL = 'https://github.com/wangjiawei508/WORKGPT#readme'
+const WORKGPT_GUIDE_URL = 'https://github.com/wangjiawei508/WORKGPT/blob/main/docs/USER_GUIDE.zh-CN.md'
+const WORKGPT_AUTHOR_URL = 'https://github.com/wangjiawei508'
 
 function HelpLinkButton({
   href,
@@ -32,11 +46,13 @@ function HelpLinkButton({
 function HelpInfoBlock({
   icon,
   title,
-  body
+  body,
+  items = []
 }: {
   icon: ReactNode
   title: string
   body: string
+  items?: string[]
 }): ReactElement {
   return (
     <div className="flex gap-3 border-t border-ds-border-muted py-4 first:border-t-0 first:pt-0 last:pb-0">
@@ -46,6 +62,16 @@ function HelpInfoBlock({
       <div className="min-w-0">
         <div className="text-[14px] font-semibold text-ds-ink">{title}</div>
         <p className="mt-1 text-[13px] leading-6 text-ds-muted">{body}</p>
+        {items.length ? (
+          <ul className="mt-2 space-y-1.5 text-[12.5px] leading-5 text-ds-muted">
+            {items.map((item) => (
+              <li key={item} className="flex gap-2">
+                <span className="mt-[0.55rem] h-1 w-1 shrink-0 rounded-full bg-ds-faint" />
+                <span>{item}</span>
+              </li>
+            ))}
+          </ul>
+        ) : null}
       </div>
     </div>
   )
@@ -57,41 +83,94 @@ export function HelpSettingsSection({ ctx }: { ctx: Record<string, any> }): Reac
   return (
     <>
       <SettingsCard title={t('sectionHelp')}>
-        <p className="text-[13px] leading-6 text-ds-muted">{t('helpIntro')}</p>
-        <div className="mt-4 flex flex-wrap gap-2">
-          <HelpLinkButton
-            href={WORKGPT_GITHUB_URL}
-            icon={<Github className="h-4 w-4" strokeWidth={1.8} />}
-            label={t('helpOpenGithub')}
-          />
-          <HelpLinkButton
-            href={WORKGPT_RELEASES_URL}
-            icon={<Download className="h-4 w-4" strokeWidth={1.8} />}
-            label={t('helpOpenReleases')}
-          />
-          <HelpLinkButton
-            href={WORKGPT_README_URL}
-            icon={<BookOpen className="h-4 w-4" strokeWidth={1.8} />}
-            label={t('helpOpenReadme')}
-          />
-          <HelpLinkButton
-            href={WORKGPT_ISSUES_URL}
-            icon={<ExternalLink className="h-4 w-4" strokeWidth={1.8} />}
-            label={t('helpOpenIssues')}
-          />
+        <div className="px-3 py-4">
+          <p className="text-[13px] leading-6 text-ds-muted">{t('helpIntro')}</p>
+          <div className="mt-4 flex flex-wrap gap-2">
+            <HelpLinkButton
+              href={WORKGPT_GUIDE_URL}
+              icon={<BookOpen className="h-4 w-4" strokeWidth={1.8} />}
+              label={t('helpOpenGuide')}
+            />
+            <HelpLinkButton
+              href={WORKGPT_GITHUB_URL}
+              icon={<Github className="h-4 w-4" strokeWidth={1.8} />}
+              label={t('helpOpenGithub')}
+            />
+            <HelpLinkButton
+              href={WORKGPT_RELEASES_URL}
+              icon={<Download className="h-4 w-4" strokeWidth={1.8} />}
+              label={t('helpOpenReleases')}
+            />
+            <HelpLinkButton
+              href={WORKGPT_README_URL}
+              icon={<FileText className="h-4 w-4" strokeWidth={1.8} />}
+              label={t('helpOpenReadme')}
+            />
+            <HelpLinkButton
+              href={WORKGPT_ISSUES_URL}
+              icon={<ExternalLink className="h-4 w-4" strokeWidth={1.8} />}
+              label={t('helpOpenIssues')}
+            />
+            <HelpLinkButton
+              href={WORKGPT_AUTHOR_URL}
+              icon={<UserRound className="h-4 w-4" strokeWidth={1.8} />}
+              label={t('helpOpenAuthor')}
+            />
+          </div>
         </div>
       </SettingsCard>
 
-      <SettingsCard title={t('helpUsageTitle')} className="mt-6">
+      <SettingsCard title={t('helpGuideTitle')} className="mt-6">
+        <HelpInfoBlock
+          icon={<Rocket className="h-4 w-4" strokeWidth={1.8} />}
+          title={t('helpQuickStartTitle')}
+          body={t('helpQuickStartBody')}
+          items={[t('helpQuickStartItemWorkspace'), t('helpQuickStartItemModel'), t('helpQuickStartItemReview')]}
+        />
+        <HelpInfoBlock
+          icon={<Keyboard className="h-4 w-4" strokeWidth={1.8} />}
+          title={t('helpCodeTitle')}
+          body={t('helpCodeBody')}
+          items={[t('helpCodeItemPlan'), t('helpCodeItemReview'), t('helpCodeItemFiles')]}
+        />
         <HelpInfoBlock
           icon={<FileText className="h-4 w-4" strokeWidth={1.8} />}
           title={t('helpMarkdownTitle')}
           body={t('helpMarkdownBody')}
+          items={[t('helpMarkdownItemViews'), t('helpMarkdownItemExport'), t('helpMarkdownItemImages')]}
+        />
+        <HelpInfoBlock
+          icon={<Puzzle className="h-4 w-4" strokeWidth={1.8} />}
+          title={t('helpSkillsTitle')}
+          body={t('helpSkillsBody')}
+          items={[t('helpSkillsItemMarket'), t('helpSkillsItemBuiltIn'), t('helpSkillsItemSync')]}
+        />
+        <HelpInfoBlock
+          icon={<MessageCircle className="h-4 w-4" strokeWidth={1.8} />}
+          title={t('helpPhoneTitle')}
+          body={t('helpPhoneBody')}
+          items={[t('helpPhoneItemFeishu'), t('helpPhoneItemProfiles'), t('helpPhoneItemSchedule')]}
+        />
+      </SettingsCard>
+
+      <SettingsCard title={t('helpProjectTitle')} className="mt-6">
+        <HelpInfoBlock
+          icon={<UserRound className="h-4 w-4" strokeWidth={1.8} />}
+          title={t('helpAuthorTitle')}
+          body={t('helpAuthorBody')}
+          items={[t('helpAuthorItemMaintainer'), t('helpAuthorItemFork'), t('helpAuthorItemContributors')]}
         />
         <HelpInfoBlock
           icon={<RefreshCw className="h-4 w-4" strokeWidth={1.8} />}
           title={t('helpUpdateTitle')}
           body={t('helpUpdateBody')}
+          items={[t('helpUpdateItemCheck'), t('helpUpdateItemDownload'), t('helpUpdateItemPlatforms')]}
+        />
+        <HelpInfoBlock
+          icon={<Download className="h-4 w-4" strokeWidth={1.8} />}
+          title={t('helpDownloadTitle')}
+          body={t('helpDownloadBody')}
+          items={[t('helpDownloadItemMac'), t('helpDownloadItemWindows'), t('helpDownloadItemLinux')]}
         />
         <HelpInfoBlock
           icon={<BookOpen className="h-4 w-4" strokeWidth={1.8} />}
