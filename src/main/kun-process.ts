@@ -1,10 +1,10 @@
 import { app } from 'electron'
 import { spawn, type ChildProcess } from 'node:child_process'
-import { existsSync } from 'node:fs'
+import { existsSync, readdirSync } from 'node:fs'
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { createServer } from 'node:net'
 import { homedir } from 'node:os'
-import { dirname, join } from 'node:path'
+import { delimiter, dirname, join } from 'node:path'
 import {
   defaultKunTokenEconomySettings,
   isKunRuntimeInsecure,
@@ -59,6 +59,7 @@ const KUN_STOP_GRACE_MS = 5_000
 const KUN_STOP_FORCE_MS = 1_000
 const STDERR_TAIL_MAX_CHARS = 4_000
 const GUI_SCHEDULE_MCP_TIMEOUT_MS = 5_000
+const MCP_PATH_ENV_KEY = process.platform === 'win32' ? 'Path' : 'PATH'
 const DEFAULT_KUN_MODEL_PROFILES: Record<string, Record<string, unknown>> = {
   'deepseek-v4-pro': {
     contextWindowTokens: 1_000_000,
@@ -183,6 +184,99 @@ function appRoot(): string {
     : app.getAppPath()
 }
 
+function splitPathEntries(value: string | undefined): string[] {
+  return (value ?? '')
+    .split(delimiter)
+    .map((entry) => entry.trim())
+    .filter(Boolean)
+}
+
+function pathEntryKey(entry: string): string {
+  return process.platform === 'win32' ? entry.toLowerCase() : entry
+}
+
+function uniquePathEntries(entries: string[]): string[] {
+  const seen = new Set<string>()
+  const out: string[] = []
+  for (const entry of entries) {
+    const key = pathEntryKey(entry)
+    if (!entry || seen.has(key)) continue
+    seen.add(key)
+    out.push(entry)
+  }
+  return out
+}
+
+function existingNodeVersionBins(root: string, childPath: string[]): string[] {
+  try {
+    return readdirSync(root, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => join(root, entry.name, ...childPath))
+      .filter((entry) => existsSync(entry))
+  } catch {
+    return []
+  }
+}
+
+function commonMcpToolPathEntries(env: NodeJS.ProcessEnv = process.env): string[] {
+  const home = homedir()
+  if (process.platform === 'win32') {
+    return [
+      dirname(process.execPath),
+      env.APPDATA ? join(env.APPDATA, 'npm') : '',
+      env.LOCALAPPDATA ? join(env.LOCALAPPDATA, 'Programs', 'nodejs') : '',
+      env.ProgramFiles ? join(env.ProgramFiles, 'nodejs') : '',
+      env['ProgramFiles(x86)'] ? join(env['ProgramFiles(x86)'], 'nodejs') : ''
+    ].filter(Boolean)
+  }
+
+  return [
+    dirname(process.execPath),
+    env.NVM_BIN ?? '',
+    env.PNPM_HOME ?? '',
+    env.VOLTA_HOME ? join(env.VOLTA_HOME, 'bin') : '',
+    env.ASDF_DATA_DIR ? join(env.ASDF_DATA_DIR, 'shims') : '',
+    '/opt/homebrew/bin',
+    '/opt/homebrew/sbin',
+    '/usr/local/bin',
+    '/usr/local/sbin',
+    '/usr/bin',
+    '/bin',
+    '/usr/sbin',
+    '/sbin',
+    join(home, '.local', 'bin'),
+    join(home, '.local', 'node', 'bin'),
+    join(home, '.npm-global', 'bin'),
+    join(home, '.volta', 'bin'),
+    join(home, '.asdf', 'shims'),
+    join(home, '.bun', 'bin'),
+    ...existingNodeVersionBins(join(home, '.nvm', 'versions', 'node'), ['bin']),
+    ...existingNodeVersionBins(join(home, '.nodenv', 'versions'), ['bin']),
+    ...existingNodeVersionBins(join(home, '.local', 'share', 'fnm', 'node-versions'), ['installation', 'bin'])
+  ].filter(Boolean)
+}
+
+export function resolveMcpToolPath(
+  env: NodeJS.ProcessEnv = process.env
+): string {
+  const currentPath = env.PATH ?? env.Path ?? ''
+  return uniquePathEntries([
+    ...splitPathEntries(currentPath),
+    ...commonMcpToolPathEntries(env)
+  ]).join(delimiter)
+}
+
+function mcpServerEnvWithToolPath(env: Record<string, string>): Record<string, string> {
+  const currentPath = env.PATH ?? env.Path
+  return {
+    ...env,
+    [MCP_PATH_ENV_KEY]: uniquePathEntries([
+      ...splitPathEntries(currentPath),
+      ...splitPathEntries(resolveMcpToolPath())
+    ]).join(delimiter)
+  }
+}
+
 export function resolveKunDataDir(runtime: { dataDir: string }): string {
   const trimmed = runtime.dataDir?.trim()
   if (trimmed) return expandHomePath(trimmed)
@@ -246,6 +340,7 @@ export async function startKunChild(settings: AppSettingsV1): Promise<void> {
   child = spawn(resolution.command, args, {
     env: {
       ...process.env,
+      [MCP_PATH_ENV_KEY]: resolveMcpToolPath(),
       ELECTRON_RUN_AS_NODE: '1',
       KUN_RUNTIME_TOKEN: runtime.runtimeToken,
       DEEPSEEK_API_KEY: runtime.apiKey || process.env.DEEPSEEK_API_KEY || ''
@@ -476,6 +571,7 @@ function normalizeGuiManagedMcpServer(server: unknown): Record<string, unknown> 
   if (trustScope === 'workspace' && trustedWorkspaceRoots.length === 0) return null
 
   const timeoutMs = positiveIntegerValue(raw.timeoutMs)
+  const serverEnv = transport === 'stdio' ? mcpServerEnvWithToolPath(env) : env
   const parsed = McpServerConfig.safeParse({
     enabled: raw.enabled === false || raw.disabled === true ? false : true,
     transport,
@@ -483,7 +579,7 @@ function normalizeGuiManagedMcpServer(server: unknown): Record<string, unknown> 
     ...(args.length > 0 ? { args } : {}),
     ...(url ? { url } : {}),
     ...(Object.keys(headers).length > 0 ? { headers } : {}),
-    ...(Object.keys(env).length > 0 ? { env } : {}),
+    ...(Object.keys(serverEnv).length > 0 ? { env: serverEnv } : {}),
     trustScope,
     ...(trustedWorkspaceRoots.length > 0 ? { trustedWorkspaceRoots } : {}),
     ...(timeoutMs ? { timeoutMs } : {})

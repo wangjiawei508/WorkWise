@@ -1,7 +1,7 @@
 import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { createServer, type AddressInfo } from 'node:net'
 import { homedir, tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { delimiter, dirname, join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { configureLogger } from './logger'
 import {
@@ -166,6 +166,23 @@ describe('resolveKunDataDir', () => {
 })
 
 describe('syncGuiManagedKunConfig', () => {
+  it('adds common npm and npx lookup directories to the MCP runtime PATH', async () => {
+    const module = await import('./kun-process')
+    const resolved = module.resolveMcpToolPath({ PATH: '/custom/bin' } as NodeJS.ProcessEnv)
+    const entries = resolved.split(delimiter)
+
+    expect(entries[0]).toBe('/custom/bin')
+    expect(entries).toContain(dirname(process.execPath))
+    if (process.platform !== 'win32') {
+      expect(entries).toEqual(expect.arrayContaining([
+        '/opt/homebrew/bin',
+        '/usr/local/bin',
+        '/usr/bin',
+        '/bin'
+      ]))
+    }
+  })
+
   it('creates GUI-managed config with attachments enabled for image paste/upload', async () => {
     if (!tempRoot) throw new Error('temp root not initialized')
     const configPath = join(tempRoot, 'config.json')
@@ -583,6 +600,15 @@ describe('syncGuiManagedKunConfig', () => {
       },
       trustScope: 'user'
     })
+    const pathEnvKey = process.platform === 'win32' ? 'Path' : 'PATH'
+    const stataEnv = parsed.capabilities.mcp.servers['stata-mcp'].env as Record<string, string>
+    expect(stataEnv[pathEnvKey].split(delimiter)).toContain(dirname(process.execPath))
+    if (process.platform !== 'win32') {
+      expect(stataEnv[pathEnvKey].split(delimiter)).toEqual(expect.arrayContaining([
+        '/opt/homebrew/bin',
+        '/usr/local/bin'
+      ]))
+    }
     expect(parsed.capabilities.mcp.servers['docs-mcp']).toMatchObject({
       enabled: true,
       transport: 'streamable-http',
