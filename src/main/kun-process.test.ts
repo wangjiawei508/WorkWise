@@ -26,6 +26,7 @@ vi.mock('electron', () => ({
 let tempRoot: string | null = null
 
 function createSettings(binaryPath: string): AppSettingsV1 {
+  if (!tempRoot) throw new Error('temp root not initialized')
   return {
     version: 1,
     locale: 'en',
@@ -36,6 +37,7 @@ function createSettings(binaryPath: string): AppSettingsV1 {
       kun: {
         ...defaultKunRuntimeSettings(8899),
         binaryPath,
+        dataDir: join(tempRoot, 'kun-data'),
         autoStart: true
       }
     },
