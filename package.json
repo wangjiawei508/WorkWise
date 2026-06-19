@@ -1,7 +1,7 @@
 {
   "name": "workgpt",
   "productName": "WORKGPT",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "description": "Electron workbench for the Kun runtime (HTTP/SSE)",
   "main": "./out/main/index.js",
   "type": "module",

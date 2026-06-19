@@ -1,0 +1,34 @@
+{
+  "id": "daily-monitor-report",
+  "name": "地保监测日报",
+  "category": "report",
+  "description": "按多子表、点号、正负号和预警规则生成地保监测日报",
+  "agent": "chief_manager",
+  "version": "1",
+  "prompt": "请为{{项目名称}}生成{{监测日期}}地保监测日报。数据来源：{{数据来源}}。施工工况：{{施工工况}}。要求强制加载 report-dibao 和 di-bao-monitoring，按自动化/人工子表分别统计本次变化量、累计变化量、速率、阈值和预警状态，说明正负号约定，输出正式 Markdown 日报。",
+  "variables": [
+    {
+      "key": "项目名称",
+      "label": "项目名称",
+      "type": "text",
+      "placeholder": "如：宁波轨道交通保护区第三方监测项目"
+    },
+    {
+      "key": "监测日期",
+      "label": "监测日期",
+      "type": "date"
+    },
+    {
+      "key": "数据来源",
+      "label": "数据来源",
+      "type": "text",
+      "placeholder": "如：input/locked-report-preview.json 或 /data/daily.xlsx"
+    },
+    {
+      "key": "施工工况",
+      "label": "施工工况",
+      "type": "text",
+      "placeholder": "如：顶管推进至 K12+340，距区间结构约 8m"
+    }
+  ]
+}

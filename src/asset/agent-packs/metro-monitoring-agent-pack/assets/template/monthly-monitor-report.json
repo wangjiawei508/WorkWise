@@ -1,0 +1,47 @@
+{
+  "id": "monthly-monitor-report",
+  "name": "地铁区间月度监测报告",
+  "category": "report",
+  "description": "自动汇总区间沉降、收敛、位移数据并生成 Word 月报",
+  "agent": "chief_manager",
+  "version": "1",
+  "prompt": "请为{{项目名称}}的{{线路区间}}生成{{报告月份}}月度监测报告。起始里程 {{起始里程}} km，终止里程 {{终止里程}} km。数据文件路径：{{数据目录}}。报告需包含：数据概况、累计变化量统计、超限预警、趋势折线图（使用 rw_trend_analysis 工具）、结论与建议。输出格式：Word（.docx）。",
+  "variables": [
+    {
+      "key": "项目名称",
+      "label": "项目名称",
+      "type": "text",
+      "placeholder": "如：深圳地铁 12 号线"
+    },
+    {
+      "key": "线路区间",
+      "label": "线路区间",
+      "type": "text",
+      "placeholder": "如：左炮台东站—左滩站"
+    },
+    {
+      "key": "报告月份",
+      "label": "报告月份",
+      "type": "text",
+      "placeholder": "如：2026-05"
+    },
+    {
+      "key": "起始里程",
+      "label": "起始里程",
+      "type": "mileage",
+      "placeholder": "如：12.340"
+    },
+    {
+      "key": "终止里程",
+      "label": "终止里程",
+      "type": "mileage",
+      "placeholder": "如：13.820"
+    },
+    {
+      "key": "数据目录",
+      "label": "数据文件目录",
+      "type": "text",
+      "placeholder": "如：/data/monitor/2026-05/"
+    }
+  ]
+}

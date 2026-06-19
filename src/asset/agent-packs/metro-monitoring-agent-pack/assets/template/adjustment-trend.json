@@ -1,0 +1,53 @@
+{
+  "id": "adjustment-trend",
+  "name": "平差计算与趋势分析",
+  "category": "data",
+  "description": "对监测网进行最小二乘平差，输出精度评定及各期趋势曲线",
+  "agent": "data_analyst",
+  "version": "1",
+  "prompt": "请对{{工程名称}}监测网执行平差计算与趋势分析：\n\n网形类型：{{网形类型}}\n观测周期：第 {{起始周期}} 期 ~ 第 {{终止周期}} 期\n数据目录：{{数据目录}}\n基准点：{{基准点列表}}\n\n步骤：\n1. 调用 rw_adjust_calc 执行最小二乘平差，输出单位权中误差、点位精度椭圆\n2. 调用 rw_trend_analysis 绘制各监测点多期趋势折线图（含累计量与本期变化量）\n3. 识别变化速率超过 {{预警速率}} mm/d 的监测点，高亮标注\n4. 生成平差报告（含精度评定表、趋势图 PNG）",
+  "variables": [
+    {
+      "key": "工程名称",
+      "label": "工程名称",
+      "type": "text",
+      "placeholder": "如：广州地铁 18 号线万顷沙站基坑"
+    },
+    {
+      "key": "网形类型",
+      "label": "网形类型",
+      "type": "select",
+      "options": ["导线网", "水准网", "GPS 网", "三角网"]
+    },
+    {
+      "key": "起始周期",
+      "label": "起始周期",
+      "type": "number",
+      "placeholder": "如：1"
+    },
+    {
+      "key": "终止周期",
+      "label": "终止周期",
+      "type": "number",
+      "placeholder": "如：12"
+    },
+    {
+      "key": "数据目录",
+      "label": "数据目录",
+      "type": "text",
+      "placeholder": "如：/data/adjust/2026/"
+    },
+    {
+      "key": "基准点列表",
+      "label": "基准点（逗号分隔）",
+      "type": "text",
+      "placeholder": "如：BM01,BM02,BM03"
+    },
+    {
+      "key": "预警速率",
+      "label": "预警速率（mm/d）",
+      "type": "number",
+      "placeholder": "如：2"
+    }
+  ]
+}

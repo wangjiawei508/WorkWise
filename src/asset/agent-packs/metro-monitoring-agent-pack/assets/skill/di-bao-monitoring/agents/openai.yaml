@@ -1,0 +1,4 @@
+interface:
+  display_name: "地保监测"
+  short_description: "轨道交通控制保护区监测方案、周期报表、全站仪/静力水准穿越快报与预警资料"
+  default_prompt: "使用 $di-bao-monitoring 根据项目资料编写地保监测方案、初始值报告、日报周报月报、穿越工况自动化全站仪快报、上海华桓静力水准沉降快报、预警消警或项目总结。"

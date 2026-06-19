@@ -1,0 +1,2 @@
+project_name,period_label,report_cadence,report_start,report_end,initial_time,previous_time,current_time,monitoring_item,monitoring_method,structure_zone,point_id,ring_no,position_label,influence_zone,current_change_mm,rate_mm_per_d,cumulative_mm,warning_threshold_mm,alarm_threshold_mm,control_threshold_mm,same_direction_count,mean_rate_3_times_mm_per_d,validity,note
+{{项目全称}},{{第N期}},15min,{{YYYY-MM-DD HH:MM}},{{YYYY-MM-DD HH:MM}},{{YYYY-MM-DD HH:MM}},{{YYYY-MM-DD HH:MM}},{{YYYY-MM-DD HH:MM}},道床沉降,自动化全站仪,上行线,S001,{{环号或里程}},{{位置说明}},正投影区,0.0,0.00,0.0,5,7,10,,,,有效,{{来源说明}}

@@ -1,0 +1,42 @@
+{
+  "id": "bid-technical-proposal",
+  "name": "投标技术方案草案",
+  "category": "bid",
+  "description": "根据招标文件要点，自动起草技术方案，可指定资质与业绩",
+  "agent": "solution_architect",
+  "version": "1",
+  "prompt": "请根据以下招标信息起草技术方案草案：\n\n项目名称：{{项目名称}}\n招标人：{{招标单位}}\n服务内容：{{服务内容}}\n预计工期：{{工期天数}} 天\n特殊要求：{{特殊要求}}\n\n方案须包含：技术路线、人员配置、质量控制措施、仪器设备投入、进度安排、相关业绩说明。风格：专业严谨，符合《工程测量规范》GB 50026 要求。",
+  "variables": [
+    {
+      "key": "项目名称",
+      "label": "项目名称",
+      "type": "text",
+      "placeholder": "如：XX 市政管网普查项目"
+    },
+    {
+      "key": "招标单位",
+      "label": "招标单位",
+      "type": "text",
+      "placeholder": "如：XX 市水务局"
+    },
+    {
+      "key": "服务内容",
+      "label": "服务内容",
+      "type": "text",
+      "placeholder": "如：1:500 地形图测绘及管线普查"
+    },
+    {
+      "key": "工期天数",
+      "label": "工期（天）",
+      "type": "number",
+      "placeholder": "如：90"
+    },
+    {
+      "key": "特殊要求",
+      "label": "特殊要求",
+      "type": "text",
+      "placeholder": "如：需提供 CORS 网络使用权证明",
+      "required": false
+    }
+  ]
+}

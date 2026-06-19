@@ -3,6 +3,7 @@ import { readBrowserStorageItem, writeBrowserStorageItem } from './browser-stora
 export type SkillRootId =
   | 'workspace-agents'
   | 'workspace-skills'
+  | 'global-codex'
   | 'global-agents'
   | 'global-deepseek'
 
@@ -13,6 +14,7 @@ function isSkillRootId(value: string): value is SkillRootId {
   return (
     value === 'workspace-agents' ||
     value === 'workspace-skills' ||
+    value === 'global-codex' ||
     value === 'global-agents' ||
     value === 'global-deepseek'
   )

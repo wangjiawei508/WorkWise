@@ -29,6 +29,8 @@ const api = {
     ipcRenderer.invoke('skill:install-github', { rootPath, source }),
   installBundledSkill: (rootPath, source) =>
     ipcRenderer.invoke('skill:install-bundled', { rootPath, source }),
+  installBundledAgentPack: (source) =>
+    ipcRenderer.invoke('agent-pack:install-bundled', { source }),
   syncGithubSkills: (workspaceRoot) =>
     ipcRenderer.invoke('skill:sync-github', { workspaceRoot }),
   openSkillRoot: (rootPath) =>

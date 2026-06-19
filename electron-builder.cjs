@@ -112,6 +112,13 @@ module.exports = {
     '!**/CHANGELOG*',
     '!**/node_modules/openclaw/**/*'
   ],
+  extraResources: [
+    {
+      from: 'src/asset/agent-packs',
+      to: 'src/asset/agent-packs',
+      filter: ['**/*']
+    }
+  ],
   artifactName: `WORKGPT-${artifactVersion}-\${os}-\${arch}.\${ext}`,
   publish: hasGenericUpdateFeed
     ? [

@@ -1,0 +1,33 @@
+{
+  "id": "weekly-monitor-report",
+  "name": "地保监测周报",
+  "category": "report",
+  "description": "生成工作量、数据汇总、自动化人工对比和下周计划四件套",
+  "agent": "chief_manager",
+  "version": "1",
+  "prompt": "请为{{项目名称}}生成{{起始日期}}至{{结束日期}}地保监测周报。数据来源：{{数据来源}}。要求强制加载 report-dibao，输出周报四件套：工作量统计、数据汇总、自动化与人工对比、下周计划；自动化和人工统计期不一致时分别说明。",
+  "variables": [
+    {
+      "key": "项目名称",
+      "label": "项目名称",
+      "type": "text",
+      "placeholder": "如：宁波轨道交通保护区第三方监测项目"
+    },
+    {
+      "key": "起始日期",
+      "label": "起始日期",
+      "type": "date"
+    },
+    {
+      "key": "结束日期",
+      "label": "结束日期",
+      "type": "date"
+    },
+    {
+      "key": "数据来源",
+      "label": "数据来源",
+      "type": "text",
+      "placeholder": "如：input/locked-report-preview.json 或 /data/week/"
+    }
+  ]
+}
