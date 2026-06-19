@@ -1,0 +1,72 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema#",
+  "title": "RailwiseTemplate",
+  "type": "object",
+  "required": ["id", "name", "category", "agent", "prompt"],
+  "properties": {
+    "id": {
+      "type": "string",
+      "description": "全局唯一，kebab-case"
+    },
+    "name": {
+      "type": "string",
+      "description": "模板显示名"
+    },
+    "category": {
+      "enum": ["report", "bid", "data", "ppt"],
+      "description": "所属分组"
+    },
+    "description": {
+      "type": "string",
+      "description": "单句说明"
+    },
+    "agent": {
+      "type": "string",
+      "description": "目标 agent ID，对应 .railwise/agent/*.md"
+    },
+    "prompt": {
+      "type": "string",
+      "description": "预填 prompt，使用 {{变量名}} 占位符"
+    },
+    "variables": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/variable"
+      }
+    },
+    "version": {
+      "type": "string",
+      "default": "1"
+    }
+  },
+  "$defs": {
+    "variable": {
+      "type": "object",
+      "required": ["key", "label", "type"],
+      "properties": {
+        "key": {
+          "type": "string"
+        },
+        "label": {
+          "type": "string"
+        },
+        "type": {
+          "enum": ["text", "number", "date", "select", "mileage"]
+        },
+        "placeholder": {
+          "type": "string"
+        },
+        "required": {
+          "type": "boolean",
+          "default": true
+        },
+        "options": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  }
+}

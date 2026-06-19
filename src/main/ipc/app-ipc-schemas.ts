@@ -568,6 +568,13 @@ export const bundledSkillInstallPayloadSchema = z.object({
   }).strict()
 }).strict()
 
+export const bundledAgentPackInstallPayloadSchema = z.object({
+  source: z.object({
+    id: trimmedString(128),
+    rootPath: z.string().trim().max(MAX_PATH_LENGTH).optional()
+  }).strict()
+}).strict()
+
 export const githubSkillSyncPayloadSchema = z.object({
   workspaceRoot: z.string().trim().max(MAX_PATH_LENGTH).optional()
 }).strict()

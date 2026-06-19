@@ -1,0 +1,683 @@
+{
+  "name": "metro-monitoring-agent-pack",
+  "version": "1.2.34",
+  "displayName": "地铁监测与项目智能体套件",
+  "description": "内置地铁监测、项目资料、数据分析、报告生成、质量审查和常用工程工具的智能体套件。",
+  "agentAssets": [
+    {
+      "kind": "agent",
+      "name": "chief_manager",
+      "dir": "assets/agent/chief_manager.md",
+      "target": "chief_manager.md",
+      "profile": "business"
+    },
+    {
+      "kind": "agent",
+      "name": "commercial_specialist",
+      "dir": "assets/agent/commercial_specialist.md",
+      "target": "commercial_specialist.md",
+      "profile": "business"
+    },
+    {
+      "kind": "agent",
+      "name": "data_analyst",
+      "dir": "assets/agent/data_analyst.md",
+      "target": "data_analyst.md",
+      "profile": "business"
+    },
+    {
+      "kind": "agent",
+      "name": "docs",
+      "dir": "assets/agent/docs.md",
+      "target": "docs.md",
+      "profile": "business"
+    },
+    {
+      "kind": "agent",
+      "name": "duplicate-pr",
+      "dir": "assets/agent/duplicate-pr.md",
+      "target": "duplicate-pr.md",
+      "profile": "dev"
+    },
+    {
+      "kind": "agent",
+      "name": "qa_inspector",
+      "dir": "assets/agent/qa_inspector.md",
+      "target": "qa_inspector.md",
+      "profile": "business"
+    },
+    {
+      "kind": "agent",
+      "name": "qa_reviewer",
+      "dir": "assets/agent/qa_reviewer.md",
+      "target": "qa_reviewer.md",
+      "profile": "business"
+    },
+    {
+      "kind": "agent",
+      "name": "solution_architect",
+      "dir": "assets/agent/solution_architect.md",
+      "target": "solution_architect.md",
+      "profile": "business"
+    },
+    {
+      "kind": "agent",
+      "name": "technical_writer",
+      "dir": "assets/agent/technical_writer.md",
+      "target": "technical_writer.md",
+      "profile": "business"
+    },
+    {
+      "kind": "agent",
+      "name": "translator",
+      "dir": "assets/agent/translator.md",
+      "target": "translator.md",
+      "profile": "business"
+    },
+    {
+      "kind": "agent",
+      "name": "triage",
+      "dir": "assets/agent/triage.md",
+      "target": "triage.md",
+      "profile": "dev"
+    },
+    {
+      "kind": "command",
+      "name": "ai-deps",
+      "dir": "assets/command/ai-deps.md",
+      "target": "ai-deps.md",
+      "profile": "dev"
+    },
+    {
+      "kind": "command",
+      "name": "bid-intel",
+      "dir": "assets/command/bid-intel.md",
+      "target": "bid-intel.md",
+      "profile": "business"
+    },
+    {
+      "kind": "command",
+      "name": "bid-prepare",
+      "dir": "assets/command/bid-prepare.md",
+      "target": "bid-prepare.md",
+      "profile": "business"
+    },
+    {
+      "kind": "command",
+      "name": "commit",
+      "dir": "assets/command/commit.md",
+      "target": "commit.md",
+      "profile": "dev"
+    },
+    {
+      "kind": "command",
+      "name": "daily-report",
+      "dir": "assets/command/daily-report.md",
+      "target": "daily-report.md",
+      "profile": "business"
+    },
+    {
+      "kind": "command",
+      "name": "data-check",
+      "dir": "assets/command/data-check.md",
+      "target": "data-check.md",
+      "profile": "business"
+    },
+    {
+      "kind": "command",
+      "name": "emergency-response",
+      "dir": "assets/command/emergency-response.md",
+      "target": "emergency-response.md",
+      "profile": "business"
+    },
+    {
+      "kind": "command",
+      "name": "issues",
+      "dir": "assets/command/issues.md",
+      "target": "issues.md",
+      "profile": "dev"
+    },
+    {
+      "kind": "command",
+      "name": "learn",
+      "dir": "assets/command/learn.md",
+      "target": "learn.md",
+      "profile": "dev"
+    },
+    {
+      "kind": "command",
+      "name": "monthly-report",
+      "dir": "assets/command/monthly-report.md",
+      "target": "monthly-report.md",
+      "profile": "business"
+    },
+    {
+      "kind": "command",
+      "name": "payment-reminder",
+      "dir": "assets/command/payment-reminder.md",
+      "target": "payment-reminder.md",
+      "profile": "business"
+    },
+    {
+      "kind": "command",
+      "name": "plan-draft",
+      "dir": "assets/command/plan-draft.md",
+      "target": "plan-draft.md",
+      "profile": "business"
+    },
+    {
+      "kind": "command",
+      "name": "review-response",
+      "dir": "assets/command/review-response.md",
+      "target": "review-response.md",
+      "profile": "business"
+    },
+    {
+      "kind": "command",
+      "name": "rmslop",
+      "dir": "assets/command/rmslop.md",
+      "target": "rmslop.md",
+      "profile": "dev"
+    },
+    {
+      "kind": "command",
+      "name": "safety-check",
+      "dir": "assets/command/safety-check.md",
+      "target": "safety-check.md",
+      "profile": "business"
+    },
+    {
+      "kind": "command",
+      "name": "spellcheck",
+      "dir": "assets/command/spellcheck.md",
+      "target": "spellcheck.md",
+      "profile": "dev"
+    },
+    {
+      "kind": "command",
+      "name": "trend-analysis",
+      "dir": "assets/command/trend-analysis.md",
+      "target": "trend-analysis.md",
+      "profile": "business"
+    },
+    {
+      "kind": "command",
+      "name": "weekly-report",
+      "dir": "assets/command/weekly-report.md",
+      "target": "weekly-report.md",
+      "profile": "business"
+    },
+    {
+      "kind": "lib",
+      "name": "os_api.ts",
+      "dir": "assets/lib/os_api.ts",
+      "target": "os_api.ts",
+      "profile": "business"
+    },
+    {
+      "kind": "skill",
+      "name": "adjustment-report",
+      "dir": "assets/skill/adjustment-report",
+      "profile": "business"
+    },
+    {
+      "kind": "skill",
+      "name": "approval-flow-intelligence",
+      "dir": "assets/skill/approval-flow-intelligence",
+      "profile": "business"
+    },
+    {
+      "kind": "skill",
+      "name": "bidding-knowledge",
+      "dir": "assets/skill/bidding-knowledge",
+      "profile": "business"
+    },
+    {
+      "kind": "skill",
+      "name": "bun-file-io",
+      "dir": "assets/skill/bun-file-io",
+      "profile": "dev"
+    },
+    {
+      "kind": "skill",
+      "name": "business-finance",
+      "dir": "assets/skill/business-finance",
+      "profile": "business"
+    },
+    {
+      "kind": "skill",
+      "name": "business-operations-analytics",
+      "dir": "assets/skill/business-operations-analytics",
+      "profile": "business"
+    },
+    {
+      "kind": "skill",
+      "name": "cad-bim-review",
+      "dir": "assets/skill/cad-bim-review",
+      "profile": "business"
+    },
+    {
+      "kind": "skill",
+      "name": "canvas-design",
+      "dir": "assets/skill/canvas-design",
+      "profile": "business"
+    },
+    {
+      "kind": "skill",
+      "name": "construction-monitoring",
+      "dir": "assets/skill/construction-monitoring",
+      "profile": "business"
+    },
+    {
+      "kind": "skill",
+      "name": "customer-portal-brief",
+      "dir": "assets/skill/customer-portal-brief",
+      "profile": "business"
+    },
+    {
+      "kind": "skill",
+      "name": "data-analysis",
+      "dir": "assets/skill/data-analysis",
+      "profile": "business"
+    },
+    {
+      "kind": "skill",
+      "name": "di-bao-monitoring",
+      "dir": "assets/skill/di-bao-monitoring",
+      "profile": "business"
+    },
+    {
+      "kind": "skill",
+      "name": "docx-generation",
+      "dir": "assets/skill/docx-generation",
+      "profile": "business"
+    },
+    {
+      "kind": "skill",
+      "name": "excel-operations",
+      "dir": "assets/skill/excel-operations",
+      "profile": "business"
+    },
+    {
+      "kind": "skill",
+      "name": "frontend-design",
+      "dir": "assets/skill/frontend-design",
+      "profile": "dev"
+    },
+    {
+      "kind": "skill",
+      "name": "humanizer",
+      "dir": "assets/skill/humanizer",
+      "profile": "business"
+    },
+    {
+      "kind": "skill",
+      "name": "monitoring-design",
+      "dir": "assets/skill/monitoring-design",
+      "profile": "business"
+    },
+    {
+      "kind": "skill",
+      "name": "operational-monitoring",
+      "dir": "assets/skill/operational-monitoring",
+      "profile": "business"
+    },
+    {
+      "kind": "skill",
+      "name": "ops-monitoring",
+      "dir": "assets/skill/ops-monitoring",
+      "profile": "business"
+    },
+    {
+      "kind": "skill",
+      "name": "railwise-knowledge-curation",
+      "dir": "assets/skill/railwise-knowledge-curation",
+      "profile": "business"
+    },
+    {
+      "kind": "skill",
+      "name": "report-dibao",
+      "dir": "assets/skill/report-dibao",
+      "profile": "business"
+    },
+    {
+      "kind": "skill",
+      "name": "report-writing",
+      "dir": "assets/skill/report-writing",
+      "profile": "business"
+    },
+    {
+      "kind": "skill",
+      "name": "resource-dispatch-intelligence",
+      "dir": "assets/skill/resource-dispatch-intelligence",
+      "profile": "business"
+    },
+    {
+      "kind": "skill",
+      "name": "standard-reference",
+      "dir": "assets/skill/standard-reference",
+      "profile": "business"
+    },
+    {
+      "kind": "skill",
+      "name": "weekly-work-intelligence",
+      "dir": "assets/skill/weekly-work-intelligence",
+      "profile": "business"
+    },
+    {
+      "kind": "template",
+      "name": "adjustment-trend",
+      "dir": "assets/template/adjustment-trend.json",
+      "target": "adjustment-trend.json",
+      "profile": "business"
+    },
+    {
+      "kind": "template",
+      "name": "bid-technical-proposal",
+      "dir": "assets/template/bid-technical-proposal.json",
+      "target": "bid-technical-proposal.json",
+      "profile": "business"
+    },
+    {
+      "kind": "template",
+      "name": "compliance-review",
+      "dir": "assets/template/compliance-review.json",
+      "target": "compliance-review.json",
+      "profile": "business"
+    },
+    {
+      "kind": "template",
+      "name": "daily-monitor-report",
+      "dir": "assets/template/daily-monitor-report.json",
+      "target": "daily-monitor-report.json",
+      "profile": "business"
+    },
+    {
+      "kind": "template",
+      "name": "field-data-qa",
+      "dir": "assets/template/field-data-qa.json",
+      "target": "field-data-qa.json",
+      "profile": "business"
+    },
+    {
+      "kind": "template",
+      "name": "monitoring-plan",
+      "dir": "assets/template/monitoring-plan.json",
+      "target": "monitoring-plan.json",
+      "profile": "business"
+    },
+    {
+      "kind": "template",
+      "name": "monthly-monitor-report",
+      "dir": "assets/template/monthly-monitor-report.json",
+      "target": "monthly-monitor-report.json",
+      "profile": "business"
+    },
+    {
+      "kind": "template",
+      "name": "project-ppt",
+      "dir": "assets/template/project-ppt.json",
+      "target": "project-ppt.json",
+      "profile": "business"
+    },
+    {
+      "kind": "template",
+      "name": "review-response",
+      "dir": "assets/template/review-response.json",
+      "target": "review-response.json",
+      "profile": "business"
+    },
+    {
+      "kind": "template",
+      "name": "schema",
+      "dir": "assets/template/schema.json",
+      "target": "schema.json",
+      "profile": "business"
+    },
+    {
+      "kind": "template",
+      "name": "weekly-monitor-report",
+      "dir": "assets/template/weekly-monitor-report.json",
+      "target": "weekly-monitor-report.json",
+      "profile": "business"
+    },
+    {
+      "kind": "theme",
+      "name": "mytheme",
+      "dir": "assets/theme/mytheme.json",
+      "target": "mytheme.json",
+      "profile": "business"
+    },
+    {
+      "kind": "tool",
+      "name": "angle_convert.ts",
+      "dir": "assets/tool/angle_convert.ts",
+      "target": "angle_convert.ts",
+      "profile": "business"
+    },
+    {
+      "kind": "tool",
+      "name": "axial_force.ts",
+      "dir": "assets/tool/axial_force.ts",
+      "target": "axial_force.ts",
+      "profile": "business"
+    },
+    {
+      "kind": "tool",
+      "name": "chart_generator.ts",
+      "dir": "assets/tool/chart_generator.ts",
+      "target": "chart_generator.ts",
+      "profile": "business"
+    },
+    {
+      "kind": "tool",
+      "name": "control_network.ts",
+      "dir": "assets/tool/control_network.ts",
+      "target": "control_network.ts",
+      "profile": "business"
+    },
+    {
+      "kind": "tool",
+      "name": "coord_transform.ts",
+      "dir": "assets/tool/coord_transform.ts",
+      "target": "coord_transform.ts",
+      "profile": "business"
+    },
+    {
+      "kind": "tool",
+      "name": "cpiii_adjustment.ts",
+      "dir": "assets/tool/cpiii_adjustment.ts",
+      "target": "cpiii_adjustment.ts",
+      "profile": "business"
+    },
+    {
+      "kind": "tool",
+      "name": "cross_section.ts",
+      "dir": "assets/tool/cross_section.ts",
+      "target": "cross_section.ts",
+      "profile": "business"
+    },
+    {
+      "kind": "tool",
+      "name": "deformation_rate.ts",
+      "dir": "assets/tool/deformation_rate.ts",
+      "target": "deformation_rate.ts",
+      "profile": "business"
+    },
+    {
+      "kind": "tool",
+      "name": "distance_calculator.ts",
+      "dir": "assets/tool/distance_calculator.ts",
+      "target": "distance_calculator.ts",
+      "profile": "business"
+    },
+    {
+      "kind": "tool",
+      "name": "excel_export.ts",
+      "dir": "assets/tool/excel_export.ts",
+      "target": "excel_export.ts",
+      "profile": "business"
+    },
+    {
+      "kind": "tool",
+      "name": "format_parser.ts",
+      "dir": "assets/tool/format_parser.ts",
+      "target": "format_parser.ts",
+      "profile": "business"
+    },
+    {
+      "kind": "tool",
+      "name": "github-pr-search.ts",
+      "dir": "assets/tool/github-pr-search.ts",
+      "target": "github-pr-search.ts",
+      "profile": "dev"
+    },
+    {
+      "kind": "tool",
+      "name": "github-pr-search.txt",
+      "dir": "assets/tool/github-pr-search.txt",
+      "target": "github-pr-search.txt",
+      "profile": "dev"
+    },
+    {
+      "kind": "tool",
+      "name": "github-triage.ts",
+      "dir": "assets/tool/github-triage.ts",
+      "target": "github-triage.ts",
+      "profile": "dev"
+    },
+    {
+      "kind": "tool",
+      "name": "github-triage.txt",
+      "dir": "assets/tool/github-triage.txt",
+      "target": "github-triage.txt",
+      "profile": "dev"
+    },
+    {
+      "kind": "tool",
+      "name": "inclinometer.ts",
+      "dir": "assets/tool/inclinometer.ts",
+      "target": "inclinometer.ts",
+      "profile": "business"
+    },
+    {
+      "kind": "tool",
+      "name": "monitoring_csv.ts",
+      "dir": "assets/tool/monitoring_csv.ts",
+      "target": "monitoring_csv.ts",
+      "profile": "business"
+    },
+    {
+      "kind": "tool",
+      "name": "os_contract_query.ts",
+      "dir": "assets/tool/os_contract_query.ts",
+      "target": "os_contract_query.ts",
+      "profile": "business"
+    },
+    {
+      "kind": "tool",
+      "name": "os_dibao_project_files.ts",
+      "dir": "assets/tool/os_dibao_project_files.ts",
+      "target": "os_dibao_project_files.ts",
+      "profile": "business"
+    },
+    {
+      "kind": "tool",
+      "name": "os_file_download_ref.ts",
+      "dir": "assets/tool/os_file_download_ref.ts",
+      "target": "os_file_download_ref.ts",
+      "profile": "business"
+    },
+    {
+      "kind": "tool",
+      "name": "os_file_preview.ts",
+      "dir": "assets/tool/os_file_preview.ts",
+      "target": "os_file_preview.ts",
+      "profile": "business"
+    },
+    {
+      "kind": "tool",
+      "name": "os_gbrain_think.ts",
+      "dir": "assets/tool/os_gbrain_think.ts",
+      "target": "os_gbrain_think.ts",
+      "profile": "business"
+    },
+    {
+      "kind": "tool",
+      "name": "os_ppt_generate.ts",
+      "dir": "assets/tool/os_ppt_generate.ts",
+      "target": "os_ppt_generate.ts",
+      "profile": "business"
+    },
+    {
+      "kind": "tool",
+      "name": "os_project_context.ts",
+      "dir": "assets/tool/os_project_context.ts",
+      "target": "os_project_context.ts",
+      "profile": "business"
+    },
+    {
+      "kind": "tool",
+      "name": "os_report_publish.ts",
+      "dir": "assets/tool/os_report_publish.ts",
+      "target": "os_report_publish.ts",
+      "profile": "business"
+    },
+    {
+      "kind": "tool",
+      "name": "os_wiki_ingest.ts",
+      "dir": "assets/tool/os_wiki_ingest.ts",
+      "target": "os_wiki_ingest.ts",
+      "profile": "business"
+    },
+    {
+      "kind": "tool",
+      "name": "os_wiki_query.ts",
+      "dir": "assets/tool/os_wiki_query.ts",
+      "target": "os_wiki_query.ts",
+      "profile": "business"
+    },
+    {
+      "kind": "tool",
+      "name": "pile_stakeout.ts",
+      "dir": "assets/tool/pile_stakeout.ts",
+      "target": "pile_stakeout.ts",
+      "profile": "business"
+    },
+    {
+      "kind": "tool",
+      "name": "report_export.ts",
+      "dir": "assets/tool/report_export.ts",
+      "target": "report_export.ts",
+      "profile": "business"
+    },
+    {
+      "kind": "tool",
+      "name": "shield_guidance.ts",
+      "dir": "assets/tool/shield_guidance.ts",
+      "target": "shield_guidance.ts",
+      "profile": "business"
+    },
+    {
+      "kind": "tool",
+      "name": "standard_query.ts",
+      "dir": "assets/tool/standard_query.ts",
+      "target": "standard_query.ts",
+      "profile": "business"
+    },
+    {
+      "kind": "tool",
+      "name": "survey_calculator.ts",
+      "dir": "assets/tool/survey_calculator.ts",
+      "target": "survey_calculator.ts",
+      "profile": "business"
+    },
+    {
+      "kind": "tool",
+      "name": "water_level.ts",
+      "dir": "assets/tool/water_level.ts",
+      "target": "water_level.ts",
+      "profile": "business"
+    }
+  ]
+}

@@ -102,6 +102,13 @@ describe('electron-builder Kun packaging', () => {
     expect(builderConfig.files).not.toEqual(expect.arrayContaining([
       '!**/node_modules/openclaw/**/*'
     ]))
+    expect(builderConfig.extraResources).toEqual(expect.arrayContaining([
+      {
+        from: 'src/asset/agent-packs',
+        to: 'src/asset/agent-packs',
+        filter: ['**/*']
+      }
+    ]))
   })
 
   it('uses the Windows ICO asset for NSIS installers', () => {

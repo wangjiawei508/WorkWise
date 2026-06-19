@@ -31,6 +31,7 @@ import {
   clawImInstallPollPayloadSchema,
   confirmDialogPayloadSchema,
   clawTaskFromTextPayloadSchema,
+  bundledAgentPackInstallPayloadSchema,
   bundledSkillInstallPayloadSchema,
   deepseekConfigContentSchema,
   desktopCommandSchema,
@@ -102,6 +103,7 @@ import {
   listGuiSkills,
   syncGithubManagedSkills
 } from '../services/skill-service'
+import { installBundledAgentPack } from '../services/agent-pack-service'
 
 type GuiUpdaterModule = typeof import('../gui-updater')
 
@@ -615,6 +617,11 @@ export function registerAppIpcHandlers(options: RegisterAppIpcHandlersOptions): 
   ipcMain.handle('skill:install-bundled', async (_, payload: unknown) => {
     const request = parseIpcPayload('skill:install-bundled', bundledSkillInstallPayloadSchema, payload)
     return installBundledSkill(request.rootPath, request.source)
+  })
+
+  ipcMain.handle('agent-pack:install-bundled', async (_, payload: unknown) => {
+    const request = parseIpcPayload('agent-pack:install-bundled', bundledAgentPackInstallPayloadSchema, payload)
+    return installBundledAgentPack(request.source)
   })
 
   ipcMain.handle('skill:sync-github', async (_, payload: unknown) => {

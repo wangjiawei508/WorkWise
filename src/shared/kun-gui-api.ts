@@ -93,6 +93,10 @@ export type BundledSkillSource = {
   id: string
   skillName?: string
 }
+export type BundledAgentPackSource = {
+  id: string
+  rootPath?: string
+}
 export type GithubSkillInstallResult =
   | { ok: true; path: string; sha: string; updated: boolean }
   | { ok: false; message: string }
@@ -101,6 +105,15 @@ export type GithubSkillSyncResult =
   | { ok: false; message: string }
 export type BundledSkillInstallResult =
   | { ok: true; path: string; updated: boolean }
+  | { ok: false; message: string }
+export type BundledAgentPackInstallResult =
+  | {
+      ok: true
+      rootPath: string
+      manifestPath: string
+      installedAssets: number
+      counts: Record<string, number>
+    }
   | { ok: false; message: string }
 export type SkillListItem = {
   id: string
@@ -194,6 +207,7 @@ export type KunGuiApi = {
   saveSkillFile: (rootPath: string, skillName: string, content: string) => Promise<SkillSaveResult>
   installGithubSkill: (rootPath: string, source: GithubSkillSource) => Promise<GithubSkillInstallResult>
   installBundledSkill: (rootPath: string, source: BundledSkillSource) => Promise<BundledSkillInstallResult>
+  installBundledAgentPack: (source: BundledAgentPackSource) => Promise<BundledAgentPackInstallResult>
   syncGithubSkills: (workspaceRoot?: string) => Promise<GithubSkillSyncResult>
   openSkillRoot: (rootPath: string) => Promise<PathOpenResult>
   getKunConfigFile: () => Promise<DeepseekConfigFileResult>

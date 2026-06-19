@@ -1,0 +1,28 @@
+{
+  "id": "monitoring-plan",
+  "name": "监测方案初稿",
+  "category": "report",
+  "description": "按 16 章结构生成可内审的监测方案初稿",
+  "agent": "solution_architect",
+  "version": "1",
+  "prompt": "请为{{项目名称}}编制监测方案初稿。监测对象：{{监测对象}}。资料目录或摘要：{{资料来源}}。要求按 16 章结构输出，包含资料缺口、监测范围、测点布设、频率、报警值、控制网、应急预案，并附内审自查清单。",
+  "variables": [
+    {
+      "key": "项目名称",
+      "label": "项目名称",
+      "type": "text"
+    },
+    {
+      "key": "监测对象",
+      "label": "监测对象",
+      "type": "select",
+      "options": ["地铁区间", "地铁车站", "高架桥墩", "深基坑", "盾构穿越", "顶管穿越", "道路桥梁", "其他"]
+    },
+    {
+      "key": "资料来源",
+      "label": "资料来源",
+      "type": "text",
+      "placeholder": "如：/project/input 或粘贴资料摘要"
+    }
+  ]
+}

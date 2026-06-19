@@ -56,6 +56,8 @@ type MarketplaceItem = {
   skillInstructions?: string
   githubSkill?: GithubSkillSource
   bundledSkill?: BundledSkillSource
+  bundledAgentPack?: BundledAgentPackSource
+  bundledAgentPackSkillIds?: string[]
 }
 
 type JsonRecord = Record<string, unknown>
@@ -291,6 +293,10 @@ function githubSkillSourceKey(source: GithubSkillSource): string {
 
 function bundledSkillSourceKey(source: BundledSkillSource): string {
   return `bundled:${source.id.trim()}`
+}
+
+function bundledAgentPackSourceKey(source: BundledAgentPackSource): string {
+  return `bundled-agent-pack:${source.id.trim()}`
 }
 
 function discoveredSkillSourceKey(skill: SkillListItem): string {
@@ -539,10 +545,49 @@ const RECOMMENDED_ITEMS: MarketplaceItem[] = [
       )
   },
   {
+    id: 'metro-monitoring-agent-pack',
+    kind: 'skill',
+    titleKey: 'pluginSkillMetroMonitoringPackTitle',
+    descriptionKey: 'pluginSkillMetroMonitoringPackDesc',
+    group: 'recommended',
+    sourceLabelKey: 'pluginSkillSourceBundled',
+    statusTone: 'success',
+    bundledAgentPack: {
+      id: 'metro-monitoring-agent-pack'
+    },
+    bundledAgentPackSkillIds: [
+      'adjustment-report',
+      'approval-flow-intelligence',
+      'bidding-knowledge',
+      'bun-file-io',
+      'business-finance',
+      'business-operations-analytics',
+      'cad-bim-review',
+      'canvas-design',
+      'construction-monitoring',
+      'customer-portal-brief',
+      'data-analysis',
+      'di-bao-monitoring',
+      'docx-generation',
+      'excel-operations',
+      'frontend-design',
+      'humanizer',
+      'monitoring-design',
+      'operational-monitoring',
+      'ops-monitoring',
+      'railwise-knowledge-curation',
+      'report-dibao',
+      'report-writing',
+      'resource-dispatch-intelligence',
+      'standard-reference',
+      'weekly-work-intelligence'
+    ]
+  },
+  {
     id: 'di-bao-monitoring',
     kind: 'skill',
-    titleKey: 'pluginSkillRailwiseDibaoTitle',
-    descriptionKey: 'pluginSkillRailwiseDibaoDesc',
+    titleKey: 'pluginSkillDibaoMonitoringTitle',
+    descriptionKey: 'pluginSkillDibaoMonitoringDesc',
     group: 'recommended',
     sourceLabelKey: 'pluginSkillSourceBundled',
     statusTone: 'success',
@@ -706,6 +751,12 @@ export function PluginMarketplaceView(): ReactElement {
         label: t('pluginSkillRootWorkspaceSkills'),
         path: workspaceRoot ? joinFsPath(workspaceRoot, 'skills') : '',
         available: hasWorkspace
+      },
+      {
+        id: 'global-codex',
+        label: t('pluginSkillRootGlobalCodex'),
+        path: '~/.codex/skills',
+        available: true
       },
       {
         id: 'global-agents',
@@ -886,6 +937,13 @@ export function PluginMarketplaceView(): ReactElement {
     if (item.bundledSkill && discoveredSkillSourceKeys.has(bundledSkillSourceKey(item.bundledSkill))) {
       return true
     }
+    if (
+      item.bundledAgentPack &&
+      item.bundledAgentPackSkillIds?.length &&
+      item.bundledAgentPackSkillIds.every((id) => discoveredSkillIds.has(id))
+    ) {
+      return true
+    }
     if (item.kind === 'skill' && discoveredSkillIds.has(item.id)) return true
     if (item.kind === 'mcp' && discoveredMcpIds.has(item.id)) return true
     const key = storageKey(item.kind, item.id)
@@ -950,6 +1008,28 @@ export function PluginMarketplaceView(): ReactElement {
       if (item.kind === 'mcp') {
         if (!item.mcpConfig) return
         await appendMcpConfig(item.id, item.mcpConfig(workspaceRoot))
+        return
+      }
+
+      if (item.bundledAgentPack) {
+        if (typeof window.workgpt?.installBundledAgentPack !== 'function') {
+          setNotice({ tone: 'error', message: t('pluginSkillScanUnavailable') })
+          return
+        }
+        const result = await window.workgpt.installBundledAgentPack(item.bundledAgentPack)
+        if (!result.ok) {
+          setNotice({ tone: 'error', message: result.message })
+          return
+        }
+        markInstalled(storageKey('skill', item.id))
+        await refreshSkillList()
+        setNotice({
+          tone: 'success',
+          message: t('pluginAgentPackAdded', {
+            path: result.rootPath,
+            count: result.installedAssets
+          })
+        })
         return
       }
 

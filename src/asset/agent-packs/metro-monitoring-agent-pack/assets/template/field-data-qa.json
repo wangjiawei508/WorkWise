@@ -1,0 +1,47 @@
+{
+  "id": "field-data-qa",
+  "name": "外业数据首检",
+  "category": "data",
+  "description": "导入外业原始 CSV，自动执行点位重复检查、精度统计、超限提示",
+  "agent": "qa_inspector",
+  "version": "1",
+  "prompt": "请对以下外业数据进行首检：\n\n测区：{{测区名称}}\n坐标系：{{坐标系}}\n高程基准：{{高程基准}}\n数据文件：{{数据文件路径}}\n限差要求：平面 {{平面限差}} mm，高程 {{高程限差}} mm\n\n检查项目：\n1. 使用 rw_import_csv 导入数据并预览前 20 行\n2. 统计总点数、重复点、缺失字段\n3. 逐点检查是否超出限差（与已有控制点比对）\n4. 输出首检报告（Markdown 格式），超限点以红色标注",
+  "variables": [
+    {
+      "key": "测区名称",
+      "label": "测区名称",
+      "type": "text",
+      "placeholder": "如：竹料镇 B02 地块"
+    },
+    {
+      "key": "坐标系",
+      "label": "坐标系",
+      "type": "select",
+      "options": ["CGCS2000", "WGS84", "北京54", "西安80", "地方独立坐标系"]
+    },
+    {
+      "key": "高程基准",
+      "label": "高程基准",
+      "type": "select",
+      "options": ["1985国家高程基准", "珠江高程基准", "吴淞高程基准"]
+    },
+    {
+      "key": "数据文件路径",
+      "label": "数据文件路径",
+      "type": "text",
+      "placeholder": "如：/data/field/B02-20260520.csv"
+    },
+    {
+      "key": "平面限差",
+      "label": "平面限差（mm）",
+      "type": "number",
+      "placeholder": "如：50"
+    },
+    {
+      "key": "高程限差",
+      "label": "高程限差（mm）",
+      "type": "number",
+      "placeholder": "如：30"
+    }
+  ]
+}
