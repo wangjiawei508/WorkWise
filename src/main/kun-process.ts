@@ -44,6 +44,10 @@ import { defaultKunDataDir } from './runtime/kun-adapter'
 import { isKunHealthResponseBody } from './kun-health'
 import { appendManagedLogLine } from './logger'
 import { guiSkillRootsForRuntime, normalizeSkillRootPath } from './services/skill-service'
+import {
+  installBundledAgentPack,
+  METRO_MONITORING_AGENT_PACK_ID
+} from './services/agent-pack-service'
 
 let child: ChildProcess | null = null
 let childLogCapture: KunChildLogCapture | null = null
@@ -295,7 +299,14 @@ export function isKunChildRunning(): boolean {
   return child !== null && child.exitCode === null && child.signalCode === null
 }
 
-export async function startKunChild(settings: AppSettingsV1): Promise<void> {
+export type StartKunChildOptions = {
+  autoInstallBundledAgentPack?: boolean
+}
+
+export async function startKunChild(
+  settings: AppSettingsV1,
+  options: StartKunChildOptions = {}
+): Promise<void> {
   const runtime = resolveKunRuntimeSettings(settings)
   if (isKunChildRunning()) return
   if (!runtime.autoStart) return
@@ -311,6 +322,7 @@ export async function startKunChild(settings: AppSettingsV1): Promise<void> {
     )
   }
   const dataDir = resolveKunDataDir(runtime)
+  await ensureBundledAgentPackForRuntime(options)
   await syncGuiManagedKunConfig(dataDir, runtime, {
     scheduleMcp: {
       settings,
@@ -379,6 +391,15 @@ export async function startKunChild(settings: AppSettingsV1): Promise<void> {
     throw error
   }
   startedLogCapture.logLifecycle(`ready marker received on port ${runtime.port}`)
+}
+
+async function ensureBundledAgentPackForRuntime(options: StartKunChildOptions): Promise<void> {
+  if (options.autoInstallBundledAgentPack === false) return
+  const result = await installBundledAgentPack({ id: METRO_MONITORING_AGENT_PACK_ID })
+  const message = result.ok
+    ? `bundled agent pack ${METRO_MONITORING_AGENT_PACK_ID} available at ${result.rootPath} (${result.installedAssets} assets)`
+    : `bundled agent pack ${METRO_MONITORING_AGENT_PACK_ID} could not be installed: ${result.message}`
+  await appendManagedLogLine('kun', formatKunLogLine('lifecycle', undefined, message)).catch(() => undefined)
 }
 
 export async function syncGuiManagedKunConfig(

@@ -83,6 +83,7 @@ export async function guiSkillRootsForRuntime(
     join(workspaceRoot, 'skills')
   ])
   const globalRoots = [
+    process.env.CODEX_HOME ? join(normalizeSkillRootPath(process.env.CODEX_HOME), 'skills') : '',
     join(homedir(), '.codex', 'skills'),
     join(homedir(), '.agents', 'skills'),
     join(homedir(), '.kun', 'skills'),

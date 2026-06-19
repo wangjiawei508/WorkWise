@@ -5,6 +5,34 @@ import type { SkillsCapabilityConfig } from '../contracts/capabilities.js'
 
 const DEFAULT_ACTIVE_LIMIT = 3
 const DEFAULT_INSTRUCTION_BUDGET_BYTES = 24_000
+const MIN_BUDGETED_SKILL_BYTES = 500
+const GENERIC_KEYWORDS = new Set([
+  '帮我',
+  '我要',
+  '需要',
+  '一个',
+  '一份',
+  '这个',
+  '那个',
+  '这些',
+  '那些',
+  '一下',
+  '写一',
+  '生成',
+  '整理',
+  '输出',
+  '项目',
+  '工作',
+  '资料',
+  '文档',
+  '报告',
+  '方案',
+  '数据',
+  '分析',
+  '监测',
+  '编制',
+  '起草'
+])
 
 const SkillTriggerManifest = z.object({
   commands: z.array(z.string().min(1)).default([]),
@@ -199,6 +227,16 @@ export class SkillRuntime {
         matches.push({ skill, skillId: skill.id, reason: `pattern:${pattern}`, score: 500 + skill.priority })
         continue
       }
+      const inferred = inferredPromptMatch(skill, prompt)
+      if (inferred) {
+        matches.push({
+          skill,
+          skillId: skill.id,
+          reason: inferred.reason,
+          score: 350 + inferred.score + skill.priority
+        })
+        continue
+      }
       const fileType = skill.triggers.fileTypes.find((candidate) => fileTypes.has(normalizeFileType(candidate)))
       if (fileType) {
         matches.push({ skill, skillId: skill.id, reason: `fileType:${fileType}`, score: 300 + skill.priority })
@@ -312,16 +350,10 @@ function buildInjection(
   let injectedBytes = 0
   for (const match of active) {
     const skill = match.skill
-    const text = [
-      `Active Skill: ${skill.name} (${skill.id})`,
-      `Activation: ${match.reason}`,
-      skill.description ? `Description: ${skill.description}` : '',
-      skill.allowedTools.length ? `Allowed tools: ${skill.allowedTools.join(', ')}` : '',
-      skill.assets.length ? `Assets:\n${skill.assets.map((asset) => `- ${asset}`).join('\n')}` : '',
-      skill.entry
-    ].filter(Boolean).join('\n\n')
-    const bytes = Buffer.byteLength(text, 'utf8')
-    if (injectedBytes + bytes > budgetBytes) continue
+    const remainingBudget = budgetBytes - injectedBytes
+    const built = buildSkillInstruction(match, remainingBudget)
+    if (!built) continue
+    const { text, bytes } = built
     activeSkillIds.push(skill.id)
     instructions.push(text)
     injectedBytes += bytes
@@ -333,6 +365,55 @@ function buildInjection(
     ...(allowed.size > 0 ? { allowedToolNames: [...allowed].sort() } : {}),
     injectedBytes
   }
+}
+
+function buildSkillInstruction(
+  match: SkillActivation & { skill: LoadedSkill },
+  remainingBudgetBytes: number
+): { text: string; bytes: number } | null {
+  if (remainingBudgetBytes < MIN_BUDGETED_SKILL_BYTES) return null
+  const skill = match.skill
+  const fullHeader = skillInstructionHeader(match, false)
+  const fullText = [fullHeader, skill.entry].join('\n\n')
+  const fullBytes = Buffer.byteLength(fullText, 'utf8')
+  if (fullBytes <= remainingBudgetBytes) return { text: fullText, bytes: fullBytes }
+
+  const budgetedHeader = skillInstructionHeader(match, true)
+  const notice = [
+    'Skill entry is larger than the per-turn injection budget.',
+    'Use this excerpt first. If more detail is needed, read referenced files from the Skill root instead of asking the user to restate them.'
+  ].join(' ')
+  const prefix = [budgetedHeader, notice].join('\n\n')
+  const prefixBytes = Buffer.byteLength(prefix, 'utf8')
+  const suffix = '[Skill excerpt truncated]'
+  const excerptOverheadBytes = Buffer.byteLength(`\n\n\n\n${suffix}`, 'utf8')
+  let excerptBudget = remainingBudgetBytes - prefixBytes - excerptOverheadBytes
+  if (excerptBudget < 120) return null
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const excerpt = clipUtf8(skill.entry, excerptBudget)
+    const text = [prefix, excerpt, suffix].join('\n\n')
+    const bytes = Buffer.byteLength(text, 'utf8')
+    if (bytes <= remainingBudgetBytes) return { text, bytes }
+    excerptBudget -= bytes - remainingBudgetBytes + 16
+    if (excerptBudget < 120) return null
+  }
+  return null
+}
+
+function skillInstructionHeader(
+  match: SkillActivation & { skill: LoadedSkill },
+  includePaths: boolean
+): string {
+  const skill = match.skill
+  return [
+    `Active Skill: ${skill.name} (${skill.id})`,
+    `Activation: ${match.reason}`,
+    skill.description ? `Description: ${skill.description}` : '',
+    includePaths ? `Skill root: ${skill.root}` : '',
+    includePaths ? `Skill entry: ${skill.entryPath}` : '',
+    skill.allowedTools.length ? `Allowed tools: ${skill.allowedTools.join(', ')}` : '',
+    skill.assets.length ? `Assets:\n${skill.assets.map((asset) => `- ${asset}`).join('\n')}` : ''
+  ].filter(Boolean).join('\n\n')
 }
 
 function blockedToolsFor(skills: LoadedSkill[], allowedToolNames: string[] | undefined): string[] {
@@ -376,6 +457,97 @@ function safePatternMatches(pattern: string, prompt: string): boolean {
   } catch {
     return false
   }
+}
+
+function inferredPromptMatch(
+  skill: LoadedSkill,
+  prompt: string
+): { reason: string; score: number } | undefined {
+  const keywords = promptKeywords(prompt)
+  if (keywords.length === 0) return undefined
+  const searchText = searchableSkillText(skill)
+  const hits: string[] = []
+  let score = 0
+  for (const keyword of keywords) {
+    if (!searchText.includes(keyword)) continue
+    hits.push(keyword)
+    score += keywordScore(keyword)
+  }
+  if (score < 5 || !hits.some((hit) => isDistinctiveKeyword(hit))) return undefined
+  return {
+    reason: `text:${hits.slice(0, 4).join(',')}`,
+    score
+  }
+}
+
+function searchableSkillText(skill: LoadedSkill): string {
+  const entryLead = firstMarkdownParagraph(stripLeadingFrontmatter(skill.entry)) ?? ''
+  return normalizeSearchText([
+    skill.id,
+    skill.name,
+    skill.description ?? '',
+    entryLead
+  ].join('\n'))
+}
+
+function stripLeadingFrontmatter(content: string): string {
+  const match = /^---\r?\n[\s\S]*?\r?\n---/.exec(content)
+  return match ? content.slice(match[0].length) : content
+}
+
+function promptKeywords(prompt: string): string[] {
+  const normalized = normalizeSearchText(prompt)
+  const out = new Set<string>()
+  for (const match of normalized.matchAll(/[a-z0-9][a-z0-9_-]{2,}/g)) {
+    addKeyword(out, match[0])
+  }
+  for (const match of normalized.matchAll(/\p{Script=Han}+/gu)) {
+    const chars = Array.from(match[0])
+    for (let size = 2; size <= Math.min(6, chars.length); size += 1) {
+      for (let index = 0; index + size <= chars.length; index += 1) {
+        addKeyword(out, chars.slice(index, index + size).join(''))
+      }
+    }
+  }
+  return [...out].sort((a, b) => b.length - a.length || a.localeCompare(b))
+}
+
+function addKeyword(out: Set<string>, keyword: string): void {
+  const value = keyword.trim().toLowerCase()
+  if (value.length < 2 || GENERIC_KEYWORDS.has(value)) return
+  out.add(value)
+}
+
+function keywordScore(keyword: string): number {
+  if (/^\p{Script=Han}+$/u.test(keyword)) {
+    return Math.min(8, Math.max(2, keyword.length))
+  }
+  return Math.min(6, Math.max(2, Math.floor(keyword.length / 2)))
+}
+
+function isDistinctiveKeyword(keyword: string): boolean {
+  return !GENERIC_KEYWORDS.has(keyword) && (
+    keyword.length >= 3 ||
+    /^\p{Script=Han}{2}$/u.test(keyword) ||
+    /^[a-z0-9][a-z0-9_-]{3,}$/i.test(keyword)
+  )
+}
+
+function normalizeSearchText(value: string): string {
+  return value.normalize('NFKC').toLowerCase()
+}
+
+function clipUtf8(value: string, maxBytes: number): string {
+  if (Buffer.byteLength(value, 'utf8') <= maxBytes) return value
+  let out = ''
+  let bytes = 0
+  for (const char of value) {
+    const charBytes = Buffer.byteLength(char, 'utf8')
+    if (bytes + charBytes > maxBytes) break
+    out += char
+    bytes += charBytes
+  }
+  return out.trimEnd()
 }
 
 function fileTypesFrom(paths: readonly string[], prompt: string): Set<string> {

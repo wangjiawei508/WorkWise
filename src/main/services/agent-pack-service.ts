@@ -37,6 +37,7 @@ type AgentPackAssetSourceMetadata = {
 const AGENT_PACK_SOURCE_METADATA_FILE = '.workgpt-agent-pack-source.json'
 const AGENT_PACK_MANIFEST_DIR = '.workgpt-agent-packs'
 const MAX_AGENT_PACK_ASSETS = 256
+export const METRO_MONITORING_AGENT_PACK_ID = 'metro-monitoring-agent-pack'
 const CODEX_AGENT_PACK_LAYOUT: Record<AgentAssetKind, string> = {
   agent: 'agents',
   skill: 'skills',
