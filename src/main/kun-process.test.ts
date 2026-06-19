@@ -98,7 +98,10 @@ describe('startKunChild', () => {
       ].join('\n')
     )
     const module = await import('./kun-process')
-    await expect(module.startKunChild(createSettings(script))).resolves.toBeUndefined()
+    await expect(module.startKunChild(
+      createSettings(script),
+      { autoInstallBundledAgentPack: false }
+    )).resolves.toBeUndefined()
     expect(module.isKunChildRunning()).toBe(true)
     await module.stopKunChildAndWait()
     const logText = await readKunLog()
@@ -115,7 +118,10 @@ describe('startKunChild', () => {
       ].join('\n')
     )
     const module = await import('./kun-process')
-    await expect(module.startKunChild(createSettings(script))).rejects.toThrow(
+    await expect(module.startKunChild(
+      createSettings(script),
+      { autoInstallBundledAgentPack: false }
+    )).rejects.toThrow(
       /Kun exited during startup with code 23[\s\S]*bind failed on port 8899/
     )
     expect(module.isKunChildRunning()).toBe(false)
@@ -279,29 +285,39 @@ describe('syncGuiManagedKunConfig', () => {
     if (!tempRoot) throw new Error('temp root not initialized')
     const configPath = join(tempRoot, 'config.json')
     const module = await import('./kun-process')
+    const originalCodexHome = process.env.CODEX_HOME
     const settings = createSettings('/tmp/fake-kun-child.js')
     const workspaceRoot = join(tempRoot, 'workspace')
     const extraRoot = join(tempRoot, 'extra-skills')
+    const codexHome = join(tempRoot, 'codex-home')
     settings.workspaceRoot = workspaceRoot
     settings.claw.skills.extraDirs = [extraRoot]
     mkdirSync(join(workspaceRoot, '.codex', 'skills'), { recursive: true })
+    mkdirSync(join(codexHome, 'skills'), { recursive: true })
+    process.env.CODEX_HOME = codexHome
 
-    await module.syncGuiManagedKunConfig(tempRoot, defaultKunRuntimeSettings(), {
-      scheduleMcp: {
-        settings,
-        launch: {
-          appPath: '/tmp/workgpt-test-app',
-          execPath: '/tmp/electron',
-          isPackaged: false
+    try {
+      await module.syncGuiManagedKunConfig(tempRoot, defaultKunRuntimeSettings(), {
+        scheduleMcp: {
+          settings,
+          launch: {
+            appPath: '/tmp/workgpt-test-app',
+            execPath: '/tmp/electron',
+            isPackaged: false
+          }
         }
-      }
-    })
+      })
+    } finally {
+      if (originalCodexHome === undefined) delete process.env.CODEX_HOME
+      else process.env.CODEX_HOME = originalCodexHome
+    }
 
     const parsed = JSON.parse(readFileSync(configPath, 'utf8')) as any
     expect(parsed.capabilities.skills.enabled).toBe(true)
     expect(parsed.capabilities.skills.legacySkillMd).toBe(true)
     expect(parsed.capabilities.skills.roots).toEqual(expect.arrayContaining([
       join(workspaceRoot, '.codex', 'skills'),
+      join(codexHome, 'skills'),
       extraRoot
     ]))
   })

@@ -70,6 +70,68 @@ describe('SkillRuntime', () => {
     }))
   })
 
+  it('matches legacy Skills from Chinese descriptions without requiring /skill syntax', async () => {
+    await writeLegacySkill('monitoring-design', [
+      '---',
+      'name: monitoring-design',
+      'description: "工程监测方案设计专业技能包。"',
+      '---',
+      '',
+      '# 监测方案设计',
+      '',
+      '用于常规监测方案起草。'
+    ].join('\n'))
+    await writeLegacySkill('di-bao-monitoring', [
+      '---',
+      'name: di-bao-monitoring',
+      'description: "用于轨道交通控制保护区/地铁保护区第三方监测成果编制：资料清单、方案、日报周报月报、预警报警消警。适用于地保监测。"',
+      '---',
+      '',
+      '# 地保监测综合 Skill',
+      '',
+      '当用户说“写地保监测方案”时，先建立项目资料卡；资料不足时使用占位符继续起草。'
+    ].join('\n'))
+
+    const runtime = await createRuntime()
+    const resolution = runtime.resolveTurn({
+      prompt: '我要写一份地保监测的方案',
+      workspace: root
+    })
+
+    expect(resolution.activations[0]).toMatchObject({
+      skillId: 'di-bao-monitoring'
+    })
+    expect(resolution.activeSkillIds).toContain('di-bao-monitoring')
+    expect(resolution.instructions.join('\n')).toContain('地保监测综合 Skill')
+  })
+
+  it('injects a budgeted excerpt when a matched Skill is larger than the instruction budget', async () => {
+    await writeLegacySkill('di-bao-monitoring', [
+      '---',
+      'name: di-bao-monitoring',
+      'description: "用于地保监测方案、日报周报月报和评审回复。"',
+      '---',
+      '',
+      '# 地保监测综合 Skill',
+      '',
+      '资料不足时保留 {{占位符}}，不要停在追问。',
+      '',
+      'x'.repeat(20_000)
+    ].join('\n'))
+
+    const runtime = await createRuntime({ instructionBudgetBytes: 2_000 })
+    const resolution = runtime.resolveTurn({
+      prompt: '帮我写地保监测方案',
+      workspace: root
+    })
+
+    expect(resolution.activeSkillIds).toEqual(['di-bao-monitoring'])
+    expect(resolution.injectedBytes).toBeLessThanOrEqual(2_000)
+    expect(resolution.instructions[0]).toContain('Skill entry is larger than the per-turn injection budget.')
+    expect(resolution.instructions[0]).toContain('资料不足时保留 {{占位符}}')
+    expect(resolution.instructions[0]).toContain('[Skill excerpt truncated]')
+  })
+
   it('keeps skill.json manifests with Chinese names from collapsing to one id', async () => {
     await writeSkill('review-cn', {
       name: '代码审查',
@@ -107,8 +169,9 @@ describe('SkillRuntime', () => {
     })
 
     expect(resolution.activations.map((activation) => activation.skillId)).toEqual(['big', 'small'])
-    expect(resolution.activeSkillIds).toEqual(['small'])
-    expect(resolution.instructions[0]).toContain('small instructions')
+    expect(resolution.activeSkillIds).toEqual(['big'])
+    expect(resolution.injectedBytes).toBeLessThanOrEqual(600)
+    expect(resolution.instructions[0]).toContain('Skill entry is larger than the per-turn injection budget.')
   })
 
   it('injects allowed tool constraints and blocks omitted tools', async () => {
@@ -251,5 +314,11 @@ describe('SkillRuntime', () => {
     const entryName = typeof manifest.entry === 'string' ? manifest.entry : 'SKILL.md'
     await writeFile(join(dir, 'skill.json'), JSON.stringify(manifest), 'utf8')
     await writeFile(join(dir, entryName), entry, 'utf8')
+  }
+
+  async function writeLegacySkill(folder: string, entry: string): Promise<void> {
+    const dir = join(root, folder)
+    await mkdir(dir, { recursive: true })
+    await writeFile(join(dir, 'SKILL.md'), entry, 'utf8')
   }
 })
