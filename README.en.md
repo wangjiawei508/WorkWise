@@ -15,9 +15,9 @@
 
 Kun (formerly DeepSeek GUI) is a local desktop workbench for developers and frequent AI users. It uses its namesake local runtime (shipped under `kun/`) as the only agent runtime and turns the terminal agent experience into an easier, longer-lived app: choose a workspace, start a task, watch reasoning and tool calls stream in, review file changes, and approve sensitive actions when needed.
 
-## Positioning
+## Why WorkWise
 
-WorkWise is intended to grow into a practical AI workbench for engineering teams:
+Engineering and monitoring services are moving from single-project delivery toward broader digital operations. Teams now need to handle a connected workflow:
 
 <p align="center">
   <a href="src/asset/img/code.mp4">
@@ -32,24 +32,20 @@ WorkWise is intended to grow into a practical AI workbench for engineering teams
 
 | Status | Scope |
 | --- | --- |
-| Ready now | Code workbench, Write workbench, model settings, workspace threads, bundled engineering Skills, Help center, download links, and GUI update checks |
-| Preview | MCP marketplace, GitHub Skill sync, complex Markdown/DOCX export, phone connections, and scheduled automation |
-| Roadmap | Infrastructure inspection, urban renewal, digital twins, operations analytics, bidding support, enterprise knowledge bases, and more industry agent packs |
+| Ready now | Code workbench, Write workbench, model settings, workspace sessions, bundled engineering Skills, Help center, download links, GUI update checks |
+| Preview | MCP marketplace, GitHub Skill sync, complex Markdown/DOCX export, phone connection, scheduled automation |
+| Roadmap | Infrastructure inspection, urban renewal, digital twins, operations analytics, bidding support, enterprise knowledge bases, more industry agent packs |
 
 ## Key Features
 
-- **Code workbench**: choose a workspace, start a thread, review reasoning, tool calls, todos, file changes, and command approvals.
-- **Write mode**: manage Markdown/TXT files, use Live/Source/Split/Preview views, run writing actions, and use cross-document context.
-- **Markdown export**: export HTML, PDF, DOC, and DOCX. PDF uses bundled Chromium; DOC uses Word-compatible HTML; DOCX prefers platform converters and falls back to the built-in WorkWise generator.
-- **Engineering Skills**: protection-area monitoring, operation-period monitoring, engineering plans, report writing, data analysis, bidding knowledge, standards lookup, spreadsheets, and document generation.
-- **Writing Skills**: humanization, style modeling, long-form writing, AI-trace review, and Chinese writing polish.
-- **Marketplace details**: MCP and Skill items include detail pages, descriptions, source links, and install state.
-- **Connect phone**: connect Feishu / Lark, WeChat, or local webhooks for IM agents and background scheduled tasks.
-- **Online updates**: check GitHub Releases or a configured update feed from Settings.
+### Code Workbench
 
-## Downloads
+Useful for development, code review, requirements breakdown, scripts, and repository-based automation.
 
-Download from [GitHub Releases](https://github.com/wangjiawei508/WORKGPT/releases). Future public releases ship only three installers:
+- Choose a local project folder and start a session.
+- Review reasoning, tool calls, todos, command approvals, and file changes.
+- Collaborate on implementation, testing, building, and release tasks.
+- Use it for software projects or document/template repositories.
 
 - **Desktop chat workbench**: multi-session chat with streamed replies, reasoning, tool calls, approval requests, and file changes in one place.
 - **Project workspaces**: choose a local directory for each task, organize sessions by workspace, preview files, open files in your editor, and pick Git branches.
@@ -199,11 +195,50 @@ A dedicated Markdown writing workbench that keeps writing files, save state, and
 | macOS Intel | `WorkWise-version-mac-Intel.dmg` |
 | Windows x64 | `WorkWise-version-win-x64.exe` |
 
-Linux clients are not published. On first launch, configure a DeepSeek API key or a compatible Base URL/model provider in Settings.
+Linux clients and intermediate build files are not published as public release assets.
 
-## Local Data
+### 2. Configure Models
 
-For upgrade compatibility, some internal paths still keep the old `workgpt` name:
+On first launch:
+
+- Add a DeepSeek API key, or configure an OpenAI / DeepSeek compatible model service.
+- Set Base URL, default model, and proxy settings if needed.
+- Check GUI updates to confirm you are on the latest version.
+
+### 3. Use Code Workbench
+
+1. Select a local project or document folder.
+2. Ask a task such as "review this release configuration" or "organize these monitoring report templates".
+3. Inspect analysis, commands, file changes, and todos in the timeline.
+4. Approve sensitive commands only after reading the prompt.
+
+### 4. Use Write Workbench
+
+1. Create or open a Markdown / TXT file.
+2. Write in `Live` or `Split` mode.
+3. Select text and ask WorkWise to rewrite, polish, expand, shorten, or align style.
+4. Export to PDF, DOC, DOCX, or HTML.
+5. Review formal deliverables manually before sending.
+
+### 5. Use Skills and Plugins
+
+1. Open Skills or the marketplace from Settings.
+2. Read the extension details and confirm it fits your task.
+3. Install or enable the Skill / MCP.
+4. Use it in Code, Write, phone connection, or scheduled tasks.
+
+## Suggested Use Cases
+
+- Draft monitoring plans for rail protection areas, operation-period monitoring, pits, and structural health monitoring.
+- Produce daily, weekly, monthly, summary, review-response, and technical-report documents.
+- Organize project materials into a Markdown knowledge base and export to Word / PDF.
+- Analyze bidding documents, scoring points, technical responses, and writing quality.
+- Prepare department weekly reports, business briefs, risk lists, and management updates.
+- Build reusable Skills, templates, standards references, and delivery methods for a team.
+
+## Local Data and Privacy
+
+WorkWise is local-first. For historical compatibility, some default paths still use the `workgpt` name:
 
 ### Connect Phone
 
@@ -230,10 +265,10 @@ Download the latest build from [GitHub Releases](https://github.com/KunAgent/Kun
 | --- | --- |
 | Default workspace | `~/.workgpt/default_workspace` |
 | Write workspace | `~/.workgpt/write_workspace` |
-| Kun runtime and sessions | `~/.workgpt/kun` or the OS app-data directory |
+| Runtime and sessions | `~/.workgpt/kun` or the OS app-data directory |
 | Settings | macOS: `~/Library/Application Support/WorkWise/workgpt-settings.json`; Windows: `%APPDATA%\WorkWise\workgpt-settings.json` |
 
-WorkWise will try to read existing settings from old `WORKGPT` / `workgpt` app-data folders during upgrade.
+Uninstalling the app does not automatically delete these files. Before a full cleanup, make sure you no longer need historical sessions, MCP configuration, Skills, or writing files.
 
 ## Development
 
@@ -244,7 +279,7 @@ npm install
 npm run dev
 ```
 
-Useful checks:
+Useful commands:
 
 ```bash
 npm run typecheck
@@ -254,11 +289,19 @@ npm run build
 npm run generate:icons
 ```
 
+Packaging:
+
+```bash
+npm run dist:mac
+npm run dist:win
+```
+
 ## Release Rules
 
-- WorkWise starts at version `0.2.0`.
-- Public GitHub Release assets are limited to macOS Apple Silicon DMG, macOS Intel DMG, and Windows x64 EXE.
-- Linux clients, intermediate build files, blockmaps, and update metadata are not published as user-facing assets.
+- Public releases contain only three user-facing installers: macOS Apple Silicon, macOS Intel, and Windows x64.
+- Linux clients are not published.
+- zip files, blockmaps, latest yml files, and intermediate artifacts are not published as user-facing assets.
+- Installer names explicitly identify Apple Silicon, Intel, and win-x64.
 
 1. Open Kun.
 2. Choose your interface language in the onboarding guide.
