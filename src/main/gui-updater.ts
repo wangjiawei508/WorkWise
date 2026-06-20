@@ -17,7 +17,7 @@ import { DEFAULT_GUI_UPDATE_CHANNEL, normalizeGuiUpdateChannel } from '../shared
 
 const DEFAULT_R2_PUBLIC_BASE_URL = 'https://downloads.example.com/workgpt'
 const DEFAULT_R2_RELEASE_PREFIX = 'workgpt'
-const DEFAULT_GITHUB_REPO = 'wangjiawei508/WORKGPT'
+const DEFAULT_GITHUB_REPO = 'wangjiawei508/WorkWise'
 const { autoUpdater } = electronUpdater
 
 let initialized = false

@@ -421,7 +421,7 @@ const RECOMMENDED_ITEMS: MarketplaceItem[] = [
     titleKey: 'pluginMcpGuiScheduleTitle',
     descriptionKey: 'pluginMcpGuiScheduleDesc',
     detailKey: 'pluginMcpGuiScheduleDetail',
-    sourceUrl: 'https://github.com/wangjiawei508/WORKGPT',
+    sourceUrl: 'https://github.com/wangjiawei508/WorkWise',
     group: 'recommended',
     systemManaged: true
   },
@@ -601,7 +601,7 @@ const RECOMMENDED_ITEMS: MarketplaceItem[] = [
     titleKey: 'pluginSkillMetroMonitoringPackTitle',
     descriptionKey: 'pluginSkillMetroMonitoringPackDesc',
     detailKey: 'pluginSkillMetroMonitoringPackDetail',
-    sourceUrl: 'https://github.com/wangjiawei508/WORKGPT',
+    sourceUrl: 'https://github.com/wangjiawei508/WorkWise',
     group: 'recommended',
     sourceLabelKey: 'pluginSkillSourceBundled',
     statusTone: 'success',
@@ -642,7 +642,7 @@ const RECOMMENDED_ITEMS: MarketplaceItem[] = [
     titleKey: 'pluginSkillDibaoMonitoringTitle',
     descriptionKey: 'pluginSkillDibaoMonitoringDesc',
     detailKey: 'pluginSkillDibaoMonitoringDetail',
-    sourceUrl: 'https://github.com/wangjiawei508/WORKGPT',
+    sourceUrl: 'https://github.com/wangjiawei508/WorkWise',
     group: 'recommended',
     sourceLabelKey: 'pluginSkillSourceBundled',
     statusTone: 'success',
@@ -657,7 +657,7 @@ const RECOMMENDED_ITEMS: MarketplaceItem[] = [
     titleKey: 'pluginSkillOperationalMonitoringTitle',
     descriptionKey: 'pluginSkillOperationalMonitoringDesc',
     detailKey: 'pluginSkillOperationalMonitoringDetail',
-    sourceUrl: 'https://github.com/wangjiawei508/WORKGPT',
+    sourceUrl: 'https://github.com/wangjiawei508/WorkWise',
     group: 'recommended',
     sourceLabelKey: 'pluginSkillSourceBundled',
     statusTone: 'success',
@@ -821,7 +821,7 @@ const RECOMMENDED_ITEMS: MarketplaceItem[] = [
     kind: 'skill',
     titleKey: 'pluginSkillReviewTitle',
     descriptionKey: 'pluginSkillReviewDesc',
-    sourceUrl: 'https://github.com/wangjiawei508/WORKGPT',
+    sourceUrl: 'https://github.com/wangjiawei508/WorkWise',
     group: 'recommended',
     skillInstructions:
       'Use this skill when reviewing a code change. Prioritize correctness, regressions, security, performance, and missing tests. Lead with concrete findings and file references.'
@@ -831,7 +831,7 @@ const RECOMMENDED_ITEMS: MarketplaceItem[] = [
     kind: 'skill',
     titleKey: 'pluginSkillFrontendTitle',
     descriptionKey: 'pluginSkillFrontendDesc',
-    sourceUrl: 'https://github.com/wangjiawei508/WORKGPT',
+    sourceUrl: 'https://github.com/wangjiawei508/WorkWise',
     group: 'recommended',
     skillInstructions:
       'Use this skill when improving UI. Preserve the product style, check responsive states, avoid generic layouts, and verify the result visually before handing it back.'
@@ -841,7 +841,7 @@ const RECOMMENDED_ITEMS: MarketplaceItem[] = [
     kind: 'skill',
     titleKey: 'pluginSkillBugTitle',
     descriptionKey: 'pluginSkillBugDesc',
-    sourceUrl: 'https://github.com/wangjiawei508/WORKGPT',
+    sourceUrl: 'https://github.com/wangjiawei508/WorkWise',
     group: 'recommended',
     skillInstructions:
       'Use this skill when investigating bugs. Reproduce or narrow the symptom, trace the data flow, identify the smallest fix, and add focused verification where possible.'
@@ -851,7 +851,7 @@ const RECOMMENDED_ITEMS: MarketplaceItem[] = [
     kind: 'skill',
     titleKey: 'pluginSkillReleaseTitle',
     descriptionKey: 'pluginSkillReleaseDesc',
-    sourceUrl: 'https://github.com/wangjiawei508/WORKGPT',
+    sourceUrl: 'https://github.com/wangjiawei508/WorkWise',
     group: 'recommended',
     skillInstructions:
       'Use this skill when preparing release notes. Group user-facing changes by outcome, call out migrations or risks, and keep wording concise and scannable.'
@@ -861,7 +861,7 @@ const RECOMMENDED_ITEMS: MarketplaceItem[] = [
     kind: 'skill',
     titleKey: 'pluginSkillDocBriefTitle',
     descriptionKey: 'pluginSkillDocBriefDesc',
-    sourceUrl: 'https://github.com/wangjiawei508/WORKGPT',
+    sourceUrl: 'https://github.com/wangjiawei508/WorkWise',
     group: 'recommended',
     skillInstructions:
       'Use this skill when turning rough notes, files, or meeting context into a structured document brief. Clarify audience, purpose, source material, constraints, outline, and acceptance criteria before drafting.'
@@ -871,7 +871,7 @@ const RECOMMENDED_ITEMS: MarketplaceItem[] = [
     kind: 'skill',
     titleKey: 'pluginSkillTestPlanTitle',
     descriptionKey: 'pluginSkillTestPlanDesc',
-    sourceUrl: 'https://github.com/wangjiawei508/WORKGPT',
+    sourceUrl: 'https://github.com/wangjiawei508/WorkWise',
     group: 'recommended',
     skillInstructions:
       'Use this skill when planning verification. Cover happy paths, edge cases, regression risks, fixtures, automation targets, manual checks, and release blockers.'
@@ -881,7 +881,7 @@ const RECOMMENDED_ITEMS: MarketplaceItem[] = [
     kind: 'skill',
     titleKey: 'pluginSkillSqlAnalysisTitle',
     descriptionKey: 'pluginSkillSqlAnalysisDesc',
-    sourceUrl: 'https://github.com/wangjiawei508/WORKGPT',
+    sourceUrl: 'https://github.com/wangjiawei508/WorkWise',
     group: 'recommended',
     skillInstructions:
       'Use this skill when inspecting relational data or writing SQL. Identify tables, joins, filters, aggregation grain, null handling, indexes, and validation queries before presenting conclusions.'
@@ -891,7 +891,7 @@ const RECOMMENDED_ITEMS: MarketplaceItem[] = [
     kind: 'skill',
     titleKey: 'pluginSkillMeetingNotesTitle',
     descriptionKey: 'pluginSkillMeetingNotesDesc',
-    sourceUrl: 'https://github.com/wangjiawei508/WORKGPT',
+    sourceUrl: 'https://github.com/wangjiawei508/WorkWise',
     group: 'recommended',
     skillInstructions:
       'Use this skill when cleaning up meeting notes. Extract decisions, owners, dates, blockers, open questions, and follow-ups, then keep the final note concise and action-oriented.'
@@ -901,7 +901,7 @@ const RECOMMENDED_ITEMS: MarketplaceItem[] = [
     kind: 'skill',
     titleKey: 'pluginSkillIncidentResponseTitle',
     descriptionKey: 'pluginSkillIncidentResponseDesc',
-    sourceUrl: 'https://github.com/wangjiawei508/WORKGPT',
+    sourceUrl: 'https://github.com/wangjiawei508/WorkWise',
     group: 'recommended',
     skillInstructions:
       'Use this skill during incidents. Stabilize first, preserve facts, build a timeline, separate confirmed signals from guesses, propose rollback or mitigation, and capture postmortem actions.'
@@ -911,7 +911,7 @@ const RECOMMENDED_ITEMS: MarketplaceItem[] = [
     kind: 'skill',
     titleKey: 'pluginSkillDataCleaningTitle',
     descriptionKey: 'pluginSkillDataCleaningDesc',
-    sourceUrl: 'https://github.com/wangjiawei508/WORKGPT',
+    sourceUrl: 'https://github.com/wangjiawei508/WorkWise',
     group: 'recommended',
     skillInstructions:
       'Use this skill when cleaning spreadsheet, CSV, or database exports. Profile missing values, duplicates, units, encodings, date formats, outliers, and reconciliation totals before transforming data.'
@@ -921,7 +921,7 @@ const RECOMMENDED_ITEMS: MarketplaceItem[] = [
     kind: 'skill',
     titleKey: 'pluginSkillProductRequirementsTitle',
     descriptionKey: 'pluginSkillProductRequirementsDesc',
-    sourceUrl: 'https://github.com/wangjiawei508/WORKGPT',
+    sourceUrl: 'https://github.com/wangjiawei508/WorkWise',
     group: 'recommended',
     skillInstructions:
       'Use this skill when shaping product requirements. Define users, jobs-to-be-done, non-goals, workflows, edge cases, metrics, rollout, and acceptance criteria in implementation-ready language.'

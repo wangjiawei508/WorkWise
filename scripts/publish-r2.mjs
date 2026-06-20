@@ -626,7 +626,7 @@ async function promoteRelease({ flags, dryRun }) {
       tag,
       releaseDate,
       generatedAt: new Date().toISOString(),
-      githubReleaseUrl: `https://github.com/wangjiawei508/WORKGPT/releases/tag/${tag}`,
+      githubReleaseUrl: `https://github.com/wangjiawei508/WorkWise/releases/tag/${tag}`,
       updateBaseUrl: joinUrl(config.publicBaseUrl, target.basePath, 'latest') + '/',
       updateMetadata: Object.fromEntries(
         platformManifests.map((manifest) => [

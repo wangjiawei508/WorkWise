@@ -131,7 +131,7 @@ module.exports = {
         {
           provider: 'github',
           owner: 'wangjiawei508',
-          repo: 'WORKGPT'
+          repo: 'WorkWise'
         }
       ],
   afterPack: './scripts/after-pack.cjs',

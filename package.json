@@ -91,9 +91,9 @@
     "vitest": "^4.1.7"
   },
   "author": "WorkWise Contributors",
-  "homepage": "https://github.com/wangjiawei508/WORKGPT",
+  "homepage": "https://github.com/wangjiawei508/WorkWise",
   "repository": {
     "type": "git",
-    "url": "https://github.com/wangjiawei508/WORKGPT.git"
+    "url": "https://github.com/wangjiawei508/WorkWise.git"
   }
 }

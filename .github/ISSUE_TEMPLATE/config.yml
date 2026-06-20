@@ -1,8 +1,8 @@
 blank_issues_enabled: false
 contact_links:
   - name: Security vulnerability report
-    url: https://github.com/wangjiawei508/WORKGPT/security/advisories/new
+    url: https://github.com/wangjiawei508/WorkWise/security/advisories/new
     about: Please report security issues privately instead of opening a public issue.
   - name: Contribution guide
-    url: https://github.com/wangjiawei508/WORKGPT/blob/main/docs/CONTRIBUTING.md
+    url: https://github.com/wangjiawei508/WorkWise/blob/main/docs/CONTRIBUTING.md
     about: Read the contribution workflow and validation expectations before opening a PR.

@@ -8,7 +8,7 @@ An AI workbench for engineering, infrastructure, and business operations.
 
 [简体中文](./README.md) | English
 
-[Download](https://github.com/wangjiawei508/WORKGPT/releases) · [User Guide](./docs/USER_GUIDE.zh-CN.md) · [Issues](https://github.com/wangjiawei508/WORKGPT/issues) · [Maintainer](https://github.com/wangjiawei508)
+[Download](https://github.com/wangjiawei508/WorkWise/releases) · [User Guide](./docs/USER_GUIDE.zh-CN.md) · [Issues](https://github.com/wangjiawei508/WorkWise/issues) · [Maintainer](https://github.com/wangjiawei508)
 
 WorkWise is a desktop AI workbench for engineering professionals, project teams, operations managers, and people who need to turn complex work into reliable deliverables. It brings together a code workbench, a writing workbench, industry Skills, MCP plugins, Markdown rendering/export, and update management in one desktop app.
 
@@ -132,7 +132,7 @@ Use `Settings -> General -> GUI Update` to check for new versions. Official macO
 
 ### 1. Download
 
-Go to [GitHub Releases](https://github.com/wangjiawei508/WORKGPT/releases).
+Go to [GitHub Releases](https://github.com/wangjiawei508/WorkWise/releases).
 
 | Platform | Installer |
 | --- | --- |
@@ -197,7 +197,7 @@ Uninstalling the app does not automatically delete these files. Before a full cl
 ## Development
 
 ```bash
-git clone https://github.com/wangjiawei508/WORKGPT.git WorkWise
+git clone https://github.com/wangjiawei508/WorkWise.git WorkWise
 cd WorkWise
 npm install
 npm run dev
@@ -237,7 +237,7 @@ WorkWise will continue to evolve in three directions:
 
 ## Feedback
 
-Please use [Issues](https://github.com/wangjiawei508/WORKGPT/issues) for feedback. Helpful reports include:
+Please use [Issues](https://github.com/wangjiawei508/WorkWise/issues) for feedback. Helpful reports include:
 
 - WorkWise version.
 - Operating system and CPU architecture.
