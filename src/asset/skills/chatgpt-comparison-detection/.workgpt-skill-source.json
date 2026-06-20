@@ -1,0 +1,10 @@
+{
+  "type": "github",
+  "owner": "Hello-SimpleAI",
+  "repo": "chatgpt-comparison-detection",
+  "path": "",
+  "ref": "main",
+  "autoUpdate": true,
+  "overlaySkillId": "chatgpt-comparison-detection"
+}
+

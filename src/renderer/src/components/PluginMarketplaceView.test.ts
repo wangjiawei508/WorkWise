@@ -247,7 +247,8 @@ describe('skillMarketplaceItemsFromDiscoveredSkills', () => {
       expect.objectContaining({
         id: 'di-bao-monitoring',
         sourceLabel: 'GitHub',
-        statusTone: 'success'
+        statusTone: 'success',
+        sourceUrl: 'https://github.com/railwise-cn/di-bao-monitoring-skill/tree/main/skill/di-bao-monitoring'
       }),
       expect.objectContaining({
         id: 'operational-monitoring',

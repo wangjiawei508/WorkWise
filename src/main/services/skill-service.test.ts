@@ -102,7 +102,7 @@ describe('skill-service', () => {
     expect(projectSkills.map((skill) => skill.id)).not.toContain('skill')
   })
 
-  it('includes WORKGPT source metadata when listing managed skills', async () => {
+  it('includes WorkWise source metadata when listing managed skills', async () => {
     const workspaceRoot = join(tempRoot, 'workspace-managed')
     const skillRoot = join(workspaceRoot, '.agents', 'skills', 'di-bao-monitoring')
     await mkdir(skillRoot, { recursive: true })
@@ -199,6 +199,50 @@ describe('skill-service', () => {
       id: 'di-bao-monitoring',
       autoUpdate: false
     })
+  })
+
+  it('installs bundled GitHub-managed writing skills with update metadata', async () => {
+    const workspaceRoot = join(tempRoot, 'workspace-bundled-writing')
+    const skillInstallRoot = join(workspaceRoot, '.agents', 'skills')
+
+    const installed = await installBundledSkill(skillInstallRoot, {
+      id: 'ai-flavor-remover'
+    })
+
+    expect(installed.ok).toBe(true)
+    if (!installed.ok) return
+    expect(await readFile(join(skillInstallRoot, 'ai-flavor-remover', 'SKILL.md'), 'utf8'))
+      .toContain('WorkWise Skill 包装')
+    expect(await readFile(join(skillInstallRoot, 'ai-flavor-remover', 'README.md'), 'utf8'))
+      .toContain('AI 味去除')
+    const source = JSON.parse(
+      await readFile(join(skillInstallRoot, 'ai-flavor-remover', '.workgpt-skill-source.json'), 'utf8')
+    ) as Record<string, unknown>
+    expect(source).toMatchObject({
+      type: 'github',
+      owner: 'hylarucoder',
+      repo: 'ai-flavor-remover',
+      path: '',
+      ref: 'main',
+      autoUpdate: true,
+      includePaths: ['README.md'],
+      overlaySkillId: 'ai-flavor-remover'
+    })
+
+    const result = await listGuiSkills(createSettings(workspaceRoot), workspaceRoot)
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.skills).toContainEqual(expect.objectContaining({
+      id: 'ai-flavor-remover',
+      source: expect.objectContaining({
+        type: 'github',
+        owner: 'hylarucoder',
+        repo: 'ai-flavor-remover',
+        includePaths: ['README.md'],
+        overlaySkillId: 'ai-flavor-remover'
+      })
+    }))
   })
 
   it('prefers bundled skills unpacked beside app.asar in packaged apps', async () => {
@@ -339,6 +383,68 @@ describe('skill-service', () => {
       ref: 'main',
       installedSha: 'sha-new',
       autoUpdate: true
+    })
+  })
+
+  it('installs a GitHub managed skill from selected paths with a bundled overlay', async () => {
+    const workspaceRoot = join(tempRoot, 'workspace-github-overlay')
+    const skillInstallRoot = join(workspaceRoot, '.agents', 'skills')
+    const readmeMarkdown = '# AI 味去除\n'
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input)
+      if (url.includes('/commits/main')) {
+        return jsonResponse({ sha: 'sha-overlay' })
+      }
+      if (url.includes('/contents/README.md')) {
+        return jsonResponse({
+          name: 'README.md',
+          path: 'README.md',
+          type: 'file',
+          size: readmeMarkdown.length,
+          download_url: 'https://raw.test/README.md'
+        })
+      }
+      if (url === 'https://raw.test/README.md') {
+        return new Response(readmeMarkdown)
+      }
+      return new Response('not found', { status: 404, statusText: 'Not Found' })
+    })
+    globalThis.fetch = fetchMock as unknown as typeof fetch
+
+    const installed = await installGithubSkill(skillInstallRoot, {
+      owner: 'hylarucoder',
+      repo: 'ai-flavor-remover',
+      path: '',
+      ref: 'main',
+      skillName: 'ai-flavor-remover',
+      includePaths: ['README.md'],
+      overlaySkillId: 'ai-flavor-remover',
+      autoUpdate: true
+    })
+
+    expect(installed).toEqual({
+      ok: true,
+      path: join(skillInstallRoot, 'ai-flavor-remover', 'SKILL.md'),
+      sha: 'sha-overlay',
+      updated: true
+    })
+    expect(await readFile(join(skillInstallRoot, 'ai-flavor-remover', 'README.md'), 'utf8'))
+      .toBe(readmeMarkdown)
+    expect(await readFile(join(skillInstallRoot, 'ai-flavor-remover', 'SKILL.md'), 'utf8'))
+      .toContain('WorkWise Skill 包装')
+    const source = JSON.parse(
+      await readFile(join(skillInstallRoot, 'ai-flavor-remover', '.workgpt-skill-source.json'), 'utf8')
+    ) as Record<string, unknown>
+    expect(source).toMatchObject({
+      type: 'github',
+      owner: 'hylarucoder',
+      repo: 'ai-flavor-remover',
+      path: '',
+      ref: 'main',
+      installedSha: 'sha-overlay',
+      autoUpdate: true,
+      includePaths: ['README.md'],
+      overlaySkillId: 'ai-flavor-remover'
     })
   })
 

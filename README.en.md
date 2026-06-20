@@ -15,9 +15,9 @@
 
 Kun (formerly DeepSeek GUI) is a local desktop workbench for developers and frequent AI users. It uses its namesake local runtime (shipped under `kun/`) as the only agent runtime and turns the terminal agent experience into an easier, longer-lived app: choose a workspace, start a task, watch reasoning and tool calls stream in, review file changes, and approve sensitive actions when needed.
 
-The goal is not to ship another chat wrapper. The goal is to make DeepSeek feel like a reliable desktop partner for real project work. Kun's core advantage is high token ROI: the same context budget spends less on repeated prefixes, giant tool catalogs, and runaway output, and more on the information that actually moves the task forward.
+## Positioning
 
----
+WorkWise is intended to grow into a practical AI workbench for engineering teams:
 
 <p align="center">
   <a href="src/asset/img/code.mp4">
@@ -28,56 +28,28 @@ The goal is not to ship another chat wrapper. The goal is to make DeepSeek feel 
   </a>
 </p>
 
-## More Demos
+## Capability Status
 
-<p align="center">
-  <a href="src/asset/img/feishu.mp4">
-    <img src="src/asset/img/feishu.gif" width="680" alt="Feishu / Lark / WeChat connection demo">
-  </a>
-</p>
-<p align="center"><em>Feishu / Lark / WeChat connection demo.</em></p>
-
-<p align="center">
-  <a href="src/asset/img/sdd.mp4">
-    <img src="src/asset/img/sdd.gif" width="680" alt="Requirement drafting and planning demo">
-  </a>
-</p>
-<p align="center"><em>Requirement drafting and planning demo.</em></p>
-
-<p align="center">
-  <a href="src/asset/img/web.mp4">
-    <img src="src/asset/img/web.gif" width="680" alt="Web tools demo">
-  </a>
-</p>
-<p align="center"><em>Web tools demo.</em></p>
-
-## Why Kun Delivers High Token ROI
-
-Kun makes token economy the default behavior of the agent loop, not a cleanup step after the fact. It does more than compress text: before each model call, it decides which information is worth entering context.
-
-| Kun advantage | Where the ROI comes from |
+| Status | Scope |
 | --- | --- |
-| **Cache-first agent loop** | Stable system prompts, tool schemas, and immutable prefixes make DeepSeek-native cache hits more likely, so long sessions do not keep paying for the same background. |
-| **Tool context on demand** | When MCP catalogs are large, Kun can search for relevant tools first, then describe and call the target tool instead of sending every tool schema on every turn. |
-| **Context hygiene** | Long tool results, long arguments, base64 payloads, repeated tool loops, and low-value history are bounded while code, paths, errors, decisions, and open tasks are preserved. |
-| **Visible usage payback** | Runtime telemetry tracks cache hit/miss, token usage, and estimated savings; the GUI surfaces Token economy savings so cost return is observable over time. |
+| Ready now | Code workbench, Write workbench, model settings, workspace threads, bundled engineering Skills, Help center, download links, and GUI update checks |
+| Preview | MCP marketplace, GitHub Skill sync, complex Markdown/DOCX export, phone connections, and scheduled automation |
+| Roadmap | Infrastructure inspection, urban renewal, digital twins, operations analytics, bidding support, enterprise knowledge bases, and more industry agent packs |
 
-The result: Kun is built for real project work with long tasks, long sessions, and many tools. It keeps the model's attention on high-value context, helping the same API budget produce more useful progress.
+## Key Features
 
-## What We Built
+- **Code workbench**: choose a workspace, start a thread, review reasoning, tool calls, todos, file changes, and command approvals.
+- **Write mode**: manage Markdown/TXT files, use Live/Source/Split/Preview views, run writing actions, and use cross-document context.
+- **Markdown export**: export HTML, PDF, DOC, and DOCX. PDF uses bundled Chromium; DOC uses Word-compatible HTML; DOCX prefers platform converters and falls back to the built-in WorkWise generator.
+- **Engineering Skills**: protection-area monitoring, operation-period monitoring, engineering plans, report writing, data analysis, bidding knowledge, standards lookup, spreadsheets, and document generation.
+- **Writing Skills**: humanization, style modeling, long-form writing, AI-trace review, and Chinese writing polish.
+- **Marketplace details**: MCP and Skill items include detail pages, descriptions, source links, and install state.
+- **Connect phone**: connect Feishu / Lark, WeChat, or local webhooks for IM agents and background scheduled tasks.
+- **Online updates**: check GitHub Releases or a configured update feed from Settings.
 
-- A desktop app around the Kun local runtime, with default runtime auto-start and management.
-- A full chat workbench with multiple sessions, streaming output, history, interruption, and resend flows.
-- Local workspace integration so the agent can read, edit, and create files in real projects.
-- Change review surfaces that make every file modification visible and inspectable.
-- First-run onboarding, settings, language/theme/font controls, notifications, local logs, and update entry points.
-- Graphical Skill and MCP management so users can extend the agent without hand-editing every config file.
-- Connect phone automation with Feishu / Lark / WeChat integration, dedicated IM agents, local webhook / relay support, and scheduled tasks.
-- A dedicated Write workbench with writing spaces, a Markdown file tree, live editing/preview, inline completion, and selection-based inline agent actions.
-- New requirement drafts, plans, thread todos, long-running goals, and code review so tasks can move from idea to execution to review.
-- Pre-built macOS and Windows installers; source builds remain available.
+## Downloads
 
-## Highlights
+Download from [GitHub Releases](https://github.com/wangjiawei508/WORKGPT/releases). Future public releases ship only three installers:
 
 - **Desktop chat workbench**: multi-session chat with streamed replies, reasoning, tool calls, approval requests, and file changes in one place.
 - **Project workspaces**: choose a local directory for each task, organize sessions by workspace, preview files, open files in your editor, and pick Git branches.
@@ -223,18 +195,15 @@ A dedicated Markdown writing workbench that keeps writing files, save state, and
 
 | Capability | Notes |
 | --- | --- |
-| Live / Split / Preview | Live keeps the active line editable as Markdown source; Split and Preview are useful for review. Relative images resolve from the current document folder. |
-| Rich text copy | Copy the current Markdown as HTML for editors such as mail clients, Feishu, Word, or other rich text surfaces. |
-| HTML / PDF | HTML includes print-friendly styles and inlined local images where possible. PDF is printed from an offscreen Chromium window after fonts and images finish loading. |
-| DOC / DOCX | DOC is Word-compatible HTML. DOCX prefers a bundled/configured pandoc executable, then a platform `md2docx` helper, then the built-in generator for headings, paragraphs, lists, blockquotes, code blocks, tables, links, and local images. |
+| macOS Apple Silicon | `WorkWise-version-mac-Apple-Silicon.dmg` |
+| macOS Intel | `WorkWise-version-mac-Intel.dmg` |
+| Windows x64 | `WorkWise-version-win-x64.exe` |
 
-Platform converter packages can be prepared from the ZIPs you supplied:
+Linux clients are not published. On first launch, configure a DeepSeek API key or a compatible Base URL/model provider in Settings.
 
-```bash
-npm run prepare:converters
-```
+## Local Data
 
-The build only packages `converters/darwin-arm64`, `converters/darwin-x64`, and `converters/win32-x64`. Linux converter folders are intentionally excluded. The provided macOS ZIP currently contains an Apple Silicon pandoc; Intel macOS packages still build and fall back to WORKGPT's built-in DOCX generator unless `converters/darwin-x64/pandoc` is added.
+For upgrade compatibility, some internal paths still keep the old `workgpt` name:
 
 ### Connect Phone
 
@@ -259,14 +228,14 @@ Download the latest build from [GitHub Releases](https://github.com/KunAgent/Kun
 
 | Platform | Package |
 | --- | --- |
-| macOS | `.dmg` or `.zip`, Intel and Apple Silicon |
-| Windows | `.exe`, NSIS installer, x64 |
+| Default workspace | `~/.workgpt/default_workspace` |
+| Write workspace | `~/.workgpt/write_workspace` |
+| Kun runtime and sessions | `~/.workgpt/kun` or the OS app-data directory |
+| Settings | macOS: `~/Library/Application Support/WorkWise/workgpt-settings.json`; Windows: `%APPDATA%\WorkWise\workgpt-settings.json` |
 
-On first launch, enter your [DeepSeek API key](https://platform.deepseek.com/api_keys). If you use a DeepSeek/OpenAI-compatible endpoint, you can set a custom Base URL in Settings.
+WorkWise will try to read existing settings from old `WORKGPT` / `workgpt` app-data folders during upgrade.
 
-### Run from Source
-
-For contributors and local development:
+## Development
 
 ```bash
 git clone https://github.com/KunAgent/Kun.git
@@ -275,21 +244,21 @@ npm install
 npm run dev
 ```
 
-Requirements:
-
-- Node.js 20+
-- A DeepSeek API key
-- Internet access during the first dependency install
-
-For slower network access in mainland China, use an npm mirror:
+Useful checks:
 
 ```bash
-npm install --registry=https://registry.npmmirror.com
+npm run typecheck
+npm run lint
+npm run test
+npm run build
+npm run generate:icons
 ```
 
----
+## Release Rules
 
-## First Run
+- WorkWise starts at version `0.2.0`.
+- Public GitHub Release assets are limited to macOS Apple Silicon DMG, macOS Intel DMG, and Windows x64 EXE.
+- Linux clients, intermediate build files, blockmaps, and update metadata are not published as user-facing assets.
 
 1. Open Kun.
 2. Choose your interface language in the onboarding guide.

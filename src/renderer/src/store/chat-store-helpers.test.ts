@@ -137,10 +137,10 @@ describe('chat-store Claw helpers', () => {
     const feishu = newClawChannel('feishu')
     const weixin = newClawChannel('weixin')
 
-    expect(feishu.label).toBe('WORKGPT')
-    expect(feishu.agentProfile.name).toBe('WORKGPT')
-    expect(weixin.label).toBe('WORKGPT')
-    expect(weixin.agentProfile.name).toBe('WORKGPT')
+    expect(feishu.label).toBe('WorkWise')
+    expect(feishu.agentProfile.name).toBe('WorkWise')
+    expect(weixin.label).toBe('WorkWise')
+    expect(weixin.agentProfile.name).toBe('WorkWise')
   })
 
   it('recognizes Claw managed prompt summaries as Claw sessions', () => {

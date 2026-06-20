@@ -15,9 +15,12 @@
 
 Kun（原 DeepSeek GUI）是一个面向开发者和高频 AI 工作者的本地桌面工作台。它以同名的本地运行时（位于 `kun/` 目录）为唯一 Agent 运行时，把终端里的智能体体验整理成更容易上手、更适合长期使用的应用：选择工作目录，发起任务，实时查看推理、工具调用和文件改动，并在需要时审批或回退。
 
-这个项目的目标不是再造一个聊天壳，而是让 DeepSeek 变成一个可以稳定参与真实项目工作的桌面伙伴。Kun 的核心优势是高 Token ROI：同样的上下文预算，少浪费在重复前缀、庞大工具目录和失控输出上，多投入到真正推动任务完成的信息里。
+WorkWise 的长期方向是成为工程行业可持续扩展的 AI 工作台：
 
----
+- 工程与基础设施：地保监测、运营期监测、基坑、隧道、桥梁、巡检、结构安全和城市更新。
+- 文档与交付：方案、日报、周报、月报、总结报告、评审回复、投标文件和技术说明。
+- 数据与经营：监测数据分析、经营简报、资源调度、部门周报、项目交付和企业知识库。
+- 智能体生态：内置行业 Skills，同时支持 GitHub 管理的 Skills 后续同步更新。
 
 <p align="center">
   <a href="src/asset/img/code.mp4">
@@ -28,56 +31,26 @@ Kun（原 DeepSeek GUI）是一个面向开发者和高频 AI 工作者的本地
   </a>
 </p>
 
-## 更多演示
-
-<p align="center">
-  <a href="src/asset/img/feishu.mp4">
-    <img src="src/asset/img/feishu.gif" width="680" alt="飞书 / Lark / 微信连接演示">
-  </a>
-</p>
-<p align="center"><em>飞书 / Lark / 微信连接演示。</em></p>
-
-<p align="center">
-  <a href="src/asset/img/sdd.mp4">
-    <img src="src/asset/img/sdd.gif" width="680" alt="新建需求与计划演示">
-  </a>
-</p>
-<p align="center"><em>新建需求与计划演示。</em></p>
-
-<p align="center">
-  <a href="src/asset/img/web.mp4">
-    <img src="src/asset/img/web.gif" width="680" alt="Web 工具演示">
-  </a>
-</p>
-<p align="center"><em>Web 工具演示。</em></p>
-
-## Kun 为什么 Token ROI 高
-
-Kun 把“省 token”做成 agent loop 的默认行为，而不是事后补救。它不只是压缩文本，更是在每一轮调用前判断哪些信息值得进入上下文。
-
-| Kun 优势 | Token ROI 来源 |
+| 状态 | 当前范围 |
 | --- | --- |
-| **Cache-first agent loop** | 稳定 system prompt、工具 schema 和不可变前缀，让 DeepSeek 原生缓存更容易命中，长会话不必反复为同一段背景付费。 |
-| **按需工具上下文** | MCP 工具很多时，先用 `mcp_search` 找相关工具，再描述和调用目标工具，避免每轮把完整工具目录塞进 prompt。 |
-| **上下文卫生** | 对超长工具结果、长参数、base64 payload、重复工具循环和低价值历史做边界压缩，保留代码、路径、错误、决策和未解决事项。 |
-| **可见的用量收益** | 运行时跟踪 cache hit/miss、token 用量和节省估算，GUI 会把 Token economy 的收益显示出来，方便长期观察成本回报。 |
+| 正式可用 | Code 工作台、Write 写作工作台、模型配置、工作区会话、内置工程 Skills、帮助中心、下载入口和 GUI 更新检查 |
+| 预览能力 | MCP 插件市场、GitHub Skill 同步、复杂 Markdown/DOCX 导出、连接手机和定时任务自动化 |
+| 路线图 | 基础设施巡检、城市更新、数字孪生、经营分析、投标辅助、企业知识库和更多行业智能体套件 |
 
-结果是：Kun 更适合真实项目里的长任务、长会话和多工具协作。它把模型注意力留给高价值上下文，让用户用同样的 API 预算换到更多有效推进。
+这个分层是有意保守的：当前版本先把第一批能稳定使用的能力做好，同时把更大的业务方向放进路线图，避免把尚未打磨完整的功能包装成已经成熟。
 
-## 我们做了什么
+## 核心功能
 
-- 把 Kun 本地运行时封装进桌面应用，默认可以自动启动和管理。
-- 做了一套完整的聊天工作台，支持多会话、实时流式输出、历史回看、中断和重新发送。
-- 打通本地工作目录，让智能体可以围绕真实项目读取、编辑和创建文件。
-- 做了文件变更审查视图，让每一次修改都能被看见、理解和确认。
-- 做了首次引导、设置页、语言/主题/字体大小、系统通知、错误日志和更新入口。
-- 做了 Skill 与 MCP 的图形化管理，让用户不用手写很多配置也能扩展智能体能力。
-- 做了连接手机能力，支持飞书 / Lark / 微信接入、独立 IM Agent、本地 webhook / relay 和定时任务。
-- 做了 Write 写作工作台，提供独立写作空间、Markdown 文件树、live 编辑/预览、文本补全和选中文本 inline agent。
-- 做了新建需求、计划面板、线程 Todo、目标追踪和代码审查，让任务可以从想法走到执行再走到复盘。
-- 提供 macOS 与 Windows 预构建安装包；也可以从源码自行构建。
+- **Code 工作台**：选择项目目录后发起会话，查看推理、工具调用、Todo、文件变更和命令审批。
+- **Write 写作模式**：管理 Markdown / TXT 文件，支持 Live、Source、Split、Preview 视图，提供写作助手、选中文本处理和跨文档上下文补全。
+- **Markdown 渲染与导出**：支持导出 HTML、PDF、DOC、DOCX。PDF 使用内置 Chromium，DOC 使用 Word 兼容 HTML，DOCX 优先使用平台转换器并由 WorkWise 内置生成器兜底。
+- **工程与基础设施 Skills**：内置地保监测、运营期监测、工程方案、数据分析、报告写作、投标知识、标准速查等行业能力。
+- **写作增强 Skills**：内置多种去 AI 味、风格建模、公众号写作、文本审阅和表达优化 Skills。
+- **插件市场**：可以查看 MCP 与 Skills 的详情页、来源链接、功能说明和安装状态。
+- **连接手机**：可接入飞书 / Lark、微信或本地 webhook，让独立 IM Agent 和定时任务处理后台消息。
+- **在线更新**：设置页可检查 GitHub Releases 或已配置更新源；正式安装包可在应用内下载或跳转手动安装。
 
-## 功能亮点
+## 内置行业能力
 
 - **桌面聊天工作台**：多会话、流式回复、推理过程、工具调用、审批请求和文件改动都在同一个界面中展示。
 - **项目级工作区**：为每个任务选择本地目录，按工作区管理会话，并支持文件预览、编辑器打开和 Git 分支选择。
@@ -258,31 +231,42 @@ npm run prepare:converters
 
 ## 下载安装
 
-### 下载预构建安装包
+从 [GitHub Releases](https://github.com/wangjiawei508/WORKGPT/releases) 下载最新版本。后续发布只保留三个安装包：
 
 前往 [GitHub Releases](https://github.com/KunAgent/Kun/releases) 下载最新版本：
 
 | 平台 | 安装包 |
 | --- | --- |
-| macOS Apple 芯片 | `WORKGPT-版本号-mac-Apple-Silicon.dmg` |
-| macOS Intel 芯片 | `WORKGPT-版本号-mac-Intel.dmg` |
-| Windows 64 位 | `WORKGPT-版本号-win-x64.exe` |
+| macOS Apple 芯片 | `WorkWise-版本号-mac-Apple-Silicon.dmg` |
+| macOS Intel 芯片 | `WorkWise-版本号-mac-Intel.dmg` |
+| Windows 64 位 | `WorkWise-版本号-win-x64.exe` |
 
-首次启动时需要填写 [DeepSeek API Key](https://platform.deepseek.com/api_keys)。如果你使用兼容 DeepSeek / OpenAI 的服务，也可以在设置里修改 Base URL。
+当前不发布 Linux 客户端。首次启动时需要配置 DeepSeek API Key；如果使用兼容 DeepSeek / OpenAI 的服务，也可以在设置中修改 Base URL 和默认模型。
 
-### 帮助入口
+## 帮助与更新
 
-应用内的 **设置 → 帮助** 已补充常用入口：
+应用内 **设置 -> 帮助** 已提供：
 
-- [GitHub 项目主页](https://github.com/wangjiawei508/WORKGPT)：查看源码、README、贡献说明和开发进度。
-- [操作文档](./docs/USER_GUIDE.zh-CN.md)：查看下载安装到日常使用的完整说明。
-- [GitHub Releases](https://github.com/wangjiawei508/WORKGPT/releases)：下载最新 macOS / Windows 安装包。
-- [Issues](https://github.com/wangjiawei508/WORKGPT/issues)：反馈 bug、导出问题、更新问题或新 agent / skill 需求。
-- README：查看 Markdown 导出、在线更新、本地数据位置和源码运行说明。
+- 操作文档、README、GitHub 主页、下载页面、问题反馈和作者主页。
+- 正式可用能力、预览能力和路线图说明。
+- Markdown 导出、Skills、连接手机、在线更新和本地数据位置说明。
 
-### 从源码运行
+应用内 **设置 -> 通用 -> GUI 更新** 可检查新版本。正式 macOS 和 Windows x64 安装包支持下载更新；如果当前构建不支持自动安装，会打开下载页手动覆盖升级。
 
-适合贡献者或需要本地开发的人：
+## 本地数据
+
+为兼容旧版本，默认目录仍保留 `workgpt` 命名：
+
+| 数据 | 默认位置 |
+| --- | --- |
+| 默认工作区 | `~/.workgpt/default_workspace` |
+| 写作空间 | `~/.workgpt/write_workspace` |
+| Kun 运行时与会话数据 | `~/.workgpt/kun` 或系统应用数据目录 |
+| 设置文件 | macOS: `~/Library/Application Support/WorkWise/workgpt-settings.json`；Windows: `%APPDATA%\WorkWise\workgpt-settings.json` |
+
+升级时 WorkWise 会尝试读取旧 `WORKGPT` / `workgpt` 应用数据目录中的设置，避免已有配置丢失。
+
+## 开发运行
 
 ```bash
 git clone https://github.com/KunAgent/Kun.git
@@ -291,21 +275,22 @@ npm install
 npm run dev
 ```
 
-环境要求：
-
-- Node.js 20+
-- 可用的 DeepSeek API Key
-- 首次安装依赖时需要联网
-
-中国大陆访问较慢时，可以使用 npm 镜像：
+常用命令：
 
 ```bash
-npm install --registry=https://registry.npmmirror.com
+npm run typecheck
+npm run lint
+npm run test
+npm run build
+npm run generate:icons
 ```
 
----
+## 发布规则
 
-## 首次使用
+- 版本从 `0.2.0` 开始作为 WorkWise 品牌升级版。
+- GitHub Release 公开资产只发布三个安装包：macOS Apple Silicon、macOS Intel、Windows x64。
+- Linux、中间构建文件、blockmap、latest yml 和其他辅助文件不作为公开下载资产发布。
+- Release workflow 会把构建产物重命名为用户可读的 Apple Silicon / Intel / win-x64 文件名。
 
 1. 打开 Kun。
 2. 在首次引导中选择界面语言。
@@ -313,13 +298,13 @@ npm install --registry=https://registry.npmmirror.com
 4. 选择默认工作目录，或使用应用自动创建的默认目录。
 5. 新建会话，输入任务，让智能体开始工作。
 
-常用流程（**Code 模式**）：
+反馈问题时建议提供：
 
-- 在左侧选择或切换工作区。
-- 在聊天框描述你要完成的任务。
-- 观察回复中的推理、工具调用、命令执行和文件改动。
-- 对需要审批的操作选择允许或拒绝。
-- 在变更审查面板里检查改动，再决定下一步。
+- WorkWise 版本号。
+- 操作系统和芯片架构。
+- 问题截图、错误日志或复现步骤。
+- 如果是导出问题，请附最小 Markdown 样例。
+- 如果是 Skill / MCP 问题，请说明安装来源、触发方式和报错内容。
 
 **连接手机** 与 **写作** 的详细说明见上文 [工作台与入口](#工作台与入口)。简要步骤：
 

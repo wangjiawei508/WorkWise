@@ -1,0 +1,13 @@
+{
+  "type": "github",
+  "owner": "hylarucoder",
+  "repo": "ai-flavor-remover",
+  "path": "",
+  "ref": "main",
+  "autoUpdate": true,
+  "includePaths": [
+    "README.md"
+  ],
+  "overlaySkillId": "ai-flavor-remover"
+}
+

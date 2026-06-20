@@ -607,7 +607,7 @@ export async function buildDocxFromMarkdown(options: {
   }
 
   const doc = new Document({
-    creator: 'WORKGPT',
+    creator: 'WorkWise',
     title: options.title || basename(options.sourcePath),
     numbering: {
       config: [

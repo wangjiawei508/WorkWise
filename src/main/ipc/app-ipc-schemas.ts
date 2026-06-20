@@ -552,7 +552,9 @@ export const githubSkillSourceSchema = z.object({
   path: z.string().trim().max(MAX_PATH_LENGTH),
   ref: z.string().trim().max(256).optional(),
   skillName: z.string().trim().max(128).optional(),
-  autoUpdate: z.boolean().optional()
+  autoUpdate: z.boolean().optional(),
+  includePaths: z.array(z.string().trim().max(MAX_PATH_LENGTH)).max(64).optional(),
+  overlaySkillId: z.string().trim().max(128).optional()
 }).strict()
 
 export const githubSkillInstallPayloadSchema = z.object({

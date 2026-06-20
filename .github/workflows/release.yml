@@ -289,9 +289,9 @@ jobs:
             cp "${matches[0]}" "public-release-assets/${target}"
           }
 
-          copy_one "WORKGPT-*-mac-arm64.dmg" "WORKGPT-${RELEASE_VERSION}-mac-Apple-Silicon.dmg"
-          copy_one "WORKGPT-*-mac-x64.dmg" "WORKGPT-${RELEASE_VERSION}-mac-Intel.dmg"
-          copy_one "WORKGPT-*-win-x64.exe" "WORKGPT-${RELEASE_VERSION}-win-x64.exe"
+          copy_one "WorkWise-*-mac-arm64.dmg" "WorkWise-${RELEASE_VERSION}-mac-Apple-Silicon.dmg"
+          copy_one "WorkWise-*-mac-x64.dmg" "WorkWise-${RELEASE_VERSION}-mac-Intel.dmg"
+          copy_one "WorkWise-*-win-x64.exe" "WorkWise-${RELEASE_VERSION}-win-x64.exe"
 
           find public-release-assets -maxdepth 1 -type f -print | sort
 
@@ -331,7 +331,7 @@ jobs:
           if [[ "${MAC_SIGNED}" == "true" ]]; then
             mac_line="- macOS: Developer ID signed and notarized"
           else
-            mac_line="- macOS: UNSIGNED build — run \`xattr -dr com.apple.quarantine /Applications/WORKGPT.app\` (or scripts/mac-unquarantine.sh) before first launch"
+            mac_line="- macOS: UNSIGNED build — run \`xattr -dr com.apple.quarantine /Applications/WorkWise.app\` (or scripts/mac-unquarantine.sh) before first launch"
           fi
 
           {
@@ -345,9 +345,9 @@ jobs:
             echo "- Tag: \`${TAG_NAME}\`"
             echo "- Commit: \`${GITHUB_SHA::7}\`"
             echo "${mac_line}"
-            echo "- macOS Apple Silicon: \`WORKGPT-${RELEASE_VERSION}-mac-Apple-Silicon.dmg\`"
-            echo "- macOS Intel: \`WORKGPT-${RELEASE_VERSION}-mac-Intel.dmg\`"
-            echo "- Windows x64: \`WORKGPT-${RELEASE_VERSION}-win-x64.exe\`"
+            echo "- macOS Apple Silicon: \`WorkWise-${RELEASE_VERSION}-mac-Apple-Silicon.dmg\`"
+            echo "- macOS Intel: \`WorkWise-${RELEASE_VERSION}-mac-Intel.dmg\`"
+            echo "- Windows x64: \`WorkWise-${RELEASE_VERSION}-win-x64.exe\`"
           } >> release-notes.md
 
       - name: Create or update draft GitHub Release
@@ -387,14 +387,14 @@ jobs:
           mkdir downloaded-release
           gh release download "${TAG_NAME}" \
             --dir downloaded-release \
-            --pattern 'WORKGPT-*-mac-Apple-Silicon.dmg' \
-            --pattern 'WORKGPT-*-mac-Intel.dmg' \
-            --pattern 'WORKGPT-*-win-x64.exe' \
+            --pattern 'WorkWise-*-mac-Apple-Silicon.dmg' \
+            --pattern 'WorkWise-*-mac-Intel.dmg' \
+            --pattern 'WorkWise-*-win-x64.exe' \
             --clobber
           required=(
-            "WORKGPT-${RELEASE_VERSION}-mac-Apple-Silicon.dmg"
-            "WORKGPT-${RELEASE_VERSION}-mac-Intel.dmg"
-            "WORKGPT-${RELEASE_VERSION}-win-x64.exe"
+            "WorkWise-${RELEASE_VERSION}-mac-Apple-Silicon.dmg"
+            "WorkWise-${RELEASE_VERSION}-mac-Intel.dmg"
+            "WorkWise-${RELEASE_VERSION}-win-x64.exe"
           )
           for file in "${required[@]}"; do
             test -s "downloaded-release/${file}" || {

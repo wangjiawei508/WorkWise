@@ -88,6 +88,8 @@ export type GithubSkillSource = {
   ref?: string
   skillName?: string
   autoUpdate?: boolean
+  includePaths?: string[]
+  overlaySkillId?: string
 }
 export type BundledSkillSource = {
   id: string
@@ -131,6 +133,8 @@ export type SkillListItem = {
     ref: string
     installedSha?: string
     autoUpdate: boolean
+    includePaths?: string[]
+    overlaySkillId?: string
   } | {
     type: 'bundled'
     id: string

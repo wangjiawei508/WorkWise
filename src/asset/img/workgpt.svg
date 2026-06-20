@@ -51,5 +51,5 @@
   <circle cx="677" cy="572" r="16" fill="#9BEAFF" opacity="0.85"/>
   <circle cx="720" cy="572" r="16" fill="#9BEAFF" opacity="0.78"/>
   <circle cx="763" cy="572" r="16" fill="#9BEAFF" opacity="0.70"/>
-  <text x="512" y="892" text-anchor="middle" font-family="Inter, Arial, Helvetica, sans-serif" font-size="92" font-weight="800" letter-spacing="4" fill="url(#textGrad)" style="white-space: pre;">WORKGPT</text>
+  <text x="512" y="892" text-anchor="middle" font-family="Inter, Arial, Helvetica, sans-serif" font-size="92" font-weight="800" letter-spacing="2" fill="url(#textGrad)" style="white-space: pre;">WorkWise</text>
 </svg>

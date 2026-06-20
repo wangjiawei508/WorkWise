@@ -162,7 +162,13 @@ export async function installGithubSkill(
       repo: source.repo.trim(),
       path: normalizeGithubPath(source.path),
       ref,
-      autoUpdate: source.autoUpdate !== false
+      autoUpdate: source.autoUpdate !== false,
+      ...(normalizeGithubIncludePaths(source.includePaths).length
+        ? { includePaths: normalizeGithubIncludePaths(source.includePaths) }
+        : {}),
+      ...(normalizeBundledSkillOverlayId(source.overlaySkillId)
+        ? { overlaySkillId: normalizeBundledSkillOverlayId(source.overlaySkillId) }
+        : {})
     }
 
     await assertCanInstallIntoTarget(targetDir, requestedSource)
@@ -173,6 +179,7 @@ export async function installGithubSkill(
     if (
       existingSource?.type === 'github' &&
       existingSource.installedSha === latestSha &&
+      skillSourceMatches(existingSource, requestedSource) &&
       existsSync(entryPath)
     ) {
       return { ok: true, path: entryPath, sha: latestSha, updated: false }
@@ -214,7 +221,9 @@ export async function installBundledSkill(
     }
 
     const targetDir = join(root, skillName)
-    const requestedSource: BundledSkillSourceMetadata = {
+    const requestedSource: SkillSourceMetadata = await readSkillSourceMetadata(sourceDir).then((metadata) =>
+      metadata?.type === 'github' ? metadata : undefined
+    ).catch(() => undefined) ?? {
       type: 'bundled',
       id: bundleId,
       autoUpdate: false
@@ -273,7 +282,9 @@ export async function syncGithubManagedSkills(
           path: source.path,
           ref: source.ref,
           skillName: basename(candidate),
-          autoUpdate: source.autoUpdate
+          autoUpdate: source.autoUpdate,
+          ...(source.includePaths?.length ? { includePaths: source.includePaths } : {}),
+          ...(source.overlaySkillId ? { overlaySkillId: source.overlaySkillId } : {})
         })
         if (result.ok) {
           if (result.updated) updated += 1
@@ -373,7 +384,7 @@ async function loadSkillSummary(root: string, scope: GuiSkillScope): Promise<Gui
 async function assertCanInstallIntoTarget(targetDir: string, source: SkillSourceMetadata): Promise<void> {
   if (!existsSync(targetDir)) return
   const existing = await readSkillSourceMetadata(targetDir).catch(() => undefined)
-  if (skillSourceMatches(existing, source)) return
+  if (skillSourceCanReplace(existing, source)) return
   throw new Error(`Skill "${basename(targetDir)}" already exists and is not managed by this source.`)
 }
 
@@ -408,6 +419,12 @@ async function readSkillSourceMetadata(root: string): Promise<SkillSourceMetadat
       ref: normalizeGithubRef(stringValue(record.ref)),
       ...(stringValue(record.installedSha) ? { installedSha: stringValue(record.installedSha) } : {}),
       autoUpdate: record.autoUpdate !== false,
+      ...(normalizeGithubIncludePaths(arrayStringValue(record.includePaths)).length
+        ? { includePaths: normalizeGithubIncludePaths(arrayStringValue(record.includePaths)) }
+        : {}),
+      ...(normalizeBundledSkillOverlayId(stringValue(record.overlaySkillId))
+        ? { overlaySkillId: normalizeBundledSkillOverlayId(stringValue(record.overlaySkillId)) }
+        : {}),
       ...(stringValue(record.installedAt) ? { installedAt: stringValue(record.installedAt) } : {})
     }
   }
@@ -434,7 +451,9 @@ function sourceForList(source: SkillSourceMetadata | undefined): GuiSkillSource 
       path: source.path,
       ref: source.ref,
       ...(source.installedSha ? { installedSha: source.installedSha } : {}),
-      autoUpdate: source.autoUpdate
+      autoUpdate: source.autoUpdate,
+      ...(source.includePaths?.length ? { includePaths: source.includePaths } : {}),
+      ...(source.overlaySkillId ? { overlaySkillId: source.overlaySkillId } : {})
     }
   }
   return {
@@ -450,12 +469,25 @@ function skillSourceMatches(left: SkillSourceMetadata | undefined, right: SkillS
     return left.id === right.id
   }
   if (left.type === 'github' && right.type === 'github') {
-    return left.owner.toLowerCase() === right.owner.toLowerCase() &&
-      left.repo.toLowerCase() === right.repo.toLowerCase() &&
-      normalizeGithubPath(left.path) === normalizeGithubPath(right.path) &&
-      normalizeGithubRef(left.ref) === normalizeGithubRef(right.ref)
+    return githubSkillSourceBaseMatches(left, right) &&
+      normalizedStringArraysEqual(left.includePaths ?? [], right.includePaths ?? []) &&
+      (left.overlaySkillId ?? '') === (right.overlaySkillId ?? '')
   }
   return false
+}
+
+function skillSourceCanReplace(left: SkillSourceMetadata | undefined, right: SkillSourceMetadata): boolean {
+  if (!left || left.type !== right.type) return false
+  if (left.type === 'bundled' && right.type === 'bundled') return left.id === right.id
+  if (left.type === 'github' && right.type === 'github') return githubSkillSourceBaseMatches(left, right)
+  return false
+}
+
+function githubSkillSourceBaseMatches(left: GithubSkillSourceMetadata, right: GithubSkillSourceMetadata): boolean {
+  return left.owner.toLowerCase() === right.owner.toLowerCase() &&
+    left.repo.toLowerCase() === right.repo.toLowerCase() &&
+    normalizeGithubPath(left.path) === normalizeGithubPath(right.path) &&
+    normalizeGithubRef(left.ref) === normalizeGithubRef(right.ref)
 }
 
 async function fetchGithubCommitSha(source: GithubSkillSourceMetadata): Promise<string> {
@@ -471,10 +503,40 @@ async function downloadGithubSkillDirectory(
   destination: string
 ): Promise<void> {
   const state = { files: 0, bytes: 0 }
-  await downloadGithubDirectory(source, source.path, destination, state)
+  if (source.includePaths?.length) {
+    await mkdir(destination, { recursive: true })
+    for (const includePath of source.includePaths) {
+      const relativePath = normalizeGithubPath(includePath)
+      const githubPath = normalizeGithubPath([source.path, relativePath].filter(Boolean).join('/'))
+      const localPath = relativePath ? join(destination, ...relativePath.split('/')) : destination
+      await downloadGithubEntry(source, githubPath, localPath, state)
+    }
+  } else {
+    await downloadGithubDirectory(source, source.path, destination, state)
+  }
+  await applyBundledSkillOverlay(source, destination)
   if (!existsSync(join(destination, 'SKILL.md')) && !existsSync(join(destination, 'skill.json'))) {
     throw new Error('GitHub Skill directory must contain SKILL.md or skill.json.')
   }
+}
+
+async function downloadGithubEntry(
+  source: GithubSkillSourceMetadata,
+  githubPath: string,
+  destination: string,
+  state: { files: number; bytes: number }
+): Promise<void> {
+  const entry = await fetchGithubJson<GithubContentEntry[] | GithubContentEntry>(
+    githubContentsUrl(source, githubPath)
+  )
+  if (Array.isArray(entry)) {
+    await downloadGithubDirectory(source, githubPath, destination, state)
+    return
+  }
+  if (entry.type !== 'file') {
+    throw new Error(`GitHub path is not a file or directory: ${githubPath || '/'}`)
+  }
+  await downloadGithubFile(entry, destination, state)
 }
 
 async function downloadGithubDirectory(
@@ -498,23 +560,47 @@ async function downloadGithubDirectory(
       continue
     }
     if (entry.type !== 'file') continue
-    const downloadUrl = stringValue(entry.download_url)
-    if (!downloadUrl) throw new Error(`GitHub file cannot be downloaded: ${entryPath}`)
-    state.files += 1
-    if (state.files > MAX_GITHUB_SKILL_FILES) {
-      throw new Error(`GitHub Skill has too many files; limit is ${MAX_GITHUB_SKILL_FILES}.`)
-    }
-    const size = typeof entry.size === 'number' && Number.isFinite(entry.size) ? entry.size : 0
-    state.bytes += Math.max(0, size)
-    if (state.bytes > MAX_GITHUB_SKILL_BYTES) {
-      throw new Error(`GitHub Skill is too large; limit is ${Math.round(MAX_GITHUB_SKILL_BYTES / 1024 / 1024)}MB.`)
-    }
-    const bytes = await fetchGithubBytes(downloadUrl)
-    state.bytes += Math.max(0, bytes.length - size)
-    if (state.bytes > MAX_GITHUB_SKILL_BYTES) {
-      throw new Error(`GitHub Skill is too large; limit is ${Math.round(MAX_GITHUB_SKILL_BYTES / 1024 / 1024)}MB.`)
-    }
-    await writeFile(join(destination, entryName), bytes)
+    await downloadGithubFile(entry, join(destination, entryName), state)
+  }
+}
+
+async function downloadGithubFile(
+  entry: GithubContentEntry,
+  destination: string,
+  state: { files: number; bytes: number }
+): Promise<void> {
+  const entryPath = normalizeGithubPath(stringValue(entry.path))
+  const downloadUrl = stringValue(entry.download_url)
+  if (!downloadUrl) throw new Error(`GitHub file cannot be downloaded: ${entryPath}`)
+  state.files += 1
+  if (state.files > MAX_GITHUB_SKILL_FILES) {
+    throw new Error(`GitHub Skill has too many files; limit is ${MAX_GITHUB_SKILL_FILES}.`)
+  }
+  const size = typeof entry.size === 'number' && Number.isFinite(entry.size) ? entry.size : 0
+  state.bytes += Math.max(0, size)
+  if (state.bytes > MAX_GITHUB_SKILL_BYTES) {
+    throw new Error(`GitHub Skill is too large; limit is ${Math.round(MAX_GITHUB_SKILL_BYTES / 1024 / 1024)}MB.`)
+  }
+  const bytes = await fetchGithubBytes(downloadUrl)
+  state.bytes += Math.max(0, bytes.length - size)
+  if (state.bytes > MAX_GITHUB_SKILL_BYTES) {
+    throw new Error(`GitHub Skill is too large; limit is ${Math.round(MAX_GITHUB_SKILL_BYTES / 1024 / 1024)}MB.`)
+  }
+  await mkdir(dirname(destination), { recursive: true })
+  await writeFile(destination, bytes)
+}
+
+async function applyBundledSkillOverlay(
+  source: GithubSkillSourceMetadata,
+  destination: string
+): Promise<void> {
+  const overlayId = normalizeBundledSkillOverlayId(source.overlaySkillId)
+  if (!overlayId) return
+  const overlayDir = resolveBundledSkillDirectory(overlayId)
+  if (!overlayDir) throw new Error(`Bundled Skill overlay is not available: ${overlayId}`)
+  const overlaySkill = join(overlayDir, 'SKILL.md')
+  if (existsSync(overlaySkill)) {
+    await cp(overlaySkill, join(destination, 'SKILL.md'), { force: true })
   }
 }
 
@@ -540,7 +626,7 @@ function githubHeaders(): Record<string, string> {
   const token = (process.env.GITHUB_TOKEN || process.env.GH_TOKEN || '').trim()
   return {
     Accept: 'application/vnd.github+json',
-    'User-Agent': 'WORKGPT',
+    'User-Agent': 'WorkWise',
     ...(token ? { Authorization: `Bearer ${token}` } : {})
   }
 }
@@ -554,7 +640,7 @@ async function githubResponseError(response: Response): Promise<Error> {
     /* ignore body read failures */
   }
   const privateHint = response.status === 401 || response.status === 403 || response.status === 404
-    ? ' If this is a private repository, set GITHUB_TOKEN or GH_TOKEN before launching WORKGPT.'
+    ? ' If this is a private repository, set GITHUB_TOKEN or GH_TOKEN before launching WorkWise.'
     : ''
   return new Error(`GitHub request failed (${response.status} ${response.statusText}).${privateHint}${detail}`)
 }
@@ -563,8 +649,19 @@ function normalizeGithubPath(path: string | undefined): string {
   return (path ?? '').trim().replace(/\\/g, '/').replace(/^\/+|\/+$/g, '')
 }
 
+function normalizeGithubIncludePaths(paths: string[] | undefined): string[] {
+  return uniqueStrings((paths ?? [])
+    .map(normalizeGithubPath)
+    .filter(Boolean))
+}
+
 function normalizeGithubRef(ref: string | undefined): string {
   return ref?.trim() || DEFAULT_GITHUB_REF
+}
+
+function normalizeBundledSkillOverlayId(raw: string | undefined): string {
+  const value = raw?.trim() ?? ''
+  return value ? normalizeSkillFolderName(value) : ''
 }
 
 function normalizeGithubEntryName(name: string | undefined): string {
@@ -636,10 +733,21 @@ function stringValue(value: unknown): string {
   return typeof value === 'string' ? value.trim() : ''
 }
 
+function arrayStringValue(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : []
+}
+
 function objectValue(value: unknown): Record<string, unknown> | null {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
     ? value as Record<string, unknown>
     : null
+}
+
+function normalizedStringArraysEqual(left: string[], right: string[]): boolean {
+  const normalizedLeft = normalizeGithubIncludePaths(left)
+  const normalizedRight = normalizeGithubIncludePaths(right)
+  return normalizedLeft.length === normalizedRight.length &&
+    normalizedLeft.every((value, index) => value === normalizedRight[index])
 }
 
 function titleFromSlug(value: string): string {

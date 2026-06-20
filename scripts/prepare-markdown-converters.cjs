@@ -73,7 +73,7 @@ function main() {
   if (extractZipEntry(winZip, 'md2docx.exe', join(convertersDir, 'win32-x64', 'md2docx.exe'))) copied += 1
 
   if (!existsSync(join(convertersDir, 'darwin-x64', 'pandoc'))) {
-    warn('No darwin-x64 pandoc was found in the provided ZIPs. Intel macOS builds will use WORKGPT built-in DOCX export unless you add converters/darwin-x64/pandoc.')
+    warn('No darwin-x64 pandoc was found in the provided ZIPs. Intel macOS builds will use WorkWise built-in DOCX export unless you add converters/darwin-x64/pandoc.')
   }
 
   if (copied === 0) {

@@ -134,7 +134,7 @@ async function listChecksumTargets(distDir) {
   const entries = await readdir(distDir)
   return entries
     .filter((name) =>
-      /^WORKGPT-.+/.test(name) ||
+      /^WorkWise-.+/.test(name) ||
       /^latest(?:-mac)?\.yml$/.test(name)
     )
     .sort()

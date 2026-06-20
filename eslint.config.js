@@ -5,7 +5,7 @@ import tseslint from 'typescript-eslint'
 
 export default tseslint.config(
   {
-    ignores: ['build/**', 'dist/**', 'node_modules/**', 'out/**', 'coverage/**']
+    ignores: ['build/**', 'dist/**', 'node_modules/**', 'out/**', 'coverage/**', 'src/asset/skills/**']
   },
   js.configs.recommended,
   {

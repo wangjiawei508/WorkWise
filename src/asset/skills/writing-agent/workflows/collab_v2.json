@@ -1,0 +1,197 @@
+{
+  "workflow_version": "collab-v2",
+  "final_copy_artifact": "_clean.txt",
+  "notes_suffix": "_notes.md",
+  "legacy_aliases": {
+    "02_cases.md": "02_scar_tissue.md",
+    "04_empathy_map.md": "04_share_map.md"
+  },
+  "stages": [
+    {
+      "id": "1",
+      "agent": "writing-clarifier",
+      "outputs": [
+        "01_theme.md"
+      ]
+    },
+    {
+      "id": "0",
+      "agent": "memory-loader",
+      "inputs": [
+        "01_theme.md"
+      ],
+      "outputs": [
+        "00_memory_packet.md"
+      ]
+    },
+    {
+      "id": "1.5",
+      "agent": "position-engine",
+      "inputs": [
+        "01_theme.md"
+      ],
+      "outputs": [
+        "01b_position.md"
+      ]
+    },
+    {
+      "id": "2",
+      "agent": "research-expert",
+      "inputs": [
+        "01_theme.md",
+        "01b_position.md"
+      ],
+      "outputs": [
+        "02_scar_tissue.md",
+        "02_evidence_ledger.json"
+      ]
+    },
+    {
+      "id": "3",
+      "agent": "outline-architect",
+      "inputs": [
+        "01_theme.md",
+        "01b_position.md",
+        "02_scar_tissue.md"
+      ],
+      "outputs": [
+        "03_outline.md"
+      ]
+    },
+    {
+      "id": "4",
+      "agent": "empathy-designer",
+      "inputs": [
+        "03_outline.md",
+        "01b_position.md",
+        "02_scar_tissue.md"
+      ],
+      "outputs": [
+        "04_share_map.md"
+      ]
+    },
+    {
+      "id": "5",
+      "agent": "concretizer",
+      "inputs": [
+        "03_outline.md",
+        "04_share_map.md"
+      ],
+      "outputs": [
+        "05_concrete_library.md"
+      ]
+    },
+    {
+      "id": "5.5",
+      "agent": "title-designer",
+      "inputs": [
+        "03_outline.md",
+        "01_theme.md"
+      ],
+      "outputs": [
+        "04_title.md"
+      ]
+    },
+    {
+      "id": "5.8",
+      "agent": "opening-tournament",
+      "inputs": [
+        "01b_position.md",
+        "02_scar_tissue.md",
+        "04_share_map.md",
+        "05_concrete_library.md"
+      ],
+      "outputs": [
+        "05c_opening_hook.md"
+      ]
+    },
+    {
+      "id": "6",
+      "agent": "writing-executor",
+      "inputs": [
+        "01_theme.md",
+        "01b_position.md",
+        "02_scar_tissue.md",
+        "02_evidence_ledger.json",
+        "03_outline.md",
+        "04_title.md",
+        "04_share_map.md",
+        "05_concrete_library.md",
+        "05c_opening_hook.md"
+      ],
+      "outputs": [
+        "draft_v1.md",
+        "draft_v1_notes.md"
+      ]
+    },
+    {
+      "id": "7",
+      "agent": "editor-review",
+      "outputs": [
+        "draft_vN.md",
+        "draft_vN_notes.md"
+      ]
+    },
+    {
+      "id": "8",
+      "agent": "pre-publish-review",
+      "outputs": [
+        "pre_publish_review.md"
+      ]
+    },
+    {
+      "id": "9",
+      "agent": "wechat-reader-test",
+      "outputs": [
+        "wechat_reader_test.md"
+      ]
+    },
+    {
+      "id": "10",
+      "agent": "humanizer",
+      "outputs": [
+        "draft_vN_humanized.md"
+      ]
+    },
+    {
+      "id": "10.5",
+      "agent": "fact-checker",
+      "inputs": [
+        "02_evidence_ledger.json",
+        "[latest_body_file]"
+      ],
+      "outputs": [
+        "fact_claims.json",
+        "fact_check_report.md"
+      ]
+    },
+    {
+      "id": "11",
+      "agent": "article-illustrator",
+      "optional": true,
+      "outputs": []
+    },
+    {
+      "id": "12",
+      "agent": "auto-clean-hook",
+      "outputs": [
+        "[body]_clean.txt"
+      ]
+    },
+    {
+      "id": "12.5",
+      "agent": "html-exporter",
+      "optional": true,
+      "outputs": [
+        "[body].html"
+      ]
+    },
+    {
+      "id": "13",
+      "agent": "edit-diff-learner",
+      "outputs": [
+        "99_episode.md"
+      ]
+    }
+  ]
+}
