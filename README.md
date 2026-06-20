@@ -357,7 +357,7 @@ WorkWise 会继续向三个方向演进：
 
 ## 反馈
 
-欢迎在 [Issues](https://github.com/wangjiawei508/WORKGPT/issues) 反馈问题或建议。为了更快定位，请尽量附上：
+欢迎在 [Issues](https://github.com/wangjiawei508/WorkWise/issues) 反馈问题或建议。为了更快定位，请尽量附上：
 
 - WorkWise 版本号。
 - 操作系统和芯片架构。

@@ -2,9 +2,9 @@
 
 本文档用于快速上手 WorkWise 桌面端。更多背景、源码和发布包请查看：
 
-- 项目主页：https://github.com/wangjiawei508/WORKGPT
-- 下载页面：https://github.com/wangjiawei508/WORKGPT/releases
-- 问题反馈：https://github.com/wangjiawei508/WORKGPT/issues
+- 项目主页：https://github.com/wangjiawei508/WorkWise
+- 下载页面：https://github.com/wangjiawei508/WorkWise/releases
+- 问题反馈：https://github.com/wangjiawei508/WorkWise/issues
 - 维护者：https://github.com/wangjiawei508
 
 ## 产品定位

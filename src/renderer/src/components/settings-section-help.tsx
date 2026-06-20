@@ -17,11 +17,11 @@ import {
 } from 'lucide-react'
 import { SettingsCard } from './settings-controls'
 
-const WORKGPT_GITHUB_URL = 'https://github.com/wangjiawei508/WORKGPT'
-const WORKGPT_RELEASES_URL = 'https://github.com/wangjiawei508/WORKGPT/releases'
-const WORKGPT_ISSUES_URL = 'https://github.com/wangjiawei508/WORKGPT/issues'
-const WORKGPT_README_URL = 'https://github.com/wangjiawei508/WORKGPT#readme'
-const WORKGPT_GUIDE_URL = 'https://github.com/wangjiawei508/WORKGPT/blob/main/docs/USER_GUIDE.zh-CN.md'
+const WORKGPT_GITHUB_URL = 'https://github.com/wangjiawei508/WorkWise'
+const WORKGPT_RELEASES_URL = 'https://github.com/wangjiawei508/WorkWise/releases'
+const WORKGPT_ISSUES_URL = 'https://github.com/wangjiawei508/WorkWise/issues'
+const WORKGPT_README_URL = 'https://github.com/wangjiawei508/WorkWise#readme'
+const WORKGPT_GUIDE_URL = 'https://github.com/wangjiawei508/WorkWise/blob/main/docs/USER_GUIDE.zh-CN.md'
 const WORKGPT_AUTHOR_URL = 'https://github.com/wangjiawei508'
 
 function HelpLinkButton({

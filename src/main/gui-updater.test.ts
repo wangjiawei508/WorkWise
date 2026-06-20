@@ -112,14 +112,14 @@ describe('gui updater source helpers', () => {
   it('normalizes common GitHub repository URL forms', async () => {
     const module = await import('./gui-updater')
 
-    expect(module._internals.normalizeGithubOwnerRepo('wangjiawei508/WORKGPT')).toBe(
-      'wangjiawei508/WORKGPT'
+    expect(module._internals.normalizeGithubOwnerRepo('wangjiawei508/WorkWise')).toBe(
+      'wangjiawei508/WorkWise'
     )
-    expect(module._internals.normalizeGithubOwnerRepo('https://github.com/wangjiawei508/WORKGPT.git')).toBe(
-      'wangjiawei508/WORKGPT'
+    expect(module._internals.normalizeGithubOwnerRepo('https://github.com/wangjiawei508/WorkWise.git')).toBe(
+      'wangjiawei508/WorkWise'
     )
-    expect(module._internals.normalizeGithubOwnerRepo('git@github.com:wangjiawei508/WORKGPT.git')).toBe(
-      'wangjiawei508/WORKGPT'
+    expect(module._internals.normalizeGithubOwnerRepo('git@github.com:wangjiawei508/WorkWise.git')).toBe(
+      'wangjiawei508/WorkWise'
     )
   })
 
@@ -128,16 +128,16 @@ describe('gui updater source helpers', () => {
     const releases = [
       {
         tag_name: 'v0.3.0-beta.1',
-        html_url: 'https://github.com/wangjiawei508/WORKGPT/releases/tag/v0.3.0-beta.1',
+        html_url: 'https://github.com/wangjiawei508/WorkWise/releases/tag/v0.3.0-beta.1',
         prerelease: true
       },
       {
         tag_name: 'v0.2.0',
-        html_url: 'https://github.com/wangjiawei508/WORKGPT/releases/tag/v0.2.0'
+        html_url: 'https://github.com/wangjiawei508/WorkWise/releases/tag/v0.2.0'
       },
       {
         tag_name: 'draft',
-        html_url: 'https://github.com/wangjiawei508/WORKGPT/releases/tag/draft',
+        html_url: 'https://github.com/wangjiawei508/WorkWise/releases/tag/draft',
         draft: true
       }
     ]
@@ -163,7 +163,7 @@ describe('gui updater source helpers', () => {
       expect(module._internals.resolveUpdateFeedConfig('stable')).toMatchObject({
         kind: 'github',
         owner: 'wangjiawei508',
-        repo: 'WORKGPT'
+        repo: 'WorkWise'
       })
 
       process.env.R2_PUBLIC_BASE_URL = 'https://downloads.example.test/workgpt'

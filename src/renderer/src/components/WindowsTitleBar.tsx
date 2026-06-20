@@ -14,8 +14,8 @@ import { useChatStore } from '../store/chat-store'
 type MenuAction = () => void | Promise<void>
 type TitleBarTranslate = (key: string, options?: Record<string, unknown>) => string
 
-const WORKGPT_GITHUB_URL = 'https://github.com/wangjiawei508/WORKGPT'
-const WORKGPT_RELEASES_URL = 'https://github.com/wangjiawei508/WORKGPT/releases'
+const WORKGPT_GITHUB_URL = 'https://github.com/wangjiawei508/WorkWise'
+const WORKGPT_RELEASES_URL = 'https://github.com/wangjiawei508/WorkWise/releases'
 
 export type WindowsTitleBarMenuItem =
   | {
