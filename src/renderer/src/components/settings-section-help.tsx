@@ -1,11 +1,14 @@
 import type { ReactElement, ReactNode } from 'react'
 import {
   BookOpen,
+  CheckCircle2,
   Download,
   ExternalLink,
   FileText,
+  FlaskConical,
   Github,
   Keyboard,
+  Map,
   MessageCircle,
   Puzzle,
   RefreshCw,
@@ -118,6 +121,27 @@ export function HelpSettingsSection({ ctx }: { ctx: Record<string, any> }): Reac
             />
           </div>
         </div>
+      </SettingsCard>
+
+      <SettingsCard title={t('helpCapabilityStatusTitle')} className="mt-6">
+        <HelpInfoBlock
+          icon={<CheckCircle2 className="h-4 w-4" strokeWidth={1.8} />}
+          title={t('helpStableTitle')}
+          body={t('helpStableBody')}
+          items={[t('helpStableItemChat'), t('helpStableItemWrite'), t('helpStableItemHelp')]}
+        />
+        <HelpInfoBlock
+          icon={<FlaskConical className="h-4 w-4" strokeWidth={1.8} />}
+          title={t('helpPreviewTitle')}
+          body={t('helpPreviewBody')}
+          items={[t('helpPreviewItemMcp'), t('helpPreviewItemSync'), t('helpPreviewItemExport')]}
+        />
+        <HelpInfoBlock
+          icon={<Map className="h-4 w-4" strokeWidth={1.8} />}
+          title={t('helpRoadmapTitle')}
+          body={t('helpRoadmapBody')}
+          items={[t('helpRoadmapItemInfrastructure'), t('helpRoadmapItemOperations'), t('helpRoadmapItemKnowledge')]}
+        />
       </SettingsCard>
 
       <SettingsCard title={t('helpGuideTitle')} className="mt-6">

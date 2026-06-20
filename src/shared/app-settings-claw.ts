@@ -40,7 +40,7 @@ function defaultClawChannelLabel(provider: ClawImProvider): string {
 function normalizeLegacyDefaultClawChannelName(provider: ClawImProvider, value: string): string {
   const trimmed = value.trim()
   const lower = trimmed.toLowerCase()
-  if (lower === 'kun' || lower === 'workgpt') return DEFAULT_PHONE_AGENT_NAME
+  if (lower === 'kun' || lower === 'workgpt' || lower === 'workwise') return DEFAULT_PHONE_AGENT_NAME
   if (provider === 'weixin') {
     return lower === 'weixin agent' || lower === 'wechat agent' || lower === 'wechat'
       ? DEFAULT_PHONE_AGENT_NAME

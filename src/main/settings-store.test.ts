@@ -140,7 +140,7 @@ describe('JsonSettingsStore', () => {
   it('loads settings from the legacy lowercase userData directory and writes them into the current path', async () => {
     const supportRoot = await mkdtemp(join(tmpdir(), 'workgpt-settings-compat-'))
     const legacyUserDataDir = join(supportRoot, 'workgpt')
-    const currentUserDataDir = join(supportRoot, 'WORKGPT')
+    const currentUserDataDir = join(supportRoot, 'WorkWise')
     const currentSettingsPath = join(currentUserDataDir, 'workgpt-settings.json')
 
     await mkdir(legacyUserDataDir, { recursive: true })

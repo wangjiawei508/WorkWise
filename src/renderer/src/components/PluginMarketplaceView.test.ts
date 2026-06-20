@@ -13,7 +13,7 @@ describe('PluginMarketplaceView MCP config helpers', () => {
     const existing = JSON.stringify({
       timeouts: { read_timeout: 120 },
       servers: {
-        gui_schedule: { command: '/Applications/WORKGPT.app' }
+        gui_schedule: { command: '/Applications/WorkWise.app' }
       }
     })
 
@@ -25,7 +25,7 @@ describe('PluginMarketplaceView MCP config helpers', () => {
 
     expect(merged.alreadyExists).toBe(false)
     expect(parsed.timeouts).toEqual({ read_timeout: 120 })
-    expect(parsed.servers.gui_schedule).toEqual({ command: '/Applications/WORKGPT.app' })
+    expect(parsed.servers.gui_schedule).toEqual({ command: '/Applications/WorkWise.app' })
     expect(parsed.servers.playwright).toMatchObject({
       enabled: true,
       transport: 'stdio',
@@ -247,7 +247,8 @@ describe('skillMarketplaceItemsFromDiscoveredSkills', () => {
       expect.objectContaining({
         id: 'di-bao-monitoring',
         sourceLabel: 'GitHub',
-        statusTone: 'success'
+        statusTone: 'success',
+        sourceUrl: 'https://github.com/railwise-cn/di-bao-monitoring-skill/tree/main/skill/di-bao-monitoring'
       }),
       expect.objectContaining({
         id: 'operational-monitoring',

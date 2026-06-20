@@ -96,7 +96,7 @@ copy_mac_arch_artifacts() {
   local files=()
 
   shopt -s nullglob
-  files=("${output_dir}"/WORKGPT-*-mac-"${arch}".*)
+  files=("${output_dir}"/WorkWise-*-mac-"${arch}".*)
   shopt -u nullglob
 
   [[ ${#files[@]} -gt 0 ]] || die "No macOS ${arch} artifacts found in ${output_dir}"
@@ -252,13 +252,8 @@ collect_optional() {
 }
 
 # artifactName: ${productName}-${version}-mac-${arch}.dmg|zip
-collect "macOS arm64 dmg" "dist/WORKGPT-*-mac-arm64.dmg"
-collect "macOS x64 dmg" "dist/WORKGPT-*-mac-x64.dmg"
-collect "macOS arm64 zip" "dist/WORKGPT-*-mac-arm64.zip"
-collect "macOS x64 zip" "dist/WORKGPT-*-mac-x64.zip"
-collect_optional "macOS blockmap" "dist/WORKGPT-*-mac-*.zip.blockmap"
-collect "macOS update metadata" "dist/latest-mac.yml"
-collect "macOS checksums" "dist/SHA256SUMS-mac.txt"
+collect "macOS arm64 dmg" "dist/WorkWise-*-mac-arm64.dmg"
+collect "macOS x64 dmg" "dist/WorkWise-*-mac-x64.dmg"
 
 upload_github_assets() {
   local tag="$1"
@@ -314,7 +309,7 @@ This is an unsigned build. macOS Gatekeeper will block first launch.
 Run this after downloading:
 
 ```sh
-xattr -cr "WORKGPT.app"
+xattr -cr "WorkWise.app"
 # or
 npm run mac:unquarantine
 ```

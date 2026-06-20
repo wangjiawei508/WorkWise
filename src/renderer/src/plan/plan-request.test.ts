@@ -18,7 +18,7 @@ describe('plan-request', () => {
       {
         kind: 'user',
         id: 'u2',
-        text: 'WORKGPT is asking you to draft a GUI-owned implementation plan.'
+        text: 'WorkWise is asking you to draft a GUI-owned implementation plan.'
       },
       {
         kind: 'user',
@@ -35,7 +35,7 @@ describe('plan-request', () => {
   })
 
   it('recognizes internal plan prompts', () => {
-    expect(isInternalGuiPlanPrompt('WORKGPT is asking you to revise an existing GUI-owned implementation plan.')).toBe(true)
+    expect(isInternalGuiPlanPrompt('WorkWise is asking you to revise an existing GUI-owned implementation plan.')).toBe(true)
     expect(isInternalGuiPlanPrompt('Please read and execute the GUI plan file at `.workgpt/plan/a.md`')).toBe(true)
     expect(isInternalGuiPlanPrompt('Create plan: auth')).toBe(true)
     expect(isInternalGuiPlanPrompt('please make a plan for auth')).toBe(false)

@@ -8,7 +8,7 @@ import { app } from 'electron'
  * 保持一致。Windows 任务栏 / 系统托盘 / 通知中心看到的应用名都来自
  * 这条字符串(在打包产物里还会被写进 VERSIONINFO)。
  */
-export const APP_PRODUCT_NAME = 'WORKGPT'
+export const APP_PRODUCT_NAME = 'WorkWise'
 
 /**
  * 在 main 进程最早期调用,把 app 的对外名称设好。

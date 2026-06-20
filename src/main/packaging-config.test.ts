@@ -62,7 +62,7 @@ function createMacPackContext(root: string): {
     arch: 'arm64',
     packager: {
       appInfo: {
-        productFilename: 'WORKGPT'
+        productFilename: 'WorkWise'
       }
     }
   }
@@ -176,8 +176,8 @@ describe('electron-builder Kun packaging', () => {
 
   it('checks timestamp candidates across nested macOS signed code', () => {
     const root = tempRoot()
-    const appBundle = join(root, 'WORKGPT.app')
-    const mainExecutable = join(appBundle, 'Contents/MacOS/WORKGPT')
+    const appBundle = join(root, 'WorkWise.app')
+    const mainExecutable = join(appBundle, 'Contents/MacOS/WorkWise')
     const framework = join(appBundle, 'Contents/Frameworks/Electron Framework.framework')
     const nativeAddon = join(
       appBundle,

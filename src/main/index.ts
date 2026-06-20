@@ -9,7 +9,7 @@ import {
 import workgptLogoPng from '../asset/img/workgpt.png?url'
 import workgptTrayPng from '../asset/img/workgpt_tray.png?url'
 import { createAppIcon, pickTrayIcon } from './app-icon'
-import { configureAppIdentity } from './app-identity'
+import { APP_PRODUCT_NAME, configureAppIdentity } from './app-identity'
 import {
   applyKunRuntimePatch,
   kunSettingsEnvelope,
@@ -278,15 +278,15 @@ traceStartup('single instance lock checked', {
 function trayLabels(locale: AppSettingsV1['locale']): { show: string; quit: string; tooltip: string } {
   if (locale === 'zh') {
     return {
-      show: '显示 WORKGPT',
+      show: `显示 ${APP_PRODUCT_NAME}`,
       quit: '退出',
-      tooltip: 'WORKGPT'
+      tooltip: APP_PRODUCT_NAME
     }
   }
   return {
-    show: 'Show WORKGPT',
+    show: `Show ${APP_PRODUCT_NAME}`,
     quit: 'Quit',
-    tooltip: 'WORKGPT'
+    tooltip: APP_PRODUCT_NAME
   }
 }
 
@@ -386,7 +386,7 @@ async function showTurnCompleteNotification(
     return { ok: true, shown: false, reason: 'unsupported' }
   }
 
-  const title = normalizeNotificationText(payload.title, 'WORKGPT', 80)
+  const title = normalizeNotificationText(payload.title, APP_PRODUCT_NAME, 80)
   const body = normalizeNotificationText(payload.body, 'Conversation complete.', 180)
 
   try {
@@ -981,7 +981,7 @@ app.whenReady().then(async () => {
 }).catch((error) => {
   const message = error instanceof Error ? error.message : String(error)
   console.error('[workgpt] startup failed:', error)
-  dialog.showErrorBox('WORKGPT failed to start', message)
+  dialog.showErrorBox('WorkWise failed to start', message)
   app.quit()
 })
 }

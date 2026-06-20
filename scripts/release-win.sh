@@ -111,10 +111,7 @@ collect() {
   done
 }
 
-collect "Windows exe" "dist/WORKGPT-*-win-*.exe"
-collect "Windows blockmap" "dist/WORKGPT-*-win-*.exe.blockmap"
-collect "Windows update metadata" "dist/latest.yml"
-collect "Windows checksums" "dist/SHA256SUMS-win.txt"
+collect "Windows exe" "dist/WorkWise-*-win-*.exe"
 
 cyan "Uploading ${#ASSETS[@]} Windows asset(s) to ${TAG_NAME}..."
 for asset in "${ASSETS[@]}"; do

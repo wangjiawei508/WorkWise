@@ -66,7 +66,7 @@ export function SettingsSidebar({
             <Settings className="h-4 w-4" strokeWidth={1.75} />
           </div>
           <div className="min-w-0 text-[12px] text-ds-muted">
-            <div className="truncate font-medium text-ds-ink">WORKGPT</div>
+            <div className="truncate font-medium text-ds-ink">WorkWise</div>
             <div className="truncate">{t('settingsFooter')}</div>
           </div>
         </div>

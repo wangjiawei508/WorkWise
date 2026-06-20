@@ -72,8 +72,8 @@ function createSettings(patch: Partial<AppSettingsV1['schedule']['internal']> = 
 }
 
 const launch: ClawScheduleMcpLaunchConfig = {
-  appPath: '/Applications/WORKGPT.app',
-  execPath: '/Applications/WORKGPT.app/Contents/MacOS/WORKGPT',
+  appPath: '/Applications/WorkWise.app',
+  execPath: '/Applications/WorkWise.app/Contents/MacOS/WorkWise',
   isPackaged: false
 }
 
@@ -128,7 +128,7 @@ describe('claw schedule MCP config', () => {
 
   it('uses the macOS Electron helper for real app bundle paths', () => {
     expect(resolveClawScheduleMcpCommand(launch, 'darwin')).toBe(
-      '/Applications/WORKGPT.app/Contents/Frameworks/WORKGPT Helper.app/Contents/MacOS/WORKGPT Helper'
+      '/Applications/WorkWise.app/Contents/Frameworks/WorkWise Helper.app/Contents/MacOS/WorkWise Helper'
     )
     expect(resolveClawScheduleMcpCommand({
       appPath: '/tmp/workgpt-test-app',

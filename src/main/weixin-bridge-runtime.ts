@@ -154,7 +154,7 @@ function readWeixinPackageInfo(): WeixinPackageInfo {
   const packageJson = resolvePackagePath('@tencent-weixin/openclaw-weixin', 'package.json')
   if (!packageJson) {
     throw new Error(
-      'Built-in WeChat login component is missing. Reinstall WORKGPT or rebuild with @tencent-weixin/openclaw-weixin bundled.'
+      'Built-in WeChat login component is missing. Reinstall WorkWise or rebuild with @tencent-weixin/openclaw-weixin bundled.'
     )
   }
   const parsed = JSON.parse(readFileSync(packageJson, 'utf8')) as JsonRecord
@@ -466,7 +466,7 @@ async function readBridgeConfig(): Promise<JsonRecord> {
 async function prepareBridgeState(port: number): Promise<void> {
   if (!resolveWeixinPluginRoot()) {
     throw new Error(
-      'Built-in WeChat login component is missing. Reinstall WORKGPT or rebuild with @tencent-weixin/openclaw-weixin bundled.'
+      'Built-in WeChat login component is missing. Reinstall WorkWise or rebuild with @tencent-weixin/openclaw-weixin bundled.'
     )
   }
   await ensureStateDirs()
@@ -605,7 +605,7 @@ async function waitForWeixinLogin(params: JsonRecord): Promise<JsonRecord> {
           alreadyConnected: true,
           accountId: normalizeAccountId(sessionKey),
           sessionKey,
-          message: '已连接过此 WORKGPT，无需重复连接。'
+          message: '已连接过此 WorkWise，无需重复连接。'
         }
       case 'scaned_but_redirect': {
         const redirectHost = recordString(status, 'redirect_host')
@@ -631,7 +631,7 @@ async function waitForWeixinLogin(params: JsonRecord): Promise<JsonRecord> {
           sessionKey,
           baseUrl,
           userId,
-          message: '已将此 WORKGPT 连接到微信。'
+          message: '已将此 WorkWise 连接到微信。'
         }
       }
     }
@@ -826,7 +826,7 @@ async function postToDeepSeekGuiWebhook(message: WeixinMessage, accountId: strin
   })
   const data = await readJsonResponse(res)
   if (!res.ok || data.ok === false) {
-    throw new Error(recordString(data, 'message') || `WORKGPT webhook HTTP ${res.status}`)
+    throw new Error(recordString(data, 'message') || `WorkWise webhook HTTP ${res.status}`)
   }
   return data
 }

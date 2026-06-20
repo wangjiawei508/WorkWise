@@ -1,6 +1,6 @@
 # Security Policy
 
-Thank you for helping keep WORKGPT and its users safe.
+Thank you for helping keep WorkWise and its users safe.
 
 ## Supported Versions
 

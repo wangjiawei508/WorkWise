@@ -33,7 +33,7 @@ describe('CI release version computation', () => {
     ).toEqual({
       version: '0.1.1',
       tag: 'v0.1.1',
-      releaseName: 'WORKGPT 0.1.1',
+      releaseName: 'WorkWise 0.1.1',
       previousTag: '',
       existingTag: false
     })

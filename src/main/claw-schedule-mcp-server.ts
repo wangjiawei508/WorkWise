@@ -71,15 +71,15 @@ export async function runClawScheduleMcpServerFromArgv(argv: string[]): Promise<
   if (!options) return false
 
   const server = new McpServer(
-    { name: 'workgpt-schedule', version: '0.1.0' },
+    { name: 'workwise-schedule', version: '0.1.0' },
     { capabilities: { logging: {} } }
   )
 
   const registerListTool = (name: string): void => {
     server.registerTool(name, {
       description: name.startsWith('claw_')
-        ? 'Legacy alias. List scheduled tasks managed by the currently running WORKGPT app.'
-        : 'List scheduled tasks managed by the currently running WORKGPT app.'
+        ? 'Legacy alias. List scheduled tasks managed by the currently running WorkWise app.'
+        : 'List scheduled tasks managed by the currently running WorkWise app.'
     }, async () => {
       try {
         const result = await postJson(options, '/schedule/internal/list', {})
@@ -101,8 +101,8 @@ export async function runClawScheduleMcpServerFromArgv(argv: string[]): Promise<
   const registerCreateTool = (name: string): void => {
     server.registerTool(name, {
       description: name.startsWith('claw_')
-        ? 'Legacy alias. Create a scheduled task in WORKGPT. Supports one-time (`at`), daily, or interval schedules.'
-        : 'Create a scheduled task in WORKGPT. Supports one-time (`at`), daily, or interval schedules.',
+        ? 'Legacy alias. Create a scheduled task in WorkWise. Supports one-time (`at`), daily, or interval schedules.'
+        : 'Create a scheduled task in WorkWise. Supports one-time (`at`), daily, or interval schedules.',
       inputSchema: {
         title: z.string().min(1).describe('Short task title shown in the GUI'),
         prompt: z.string().min(1).describe('The prompt/instruction the agent should run at schedule time'),
@@ -151,8 +151,8 @@ export async function runClawScheduleMcpServerFromArgv(argv: string[]): Promise<
   const registerUpdateTool = (name: string): void => {
     server.registerTool(name, {
       description: name.startsWith('claw_')
-        ? 'Legacy alias. Update an existing WORKGPT scheduled task.'
-        : 'Update an existing WORKGPT scheduled task.',
+        ? 'Legacy alias. Update an existing WorkWise scheduled task.'
+        : 'Update an existing WorkWise scheduled task.',
       inputSchema: {
         task_id: z.string().min(1).describe('Task id returned by gui_schedule_list or gui_schedule_create'),
         title: z.string().optional(),
@@ -210,8 +210,8 @@ export async function runClawScheduleMcpServerFromArgv(argv: string[]): Promise<
   const registerDeleteTool = (name: string): void => {
     server.registerTool(name, {
       description: name.startsWith('claw_')
-        ? 'Legacy alias. Delete a scheduled task from WORKGPT.'
-        : 'Delete a scheduled task from WORKGPT.',
+        ? 'Legacy alias. Delete a scheduled task from WorkWise.'
+        : 'Delete a scheduled task from WorkWise.',
       inputSchema: {
         task_id: z.string().min(1).describe('Task id returned by gui_schedule_list or gui_schedule_create')
       }

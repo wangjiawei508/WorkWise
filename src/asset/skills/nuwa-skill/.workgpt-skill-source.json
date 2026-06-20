@@ -1,0 +1,17 @@
+{
+  "type": "github",
+  "owner": "alchaincyf",
+  "repo": "nuwa-skill",
+  "path": "",
+  "ref": "main",
+  "autoUpdate": true,
+  "includePaths": [
+    "SKILL.md",
+    "README.md",
+    "README_EN.md",
+    "LICENSE",
+    "references",
+    "scripts"
+  ]
+}
+

@@ -767,7 +767,7 @@ export async function exportWriteDocument(
           } catch {
             const docx = await htmlToDocx(html, null, {
               title,
-              creator: 'WORKGPT',
+              creator: 'WorkWise',
               keywords: ['markdown', 'export'],
               description: `Exported from ${basename(sourcePath)}`,
               font: 'Arial',

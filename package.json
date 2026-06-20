@@ -1,8 +1,8 @@
 {
-  "name": "workgpt",
-  "productName": "WORKGPT",
-  "version": "0.1.8",
-  "description": "Electron workbench for the Kun runtime (HTTP/SSE)",
+  "name": "workwise",
+  "productName": "WorkWise",
+  "version": "0.2.0",
+  "description": "AI workbench for engineering, infrastructure, and operations workflows",
   "main": "./out/main/index.js",
   "type": "module",
   "scripts": {
@@ -13,8 +13,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "dist": "npm run build && npx --yes electron-builder@26.8.1 --config electron-builder.cjs --publish never",
-    "dist:mac": "rm -f dist/WORKGPT-*-mac-* dist/latest-mac.yml && npm run build && npm run dist:mac:x64:dmg && npm run dist:mac:arm64:dmg",
-    "dist:mac:signed": "rm -f dist/WORKGPT-*-mac-* dist/latest-mac.yml && MAC_SIGN=1 npm run dist:mac:x64:dmg && MAC_SIGN=1 npm run dist:mac:arm64:dmg",
+    "dist:mac": "rm -f dist/WorkWise-*-mac-* dist/latest-mac.yml && npm run build && npm run dist:mac:x64:dmg && npm run dist:mac:arm64:dmg",
+    "dist:mac:signed": "rm -f dist/WorkWise-*-mac-* dist/latest-mac.yml && MAC_SIGN=1 npm run dist:mac:x64:dmg && MAC_SIGN=1 npm run dist:mac:arm64:dmg",
     "dist:mac:arm64": "npm run build && npm run dist:mac:arm64:dmg",
     "dist:mac:x64": "npm run build && npm run dist:mac:x64:dmg",
     "dist:mac:arm64:dmg": "npx --yes electron-builder@26.8.1 --config electron-builder.cjs --publish never --mac dmg --arm64",
@@ -90,7 +90,7 @@
     "vite": "^6.2.0",
     "vitest": "^4.1.7"
   },
-  "author": "WORKGPT Contributors",
+  "author": "WorkWise Contributors",
   "homepage": "https://github.com/wangjiawei508/WORKGPT",
   "repository": {
     "type": "git",

@@ -4,13 +4,15 @@ import { useTranslation } from 'react-i18next'
 import {
   Check,
   ChevronDown,
+  ExternalLink,
   FolderOpen,
   Info,
   Loader2,
   Plus,
   RefreshCw,
   Search,
-  Settings
+  Settings,
+  X
 } from 'lucide-react'
 import {
   joinFsPath,
@@ -55,6 +57,9 @@ type MarketplaceItem = {
   group: 'recommended' | 'personal'
   sourceLabelKey?: string
   sourceLabel?: string
+  detailKey?: string
+  detail?: string
+  sourceUrl?: string
   statusTone?: 'default' | 'success' | 'warning' | 'error'
   systemManaged?: boolean
   mcpConfig?: (workspaceRoot: string) => JsonRecord
@@ -278,8 +283,26 @@ function itemDescription(item: MarketplaceItem, t: (key: string) => string): str
   return item.description ?? (item.descriptionKey ? t(item.descriptionKey) : '')
 }
 
+function itemDetail(item: MarketplaceItem, t: (key: string) => string): string {
+  return item.detail ?? (item.detailKey ? t(item.detailKey) : itemDescription(item, t))
+}
+
 function itemSourceLabel(item: MarketplaceItem, t: (key: string) => string): string {
   return item.sourceLabel ?? (item.sourceLabelKey ? t(item.sourceLabelKey) : '')
+}
+
+function itemSourceUrl(item: MarketplaceItem): string {
+  if (item.sourceUrl) return item.sourceUrl
+  if (item.githubSkill) return githubSkillUrl(item.githubSkill)
+  return ''
+}
+
+function githubSkillUrl(source: GithubSkillSource): string {
+  const ref = source.ref?.trim() || 'main'
+  const path = normalizeGithubSourcePath(source.path)
+  const base = `https://github.com/${source.owner.trim()}/${source.repo.trim()}`
+  const encodedPath = path.split('/').map(encodeURIComponent).join('/')
+  return path ? `${base}/tree/${encodeURIComponent(ref)}/${encodedPath}` : base
 }
 
 function normalizeGithubSourcePath(path: string): string {
@@ -324,6 +347,7 @@ export function skillMarketplaceItemsFromDiscoveredSkills(
       skill.source?.type === 'github' ? labels.github :
       skill.source?.type === 'bundled' ? labels.bundled :
       skill.scope === 'project' ? labels.project : labels.global,
+    ...(skill.source?.type === 'github' ? { sourceUrl: githubSkillUrl(skill.source) } : {}),
     statusTone: skill.source ? 'success' as const : 'default' as const
   }))
 }
@@ -396,6 +420,8 @@ const RECOMMENDED_ITEMS: MarketplaceItem[] = [
     kind: 'mcp',
     titleKey: 'pluginMcpGuiScheduleTitle',
     descriptionKey: 'pluginMcpGuiScheduleDesc',
+    detailKey: 'pluginMcpGuiScheduleDetail',
+    sourceUrl: 'https://github.com/wangjiawei508/WORKGPT',
     group: 'recommended',
     systemManaged: true
   },
@@ -404,6 +430,8 @@ const RECOMMENDED_ITEMS: MarketplaceItem[] = [
     kind: 'mcp',
     titleKey: 'pluginMcpFilesystemTitle',
     descriptionKey: 'pluginMcpFilesystemDesc',
+    detailKey: 'pluginMcpFilesystemDetail',
+    sourceUrl: 'https://github.com/modelcontextprotocol/servers/tree/main/src/filesystem',
     group: 'recommended',
     mcpConfig: (workspaceRoot) =>
       buildMcpConfig(
@@ -421,6 +449,8 @@ const RECOMMENDED_ITEMS: MarketplaceItem[] = [
     kind: 'mcp',
     titleKey: 'pluginMcpPlaywrightTitle',
     descriptionKey: 'pluginMcpPlaywrightDesc',
+    detailKey: 'pluginMcpPlaywrightDetail',
+    sourceUrl: 'https://github.com/microsoft/playwright-mcp',
     group: 'recommended',
     mcpConfig: () =>
       buildMcpConfig(
@@ -434,6 +464,8 @@ const RECOMMENDED_ITEMS: MarketplaceItem[] = [
     kind: 'mcp',
     titleKey: 'pluginMcpGithubTitle',
     descriptionKey: 'pluginMcpGithubDesc',
+    detailKey: 'pluginMcpGithubDetail',
+    sourceUrl: 'https://github.com/github/github-mcp-server',
     group: 'recommended',
     mcpConfig: () =>
       buildMcpConfig(
@@ -452,6 +484,8 @@ const RECOMMENDED_ITEMS: MarketplaceItem[] = [
     kind: 'mcp',
     titleKey: 'pluginMcpContext7Title',
     descriptionKey: 'pluginMcpContext7Desc',
+    detailKey: 'pluginMcpContext7Detail',
+    sourceUrl: 'https://github.com/upstash/context7',
     group: 'recommended',
     mcpConfig: () =>
       buildMcpConfig(
@@ -465,6 +499,8 @@ const RECOMMENDED_ITEMS: MarketplaceItem[] = [
     kind: 'mcp',
     titleKey: 'pluginMcpMemoryTitle',
     descriptionKey: 'pluginMcpMemoryDesc',
+    detailKey: 'pluginMcpMemoryDetail',
+    sourceUrl: 'https://github.com/modelcontextprotocol/servers/tree/main/src/memory',
     group: 'recommended',
     mcpConfig: () =>
       buildMcpConfig(
@@ -478,6 +514,8 @@ const RECOMMENDED_ITEMS: MarketplaceItem[] = [
     kind: 'mcp',
     titleKey: 'pluginMcpSequentialThinkingTitle',
     descriptionKey: 'pluginMcpSequentialThinkingDesc',
+    detailKey: 'pluginMcpSequentialThinkingDetail',
+    sourceUrl: 'https://github.com/modelcontextprotocol/servers/tree/main/src/sequentialthinking',
     group: 'recommended',
     mcpConfig: () =>
       buildMcpConfig(
@@ -491,6 +529,8 @@ const RECOMMENDED_ITEMS: MarketplaceItem[] = [
     kind: 'mcp',
     titleKey: 'pluginMcpBraveSearchTitle',
     descriptionKey: 'pluginMcpBraveSearchDesc',
+    detailKey: 'pluginMcpBraveSearchDetail',
+    sourceUrl: 'https://github.com/modelcontextprotocol/servers',
     group: 'recommended',
     mcpConfig: () =>
       buildMcpConfig(
@@ -509,6 +549,8 @@ const RECOMMENDED_ITEMS: MarketplaceItem[] = [
     kind: 'mcp',
     titleKey: 'pluginMcpPostgresTitle',
     descriptionKey: 'pluginMcpPostgresDesc',
+    detailKey: 'pluginMcpPostgresDetail',
+    sourceUrl: 'https://github.com/modelcontextprotocol/servers',
     group: 'recommended',
     mcpConfig: () =>
       buildMcpConfig(
@@ -522,6 +564,8 @@ const RECOMMENDED_ITEMS: MarketplaceItem[] = [
     kind: 'mcp',
     titleKey: 'pluginMcpPuppeteerTitle',
     descriptionKey: 'pluginMcpPuppeteerDesc',
+    detailKey: 'pluginMcpPuppeteerDetail',
+    sourceUrl: 'https://github.com/modelcontextprotocol/servers',
     group: 'recommended',
     mcpConfig: () =>
       buildMcpConfig(
@@ -535,6 +579,8 @@ const RECOMMENDED_ITEMS: MarketplaceItem[] = [
     kind: 'mcp',
     titleKey: 'pluginMcpSlackTitle',
     descriptionKey: 'pluginMcpSlackDesc',
+    detailKey: 'pluginMcpSlackDetail',
+    sourceUrl: 'https://github.com/modelcontextprotocol/servers',
     group: 'recommended',
     mcpConfig: () =>
       buildMcpConfig(
@@ -554,6 +600,8 @@ const RECOMMENDED_ITEMS: MarketplaceItem[] = [
     kind: 'skill',
     titleKey: 'pluginSkillMetroMonitoringPackTitle',
     descriptionKey: 'pluginSkillMetroMonitoringPackDesc',
+    detailKey: 'pluginSkillMetroMonitoringPackDetail',
+    sourceUrl: 'https://github.com/wangjiawei508/WORKGPT',
     group: 'recommended',
     sourceLabelKey: 'pluginSkillSourceBundled',
     statusTone: 'success',
@@ -593,6 +641,8 @@ const RECOMMENDED_ITEMS: MarketplaceItem[] = [
     kind: 'skill',
     titleKey: 'pluginSkillDibaoMonitoringTitle',
     descriptionKey: 'pluginSkillDibaoMonitoringDesc',
+    detailKey: 'pluginSkillDibaoMonitoringDetail',
+    sourceUrl: 'https://github.com/wangjiawei508/WORKGPT',
     group: 'recommended',
     sourceLabelKey: 'pluginSkillSourceBundled',
     statusTone: 'success',
@@ -606,6 +656,8 @@ const RECOMMENDED_ITEMS: MarketplaceItem[] = [
     kind: 'skill',
     titleKey: 'pluginSkillOperationalMonitoringTitle',
     descriptionKey: 'pluginSkillOperationalMonitoringDesc',
+    detailKey: 'pluginSkillOperationalMonitoringDetail',
+    sourceUrl: 'https://github.com/wangjiawei508/WORKGPT',
     group: 'recommended',
     sourceLabelKey: 'pluginSkillSourceBundled',
     statusTone: 'success',
@@ -615,10 +667,161 @@ const RECOMMENDED_ITEMS: MarketplaceItem[] = [
     }
   },
   {
+    id: 'writing-humanizer',
+    kind: 'skill',
+    titleKey: 'pluginSkillWritingHumanizerTitle',
+    descriptionKey: 'pluginSkillWritingHumanizerDesc',
+    detailKey: 'pluginSkillWritingHumanizerDetail',
+    sourceUrl: 'https://github.com/blader/humanizer',
+    group: 'recommended',
+    sourceLabelKey: 'pluginSkillSourceBundledGitHub',
+    statusTone: 'success',
+    bundledSkill: {
+      id: 'humanizer',
+      skillName: 'writing-humanizer'
+    }
+  },
+  {
+    id: 'humanizer-zh',
+    kind: 'skill',
+    titleKey: 'pluginSkillWritingHumanizerZhTitle',
+    descriptionKey: 'pluginSkillWritingHumanizerZhDesc',
+    detailKey: 'pluginSkillWritingHumanizerZhDetail',
+    sourceUrl: 'https://github.com/op7418/Humanizer-zh',
+    group: 'recommended',
+    sourceLabelKey: 'pluginSkillSourceBundledGitHub',
+    statusTone: 'success',
+    bundledSkill: {
+      id: 'humanizer-zh',
+      skillName: 'humanizer-zh'
+    }
+  },
+  {
+    id: 'stop-slop',
+    kind: 'skill',
+    titleKey: 'pluginSkillWritingStopSlopTitle',
+    descriptionKey: 'pluginSkillWritingStopSlopDesc',
+    detailKey: 'pluginSkillWritingStopSlopDetail',
+    sourceUrl: 'https://github.com/hardikpandya/stop-slop',
+    group: 'recommended',
+    sourceLabelKey: 'pluginSkillSourceBundledGitHub',
+    statusTone: 'success',
+    bundledSkill: {
+      id: 'stop-slop',
+      skillName: 'stop-slop'
+    }
+  },
+  {
+    id: 'taste-skill',
+    kind: 'skill',
+    titleKey: 'pluginSkillWritingTasteTitle',
+    descriptionKey: 'pluginSkillWritingTasteDesc',
+    detailKey: 'pluginSkillWritingTasteDetail',
+    sourceUrl: 'https://github.com/Leonxlnx/taste-skill/tree/main/skills/taste-skill',
+    group: 'recommended',
+    sourceLabelKey: 'pluginSkillSourceBundledGitHub',
+    statusTone: 'success',
+    bundledSkill: {
+      id: 'taste-skill',
+      skillName: 'taste-skill'
+    }
+  },
+  {
+    id: 'ai-flavor-remover',
+    kind: 'skill',
+    titleKey: 'pluginSkillWritingAiFlavorTitle',
+    descriptionKey: 'pluginSkillWritingAiFlavorDesc',
+    detailKey: 'pluginSkillWritingAiFlavorDetail',
+    sourceUrl: 'https://github.com/hylarucoder/ai-flavor-remover',
+    group: 'recommended',
+    sourceLabelKey: 'pluginSkillSourceBundledGitHub',
+    statusTone: 'success',
+    bundledSkill: {
+      id: 'ai-flavor-remover',
+      skillName: 'ai-flavor-remover'
+    }
+  },
+  {
+    id: 'shuorenhua',
+    kind: 'skill',
+    titleKey: 'pluginSkillWritingShuorenhuaTitle',
+    descriptionKey: 'pluginSkillWritingShuorenhuaDesc',
+    detailKey: 'pluginSkillWritingShuorenhuaDetail',
+    sourceUrl: 'https://github.com/MrGeDiao/shuorenhua',
+    group: 'recommended',
+    sourceLabelKey: 'pluginSkillSourceBundledGitHub',
+    statusTone: 'success',
+    bundledSkill: {
+      id: 'shuorenhua',
+      skillName: 'shuorenhua'
+    }
+  },
+  {
+    id: 'nuwa-skill',
+    kind: 'skill',
+    titleKey: 'pluginSkillWritingNuwaTitle',
+    descriptionKey: 'pluginSkillWritingNuwaDesc',
+    detailKey: 'pluginSkillWritingNuwaDetail',
+    sourceUrl: 'https://github.com/alchaincyf/nuwa-skill',
+    group: 'recommended',
+    sourceLabelKey: 'pluginSkillSourceBundledGitHub',
+    statusTone: 'success',
+    bundledSkill: {
+      id: 'nuwa-skill',
+      skillName: 'nuwa-skill'
+    }
+  },
+  {
+    id: 'writing-agent',
+    kind: 'skill',
+    titleKey: 'pluginSkillWritingAgentTitle',
+    descriptionKey: 'pluginSkillWritingAgentDesc',
+    detailKey: 'pluginSkillWritingAgentDetail',
+    sourceUrl: 'https://github.com/dongbeixiaohuo/writing-agent',
+    group: 'recommended',
+    sourceLabelKey: 'pluginSkillSourceBundledGitHub',
+    statusTone: 'success',
+    bundledSkill: {
+      id: 'writing-agent',
+      skillName: 'writing-agent'
+    }
+  },
+  {
+    id: 'chatgpt-comparison-detection',
+    kind: 'skill',
+    titleKey: 'pluginSkillWritingDetectionTitle',
+    descriptionKey: 'pluginSkillWritingDetectionDesc',
+    detailKey: 'pluginSkillWritingDetectionDetail',
+    sourceUrl: 'https://github.com/Hello-SimpleAI/chatgpt-comparison-detection',
+    group: 'recommended',
+    sourceLabelKey: 'pluginSkillSourceBundledGitHub',
+    statusTone: 'success',
+    bundledSkill: {
+      id: 'chatgpt-comparison-detection',
+      skillName: 'chatgpt-comparison-detection'
+    }
+  },
+  {
+    id: 'de-ai-prompt-enhancer',
+    kind: 'skill',
+    titleKey: 'pluginSkillWritingDeAiTitle',
+    descriptionKey: 'pluginSkillWritingDeAiDesc',
+    detailKey: 'pluginSkillWritingDeAiDetail',
+    sourceUrl: 'https://github.com/OUBIGFA/De-AI-Prompt-Enhancer-Writer-Booster-SKILL/tree/main/de-AI-writing',
+    group: 'recommended',
+    sourceLabelKey: 'pluginSkillSourceBundledGitHub',
+    statusTone: 'success',
+    bundledSkill: {
+      id: 'de-ai-prompt-enhancer',
+      skillName: 'de-ai-prompt-enhancer'
+    }
+  },
+  {
     id: 'code-review',
     kind: 'skill',
     titleKey: 'pluginSkillReviewTitle',
     descriptionKey: 'pluginSkillReviewDesc',
+    sourceUrl: 'https://github.com/wangjiawei508/WORKGPT',
     group: 'recommended',
     skillInstructions:
       'Use this skill when reviewing a code change. Prioritize correctness, regressions, security, performance, and missing tests. Lead with concrete findings and file references.'
@@ -628,6 +831,7 @@ const RECOMMENDED_ITEMS: MarketplaceItem[] = [
     kind: 'skill',
     titleKey: 'pluginSkillFrontendTitle',
     descriptionKey: 'pluginSkillFrontendDesc',
+    sourceUrl: 'https://github.com/wangjiawei508/WORKGPT',
     group: 'recommended',
     skillInstructions:
       'Use this skill when improving UI. Preserve the product style, check responsive states, avoid generic layouts, and verify the result visually before handing it back.'
@@ -637,6 +841,7 @@ const RECOMMENDED_ITEMS: MarketplaceItem[] = [
     kind: 'skill',
     titleKey: 'pluginSkillBugTitle',
     descriptionKey: 'pluginSkillBugDesc',
+    sourceUrl: 'https://github.com/wangjiawei508/WORKGPT',
     group: 'recommended',
     skillInstructions:
       'Use this skill when investigating bugs. Reproduce or narrow the symptom, trace the data flow, identify the smallest fix, and add focused verification where possible.'
@@ -646,6 +851,7 @@ const RECOMMENDED_ITEMS: MarketplaceItem[] = [
     kind: 'skill',
     titleKey: 'pluginSkillReleaseTitle',
     descriptionKey: 'pluginSkillReleaseDesc',
+    sourceUrl: 'https://github.com/wangjiawei508/WORKGPT',
     group: 'recommended',
     skillInstructions:
       'Use this skill when preparing release notes. Group user-facing changes by outcome, call out migrations or risks, and keep wording concise and scannable.'
@@ -655,6 +861,7 @@ const RECOMMENDED_ITEMS: MarketplaceItem[] = [
     kind: 'skill',
     titleKey: 'pluginSkillDocBriefTitle',
     descriptionKey: 'pluginSkillDocBriefDesc',
+    sourceUrl: 'https://github.com/wangjiawei508/WORKGPT',
     group: 'recommended',
     skillInstructions:
       'Use this skill when turning rough notes, files, or meeting context into a structured document brief. Clarify audience, purpose, source material, constraints, outline, and acceptance criteria before drafting.'
@@ -664,6 +871,7 @@ const RECOMMENDED_ITEMS: MarketplaceItem[] = [
     kind: 'skill',
     titleKey: 'pluginSkillTestPlanTitle',
     descriptionKey: 'pluginSkillTestPlanDesc',
+    sourceUrl: 'https://github.com/wangjiawei508/WORKGPT',
     group: 'recommended',
     skillInstructions:
       'Use this skill when planning verification. Cover happy paths, edge cases, regression risks, fixtures, automation targets, manual checks, and release blockers.'
@@ -673,6 +881,7 @@ const RECOMMENDED_ITEMS: MarketplaceItem[] = [
     kind: 'skill',
     titleKey: 'pluginSkillSqlAnalysisTitle',
     descriptionKey: 'pluginSkillSqlAnalysisDesc',
+    sourceUrl: 'https://github.com/wangjiawei508/WORKGPT',
     group: 'recommended',
     skillInstructions:
       'Use this skill when inspecting relational data or writing SQL. Identify tables, joins, filters, aggregation grain, null handling, indexes, and validation queries before presenting conclusions.'
@@ -682,6 +891,7 @@ const RECOMMENDED_ITEMS: MarketplaceItem[] = [
     kind: 'skill',
     titleKey: 'pluginSkillMeetingNotesTitle',
     descriptionKey: 'pluginSkillMeetingNotesDesc',
+    sourceUrl: 'https://github.com/wangjiawei508/WORKGPT',
     group: 'recommended',
     skillInstructions:
       'Use this skill when cleaning up meeting notes. Extract decisions, owners, dates, blockers, open questions, and follow-ups, then keep the final note concise and action-oriented.'
@@ -691,6 +901,7 @@ const RECOMMENDED_ITEMS: MarketplaceItem[] = [
     kind: 'skill',
     titleKey: 'pluginSkillIncidentResponseTitle',
     descriptionKey: 'pluginSkillIncidentResponseDesc',
+    sourceUrl: 'https://github.com/wangjiawei508/WORKGPT',
     group: 'recommended',
     skillInstructions:
       'Use this skill during incidents. Stabilize first, preserve facts, build a timeline, separate confirmed signals from guesses, propose rollback or mitigation, and capture postmortem actions.'
@@ -700,6 +911,7 @@ const RECOMMENDED_ITEMS: MarketplaceItem[] = [
     kind: 'skill',
     titleKey: 'pluginSkillDataCleaningTitle',
     descriptionKey: 'pluginSkillDataCleaningDesc',
+    sourceUrl: 'https://github.com/wangjiawei508/WORKGPT',
     group: 'recommended',
     skillInstructions:
       'Use this skill when cleaning spreadsheet, CSV, or database exports. Profile missing values, duplicates, units, encodings, date formats, outliers, and reconciliation totals before transforming data.'
@@ -709,6 +921,7 @@ const RECOMMENDED_ITEMS: MarketplaceItem[] = [
     kind: 'skill',
     titleKey: 'pluginSkillProductRequirementsTitle',
     descriptionKey: 'pluginSkillProductRequirementsDesc',
+    sourceUrl: 'https://github.com/wangjiawei508/WORKGPT',
     group: 'recommended',
     skillInstructions:
       'Use this skill when shaping product requirements. Define users, jobs-to-be-done, non-goals, workflows, edge cases, metrics, rollout, and acceptance criteria in implementation-ready language.'
@@ -724,6 +937,7 @@ export function PluginMarketplaceView(): ReactElement {
   const [installed, setInstalled] = useState<string[]>(() => loadInstalledPlugins())
   const [busyId, setBusyId] = useState<string | null>(null)
   const [notice, setNotice] = useState<Notice | null>(null)
+  const [detailItem, setDetailItem] = useState<MarketplaceItem | null>(null)
   const [customOpen, setCustomOpen] = useState(false)
   const [customName, setCustomName] = useState('')
   const [customDescription, setCustomDescription] = useState('')
@@ -897,6 +1111,7 @@ export function PluginMarketplaceView(): ReactElement {
   useEffect(() => {
     setNotice(null)
     setCustomOpen(false)
+    setDetailItem(null)
   }, [activeKind])
 
   const markInstalled = (key: string): void => {
@@ -974,10 +1189,12 @@ export function PluginMarketplaceView(): ReactElement {
       .filter((item) => {
         const title = itemTitle(item, t).toLowerCase()
         const description = itemDescription(item, t).toLowerCase()
+        const detail = itemDetail(item, t).toLowerCase()
         const source = itemSourceLabel(item, t).toLowerCase()
         return !normalizedQuery ||
           title.includes(normalizedQuery) ||
           description.includes(normalizedQuery) ||
+          detail.includes(normalizedQuery) ||
           source.includes(normalizedQuery) ||
           item.id.includes(normalizedQuery)
       })
@@ -1320,6 +1537,7 @@ export function PluginMarketplaceView(): ReactElement {
             busyId={busyId}
             isInstalled={isInstalled}
             onAdd={addItem}
+            onDetails={setDetailItem}
             t={t}
           />
         ) : null}
@@ -1331,6 +1549,7 @@ export function PluginMarketplaceView(): ReactElement {
           busyId={busyId}
           isInstalled={isInstalled}
           onAdd={addItem}
+          onDetails={setDetailItem}
           t={t}
         />
 
@@ -1341,8 +1560,20 @@ export function PluginMarketplaceView(): ReactElement {
           busyId={busyId}
           isInstalled={isInstalled}
           onAdd={addItem}
+          onDetails={setDetailItem}
           t={t}
         />
+
+        {detailItem ? (
+          <PluginDetailDialog
+            item={detailItem}
+            installed={isInstalled(detailItem)}
+            onClose={() => setDetailItem(null)}
+            onAdd={() => void addItem(detailItem)}
+            busy={busyId === storageKey(detailItem.kind, detailItem.id)}
+            t={t}
+          />
+        ) : null}
 
         {activeKind === 'mcp' ? (
           <div className="mt-8 flex items-center gap-2 text-[12px] text-ds-faint">
@@ -1490,6 +1721,7 @@ function PluginSection({
   busyId,
   isInstalled,
   onAdd,
+  onDetails,
   t
 }: {
   title: string
@@ -1498,6 +1730,7 @@ function PluginSection({
   busyId: string | null
   isInstalled: (item: MarketplaceItem) => boolean
   onAdd: (item: MarketplaceItem) => Promise<void>
+  onDetails: (item: MarketplaceItem) => void
   t: (key: string, values?: Record<string, unknown>) => string
 }): ReactElement {
   return (
@@ -1536,31 +1769,150 @@ function PluginSection({
                     {itemDescription(item, t)}
                   </p>
                 </div>
-                <button
-                  type="button"
-                  disabled={installed || busy}
-                  onClick={() => void onAdd(item)}
-                  title={installed ? t('pluginAdded') : t('pluginAdd')}
-                  className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl transition ${
-                    installed
-                      ? 'text-ds-faint'
-                      : 'bg-ds-subtle text-ds-ink hover:bg-ds-hover disabled:opacity-60'
-                  }`}
-                >
-                  {busy ? (
-                    <Loader2 className="h-4 w-4 animate-spin" strokeWidth={2} />
-                  ) : installed ? (
-                    <Check className="h-4 w-4" strokeWidth={2} />
-                  ) : (
-                    <Plus className="h-4 w-4" strokeWidth={2} />
-                  )}
-                </button>
+                <div className="flex shrink-0 items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => onDetails(item)}
+                    title={t('pluginDetails')}
+                    className="flex h-9 w-9 items-center justify-center rounded-xl bg-ds-subtle text-ds-muted transition hover:bg-ds-hover hover:text-ds-ink"
+                  >
+                    <Info className="h-4 w-4" strokeWidth={1.9} />
+                  </button>
+                  <button
+                    type="button"
+                    disabled={installed || busy}
+                    onClick={() => void onAdd(item)}
+                    title={installed ? t('pluginAdded') : t('pluginAdd')}
+                    className={`flex h-9 w-9 items-center justify-center rounded-xl transition ${
+                      installed
+                        ? 'text-ds-faint'
+                        : 'bg-ds-subtle text-ds-ink hover:bg-ds-hover disabled:opacity-60'
+                    }`}
+                  >
+                    {busy ? (
+                      <Loader2 className="h-4 w-4 animate-spin" strokeWidth={2} />
+                    ) : installed ? (
+                      <Check className="h-4 w-4" strokeWidth={2} />
+                    ) : (
+                      <Plus className="h-4 w-4" strokeWidth={2} />
+                    )}
+                  </button>
+                </div>
               </div>
             )
           })}
         </div>
       )}
     </section>
+  )
+}
+
+function PluginDetailDialog({
+  item,
+  installed,
+  busy,
+  onClose,
+  onAdd,
+  t
+}: {
+  item: MarketplaceItem
+  installed: boolean
+  busy: boolean
+  onClose: () => void
+  onAdd: () => void
+  t: (key: string, values?: Record<string, unknown>) => string
+}): ReactElement {
+  const title = itemTitle(item, t)
+  const description = itemDescription(item, t)
+  const detail = itemDetail(item, t)
+  const sourceLabel = itemSourceLabel(item, t)
+  const sourceUrl = itemSourceUrl(item)
+  const kindLabel = item.kind === 'mcp' ? t('pluginDetailKindMcp') : t('pluginDetailKindSkill')
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 px-4 py-6 backdrop-blur-sm"
+      onClick={onClose}
+    >
+      <section
+        className="max-h-[86vh] w-full max-w-2xl overflow-y-auto rounded-2xl border border-ds-border bg-ds-card p-5 shadow-2xl"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className="flex items-start justify-between gap-4">
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="rounded-md bg-ds-subtle px-2 py-0.5 text-[11px] font-semibold text-ds-muted">
+                {kindLabel}
+              </span>
+              {sourceLabel ? (
+                <span className={`rounded-md px-2 py-0.5 text-[11px] font-semibold ${marketplaceSourceTone(item.statusTone)}`}>
+                  {sourceLabel}
+                </span>
+              ) : null}
+              <span className="rounded-md bg-ds-subtle px-2 py-0.5 font-mono text-[11px] text-ds-muted">
+                {item.id}
+              </span>
+            </div>
+            <h3 className="mt-3 text-[22px] font-semibold text-ds-ink">{title}</h3>
+            {description ? (
+              <p className="mt-2 text-[14px] leading-6 text-ds-muted">{description}</p>
+            ) : null}
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            title={t('pluginCloseDetails')}
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-ds-subtle text-ds-muted transition hover:bg-ds-hover hover:text-ds-ink"
+          >
+            <X className="h-4 w-4" strokeWidth={2} />
+          </button>
+        </div>
+
+        <div className="mt-5 rounded-xl border border-ds-border-muted bg-ds-main/35 p-4">
+          <div className="text-[12px] font-semibold text-ds-faint">
+            {t('pluginDetailIntro')}
+          </div>
+          <p className="mt-2 whitespace-pre-line text-[14px] leading-6 text-ds-ink">
+            {detail || description || t('pluginDetailNoIntro')}
+          </p>
+        </div>
+
+        <div className="mt-4 grid gap-3 text-[13px] md:grid-cols-2">
+          <div className="rounded-xl border border-ds-border-muted bg-ds-main/25 p-3">
+            <div className="font-semibold text-ds-ink">{t('pluginDetailStatus')}</div>
+            <div className="mt-1 text-ds-muted">{installed ? t('pluginAdded') : t('pluginDetailNotAdded')}</div>
+          </div>
+          <div className="rounded-xl border border-ds-border-muted bg-ds-main/25 p-3">
+            <div className="font-semibold text-ds-ink">{t('pluginDetailSource')}</div>
+            <div className="mt-1 text-ds-muted">{sourceLabel || t('pluginDetailSourceLocal')}</div>
+          </div>
+        </div>
+
+        <div className="mt-5 flex flex-wrap justify-end gap-2">
+          {sourceUrl ? (
+            <button
+              type="button"
+              onClick={() => void window.workgpt?.openExternal?.(sourceUrl)?.catch(() => undefined)}
+              className="inline-flex h-10 items-center gap-2 rounded-xl border border-ds-border bg-ds-card px-3 text-[13px] font-semibold text-ds-ink shadow-sm transition hover:bg-ds-hover"
+            >
+              <ExternalLink className="h-4 w-4" strokeWidth={1.8} />
+              {t('pluginOpenSource')}
+            </button>
+          ) : null}
+          {item.group === 'recommended' && !item.systemManaged ? (
+            <button
+              type="button"
+              onClick={onAdd}
+              disabled={installed || busy}
+              className="inline-flex h-10 items-center gap-2 rounded-xl bg-ds-userbubble px-4 text-[13px] font-semibold text-ds-userbubbleFg shadow-sm transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-55"
+            >
+              {busy ? <Loader2 className="h-4 w-4 animate-spin" strokeWidth={2} /> : installed ? <Check className="h-4 w-4" strokeWidth={2} /> : <Plus className="h-4 w-4" strokeWidth={2} />}
+              {installed ? t('pluginAdded') : t('pluginAdd')}
+            </button>
+          ) : null}
+        </div>
+      </section>
+    </div>
   )
 }
 

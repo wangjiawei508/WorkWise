@@ -246,8 +246,8 @@ describe('claw settings', () => {
       label: channel.label,
       name: channel.agentProfile.name
     }))).toEqual([
-      { label: 'WORKGPT', name: 'WORKGPT' },
-      { label: 'WORKGPT', name: 'WORKGPT' },
+      { label: 'WorkWise', name: 'WorkWise' },
+      { label: 'WorkWise', name: 'WorkWise' },
       { label: 'Support Bot', name: 'Support Bot' }
     ])
   })

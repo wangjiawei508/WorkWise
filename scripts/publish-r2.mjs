@@ -13,7 +13,7 @@ import { readdir, readFile, stat } from 'node:fs/promises'
 import { basename, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-const PRODUCT_NAME = 'WORKGPT'
+const PRODUCT_NAME = 'WorkWise'
 const DEFAULT_RELEASE_PREFIX = 'workgpt'
 const DEFAULT_RELEASE_CHANNEL = 'frontier'
 const PLATFORMS = ['mac', 'win']
@@ -24,11 +24,11 @@ const ROOT = resolve(SCRIPT_DIR, '..')
 const PLATFORM_SPECS = {
   mac: {
     updateFile: 'latest-mac.yml',
-    assetPattern: /^WORKGPT-.+-mac-(arm64|x64)\.(dmg|zip)(\.blockmap)?$/
+    assetPattern: /^WorkWise-.+-mac-(arm64|x64)\.(dmg|zip)(\.blockmap)?$/
   },
   win: {
     updateFile: 'latest.yml',
-    assetPattern: /^WORKGPT-.+-win-x64\.exe(\.blockmap)?$/
+    assetPattern: /^WorkWise-.+-win-x64\.exe(\.blockmap)?$/
   }
 }
 

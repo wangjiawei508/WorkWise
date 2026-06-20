@@ -20,9 +20,9 @@ if (!version) {
 
 const distDir = resolve(process.env.WORKGPT_DIST_DIR || join(root, 'dist'))
 const appOutDir = join(distDir, arch === 'arm64' ? 'mac-arm64' : 'mac')
-const appName = 'WORKGPT.app'
+const appName = 'WorkWise.app'
 const appPath = join(appOutDir, appName)
-const zipPath = join(distDir, `WORKGPT-${version}-mac-${arch}.zip`)
+const zipPath = join(distDir, `WorkWise-${version}-mac-${arch}.zip`)
 
 if (!existsSync(appPath)) {
   console.error(`[zip-mac-app] App bundle not found: ${appPath}`)

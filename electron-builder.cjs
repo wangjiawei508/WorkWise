@@ -81,7 +81,7 @@ if (releaseAppVersion && !/^\d+\.\d+\.\d+$/.test(releaseAppVersion)) {
 
 module.exports = {
   appId: 'com.wangjiawei508.workgpt',
-  productName: 'WORKGPT',
+  productName: 'WorkWise',
   asar: true,
   asarUnpack: [
     'src/asset/skills/**/*',
@@ -119,7 +119,7 @@ module.exports = {
       filter: ['**/*']
     }
   ],
-  artifactName: `WORKGPT-${artifactVersion}-\${os}-\${arch}.\${ext}`,
+  artifactName: `WorkWise-${artifactVersion}-\${os}-\${arch}.\${ext}`,
   publish: hasGenericUpdateFeed
     ? [
         {
@@ -169,8 +169,8 @@ module.exports = {
     // 明确创建快捷方式；always 在覆盖安装时也会重建（即使用户曾删掉桌面图标）
     createDesktopShortcut: 'always',
     createStartMenuShortcut: true,
-    shortcutName: 'WORKGPT',
-    uninstallDisplayName: 'WORKGPT',
+    shortcutName: 'WorkWise',
+    uninstallDisplayName: 'WorkWise',
     deleteAppDataOnUninstall: false
   },
   extraMetadata: {

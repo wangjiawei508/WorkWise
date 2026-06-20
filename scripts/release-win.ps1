@@ -157,7 +157,7 @@ Remove-Item -Recurse -Force -ErrorAction SilentlyContinue `
   (Join-Path $Root 'dist\mac'), `
   (Join-Path $Root 'dist\mac-arm64')
 Remove-Item -Force -ErrorAction SilentlyContinue `
-  (Join-Path $Root 'dist\WORKGPT-*'), `
+  (Join-Path $Root 'dist\WorkWise-*'), `
   (Join-Path $Root 'dist\WORKGPT-*'), `
   (Join-Path $Root 'dist\latest*.yml'), `
   (Join-Path $Root 'dist\*.blockmap')
@@ -178,10 +178,7 @@ if ($LASTEXITCODE -ne 0) {
 
 $DistDir = Join-Path $Root 'dist'
 $AssetSpecs = @(
-  @{ Label = 'Windows exe'; Filter = '*-win-*.exe' },
-  @{ Label = 'Windows blockmap'; Filter = '*-win-*.exe.blockmap' },
-  @{ Label = 'Windows update metadata'; Filter = 'latest.yml' },
-  @{ Label = 'Windows checksums'; Filter = 'SHA256SUMS-win.txt' }
+  @{ Label = 'Windows exe'; Filter = 'WorkWise-*-win-x64.exe' }
 )
 
 $Assets = @()
