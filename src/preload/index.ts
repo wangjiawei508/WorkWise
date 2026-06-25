@@ -92,6 +92,8 @@ const api = {
     ipcRenderer.invoke('write:export', payload),
   copyWriteDocumentAsRichText: (payload) =>
     ipcRenderer.invoke('write:copy-rich-text', payload),
+  generateAgnesImage: (payload) =>
+    ipcRenderer.invoke('write:agnes-image-generate', payload),
   requestWriteInlineCompletion: (payload) =>
     ipcRenderer.invoke('write:inline-completion', payload),
   generateWriteInfographic: (payload) =>

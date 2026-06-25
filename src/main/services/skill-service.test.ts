@@ -1,3 +1,4 @@
+import { existsSync } from 'node:fs'
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -241,6 +242,90 @@ describe('skill-service', () => {
         repo: 'ai-flavor-remover',
         includePaths: ['README.md'],
         overlaySkillId: 'ai-flavor-remover'
+      })
+    }))
+  })
+
+  it('installs the bundled PPT Master slim skill with WorkWise overlay files', async () => {
+    const workspaceRoot = join(tempRoot, 'workspace-bundled-ppt-master')
+    const skillInstallRoot = join(workspaceRoot, '.agents', 'skills')
+
+    const installed = await installBundledSkill(skillInstallRoot, {
+      id: 'ppt-master'
+    })
+
+    expect(installed.ok).toBe(true)
+    if (!installed.ok) return
+    const installedRoot = join(skillInstallRoot, 'ppt-master')
+    expect(await readFile(join(installedRoot, 'SKILL.md'), 'utf8'))
+      .toContain('PPT Master for WorkWise')
+    expect(await readFile(join(installedRoot, 'requirements.txt'), 'utf8'))
+      .not.toContain('pandoc')
+    expect(await readFile(join(installedRoot, 'scripts', 'source_to_md', 'doc_to_md.py'), 'utf8'))
+      .not.toMatch(/pandoc/i)
+    expect(existsSync(join(installedRoot, 'scripts', 'confirm_ui', 'server.py'))).toBe(true)
+    expect(existsSync(join(installedRoot, 'scripts', 'confirm_ui', 'static', 'index.html'))).toBe(true)
+    expect(existsSync(join(installedRoot, 'scripts', 'docs', 'confirm_ui.md'))).toBe(true)
+    expect(existsSync(join(installedRoot, 'scripts', 'svg_editor', 'static', 'index.html'))).toBe(true)
+    expect(existsSync(join(installedRoot, 'templates', 'charts', 'charts_index.json'))).toBe(true)
+    expect(existsSync(join(installedRoot, 'templates', 'layouts', 'layouts_index.json'))).toBe(true)
+    expect(existsSync(join(installedRoot, 'templates', 'icons'))).toBe(false)
+    expect(existsSync(join(installedRoot, 'projects', 'README.md'))).toBe(true)
+    expect(existsSync(join(installedRoot, 'examples', 'README.md'))).toBe(true)
+    expect(existsSync(join(
+      installedRoot,
+      'examples',
+      'ppt169_顶级咨询风_构建有效AI代理_Anthropic',
+      'design_spec.md'
+    ))).toBe(true)
+    expect(existsSync(join(
+      installedRoot,
+      'examples',
+      'ppt169_顶级咨询风_构建有效AI代理_Anthropic',
+      'exports'
+    ))).toBe(false)
+    expect(existsSync(join(
+      installedRoot,
+      'examples',
+      'ppt169_顶级咨询风_构建有效AI代理_Anthropic',
+      'svg_output'
+    ))).toBe(false)
+    const source = JSON.parse(
+      await readFile(join(installedRoot, '.workgpt-skill-source.json'), 'utf8')
+    ) as Record<string, unknown>
+    expect(source).toMatchObject({
+      type: 'github',
+      owner: 'hugohe3',
+      repo: 'ppt-master',
+      path: 'skills/ppt-master',
+      autoUpdate: true,
+      overlaySkillId: 'ppt-master',
+      includePaths: [
+        'references',
+        'workflows',
+        'scripts',
+        'templates/design_spec_reference.md',
+        'templates/spec_lock_reference.md',
+        'templates/charts',
+        'templates/layouts'
+      ]
+    })
+
+    const result = await listGuiSkills(createSettings(workspaceRoot), workspaceRoot)
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.skills).toContainEqual(expect.objectContaining({
+      id: 'ppt-master',
+      name: 'Ppt Master',
+      description: expect.stringContaining('生成和导出 PPT'),
+      source: expect.objectContaining({
+        type: 'github',
+        owner: 'hugohe3',
+        repo: 'ppt-master',
+        path: 'skills/ppt-master',
+        autoUpdate: true,
+        overlaySkillId: 'ppt-master'
       })
     }))
   })

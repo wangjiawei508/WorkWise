@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import {
+  DEFAULT_AGNES_BASE_URL,
+  DEFAULT_AGNES_PROVIDER_ID,
+  DEFAULT_AGNES_TEXT_MODEL,
   defaultClawSettings,
   defaultKeyboardShortcuts,
   defaultKunRuntimeSettings,
@@ -54,6 +57,41 @@ function settings(): AppSettingsV1 {
 }
 
 describe('model provider settings', () => {
+  it('includes Agnes AI as a built-in OpenAI-compatible provider preset', () => {
+    const provider = defaultModelProviderSettings()
+
+    expect(provider.providers).toContainEqual(expect.objectContaining({
+      id: DEFAULT_AGNES_PROVIDER_ID,
+      name: 'Agnes AI',
+      baseUrl: DEFAULT_AGNES_BASE_URL,
+      apiType: 'chat_completions',
+      models: [DEFAULT_AGNES_TEXT_MODEL]
+    }))
+  })
+
+  it('adds the Agnes preset when normalizing older settings', () => {
+    const normalized = normalizeModelProviderSettings({
+      apiKey: 'sk-deepseek',
+      baseUrl: 'https://api.deepseek.com',
+      providers: [
+        {
+          id: 'deepseek',
+          name: 'DeepSeek',
+          apiKey: 'sk-deepseek',
+          baseUrl: 'https://api.deepseek.com',
+          apiType: 'chat_completions',
+          models: ['deepseek-v4-pro']
+        }
+      ]
+    })
+
+    expect(normalized.providers).toContainEqual(expect.objectContaining({
+      id: DEFAULT_AGNES_PROVIDER_ID,
+      baseUrl: DEFAULT_AGNES_BASE_URL,
+      models: [DEFAULT_AGNES_TEXT_MODEL]
+    }))
+  })
+
   it('resolves Kun runtime credentials from the selected provider', () => {
     const runtime = resolveKunRuntimeSettings(settings())
 

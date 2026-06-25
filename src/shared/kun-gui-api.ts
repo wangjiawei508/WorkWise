@@ -58,6 +58,10 @@ import type {
   WriteRichClipboardPayload,
   WriteRichClipboardResult
 } from './write-export'
+import type {
+  AgnesImageGenerationPayload,
+  AgnesImageGenerationResult
+} from './agnes-image'
 
 export type RuntimeRequestResult = { ok: boolean; status: number; body: string }
 export type WorkspacePickResult = { canceled: boolean; path: string | null }
@@ -257,6 +261,9 @@ export type KunGuiApi = {
   copyWriteDocumentAsRichText: (
     payload: WriteRichClipboardPayload
   ) => Promise<WriteRichClipboardResult>
+  generateAgnesImage: (
+    payload: AgnesImageGenerationPayload
+  ) => Promise<AgnesImageGenerationResult>
   startSse: (threadId: string, sinceSeq: number, streamId?: string) => Promise<{ streamId: string }>
   stopSse: (streamId: string) => Promise<boolean>
   onSseEvent: (handler: (payload: SseEventPayload) => void) => () => void

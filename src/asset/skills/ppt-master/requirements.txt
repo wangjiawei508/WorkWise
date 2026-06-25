@@ -1,0 +1,31 @@
+# PPT Master slim dependencies for WorkWise.
+# Install only when you need to run the related scripts:
+#   pip install -r requirements.txt
+
+# SVG to PPTX
+python-pptx>=0.6.21
+
+# Optional SVG to PNG compatibility fallback
+svglib>=1.5.0
+reportlab>=4.0.0
+
+# PDF / document / spreadsheet / web conversion
+PyMuPDF>=1.23.0
+mammoth>=1.6.0
+markdownify>=0.11.6
+ebooklib>=0.18
+nbconvert>=7.0.0
+openpyxl>=3.1.0
+requests>=2.31.0
+beautifulsoup4>=4.12.0
+curl_cffi>=0.7.0
+
+# Image processing
+Pillow>=9.0.0
+numpy>=1.20.0
+
+# Optional image generation and local SVG editor helpers
+google-genai>=1.0.0
+openai>=1.0.0
+flask>=3.0.0
+edge-tts>=7.2.8

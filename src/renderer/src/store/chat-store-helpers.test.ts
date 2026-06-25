@@ -99,7 +99,7 @@ describe('chat-store Claw helpers', () => {
     ])
   })
 
-  it('deduplicates default workspace aliases', () => {
+  it('deduplicates default workspace aliases while keeping legacy WorkGPT paths compatible', () => {
     expect(
       compactCodeWorkspaceRoots([
         '~/.deepseekgui/default_workspace',

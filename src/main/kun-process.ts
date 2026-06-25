@@ -560,7 +560,7 @@ async function readGuiManagedMcpServers(path: string): Promise<Record<string, un
   const rawServers = mcpServersFromGuiConfig(parsed)
   const normalizedEntries = Object.entries(rawServers)
     .map(([serverId, server]) => {
-      const normalized = normalizeGuiManagedMcpServer(server)
+      const normalized = normalizeGuiManagedMcpServer(serverId, server)
       return normalized ? [serverId, normalized] as const : null
     })
     .filter((entry): entry is readonly [string, Record<string, unknown>] => entry !== null)
@@ -577,13 +577,16 @@ function mcpServersFromGuiConfig(config: Record<string, unknown>): Record<string
   return objectValue(mcp.servers)
 }
 
-function normalizeGuiManagedMcpServer(server: unknown): Record<string, unknown> | null {
+function normalizeGuiManagedMcpServer(serverId: string, server: unknown): Record<string, unknown> | null {
   const raw = objectValue(server)
-  const command = scalarStringValue(raw.command)
+  const rawCommand = scalarStringValue(raw.command)
   const url = scalarStringValue(raw.url)
-  const args = stringArrayValue(raw.args)
+  const rawArgs = stringArrayValue(raw.args)
   const headers = stringRecordValue(raw.headers)
   const env = stringRecordValue(raw.env)
+  const known = normalizeKnownGuiManagedMcpServer(serverId, rawCommand, rawArgs, env)
+  const command = known.command
+  const args = known.args
   const transport = normalizeMcpTransport(raw.transport, command, url)
   if (!transport) return null
 
@@ -594,7 +597,7 @@ function normalizeGuiManagedMcpServer(server: unknown): Record<string, unknown> 
   const timeoutMs = positiveIntegerValue(raw.timeoutMs)
   const serverEnv = transport === 'stdio' ? mcpServerEnvWithToolPath(env) : env
   const parsed = McpServerConfig.safeParse({
-    enabled: raw.enabled === false || raw.disabled === true ? false : true,
+    enabled: known.forceDisabled || raw.enabled === false || raw.disabled === true ? false : true,
     transport,
     ...(command ? { command } : {}),
     ...(args.length > 0 ? { args } : {}),
@@ -607,6 +610,107 @@ function normalizeGuiManagedMcpServer(server: unknown): Record<string, unknown> 
   })
 
   return parsed.success ? objectValue(parsed.data) : null
+}
+
+function normalizeKnownGuiManagedMcpServer(
+  serverId: string,
+  command: string | undefined,
+  args: string[],
+  env: Record<string, string>
+): { command: string | undefined; args: string[]; forceDisabled: boolean } {
+  let nextCommand = command
+  let nextArgs = args
+  const id = serverId.trim().toLowerCase()
+  const packageNames = args.map((arg) => arg.trim().toLowerCase())
+
+  if (
+    (id === 'puppeteer' || packageNames.some((name) => name.startsWith('@modelcontextprotocol/server-puppeteer'))) &&
+    command?.trim().toLowerCase() === 'puppeteer'
+  ) {
+    nextCommand = 'npx'
+    nextArgs = args.length > 0 ? args : ['-y', '@modelcontextprotocol/server-puppeteer']
+  }
+
+  return {
+    command: nextCommand,
+    args: nextArgs,
+    forceDisabled:
+      shouldDisableKnownFilesystemMcp(id, nextCommand, nextArgs) ||
+      shouldDisableKnownGithubMcp(id, nextCommand, nextArgs, env) ||
+      shouldDisablePlaceholderCredentialMcp(id, nextCommand, nextArgs, env)
+  }
+}
+
+function shouldDisablePlaceholderCredentialMcp(
+  id: string,
+  command: string | undefined,
+  args: string[],
+  env: Record<string, string>
+): boolean {
+  if (!command?.trim()) return false
+  const normalizedArgs = args.map((arg) => arg.trim().toLowerCase()).filter(Boolean)
+  const knownExternalMcp =
+    id === 'brave-search' ||
+    id === 'slack' ||
+    normalizedArgs.some((arg) =>
+      arg.includes('server-brave-search') ||
+      arg.includes('server-slack')
+    )
+  if (!knownExternalMcp) return false
+  return Object.entries(env).some(([key, value]) => {
+    const normalizedKey = key.toLowerCase()
+    if (!/(token|api[_-]?key|secret|password|team[_-]?id)/.test(normalizedKey)) return false
+    const trimmed = value.trim()
+    return !trimmed || /^\$\{[^}]+\}$/.test(trimmed)
+  })
+}
+
+function shouldDisableKnownGithubMcp(
+  id: string,
+  command: string | undefined,
+  args: string[],
+  env: Record<string, string>
+): boolean {
+  const normalizedCommand = command?.trim().toLowerCase() ?? ''
+  const normalizedArgs = args.map((arg) => arg.trim().toLowerCase()).filter(Boolean)
+  const isGithub =
+    id === 'github' ||
+    normalizedArgs.some((arg) =>
+      arg.startsWith('@modelcontextprotocol/server-github') ||
+      arg.startsWith('@github/github-mcp-server') ||
+      arg === 'github-mcp-server'
+    )
+  if (!isGithub || !normalizedCommand) return false
+  if (
+    !Object.prototype.hasOwnProperty.call(env, 'GITHUB_PERSONAL_ACCESS_TOKEN') &&
+    !Object.prototype.hasOwnProperty.call(env, 'GITHUB_TOKEN')
+  ) {
+    return false
+  }
+  const token = (env.GITHUB_PERSONAL_ACCESS_TOKEN ?? env.GITHUB_TOKEN ?? '').trim()
+  return !token || /^\$\{[^}]+\}$/.test(token)
+}
+
+function shouldDisableKnownFilesystemMcp(
+  id: string,
+  command: string | undefined,
+  args: string[]
+): boolean {
+  const normalizedCommand = command?.trim().toLowerCase() ?? ''
+  const normalizedArgs = args.map((arg) => arg.trim()).filter(Boolean)
+  const isFilesystem =
+    id === 'filesystem' ||
+    normalizedArgs.some((arg) => arg.toLowerCase().startsWith('@modelcontextprotocol/server-filesystem'))
+  if (!isFilesystem || !normalizedCommand) return false
+
+  const roots = normalizedArgs
+    .filter((arg) => !arg.startsWith('-'))
+    .filter((arg) => !arg.toLowerCase().startsWith('@modelcontextprotocol/server-filesystem'))
+  if (roots.length === 0) return true
+  return roots.some((root) => {
+    if (root === '/path/to/project' || root === '/path/to/workspace') return true
+    return !existsSync(expandHomePath(root))
+  })
 }
 
 function normalizeMcpTransport(

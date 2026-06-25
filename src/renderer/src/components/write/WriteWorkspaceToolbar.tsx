@@ -1,5 +1,5 @@
 import type { ReactElement, RefObject } from 'react'
-import { ChevronDown, Copy, Download, FileCode2, FilePenLine, FolderOpen, Loader2, Save, Sparkles } from 'lucide-react'
+import { ChevronDown, Copy, Download, FileCode2, FilePenLine, FolderOpen, ImagePlus, Loader2, Save, Sparkles } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import type { WriteExportFormat } from '@shared/write-export'
 import type { WritePreviewMode, WriteSaveStatus } from '../../write/write-workspace-store'
@@ -30,6 +30,7 @@ type Props = {
   modeMenuRef: RefObject<HTMLDivElement | null>
   onCopyRichText: () => void
   onExportFile: (format: WriteExportFormat) => void
+  onGenerateImage: () => void
   onPickWorkspace: () => void
   onSave: () => void
   onToggleLeftSidebar: () => void
@@ -60,6 +61,7 @@ export function WriteWorkspaceToolbar({
   modeMenuRef,
   onCopyRichText,
   onExportFile,
+  onGenerateImage,
   onPickWorkspace,
   onSave,
   onToggleLeftSidebar,
@@ -185,6 +187,16 @@ export function WriteWorkspaceToolbar({
               aria-label={t('writeToggleAssistant')}
             >
               <Sparkles className="h-4 w-4" strokeWidth={1.85} />
+            </button>
+            <button
+              type="button"
+              onClick={onGenerateImage}
+              disabled={!activeFilePath || !activeFileIsText || readOnly}
+              className={`${toolbarIconButtonClass()} disabled:cursor-not-allowed disabled:opacity-40`}
+              title={readOnly ? t('writeReadOnlySaveDisabled') : t('writeAgnesImageGenerate')}
+              aria-label={readOnly ? t('writeReadOnlySaveDisabled') : t('writeAgnesImageGenerate')}
+            >
+              <ImagePlus className="h-4 w-4" strokeWidth={1.85} />
             </button>
             <div ref={exportMenuRef} className="relative">
               <button

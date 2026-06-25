@@ -146,13 +146,13 @@ PR 描述建议至少包含：
 - 基于最新三段式 semver tag 自动生成下一个 `vX.Y.Z` patch tag
 - 如果 rerun 时当前 merge commit 已经有 tag，则复用该 tag
 - 构建已签名并公证的 macOS arm64/x64 包和 Windows x64 安装器
-- 将发布产物和更新元数据上传到 GitHub Releases 与 R2 `stable` 渠道
-- 只有在全部平台上传成功后，才会 promote R2 `stable/latest`
+- 将用户安装包和更新元数据上传到发布环境配置的静态更新源 / R2(S3) `stable` 渠道；GitHub Releases 仅作为开发者发布记录和备用协作入口
+- 只有在全部平台上传成功后，才会 promote 静态更新源 / R2(S3) `stable/latest`
 
 首次自动发布前，维护者需要配置这些 GitHub Actions secrets：
 
-- R2：`R2_BUCKET`、`R2_ACCESS_KEY_ID`、`R2_SECRET_ACCESS_KEY`、`R2_PUBLIC_BASE_URL`，以及 `R2_ACCOUNT_ID` 或 `R2_ENDPOINT`
-- 可选 R2 覆盖项：`R2_RELEASE_PREFIX`
+- 静态更新源 / R2(S3)：`R2_BUCKET`、`R2_ACCESS_KEY_ID`、`R2_SECRET_ACCESS_KEY`、`WORKWISE_PUBLIC_BASE_URL` 或 `R2_PUBLIC_BASE_URL`，以及 `R2_ACCOUNT_ID` 或 `R2_ENDPOINT`
+- 可选路径前缀：`WORKWISE_RELEASE_PREFIX` 或旧变量 `R2_RELEASE_PREFIX`
 - macOS 签名：`MAC_CODESIGN_P12_BASE64`、`CSC_KEY_PASSWORD`、`APPLE_API_KEY_BASE64`、`APPLE_API_KEY_ID`、`APPLE_API_ISSUER`
 
 仓库的 Actions 设置还需要允许 `GITHUB_TOKEN` 写入 repository contents，这样 workflow 才能创建 tag 并发布 Release。

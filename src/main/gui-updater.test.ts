@@ -146,32 +146,78 @@ describe('gui updater source helpers', () => {
     expect(module._internals.selectGithubRelease(releases, 'frontier')?.version).toBe('0.3.0-beta.1')
   })
 
-  it('uses GitHub Releases by default and generic feeds when configured', async () => {
+  it('does not assume an official feed and keeps configured feed overrides', async () => {
     const previous = {
+      WORKWISE_UPDATE_PROVIDER: process.env.WORKWISE_UPDATE_PROVIDER,
+      WORKWISE_ENABLE_GITHUB_UPDATE_FALLBACK: process.env.WORKWISE_ENABLE_GITHUB_UPDATE_FALLBACK,
+      WORKWISE_UPDATE_URL: process.env.WORKWISE_UPDATE_URL,
+      WORKWISE_UPDATE_URL_STABLE: process.env.WORKWISE_UPDATE_URL_STABLE,
+      WORKWISE_UPDATE_BASE_URL: process.env.WORKWISE_UPDATE_BASE_URL,
+      WORKWISE_PUBLIC_BASE_URL: process.env.WORKWISE_PUBLIC_BASE_URL,
+      WORKWISE_RELEASE_PREFIX: process.env.WORKWISE_RELEASE_PREFIX,
+      WORKWISE_DOWNLOAD_URL: process.env.WORKWISE_DOWNLOAD_URL,
+      WORKWISE_DOWNLOAD_BASE_URL: process.env.WORKWISE_DOWNLOAD_BASE_URL,
       WORKGPT_UPDATE_URL: process.env.WORKGPT_UPDATE_URL,
       WORKGPT_UPDATE_URL_STABLE: process.env.WORKGPT_UPDATE_URL_STABLE,
+      WORKGPT_UPDATE_PROVIDER: process.env.WORKGPT_UPDATE_PROVIDER,
+      WORKGPT_ENABLE_GITHUB_UPDATE_FALLBACK: process.env.WORKGPT_ENABLE_GITHUB_UPDATE_FALLBACK,
+      WORKGPT_DOWNLOAD_URL: process.env.WORKGPT_DOWNLOAD_URL,
       R2_PUBLIC_BASE_URL: process.env.R2_PUBLIC_BASE_URL,
-      R2_RELEASE_PREFIX: process.env.R2_RELEASE_PREFIX
+      R2_RELEASE_PREFIX: process.env.R2_RELEASE_PREFIX,
+      PUBLIC_DOWNLOAD_BASE_URL: process.env.PUBLIC_DOWNLOAD_BASE_URL,
+      PUBLIC_DOWNLOAD_PAGE_URL: process.env.PUBLIC_DOWNLOAD_PAGE_URL
     }
+    delete process.env.WORKWISE_UPDATE_PROVIDER
+    delete process.env.WORKWISE_ENABLE_GITHUB_UPDATE_FALLBACK
+    delete process.env.WORKWISE_UPDATE_URL
+    delete process.env.WORKWISE_UPDATE_URL_STABLE
+    delete process.env.WORKWISE_UPDATE_BASE_URL
+    delete process.env.WORKWISE_PUBLIC_BASE_URL
+    delete process.env.WORKWISE_RELEASE_PREFIX
+    delete process.env.WORKWISE_DOWNLOAD_URL
+    delete process.env.WORKWISE_DOWNLOAD_BASE_URL
     delete process.env.WORKGPT_UPDATE_URL
     delete process.env.WORKGPT_UPDATE_URL_STABLE
+    delete process.env.WORKGPT_UPDATE_PROVIDER
+    delete process.env.WORKGPT_ENABLE_GITHUB_UPDATE_FALLBACK
+    delete process.env.WORKGPT_DOWNLOAD_URL
     delete process.env.R2_PUBLIC_BASE_URL
     delete process.env.R2_RELEASE_PREFIX
+    delete process.env.PUBLIC_DOWNLOAD_BASE_URL
+    delete process.env.PUBLIC_DOWNLOAD_PAGE_URL
 
     try {
       const module = await import('./gui-updater')
+      expect(module._internals.resolveUpdateFeedConfig('stable')).toEqual({
+        kind: 'none'
+      })
+      expect(module._internals.downloadPageUrl()).toBe('https://www.railwise.cn/products/workwise/')
+
+      process.env.WORKWISE_PUBLIC_BASE_URL = 'https://downloads.example.test/workwise'
+      process.env.WORKWISE_RELEASE_PREFIX = 'desktop'
+      expect(module._internals.resolveUpdateFeedConfig('stable')).toEqual({
+        kind: 'generic',
+        url: 'https://downloads.example.test/workwise/desktop/channels/stable/latest/'
+      })
+      expect(module._internals.downloadPageUrl()).toBe('https://www.railwise.cn/products/workwise/')
+
+      process.env.WORKWISE_UPDATE_URL_STABLE = 'https://mirror.example.test/{channel}/latest'
+      expect(module._internals.resolveUpdateFeedConfig('stable')).toEqual({
+        kind: 'generic',
+        url: 'https://mirror.example.test/stable/latest/'
+      })
+      process.env.WORKWISE_DOWNLOAD_URL = 'https://www.example.test/products/workwise/'
+      expect(module._internals.downloadPageUrl()).toBe('https://www.example.test/products/workwise/')
+      delete process.env.WORKWISE_DOWNLOAD_URL
+
+      delete process.env.WORKWISE_UPDATE_URL_STABLE
+      process.env.WORKWISE_UPDATE_PROVIDER = 'github'
       expect(module._internals.resolveUpdateFeedConfig('stable')).toMatchObject({
         kind: 'github',
         owner: 'wangjiawei508',
         repo: 'WorkWise'
       })
-
-      process.env.R2_PUBLIC_BASE_URL = 'https://downloads.example.test/workgpt'
-      process.env.R2_RELEASE_PREFIX = 'desktop'
-      expect(module._internals.resolveUpdateFeedConfig('stable')).toEqual({
-        kind: 'generic',
-        url: 'https://downloads.example.test/workgpt/desktop/channels/stable/latest/'
-      })
+      expect(module._internals.downloadPageUrl()).toBe('https://github.com/wangjiawei508/WorkWise/releases')
     } finally {
       for (const [key, value] of Object.entries(previous)) {
         if (value === undefined) {

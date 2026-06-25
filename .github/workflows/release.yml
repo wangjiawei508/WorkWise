@@ -15,6 +15,9 @@ concurrency:
 env:
   NODE_VERSION: '22'
   RELEASE_CHANNEL: stable
+  WORKWISE_DOWNLOAD_URL: https://www.railwise.cn/products/workwise/
+  WORKWISE_PUBLIC_BASE_URL: https://www.railwise.cn/downloads
+  WORKWISE_RELEASE_PREFIX: workwise
 
 jobs:
   prepare:
@@ -125,6 +128,9 @@ jobs:
       - name: Build unsigned macOS packages
         if: steps.signing.outputs.enabled != 'true'
         run: npm run dist:mac
+
+      - name: Generate macOS update metadata
+        run: node ./scripts/generate-mac-latest.cjs dist
 
       - name: Upload macOS installers
         uses: actions/upload-artifact@v4
@@ -318,6 +324,25 @@ jobs:
           done
 
           find public-release-assets -maxdepth 1 -type f -print | sort
+
+      - name: Prepare website update channel assets
+        run: |
+          set -euo pipefail
+          node ./scripts/prepare-website-release-assets.cjs \
+            release-artifacts \
+            website-release-assets \
+            "${RELEASE_VERSION}"
+
+          node ./scripts/verify-release-assets.cjs website-release-assets --write-sha256 SHA256SUMS.txt
+
+      - name: Upload website update channel artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-website
+          if-no-files-found: error
+          retention-days: 7
+          path: |
+            website-release-assets/*
 
       - name: Generate release notes
         run: |

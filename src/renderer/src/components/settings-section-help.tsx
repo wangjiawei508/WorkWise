@@ -18,7 +18,7 @@ import {
 import { SettingsCard } from './settings-controls'
 
 const WORKGPT_GITHUB_URL = 'https://github.com/wangjiawei508/WorkWise'
-const WORKGPT_RELEASES_URL = 'https://github.com/wangjiawei508/WorkWise/releases'
+const WORKWISE_PRODUCT_URL = 'https://www.railwise.cn/products/workwise/'
 const WORKGPT_ISSUES_URL = 'https://github.com/wangjiawei508/WorkWise/issues'
 const WORKGPT_README_URL = 'https://github.com/wangjiawei508/WorkWise#readme'
 const WORKGPT_GUIDE_URL = 'https://github.com/wangjiawei508/WorkWise/blob/main/docs/USER_GUIDE.zh-CN.md'
@@ -100,7 +100,7 @@ export function HelpSettingsSection({ ctx }: { ctx: Record<string, any> }): Reac
               label={t('helpOpenGithub')}
             />
             <HelpLinkButton
-              href={WORKGPT_RELEASES_URL}
+              href={WORKWISE_PRODUCT_URL}
               icon={<Download className="h-4 w-4" strokeWidth={1.8} />}
               label={t('helpOpenReleases')}
             />

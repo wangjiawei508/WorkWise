@@ -57,7 +57,11 @@ type MarketplaceItem = {
   sourceUrl?: string
   statusTone?: 'default' | 'success' | 'warning' | 'error'
   systemManaged?: boolean
-  mcpConfig?: (workspaceRoot: string) => JsonRecord
+  advanced?: boolean
+  reconfigurable?: boolean
+  directoryPicker?: boolean
+  tokenSetup?: 'github' | 'brave'
+  mcpConfig?: (workspaceRoot: string, setup?: JsonRecord) => JsonRecord
   skillInstructions?: string
   githubSkill?: GithubSkillSource
   bundledSkill?: BundledSkillSource
@@ -257,6 +261,30 @@ export function mergeMcpJsonConfig(content: string, fragment: JsonRecord): { alr
   return { alreadyExists: false, text: `${JSON.stringify(next, null, 2)}\n` }
 }
 
+function upsertMcpJsonConfig(content: string, fragment: JsonRecord): { replaced: boolean; text: string } {
+  const current = parseMcpJsonConfig(content)
+  const currentServers = mcpServersFromConfig(current)
+  const fragmentServers = mcpServersFromConfig(fragment)
+  const fragmentServerIds = Object.keys(fragmentServers)
+  if (fragmentServerIds.length === 0) {
+    throw new Error('MCP JSON config must include at least one server.')
+  }
+  const replaced = fragmentServerIds.some((id) =>
+    Object.prototype.hasOwnProperty.call(currentServers, id)
+  )
+  const fragmentRest = { ...fragment }
+  delete fragmentRest.servers
+  const next = {
+    ...current,
+    ...fragmentRest,
+    servers: {
+      ...currentServers,
+      ...fragmentServers
+    }
+  }
+  return { replaced, text: `${JSON.stringify(next, null, 2)}\n` }
+}
+
 function buildSkillContent(id: string, title: string, description: string, instructions: string): string {
   return [
     '---',
@@ -355,6 +383,7 @@ export function mcpMarketplaceItemsFromConfigAndDiagnostics(
     connected: string
     error: string
     disabled: string
+    authRequired: string
   }
 ): MarketplaceItem[] {
   const servers = new Map<string, {
@@ -387,7 +416,10 @@ export function mcpMarketplaceItemsFromConfigAndDiagnostics(
   return [...servers.values()].map(({ id, config, diagnostic }) => {
     const status = mcpServerStatus(diagnostic, config)
     const details = { ...(config ?? {}), ...(diagnostic ?? {}) }
+    const lastError = typeof details.lastError === 'string' ? details.lastError : ''
+    const authRequired = details.authRequired === true || mcpServerAuthRequired(id, lastError)
     const sourceLabel =
+      authRequired ? labels.authRequired :
       status === 'connected' || status === 'available' ? labels.connected :
       status === 'error' || status === 'unavailable' ? labels.error :
       status === 'disabled' ? labels.disabled :
@@ -399,9 +431,14 @@ export function mcpMarketplaceItemsFromConfigAndDiagnostics(
       description: mcpServerDescription(details, labels.configured),
       group: 'personal' as const,
       sourceLabel,
-      statusTone: mcpStatusTone(status)
+      statusTone: authRequired ? 'warning' as const : mcpStatusTone(status)
     }
   }).sort((left, right) => left.title.localeCompare(right.title))
+}
+
+function mcpServerAuthRequired(serverId: string, message: string): boolean {
+  const haystack = `${serverId} ${message}`.toLowerCase()
+  return /subscription_token_invalid|provided subscription token is invalid|brave_api_key|github_personal_access_token|bad credentials|token.+invalid|invalid.+token|unauthorized|forbidden|401|403/.test(haystack)
 }
 
 function skillNameLooksValid(raw: string): boolean {
@@ -428,14 +465,17 @@ const RECOMMENDED_ITEMS: MarketplaceItem[] = [
     detailKey: 'pluginMcpFilesystemDetail',
     sourceUrl: 'https://github.com/modelcontextprotocol/servers/tree/main/src/filesystem',
     group: 'recommended',
+    advanced: true,
+    reconfigurable: true,
+    directoryPicker: true,
     mcpConfig: (workspaceRoot) =>
       buildMcpConfig(
         'filesystem',
         'npx',
-        ['-y', '@modelcontextprotocol/server-filesystem', workspaceRoot || '/path/to/project'],
+        ['-y', '@modelcontextprotocol/server-filesystem', workspaceRoot],
         {
           trustScope: 'workspace',
-          trustedWorkspaceRoots: [workspaceRoot || '/path/to/project']
+          trustedWorkspaceRoots: [workspaceRoot]
         }
       )
   },
@@ -447,6 +487,7 @@ const RECOMMENDED_ITEMS: MarketplaceItem[] = [
     detailKey: 'pluginMcpPlaywrightDetail',
     sourceUrl: 'https://github.com/microsoft/playwright-mcp',
     group: 'recommended',
+    advanced: true,
     mcpConfig: () =>
       buildMcpConfig(
         'playwright',
@@ -462,14 +503,19 @@ const RECOMMENDED_ITEMS: MarketplaceItem[] = [
     detailKey: 'pluginMcpGithubDetail',
     sourceUrl: 'https://github.com/github/github-mcp-server',
     group: 'recommended',
-    mcpConfig: () =>
+    advanced: true,
+    reconfigurable: true,
+  tokenSetup: 'github',
+    mcpConfig: (_workspaceRoot, setup) =>
       buildMcpConfig(
         'github',
         'npx',
         ['-y', '@modelcontextprotocol/server-github'],
         {
           env: {
-            GITHUB_PERSONAL_ACCESS_TOKEN: '${GITHUB_PERSONAL_ACCESS_TOKEN}'
+            GITHUB_PERSONAL_ACCESS_TOKEN: typeof setup?.token === 'string'
+              ? setup.token
+              : '${GITHUB_PERSONAL_ACCESS_TOKEN}'
           }
         }
       )
@@ -482,6 +528,7 @@ const RECOMMENDED_ITEMS: MarketplaceItem[] = [
     detailKey: 'pluginMcpContext7Detail',
     sourceUrl: 'https://github.com/upstash/context7',
     group: 'recommended',
+    advanced: true,
     mcpConfig: () =>
       buildMcpConfig(
         'context7',
@@ -497,6 +544,7 @@ const RECOMMENDED_ITEMS: MarketplaceItem[] = [
     detailKey: 'pluginMcpMemoryDetail',
     sourceUrl: 'https://github.com/modelcontextprotocol/servers/tree/main/src/memory',
     group: 'recommended',
+    advanced: true,
     mcpConfig: () =>
       buildMcpConfig(
         'memory',
@@ -512,6 +560,7 @@ const RECOMMENDED_ITEMS: MarketplaceItem[] = [
     detailKey: 'pluginMcpSequentialThinkingDetail',
     sourceUrl: 'https://github.com/modelcontextprotocol/servers/tree/main/src/sequentialthinking',
     group: 'recommended',
+    advanced: true,
     mcpConfig: () =>
       buildMcpConfig(
         'sequential-thinking',
@@ -527,14 +576,19 @@ const RECOMMENDED_ITEMS: MarketplaceItem[] = [
     detailKey: 'pluginMcpBraveSearchDetail',
     sourceUrl: 'https://github.com/modelcontextprotocol/servers',
     group: 'recommended',
-    mcpConfig: () =>
+    advanced: true,
+    reconfigurable: true,
+    tokenSetup: 'brave',
+    mcpConfig: (_workspaceRoot, setup) =>
       buildMcpConfig(
         'brave-search',
         'npx',
         ['-y', '@modelcontextprotocol/server-brave-search'],
         {
           env: {
-            BRAVE_API_KEY: '${BRAVE_API_KEY}'
+            BRAVE_API_KEY: typeof setup?.token === 'string'
+              ? setup.token
+              : '${BRAVE_API_KEY}'
           }
         }
       )
@@ -547,6 +601,7 @@ const RECOMMENDED_ITEMS: MarketplaceItem[] = [
     detailKey: 'pluginMcpPostgresDetail',
     sourceUrl: 'https://github.com/modelcontextprotocol/servers',
     group: 'recommended',
+    advanced: true,
     mcpConfig: () =>
       buildMcpConfig(
         'postgres',
@@ -562,6 +617,7 @@ const RECOMMENDED_ITEMS: MarketplaceItem[] = [
     detailKey: 'pluginMcpPuppeteerDetail',
     sourceUrl: 'https://github.com/modelcontextprotocol/servers',
     group: 'recommended',
+    advanced: true,
     mcpConfig: () =>
       buildMcpConfig(
         'puppeteer',
@@ -577,6 +633,7 @@ const RECOMMENDED_ITEMS: MarketplaceItem[] = [
     detailKey: 'pluginMcpSlackDetail',
     sourceUrl: 'https://github.com/modelcontextprotocol/servers',
     group: 'recommended',
+    advanced: true,
     mcpConfig: () =>
       buildMcpConfig(
         'slack',
@@ -782,6 +839,21 @@ const RECOMMENDED_ITEMS: MarketplaceItem[] = [
     }
   },
   {
+    id: 'ppt-master',
+    kind: 'skill',
+    titleKey: 'pluginSkillPptMasterTitle',
+    descriptionKey: 'pluginSkillPptMasterDesc',
+    detailKey: 'pluginSkillPptMasterDetail',
+    sourceUrl: 'https://github.com/hugohe3/ppt-master',
+    group: 'recommended',
+    sourceLabelKey: 'pluginSkillSourceBundledGitHub',
+    statusTone: 'success',
+    bundledSkill: {
+      id: 'ppt-master',
+      skillName: 'ppt-master'
+    }
+  },
+  {
     id: 'chatgpt-comparison-detection',
     kind: 'skill',
     titleKey: 'pluginSkillWritingDetectionTitle',
@@ -940,6 +1012,8 @@ export function PluginMarketplaceView(): ReactElement {
   const [customArgs, setCustomArgs] = useState('')
   const [customConfig, setCustomConfig] = useState('')
   const [customSkillBody, setCustomSkillBody] = useState('')
+  const [tokenSetupItem, setTokenSetupItem] = useState<MarketplaceItem | null>(null)
+  const [tokenValue, setTokenValue] = useState('')
   const [skillRootId, setSkillRootId] = useState<SkillRootId>(() => loadPreferredSkillRootId())
   const [mcpConfigText, setMcpConfigText] = useState('')
   const [mcpLoaded, setMcpLoaded] = useState(false)
@@ -1076,7 +1150,7 @@ export function PluginMarketplaceView(): ReactElement {
       if (result.validationErrors.length > 0) {
         setSkillListError(result.validationErrors[0]?.message ?? t('pluginSkillScanPartial'))
       } else if (syncError) {
-        setSkillListError(syncError)
+        setNotice({ tone: 'info', message: t('pluginSkillSyncUnavailable') })
       }
     } catch (error) {
       setDiscoveredSkills([])
@@ -1127,7 +1201,8 @@ export function PluginMarketplaceView(): ReactElement {
       configured: t('pluginMcpSourceConfigured'),
       connected: t('pluginMcpSourceConnected'),
       error: t('pluginMcpSourceError'),
-      disabled: t('pluginMcpSourceDisabled')
+      disabled: t('pluginMcpSourceDisabled'),
+      authRequired: t('pluginMcpSourceAuthRequired')
     }).filter((item) => item.id !== GUI_SCHEDULE_MCP_SERVER_ID),
     [mcpConfigText, t, toolDiagnostics]
   )
@@ -1189,7 +1264,10 @@ export function PluginMarketplaceView(): ReactElement {
   }, [activeKind, filter, isInstalled, marketplaceItems, query, t])
 
   const builtInItems = visibleItems.filter((item) => item.systemManaged)
-  const recommendedItems = visibleItems.filter((item) => !item.systemManaged && !isInstalled(item))
+  const advancedItems = visibleItems.filter((item) => item.advanced && !isInstalled(item))
+  const recommendedItems = visibleItems.filter((item) =>
+    !item.systemManaged && !item.advanced && !isInstalled(item)
+  )
   const personalItems = visibleItems.filter((item) =>
     item.group === 'personal' ||
     (!item.systemManaged && isInstalled(item) && !discoveredSkillIds.has(item.id) && !discoveredMcpIds.has(item.id))
@@ -1203,10 +1281,16 @@ export function PluginMarketplaceView(): ReactElement {
     [runtimeInfo, toolDiagnostics]
   )
 
-  const appendMcpConfig = async (id: string, config: JsonRecord): Promise<void> => {
+  const appendMcpConfig = async (
+    id: string,
+    config: JsonRecord,
+    options: { replaceExisting?: boolean } = {}
+  ): Promise<void> => {
     const content = mcpLoaded ? mcpConfigText : await readMcpConfig()
-    const merged = mergeMcpJsonConfig(content, config)
-    if (merged.alreadyExists) {
+    const merged = options.replaceExisting
+      ? upsertMcpJsonConfig(content, config)
+      : mergeMcpJsonConfig(content, config)
+    if ('alreadyExists' in merged && merged.alreadyExists) {
       markInstalled(storageKey('mcp', id))
       setNotice({ tone: 'info', message: t('pluginAlreadyAdded') })
       return
@@ -1218,12 +1302,65 @@ export function PluginMarketplaceView(): ReactElement {
     setNotice({ tone: 'success', message: t('pluginMcpAdded', { path: result.path }) })
   }
 
+  const addFilesystemMcp = async (item: MarketplaceItem): Promise<void> => {
+    if (!item.mcpConfig) return
+    let selectedRoot = workspaceRoot
+    if (typeof window.workgpt?.pickWorkspaceDirectory === 'function') {
+      const picked = await window.workgpt.pickWorkspaceDirectory(workspaceRoot || undefined)
+      if (picked.canceled || !picked.path) {
+        setNotice({ tone: 'info', message: t('pluginMcpFilesystemCanceled') })
+        return
+      }
+      selectedRoot = normalizeWorkspaceRoot(picked.path)
+    }
+    if (!selectedRoot) {
+      setNotice({ tone: 'error', message: t('pluginMcpWorkspaceRequired') })
+      return
+    }
+    await appendMcpConfig(item.id, item.mcpConfig(selectedRoot), { replaceExisting: true })
+  }
+
+  const openTokenSetup = (item: MarketplaceItem): void => {
+    setTokenSetupItem(item)
+    setTokenValue('')
+    setNotice(null)
+  }
+
+  const confirmTokenSetup = async (): Promise<void> => {
+    const item = tokenSetupItem
+    if (!item?.mcpConfig) return
+    const token = tokenValue.trim()
+    if (!token || /^\$\{[^}]+\}$/.test(token)) {
+      setNotice({ tone: 'error', message: t(mcpTokenRequiredKey(item.tokenSetup)) })
+      return
+    }
+    setBusyId(storageKey(item.kind, item.id))
+    setNotice(null)
+    try {
+      await appendMcpConfig(item.id, item.mcpConfig(workspaceRoot, { token }), { replaceExisting: true })
+      setTokenSetupItem(null)
+      setTokenValue('')
+    } catch (e) {
+      setNotice({ tone: 'error', message: e instanceof Error ? e.message : String(e) })
+    } finally {
+      setBusyId(null)
+    }
+  }
+
   const addItem = async (item: MarketplaceItem): Promise<void> => {
     setBusyId(storageKey(item.kind, item.id))
     setNotice(null)
     try {
       if (item.kind === 'mcp') {
         if (!item.mcpConfig) return
+        if (item.directoryPicker) {
+          await addFilesystemMcp(item)
+          return
+        }
+        if (item.tokenSetup) {
+          openTokenSetup(item)
+          return
+        }
         await appendMcpConfig(item.id, item.mcpConfig(workspaceRoot))
         return
       }
@@ -1468,6 +1605,16 @@ export function PluginMarketplaceView(): ReactElement {
               {skillListLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
               {t('pluginSkillRefresh')}
             </button>
+            <button
+              type="button"
+              onClick={() => void refreshSkillList({ syncOnline: true })}
+              disabled={skillListLoading}
+              title={t('pluginSkillOnlineUpdateHint')}
+              className="inline-flex h-10 items-center gap-2 rounded-xl border border-ds-border bg-ds-card px-3 text-[13px] font-medium text-ds-ink shadow-sm transition hover:bg-ds-hover disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {skillListLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+              {t('pluginSkillOnlineUpdate')}
+            </button>
             {skillListError ? (
               <span className="text-[12px] text-red-700 dark:text-red-300">
                 {skillListError}
@@ -1536,6 +1683,19 @@ export function PluginMarketplaceView(): ReactElement {
           t={t}
         />
 
+        {activeKind === 'mcp' ? (
+          <PluginSection
+            title={t('pluginAdvancedMcp')}
+            emptyText={t('pluginNoResults')}
+            items={advancedItems}
+            busyId={busyId}
+            isInstalled={isInstalled}
+            onAdd={addItem}
+            onDetails={setDetailItem}
+            t={t}
+          />
+        ) : null}
+
         <PluginSection
           title={t('pluginPersonal')}
           emptyText={t('pluginPersonalEmpty')}
@@ -1555,6 +1715,20 @@ export function PluginMarketplaceView(): ReactElement {
             onAdd={() => void addItem(detailItem)}
             busy={busyId === storageKey(detailItem.kind, detailItem.id)}
             t={t}
+          />
+        ) : null}
+
+        {tokenSetupItem ? (
+          <McpTokenSetupDialog
+            item={tokenSetupItem}
+            token={tokenValue}
+            busy={busyId === storageKey(tokenSetupItem.kind, tokenSetupItem.id)}
+            onTokenChange={setTokenValue}
+            onClose={() => {
+              setTokenSetupItem(null)
+              setTokenValue('')
+            }}
+            onConfirm={() => void confirmTokenSetup()}
           />
         ) : null}
 
@@ -1583,6 +1757,8 @@ function McpRuntimeOverlayPanel({
   t: (key: string, values?: Record<string, unknown>) => string
 }): ReactElement {
   const status = mcpRuntimeStatusLabel(overlay.status, t)
+  const errorMessage = error || (overlay.lastError ? t('pluginMcpRuntimeLastError', { message: overlay.lastError }) : '')
+  const errorHint = mcpRuntimeErrorHint(error || overlay.lastError || '', overlay.lastErrorServerId, t)
   return (
     <section className="mt-4 rounded-lg border border-ds-border bg-ds-card px-4 py-3 shadow-sm">
       <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
@@ -1621,9 +1797,16 @@ function McpRuntimeOverlayPanel({
                 ))}
               </div>
             ) : null}
-            {error || overlay.lastError ? (
-              <div className="mt-2 truncate text-[12px] text-red-700 dark:text-red-300">
-                {error || t('pluginMcpRuntimeLastError', { message: overlay.lastError })}
+            {errorMessage ? (
+              <div className="mt-2 space-y-1 text-[12px]">
+                <div className="break-words text-red-700 dark:text-red-300">
+                  {errorMessage}
+                </div>
+                {errorHint ? (
+                  <div className="break-words text-ds-muted">
+                    {errorHint}
+                  </div>
+                ) : null}
               </div>
             ) : null}
           </div>
@@ -1697,6 +1880,73 @@ function runtimeOverlayErrorMessage(error: unknown, fallback: string): string {
   return /runtimeRequest|kunGui|Cannot read properties/i.test(message) ? fallback : message
 }
 
+function mcpTokenRequiredKey(tokenSetup: MarketplaceItem['tokenSetup']): string {
+  return tokenSetup === 'brave' ? 'pluginMcpBraveTokenRequired' : 'pluginMcpGithubTokenRequired'
+}
+
+function mcpTokenSetupKeys(tokenSetup: MarketplaceItem['tokenSetup']): {
+  title: string
+  desc: string
+  token: string
+  hint: string
+  save: string
+  placeholder: string
+} {
+  if (tokenSetup === 'brave') {
+    return {
+      title: 'pluginMcpBraveSetupTitle',
+      desc: 'pluginMcpBraveSetupDesc',
+      token: 'pluginMcpBraveToken',
+      hint: 'pluginMcpBraveTokenStorageHint',
+      save: 'pluginMcpBraveSave',
+      placeholder: 'BSA...'
+    }
+  }
+  return {
+    title: 'pluginMcpGithubSetupTitle',
+    desc: 'pluginMcpGithubSetupDesc',
+    token: 'pluginMcpGithubToken',
+    hint: 'pluginMcpGithubTokenStorageHint',
+    save: 'pluginMcpGithubSave',
+    placeholder: 'github_pat_...'
+  }
+}
+
+export function mcpRuntimeErrorHint(
+  message: string,
+  serverId: string | undefined,
+  t: (key: string) => string
+): string {
+  const haystack = `${serverId ?? ''} ${message}`.toLowerCase()
+  const errorText = message.toLowerCase()
+  const normalizedServerId = (serverId ?? '').toLowerCase()
+  if (!haystack.trim()) return ''
+  if (/spawn .*enoent|npx|npm|node/.test(errorText)) {
+    return t('pluginMcpRuntimeHintNode')
+  }
+  if (/subscription_token_invalid|provided subscription token is invalid|brave_api_key/.test(errorText)) {
+    return t('pluginMcpRuntimeHintBrave')
+  }
+  if (/github_personal_access_token|bad credentials|401|unauthorized/.test(errorText)) {
+    if (normalizedServerId.includes('brave')) return t('pluginMcpRuntimeHintBrave')
+    return t('pluginMcpRuntimeHintGithub')
+  }
+  if (/\/path\/to\/project|no such file|does not exist/.test(errorText)) {
+    return t('pluginMcpRuntimeHintFilesystem')
+  }
+  if (/chromium|chrome/.test(errorText)) {
+    return t('pluginMcpRuntimeHintPuppeteer')
+  }
+  if (/32000|connection closed|closed/.test(errorText)) {
+    if (normalizedServerId.includes('github')) return t('pluginMcpRuntimeHintGithub')
+    if (normalizedServerId.includes('brave')) return t('pluginMcpRuntimeHintBrave')
+    if (normalizedServerId.includes('filesystem')) return t('pluginMcpRuntimeHintFilesystem')
+    if (normalizedServerId.includes('puppeteer')) return t('pluginMcpRuntimeHintPuppeteer')
+    return t('pluginMcpRuntimeHintNode')
+  }
+  return ''
+}
+
 function PluginSection({
   title,
   emptyText,
@@ -1729,6 +1979,7 @@ function PluginSection({
             const itemKey = storageKey(item.kind, item.id)
             const installed = isInstalled(item)
             const busy = busyId === itemKey
+            const canAddOrConfigure = !installed || item.reconfigurable
             const sourceLabel = itemSourceLabel(item, t)
             return (
               <div
@@ -1763,19 +2014,21 @@ function PluginSection({
                   </button>
                   <button
                     type="button"
-                    disabled={installed || busy}
+                    disabled={!canAddOrConfigure || busy}
                     onClick={() => void onAdd(item)}
-                    title={installed ? t('pluginAdded') : t('pluginAdd')}
+                    title={installed && item.reconfigurable ? t('pluginConfigure') : installed ? t('pluginAdded') : t('pluginAdd')}
                     className={`flex h-9 w-9 items-center justify-center rounded-xl transition ${
-                      installed
+                      installed && !item.reconfigurable
                         ? 'text-ds-faint'
                         : 'bg-ds-subtle text-ds-ink hover:bg-ds-hover disabled:opacity-60'
                     }`}
                   >
                     {busy ? (
                       <Loader2 className="h-4 w-4 animate-spin" strokeWidth={2} />
-                    ) : installed ? (
+                    ) : installed && !item.reconfigurable ? (
                       <Check className="h-4 w-4" strokeWidth={2} />
+                    ) : installed && item.reconfigurable ? (
+                      <Settings className="h-4 w-4" strokeWidth={1.9} />
                     ) : (
                       <Plus className="h-4 w-4" strokeWidth={2} />
                     )}
@@ -1811,6 +2064,7 @@ function PluginDetailDialog({
   const sourceLabel = itemSourceLabel(item, t)
   const sourceUrl = itemSourceUrl(item)
   const kindLabel = item.kind === 'mcp' ? t('pluginDetailKindMcp') : t('pluginDetailKindSkill')
+  const canAddOrConfigure = !installed || item.reconfigurable
 
   return (
     <div
@@ -1886,13 +2140,97 @@ function PluginDetailDialog({
             <button
               type="button"
               onClick={onAdd}
-              disabled={installed || busy}
+              disabled={!canAddOrConfigure || busy}
               className="inline-flex h-10 items-center gap-2 rounded-xl bg-ds-userbubble px-4 text-[13px] font-semibold text-ds-userbubbleFg shadow-sm transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-55"
             >
-              {busy ? <Loader2 className="h-4 w-4 animate-spin" strokeWidth={2} /> : installed ? <Check className="h-4 w-4" strokeWidth={2} /> : <Plus className="h-4 w-4" strokeWidth={2} />}
-              {installed ? t('pluginAdded') : t('pluginAdd')}
+              {busy
+                ? <Loader2 className="h-4 w-4 animate-spin" strokeWidth={2} />
+                : installed && !item.reconfigurable
+                  ? <Check className="h-4 w-4" strokeWidth={2} />
+                  : installed && item.reconfigurable
+                    ? <Settings className="h-4 w-4" strokeWidth={1.9} />
+                    : <Plus className="h-4 w-4" strokeWidth={2} />}
+              {installed && item.reconfigurable ? t('pluginConfigure') : installed ? t('pluginAdded') : t('pluginAdd')}
             </button>
           ) : null}
+        </div>
+      </section>
+    </div>
+  )
+}
+
+function McpTokenSetupDialog({
+  item,
+  token,
+  busy,
+  onTokenChange,
+  onClose,
+  onConfirm
+}: {
+  item: MarketplaceItem
+  token: string
+  busy: boolean
+  onTokenChange: (value: string) => void
+  onClose: () => void
+  onConfirm: () => void
+}): ReactElement {
+  const { t } = useTranslation('common')
+  const keys = mcpTokenSetupKeys(item.tokenSetup)
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 px-4 py-6 backdrop-blur-sm"
+      onClick={onClose}
+    >
+      <section
+        className="w-full max-w-lg rounded-2xl border border-ds-border bg-ds-card p-5 shadow-2xl"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <h3 className="text-[20px] font-semibold text-ds-ink">{t(keys.title)}</h3>
+            <p className="mt-2 text-[13px] leading-5 text-ds-muted">{t(keys.desc)}</p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            title={t('pluginCloseDetails')}
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-ds-subtle text-ds-muted transition hover:bg-ds-hover hover:text-ds-ink"
+          >
+            <X className="h-4 w-4" strokeWidth={2} />
+          </button>
+        </div>
+
+        <label className="mt-5 block">
+          <span className="text-[12px] font-semibold text-ds-faint">{t(keys.token)}</span>
+          <input
+            value={token}
+            onChange={(event) => onTokenChange(event.target.value)}
+            type="password"
+            autoComplete="off"
+            className="mt-2 h-11 w-full rounded-xl border border-ds-border bg-ds-main/45 px-3 font-mono text-[13px] text-ds-ink outline-none focus:border-accent/40 focus:ring-1 focus:ring-accent/30"
+            placeholder={keys.placeholder}
+          />
+        </label>
+
+        <p className="mt-3 text-[12px] leading-5 text-ds-faint">{t(keys.hint)}</p>
+
+        <div className="mt-5 flex justify-end gap-2">
+          <button
+            type="button"
+            onClick={onClose}
+            className="inline-flex h-10 items-center justify-center rounded-xl border border-ds-border bg-ds-card px-4 text-[13px] font-semibold text-ds-ink shadow-sm transition hover:bg-ds-hover"
+          >
+            {t('cancel')}
+          </button>
+          <button
+            type="button"
+            onClick={onConfirm}
+            disabled={busy}
+            className="inline-flex h-10 items-center gap-2 rounded-xl bg-ds-userbubble px-4 text-[13px] font-semibold text-ds-userbubbleFg shadow-sm transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-55"
+          >
+            {busy ? <Loader2 className="h-4 w-4 animate-spin" strokeWidth={2} /> : <Check className="h-4 w-4" strokeWidth={2} />}
+            {t(keys.save)}
+          </button>
         </div>
       </section>
     </div>

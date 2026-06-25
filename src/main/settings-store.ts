@@ -5,6 +5,7 @@ import { atomicWriteFile } from '../../kun/src/adapters/file/atomic-write.js'
 import {
   applyKunRuntimePatch,
   kunSettingsEnvelope,
+  DEFAULT_WORKSPACE_ROOT,
   DEFAULT_GUI_UPDATE_CHANNEL,
   DEFAULT_WRITE_WORKSPACE_ROOT,
   defaultClawSettings,
@@ -65,7 +66,7 @@ export function expandHomePath(raw: string | null | undefined): string {
 }
 
 function normalizeWorkspaceRoot(raw: string | null | undefined): string {
-  return expandHomePath(raw) || DEFAULT_WORKSPACE_ROOT
+  return expandHomePath(raw) || DEFAULT_WORKSPACE_ROOT_ABSOLUTE
 }
 
 function normalizeWriteWorkspaceRoot(raw: string | null | undefined): string {
@@ -199,7 +200,7 @@ const defaultSettings = (): AppSettingsV1 => ({
   agents: {
     kun: defaultKunRuntimeSettings()
   },
-  workspaceRoot: DEFAULT_WORKSPACE_ROOT,
+  workspaceRoot: DEFAULT_WORKSPACE_ROOT_ABSOLUTE,
   log: {
     enabled: true,
     retentionDays: 2
@@ -272,6 +273,7 @@ async function writeInvalidSettingsBackup(path: string, raw: string): Promise<st
 function compatibleSettingsPaths(currentPath: string): string[] {
   const currentUserDataDir = dirname(currentPath)
   const currentDirName = basename(currentUserDataDir)
+  const currentFileName = basename(currentPath)
   const parentDir = dirname(currentUserDataDir)
   // 顺序:当前目录里的旧文件名(userData 迁移后的常见形态)优先,
   // 然后才是旧目录里的新旧文件名。

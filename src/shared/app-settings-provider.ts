@@ -1,4 +1,7 @@
 import {
+  DEFAULT_AGNES_BASE_URL,
+  DEFAULT_AGNES_PROVIDER_ID,
+  DEFAULT_AGNES_TEXT_MODEL,
   DEFAULT_DEEPSEEK_BASE_URL,
   DEFAULT_IMAGE_GENERATION_PROTOCOL,
   DEFAULT_MODEL_ENDPOINT_FORMAT,
@@ -21,13 +24,15 @@ import { normalizeDeepseekBaseUrl } from './app-settings-normalizers'
 import { DEFAULT_COMPOSER_MODEL_IDS } from './default-composer-models'
 
 const DEFAULT_MODEL_PROVIDER_NAME = 'DeepSeek'
+const DEFAULT_AGNES_PROVIDER_NAME = 'Agnes AI'
 
 export function defaultModelProviderSettings(): ModelProviderSettingsV1 {
-  const defaultProvider = defaultModelProviderProfile('', DEFAULT_DEEPSEEK_BASE_URL)
+  const defaultProvider = defaultDeepseekProviderProfile('', DEFAULT_DEEPSEEK_BASE_URL)
+  const agnesProvider = defaultAgnesProviderProfile()
   return {
     apiKey: defaultProvider.apiKey,
     baseUrl: defaultProvider.baseUrl,
-    providers: [defaultProvider]
+    providers: [defaultProvider, agnesProvider]
   }
 }
 
@@ -42,10 +47,16 @@ export function normalizeModelProviderSettings(
       : defaults.baseUrl
   const rawProviders = Array.isArray(input?.providers) ? input.providers : []
   const providersById = new Map<string, ModelProviderProfileV1>()
-  const defaultProvider = defaultModelProviderProfile(apiKey, baseUrl)
-  providersById.set(defaultProvider.id, defaultProvider)
+  const defaultProvider = defaultDeepseekProviderProfile(apiKey, baseUrl)
+  for (const builtInProvider of defaults.providers) {
+    providersById.set(
+      builtInProvider.id,
+      builtInProvider.id === DEFAULT_MODEL_PROVIDER_ID ? defaultProvider : builtInProvider
+    )
+  }
   for (const rawProvider of rawProviders) {
-    const provider = normalizeModelProviderProfile(rawProvider)
+    const fallback = providersById.get(normalizeProviderId(rawProvider?.id))
+    const provider = normalizeModelProviderProfile(rawProvider, fallback)
     if (!provider) continue
     providersById.set(provider.id, provider.id === DEFAULT_MODEL_PROVIDER_ID
       ? {
@@ -180,12 +191,26 @@ function defaultModelProviderProfile(apiKey: string, baseUrl: string): ModelProv
   }
 }
 
+function defaultAgnesProviderProfile(): ModelProviderProfileV1 {
+  return {
+    id: DEFAULT_AGNES_PROVIDER_ID,
+    name: DEFAULT_AGNES_PROVIDER_NAME,
+    apiKey: '',
+    baseUrl: normalizeDeepseekBaseUrl(DEFAULT_AGNES_BASE_URL),
+    apiType: 'chat_completions',
+    models: [DEFAULT_AGNES_TEXT_MODEL]
+  }
+}
+
 function normalizeModelProviderProfile(
-  input: ModelProviderProfilePatchV1 | undefined
+  input: ModelProviderProfilePatchV1 | undefined,
+  fallback?: ModelProviderProfileV1
 ): ModelProviderProfileV1 | null {
   const id = normalizeModelProviderId(input?.id)
   if (!id) return null
-  const name = typeof input?.name === 'string' && input.name.trim() ? input.name.trim() : id
+  const name = typeof input?.name === 'string' && input.name.trim()
+    ? input.name.trim()
+    : fallback?.name ?? id
   const baseUrl =
     typeof input?.baseUrl === 'string' && input.baseUrl.trim()
       ? normalizeDeepseekBaseUrl(input.baseUrl)
@@ -195,7 +220,7 @@ function normalizeModelProviderProfile(
   return {
     id,
     name,
-    apiKey: typeof input?.apiKey === 'string' ? input.apiKey.trim() : '',
+    apiKey: typeof input?.apiKey === 'string' ? input.apiKey.trim() : fallback?.apiKey ?? '',
     baseUrl,
     endpointFormat: normalizeModelEndpointFormat(input?.endpointFormat),
     models,

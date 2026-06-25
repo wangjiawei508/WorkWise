@@ -42,6 +42,15 @@ export function upstreamOpenAiChatCompletionsUrl(baseUrl: string): string {
   return `${versioned.replace(/\/+$/, '')}/${path}`
 }
 
+export function upstreamOpenAiImagesGenerationsUrl(baseUrl: string): string {
+  const path = 'images/generations'
+  let versioned = versionedBaseUrl(baseUrl.trim())
+  if (versioned.toLowerCase().endsWith('/beta')) {
+    versioned = `${unversionedBaseUrl(baseUrl.trim())}/v1`
+  }
+  return `${versioned.replace(/\/+$/, '')}/${path}`
+}
+
 export function upstreamDeepSeekFimCompletionsUrl(baseUrl: string): string {
   const path = 'completions'
   const trimmed = baseUrl.trim().replace(/\/+$/, '')

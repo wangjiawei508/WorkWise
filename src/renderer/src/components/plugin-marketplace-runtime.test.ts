@@ -95,7 +95,8 @@ describe('buildMcpMarketplaceOverlay', () => {
     })).toMatchObject({
       status: 'error',
       errorCount: 1,
-      lastError: 'missing token'
+      lastError: 'missing token',
+      lastErrorServerId: 'bad'
     })
 
     expect(buildMcpMarketplaceOverlay({

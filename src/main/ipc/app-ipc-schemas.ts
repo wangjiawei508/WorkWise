@@ -707,6 +707,18 @@ export const writeRichClipboardPayloadSchema = z
   })
   .strict()
 
+export const writeAgnesImageGenerationPayloadSchema = z
+  .object({
+    workspaceRoot: trimmedString(MAX_PATH_LENGTH),
+    currentFilePath: trimmedString(MAX_PATH_LENGTH),
+    prompt: trimmedString(MAX_IMAGE_PROMPT_TEXT),
+    providerId: optionalTrimmedString(64),
+    model: optionalTrimmedString(128),
+    size: z.enum(AGNES_IMAGE_SIZES).optional(),
+    imageDirectory: optionalTrimmedString(MAX_PATH_LENGTH)
+  })
+  .strict()
+
 const writeInlineEditRecentEditSchema = z
   .object({
     source: z.enum(['user', 'inline-edit']),

@@ -224,14 +224,19 @@ function readConfig({ dryRun = false } = {}) {
     'AWS_SECRET_ACCESS_KEY'
   )
   const endpoint = normalizeS3Endpoint(firstEnv('R2_ENDPOINT', 'S3_ENDPOINT'), bucket)
-  const publicBaseUrl = firstEnv('R2_PUBLIC_BASE_URL', 'PUBLIC_DOWNLOAD_BASE_URL')
-  const prefix = trimSlashes(firstEnv('R2_RELEASE_PREFIX') || DEFAULT_RELEASE_PREFIX)
+  const publicBaseUrl = firstEnv(
+    'WORKWISE_PUBLIC_BASE_URL',
+    'WORKWISE_UPDATE_BASE_URL',
+    'R2_PUBLIC_BASE_URL',
+    'PUBLIC_DOWNLOAD_BASE_URL'
+  )
+  const prefix = trimSlashes(firstEnv('WORKWISE_RELEASE_PREFIX', 'R2_RELEASE_PREFIX') || DEFAULT_RELEASE_PREFIX)
 
   if (!publicBaseUrl) {
-    throw new Error('R2_PUBLIC_BASE_URL is required so manifests can contain public download URLs.')
+    throw new Error('WORKWISE_PUBLIC_BASE_URL or R2_PUBLIC_BASE_URL is required so manifests can contain public download URLs.')
   }
   if (!dryRun && /(^|\.)downloads\.example\.com$/i.test(new URL(publicBaseUrl).hostname)) {
-    throw new Error('Replace the placeholder R2_PUBLIC_BASE_URL with your real R2 custom domain.')
+    throw new Error('Replace the placeholder public download URL with your real WorkWise download domain.')
   }
 
   if (!dryRun) {

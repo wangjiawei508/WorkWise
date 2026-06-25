@@ -636,6 +636,85 @@ describe('syncGuiManagedKunConfig', () => {
     })
   })
 
+  it('normalizes legacy recommended MCP configs before importing them into runtime capabilities', async () => {
+    if (!tempRoot) throw new Error('temp root not initialized')
+    const configPath = join(tempRoot, 'config.json')
+    const mcpConfigPath = join(tempRoot, 'mcp.json')
+    writeFileSync(mcpConfigPath, JSON.stringify({
+      servers: {
+        puppeteer: {
+          command: 'puppeteer',
+          args: ['-y', '@modelcontextprotocol/server-puppeteer']
+        },
+        filesystem: {
+          command: 'npx',
+          args: ['-y', '@modelcontextprotocol/server-filesystem', '/path/to/project'],
+          trustScope: 'workspace',
+          trustedWorkspaceRoots: ['/path/to/project']
+        },
+        github: {
+          command: 'npx',
+          args: ['-y', '@modelcontextprotocol/server-github'],
+          env: {
+            GITHUB_PERSONAL_ACCESS_TOKEN: '${GITHUB_PERSONAL_ACCESS_TOKEN}'
+          }
+        },
+        'brave-search': {
+          command: 'npx',
+          args: ['-y', '@modelcontextprotocol/server-brave-search'],
+          env: {
+            BRAVE_API_KEY: '${BRAVE_API_KEY}'
+          }
+        },
+        slack: {
+          command: 'npx',
+          args: ['-y', '@modelcontextprotocol/server-slack'],
+          env: {
+            SLACK_BOT_TOKEN: '${SLACK_BOT_TOKEN}',
+            SLACK_TEAM_ID: '${SLACK_TEAM_ID}'
+          }
+        }
+      }
+    }), 'utf8')
+    const module = await import('./kun-process')
+
+    await module.syncGuiManagedKunConfig(tempRoot, defaultKunRuntimeSettings(), {
+      mcpConfigPath
+    })
+
+    const parsed = JSON.parse(readFileSync(configPath, 'utf8')) as any
+    expect(parsed.capabilities.mcp.servers.puppeteer).toMatchObject({
+      enabled: true,
+      transport: 'stdio',
+      command: 'npx',
+      args: ['-y', '@modelcontextprotocol/server-puppeteer']
+    })
+    expect(parsed.capabilities.mcp.servers.filesystem).toMatchObject({
+      enabled: false,
+      transport: 'stdio',
+      command: 'npx',
+      args: ['-y', '@modelcontextprotocol/server-filesystem', '/path/to/project']
+    })
+    expect(parsed.capabilities.mcp.servers.github).toMatchObject({
+      enabled: false,
+      transport: 'stdio',
+      command: 'npx',
+      args: ['-y', '@modelcontextprotocol/server-github']
+    })
+    expect(parsed.capabilities.mcp.servers['brave-search']).toMatchObject({
+      enabled: false,
+      transport: 'stdio',
+      command: 'npx',
+      args: ['-y', '@modelcontextprotocol/server-brave-search']
+    })
+    expect(parsed.capabilities.mcp.servers.slack).toMatchObject({
+      enabled: false,
+      transport: 'stdio',
+      command: 'npx',
+      args: ['-y', '@modelcontextprotocol/server-slack']
+    })
+  })
+
   it('replaces unparsable historical Kun config with a valid GUI-managed config', async () => {
     if (!tempRoot) throw new Error('temp root not initialized')
     const configPath = join(tempRoot, 'config.json')

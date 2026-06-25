@@ -1,5 +1,6 @@
 import {
   DEFAULT_GUI_UPDATE_CHANNEL,
+  DEFAULT_WORKSPACE_ROOT,
   defaultKunRuntimeSettings,
   applyKunRuntimePatch,
   getKunRuntimeSettings,

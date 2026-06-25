@@ -602,6 +602,28 @@ async function applyBundledSkillOverlay(
   if (existsSync(overlaySkill)) {
     await cp(overlaySkill, join(destination, 'SKILL.md'), { force: true })
   }
+  const overlayRequirements = join(overlayDir, 'requirements.txt')
+  if (existsSync(overlayRequirements)) {
+    await cp(overlayRequirements, join(destination, 'requirements.txt'), { force: true })
+  }
+  for (const overlayPath of ['examples', 'projects']) {
+    const sourcePath = join(overlayDir, overlayPath)
+    if (existsSync(sourcePath)) {
+      await cp(sourcePath, join(destination, overlayPath), { recursive: true, force: true })
+    }
+  }
+  for (const overlayPath of [
+    join('scripts', 'source_to_md', 'doc_to_md.py'),
+    join('scripts', 'docs', 'conversion.md'),
+    join('scripts', 'update_repo.py')
+  ]) {
+    const sourcePath = join(overlayDir, overlayPath)
+    if (existsSync(sourcePath)) {
+      const targetPath = join(destination, overlayPath)
+      await mkdir(dirname(targetPath), { recursive: true })
+      await cp(sourcePath, targetPath, { force: true })
+    }
+  }
 }
 
 function githubContentsUrl(source: GithubSkillSourceMetadata, githubPath: string): string {
