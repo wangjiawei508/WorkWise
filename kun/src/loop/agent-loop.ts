@@ -64,6 +64,7 @@ import {
   type AutoModelRouteSelection
 } from './auto-model-router.js'
 import { ToolStormBreaker, type ToolStormBreakerOptions } from './tool-storm-breaker.js'
+import { WebToolFailureGuard } from './web-tool-failure-guard.js'
 import { healLoadedHistoryItems } from './history-healing.js'
 import { repairDispatchToolArguments } from './tool-call-repair.js'
 import { CREATE_PLAN_TOOL_NAME } from '../adapters/tool/create-plan-tool.js'
@@ -287,6 +288,7 @@ export class AgentLoop {
   private readonly autoModelRoutes = new Map<string, AutoModelRouteSelection>()
   private readonly promptTokenPressure = new Map<string, { model: string; promptTokens: number }>()
   private readonly toolStormBreakers = new Map<string, ToolStormBreaker>()
+  private readonly webToolFailureGuards = new Map<string, WebToolFailureGuard>()
   private readonly toolCatalogSnapshots = new Map<string, ToolCatalogSnapshot>()
 
   constructor(opts: AgentLoopOptions) {
@@ -315,6 +317,7 @@ export class AgentLoop {
       if (this.opts.toolStorm?.enabled !== false) {
         this.toolStormBreakers.set(turnId, new ToolStormBreaker(this.opts.toolStorm))
       }
+      this.webToolFailureGuards.set(turnId, new WebToolFailureGuard())
       await this.recordPipelineStage(threadId, turnId, 'pre_start')
       await this.drainSteering(threadId, turnId, signal)
       await this.recordPipelineStage(threadId, turnId, 'post_start')
@@ -348,6 +351,7 @@ export class AgentLoop {
       await this.finishGoalElapsedTimer(threadId, goalTimer)
       this.autoModelRoutes.delete(autoModelRouteKey(threadId, turnId))
       this.toolStormBreakers.delete(turnId)
+      this.webToolFailureGuards.delete(turnId)
     }
   }
 
@@ -961,6 +965,18 @@ export class AgentLoop {
       const call = input.calls[index]
       if (!call) break
 
+      const webGuard = this.webToolFailureGuards.get(input.turnId)?.inspect(call)
+      if (webGuard?.suppress) {
+        await this.persistSuppressedToolCall({
+          threadId: input.threadId,
+          turnId: input.turnId,
+          call,
+          reason: webGuard.reason
+        })
+        index += 1
+        continue
+      }
+
       const storm = this.toolStormBreakers.get(input.turnId)?.inspect(call)
       if (storm?.suppress) {
         await this.persistSuppressedToolCall({
@@ -1126,7 +1142,19 @@ export class AgentLoop {
       finishedAt: this.opts.nowIso()
     } as Partial<TurnItem>)
     await this.opts.turns.applyItem(threadId, result.item)
+    this.observeWebToolResult(turnId, call, result)
     await this.afterToolResultPersisted(threadId, turnId, call, result)
+  }
+
+  private observeWebToolResult(
+    turnId: string,
+    call: ToolCallLike,
+    result: ToolHostResult
+  ): void {
+    this.webToolFailureGuards.get(turnId)?.observe(
+      call,
+      result.item.kind === 'tool_result' && result.item.isError === true
+    )
   }
 
   private async afterToolResultPersisted(

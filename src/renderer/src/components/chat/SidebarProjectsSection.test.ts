@@ -68,22 +68,22 @@ describe('SidebarProjectsSection groups', () => {
     const groups = buildSidebarWorkspaceGroups({
       threads: [
         thread({ id: 'code-current', workspace: '/Users/zxy/project-a' }),
-        thread({ id: 'default-code', workspace: '/Users/zxy/.workgpt/default_workspace' }),
-        thread({ id: 'write-assistant', workspace: '~/.workgpt/write_workspace' })
+        thread({ id: 'default-code', workspace: '/Users/zxy/.workwise/default_workspace' }),
+        thread({ id: 'write-assistant', workspace: '~/.workwise/write_workspace' })
       ],
       searchQuery: '',
       showArchived: false,
       workspaceRoot: '/Users/zxy/project-a',
       workspaceRoots: [
         '/Users/zxy/project-a',
-        '/Users/zxy/.workgpt/default_workspace',
-        '~/.workgpt/write_workspace'
+        '/Users/zxy/.workwise/default_workspace',
+        '~/.workwise/write_workspace'
       ]
     })
 
     expect(groups.map(([workspace]) => workspace)).toEqual([
       '/Users/zxy/project-a',
-      '/Users/zxy/.workgpt/default_workspace'
+      '/Users/zxy/.workwise/default_workspace'
     ])
     expect(groups[1]?.[1].map((item) => item.id)).toEqual(['default-code'])
   })
@@ -91,21 +91,23 @@ describe('SidebarProjectsSection groups', () => {
   it('merges default workspace aliases into one sidebar group', () => {
     const groups = buildSidebarWorkspaceGroups({
       threads: [
-        thread({ id: 'default-short', workspace: '~/.workgpt/default_workspace' }),
-        thread({ id: 'default-absolute', workspace: 'C:\\Users\\zxy\\.workgpt\\default_workspace' })
+        thread({ id: 'default-short', workspace: '~/.workwise/default_workspace' }),
+        thread({ id: 'default-legacy', workspace: '~/.workgpt/default_workspace' }),
+        thread({ id: 'default-absolute', workspace: 'C:\\Users\\zxy\\.workwise\\default_workspace' })
       ],
       searchQuery: '',
       showArchived: false,
-      workspaceRoot: 'C:\\Users\\zxy\\.workgpt\\default_workspace',
+      workspaceRoot: 'C:\\Users\\zxy\\.workwise\\default_workspace',
       workspaceRoots: [
+        '~/.workwise/default_workspace',
         '~/.workgpt/default_workspace',
-        'C:\\Users\\zxy\\.workgpt\\default_workspace'
+        'C:\\Users\\zxy\\.workwise\\default_workspace'
       ]
     })
 
     expect(groups).toHaveLength(1)
-    expect(groups[0]?.[0]).toBe('C:\\Users\\zxy\\.workgpt\\default_workspace')
-    expect(groups[0]?.[1].map((item) => item.id)).toEqual(['default-short', 'default-absolute'])
+    expect(groups[0]?.[0]).toBe('C:\\Users\\zxy\\.workwise\\default_workspace')
+    expect(groups[0]?.[1].map((item) => item.id)).toEqual(['default-short', 'default-legacy', 'default-absolute'])
   })
 })
 

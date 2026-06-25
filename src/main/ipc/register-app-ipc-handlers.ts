@@ -58,6 +58,7 @@ import {
   workspaceFileTargetPayloadSchema,
   workspaceFileWatchPayloadSchema,
   workspaceFileWritePayloadSchema,
+  writeAgnesImageGenerationPayloadSchema,
   writeExportPayloadSchema,
   writeRichClipboardPayloadSchema,
   writeInlineCompletionPayloadSchema,
@@ -91,6 +92,7 @@ import {
   requestWriteInlineCompletion
 } from '../services/write-inline-completion-service'
 import { copyWriteDocumentAsRichText, exportWriteDocument } from '../services/write-export-service'
+import { generateAgnesImage } from '../services/write-agnes-image-service'
 import {
   installBundledSkill,
   installGithubSkill,
@@ -747,6 +749,12 @@ export function registerAppIpcHandlers(options: RegisterAppIpcHandlersOptions): 
   ipcMain.handle('write:copy-rich-text', async (_, payload: unknown) =>
     copyWriteDocumentAsRichText(
       parseIpcPayload('write:copy-rich-text', writeRichClipboardPayloadSchema, payload)
+    )
+  )
+  ipcMain.handle('write:agnes-image-generate', async (_, payload: unknown) =>
+    generateAgnesImage(
+      await store.load(),
+      parseIpcPayload('write:agnes-image-generate', writeAgnesImageGenerationPayloadSchema, payload)
     )
   )
   ipcMain.handle('write:inline-completion', async (_, payload: unknown) =>

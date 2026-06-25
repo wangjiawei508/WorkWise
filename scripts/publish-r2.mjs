@@ -14,7 +14,7 @@ import { basename, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const PRODUCT_NAME = 'WorkWise'
-const DEFAULT_RELEASE_PREFIX = 'workgpt'
+const DEFAULT_RELEASE_PREFIX = 'workwise'
 const DEFAULT_RELEASE_CHANNEL = 'frontier'
 const PLATFORMS = ['mac', 'win']
 const RELEASE_CHANNELS = ['frontier', 'stable']
@@ -41,14 +41,14 @@ If --platforms is omitted, promote uses the platform manifests already uploaded 
 If --channel is omitted, the default channel is frontier.
 
 Environment:
-  WORKGPT_RELEASE_ENV=scripts/release.local.env
+  WORKWISE_RELEASE_ENV=scripts/release.local.env
   RELEASE_CHANNEL=frontier|stable
   R2_BUCKET or S3_BUCKET
   R2_ENDPOINT or S3_ENDPOINT
   R2_ACCESS_KEY_ID or S3_ACCESS_KEY_ID
   R2_SECRET_ACCESS_KEY or S3_SECRET_ACCESS_KEY
-  R2_PUBLIC_BASE_URL
-  R2_RELEASE_PREFIX=workgpt
+  WORKWISE_PUBLIC_BASE_URL or R2_PUBLIC_BASE_URL
+  WORKWISE_RELEASE_PREFIX=workwise
 `)
 }
 
@@ -72,7 +72,7 @@ function parseEnvFile(content) {
 }
 
 function loadLocalEnv() {
-  const configured = process.env.WORKGPT_RELEASE_ENV?.trim()
+  const configured = (process.env.WORKWISE_RELEASE_ENV || process.env.WORKGPT_RELEASE_ENV)?.trim()
   const candidates = [
     configured,
     join(ROOT, 'scripts', 'release.local.env'),
@@ -148,6 +148,7 @@ function readChannel(flags) {
   return normalizeChannel(
     flags.get('channel') ||
       process.env.RELEASE_CHANNEL ||
+      process.env.WORKWISE_UPDATE_CHANNEL ||
       process.env.WORKGPT_UPDATE_CHANNEL ||
       DEFAULT_RELEASE_CHANNEL
   )
@@ -219,14 +220,19 @@ function readConfig({ dryRun = false } = {}) {
     'AWS_SECRET_ACCESS_KEY'
   )
   const endpoint = normalizeS3Endpoint(firstEnv('R2_ENDPOINT', 'S3_ENDPOINT'), bucket)
-  const publicBaseUrl = firstEnv('R2_PUBLIC_BASE_URL', 'PUBLIC_DOWNLOAD_BASE_URL')
-  const prefix = trimSlashes(firstEnv('R2_RELEASE_PREFIX') || DEFAULT_RELEASE_PREFIX)
+  const publicBaseUrl = firstEnv(
+    'WORKWISE_PUBLIC_BASE_URL',
+    'WORKWISE_UPDATE_BASE_URL',
+    'R2_PUBLIC_BASE_URL',
+    'PUBLIC_DOWNLOAD_BASE_URL'
+  )
+  const prefix = trimSlashes(firstEnv('WORKWISE_RELEASE_PREFIX', 'R2_RELEASE_PREFIX') || DEFAULT_RELEASE_PREFIX)
 
   if (!publicBaseUrl) {
-    throw new Error('R2_PUBLIC_BASE_URL is required so manifests can contain public download URLs.')
+    throw new Error('WORKWISE_PUBLIC_BASE_URL or R2_PUBLIC_BASE_URL is required so manifests can contain public download URLs.')
   }
   if (!dryRun && /(^|\.)downloads\.example\.com$/i.test(new URL(publicBaseUrl).hostname)) {
-    throw new Error('Replace the placeholder R2_PUBLIC_BASE_URL with your real R2 custom domain.')
+    throw new Error('Replace the placeholder public download URL with your real WorkWise download domain.')
   }
 
   if (!dryRun) {

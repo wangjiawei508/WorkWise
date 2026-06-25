@@ -109,7 +109,7 @@ describe('Web tool provider', () => {
     }
   })
 
-  it('rejects fetch responses when content-length exceeds max_bytes', async () => {
+  it('truncates fetch responses when content-length exceeds max_bytes', async () => {
     vi.stubGlobal('fetch', async () => new Response('abcdefghijklmnopqrstuvwxyz', {
       headers: {
         'content-length': '26',
@@ -133,16 +133,16 @@ describe('Web tool provider', () => {
       arguments: { url: 'https://docs.example.test/large', max_bytes: 10 }
     }, buildContext())
 
-    expect(result.item).toMatchObject({ kind: 'tool_result', isError: true })
+    expect(result.item).toMatchObject({ kind: 'tool_result', isError: false })
     if (result.item.kind === 'tool_result') {
       expect(result.item.output).toMatchObject({
-        error: {
-          code: 'fetch_failed',
-          message: expect.stringContaining('content exceeds')
-        },
+        text: 'abcdefghij',
+        byteCount: 10,
+        truncated: true,
         telemetry: {
           policy: 'allowed',
-          provider: 'fetch'
+          provider: 'fetch',
+          byteCount: 10
         }
       })
     }

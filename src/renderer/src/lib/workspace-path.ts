@@ -7,10 +7,12 @@ export function workspaceRootIdentityKey(path?: string): string {
   if (!trimmed) return ''
   const normalized = normalizePathForMatch(trimmed)
   if (
-    normalized === '~/.workgpt/default_workspace'
+    normalized === '~/.workwise/default_workspace'
+    || normalized.endsWith('/.workwise/default_workspace')
+    || normalized === '~/.workgpt/default_workspace'
     || normalized.endsWith('/.workgpt/default_workspace')
   ) {
-    return '~/.workgpt/default_workspace'
+    return '~/.workwise/default_workspace'
   }
   return normalized
 }
@@ -35,7 +37,7 @@ export function isClawWorkspacePath(path?: string): boolean {
   const trimmed = path?.trim() ?? ''
   if (!trimmed) return false
   const normalized = normalizePathForMatch(trimmed)
-  return normalized.includes('/.workgpt/claw/')
+  return normalized.includes('/.workwise/claw/') || normalized.includes('/.workgpt/claw/')
 }
 
 export function isInternalDeepSeekGuiWorkspace(path?: string): boolean {
@@ -43,7 +45,9 @@ export function isInternalDeepSeekGuiWorkspace(path?: string): boolean {
   if (!trimmed) return false
   const normalized = normalizePathForMatch(trimmed)
   return (
-    normalized === '~/.workgpt/write_workspace'
+    normalized === '~/.workwise/write_workspace'
+    || normalized.endsWith('/.workwise/write_workspace')
+    || normalized === '~/.workgpt/write_workspace'
     || normalized.endsWith('/.workgpt/write_workspace')
   )
 }

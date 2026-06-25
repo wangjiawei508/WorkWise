@@ -5,6 +5,7 @@ import { atomicWriteFile } from '../../kun/src/adapters/file/atomic-write.js'
 import {
   applyKunRuntimePatch,
   kunSettingsEnvelope,
+  DEFAULT_WORKSPACE_ROOT,
   DEFAULT_GUI_UPDATE_CHANNEL,
   DEFAULT_WRITE_WORKSPACE_ROOT,
   defaultClawSettings,
@@ -30,10 +31,11 @@ import {
 
 export type { AppSettingsV1 }
 
-const DEFAULT_WORKSPACE_ROOT = join(homedir(), '.workgpt', 'default_workspace')
-const DEFAULT_CLAW_CHANNELS_ROOT = join(homedir(), '.workgpt', 'claw')
+const DEFAULT_WORKSPACE_ROOT_ABSOLUTE = expandHomePath(DEFAULT_WORKSPACE_ROOT)
+const DEFAULT_CLAW_CHANNELS_ROOT = join(homedir(), '.workwise', 'claw')
 const DEFAULT_WRITE_WORKSPACE_ROOT_ABSOLUTE = expandHomePath(DEFAULT_WRITE_WORKSPACE_ROOT)
-const SETTINGS_FILE_NAME = 'workgpt-settings.json'
+const SETTINGS_FILE_NAME = 'workwise-settings.json'
+const COMPATIBLE_SETTINGS_FILE_NAMES = ['workgpt-settings.json'] as const
 const COMPATIBLE_USER_DATA_DIR_NAMES = ['workgpt', 'WORKGPT'] as const
 const WELCOME_MARKDOWN = `# Welcome to Write
 
@@ -55,7 +57,7 @@ export function expandHomePath(raw: string | null | undefined): string {
 }
 
 function normalizeWorkspaceRoot(raw: string | null | undefined): string {
-  return expandHomePath(raw) || DEFAULT_WORKSPACE_ROOT
+  return expandHomePath(raw) || DEFAULT_WORKSPACE_ROOT_ABSOLUTE
 }
 
 function normalizeWriteWorkspaceRoot(raw: string | null | undefined): string {
@@ -189,7 +191,7 @@ const defaultSettings = (): AppSettingsV1 => ({
   agents: {
     kun: defaultKunRuntimeSettings()
   },
-  workspaceRoot: DEFAULT_WORKSPACE_ROOT,
+  workspaceRoot: DEFAULT_WORKSPACE_ROOT_ABSOLUTE,
   log: {
     enabled: true,
     retentionDays: 2
@@ -262,10 +264,26 @@ async function writeInvalidSettingsBackup(path: string, raw: string): Promise<st
 function compatibleSettingsPaths(currentPath: string): string[] {
   const currentUserDataDir = dirname(currentPath)
   const currentDirName = basename(currentUserDataDir)
+  const currentFileName = basename(currentPath)
   const parentDir = dirname(currentUserDataDir)
-  return COMPATIBLE_USER_DATA_DIR_NAMES
-    .filter((dirName) => dirName !== currentDirName)
-    .map((dirName) => join(parentDir, dirName, SETTINGS_FILE_NAME))
+  const dirs = [
+    currentUserDataDir,
+    ...COMPATIBLE_USER_DATA_DIR_NAMES
+      .filter((dirName) => dirName !== currentDirName)
+      .map((dirName) => join(parentDir, dirName))
+  ]
+  const fileNames = [
+    currentFileName,
+    ...COMPATIBLE_SETTINGS_FILE_NAMES.filter((fileName) => fileName !== currentFileName)
+  ]
+  const paths = new Set<string>()
+  for (const dir of dirs) {
+    for (const fileName of fileNames) {
+      const candidate = join(dir, fileName)
+      if (candidate !== currentPath) paths.add(candidate)
+    }
+  }
+  return [...paths]
 }
 
 async function readSettingsFileWithCompatibility(
@@ -331,11 +349,11 @@ export class JsonSettingsStore {
         await this.save(defaults)
         if (backupPath) {
           console.warn(
-            `[workgpt] Invalid settings JSON was replaced with defaults. Backup: ${backupPath}`
+            `[workwise] Invalid settings JSON was replaced with defaults. Backup: ${backupPath}`
           )
         } else {
           console.warn(
-            `[workgpt] Invalid settings JSON was replaced with defaults. Backup could not be written for ${sourcePath}.`
+            `[workwise] Invalid settings JSON was replaced with defaults. Backup could not be written for ${sourcePath}.`
           )
         }
         return defaults

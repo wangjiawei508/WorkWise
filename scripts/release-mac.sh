@@ -82,10 +82,10 @@ build_mac_arch() {
 
   mkdir -p "${output_dir}" "$(dirname "${log_file}")"
   cyan "  ${arch}: building dmg + zip -> ${output_dir}"
-  WORKGPT_DIST_DIR="${output_dir}" \
+  WORKWISE_DIST_DIR="${output_dir}" WORKGPT_DIST_DIR="${output_dir}" \
     npx --yes electron-builder@26.8.1 --config electron-builder.cjs --publish never --mac dmg "--${arch}" \
     >"${log_file}" 2>&1
-  WORKGPT_DIST_DIR="${output_dir}" \
+  WORKWISE_DIST_DIR="${output_dir}" WORKGPT_DIST_DIR="${output_dir}" \
     node "${ROOT}/scripts/zip-mac-app.cjs" "${arch}" \
     >>"${log_file}" 2>&1
 }

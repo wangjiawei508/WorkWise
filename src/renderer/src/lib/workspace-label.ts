@@ -1,6 +1,9 @@
 import i18n from '../i18n'
 
-const DEFAULT_WORKSPACE_PATH_SUFFIX = '/.workgpt/default_workspace'
+const DEFAULT_WORKSPACE_PATH_SUFFIXES = [
+  '/.workwise/default_workspace',
+  '/.workgpt/default_workspace'
+]
 const DEFAULT_WORKSPACE_LABEL = 'default'
 
 function normalizePathForMatch(path: string): string {
@@ -10,8 +13,9 @@ function normalizePathForMatch(path: string): string {
 function isDefaultWorkspacePath(path: string): boolean {
   const normalized = normalizePathForMatch(path)
   return (
-    normalized === '~/.workgpt/default_workspace'
-    || normalized.endsWith(DEFAULT_WORKSPACE_PATH_SUFFIX)
+    normalized === '~/.workwise/default_workspace'
+    || normalized === '~/.workgpt/default_workspace'
+    || DEFAULT_WORKSPACE_PATH_SUFFIXES.some((suffix) => normalized.endsWith(suffix))
   )
 }
 

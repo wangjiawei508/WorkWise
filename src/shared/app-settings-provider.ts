@@ -1,4 +1,7 @@
 import {
+  DEFAULT_AGNES_BASE_URL,
+  DEFAULT_AGNES_PROVIDER_ID,
+  DEFAULT_AGNES_TEXT_MODEL,
   DEFAULT_DEEPSEEK_BASE_URL,
   DEFAULT_KUN_MODEL,
   DEFAULT_MODEL_PROVIDER_ID,
@@ -16,13 +19,15 @@ import { normalizeDeepseekBaseUrl } from './app-settings-normalizers'
 import { DEFAULT_COMPOSER_MODEL_IDS } from './default-composer-models'
 
 const DEFAULT_MODEL_PROVIDER_NAME = 'DeepSeek'
+const DEFAULT_AGNES_PROVIDER_NAME = 'Agnes AI'
 
 export function defaultModelProviderSettings(): ModelProviderSettingsV1 {
-  const defaultProvider = defaultModelProviderProfile('', DEFAULT_DEEPSEEK_BASE_URL)
+  const defaultProvider = defaultDeepseekProviderProfile('', DEFAULT_DEEPSEEK_BASE_URL)
+  const agnesProvider = defaultAgnesProviderProfile()
   return {
     apiKey: defaultProvider.apiKey,
     baseUrl: defaultProvider.baseUrl,
-    providers: [defaultProvider]
+    providers: [defaultProvider, agnesProvider]
   }
 }
 
@@ -37,10 +42,16 @@ export function normalizeModelProviderSettings(
       : defaults.baseUrl
   const rawProviders = Array.isArray(input?.providers) ? input.providers : []
   const providersById = new Map<string, ModelProviderProfileV1>()
-  const defaultProvider = defaultModelProviderProfile(apiKey, baseUrl)
-  providersById.set(defaultProvider.id, defaultProvider)
+  const defaultProvider = defaultDeepseekProviderProfile(apiKey, baseUrl)
+  for (const builtInProvider of defaults.providers) {
+    providersById.set(
+      builtInProvider.id,
+      builtInProvider.id === DEFAULT_MODEL_PROVIDER_ID ? defaultProvider : builtInProvider
+    )
+  }
   for (const rawProvider of rawProviders) {
-    const provider = normalizeModelProviderProfile(rawProvider)
+    const fallback = providersById.get(normalizeProviderId(rawProvider?.id))
+    const provider = normalizeModelProviderProfile(rawProvider, fallback)
     if (!provider) continue
     providersById.set(provider.id, provider.id === DEFAULT_MODEL_PROVIDER_ID
       ? {
@@ -97,7 +108,7 @@ export function getModelProviderProfile(
 ): ModelProviderProfileV1 {
   const provider = getModelProviderSettings(settings)
   const id = normalizeProviderId(providerId || DEFAULT_MODEL_PROVIDER_ID)
-  return provider.providers.find((profile) => profile.id === id) ?? provider.providers[0] ?? defaultModelProviderProfile(provider.apiKey, provider.baseUrl)
+  return provider.providers.find((profile) => profile.id === id) ?? provider.providers[0] ?? defaultDeepseekProviderProfile(provider.apiKey, provider.baseUrl)
 }
 
 export function listModelProviderModelIds(settings: AppSettingsV1): string[] {
@@ -200,7 +211,7 @@ function resolveKunRuntimeModel(
   return { model: configured, inheritedFromProvider: false }
 }
 
-function defaultModelProviderProfile(apiKey: string, baseUrl: string): ModelProviderProfileV1 {
+function defaultDeepseekProviderProfile(apiKey: string, baseUrl: string): ModelProviderProfileV1 {
   return {
     id: DEFAULT_MODEL_PROVIDER_ID,
     name: DEFAULT_MODEL_PROVIDER_NAME,
@@ -211,29 +222,43 @@ function defaultModelProviderProfile(apiKey: string, baseUrl: string): ModelProv
   }
 }
 
+function defaultAgnesProviderProfile(): ModelProviderProfileV1 {
+  return {
+    id: DEFAULT_AGNES_PROVIDER_ID,
+    name: DEFAULT_AGNES_PROVIDER_NAME,
+    apiKey: '',
+    baseUrl: normalizeDeepseekBaseUrl(DEFAULT_AGNES_BASE_URL),
+    apiType: 'chat_completions',
+    models: [DEFAULT_AGNES_TEXT_MODEL]
+  }
+}
+
 function normalizeModelProviderProfile(
-  input: ModelProviderProfilePatchV1 | undefined
+  input: ModelProviderProfilePatchV1 | undefined,
+  fallback?: ModelProviderProfileV1
 ): ModelProviderProfileV1 | null {
   const id = normalizeProviderId(input?.id)
   if (!id) return null
-  const name = typeof input?.name === 'string' && input.name.trim() ? input.name.trim() : id
+  const name = typeof input?.name === 'string' && input.name.trim()
+    ? input.name.trim()
+    : fallback?.name ?? id
   const baseUrl =
     typeof input?.baseUrl === 'string' && input.baseUrl.trim()
       ? normalizeDeepseekBaseUrl(input.baseUrl)
-      : DEFAULT_DEEPSEEK_BASE_URL
-  const models = normalizeProviderModels(input?.models)
+      : fallback?.baseUrl ?? DEFAULT_DEEPSEEK_BASE_URL
+  const models = normalizeProviderModels(input?.models, fallback?.models)
   return {
     id,
     name,
-    apiKey: typeof input?.apiKey === 'string' ? input.apiKey.trim() : '',
+    apiKey: typeof input?.apiKey === 'string' ? input.apiKey.trim() : fallback?.apiKey ?? '',
     baseUrl,
-    apiType: normalizeModelProviderApiType(input?.apiType),
+    apiType: normalizeModelProviderApiType(input?.apiType, fallback?.apiType),
     models
   }
 }
 
-function normalizeProviderModels(models: unknown): string[] {
-  if (!Array.isArray(models)) return []
+function normalizeProviderModels(models: unknown, fallback: readonly string[] = []): string[] {
+  if (!Array.isArray(models)) return [...fallback]
   const ids = new Set<string>()
   for (const model of models) {
     if (typeof model !== 'string') continue
@@ -243,8 +268,12 @@ function normalizeProviderModels(models: unknown): string[] {
   return [...ids].sort((a, b) => a.localeCompare(b))
 }
 
-function normalizeModelProviderApiType(value: unknown): ModelProviderApiType {
-  return value === 'responses' ? 'responses' : 'chat_completions'
+function normalizeModelProviderApiType(
+  value: unknown,
+  fallback: ModelProviderApiType = 'chat_completions'
+): ModelProviderApiType {
+  if (value === 'responses' || value === 'chat_completions') return value
+  return fallback
 }
 
 function normalizeKunRuntimeApiType(value: unknown): KunRuntimeApiType {

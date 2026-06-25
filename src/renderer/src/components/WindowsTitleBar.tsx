@@ -15,7 +15,7 @@ type MenuAction = () => void | Promise<void>
 type TitleBarTranslate = (key: string, options?: Record<string, unknown>) => string
 
 const WORKGPT_GITHUB_URL = 'https://github.com/wangjiawei508/WorkWise'
-const WORKGPT_RELEASES_URL = 'https://github.com/wangjiawei508/WorkWise/releases'
+const WORKWISE_PRODUCT_URL = 'https://www.railwise.cn/products/workwise/'
 
 export type WindowsTitleBarMenuItem =
   | {
@@ -212,7 +212,7 @@ export function WindowsTitleBar({ platform, actions }: Props): ReactElement | nu
     openSettings: () => openSettings('general'),
     openHelp: () => openSettings('help'),
     openGithubHome: () => defaultOpenExternal(WORKGPT_GITHUB_URL),
-    openReleases: () => defaultOpenExternal(WORKGPT_RELEASES_URL),
+    openReleases: () => defaultOpenExternal(WORKWISE_PRODUCT_URL),
     runDesktopCommand: defaultRunDesktopCommand,
     openLogDir: defaultOpenLogDir,
     showAbout: async () => {

@@ -22,9 +22,11 @@ import {
   buildWriteInlineEditCompletionRequest,
   buildWriteInlineEditDraft
 } from '../../write/inline-edit'
+import type { AgnesImageSize } from '@shared/agnes-image'
 import { createWriteRecentEdit } from '../../write/recent-edits'
 import { startWriteWorkspaceFileWatch } from '../../write/write-file-watch'
 import { useWriteSplitScrollSync } from './use-write-split-scroll-sync'
+import { WriteAgnesImageDialog } from './WriteAgnesImageDialog'
 import { WriteWorkspaceEmptyState } from './WriteWorkspaceEmptyState'
 import { WriteWorkspaceToolbar } from './WriteWorkspaceToolbar'
 import { WriteInlineAgent } from './WriteInlineAgent'
@@ -107,6 +109,8 @@ export function WriteWorkspaceView({
   const [exportMenuOpen, setExportMenuOpen] = useState(false)
   const [exportingFormat, setExportingFormat] = useState<WriteExportFormat | typeof WRITE_RICH_CLIPBOARD_ACTION | null>(null)
   const [exportNotice, setExportNotice] = useState<WriteNotice | null>(null)
+  const [agnesImageDialogOpen, setAgnesImageDialogOpen] = useState(false)
+  const [agnesImageGenerating, setAgnesImageGenerating] = useState(false)
   const workspaceReady = workspaceRoot.trim().length > 0
   const activeFileIsImage = activeFileKind === 'image'
   const activeFileIsText = activeFileKind === 'text'
@@ -366,6 +370,74 @@ export function WriteWorkspaceView({
     }
   }
 
+  const appendGeneratedImageMarkdown = (markdownPath: string): void => {
+    const latest = useWriteWorkspaceStore.getState()
+    const imageMarkdown = `![${t('writeAgnesImageAlt')}](${markdownPath})`
+    const content = latest.fileContent
+    const separator = content.trim().length === 0
+      ? ''
+      : content.endsWith('\n') ? '\n' : '\n\n'
+    latest.setFileContent(`${content}${separator}${imageMarkdown}\n`)
+  }
+
+  const generateAgnesImage = async (payload: {
+    prompt: string
+    model: string
+    size: AgnesImageSize
+  }): Promise<void> => {
+    if (!workspaceReady || !activeFilePath || !activeFileIsText) {
+      setFileError(t('writeAgnesImageNeedsFile'))
+      return
+    }
+    if (renderSafety.readOnly) {
+      setFileError(t('writeReadOnlySaveDisabled'))
+      return
+    }
+    if (typeof window.workgpt?.generateAgnesImage !== 'function') {
+      showExportNotice({ tone: 'error', message: t('writeAgnesImageUnavailable') })
+      return
+    }
+
+    setAgnesImageGenerating(true)
+    try {
+      const result = await window.workgpt.generateAgnesImage({
+        workspaceRoot,
+        currentFilePath: activeFilePath,
+        prompt: payload.prompt,
+        model: payload.model,
+        size: payload.size
+      })
+      if (!result.ok) {
+        showExportNotice({
+          tone: 'error',
+          message: t('writeAgnesImageFailed', { message: result.message })
+        })
+        return
+      }
+      const latest = useWriteWorkspaceStore.getState()
+      if (latest.activeFilePath !== activeFilePath || latest.activeFileKind !== 'text') {
+        showExportNotice({ tone: 'success', message: t('writeAgnesImageSaved') })
+        void refreshWorkspace(workspaceRoot)
+        setAgnesImageDialogOpen(false)
+        return
+      }
+      appendGeneratedImageMarkdown(result.markdownPath)
+      setFileError(null)
+      showExportNotice({ tone: 'success', message: t('writeAgnesImageInserted') })
+      void refreshWorkspace(workspaceRoot)
+      setAgnesImageDialogOpen(false)
+    } catch (error) {
+      showExportNotice({
+        tone: 'error',
+        message: t('writeAgnesImageFailed', {
+          message: error instanceof Error ? error.message : String(error)
+        })
+      })
+    } finally {
+      setAgnesImageGenerating(false)
+    }
+  }
+
   useEffect(() => {
     void loadWriteSettings()
   }, [loadWriteSettings])
@@ -568,6 +640,7 @@ export function WriteWorkspaceView({
         setPreviewMode={setPreviewMode}
         onCopyRichText={() => void copyCurrentFileAsRichText()}
         onExportFile={(format) => void exportCurrentFile(format)}
+        onGenerateImage={() => setAgnesImageDialogOpen(true)}
         onPickWorkspace={() => void pickWriteWorkspace()}
         onSave={() => {
           if (saveTimerRef.current) window.clearTimeout(saveTimerRef.current)
@@ -639,6 +712,14 @@ export function WriteWorkspaceView({
           onApplyEdit={(value) => void submitInlineEdit(value)}
         />
       ) : null}
+
+      <WriteAgnesImageDialog
+        open={agnesImageDialogOpen}
+        disabled={!activeFilePath || !activeFileIsText || renderSafety.readOnly}
+        generating={agnesImageGenerating}
+        onClose={() => setAgnesImageDialogOpen(false)}
+        onGenerate={(payload) => void generateAgnesImage(payload)}
+      />
 
       {fileError ? (
         <div className="pointer-events-none fixed bottom-5 left-1/2 z-40 -translate-x-1/2 rounded-full border border-red-200/70 bg-red-50/92 px-4 py-2 text-[13px] text-red-700 shadow-[0_14px_32px_rgba(15,23,42,0.12)] dark:border-red-900/60 dark:bg-red-950/84 dark:text-red-200">

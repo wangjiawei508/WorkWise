@@ -401,6 +401,63 @@ describe('MCP tool provider', () => {
     })
   })
 
+  it('marks MCP diagnostics as auth-required when a connected Brave server reports an invalid token', async () => {
+    const config = KunCapabilitiesConfig.parse({
+      mcp: {
+        enabled: true,
+        servers: {
+          'brave-search': {
+            transport: 'stdio',
+            command: 'node',
+            trustScope: 'user'
+          }
+        }
+      }
+    })
+    const built = await buildMcpToolProviders(config.mcp, {
+      clientFactory: async () => ({
+        async listTools() {
+          return {
+            tools: [
+              {
+                name: 'brave_web_search',
+                inputSchema: { type: 'object' },
+                annotations: { readOnlyHint: true }
+              }
+            ]
+          }
+        },
+        async callTool() {
+          return {
+            isError: true,
+            content: [{
+              type: 'text',
+              text: 'SUBSCRIPTION_TOKEN_INVALID: The provided subscription token is invalid'
+            }]
+          }
+        },
+        async close() {
+          // no-op
+        }
+      })
+    })
+    const host = new LocalToolHost({ registry: new CapabilityRegistry(built.providers) })
+
+    await host.execute({
+      callId: 'call_1',
+      toolName: 'mcp_brave_search_brave_web_search',
+      arguments: { query: 'workwise' }
+    }, buildContext('/tmp/project'))
+
+    expect(built.diagnostics[0]).toMatchObject({
+      id: 'brave-search',
+      status: 'error',
+      available: false,
+      authRequired: true,
+      lastError: expect.stringContaining('SUBSCRIPTION_TOKEN_INVALID')
+    })
+  })
+
   it('reports catalog drift after refreshing MCP search records', async () => {
     let expanded = false
     const config = KunCapabilitiesConfig.parse({

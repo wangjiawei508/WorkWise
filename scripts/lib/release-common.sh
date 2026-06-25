@@ -22,6 +22,7 @@ release_normalize_channel() {
 release_export_update_channel() {
   RELEASE_CHANNEL="$(release_normalize_channel "${RELEASE_CHANNEL:-frontier}")"
   export RELEASE_CHANNEL
+  export WORKWISE_UPDATE_CHANNEL="${RELEASE_CHANNEL}"
   export WORKGPT_UPDATE_CHANNEL="${RELEASE_CHANNEL}"
   cyan "  Channel: ${RELEASE_CHANNEL}"
 }
@@ -42,7 +43,7 @@ release_root() {
 }
 
 release_load_local_env() {
-  local env_file="${WORKGPT_RELEASE_ENV:-}"
+  local env_file="${WORKWISE_RELEASE_ENV:-${WORKGPT_RELEASE_ENV:-}}"
 
   if [[ -z "${env_file}" ]]; then
     if [[ -f "${ROOT}/scripts/release.local.env" ]]; then
@@ -119,8 +120,9 @@ release_compute_version() {
 
 release_export_app_version() {
   release_validate_semver "${RELEASE_VERSION}" || die "Invalid release version for electron-updater: ${RELEASE_VERSION}"
+  export WORKWISE_APP_VERSION="${RELEASE_VERSION}"
   export WORKGPT_APP_VERSION="${RELEASE_VERSION}"
-  cyan "  App:     ${WORKGPT_APP_VERSION}"
+  cyan "  App:     ${WORKWISE_APP_VERSION}"
 }
 
 release_ensure_tag_available() {

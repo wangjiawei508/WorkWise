@@ -3,6 +3,7 @@ const { join } = require('node:path')
 
 function loadLocalReleaseEnv() {
   const candidates = [
+    process.env.WORKWISE_RELEASE_ENV,
     process.env.WORKGPT_RELEASE_ENV,
     join(__dirname, 'scripts', 'release.local.env'),
     join(__dirname, 'release.local.env')
@@ -43,39 +44,58 @@ const hasNotaryToolCredentials = Boolean(
     (process.env.APPLE_API_KEY || process.env.APPLE_API_KEY_BASE64)
 )
 
-const r2PublicBaseUrl = (process.env.R2_PUBLIC_BASE_URL || 'https://downloads.example.com/workgpt')
+function firstEnv(...names) {
+  for (const name of names) {
+    const value = process.env[name]?.trim()
+    if (value) return value
+  }
+  return ''
+}
+
+const officialReleasePrefix = 'workwise'
+
+const configuredPublicBaseUrl = firstEnv(
+  'WORKWISE_UPDATE_BASE_URL',
+  'WORKWISE_PUBLIC_BASE_URL',
+  'R2_PUBLIC_BASE_URL',
+  'PUBLIC_DOWNLOAD_BASE_URL'
+)
+const r2PublicBaseUrl = configuredPublicBaseUrl
   .trim()
   .replace(/\/+$/, '')
-const r2ReleasePrefix = (process.env.R2_RELEASE_PREFIX || 'workgpt')
+const r2ReleasePrefix = (firstEnv('WORKWISE_RELEASE_PREFIX', 'R2_RELEASE_PREFIX') || officialReleasePrefix)
   .trim()
   .replace(/^\/+|\/+$/g, '')
-const updateChannel = normalizeUpdateChannel(process.env.WORKGPT_UPDATE_CHANNEL || 'stable')
-const hasGenericUpdateFeed = Boolean(
-  process.env.WORKGPT_UPDATE_URL ||
-    process.env[`WORKGPT_UPDATE_URL_${updateChannel.toUpperCase()}`] ||
-    process.env.R2_PUBLIC_BASE_URL ||
-    process.env.R2_RELEASE_PREFIX
+const updateChannel = normalizeUpdateChannel(
+  firstEnv('WORKWISE_UPDATE_CHANNEL', 'WORKGPT_UPDATE_CHANNEL') || 'stable'
 )
 const explicitUpdateUrl = (
-  process.env[`WORKGPT_UPDATE_URL_${updateChannel.toUpperCase()}`] ||
-  process.env.WORKGPT_UPDATE_URL ||
+  firstEnv(
+    `WORKWISE_UPDATE_URL_${updateChannel.toUpperCase()}`,
+    `WORKGPT_UPDATE_URL_${updateChannel.toUpperCase()}`,
+    'WORKWISE_UPDATE_URL',
+    'WORKGPT_UPDATE_URL'
+  ) ||
   ''
 ).trim()
+const hasGenericUpdateFeed = Boolean(explicitUpdateUrl || r2PublicBaseUrl)
 const genericUpdateUrl = explicitUpdateUrl
   ? explicitUpdateUrl.replace(/\{channel\}/g, updateChannel).replace(/\/?$/, '/')
-  : `${r2PublicBaseUrl}/${r2ReleasePrefix}/channels/${updateChannel}/latest/`
-const releaseAppVersion = (process.env.WORKGPT_APP_VERSION || '').trim()
+  : hasGenericUpdateFeed
+    ? `${r2PublicBaseUrl}/${r2ReleasePrefix}/channels/${updateChannel}/latest/`
+    : ''
+const releaseAppVersion = (firstEnv('WORKWISE_APP_VERSION', 'WORKGPT_APP_VERSION') || '').trim()
 const artifactVersion = releaseAppVersion || '${version}'
 
 function normalizeUpdateChannel(raw) {
   const value = String(raw || '').trim()
   if (value === 'stable' || value === 'frontier') return value
-  throw new Error(`WORKGPT_UPDATE_CHANNEL must be "stable" or "frontier", got: ${raw}`)
+  throw new Error(`WORKWISE_UPDATE_CHANNEL must be "stable" or "frontier", got: ${raw}`)
 }
 
 if (releaseAppVersion && !/^\d+\.\d+\.\d+$/.test(releaseAppVersion)) {
   throw new Error(
-    `WORKGPT_APP_VERSION must be a valid x.y.z semver for electron-updater, got: ${releaseAppVersion}`
+    `WORKWISE_APP_VERSION must be a valid x.y.z semver for electron-updater, got: ${releaseAppVersion}`
   )
 }
 
@@ -94,7 +114,7 @@ module.exports = {
   ],
   npmRebuild: true,
   directories: {
-    output: process.env.WORKGPT_DIST_DIR || 'dist'
+    output: process.env.WORKWISE_DIST_DIR || process.env.WORKGPT_DIST_DIR || 'dist'
   },
   files: [
     'out/**/*',
@@ -127,13 +147,7 @@ module.exports = {
           url: genericUpdateUrl
         }
       ]
-    : [
-        {
-          provider: 'github',
-          owner: 'wangjiawei508',
-          repo: 'WorkWise'
-        }
-      ],
+    : null,
   afterPack: './scripts/after-pack.cjs',
   afterSign: './scripts/mac-notarize.cjs',
   mac: {

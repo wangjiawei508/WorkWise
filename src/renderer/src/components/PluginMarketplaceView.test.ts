@@ -4,6 +4,7 @@ import {
   customMcpConfigFragment,
   mcpConfigHasServer,
   mcpMarketplaceItemsFromConfigAndDiagnostics,
+  mcpRuntimeErrorHint,
   mergeMcpJsonConfig,
   skillMarketplaceItemsFromDiscoveredSkills
 } from './PluginMarketplaceView'
@@ -100,7 +101,8 @@ describe('PluginMarketplaceView MCP config helpers', () => {
         configured: 'Configured',
         connected: 'Connected',
         error: 'Error',
-        disabled: 'Disabled'
+        disabled: 'Disabled',
+        authRequired: 'Needs authorization'
       }
     )
 
@@ -142,7 +144,8 @@ describe('PluginMarketplaceView MCP config helpers', () => {
         configured: 'Configured',
         connected: 'Connected',
         error: 'Error',
-        disabled: 'Disabled'
+        disabled: 'Disabled',
+        authRequired: 'Needs authorization'
       }
     )
 
@@ -165,6 +168,61 @@ describe('PluginMarketplaceView MCP config helpers', () => {
         description: expect.stringContaining('github-mcp')
       })
     ])
+  })
+
+  it('marks invalid Brave tokens as needing reauthorization', () => {
+    const items = mcpMarketplaceItemsFromConfigAndDiagnostics(
+      '{"servers":{"brave-search":{"transport":"stdio","command":"npx"}}}',
+      {
+        mcpServers: [
+          {
+            id: 'brave-search',
+            status: 'error',
+            authRequired: true,
+            lastError: 'SUBSCRIPTION_TOKEN_INVALID: The provided subscription token is invalid'
+          }
+        ]
+      },
+      {
+        configured: 'Configured',
+        connected: 'Connected',
+        error: 'Error',
+        disabled: 'Disabled',
+        authRequired: 'Needs authorization'
+      }
+    )
+
+    expect(items).toEqual([
+      expect.objectContaining({
+        id: 'brave-search',
+        sourceLabel: 'Needs authorization',
+        statusTone: 'warning',
+        description: expect.stringContaining('SUBSCRIPTION_TOKEN_INVALID')
+      })
+    ])
+  })
+
+  it('maps closed MCP subprocess errors to actionable hints', () => {
+    const t = (key: string): string => key
+
+    expect(mcpRuntimeErrorHint('MCP error 32000: connection closed', 'github', t)).toBe(
+      'pluginMcpRuntimeHintGithub'
+    )
+    expect(mcpRuntimeErrorHint('MCP error 32000: connection closed', 'filesystem', t)).toBe(
+      'pluginMcpRuntimeHintFilesystem'
+    )
+    expect(mcpRuntimeErrorHint('spawn npx ENOENT', 'filesystem', t)).toBe(
+      'pluginMcpRuntimeHintNode'
+    )
+    expect(mcpRuntimeErrorHint('Chromium download failed', 'puppeteer', t)).toBe(
+      'pluginMcpRuntimeHintPuppeteer'
+    )
+    expect(mcpRuntimeErrorHint('SUBSCRIPTION_TOKEN_INVALID', 'brave-search', t)).toBe(
+      'pluginMcpRuntimeHintBrave'
+    )
+    expect(mcpRuntimeErrorHint('MCP error 32000: connection closed', undefined, t)).toBe(
+      'pluginMcpRuntimeHintNode'
+    )
   })
 })
 

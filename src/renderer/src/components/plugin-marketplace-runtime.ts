@@ -25,6 +25,7 @@ export type McpMarketplaceOverlay = {
   errorCount: number
   driftCount: number
   lastError?: string
+  lastErrorServerId?: string
 }
 
 export function buildMcpMarketplaceOverlay(input: {
@@ -62,7 +63,9 @@ export function buildMcpMarketplaceOverlay(input: {
   const searchRecord = search as Record<string, unknown> | undefined
   const searchError = stringField(searchRecord, 'lastError')
   const searchDrift = booleanField(searchRecord, 'catalogDrift')
-  const lastError = searchError || stringField(serverErrors[0], 'lastError')
+  const firstServerError = serverErrors[0]
+  const lastError = searchError || stringField(firstServerError, 'lastError')
+  const lastErrorServerId = searchError ? '' : stringField(firstServerError, 'id')
   const driftCount =
     servers.filter((server) => booleanField(server, 'catalogDrift')).length +
     (searchDrift ? 1 : 0)
@@ -87,7 +90,8 @@ export function buildMcpMarketplaceOverlay(input: {
     advertisedToolCount: search?.advertisedToolCount ?? 0,
     errorCount,
     driftCount,
-    ...(lastError ? { lastError } : {})
+    ...(lastError ? { lastError } : {}),
+    ...(lastErrorServerId ? { lastErrorServerId } : {})
   }
 }
 

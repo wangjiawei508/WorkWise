@@ -36,6 +36,7 @@ import { DESKTOP_COMMANDS } from '../../shared/workgpt-api'
 import { GUI_UPDATE_CHANNELS } from '../../shared/gui-update'
 import { KEYBOARD_SHORTCUT_COMMANDS } from '../../shared/keyboard-shortcuts'
 import { WRITE_EXPORT_FORMATS } from '../../shared/write-export'
+import { AGNES_IMAGE_SIZES } from '../../shared/agnes-image'
 
 const MAX_BODY_BYTES = 2_000_000
 const MAX_PATH_LENGTH = 4_096
@@ -50,6 +51,7 @@ const MAX_SKILL_FILE_BYTES = 1_000_000
 const MAX_CONFIG_FILE_BYTES = 2_000_000
 const MAX_DEVICE_CODE_LENGTH = 8_192
 const MAX_EDITOR_COMPLETION_TEXT = 200_000
+const MAX_IMAGE_PROMPT_TEXT = 8_000
 
 const SAFE_OPEN_EXTERNAL_PROTOCOLS = new Set(['http:', 'https:', 'mailto:'])
 
@@ -660,6 +662,18 @@ export const writeRichClipboardPayloadSchema = z
     path: trimmedString(MAX_PATH_LENGTH),
     workspaceRoot: optionalTrimmedString(MAX_PATH_LENGTH),
     content: z.string().max(MAX_BODY_BYTES)
+  })
+  .strict()
+
+export const writeAgnesImageGenerationPayloadSchema = z
+  .object({
+    workspaceRoot: trimmedString(MAX_PATH_LENGTH),
+    currentFilePath: trimmedString(MAX_PATH_LENGTH),
+    prompt: trimmedString(MAX_IMAGE_PROMPT_TEXT),
+    providerId: optionalTrimmedString(64),
+    model: optionalTrimmedString(128),
+    size: z.enum(AGNES_IMAGE_SIZES).optional(),
+    imageDirectory: optionalTrimmedString(MAX_PATH_LENGTH)
   })
   .strict()
 

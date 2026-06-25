@@ -8,9 +8,9 @@ An AI workbench for engineering, infrastructure, and business operations.
 
 [简体中文](./README.md) | English
 
-[Download](https://github.com/wangjiawei508/WorkWise/releases) · [User Guide](./docs/USER_GUIDE.zh-CN.md) · [Issues](https://github.com/wangjiawei508/WorkWise/issues) · [Maintainer](https://github.com/wangjiawei508)
+[Product & Download](https://www.railwise.cn/products/workwise/) · [User Guide](./docs/USER_GUIDE.zh-CN.md) · [GitHub Home](https://github.com/wangjiawei508/WorkWise) · [Issues](https://github.com/wangjiawei508/WorkWise/issues) · [Maintainer](https://github.com/wangjiawei508)
 
-WorkWise is a desktop AI workbench for engineering professionals, project teams, operations managers, and people who need to turn complex work into reliable deliverables. It brings together a code workbench, a writing workbench, industry Skills, MCP plugins, Markdown rendering/export, and update management in one desktop app.
+WorkWise is a desktop AI workbench for engineering professionals, project teams, operations managers, and people who need to turn complex work into reliable deliverables. It brings together a code workbench, a writing workbench, bundled industry Skills, Markdown rendering/export, optional online updates, and advanced MCP extensions in one desktop app.
 
 The goal is not to provide another generic chat box. WorkWise is designed for long-running, context-heavy workflows such as engineering project delivery, infrastructure monitoring, technical documentation, business operations, and reusable enterprise knowledge.
 
@@ -37,7 +37,7 @@ The app separates ready-now features, preview features, and roadmap items. Stabl
 
 ### 3. Skills are reusable assets
 
-WorkWise treats domain knowledge as reusable Skills. Monitoring plans, operation-period monitoring, report writing, bidding knowledge, standards lookup, business analytics, and writing polish can all become installable and updatable Skills instead of disposable prompts.
+WorkWise treats domain knowledge as reusable Skills. Core capabilities such as protection-area monitoring, operation-period monitoring, report writing, bidding knowledge, standards lookup, business analytics, and writing polish are bundled with the installer and do not depend on GitHub or npm by default. Online updates are optional; when the network is unavailable, WorkWise uses the bundled local version.
 
 ### 4. Writing is a first-class workflow
 
@@ -52,7 +52,7 @@ MCP tools and Skills include detail pages with descriptions, source links, insta
 | Status | Scope |
 | --- | --- |
 | Ready now | Code workbench, Write workbench, model settings, workspace sessions, bundled engineering Skills, Help center, download links, GUI update checks |
-| Preview | MCP marketplace, GitHub Skill sync, complex Markdown/DOCX export, phone connection, scheduled automation |
+| Preview | Advanced MCP marketplace, optional online Skill updates, complex Markdown/DOCX export, phone connection, scheduled automation |
 | Roadmap | Infrastructure inspection, urban renewal, digital twins, operations analytics, bidding support, enterprise knowledge bases, more industry agent packs |
 
 ## Key Features
@@ -108,11 +108,13 @@ WorkWise bundles writing-focused Skills for better, more credible output:
 
 ### Plugin Marketplace
 
-The marketplace manages MCP tools and Skills:
+The marketplace manages Skills and advanced MCP tools:
 
 - View functionality, source links, installation state, and usage descriptions.
-- Install, enable, disable, and sync updateable Skills.
-- Prepare future integrations with enterprise tools, repositories, document systems, and knowledge bases.
+- Bundled Skills are shipped with the installer and work locally by default.
+- Online updates are optional and do not block the bundled local version.
+- MCP tools are advanced extensions and may require external network access, authorization, API keys, or a local runtime.
+- Prepare future integrations with enterprise tools, repositories, document systems, and knowledge bases, preferably through controlled bundled or mirrored sources.
 
 ### Phone Connection and Background Tasks
 
@@ -126,13 +128,13 @@ This area is still in preview and should be tested first in low-risk scenarios.
 
 ### Online Updates
 
-Use `Settings -> General -> GUI Update` to check for new versions. Official macOS and Windows installers support update downloads. If automatic installation is not available, WorkWise opens the download page for manual upgrade.
+Use `Settings -> General -> GUI Update` to check for new versions. The manual download action opens the [WorkWise product page](https://www.railwise.cn/products/workwise/) by default. Automatic update metadata and installer downloads require a real static file directory or object-storage domain configured at release time, such as `WORKWISE_PUBLIC_BASE_URL` or `WORKWISE_UPDATE_URL`. If no update feed is configured, WorkWise reports that updates are unavailable instead of pretending to connect to a server.
 
 ## Quick Start
 
 ### 1. Download
 
-Go to [GitHub Releases](https://github.com/wangjiawei508/WorkWise/releases).
+Go to the [WorkWise product page](https://www.railwise.cn/products/workwise/) for product information and downloads. Automatic update files still need to be deployed separately to your real website static directory, server, CDN, or object-storage public domain. GitHub is kept mainly as the project home, source collaboration space, issue tracker, and developer release record.
 
 | Platform | Installer |
 | --- | --- |
@@ -146,7 +148,8 @@ Linux clients and intermediate build files are not published as public release a
 
 On first launch:
 
-- Add a DeepSeek API key, or configure an OpenAI / DeepSeek compatible model service.
+- Add a DeepSeek API key, or choose the built-in Agnes AI preset / another OpenAI-compatible model service.
+- The Agnes AI preset uses `https://apihub.agnes-ai.com/v1`, `chat_completions`, and `agnes-2.0-flash`; API keys, quota, and billing follow Agnes account rules.
 - Set Base URL, default model, and proxy settings if needed.
 - Check GUI updates to confirm you are on the latest version.
 
@@ -162,15 +165,20 @@ On first launch:
 1. Create or open a Markdown / TXT file.
 2. Write in `Live` or `Split` mode.
 3. Select text and ask WorkWise to rewrite, polish, expand, shorten, or align style.
-4. Export to PDF, DOC, DOCX, or HTML.
-5. Review formal deliverables manually before sending.
+4. Use Agnes AI prompt templates to generate cover images, monitoring-data backgrounds, construction/operations diagrams, business-writing illustrations, or icon-style artwork and insert them into the current Markdown file.
+5. Export to PDF, DOC, DOCX, or HTML.
+6. Review formal deliverables manually before sending.
+
+Agnes image generation is a separate material-generation feature, not part of the chat Provider. This MVP supports text-to-image; video generation, full image-to-image editing, and multi-image composition are future extensions.
 
 ### 5. Use Skills and Plugins
 
 1. Open Skills or the marketplace from Settings.
 2. Read the extension details and confirm it fits your task.
-3. Install or enable the Skill / MCP.
+3. Install or enable the Skill; configure advanced MCP only when an external system is actually needed.
 4. Use it in Code, Write, phone connection, or scheduled tasks.
+
+PPT Master is bundled as a built-in Skill for turning Markdown, reports, plans, web pages, or existing PPTX files into natively editable PowerPoint decks. The bundle keeps only the core workflow, localhost confirmation page, SVG live preview, reusable charts/layouts, two lightweight top-consulting examples, and an empty `projects` placeholder; it excludes the full official examples set, real user projects, exports, backups, large icon libraries, and private PPT files. Python 3.10+ is required for scripts. Pandoc is not enabled in the MVP.
 
 ## Suggested Use Cases
 
@@ -183,14 +191,14 @@ On first launch:
 
 ## Local Data and Privacy
 
-WorkWise is local-first. For historical compatibility, some default paths still use the `workgpt` name:
+WorkWise is local-first. New installs use `workwise` directories by default. Upgrades remain compatible with existing historical `workgpt` directories and do not delete prior sessions or files:
 
 | Data | Default path |
 | --- | --- |
-| Default workspace | `~/.workgpt/default_workspace` |
-| Write workspace | `~/.workgpt/write_workspace` |
-| Runtime and sessions | `~/.workgpt/kun` or the OS app-data directory |
-| Settings | macOS: `~/Library/Application Support/WorkWise/workgpt-settings.json`; Windows: `%APPDATA%\WorkWise\workgpt-settings.json` |
+| Default workspace | `~/.workwise/default_workspace` |
+| Write workspace | `~/.workwise/write_workspace` |
+| Runtime and sessions | `~/.workwise/kun` or the OS app-data directory |
+| Settings | macOS: `~/Library/Application Support/WorkWise/workwise-settings.json`; Windows: `%APPDATA%\WorkWise\workwise-settings.json`; legacy `workgpt-settings.json` is read automatically |
 
 Uninstalling the app does not automatically delete these files. Before a full cleanup, make sure you no longer need historical sessions, MCP configuration, Skills, or writing files.
 
@@ -233,7 +241,7 @@ WorkWise will continue to evolve in three directions:
 
 - Industry agents: infrastructure inspection, urban renewal, structural safety, bidding support, project operations, and enterprise knowledge bases.
 - Document delivery: Markdown rendering, Word export, report templates, chart generation, and cross-platform layout consistency.
-- Plugin ecosystem: MCP marketplace, Skill sync, enterprise-internal Skill management, and more third-party integrations.
+- Plugin ecosystem: bundled Skills, optional online updates, enterprise-internal Skill management, and more third-party integrations. Advanced MCP should not be the default path for everyday users.
 
 ## Feedback
 

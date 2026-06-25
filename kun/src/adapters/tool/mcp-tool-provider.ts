@@ -63,6 +63,7 @@ export type McpServerDiagnostic = {
   catalogDrift?: boolean
   lastConnectedAt?: string
   lastError?: string
+  authRequired?: boolean
 }
 
 export type McpToolProviderBuildResult = {
@@ -89,6 +90,7 @@ type McpConnectionState = {
   catalogDrift?: boolean
   lastConnectedAt?: string
   lastError?: string
+  diagnostic?: McpServerDiagnostic
 }
 
 export async function buildMcpToolProviders(
@@ -154,7 +156,9 @@ export async function buildMcpToolProviders(
         available: true,
         tools
       })
-      diagnostics.push(serverDiagnostic(state, 'connected', tools.length))
+      const diagnostic = serverDiagnostic(state, 'connected', tools.length)
+      state.diagnostic = diagnostic
+      diagnostics.push(diagnostic)
     } catch (error) {
       diagnostics.push(serverDiagnostic({ serverId, server }, 'error', 0, errorMessage(error)))
     }
@@ -352,12 +356,21 @@ async function callMcpToolWithReconnect(
   timeout = state.server.timeoutMs
 ): Promise<unknown> {
   try {
-    return await state.client.callTool(input, { signal, timeout })
+    const result = await state.client.callTool(input, { signal, timeout })
+    observeMcpToolResult(state, result)
+    return result
   } catch (error) {
-    state.lastError = redactSecretText(errorMessage(error))
+    setMcpConnectionError(state, errorMessage(error))
     if (signal?.aborted) throw error
     const client = await reconnectMcpConnection(state)
-    return client.callTool(input, { signal, timeout })
+    try {
+      const result = await client.callTool(input, { signal, timeout })
+      observeMcpToolResult(state, result)
+      return result
+    } catch (retryError) {
+      setMcpConnectionError(state, errorMessage(retryError))
+      throw retryError
+    }
   }
 }
 
@@ -366,8 +379,43 @@ async function reconnectMcpConnection(state: McpConnectionState): Promise<McpCli
   const client = await state.clientFactory(state.serverId, state.server)
   state.client = client
   state.lastConnectedAt = state.nowIso()
-  state.lastError = undefined
+  clearMcpConnectionError(state)
   return client
+}
+
+function observeMcpToolResult(state: McpConnectionState, result: unknown): void {
+  if (!mcpResultIsError(result)) {
+    clearMcpConnectionError(state)
+    return
+  }
+  const message = mcpResultErrorMessage(result)
+  if (isLikelyMcpInfrastructureError(state.serverId, message)) {
+    setMcpConnectionError(state, message)
+  }
+}
+
+function setMcpConnectionError(state: McpConnectionState, message: string): void {
+  const redacted = redactSecretText(message)
+  state.lastError = redacted
+  if (!state.diagnostic) return
+  state.diagnostic.status = 'error'
+  state.diagnostic.available = false
+  state.diagnostic.lastError = redacted
+  state.diagnostic.authRequired = mcpAuthRequired(state.serverId, redacted)
+}
+
+function clearMcpConnectionError(state: McpConnectionState): void {
+  state.lastError = undefined
+  if (!state.diagnostic) return
+  state.diagnostic.status = 'connected'
+  state.diagnostic.available = true
+  if (state.lastConnectedAt) {
+    state.diagnostic.lastConnectedAt = state.lastConnectedAt
+  } else {
+    delete state.diagnostic.lastConnectedAt
+  }
+  delete state.diagnostic.lastError
+  delete state.diagnostic.authRequired
 }
 
 function shouldUseMcpSearch(config: NonNullable<McpCapabilityConfig['search']>, toolCount: number): boolean {
@@ -390,6 +438,8 @@ function serverDiagnostic(
   toolCount: number,
   lastError?: string
 ): McpServerDiagnostic {
+  const redactedError = lastError ? redactSecretText(lastError) : ''
+  const authRequired = redactedError ? mcpAuthRequired(state.serverId, redactedError) : false
   return {
     id: state.serverId,
     enabled: state.server.enabled,
@@ -401,8 +451,40 @@ function serverDiagnostic(
     ...(state.catalogFingerprint ? { catalogFingerprint: state.catalogFingerprint } : {}),
     ...(state.catalogDrift !== undefined ? { catalogDrift: state.catalogDrift } : {}),
     ...(state.lastConnectedAt ? { lastConnectedAt: state.lastConnectedAt } : {}),
-    ...(lastError ? { lastError: redactSecretText(lastError) } : {})
+    ...(redactedError ? { lastError: redactedError } : {}),
+    ...(authRequired ? { authRequired: true } : {})
   }
+}
+
+function mcpResultIsError(result: unknown): boolean {
+  return !!result && typeof result === 'object' && (result as { isError?: unknown }).isError === true
+}
+
+function mcpResultErrorMessage(result: unknown): string {
+  if (!result || typeof result !== 'object') return String(result)
+  const record = result as Record<string, unknown>
+  const direct = typeof record.error === 'string' ? record.error : ''
+  const content = Array.isArray(record.content)
+    ? record.content
+        .map((item) => {
+          if (!item || typeof item !== 'object') return ''
+          const text = (item as Record<string, unknown>).text
+          return typeof text === 'string' ? text : ''
+        })
+        .filter(Boolean)
+        .join('\n')
+    : ''
+  return direct || content || JSON.stringify(result)
+}
+
+function isLikelyMcpInfrastructureError(serverId: string, message: string): boolean {
+  return mcpAuthRequired(serverId, message) ||
+    /32000|connection closed|closed|econnrefused|enoent|spawn|timeout|timed out/i.test(message)
+}
+
+export function mcpAuthRequired(serverId: string, message: string): boolean {
+  const haystack = `${serverId} ${message}`.toLowerCase()
+  return /subscription_token_invalid|provided subscription token is invalid|brave_api_key|api key|token.+invalid|invalid.+token|unauthorized|forbidden|401|403|bad credentials/.test(haystack)
 }
 
 function catalogFingerprint(values: readonly string[]): string {

@@ -15,8 +15,8 @@ import type {
 import { nextGuiUpdateCheckDelay } from '../shared/gui-update-schedule'
 import { DEFAULT_GUI_UPDATE_CHANNEL, normalizeGuiUpdateChannel } from '../shared/gui-update'
 
-const DEFAULT_R2_PUBLIC_BASE_URL = 'https://downloads.example.com/workgpt'
-const DEFAULT_R2_RELEASE_PREFIX = 'workgpt'
+const DEFAULT_OFFICIAL_RELEASE_PREFIX = 'workwise'
+const DEFAULT_PRODUCT_PAGE_URL = 'https://www.railwise.cn/products/workwise/'
 const DEFAULT_GITHUB_REPO = 'wangjiawei508/WorkWise'
 const { autoUpdater } = electronUpdater
 
@@ -27,7 +27,7 @@ let lastState: GuiUpdateState = { status: 'idle' }
 let downloaded = false
 let downloadPromise: Promise<string[]> | null = null
 let configuredChannel: GuiUpdateChannel = normalizeGuiUpdateChannel(
-  process.env.WORKGPT_UPDATE_CHANNEL?.trim()
+  (process.env.WORKWISE_UPDATE_CHANNEL || process.env.WORKGPT_UPDATE_CHANNEL)?.trim()
 )
 let configuredFeedUrl = ''
 let getSelectedChannel: (() => GuiUpdateChannel | Promise<GuiUpdateChannel>) | null = null
@@ -41,6 +41,7 @@ const GUI_UPDATE_SCHEDULE_FILE = 'gui-update-schedule.json'
 type UpdateFeedConfig =
   | { kind: 'generic'; url: string }
   | { kind: 'github'; owner: string; repo: string; fullName: string }
+  | { kind: 'none' }
 
 type GithubReleaseAsset = {
   name?: unknown
@@ -72,30 +73,56 @@ function joinUrl(base: string, ...parts: string[]): string {
 }
 
 function envUpdateUrl(channel: GuiUpdateChannel): string {
-  const channelSpecific = process.env[`WORKGPT_UPDATE_URL_${channel.toUpperCase()}`]?.trim()
-  const direct = channelSpecific || process.env.WORKGPT_UPDATE_URL?.trim() || ''
+  const upper = channel.toUpperCase()
+  const channelSpecific =
+    process.env[`WORKWISE_UPDATE_URL_${upper}`]?.trim() ||
+    process.env[`WORKGPT_UPDATE_URL_${upper}`]?.trim()
+  const direct =
+    channelSpecific ||
+    process.env.WORKWISE_UPDATE_URL?.trim() ||
+    process.env.WORKGPT_UPDATE_URL?.trim() ||
+    ''
   return direct ? direct.replace(/\{channel\}/g, channel).replace(/\/?$/, '/') : ''
+}
+
+function updateProviderSetting(): string {
+  return (
+    process.env.WORKWISE_UPDATE_PROVIDER ||
+    process.env.WORKGPT_UPDATE_PROVIDER ||
+    ''
+  ).trim().toLowerCase()
+}
+
+function shouldUseGithubUpdateProvider(): boolean {
+  return updateProviderSetting() === 'github'
+}
+
+function shouldFallbackToGithubUpdateProvider(): boolean {
+  return (
+    shouldUseGithubUpdateProvider() ||
+    process.env.WORKWISE_ENABLE_GITHUB_UPDATE_FALLBACK === '1' ||
+    process.env.WORKGPT_ENABLE_GITHUB_UPDATE_FALLBACK === '1'
+  )
 }
 
 function genericUpdateFeedUrl(channel: GuiUpdateChannel): string {
   const direct = envUpdateUrl(channel)
   if (direct) return direct
 
-  const configuredBase = process.env.R2_PUBLIC_BASE_URL?.trim()
-  const configuredPrefix = process.env.R2_RELEASE_PREFIX?.trim()
-  if (!configuredBase && !configuredPrefix) return ''
+  const configuredBase =
+    process.env.WORKWISE_UPDATE_BASE_URL?.trim() ||
+    process.env.WORKWISE_PUBLIC_BASE_URL?.trim() ||
+    process.env.R2_PUBLIC_BASE_URL?.trim() ||
+    process.env.PUBLIC_DOWNLOAD_BASE_URL?.trim()
+  const configuredPrefix =
+    process.env.WORKWISE_RELEASE_PREFIX?.trim() ||
+    process.env.R2_RELEASE_PREFIX?.trim()
 
-  const base = configuredBase || DEFAULT_R2_PUBLIC_BASE_URL
-  const prefix = configuredPrefix || DEFAULT_R2_RELEASE_PREFIX
+  if (!configuredBase) return ''
+
+  const base = configuredBase
+  const prefix = configuredPrefix || DEFAULT_OFFICIAL_RELEASE_PREFIX
   return `${joinUrl(base, prefix, 'channels', channel, 'latest')}/`
-}
-
-function updateFeedUrl(channel: GuiUpdateChannel): string {
-  return (
-    genericUpdateFeedUrl(channel) ||
-    resolveGithubReleaseUrl() ||
-    `${joinUrl(DEFAULT_R2_PUBLIC_BASE_URL, DEFAULT_R2_RELEASE_PREFIX, 'channels', channel, 'latest')}/`
-  )
 }
 
 function guiUpdateSchedulePath(): string {
@@ -150,7 +177,9 @@ function readPackageJson(): Record<string, unknown> | null {
 }
 
 function resolveGithubRepo(): string | null {
-  const envRepo = normalizeGithubOwnerRepo(process.env.WORKGPT_GITHUB_REPO?.trim() ?? '')
+  const envRepo = normalizeGithubOwnerRepo(
+    (process.env.WORKWISE_GITHUB_REPO || process.env.WORKGPT_GITHUB_REPO)?.trim() ?? ''
+  )
   if (envRepo) return envRepo
 
   const pkg = readPackageJson()
@@ -173,31 +202,31 @@ function resolveGithubReleaseUrl(): string | null {
 }
 
 function resolveUpdateFeedConfig(channel: GuiUpdateChannel): UpdateFeedConfig {
+  if (shouldUseGithubUpdateProvider()) {
+    const fullName = resolveGithubRepo()
+    const [owner, repo] = fullName?.split('/') ?? []
+    if (owner && repo) return { kind: 'github', owner, repo, fullName: `${owner}/${repo}` }
+  }
+
   const genericUrl = genericUpdateFeedUrl(channel)
   if (genericUrl) return { kind: 'generic', url: genericUrl }
 
-  const fullName = resolveGithubRepo()
-  const [owner, repo] = fullName?.split('/') ?? []
-  if (owner && repo) return { kind: 'github', owner, repo, fullName: `${owner}/${repo}` }
-
-  return {
-    kind: 'generic',
-    url: `${joinUrl(DEFAULT_R2_PUBLIC_BASE_URL, DEFAULT_R2_RELEASE_PREFIX, 'channels', channel, 'latest')}/`
-  }
+  return { kind: 'none' }
 }
 
 function downloadPageUrl(): string {
-  const direct = process.env.WORKGPT_DOWNLOAD_URL?.trim()
+  const direct = (process.env.WORKWISE_DOWNLOAD_URL || process.env.WORKGPT_DOWNLOAD_URL)?.trim()
   if (direct) return direct
 
-  const releaseUrl = resolveGithubReleaseUrl()
-  if (releaseUrl) return releaseUrl
+  const configuredDownloadPage = (process.env.WORKWISE_DOWNLOAD_BASE_URL || process.env.PUBLIC_DOWNLOAD_PAGE_URL)?.trim()
+  if (configuredDownloadPage) return configuredDownloadPage
 
-  const pkg = readPackageJson()
-  const homepage = typeof pkg?.homepage === 'string' ? pkg.homepage.trim() : ''
-  if (homepage) return homepage
+  if (shouldUseGithubUpdateProvider()) {
+    const releaseUrl = resolveGithubReleaseUrl()
+    if (releaseUrl) return releaseUrl
+  }
 
-  return updateFeedUrl(configuredChannel)
+  return DEFAULT_PRODUCT_PAGE_URL
 }
 
 function releaseUrlForVersion(version: string): string {
@@ -400,7 +429,7 @@ async function runScheduledGuiUpdateCheck(): Promise<void> {
       await writeLastScheduledCheckAt(nowMs)
       await checkGuiUpdate()
     } catch (error) {
-      console.warn('[workgpt updater] scheduled GUI update check failed:', error)
+      console.warn('[workwise updater] scheduled GUI update check failed:', error)
     } finally {
       backgroundCheckPromise = null
       void scheduleNextBackgroundCheck()
@@ -423,14 +452,16 @@ function configureUpdaterChannel(channel: GuiUpdateChannel): void {
   const feedUrl =
     feed.kind === 'generic'
       ? feed.url
-      : `github:${feed.fullName}`
+      : feed.kind === 'github'
+        ? `github:${feed.fullName}`
+        : 'none'
   const changed = normalized !== configuredChannel || feedUrl !== configuredFeedUrl
   configuredChannel = normalized
   configuredFeedUrl = feedUrl
   autoUpdater.allowPrerelease = normalized === 'frontier'
   if (feed.kind === 'generic') {
     autoUpdater.setFeedURL({ provider: 'generic', url: feed.url })
-  } else {
+  } else if (feed.kind === 'github') {
     autoUpdater.setFeedURL({
       provider: 'github',
       owner: feed.owner,
@@ -456,6 +487,8 @@ async function checkManualUpdate(
   const releaseUrl = downloadPageUrl()
 
   const githubFallback = async (): Promise<GuiUpdateInfo | null> => {
+    if (!shouldFallbackToGithubUpdateProvider()) return null
+
     const repo = resolveGithubRepo()
     if (!repo) return null
 
@@ -463,7 +496,7 @@ async function checkManualUpdate(
       const res = await fetch(`https://api.github.com/repos/${repo}/releases`, {
         headers: {
           Accept: 'application/vnd.github+json',
-          'User-Agent': `workgpt/${currentVersion}`,
+          'User-Agent': `workwise/${currentVersion}`,
           'X-GitHub-Api-Version': '2022-11-28'
         }
       })
@@ -528,6 +561,19 @@ async function checkManualUpdate(
     }
   }
 
+  if (shouldUseGithubUpdateProvider()) {
+    const github = await githubFallback()
+    if (github) return github
+    return {
+      ok: false,
+      currentVersion,
+      code: 'not_configured',
+      message: 'GitHub update provider is configured, but release metadata could not be read.',
+      releaseUrl,
+      channel
+    }
+  }
+
   const genericFeed = genericUpdateFeedUrl(channel)
   if (!genericFeed) {
     const github = await githubFallback()
@@ -547,7 +593,7 @@ async function checkManualUpdate(
     const res = await fetch(url, {
       headers: {
         Accept: 'application/x-yaml,text/yaml,text/plain,*/*',
-        'User-Agent': `workgpt/${currentVersion}`
+        'User-Agent': `workwise/${currentVersion}`
       }
     })
     if (!res.ok) {
@@ -623,9 +669,9 @@ export function initializeGuiUpdater(
   }
 
   autoUpdater.logger = {
-    info: (message?: unknown) => console.info('[workgpt updater]', message),
-    warn: (message?: unknown) => console.warn('[workgpt updater]', message),
-    error: (message?: unknown) => console.error('[workgpt updater]', message)
+    info: (message?: unknown) => console.info('[workwise updater]', message),
+    warn: (message?: unknown) => console.warn('[workwise updater]', message),
+    error: (message?: unknown) => console.error('[workwise updater]', message)
   }
 
   autoUpdater.on('checking-for-update', () => {
@@ -664,7 +710,7 @@ export function initializeGuiUpdater(
 
   nativeAutoUpdater?.on?.('before-quit-for-update', () => {
     void runBeforeInstallUpdate().catch((error) => {
-      console.warn('[workgpt updater] failed to stop runtimes before update quit:', error)
+      console.warn('[workwise updater] failed to stop runtimes before update quit:', error)
     })
   })
 
@@ -678,6 +724,10 @@ export function getGuiUpdateState(): GuiUpdateState {
 export async function checkGuiUpdate(channel?: GuiUpdateChannel): Promise<GuiUpdateInfo> {
   const selectedChannel = await resolveUpdateChannel(channel)
   configureUpdaterChannel(selectedChannel)
+
+  if (resolveUpdateFeedConfig(selectedChannel).kind === 'none') {
+    return checkManualUpdate(selectedChannel, 'not_configured')
+  }
 
   if (!macAutoUpdateAllowed()) {
     return checkManualUpdate(selectedChannel, 'unsupported')
@@ -788,5 +838,6 @@ export const _internals = {
   normalizeGithubOwnerRepo,
   selectGithubRelease,
   genericUpdateFeedUrl,
-  resolveUpdateFeedConfig
+  resolveUpdateFeedConfig,
+  downloadPageUrl
 }

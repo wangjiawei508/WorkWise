@@ -212,12 +212,6 @@ class FetchWebProvider implements WebProvider {
       const response = await fetch(request.url, { signal: controller.signal })
       if (!response.ok) throw new Error(`HTTP ${response.status}`)
 
-      // Fast-fail if content-length is known and exceeds limit
-      const contentLength = response.headers.get('content-length')
-      if (contentLength && Number(contentLength) > request.maxBytes) {
-        throw new Error(`content exceeds ${request.maxBytes} byte limit`)
-      }
-
       // Stream response body with size limit
       const reader = response.body?.getReader()
       if (!reader) throw new Error('response body is not readable')

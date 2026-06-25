@@ -15,6 +15,9 @@ concurrency:
 env:
   NODE_VERSION: '22'
   RELEASE_CHANNEL: stable
+  WORKWISE_DOWNLOAD_URL: https://www.railwise.cn/products/workwise/
+  WORKWISE_PUBLIC_BASE_URL: https://www.railwise.cn/downloads
+  WORKWISE_RELEASE_PREFIX: workwise
 
 jobs:
   prepare:
@@ -42,7 +45,9 @@ jobs:
     runs-on: macos-latest
     needs: prepare
     env:
+      WORKWISE_APP_VERSION: ${{ needs.prepare.outputs.version }}
       WORKGPT_APP_VERSION: ${{ needs.prepare.outputs.version }}
+      WORKWISE_UPDATE_CHANNEL: stable
       WORKGPT_UPDATE_CHANNEL: stable
       RELEASE_CHANNEL: stable
       # Mapped to env so steps can branch on presence (secrets are not allowed
@@ -124,6 +129,9 @@ jobs:
         if: steps.signing.outputs.enabled != 'true'
         run: npm run dist:mac
 
+      - name: Generate macOS update metadata
+        run: node ./scripts/generate-mac-latest.cjs dist
+
       - name: Upload macOS installers
         uses: actions/upload-artifact@v4
         with:
@@ -132,13 +140,16 @@ jobs:
           retention-days: 7
           path: |
             dist/WorkWise-*-mac-*.dmg
+            dist/latest-mac.yml
 
   build-windows:
     name: Build Windows
     runs-on: windows-latest
     needs: prepare
     env:
+      WORKWISE_APP_VERSION: ${{ needs.prepare.outputs.version }}
       WORKGPT_APP_VERSION: ${{ needs.prepare.outputs.version }}
+      WORKWISE_UPDATE_CHANNEL: stable
       WORKGPT_UPDATE_CHANNEL: stable
       RELEASE_CHANNEL: stable
       CSC_IDENTITY_AUTO_DISCOVERY: 'false'
@@ -169,6 +180,8 @@ jobs:
           retention-days: 7
           path: |
             dist/WorkWise-*-win-x64.exe
+            dist/WorkWise-*-win-x64.exe.blockmap
+            dist/latest.yml
 
   publish:
     name: Publish GitHub Release
@@ -184,6 +197,7 @@ jobs:
       RELEASE_NAME: ${{ needs.prepare.outputs.release_name }}
       PREVIOUS_TAG: ${{ needs.prepare.outputs.previous_tag }}
       RELEASE_CHANNEL: stable
+      WORKWISE_UPDATE_CHANNEL: stable
       WORKGPT_UPDATE_CHANNEL: stable
       MAC_SIGNED: ${{ secrets.MAC_CODESIGN_P12_BASE64 != '' && secrets.APPLE_API_KEY_BASE64 != '' }}
     steps:
@@ -251,6 +265,25 @@ jobs:
           done
 
           find public-release-assets -maxdepth 1 -type f -print | sort
+
+      - name: Prepare website update channel assets
+        run: |
+          set -euo pipefail
+          node ./scripts/prepare-website-release-assets.cjs \
+            release-artifacts \
+            website-release-assets \
+            "${RELEASE_VERSION}"
+
+          node ./scripts/verify-release-assets.cjs website-release-assets --write-sha256 SHA256SUMS.txt
+
+      - name: Upload website update channel artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-website
+          if-no-files-found: error
+          retention-days: 7
+          path: |
+            website-release-assets/*
 
       - name: Generate release notes
         run: |

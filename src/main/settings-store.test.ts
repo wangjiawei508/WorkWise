@@ -28,7 +28,9 @@ describe('JsonSettingsStore', () => {
     const store = new JsonSettingsStore(userDataDir)
     const loaded = await store.load()
 
-    expect(loaded.write.defaultWorkspaceRoot).toContain('.workgpt')
+    expect(loaded.workspaceRoot).toContain('.workwise')
+    expect(loaded.agents.kun.dataDir).toBe('~/.workwise/kun')
+    expect(loaded.write.defaultWorkspaceRoot).toContain('.workwise')
     expect(loaded.write.workspaces).toContain(loaded.write.defaultWorkspaceRoot)
     expect(loaded.write.inlineCompletion.enabled).toBe(true)
     expect(loaded.write.inlineCompletion.retrievalEnabled).toBe(true)
@@ -141,7 +143,7 @@ describe('JsonSettingsStore', () => {
     const supportRoot = await mkdtemp(join(tmpdir(), 'workgpt-settings-compat-'))
     const legacyUserDataDir = join(supportRoot, 'workgpt')
     const currentUserDataDir = join(supportRoot, 'WorkWise')
-    const currentSettingsPath = join(currentUserDataDir, 'workgpt-settings.json')
+    const currentSettingsPath = join(currentUserDataDir, 'workwise-settings.json')
 
     await mkdir(legacyUserDataDir, { recursive: true })
     await writeFile(
@@ -214,7 +216,7 @@ describe('JsonSettingsStore', () => {
     expect(loaded.workspaceRoot.length).toBeGreaterThan(0)
     expect(backupName).toBeTruthy()
     expect(await readFile(join(userDataDir, backupName ?? ''), 'utf8')).toBe('{ invalid json')
-    const replaced = await readFile(settingsPath, 'utf8')
+    const replaced = await readFile(join(userDataDir, 'workwise-settings.json'), 'utf8')
     expect(() => JSON.parse(replaced)).not.toThrow()
   })
 
@@ -278,7 +280,7 @@ describe('JsonSettingsStore', () => {
 
   it('omits agentProvider when writing normalized settings to disk', async () => {
     const userDataDir = await mkdtemp(join(tmpdir(), 'workgpt-settings-'))
-    const settingsPath = join(userDataDir, 'workgpt-settings.json')
+    const settingsPath = join(userDataDir, 'workwise-settings.json')
     const store = new JsonSettingsStore(userDataDir)
     await store.load()
     await store.patch({
@@ -388,7 +390,7 @@ describe('JsonSettingsStore', () => {
 
       // Final file is present and non-empty.
       const finalContents = await readFile(
-        join(userDataDir, 'workgpt-settings.json'),
+        join(userDataDir, 'workwise-settings.json'),
         'utf8'
       )
       expect(finalContents.length).toBeGreaterThan(0)

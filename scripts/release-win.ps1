@@ -52,7 +52,10 @@ function Require-Command([string]$Name) {
 }
 
 function Load-LocalReleaseEnv([string]$RootPath) {
-  $configured = [Environment]::GetEnvironmentVariable('WORKGPT_RELEASE_ENV', 'Process')
+  $configured = [Environment]::GetEnvironmentVariable('WORKWISE_RELEASE_ENV', 'Process')
+  if (-not $configured) {
+    $configured = [Environment]::GetEnvironmentVariable('WORKGPT_RELEASE_ENV', 'Process')
+  }
   $candidates = @()
   if ($configured) { $candidates += $configured }
   $candidates += (Join-Path $RootPath 'scripts\release.local.env')
@@ -94,6 +97,8 @@ $RequestedChannel = if ($Stable) {
   $Channel
 } elseif ($env:RELEASE_CHANNEL) {
   $env:RELEASE_CHANNEL
+} elseif ($env:WORKWISE_UPDATE_CHANNEL) {
+  $env:WORKWISE_UPDATE_CHANNEL
 } elseif ($env:WORKGPT_UPDATE_CHANNEL) {
   $env:WORKGPT_UPDATE_CHANNEL
 } else {
@@ -138,10 +143,12 @@ Write-Info "GitHub release tag: $TagName"
 Write-Info "Release channel: $ReleaseChannel"
 $ReleaseVersion = $TagName.TrimStart('v')
 Assert-Semver $ReleaseVersion
+$env:WORKWISE_APP_VERSION = $ReleaseVersion
 $env:WORKGPT_APP_VERSION = $ReleaseVersion
 $env:RELEASE_CHANNEL = $ReleaseChannel
+$env:WORKWISE_UPDATE_CHANNEL = $ReleaseChannel
 $env:WORKGPT_UPDATE_CHANNEL = $ReleaseChannel
-Write-Info "App version: $env:WORKGPT_APP_VERSION"
+Write-Info "App version: $env:WORKWISE_APP_VERSION"
 
 & gh release view $TagName 2>&1 | Out-Null
 if ($LASTEXITCODE -ne 0) {

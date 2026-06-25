@@ -138,7 +138,7 @@ export const CLAW_AGENT_TABS: Array<{
   }
 ]
 
-export const DEFAULT_CLAW_WORKSPACE_ROOT = '~/.workgpt/claw'
+export const DEFAULT_CLAW_WORKSPACE_ROOT = '~/.workwise/claw'
 
 export const CLAW_DIALOG_STEPS: Array<{
   id: ClawDialogStep

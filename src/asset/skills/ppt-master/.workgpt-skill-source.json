@@ -1,0 +1,18 @@
+{
+  "type": "github",
+  "owner": "hugohe3",
+  "repo": "ppt-master",
+  "path": "skills/ppt-master",
+  "ref": "main",
+  "autoUpdate": true,
+  "includePaths": [
+    "references",
+    "workflows",
+    "scripts",
+    "templates/design_spec_reference.md",
+    "templates/spec_lock_reference.md",
+    "templates/charts",
+    "templates/layouts"
+  ],
+  "overlaySkillId": "ppt-master"
+}

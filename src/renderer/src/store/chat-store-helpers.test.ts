@@ -87,27 +87,28 @@ describe('chat-store Claw helpers', () => {
         '/Users/zxy/project-a',
         '/Users/zxy/project-a/',
         '/tmp/transient',
-        '/Users/zxy/.workgpt/claw/agent/conversations/chat',
-        '/Users/zxy/.workgpt/default_workspace',
-        '~/.workgpt/write_workspace',
+        '/Users/zxy/.workwise/claw/agent/conversations/chat',
+        '/Users/zxy/.workwise/default_workspace',
+        '~/.workwise/write_workspace',
         '',
         '/Users/zxy/project-b'
       ])
     ).toEqual([
       '/Users/zxy/project-a',
-      '/Users/zxy/.workgpt/default_workspace',
+      '/Users/zxy/.workwise/default_workspace',
       '/Users/zxy/project-b'
     ])
   })
 
-  it('deduplicates default workspace aliases', () => {
+  it('deduplicates default workspace aliases while keeping legacy WorkGPT paths compatible', () => {
     expect(
       compactCodeWorkspaceRoots([
+        '~/.workwise/default_workspace',
+        'C:\\Users\\zxy\\.workwise\\default_workspace',
         '~/.workgpt/default_workspace',
-        'C:\\Users\\zxy\\.workgpt\\default_workspace',
         'C:\\Users\\zxy\\.workgpt\\default_workspace\\'
       ])
-    ).toEqual(['~/.workgpt/default_workspace'])
+    ).toEqual(['~/.workwise/default_workspace'])
   })
 
   it('caps code workspace roots while keeping the newest unique roots first', () => {
