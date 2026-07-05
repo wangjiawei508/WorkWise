@@ -204,8 +204,10 @@ export class DeepseekCompatModelClient implements ModelClient {
 
   private buildUrl(path: string): string {
     const base = this.config.baseUrl.replace(/\/+$/, '')
-    const normalizedPath = path.startsWith('/v1/') && /\/v1$/i.test(base)
-      ? path.slice('/v1'.length)
+    // 当 baseUrl 已带版本号（如 /v1、/v3）时，避免再次拼接 /v1，
+    // 适配火山 Coding Plan: https://ark.cn-beijing.volces.com/api/coding/v3
+    const normalizedPath = path.startsWith('/v1/') && /\/v\d+$/i.test(base)
+      ? path.replace(/^\/v\d+/, '')
       : path
     return `${base}${normalizedPath}`
   }

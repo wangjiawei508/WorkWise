@@ -62,6 +62,34 @@ describe('DeepseekCompatModelClient', () => {
     expect(seenUrls[0]).toBe('http://8.152.204.58:3000/v1/chat/completions')
   })
 
+  it('does not duplicate /v1 when the configured base URL already includes /v3 (Volcano Coding Plan)', async () => {
+    const seenUrls: string[] = []
+    const fetchImpl: typeof fetch = async (url, _init) => {
+      seenUrls.push(String(url))
+      return new Response(JSON.stringify({
+        id: 'url-test',
+        model: 'glm-5-1',
+        choices: [{ index: 0, finish_reason: 'stop', message: { role: 'assistant', content: 'ok' } }]
+      }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' }
+      })
+    }
+    const client = new DeepseekCompatModelClient({
+      baseUrl: 'https://ark.cn-beijing.volces.com/api/coding/v3',
+      apiKey: 'ark-test',
+      model: 'glm-5-1',
+      fetchImpl,
+      nonStreaming: true
+    })
+
+    for await (const _chunk of client.stream(buildRequest(new AbortController().signal))) {
+      // drain
+    }
+
+    expect(seenUrls[0]).toBe('https://ark.cn-beijing.volces.com/api/coding/v3/chat/completions')
+  })
+
   it('maps non-streaming Responses API requests and responses', async () => {
     const seenUrls: string[] = []
     const sentBodies: Array<Record<string, unknown>> = []
