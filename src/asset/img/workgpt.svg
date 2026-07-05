@@ -39,10 +39,12 @@
   <rect width="1024" height="1024" rx="190" fill="url(#glow)"/>
   <path d="M-48 674C170 808 480 788 734 660C856 598 946 510 1080 493" stroke="#6DDCFF" stroke-opacity="0.20" stroke-width="36"/>
   <path d="M-38 715C198 850 501 826 798 680C904 628 1000 578 1090 570" stroke="#9AEFFF" stroke-opacity="0.13" stroke-width="18"/>
-  <path d="M667 120C827 167 934 300 927 466C919 659 747 772 551 774C677 733 781 643 822 520C880 346 799 197 667 120Z" fill="#002AC5" opacity="0.16"/>
-  <g filter="url(#softShadow)">
-    <path fill-rule="evenodd" clip-rule="evenodd" d="M349 172H694C797 172 858 231 858 329V513C858 611 797 670 694 670H520L359 778C339 792 311 777 314 753L324 670H330C227 670 166 611 166 513V329C166 231 227 172 349 172ZM354 250C294 250 244 298 244 357V493C244 552 294 600 354 600H382L374 660L491 600H684C744 600 781 552 781 493V357C781 298 744 250 684 250H354Z" fill="url(#white3d)"/>
-  </g>
+ <path d="M667 120C827 167 934 300 927 466C919 659 747 772 551 774C677 733 781 643 822 520C880 346 799 197 667 120Z" fill="#002AC5" opacity="0.16"/>
+ <!-- 前景内容整体缩放至 84%，为 macOS Dock 留出安全边距 -->
+ <g transform="translate(512 512) scale(0.84) translate(-512 -512)">
+ <g filter="url(#softShadow)">
+ <path fill-rule="evenodd" clip-rule="evenodd" d="M349 172H694C797 172 858 231 858 329V513C858 611 797 670 694 670H520L359 778C339 792 311 777 314 753L324 670H330C227 670 166 611 166 513V329C166 231 227 172 349 172ZM354 250C294 250 244 298 244 357V493C244 552 294 600 354 600H382L374 660L491 600H684C744 600 781 552 781 493V357C781 298 744 250 684 250H354Z" fill="url(#white3d)"/>
+ </g>
   <g filter="url(#innerW)" transform="matrix(0.885241, 0, 0, 0.885241, 59.970818, 26.923988)" style="">
     <path d="M267 336C262 321 273 305 289 305H330C341 305 351 312 355 323L402 486L469 326C474 313 486 305 500 305H525C539 305 551 314 556 327L619 486L669 323C672 312 683 305 694 305H734C751 305 762 321 757 337L667 588C663 601 651 610 637 610H603C589 610 576 601 571 588L512 437L451 588C446 601 434 610 420 610H385C371 610 359 601 355 588L267 336Z" fill="url(#wShade)"/>
     <path d="M402 486L436 405L474 524L451 588C446 601 434 610 420 610H385C371 610 359 601 355 588L402 486Z" fill="#CFE3FF" opacity="0.6"/>
@@ -51,5 +53,6 @@
   <circle cx="677" cy="572" r="16" fill="#9BEAFF" opacity="0.85"/>
   <circle cx="720" cy="572" r="16" fill="#9BEAFF" opacity="0.78"/>
   <circle cx="763" cy="572" r="16" fill="#9BEAFF" opacity="0.70"/>
-  <text x="512" y="892" text-anchor="middle" font-family="Inter, Arial, Helvetica, sans-serif" font-size="92" font-weight="800" letter-spacing="2" fill="url(#textGrad)" style="white-space: pre;">WorkWise</text>
+ <text x="512" y="892" text-anchor="middle" font-family="Inter, Arial, Helvetica, sans-serif" font-size="92" font-weight="800" letter-spacing="2" fill="url(#textGrad)" style="white-space: pre;">WorkWise</text>
+ </g>
 </svg>

@@ -1,5 +1,6 @@
 import { app, BrowserWindow } from 'electron'
-import { mkdir, readFile, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { execSync } from 'node:child_process'
 import { basename, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -61,6 +62,21 @@ function buildIco(entries) {
   return Buffer.concat([header, directory, ...entries])
 }
 
+function buildIcns(entries) {
+  const body = Buffer.concat(
+    entries.map(({ type, data }) => {
+      const entryHeader = Buffer.alloc(8)
+      entryHeader.write(type, 0, 4, 'ascii')
+      entryHeader.writeUInt32BE(data.length + 8, 4)
+      return Buffer.concat([entryHeader, data])
+    })
+  )
+  const header = Buffer.alloc(8)
+  header.write('icns', 0, 4, 'ascii')
+  header.writeUInt32BE(body.length + 8, 4)
+  return Buffer.concat([header, body])
+}
+
 async function renderPng(svgText, size) {
   const window = new BrowserWindow({
     show: false,
@@ -103,6 +119,63 @@ async function renderPng(svgText, size) {
   }
 }
 
+async function generateIcns(svgText) {
+  const icnsPath = resolve(iconDir, 'workwise.icns')
+
+  // Standard macOS icon sizes
+  const icnsSizes = [
+    { type: 'ic04', size: 16 },
+    { type: 'ic05', size: 32 },
+    { type: 'ic07', size: 128 },
+    { type: 'ic08', size: 256 },
+    { type: 'ic09', size: 512 },
+    { type: 'ic10', size: 1024 },
+    { type: 'ic11', size: 32 },
+    { type: 'ic12', size: 64 },
+    { type: 'ic13', size: 512 },
+    { type: 'ic14', size: 1024 }
+  ]
+
+  // Try using iconutil first (macOS native, produces best results)
+  const iconsetDir = resolve(iconDir, 'workwise.iconset')
+  await mkdir(iconsetDir, { recursive: true })
+
+  for (const { type, size } of icnsSizes) {
+    const png = await renderPng(svgText, size)
+    // iconutil uses Apple's naming convention
+    let filename
+    if (type === 'ic04') filename = 'icon_16x16.png'
+    else if (type === 'ic05') filename = 'icon_32x32.png'
+    else if (type === 'ic07') filename = 'icon_128x128.png'
+    else if (type === 'ic08') filename = 'icon_256x256.png'
+    else if (type === 'ic09') filename = 'icon_512x512.png'
+    else if (type === 'ic10') filename = 'icon_512x512@2x.png'
+    else if (type === 'ic11') filename = 'icon_16x16@2x.png'
+    else if (type === 'ic12') filename = 'icon_32x32@2x.png'
+    else if (type === 'ic13') filename = 'icon_256x256@2x.png'
+    else if (type === 'ic14') filename = 'icon_512x512@2x.png'
+    await writeFile(resolve(iconsetDir, filename), png)
+  }
+
+  try {
+    execSync(`iconutil -c icns "${iconsetDir}" -o "${icnsPath}"`, { stdio: 'pipe' })
+    console.log(`Generated ${icnsPath}`)
+  } catch {
+    // Fallback: build icns manually (works on non-macOS or older iconutil)
+    console.warn('[generate-icons] iconutil failed, building icns manually')
+    const icnsEntries = []
+    for (const { type, size } of icnsSizes) {
+      const png = await renderPng(svgText, size)
+      icnsEntries.push({ type, data: png })
+    }
+    await writeFile(icnsPath, buildIcns(icnsEntries))
+    console.log(`Generated ${icnsPath} (manual)`)
+  }
+
+  // Clean up iconset directory
+  await rm(iconsetDir, { recursive: true, force: true }).catch(() => {})
+}
+
 async function main() {
   await app.whenReady()
   await mkdir(iconDir, { recursive: true })
@@ -122,6 +195,8 @@ async function main() {
   }
   await writeFile(icoPath, buildIco(icoEntries))
   console.log(`Generated ${icoPath}`)
+
+  await generateIcns(svgText)
 
   app.quit()
 }
