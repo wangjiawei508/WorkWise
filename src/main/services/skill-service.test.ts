@@ -300,16 +300,21 @@ describe('skill-service', () => {
       path: 'skills/ppt-master',
       autoUpdate: true,
       overlaySkillId: 'ppt-master',
-      includePaths: [
-        'references',
+      installedSha: '3ba0fca6741adef2998ceca7e38989f822023f2d',
+      includePaths: expect.arrayContaining([
+        'SKILL.md',
+        'references/shared-standards.md',
         'workflows',
         'scripts',
         'templates/design_spec_reference.md',
         'templates/spec_lock_reference.md',
         'templates/charts',
         'templates/layouts'
-      ]
+      ])
     })
+    expect(source.includePaths).not.toContain('references/ai-image-comparison')
+    expect(source.includePaths).not.toContain('examples')
+    expect(source.includePaths).not.toContain('projects')
 
     const result = await listGuiSkills(createSettings(workspaceRoot), workspaceRoot)
 

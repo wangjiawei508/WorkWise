@@ -7,6 +7,7 @@ import {
   devServerHintUrl
 } from './settings-store'
 import workgptLogoPng from '../asset/img/workgpt.png?url'
+import workgptDockPng from '../asset/img/workgpt_dock.png?url'
 import workgptTrayPng from '../asset/img/workgpt_tray.png?url'
 import { createAppIcon, pickTrayIcon } from './app-icon'
 import { APP_PRODUCT_NAME, configureAppIdentity } from './app-identity'
@@ -267,6 +268,7 @@ function installDevPreviewWebviewGuards(): void {
 
 
 const appIcon = createAppIcon(workgptLogoPng)
+const dockIcon = createAppIcon(workgptDockPng)
 const trayIcon = createAppIcon(workgptTrayPng)
 traceStartup('app icon loaded', { source: workgptLogoPng.startsWith('data:') ? 'data-url' : 'path' })
 const gotSingleInstanceLock = runningClawScheduleMcpServer || app.requestSingleInstanceLock()
@@ -824,8 +826,9 @@ app.whenReady().then(async () => {
   installDevPreviewWebviewGuards()
   traceStartup('install webview guards:done')
 
-  if (process.platform === 'darwin' && !appIcon.isEmpty()) {
-    app.dock.setIcon(appIcon)
+  if (process.platform === 'darwin') {
+    const dockSource = dockIcon.isEmpty() ? appIcon : dockIcon
+    if (!dockSource.isEmpty()) app.dock.setIcon(dockSource)
   }
 
   store = new JsonSettingsStore(app.getPath('userData'))

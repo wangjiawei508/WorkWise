@@ -67,6 +67,12 @@ export const useWriteWorkspaceStore = create<WriteWorkspaceState>((set, get) => 
     maxTokens: DEFAULT_WRITE_INLINE_COMPLETION_MAX_TOKENS,
     longMaxTokens: DEFAULT_WRITE_INLINE_LONG_COMPLETION_MAX_TOKENS
   },
+  knowledgeBase: {
+    enabled: true,
+    mode: 'hybrid',
+    apiBaseUrl: 'https://api.railwise.cn',
+    publicBaseUrl: 'https://kb.railwise.cn'
+  },
   inlineCompletionApiReady: false,
   settingsLoading: false,
   settingsError: null,

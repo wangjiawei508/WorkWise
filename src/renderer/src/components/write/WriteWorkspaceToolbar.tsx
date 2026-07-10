@@ -1,5 +1,5 @@
 import type { ReactElement, RefObject } from 'react'
-import { ChevronDown, Copy, Download, FileCode2, FilePenLine, FolderOpen, ImagePlus, Loader2, Save, Sparkles } from 'lucide-react'
+import { BookOpenCheck, ChevronDown, Copy, Download, FileCode2, FilePenLine, FolderOpen, ImagePlus, Loader2, Presentation, Save, Sparkles } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import type { WriteExportFormat } from '@shared/write-export'
 import type { WritePreviewMode, WriteSaveStatus } from '../../write/write-workspace-store'
@@ -31,11 +31,13 @@ type Props = {
   onCopyRichText: () => void
   onExportFile: (format: WriteExportFormat) => void
   onGenerateImage: () => void
+  onGeneratePresentation: () => void
   onPickWorkspace: () => void
   onSave: () => void
   onToggleLeftSidebar: () => void
   previewMode: WritePreviewMode
   readOnly: boolean
+  knowledgeBaseEnabled: boolean
   saveLabel: string
   saveStatus: WriteSaveStatus
   setAssistantOpen: (open: boolean) => void
@@ -62,11 +64,13 @@ export function WriteWorkspaceToolbar({
   onCopyRichText,
   onExportFile,
   onGenerateImage,
+  onGeneratePresentation,
   onPickWorkspace,
   onSave,
   onToggleLeftSidebar,
   previewMode,
   readOnly,
+  knowledgeBaseEnabled,
   saveLabel,
   saveStatus,
   setAssistantOpen,
@@ -198,6 +202,23 @@ export function WriteWorkspaceToolbar({
             >
               <ImagePlus className="h-4 w-4" strokeWidth={1.85} />
             </button>
+            <button
+              type="button"
+              onClick={onGeneratePresentation}
+              disabled={!activeFilePath || !activeFileIsText}
+              className={`${toolbarIconButtonClass()} disabled:cursor-not-allowed disabled:opacity-40`}
+              title={t('writeGeneratePpt')}
+              aria-label={t('writeGeneratePpt')}
+            >
+              <Presentation className="h-4 w-4" strokeWidth={1.85} />
+            </button>
+            <span
+              className={`hidden items-center gap-1 rounded-lg px-2 py-1 text-[11px] font-semibold xl:inline-flex ${knowledgeBaseEnabled ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300' : 'bg-ds-subtle text-ds-faint'}`}
+              title={t(knowledgeBaseEnabled ? 'writeKnowledgeBaseConnected' : 'writeKnowledgeBaseDisabled')}
+            >
+              <BookOpenCheck className="h-3.5 w-3.5" strokeWidth={1.9} />
+              RailWise KB
+            </span>
             <div ref={exportMenuRef} className="relative">
               <button
                 type="button"

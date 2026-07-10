@@ -1,7 +1,7 @@
 {
   "name": "workwise",
   "productName": "WorkWise",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "description": "AI workbench for engineering, infrastructure, and operations workflows",
   "main": "./out/main/index.js",
   "type": "module",

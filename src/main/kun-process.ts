@@ -217,8 +217,13 @@ function existingNodeVersionBins(root: string, childPath: string[]): string[] {
 
 function commonMcpToolPathEntries(env: NodeJS.ProcessEnv = process.env): string[] {
   const home = homedir()
+  const managedToolsBin = join(
+    env.WORKWISE_TOOLS_ROOT?.trim() || join(home, '.workwise', 'tools'),
+    'bin'
+  )
   if (process.platform === 'win32') {
     return [
+      managedToolsBin,
       dirname(process.execPath),
       env.APPDATA ? join(env.APPDATA, 'npm') : '',
       env.LOCALAPPDATA ? join(env.LOCALAPPDATA, 'Programs', 'nodejs') : '',
@@ -228,6 +233,7 @@ function commonMcpToolPathEntries(env: NodeJS.ProcessEnv = process.env): string[
   }
 
   return [
+    managedToolsBin,
     dirname(process.execPath),
     env.NVM_BIN ?? '',
     env.PNPM_HOME ?? '',

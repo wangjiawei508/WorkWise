@@ -1,10 +1,11 @@
 import type { ReactElement } from 'react'
-import { FilePenLine, FilePlus2, FolderOpen, ListTodo, RefreshCw, Sparkles } from 'lucide-react'
+import { FilePenLine, FilePlus2, FolderOpen, ListTodo, Presentation, RefreshCw, Sparkles } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 
 export function WriteWorkspaceStart({
   onAskAssistant,
   onCreateDraft,
+  onCreatePresentation,
   onPickWorkspace,
   onRefreshWorkspace,
   workspaceName,
@@ -12,6 +13,7 @@ export function WriteWorkspaceStart({
 }: {
   onAskAssistant: () => void
   onCreateDraft: () => void
+  onCreatePresentation: () => void
   onPickWorkspace: () => void
   onRefreshWorkspace: () => void
   workspaceName: string
@@ -49,6 +51,14 @@ export function WriteWorkspaceStart({
             >
               <ListTodo className="h-4 w-4 text-emerald-600 dark:text-emerald-300" strokeWidth={1.9} />
               {t('writeStartAskAi')}
+            </button>
+            <button
+              type="button"
+              onClick={onCreatePresentation}
+              className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-xl border border-ds-border bg-white/70 px-5 text-[14px] font-semibold text-ds-ink shadow-sm transition hover:bg-white dark:bg-white/[0.055] dark:hover:bg-white/[0.08]"
+            >
+              <Presentation className="h-4 w-4 text-violet-600 dark:text-violet-300" strokeWidth={1.9} />
+              {t('writeGeneratePpt')}
             </button>
           </div>
 

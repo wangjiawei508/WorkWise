@@ -67,6 +67,7 @@ export function WriteWorkspaceView({
     activeFileKind,
     rootDirectory,
     inlineCompletion,
+    knowledgeBase,
     inlineCompletionApiReady,
     fileContent,
     imageDataUrl,
@@ -168,6 +169,26 @@ export function WriteWorkspaceView({
   const setAssistantPrompt = (prompt: string): void => {
     setAssistantOpen(true)
     setInput(input.trim() ? `${input.trim()}\n\n${prompt}` : prompt)
+  }
+
+  const preparePptMaster = async (): Promise<void> => {
+    if (typeof window.workgpt?.installBundledSkill !== 'function') {
+      setFileError(t('writePptMasterUnavailable'))
+      return
+    }
+    const result = await window.workgpt.installBundledSkill('~/.workwise/tools/skills', {
+      id: 'ppt-master',
+      skillName: 'ppt-master'
+    })
+    if (!result.ok) {
+      setFileError(result.message)
+      return
+    }
+    const documentRef = activeFilePath
+      ? `@${writeRelativeToWorkspace(workspaceRoot, activeFilePath)}`
+      : t('writePptWorkspaceReference', { workspace: workspaceName })
+    setAssistantPrompt(t('writePptMasterPrompt', { document: documentRef }))
+    showExportNotice({ tone: 'success', message: t('writePptMasterReady') })
   }
 
   const submitInlineAgent = (prompt: string): void => {
@@ -641,6 +662,8 @@ export function WriteWorkspaceView({
         onCopyRichText={() => void copyCurrentFileAsRichText()}
         onExportFile={(format) => void exportCurrentFile(format)}
         onGenerateImage={() => setAgnesImageDialogOpen(true)}
+        onGeneratePresentation={() => void preparePptMaster()}
+        knowledgeBaseEnabled={knowledgeBase.enabled}
         onPickWorkspace={() => void pickWriteWorkspace()}
         onSave={() => {
           if (saveTimerRef.current) window.clearTimeout(saveTimerRef.current)
@@ -679,6 +702,7 @@ export function WriteWorkspaceView({
             previewPaneRef={previewPaneRef}
             onAskAssistant={() => setAssistantPrompt(t('writeStartAskAiPrompt'))}
             onCreateDraft={() => void createDraftFile()}
+            onCreatePresentation={() => void preparePptMaster()}
             onPickWorkspace={() => void pickWriteWorkspace()}
             onRefreshWorkspace={() => void refreshWorkspace(workspaceRoot)}
             onContentChange={setFileContent}

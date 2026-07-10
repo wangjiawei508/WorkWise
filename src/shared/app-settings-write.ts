@@ -7,9 +7,12 @@ import {
   DEFAULT_WRITE_INLINE_LONG_COMPLETION_DEBOUNCE_MS,
   DEFAULT_WRITE_INLINE_LONG_COMPLETION_MAX_TOKENS,
   DEFAULT_WRITE_INLINE_LONG_COMPLETION_MIN_ACCEPT_SCORE,
+  DEFAULT_WRITE_KNOWLEDGE_API_BASE_URL,
+  DEFAULT_WRITE_KNOWLEDGE_PUBLIC_BASE_URL,
   DEFAULT_WRITE_WORKSPACE_ROOT,
   type AppSettingsV1,
   type WriteInlineCompletionSettingsV1,
+  type WriteKnowledgeBaseSettingsV1,
   type WriteSettingsPatchV1,
   type WriteSettingsV1
 } from './app-settings-types'
@@ -36,7 +39,29 @@ export function defaultWriteSettings(): WriteSettingsV1 {
       longMinAcceptScore: DEFAULT_WRITE_INLINE_LONG_COMPLETION_MIN_ACCEPT_SCORE,
       maxTokens: DEFAULT_WRITE_INLINE_COMPLETION_MAX_TOKENS,
       longMaxTokens: DEFAULT_WRITE_INLINE_LONG_COMPLETION_MAX_TOKENS
+    },
+    knowledgeBase: {
+      enabled: true,
+      mode: 'hybrid',
+      apiBaseUrl: DEFAULT_WRITE_KNOWLEDGE_API_BASE_URL,
+      publicBaseUrl: DEFAULT_WRITE_KNOWLEDGE_PUBLIC_BASE_URL
     }
+  }
+}
+
+function normalizeWriteKnowledgeBaseSettings(
+  input: Partial<WriteKnowledgeBaseSettingsV1> | undefined
+): WriteKnowledgeBaseSettingsV1 {
+  const defaults = defaultWriteSettings().knowledgeBase
+  return {
+    enabled: input?.enabled !== false,
+    mode: 'hybrid',
+    apiBaseUrl: typeof input?.apiBaseUrl === 'string' && input.apiBaseUrl.trim()
+      ? input.apiBaseUrl.trim().replace(/\/+$/, '')
+      : defaults.apiBaseUrl,
+    publicBaseUrl: typeof input?.publicBaseUrl === 'string' && input.publicBaseUrl.trim()
+      ? input.publicBaseUrl.trim().replace(/\/+$/, '')
+      : defaults.publicBaseUrl
   }
 }
 
@@ -155,7 +180,8 @@ export function normalizeWriteSettings(input: WriteSettingsPatchV1 | undefined):
     defaultWorkspaceRoot,
     activeWorkspaceRoot,
     workspaces: workspaces.length > 0 ? workspaces : [defaultWorkspaceRoot],
-    inlineCompletion: normalizeWriteInlineCompletionSettings(source.inlineCompletion)
+    inlineCompletion: normalizeWriteInlineCompletionSettings(source.inlineCompletion),
+    knowledgeBase: normalizeWriteKnowledgeBaseSettings(source.knowledgeBase)
   }
 }
 
@@ -164,6 +190,7 @@ export function mergeWriteSettings(
   patch: WriteSettingsPatchV1 | undefined
 ): WriteSettingsV1 {
   const inlinePatch = patch?.inlineCompletion ?? {}
+  const knowledgeBasePatch = patch?.knowledgeBase ?? {}
   const nextInlineCompletion: Partial<WriteInlineCompletionSettingsV1> = {
     ...current.inlineCompletion,
     ...inlinePatch
@@ -176,6 +203,10 @@ export function mergeWriteSettings(
   return normalizeWriteSettings({
     ...current,
     ...(patch ?? {}),
-    inlineCompletion: nextInlineCompletion
+    inlineCompletion: nextInlineCompletion,
+    knowledgeBase: {
+      ...current.knowledgeBase,
+      ...knowledgeBasePatch
+    }
   })
 }

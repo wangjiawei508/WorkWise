@@ -129,7 +129,8 @@ function normalizeStoredSettings(settings: AppSettingsV1): AppSettingsV1 {
       defaultWorkspaceRoot: writeDefaultRoot,
       activeWorkspaceRoot: writeWorkspaces.includes(writeActiveRoot) ? writeActiveRoot : writeDefaultRoot,
       workspaces: writeWorkspaces.length > 0 ? writeWorkspaces : [writeDefaultRoot],
-      inlineCompletion: normalized.write.inlineCompletion
+      inlineCompletion: normalized.write.inlineCompletion,
+      knowledgeBase: normalized.write.knowledgeBase
     },
     claw: {
       ...normalized.claw,

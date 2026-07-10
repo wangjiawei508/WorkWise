@@ -39,6 +39,7 @@ import {
   githubSkillSyncPayloadSchema,
   guiUpdateChannelSchema,
   logErrorPayloadSchema,
+  managedToolIdSchema,
   notificationPayloadSchema,
   openEditorPathPayloadSchema,
   rootPathSchema,
@@ -91,6 +92,9 @@ import {
   listWriteInlineCompletionDebugEntries,
   requestWriteInlineCompletion
 } from '../services/write-inline-completion-service'
+import {
+  refreshWriteKnowledgeBase
+} from '../services/write-knowledge-service'
 import { copyWriteDocumentAsRichText, exportWriteDocument } from '../services/write-export-service'
 import { generateAgnesImage } from '../services/write-agnes-image-service'
 import {
@@ -100,6 +104,13 @@ import {
   syncGithubManagedSkills
 } from '../services/skill-service'
 import { installBundledAgentPack } from '../services/agent-pack-service'
+import {
+  diagnoseManagedTool,
+  installManagedTool,
+  listManagedTools,
+  removeManagedTool,
+  updateManagedTool
+} from '../services/managed-tool-service'
 
 type GuiUpdaterModule = typeof import('../gui-updater')
 
@@ -557,6 +568,16 @@ export function registerAppIpcHandlers(options: RegisterAppIpcHandlersOptions): 
     }
   })
 
+  ipcMain.handle('tool:list-managed', () => listManagedTools())
+  ipcMain.handle('tool:install-managed', (_, value: unknown) =>
+    installManagedTool(parseIpcPayload('tool:install-managed', managedToolIdSchema, value)))
+  ipcMain.handle('tool:update-managed', (_, value: unknown) =>
+    updateManagedTool(parseIpcPayload('tool:update-managed', managedToolIdSchema, value)))
+  ipcMain.handle('tool:diagnose-managed', (_, value: unknown) =>
+    diagnoseManagedTool(parseIpcPayload('tool:diagnose-managed', managedToolIdSchema, value)))
+  ipcMain.handle('tool:remove-managed', (_, value: unknown) =>
+    removeManagedTool(parseIpcPayload('tool:remove-managed', managedToolIdSchema, value)))
+
   ipcMain.handle('deepseek:config:read', async () => {
     const path = resolveKunConfigPath()
     try {
@@ -767,6 +788,14 @@ export function registerAppIpcHandlers(options: RegisterAppIpcHandlersOptions): 
   ipcMain.handle('write:inline-completion-debug:clear', async () => {
     clearWriteInlineCompletionDebugEntries()
     return true
+  })
+  ipcMain.handle('write:knowledge-base:status', async () => {
+    const settings = await store.load()
+    return refreshWriteKnowledgeBase(settings.write.knowledgeBase)
+  })
+  ipcMain.handle('write:knowledge-base:refresh', async () => {
+    const settings = await store.load()
+    return refreshWriteKnowledgeBase(settings.write.knowledgeBase)
   })
   ipcMain.handle('desktop:command', async (event, command: unknown) => {
     runDesktopCommand(
