@@ -1,4 +1,4 @@
-import type { WriteInlineCompletionSettingsV1 } from '@shared/app-settings'
+import type { WriteInlineCompletionSettingsV1, WriteKnowledgeBaseSettingsV1 } from '@shared/app-settings'
 import type { WorkspaceEntry } from '@shared/workspace-file'
 import type { WriteEditorSelectionState } from '../components/write/WriteMarkdownEditor'
 import type { WriteQuotedSelection } from './quoted-selection'
@@ -12,6 +12,7 @@ export type WriteWorkspaceState = {
   defaultWorkspaceRoot: string
   workspaceRoots: string[]
   inlineCompletion: WriteInlineCompletionSettingsV1
+  knowledgeBase: WriteKnowledgeBaseSettingsV1
   inlineCompletionApiReady: boolean
   /** True when the image generation provider is fully configured (enables 生成信息图). */
   imageGenReady: boolean

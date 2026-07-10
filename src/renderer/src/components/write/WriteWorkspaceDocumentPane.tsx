@@ -44,6 +44,7 @@ type Props = {
   previewPaneRef: RefObject<HTMLDivElement | null>
   onAskAssistant: () => void
   onCreateDraft: () => void
+  onCreatePresentation: () => void
   onPickWorkspace: () => void
   onRefreshWorkspace: () => void
   onContentChange: (content: string) => void
@@ -85,6 +86,7 @@ export function WriteWorkspaceDocumentPane({
   previewPaneRef,
   onAskAssistant,
   onCreateDraft,
+  onCreatePresentation,
   onPickWorkspace,
   onRefreshWorkspace,
   onContentChange,
@@ -103,6 +105,7 @@ export function WriteWorkspaceDocumentPane({
         workspacePathLabel={workspacePathLabel}
         onAskAssistant={onAskAssistant}
         onCreateDraft={onCreateDraft}
+        onCreatePresentation={onCreatePresentation}
         onPickWorkspace={onPickWorkspace}
         onRefreshWorkspace={onRefreshWorkspace}
       />

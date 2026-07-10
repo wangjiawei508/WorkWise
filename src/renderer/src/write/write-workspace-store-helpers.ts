@@ -6,6 +6,8 @@ import {
   DEFAULT_WRITE_INLINE_LONG_COMPLETION_DEBOUNCE_MS,
   DEFAULT_WRITE_INLINE_LONG_COMPLETION_MAX_TOKENS,
   DEFAULT_WRITE_INLINE_LONG_COMPLETION_MIN_ACCEPT_SCORE,
+  DEFAULT_WRITE_KNOWLEDGE_API_BASE_URL,
+  DEFAULT_WRITE_KNOWLEDGE_PUBLIC_BASE_URL,
   DEFAULT_WRITE_WORKSPACE_ROOT,
   normalizeWriteInlineCompletionModel,
   resolveWriteInlineCompletionApiKey,
@@ -13,6 +15,7 @@ import {
   resolveWriteInlineCompletionModel,
   type AppSettingsV1,
   type WriteInlineCompletionSettingsV1,
+  type WriteKnowledgeBaseSettingsV1,
   type WriteSettingsV1
 } from '@shared/app-settings'
 import type { WorkspaceEntry } from '@shared/workspace-file'
@@ -79,6 +82,7 @@ export function normalizeWriteSettings(settings?: Partial<WriteSettingsV1> | nul
   activeWorkspaceRoot: string
   workspaces: string[]
   inlineCompletion: WriteInlineCompletionSettingsV1
+  knowledgeBase: WriteKnowledgeBaseSettingsV1
 } {
   const defaultWorkspaceRoot = normalizePath(settings?.defaultWorkspaceRoot || DEFAULT_WRITE_WORKSPACE_ROOT)
   const activeWorkspaceRoot = normalizePath(settings?.activeWorkspaceRoot || defaultWorkspaceRoot)
@@ -88,6 +92,7 @@ export function normalizeWriteSettings(settings?: Partial<WriteSettingsV1> | nul
     ...(Array.isArray(settings?.workspaces) ? settings.workspaces : [])
   ])
   const rawInlineCompletion = (settings?.inlineCompletion ?? {}) as Partial<WriteInlineCompletionSettingsV1>
+  const rawKnowledgeBase = (settings?.knowledgeBase ?? {}) as Partial<WriteKnowledgeBaseSettingsV1>
   const debounceMs = Number(rawInlineCompletion.debounceMs)
   const longDebounceMs = Number(rawInlineCompletion.longDebounceMs)
   const minAcceptScore = Number(rawInlineCompletion.minAcceptScore)
@@ -100,6 +105,12 @@ export function normalizeWriteSettings(settings?: Partial<WriteSettingsV1> | nul
     defaultWorkspaceRoot,
     activeWorkspaceRoot: workspaces.includes(activeWorkspaceRoot) ? activeWorkspaceRoot : defaultWorkspaceRoot,
     workspaces: workspaces.length > 0 ? workspaces : [defaultWorkspaceRoot],
+    knowledgeBase: {
+      enabled: rawKnowledgeBase.enabled !== false,
+      mode: 'hybrid',
+      apiBaseUrl: rawKnowledgeBase.apiBaseUrl?.trim() || DEFAULT_WRITE_KNOWLEDGE_API_BASE_URL,
+      publicBaseUrl: rawKnowledgeBase.publicBaseUrl?.trim() || DEFAULT_WRITE_KNOWLEDGE_PUBLIC_BASE_URL
+    },
     inlineCompletion: {
       enabled: rawInlineCompletion.enabled !== false,
       retrievalEnabled: rawInlineCompletion.retrievalEnabled !== false,
@@ -142,6 +153,7 @@ export function withResolvedInlineCompletionSettings(
     activeWorkspaceRoot: string
     workspaces: string[]
     inlineCompletion: WriteInlineCompletionSettingsV1
+    knowledgeBase: WriteKnowledgeBaseSettingsV1
   },
   settings: Pick<AppSettingsV1, 'provider' | 'agents' | 'write'>
 ): {
@@ -149,6 +161,7 @@ export function withResolvedInlineCompletionSettings(
   activeWorkspaceRoot: string
   workspaces: string[]
   inlineCompletion: WriteInlineCompletionSettingsV1
+  knowledgeBase: WriteKnowledgeBaseSettingsV1
 } {
   return {
     ...write,

@@ -25,8 +25,13 @@ import {
   retrieveWriteInlineCompletionContext,
   type WriteRetrievalContext
 } from './write-retrieval-service'
+import {
+  retrieveWriteKnowledgeContext,
+  type WriteKnowledgeContext
+} from './write-knowledge-service'
 
 const INLINE_COMPLETION_TIMEOUT_MS = 12_000
+const KNOWLEDGE_LOOKUP_BUDGET_MS = 1_500
 const MAX_INLINE_COMPLETION_DEBUG_ENTRIES = 120
 const MAX_DEBUG_TEXT_CHARS = 80_000
 const INPUT_BOUNDARY_MARKERS = ['PREFIX', 'SUFFIX', 'EDIT_SCOPE'] as const
@@ -131,6 +136,23 @@ function resolveModel(request: WriteInlineCompletionRequest, settings: AppSettin
 function resolveMode(request: WriteInlineCompletionRequest): WriteInlineCompletionMode {
   if (request.mode === 'edit') return 'edit'
   return request.mode === 'long' ? 'long' : 'short'
+}
+
+async function withinKnowledgeBudget(
+  request: WriteInlineCompletionRequest,
+  settings: AppSettingsV1['write']['knowledgeBase']
+): Promise<WriteKnowledgeContext | null> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  try {
+    return await Promise.race([
+      retrieveWriteKnowledgeContext(request, settings).catch(() => null),
+      new Promise<null>((resolve) => {
+        timer = setTimeout(() => resolve(null), KNOWLEDGE_LOOKUP_BUDGET_MS)
+      })
+    ])
+  } finally {
+    if (timer) clearTimeout(timer)
+  }
 }
 
 function flattenMessageContent(
@@ -292,9 +314,27 @@ function buildRetrievalPromptBlock(
   return lines
 }
 
+function buildKnowledgePromptBlock(knowledge: WriteKnowledgeContext): string[] {
+  const lines = [
+    '',
+    'Public RailWise knowledge references.',
+    'Use these references only when relevant. When using a factual claim, preserve its Markdown source link.',
+    'Standards, thresholds, and monitoring frequencies require human verification.',
+    `Knowledge source: ${knowledge.source}; query keywords: ${knowledge.keywords.join(', ')}.`
+  ]
+  knowledge.snippets.forEach((snippet, index) => {
+    lines.push('')
+    lines.push(`[RailWise ${index + 1}] ${sanitizePromptLine(snippet.title)}`)
+    lines.push(`Source: [${sanitizePromptLine(snippet.title)}](${sanitizePromptLine(snippet.url)})`)
+    lines.push(sanitizePromptLine(snippet.text))
+  })
+  return lines
+}
+
 export function buildWriteInlineCompletionPrompt(
   request: WriteInlineCompletionRequest,
-  retrieval: WriteRetrievalContext | null = null
+  retrieval: WriteRetrievalContext | null = null,
+  knowledge: WriteKnowledgeContext | null = null
 ): string {
   const mode = resolveMode(request)
   const lines = [
@@ -322,6 +362,7 @@ export function buildWriteInlineCompletionPrompt(
     `Signals: ${JSON.stringify(request.context.signals)}`,
     ...buildRecentEditsPromptBlock(request.recentEdits),
     ...(retrieval?.snippets.length ? buildRetrievalPromptBlock(retrieval, mode) : []),
+    ...(knowledge?.snippets.length ? buildKnowledgePromptBlock(knowledge) : []),
     ...buildMarkedContextBlocks(request),
     'For the FIM engine, the raw prefix also follows this instruction block.',
     '-->',
@@ -336,7 +377,8 @@ function buildChatPromptSection(marker: string, text = ''): string {
 
 export function buildWriteInlineCompletionChatMessages(
   request: WriteInlineCompletionRequest,
-  retrieval: WriteRetrievalContext | null = null
+  retrieval: WriteRetrievalContext | null = null,
+  knowledge: WriteKnowledgeContext | null = null
 ): ChatCompletionMessage[] {
   const mode = resolveMode(request)
   const userLines = [
@@ -364,6 +406,7 @@ export function buildWriteInlineCompletionChatMessages(
     ...buildRecentEditsPromptBlock(request.recentEdits),
     ...buildEditCandidatePromptBlock(request),
     ...(retrieval?.snippets.length ? buildRetrievalPromptBlock(retrieval, mode) : []),
+    ...(knowledge?.snippets.length ? buildKnowledgePromptBlock(knowledge) : []),
     '',
     buildChatPromptSection('PREFIX', request.prefix),
     buildChatPromptSection('SUFFIX', request.suffix)
@@ -739,7 +782,7 @@ export async function requestWriteInlineCompletion(
     : buildWriteInlineCompletionChatMessages(request, retrieval)
   const prompt = messages
     ? debugPromptFromMessages(messages)
-    : buildWriteInlineCompletionPrompt(request, retrieval)
+    : buildWriteInlineCompletionPrompt(request, retrieval, knowledge)
   const debugBase = {
     id: randomUUID(),
     createdAt: new Date(startedAt).toISOString(),
@@ -748,7 +791,7 @@ export async function requestWriteInlineCompletion(
     currentFilePath: request.currentFilePath,
     prompt,
     suffix: request.suffix,
-    referenceCount: retrieval?.snippets.length ?? 0,
+    referenceCount: (retrieval?.snippets.length ?? 0) + (knowledge?.snippets.length ?? 0),
     recentEditCount: request.recentEdits?.length ?? 0,
     promptChars: prompt.length,
     suffixChars: request.suffix.length

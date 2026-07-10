@@ -323,7 +323,13 @@ const writeSettingsPatchSchema = z.object({
   defaultWorkspaceRoot: defaultPathSchema,
   activeWorkspaceRoot: defaultPathSchema,
   workspaces: z.array(trimmedString(MAX_PATH_LENGTH)).max(256).optional(),
-  inlineCompletion: writeInlineCompletionPatchSchema.optional()
+  inlineCompletion: writeInlineCompletionPatchSchema.optional(),
+  knowledgeBase: z.object({
+    enabled: z.boolean().optional(),
+    mode: z.literal('hybrid').optional(),
+    apiBaseUrl: z.string().trim().max(MAX_URL_LENGTH).optional(),
+    publicBaseUrl: z.string().trim().max(MAX_URL_LENGTH).optional()
+  }).strict().optional()
 }).strict()
 
 const clawSkillPatchSchema = z.object({
@@ -580,6 +586,8 @@ export const bundledAgentPackInstallPayloadSchema = z.object({
 export const githubSkillSyncPayloadSchema = z.object({
   workspaceRoot: z.string().trim().max(MAX_PATH_LENGTH).optional()
 }).strict()
+
+export const managedToolIdSchema = z.enum(['lark-cli', 'officecli', 'ego-browser'])
 
 export const skillListPayloadSchema = z
   .object({

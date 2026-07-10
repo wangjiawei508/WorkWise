@@ -871,8 +871,9 @@ app.whenReady().then(async () => {
   installDevPreviewWebviewGuards()
   traceStartup('install webview guards:done')
 
-  if (process.platform === 'darwin' && !appIcon.isEmpty()) {
-    app.dock.setIcon(appIcon)
+  if (process.platform === 'darwin') {
+    const dockSource = dockIcon.isEmpty() ? appIcon : dockIcon
+    if (!dockSource.isEmpty()) app.dock.setIcon(dockSource)
   }
 
   store = new JsonSettingsStore(app.getPath('userData'))

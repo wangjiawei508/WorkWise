@@ -128,6 +128,67 @@ export function WriteSettingsSection({ ctx }: { ctx: Record<string, any> }): Rea
                 />
               </SettingsCard>
 
+              <SettingsCard title={t('writeKnowledgeBaseTitle')} className="mt-5">
+                <SettingRow
+                  title={t('writeKnowledgeBaseEnabled')}
+                  description={t('writeKnowledgeBaseEnabledDesc')}
+                  control={
+                    <Toggle
+                      checked={form.write.knowledgeBase.enabled}
+                      onChange={(enabled) => update({ write: { knowledgeBase: { enabled } } })}
+                    />
+                  }
+                />
+                <SettingRow
+                  title={t('writeKnowledgeBaseMode')}
+                  description={t('writeKnowledgeBaseModeDesc')}
+                  control={
+                    <span className="rounded-lg bg-emerald-500/10 px-3 py-1.5 text-[12px] font-semibold text-emerald-700 dark:text-emerald-300">
+                      {t('writeKnowledgeBaseHybrid')}
+                    </span>
+                  }
+                />
+                <SettingRow
+                  title={t('writeKnowledgeBaseSource')}
+                  description={t('writeKnowledgeBaseSourceDesc')}
+                  control={
+                    <div className="flex flex-col items-end gap-2">
+                      <div className="flex flex-wrap justify-end gap-2">
+                        <button
+                          type="button"
+                          onClick={() => void refreshKnowledgeBase()}
+                          disabled={knowledgeRefreshing || !form.write.knowledgeBase.enabled}
+                          className="inline-flex items-center gap-2 rounded-xl border border-ds-border bg-ds-card px-3 py-2 text-[13px] font-medium text-ds-ink shadow-sm transition hover:bg-ds-hover disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          <RefreshCw className={`h-4 w-4 ${knowledgeRefreshing ? 'animate-spin' : ''}`} strokeWidth={1.75} />
+                          {t('writeKnowledgeBaseRefresh')}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => void window.workgpt.openExternal(form.write.knowledgeBase.publicBaseUrl)}
+                          className="inline-flex items-center gap-2 rounded-xl border border-ds-border bg-ds-card px-3 py-2 text-[13px] font-medium text-ds-ink shadow-sm transition hover:bg-ds-hover"
+                        >
+                          <ExternalLink className="h-4 w-4" strokeWidth={1.75} />
+                          kb.railwise.cn
+                        </button>
+                      </div>
+                      <span className="text-right text-[12px] text-ds-muted">
+                        {knowledgeStatus
+                          ? t(`writeKnowledgeBaseStatus_${knowledgeStatus.state}`, {
+                              time: knowledgeStatus.lastUpdated
+                                ? new Date(knowledgeStatus.lastUpdated).toLocaleString()
+                                : t('writeKnowledgeBaseNever')
+                            })
+                          : t('writeKnowledgeBaseChecking')}
+                      </span>
+                    </div>
+                  }
+                />
+                <div className="px-3 py-3 text-[12.5px] leading-5 text-ds-muted">
+                  {t('writeKnowledgeBasePrivacy')}
+                </div>
+              </SettingsCard>
+
               <SettingsCard title={t('writeInlineCompletion')} className="mt-5">
                 <SettingRow
                   title={t('writeInlineCompletionEnabled')}

@@ -28,6 +28,7 @@ function applyWriteSettingsState(
     defaultWorkspaceRoot: write.defaultWorkspaceRoot,
     workspaceRoots: write.workspaces,
     inlineCompletion: write.inlineCompletion,
+    knowledgeBase: write.knowledgeBase,
     inlineCompletionApiReady: Boolean(resolveWriteInlineCompletionApiKey(settings).trim()),
     imageGenReady: Boolean(
       imageGeneration?.enabled &&

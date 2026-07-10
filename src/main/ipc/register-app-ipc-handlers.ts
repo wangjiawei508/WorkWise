@@ -41,6 +41,7 @@ import {
   githubSkillSyncPayloadSchema,
   guiUpdateChannelSchema,
   logErrorPayloadSchema,
+  managedToolIdSchema,
   notificationPayloadSchema,
   openEditorPathPayloadSchema,
   rootPathSchema,
@@ -106,6 +107,13 @@ import {
   syncGithubManagedSkills
 } from '../services/skill-service'
 import { installBundledAgentPack } from '../services/agent-pack-service'
+import {
+  diagnoseManagedTool,
+  installManagedTool,
+  listManagedTools,
+  removeManagedTool,
+  updateManagedTool
+} from '../services/managed-tool-service'
 
 type GuiUpdaterModule = typeof import('../gui-updater')
 
@@ -868,6 +876,14 @@ export function registerAppIpcHandlers(options: RegisterAppIpcHandlersOptions): 
   ipcMain.handle('write:inline-completion-debug:clear', async () => {
     clearWriteInlineCompletionDebugEntries()
     return true
+  })
+  ipcMain.handle('write:knowledge-base:status', async () => {
+    const settings = await store.load()
+    return refreshWriteKnowledgeBase(settings.write.knowledgeBase)
+  })
+  ipcMain.handle('write:knowledge-base:refresh', async () => {
+    const settings = await store.load()
+    return refreshWriteKnowledgeBase(settings.write.knowledgeBase)
   })
   ipcMain.handle('desktop:command', async (event, command: unknown) => {
     runDesktopCommand(

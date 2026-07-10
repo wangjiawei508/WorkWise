@@ -121,6 +121,37 @@ export type BundledAgentPackInstallResult =
       counts: Record<string, number>
     }
   | { ok: false; message: string }
+
+export type ManagedToolId = 'lark-cli' | 'officecli' | 'ego-browser'
+export type ManagedToolState =
+  | 'not_installed'
+  | 'downloading'
+  | 'installed'
+  | 'needs_login'
+  | 'needs_external_app'
+  | 'update_available'
+  | 'error'
+export type ManagedToolStatus = {
+  id: ManagedToolId
+  state: ManagedToolState
+  installedVersion?: string
+  latestVersion?: string
+  executablePath?: string
+  message?: string
+  externalUrl?: string
+}
+export type ManagedToolResult =
+  | { ok: true; status: ManagedToolStatus }
+  | { ok: false; message: string }
+export type ManagedToolListResult =
+  | { ok: true; tools: ManagedToolStatus[] }
+  | { ok: false; message: string }
+export type WriteKnowledgeBaseStatus = {
+  state: 'api' | 'static' | 'stale_cache' | 'offline' | 'disabled'
+  lastUpdated?: string
+  referenceCount: number
+  message?: string
+}
 export type SkillListItem = {
   id: string
   name: string
@@ -217,6 +248,11 @@ export type KunGuiApi = {
   installBundledSkill: (rootPath: string, source: BundledSkillSource) => Promise<BundledSkillInstallResult>
   installBundledAgentPack: (source: BundledAgentPackSource) => Promise<BundledAgentPackInstallResult>
   syncGithubSkills: (workspaceRoot?: string) => Promise<GithubSkillSyncResult>
+  listManagedTools: () => Promise<ManagedToolListResult>
+  installManagedTool: (id: ManagedToolId) => Promise<ManagedToolResult>
+  updateManagedTool: (id: ManagedToolId) => Promise<ManagedToolResult>
+  diagnoseManagedTool: (id: ManagedToolId) => Promise<ManagedToolResult>
+  removeManagedTool: (id: ManagedToolId) => Promise<ManagedToolResult>
   openSkillRoot: (rootPath: string) => Promise<PathOpenResult>
   getKunConfigFile: () => Promise<DeepseekConfigFileResult>
   setKunConfigFile: (content: string) => Promise<DeepseekConfigSaveResult>
@@ -257,6 +293,8 @@ export type KunGuiApi = {
   ) => Promise<WriteInfographicResult>
   listWriteInlineCompletionDebugEntries: () => Promise<WriteInlineCompletionDebugEntry[]>
   clearWriteInlineCompletionDebugEntries: () => Promise<boolean>
+  getWriteKnowledgeBaseStatus: () => Promise<WriteKnowledgeBaseStatus>
+  refreshWriteKnowledgeBase: () => Promise<WriteKnowledgeBaseStatus>
   exportWriteDocument: (payload: WriteExportPayload) => Promise<WriteExportResult>
   copyWriteDocumentAsRichText: (
     payload: WriteRichClipboardPayload

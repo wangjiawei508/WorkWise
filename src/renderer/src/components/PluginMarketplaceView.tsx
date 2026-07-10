@@ -36,7 +36,7 @@ import {
   type McpMarketplaceOverlayStatus
 } from './plugin-marketplace-runtime'
 
-type PluginKind = 'mcp' | 'skill'
+type PluginKind = 'mcp' | 'skill' | 'cli'
 type PluginFilter = 'all' | 'recommended' | 'installed'
 type NoticeTone = 'success' | 'error' | 'info'
 
@@ -67,6 +67,8 @@ type MarketplaceItem = {
   bundledSkill?: BundledSkillSource
   bundledAgentPack?: BundledAgentPackSource
   bundledAgentPackSkillIds?: string[]
+  managedToolId?: ManagedToolId
+  externalOnly?: boolean
 }
 
 type JsonRecord = Record<string, unknown>
@@ -94,6 +96,11 @@ function loadInstalledPlugins(): string[] {
 
 function saveInstalledPlugins(ids: string[]): void {
   writeBrowserStorageItem(INSTALLED_STORAGE_KEY, JSON.stringify([...new Set(ids)]))
+}
+
+function loadActiveKind(): PluginKind {
+  const value = readBrowserStorageItem(ACTIVE_KIND_STORAGE_KEY)
+  return value === 'mcp' || value === 'cli' || value === 'skill' ? value : 'skill'
 }
 
 function storageKey(kind: PluginKind, id: string): string {
@@ -854,6 +861,53 @@ const RECOMMENDED_ITEMS: MarketplaceItem[] = [
     }
   },
   {
+    id: 'agent-reach',
+    kind: 'skill',
+    titleKey: 'pluginSkillAgentReachTitle',
+    descriptionKey: 'pluginSkillAgentReachDesc',
+    detailKey: 'pluginSkillAgentReachDetail',
+    sourceUrl: 'https://github.com/Panniantong/Agent-Reach',
+    group: 'recommended',
+    sourceLabelKey: 'pluginSkillSourceGitHub',
+    githubSkill: {
+      owner: 'Panniantong',
+      repo: 'Agent-Reach',
+      path: 'agent_reach/skill',
+      skillName: 'agent-reach',
+      autoUpdate: true
+    }
+  },
+  {
+    id: 'ian-xiaohei-illustrations',
+    kind: 'skill',
+    titleKey: 'pluginSkillIanTitle',
+    descriptionKey: 'pluginSkillIanDesc',
+    detailKey: 'pluginSkillIanDetail',
+    sourceUrl: 'https://github.com/helloianneo/ian-xiaohei-illustrations',
+    group: 'recommended',
+    sourceLabelKey: 'pluginSkillSourceGitHub',
+    githubSkill: {
+      owner: 'helloianneo',
+      repo: 'ian-xiaohei-illustrations',
+      path: 'ian-xiaohei-illustrations',
+      skillName: 'ian-xiaohei-illustrations',
+      autoUpdate: true,
+      includePaths: ['SKILL.md', 'agents', 'references']
+    }
+  },
+  {
+    id: 'guizang-material-illustration',
+    kind: 'skill',
+    titleKey: 'pluginSkillGuizangTitle',
+    descriptionKey: 'pluginSkillGuizangDesc',
+    detailKey: 'pluginSkillGuizangDetail',
+    sourceUrl: 'https://github.com/op7418/guizang-material-illustration',
+    group: 'recommended',
+    sourceLabelKey: 'pluginExternalOnly',
+    statusTone: 'warning',
+    externalOnly: true
+  },
+  {
     id: 'chatgpt-comparison-detection',
     kind: 'skill',
     titleKey: 'pluginSkillWritingDetectionTitle',
@@ -992,13 +1046,50 @@ const RECOMMENDED_ITEMS: MarketplaceItem[] = [
     group: 'recommended',
     skillInstructions:
       'Use this skill when shaping product requirements. Define users, jobs-to-be-done, non-goals, workflows, edge cases, metrics, rollout, and acceptance criteria in implementation-ready language.'
+  },
+  {
+    id: 'lark-cli',
+    kind: 'cli',
+    titleKey: 'pluginCliLarkTitle',
+    descriptionKey: 'pluginCliLarkDesc',
+    detailKey: 'pluginCliLarkDetail',
+    sourceUrl: 'https://github.com/larksuite/cli',
+    sourceLabelKey: 'pluginCliManaged',
+    group: 'recommended',
+    managedToolId: 'lark-cli',
+    reconfigurable: true
+  },
+  {
+    id: 'officecli',
+    kind: 'cli',
+    titleKey: 'pluginCliOfficeTitle',
+    descriptionKey: 'pluginCliOfficeDesc',
+    detailKey: 'pluginCliOfficeDetail',
+    sourceUrl: 'https://github.com/iOfficeAI/OfficeCLI',
+    sourceLabelKey: 'pluginCliManaged',
+    group: 'recommended',
+    managedToolId: 'officecli',
+    reconfigurable: true
+  },
+  {
+    id: 'ego-browser',
+    kind: 'cli',
+    titleKey: 'pluginCliEgoTitle',
+    descriptionKey: 'pluginCliEgoDesc',
+    detailKey: 'pluginCliEgoDetail',
+    sourceUrl: 'https://github.com/citrolabs/ego-lite',
+    sourceLabelKey: 'pluginCliExternalApp',
+    statusTone: 'warning',
+    group: 'recommended',
+    managedToolId: 'ego-browser',
+    reconfigurable: true
   }
 ]
 
 export function PluginMarketplaceView(): ReactElement {
   const { t } = useTranslation('common')
   const workspaceRoot = normalizeWorkspaceRoot(useChatStore((s) => s.workspaceRoot))
-  const [activeKind, setActiveKind] = useState<PluginKind>('mcp')
+  const [activeKind, setActiveKind] = useState<PluginKind>(() => loadActiveKind())
   const [query, setQuery] = useState('')
   const [filter, setFilter] = useState<PluginFilter>('all')
   const [installed, setInstalled] = useState<string[]>(() => loadInstalledPlugins())
@@ -1024,6 +1115,21 @@ export function PluginMarketplaceView(): ReactElement {
   const [discoveredSkills, setDiscoveredSkills] = useState<SkillListItem[]>([])
   const [skillListLoading, setSkillListLoading] = useState(false)
   const [skillListError, setSkillListError] = useState('')
+  const [managedTools, setManagedTools] = useState<ManagedToolStatus[]>([])
+
+  useEffect(() => {
+    writeBrowserStorageItem(ACTIVE_KIND_STORAGE_KEY, activeKind)
+  }, [activeKind])
+
+  const refreshManagedTools = useCallback(async (): Promise<void> => {
+    if (typeof window.workgpt?.listManagedTools !== 'function') return
+    const result = await window.workgpt.listManagedTools()
+    if (result.ok) setManagedTools(result.tools)
+  }, [])
+
+  useEffect(() => {
+    if (activeKind === 'cli') void refreshManagedTools()
+  }, [activeKind, refreshManagedTools])
 
   const skillRootOptions = useMemo<SkillRootOption[]>(() => {
     const hasWorkspace = !!workspaceRoot
@@ -1218,6 +1324,11 @@ export function PluginMarketplaceView(): ReactElement {
   )
 
   const isInstalled = useCallback((item: MarketplaceItem): boolean => {
+    if (item.externalOnly) return false
+    if (item.managedToolId) {
+      const status = managedTools.find((tool) => tool.id === item.managedToolId)
+      return status?.state === 'installed' || status?.state === 'needs_login' || status?.state === 'update_available'
+    }
     if (item.group === 'personal') return true
     const catalogItem = RECOMMENDED_ITEMS.find((candidate) => candidate.kind === item.kind && candidate.id === item.id)
     if (catalogItem?.systemManaged) return true
@@ -1239,7 +1350,7 @@ export function PluginMarketplaceView(): ReactElement {
     const key = storageKey(item.kind, item.id)
     if (installed.includes(key)) return true
     return item.kind === 'mcp' && mcpConfigHasServer(mcpConfigText, item.id)
-  }, [discoveredMcpIds, discoveredSkillIds, discoveredSkillSourceKeys, installed, mcpConfigText])
+  }, [discoveredMcpIds, discoveredSkillIds, discoveredSkillSourceKeys, installed, managedTools, mcpConfigText])
 
   const visibleItems = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase()
@@ -1351,6 +1462,37 @@ export function PluginMarketplaceView(): ReactElement {
     setBusyId(storageKey(item.kind, item.id))
     setNotice(null)
     try {
+      if (item.externalOnly) {
+        const url = itemSourceUrl(item)
+        if (url) await window.workgpt.openExternal(url)
+        setNotice({ tone: 'info', message: t('pluginExternalOpened') })
+        return
+      }
+      if (item.managedToolId) {
+        if (typeof window.workgpt?.installManagedTool !== 'function') {
+          setNotice({ tone: 'error', message: t('pluginManagedToolUnavailable') })
+          return
+        }
+        const current = managedTools.find((tool) => tool.id === item.managedToolId)
+        const useUpdate = current?.state === 'installed' || current?.state === 'needs_login' || current?.state === 'update_available'
+        const result = useUpdate && typeof window.workgpt.updateManagedTool === 'function'
+          ? await window.workgpt.updateManagedTool(item.managedToolId)
+          : await window.workgpt.installManagedTool(item.managedToolId)
+        if (!result.ok) {
+          setNotice({ tone: 'error', message: result.message })
+          return
+        }
+        await refreshManagedTools()
+        if (result.status.externalUrl && result.status.state === 'needs_external_app') {
+          await window.workgpt.openExternal(result.status.externalUrl)
+          setNotice({ tone: 'info', message: t('pluginExternalAppOpened') })
+        } else if (result.status.state === 'needs_login') {
+          setNotice({ tone: 'info', message: t('pluginManagedToolNeedsLogin') })
+        } else {
+          setNotice({ tone: 'success', message: t('pluginManagedToolInstalled') })
+        }
+        return
+      }
       if (item.kind === 'mcp') {
         if (!item.mcpConfig) return
         if (item.directoryPicker) {
@@ -1502,6 +1644,10 @@ export function PluginMarketplaceView(): ReactElement {
         if (!result.ok) setNotice({ tone: 'error', message: result.message ?? t('pluginActionFailed') })
         return
       }
+      if (activeKind === 'cli') {
+        setNotice({ tone: 'info', message: t('pluginCliManagedLocation') })
+        return
+      }
       if (!selectedSkillRoot?.path) {
         setNotice({ tone: 'error', message: t('pluginSkillRootMissing') })
         return
@@ -1524,6 +1670,9 @@ export function PluginMarketplaceView(): ReactElement {
             <TabButton active={activeKind === 'skill'} tone="skill" onClick={() => setActiveKind('skill')}>
               {t('pluginTabSkill')}
             </TabButton>
+            <TabButton active={activeKind === 'cli'} onClick={() => setActiveKind('cli')}>
+              {t('pluginTabCli')}
+            </TabButton>
           </div>
           <div className="flex items-center gap-2">
             <button
@@ -1534,20 +1683,22 @@ export function PluginMarketplaceView(): ReactElement {
               <Settings className="h-4 w-4" strokeWidth={1.75} />
               {t('pluginManage')}
             </button>
-            <button
-              type="button"
-              onClick={() => setCustomOpen((value) => !value)}
-              className="inline-flex items-center gap-2 rounded-xl bg-ds-userbubble px-3 py-2 text-[13px] font-semibold text-ds-userbubbleFg shadow-sm transition hover:opacity-90"
-            >
-              <Plus className="h-4 w-4" strokeWidth={1.9} />
-              {t('pluginCreate')}
-            </button>
+            {activeKind !== 'cli' ? (
+              <button
+                type="button"
+                onClick={() => setCustomOpen((value) => !value)}
+                className="inline-flex items-center gap-2 rounded-xl bg-ds-userbubble px-3 py-2 text-[13px] font-semibold text-ds-userbubbleFg shadow-sm transition hover:opacity-90"
+              >
+                <Plus className="h-4 w-4" strokeWidth={1.9} />
+                {t('pluginCreate')}
+              </button>
+            ) : null}
           </div>
         </div>
 
         <div className="mt-9 flex flex-col items-center text-center">
           <h1 className="text-[32px] font-semibold text-ds-ink md:text-[40px]">
-            {activeKind === 'mcp' ? t('pluginMcpTitle') : t('pluginSkillTitle')}
+            {activeKind === 'mcp' ? t('pluginMcpTitle') : activeKind === 'skill' ? t('pluginSkillTitle') : t('pluginCliTitle')}
           </h1>
         </div>
 
@@ -1558,7 +1709,7 @@ export function PluginMarketplaceView(): ReactElement {
               value={query}
               onChange={(event) => setQuery(event.target.value)}
               className="h-11 w-full rounded-2xl border border-ds-border bg-ds-card pl-11 pr-4 text-[15px] text-ds-ink shadow-sm outline-none transition focus:border-accent/40 focus:ring-1 focus:ring-accent/30"
-              placeholder={activeKind === 'mcp' ? t('pluginSearchMcp') : t('pluginSearchSkill')}
+              placeholder={activeKind === 'mcp' ? t('pluginSearchMcp') : activeKind === 'skill' ? t('pluginSearchSkill') : t('pluginSearchCli')}
             />
           </label>
           <label className="relative w-full md:w-[168px]">
@@ -1637,7 +1788,7 @@ export function PluginMarketplaceView(): ReactElement {
           />
         ) : null}
 
-        {customOpen ? (
+        {customOpen && activeKind !== 'cli' ? (
           <CustomPluginPanel
             activeKind={activeKind}
             customName={customName}
@@ -2063,7 +2214,11 @@ function PluginDetailDialog({
   const detail = itemDetail(item, t)
   const sourceLabel = itemSourceLabel(item, t)
   const sourceUrl = itemSourceUrl(item)
-  const kindLabel = item.kind === 'mcp' ? t('pluginDetailKindMcp') : t('pluginDetailKindSkill')
+  const kindLabel = item.kind === 'mcp'
+    ? t('pluginDetailKindMcp')
+    : item.kind === 'skill'
+      ? t('pluginDetailKindSkill')
+      : t('pluginDetailKindCli')
   const canAddOrConfigure = !installed || item.reconfigurable
 
   return (

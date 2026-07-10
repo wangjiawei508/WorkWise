@@ -54,6 +54,8 @@ export const DEFAULT_WRITE_INLINE_COMPLETION_MAX_TOKENS = 96
 export const DEFAULT_WRITE_INLINE_LONG_COMPLETION_DEBOUNCE_MS = 2_800
 export const DEFAULT_WRITE_INLINE_LONG_COMPLETION_MIN_ACCEPT_SCORE = 0.36
 export const DEFAULT_WRITE_INLINE_LONG_COMPLETION_MAX_TOKENS = 256
+export const DEFAULT_WRITE_KNOWLEDGE_API_BASE_URL = 'https://api.railwise.cn'
+export const DEFAULT_WRITE_KNOWLEDGE_PUBLIC_BASE_URL = 'https://kb.railwise.cn'
 export const DEFAULT_KUN_PORT = 8899
 export const DEFAULT_WEIXIN_BRIDGE_RPC_URL = 'http://127.0.0.1:18790/api/v1/admin/rpc'
 export const DEFAULT_MODEL_PROVIDER_ID = 'deepseek'
@@ -431,11 +433,19 @@ export type WriteInlineCompletionSettingsV1 = {
   longMaxTokens: number
 }
 
+export type WriteKnowledgeBaseSettingsV1 = {
+  enabled: boolean
+  mode: 'hybrid'
+  apiBaseUrl: string
+  publicBaseUrl: string
+}
+
 export type WriteSettingsV1 = {
   defaultWorkspaceRoot: string
   activeWorkspaceRoot: string
   workspaces: string[]
   inlineCompletion: WriteInlineCompletionSettingsV1
+  knowledgeBase: WriteKnowledgeBaseSettingsV1
 }
 
 export type ClawSettingsPatchV1 = Partial<Omit<ClawSettingsV1, 'skills' | 'im' | 'channels' | 'tasks'>> & {
@@ -453,8 +463,9 @@ export type ScheduleSettingsPatchV1 = Partial<
   tasks?: Array<Partial<ScheduledTaskV1>>
 }
 
-export type WriteSettingsPatchV1 = Partial<Omit<WriteSettingsV1, 'inlineCompletion'>> & {
+export type WriteSettingsPatchV1 = Partial<Omit<WriteSettingsV1, 'inlineCompletion' | 'knowledgeBase'>> & {
   inlineCompletion?: Partial<WriteInlineCompletionSettingsV1>
+  knowledgeBase?: Partial<WriteKnowledgeBaseSettingsV1>
 }
 
 export type ClawGeneratedFileV1 = {

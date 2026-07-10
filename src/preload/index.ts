@@ -35,6 +35,11 @@ const api = {
     ipcRenderer.invoke('agent-pack:install-bundled', { source }),
   syncGithubSkills: (workspaceRoot) =>
     ipcRenderer.invoke('skill:sync-github', { workspaceRoot }),
+  listManagedTools: () => ipcRenderer.invoke('tool:list-managed'),
+  installManagedTool: (id) => ipcRenderer.invoke('tool:install-managed', id),
+  updateManagedTool: (id) => ipcRenderer.invoke('tool:update-managed', id),
+  diagnoseManagedTool: (id) => ipcRenderer.invoke('tool:diagnose-managed', id),
+  removeManagedTool: (id) => ipcRenderer.invoke('tool:remove-managed', id),
   openSkillRoot: (rootPath) =>
     ipcRenderer.invoke('skill:open-root', rootPath),
   getKunConfigFile: () =>
@@ -102,6 +107,8 @@ const api = {
     ipcRenderer.invoke('write:inline-completion-debug:list'),
   clearWriteInlineCompletionDebugEntries: () =>
     ipcRenderer.invoke('write:inline-completion-debug:clear'),
+  getWriteKnowledgeBaseStatus: () => ipcRenderer.invoke('write:knowledge-base:status'),
+  refreshWriteKnowledgeBase: () => ipcRenderer.invoke('write:knowledge-base:refresh'),
   startSse: (threadId, sinceSeq, streamId) =>
     ipcRenderer.invoke('runtime:sse:start', { threadId, sinceSeq, streamId }),
   stopSse: (streamId) => ipcRenderer.invoke('runtime:sse:stop', streamId),

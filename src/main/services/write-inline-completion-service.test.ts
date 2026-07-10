@@ -47,6 +47,10 @@ function createSettings(patch: Partial<AppSettingsV1['write']['inlineCompletion'
     keyboardShortcuts: defaultKeyboardShortcuts(),
     write: {
       ...write,
+      knowledgeBase: {
+        ...write.knowledgeBase,
+        enabled: false
+      },
       inlineCompletion: {
         ...write.inlineCompletion,
         ...patch

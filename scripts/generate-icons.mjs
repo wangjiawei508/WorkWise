@@ -13,6 +13,11 @@ const pngTargets = [
   { size: 1024, path: resolve(iconDir, 'workgpt.png') },
   { size: 512, path: resolve(iconDir, 'workgpt_tray.png') }
 ]
+const macDockPngPath = resolve(iconDir, 'workgpt_dock.png')
+// Legacy .icns icons aren't masked onto Apple's modern macOS icon grid for us.
+// Keep the visible tile at roughly 80% of the canvas, matching the opaque body
+// of current built-in macOS app icons, and leave the remaining area transparent.
+const macIconScale = 0.8
 const icoSizes = [16, 24, 32, 48, 64, 128, 256]
 const icoPath = resolve(iconDir, 'workgpt.ico')
 
@@ -77,7 +82,7 @@ function buildIcns(entries) {
   return Buffer.concat([header, body])
 }
 
-async function renderPng(svgText, size) {
+async function renderPng(svgText, size, { scale = 1, addMacShadow = false } = {}) {
   const window = new BrowserWindow({
     show: false,
     width: size,
@@ -99,7 +104,9 @@ async function renderPng(svgText, size) {
     '<meta charset="utf-8">',
     '<style>',
     'html,body{margin:0;width:100%;height:100%;overflow:hidden;background:transparent;}',
-    'svg{display:block;width:100vw;height:100vh;}',
+    'body{display:grid;place-items:center;}',
+    `svg{display:block;width:${scale * 100}vw;height:${scale * 100}vh;` +
+      `${addMacShadow ? 'filter:drop-shadow(0 2.2vw 2.6vw rgba(0,0,0,.28));' : ''}}`,
     '</style>',
     '</head>',
     '<body>',
@@ -141,7 +148,7 @@ async function generateIcns(svgText) {
   await mkdir(iconsetDir, { recursive: true })
 
   for (const { type, size } of icnsSizes) {
-    const png = await renderPng(svgText, size)
+    const png = await renderPng(svgText, size, { scale: macIconScale, addMacShadow: true })
     // iconutil uses Apple's naming convention
     let filename
     if (type === 'ic04') filename = 'icon_16x16.png'
@@ -165,7 +172,7 @@ async function generateIcns(svgText) {
     console.warn('[generate-icons] iconutil failed, building icns manually')
     const icnsEntries = []
     for (const { type, size } of icnsSizes) {
-      const png = await renderPng(svgText, size)
+      const png = await renderPng(svgText, size, { scale: macIconScale, addMacShadow: true })
       icnsEntries.push({ type, data: png })
     }
     await writeFile(icnsPath, buildIcns(icnsEntries))
@@ -188,6 +195,13 @@ async function main() {
     await writeFile(target.path, png)
     console.log(`Generated ${target.path}`)
   }
+
+  const macDockPng = await renderPng(svgText, 1024, {
+    scale: macIconScale,
+    addMacShadow: true
+  })
+  await writeFile(macDockPngPath, macDockPng)
+  console.log(`Generated ${macDockPngPath}`)
 
   const icoEntries = []
   for (const size of icoSizes) {
