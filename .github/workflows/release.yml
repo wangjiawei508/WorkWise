@@ -45,10 +45,10 @@ jobs:
     runs-on: macos-latest
     needs: prepare
     env:
-      KUN_APP_VERSION: ${{ needs.prepare.outputs.version }}
-      KUN_UPDATE_CHANNEL: stable
-      DEEPSEEK_GUI_APP_VERSION: ${{ needs.prepare.outputs.version }}
-      DEEPSEEK_GUI_UPDATE_CHANNEL: stable
+      WORKWISE_APP_VERSION: ${{ needs.prepare.outputs.version }}
+      WORKGPT_APP_VERSION: ${{ needs.prepare.outputs.version }}
+      WORKWISE_UPDATE_CHANNEL: stable
+      WORKGPT_UPDATE_CHANNEL: stable
       RELEASE_CHANNEL: stable
       # Mapped to env so steps can branch on presence (secrets are not allowed
       # in step-level `if:` conditions). When the signing secrets are absent the
@@ -139,9 +139,7 @@ jobs:
           if-no-files-found: error
           retention-days: 7
           path: |
-            dist/Kun-*-mac-*.dmg
-            dist/Kun-*-mac-*.zip
-            dist/Kun-*-mac-*.blockmap
+            dist/WorkWise-*-mac-*.dmg
             dist/latest-mac.yml
 
   build-windows:
@@ -149,10 +147,10 @@ jobs:
     runs-on: windows-latest
     needs: prepare
     env:
-      KUN_APP_VERSION: ${{ needs.prepare.outputs.version }}
-      KUN_UPDATE_CHANNEL: stable
-      DEEPSEEK_GUI_APP_VERSION: ${{ needs.prepare.outputs.version }}
-      DEEPSEEK_GUI_UPDATE_CHANNEL: stable
+      WORKWISE_APP_VERSION: ${{ needs.prepare.outputs.version }}
+      WORKGPT_APP_VERSION: ${{ needs.prepare.outputs.version }}
+      WORKWISE_UPDATE_CHANNEL: stable
+      WORKGPT_UPDATE_CHANNEL: stable
       RELEASE_CHANNEL: stable
       CSC_IDENTITY_AUTO_DISCOVERY: 'false'
     steps:
@@ -181,55 +179,9 @@ jobs:
           if-no-files-found: error
           retention-days: 7
           path: |
-            dist/Kun-*-win-x64.exe
-            dist/Kun-*-win-x64.exe.blockmap
+            dist/WorkWise-*-win-x64.exe
+            dist/WorkWise-*-win-x64.exe.blockmap
             dist/latest.yml
-
-  build-linux:
-    name: Build Linux
-    runs-on: ubuntu-latest
-    needs: prepare
-    env:
-      KUN_APP_VERSION: ${{ needs.prepare.outputs.version }}
-      KUN_UPDATE_CHANNEL: stable
-      DEEPSEEK_GUI_APP_VERSION: ${{ needs.prepare.outputs.version }}
-      DEEPSEEK_GUI_UPDATE_CHANNEL: stable
-      RELEASE_CHANNEL: stable
-      CSC_IDENTITY_AUTO_DISCOVERY: 'false'
-    steps:
-      - name: Check out merge commit
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          ref: ${{ github.event.pull_request.merge_commit_sha }}
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache: npm
-
-      - name: Install Linux packaging dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends libarchive-tools rpm
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Build Linux AppImage
-        run: npm run dist:linux
-
-      - name: Upload Linux artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: release-linux
-          if-no-files-found: error
-          retention-days: 7
-          path: |
-            dist/Kun-*-linux-x86_64.AppImage
-            dist/Kun-*-linux-x86_64.AppImage.blockmap
-            dist/latest-linux.yml
 
   publish:
     name: Publish GitHub Release
@@ -245,15 +197,9 @@ jobs:
       RELEASE_NAME: ${{ needs.prepare.outputs.release_name }}
       PREVIOUS_TAG: ${{ needs.prepare.outputs.previous_tag }}
       RELEASE_CHANNEL: stable
-      KUN_UPDATE_CHANNEL: stable
-      DEEPSEEK_GUI_UPDATE_CHANNEL: stable
-      R2_BUCKET: ${{ secrets.R2_BUCKET }}
-      R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
-      R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
-      R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-      R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-      R2_PUBLIC_BASE_URL: ${{ secrets.R2_PUBLIC_BASE_URL }}
-      R2_RELEASE_PREFIX: ${{ secrets.R2_RELEASE_PREFIX }}
+      WORKWISE_UPDATE_CHANNEL: stable
+      WORKGPT_UPDATE_CHANNEL: stable
+      MAC_SIGNED: ${{ secrets.MAC_CODESIGN_P12_BASE64 != '' && secrets.APPLE_API_KEY_BASE64 != '' }}
     steps:
       - name: Check out tag
         uses: actions/checkout@v4
@@ -305,14 +251,9 @@ jobs:
         run: |
           set -euo pipefail
           required=(
-            "Kun-*-mac-arm64.dmg"
-            "Kun-*-mac-x64.dmg"
-            "Kun-*-mac-arm64.zip"
-            "Kun-*-mac-x64.zip"
-            "Kun-*-win-x64.exe"
-            "Kun-*-linux-x86_64.AppImage"
-            "latest-mac.yml"
-            "latest.yml"
+            "WorkWise-${RELEASE_VERSION}-mac-Apple-Silicon.dmg"
+            "WorkWise-${RELEASE_VERSION}-mac-Intel.dmg"
+            "WorkWise-${RELEASE_VERSION}-win-x64.exe"
           )
 
           for file in "${required[@]}"; do
@@ -394,8 +335,8 @@ jobs:
         run: |
           set -euo pipefail
           mapfile -d '' assets < <(
-            find release-artifacts -type f \
-              \( -name 'Kun-*' -o -name 'latest*.yml' \) \
+            find public-release-assets -type f \
+              \( -name 'WorkWise-*-mac-Apple-Silicon.dmg' -o -name 'WorkWise-*-mac-Intel.dmg' -o -name 'WorkWise-*-win-x64.exe' \) \
               -print0
           )
 
