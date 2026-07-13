@@ -1,0 +1,101 @@
+import {
+  resolveWriteMarkdownResource,
+  resolveWriteMarkdownResourcePath
+} from '@shared/write-markdown-resource'
+
+export type WriteMarkdownImageResolution = {
+  rawSrc: string
+  fallbackSrc?: string
+  localPath?: string
+}
+
+export type WriteMarkdownImageLoadResult =
+  | {
+      ok: true
+      src: string
+      localPath?: string
+    }
+  | {
+      ok: false
+      fallbackSrc?: string
+      localPath?: string
+      message: string
+    }
+
+function imageIpcAvailable(): boolean {
+  return typeof window !== 'undefined' &&
+    typeof window.kunGui?.readWorkspaceImage === 'function'
+}
+
+export function resolveWriteMarkdownImage(
+  src: string | undefined,
+  filePath?: string | null
+): WriteMarkdownImageResolution {
+  const rawSrc = src?.trim() ?? ''
+  const localPath = resolveWriteMarkdownResourcePath(rawSrc, filePath)
+  const fallbackSrc = resolveWriteMarkdownResource(rawSrc, filePath)
+  return {
+    rawSrc,
+    ...(fallbackSrc ? { fallbackSrc } : {}),
+    ...(localPath ? { localPath } : {})
+  }
+}
+
+export function initialWriteMarkdownImageSrc(
+  src: string | undefined,
+  filePath?: string | null
+): string | undefined {
+  const resolved = resolveWriteMarkdownImage(src, filePath)
+  if (resolved.localPath && imageIpcAvailable()) return undefined
+  return resolved.fallbackSrc
+}
+
+export async function loadWriteMarkdownImage(
+  src: string | undefined,
+  filePath?: string | null
+): Promise<WriteMarkdownImageLoadResult> {
+  const resolved = resolveWriteMarkdownImage(src, filePath)
+  if (!resolved.localPath) {
+    if (resolved.fallbackSrc) return { ok: true, src: resolved.fallbackSrc }
+    return {
+      ok: false,
+      fallbackSrc: resolved.fallbackSrc,
+      message: resolved.rawSrc ? 'Image source is not allowed.' : 'Image source is empty.'
+    }
+  }
+
+  if (!imageIpcAvailable()) {
+    if (resolved.fallbackSrc) {
+      return { ok: true, src: resolved.fallbackSrc, localPath: resolved.localPath }
+    }
+    return {
+      ok: false,
+      localPath: resolved.localPath,
+      message: 'Workspace image bridge is unavailable.'
+    }
+  }
+
+  try {
+    const result = await window.kunGui.readWorkspaceImage({ path: resolved.localPath })
+    if (result.ok) {
+      return {
+        ok: true,
+        src: result.dataUrl,
+        localPath: resolved.localPath
+      }
+    }
+    return {
+      ok: false,
+      fallbackSrc: resolved.fallbackSrc,
+      localPath: resolved.localPath,
+      message: result.message
+    }
+  } catch (error) {
+    return {
+      ok: false,
+      fallbackSrc: resolved.fallbackSrc,
+      localPath: resolved.localPath,
+      message: error instanceof Error ? error.message : String(error)
+    }
+  }
+}
