@@ -50,13 +50,14 @@ import {
   AgentsSettingsSection,
   ClawSettingsSection,
   GeneralSettingsSection,
+  HelpSettingsSection,
   ImageGenerationSettingsSection,
   KeyboardShortcutsSettingsSection,
   ProvidersSettingsSection,
   WriteSettingsSection
 } from './settings-sections'
 
-type SettingsCategory = 'general' | 'providers' | 'write' | 'imageGeneration' | 'agents' | 'shortcuts' | 'claw'
+type SettingsCategory = 'general' | 'providers' | 'write' | 'imageGeneration' | 'agents' | 'shortcuts' | 'claw' | 'help'
 type SaveStatus = 'idle' | 'saving' | 'saved' | 'error'
 type SettingsPatch = AppSettingsPatch
 type SkillRootOption = {
@@ -258,7 +259,7 @@ export function SettingsView(): ReactElement {
       return
     }
     const refs: Record<
-      Exclude<SettingsRouteSection, 'general' | 'providers' | 'write' | 'imageGeneration' | 'claw' | 'shortcuts'>,
+      Exclude<SettingsRouteSection, 'general' | 'providers' | 'write' | 'imageGeneration' | 'claw' | 'shortcuts' | 'help'>,
       HTMLDivElement | null
     > = {
       agents: agentsSectionRef.current,

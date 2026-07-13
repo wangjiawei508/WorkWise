@@ -110,6 +110,7 @@ export function WriteWorkspaceView({
       activeFileKind: s.activeFileKind,
       rootDirectory: s.rootDirectory,
       inlineCompletion: s.inlineCompletion,
+      knowledgeBase: s.knowledgeBase,
       inlineCompletionApiReady: s.inlineCompletionApiReady,
       imageGenReady: s.imageGenReady,
       fileContent: s.fileContent,
@@ -218,11 +219,11 @@ export function WriteWorkspaceView({
   }
 
   const preparePptMaster = async (): Promise<void> => {
-    if (typeof window.workgpt?.installBundledSkill !== 'function') {
+if (typeof window.kunGui?.installBundledSkill !== 'function') {
       setFileError(t('writePptMasterUnavailable'))
       return
     }
-    const result = await window.workgpt.installBundledSkill('~/.workwise/tools/skills', {
+    const result = await window.kunGui.installBundledSkill('~/.workwise/tools/skills', {
       id: 'ppt-master',
       skillName: 'ppt-master'
     })
@@ -562,14 +563,14 @@ export function WriteWorkspaceView({
       setFileError(t('writeReadOnlySaveDisabled'))
       return
     }
-    if (typeof window.workgpt?.generateAgnesImage !== 'function') {
+    if (typeof window.kunGui?.generateAgnesImage !== 'function') {
       showExportNotice({ tone: 'error', message: t('writeAgnesImageUnavailable') })
       return
     }
 
     setAgnesImageGenerating(true)
     try {
-      const result = await window.workgpt.generateAgnesImage({
+      const result = await window.kunGui.generateAgnesImage({
         workspaceRoot,
         currentFilePath: activeFilePath,
         prompt: payload.prompt,

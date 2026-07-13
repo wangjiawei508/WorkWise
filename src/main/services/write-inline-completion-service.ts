@@ -772,14 +772,19 @@ export async function requestWriteInlineCompletion(
   const maxTokens = mode === 'long' || mode === 'edit' || actionMayEdit
     ? settings.write.inlineCompletion.longMaxTokens || settings.write.inlineCompletion.maxTokens || DEFAULT_WRITE_INLINE_COMPLETION_MAX_TOKENS
     : settings.write.inlineCompletion.maxTokens || DEFAULT_WRITE_INLINE_COMPLETION_MAX_TOKENS
-  const retrieval = settings.write.inlineCompletion.retrievalEnabled === false
-    ? null
-    : await retrieveWriteInlineCompletionContext(request, {
-        maxSnippets: mode === 'long' || mode === 'edit' || actionMayEdit ? 5 : 3
-      }).catch(() => null)
+  const [retrieval, knowledge] = await Promise.all([
+    settings.write.inlineCompletion.retrievalEnabled === false
+      ? Promise.resolve(null)
+      : retrieveWriteInlineCompletionContext(request, {
+          maxSnippets: mode === 'long' || mode === 'edit' || actionMayEdit ? 5 : 3
+        }).catch(() => null),
+    settings.write.knowledgeBase.enabled === false
+      ? Promise.resolve(null)
+      : withinKnowledgeBudget(request, settings.write.knowledgeBase)
+  ])
   const messages = useFimCompletions
     ? null
-    : buildWriteInlineCompletionChatMessages(request, retrieval)
+    : buildWriteInlineCompletionChatMessages(request, retrieval, knowledge)
   const prompt = messages
     ? debugPromptFromMessages(messages)
     : buildWriteInlineCompletionPrompt(request, retrieval, knowledge)

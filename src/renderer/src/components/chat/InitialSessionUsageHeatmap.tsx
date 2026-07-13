@@ -16,7 +16,7 @@ import {
   type ModelUsageState,
   useModelUsageState
 } from '../../hooks/use-model-usage'
-import { KunHeroStage } from './KunHeroStage'
+import { KunHeroStage } from './WorkHeroStage'
 
 type CalendarCell = DailyUsageBucket | null
 type CalendarWeek = {

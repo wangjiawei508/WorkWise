@@ -1,4 +1,4 @@
-import type { ReactElement } from 'react'
+import { useEffect, useState, type ReactElement } from 'react'
 import {
   DEFAULT_WRITE_INLINE_COMPLETION_MAX_TOKENS,
   DEFAULT_WRITE_INLINE_COMPLETION_MODEL,
@@ -8,7 +8,8 @@ import {
   defaultModelProviderSettings,
   resolveWriteInlineCompletionProviderId
 } from '@shared/app-settings'
-import { PencilLine } from 'lucide-react'
+import type { WriteKnowledgeBaseStatus } from '@shared/kun-gui-api'
+import { ExternalLink, PencilLine, RefreshCw } from 'lucide-react'
 import {
   SettingsCard,
   SettingRow,
@@ -38,6 +39,23 @@ export function WriteSettingsSection({ ctx }: { ctx: Record<string, any> }): Rea
     providerSettings.providers[0]
   const writeInlineProviderInherited = form.write.inlineCompletion.inheritProvider !== false
   const writeInlineProviderModels = effectiveWriteProvider?.models ?? []
+  const [knowledgeStatus, setKnowledgeStatus] = useState<WriteKnowledgeBaseStatus | null>(null)
+  const [knowledgeRefreshing, setKnowledgeRefreshing] = useState(false)
+
+  useEffect(() => {
+    if (typeof window.kunGui?.getWriteKnowledgeBaseStatus !== 'function') return
+    void window.kunGui.getWriteKnowledgeBaseStatus().then(setKnowledgeStatus).catch(() => undefined)
+  }, [form.write.knowledgeBase.enabled])
+
+  const refreshKnowledgeBase = async (): Promise<void> => {
+    if (typeof window.kunGui?.refreshWriteKnowledgeBase !== 'function') return
+    setKnowledgeRefreshing(true)
+    try {
+      setKnowledgeStatus(await window.kunGui.refreshWriteKnowledgeBase())
+    } finally {
+      setKnowledgeRefreshing(false)
+    }
+  }
 
   return (
             <>
@@ -165,7 +183,7 @@ export function WriteSettingsSection({ ctx }: { ctx: Record<string, any> }): Rea
                         </button>
                         <button
                           type="button"
-                          onClick={() => void window.workgpt.openExternal(form.write.knowledgeBase.publicBaseUrl)}
+                          onClick={() => void window.kunGui.openExternal(form.write.knowledgeBase.publicBaseUrl)}
                           className="inline-flex items-center gap-2 rounded-xl border border-ds-border bg-ds-card px-3 py-2 text-[13px] font-medium text-ds-ink shadow-sm transition hover:bg-ds-hover"
                         >
                           <ExternalLink className="h-4 w-4" strokeWidth={1.75} />

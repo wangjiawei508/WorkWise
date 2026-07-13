@@ -371,13 +371,15 @@ describe('syncGuiManagedKunConfig', () => {
     mkdirSync(join(codexHome, 'skills'), { recursive: true })
     process.env.CODEX_HOME = codexHome
 
-    await module.syncGuiManagedKunConfig(tempRoot, defaultKunRuntimeSettings(), {
-      scheduleMcp: {
-        settings,
-        launch: {
-          appPath: '/tmp/deepseek-gui-test-app',
-          execPath: '/tmp/electron',
-          isPackaged: false
+    try {
+      await module.syncGuiManagedKunConfig(tempRoot, defaultKunRuntimeSettings(), {
+        scheduleMcp: {
+          settings,
+          launch: {
+            appPath: '/tmp/deepseek-gui-test-app',
+            execPath: '/tmp/electron',
+            isPackaged: false
+          }
         }
       })
     } finally {

@@ -72,10 +72,10 @@ function defaultOpenLogDir(): Promise<void> {
 }
 
 function defaultOpenExternal(url: string): Promise<void> {
-  if (typeof window === 'undefined' || typeof window.workgpt?.openExternal !== 'function') {
+if (typeof window === 'undefined' || typeof window.kunGui?.openExternal !== 'function') {
     return Promise.resolve()
   }
-  return window.workgpt.openExternal(url)
+  return window.kunGui.openExternal(url)
 }
 
 export function supportsDesktopTitleBar(platform: string): boolean {

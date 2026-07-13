@@ -88,8 +88,8 @@ module.exports = {
   //  - Windows 端 NSIS 以 appId 派生卸载 GUID,换了 id 升级安装不会
   //    卸载旧版本,用户会装出两份应用;
   //  - macOS TCC 权限、通知授权也都挂在这个 id 上。
-  appId: 'com.xingyuzhong.deepseekgui',
-  productName: 'Kun',
+  appId: 'com.wangjiawei508.workgpt',
+  productName: 'WorkWise',
   asar: true,
   asarUnpack: [
     'src/asset/skills/**/*',
@@ -122,7 +122,14 @@ module.exports = {
     // the WeChat bridge imports @tencent-weixin/openclaw-weixin/dist at
     // runtime to send media, and that chain resolves openclaw/plugin-sdk/*.
   ],
-  artifactName: `Kun-${artifactVersion}-\${os}-\${arch}.\${ext}`,
+  extraResources: [
+    {
+      from: 'src/asset/agent-packs',
+      to: 'src/asset/agent-packs',
+      filter: ['**/*']
+    }
+  ],
+  artifactName: `WorkWise-${artifactVersion}-\${os}-\${arch}.\${ext}`,
   publish: [
     {
       provider: 'generic',
@@ -142,7 +149,7 @@ module.exports = {
     gatekeeperAssess: false,
     entitlements: 'build/entitlements.mac.plist',
     entitlementsInherit: 'build/entitlements.mac.inherit.plist',
-    icon: './src/asset/img/deepseek.png',
+    icon: './src/asset/img/workwise.icns',
     // arm64 (Apple Silicon) + x64 (Intel). On M 系列 Mac 本地打包会各出一组 dmg/zip。
     target: [
       { target: 'dmg', arch: ['arm64', 'x64'] }
@@ -152,7 +159,7 @@ module.exports = {
     sign: hasExplicitMacSigningIdentity
   },
   win: {
-    icon: './src/asset/img/deepseek.png',
+    icon: './src/asset/img/workgpt.ico',
     target: [{ target: 'nsis', arch: ['x64'] }]
   },
   nsis: {
@@ -164,8 +171,8 @@ module.exports = {
     // 明确创建快捷方式；always 在覆盖安装时也会重建（即使用户曾删掉桌面图标）
     createDesktopShortcut: 'always',
     createStartMenuShortcut: true,
-    shortcutName: 'Kun',
-    uninstallDisplayName: 'Kun',
+    shortcutName: 'WorkWise',
+    uninstallDisplayName: 'WorkWise',
     deleteAppDataOnUninstall: false
   },
   linux: {

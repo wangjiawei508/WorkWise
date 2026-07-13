@@ -27,7 +27,7 @@ const DEFAULT_MODEL_PROVIDER_NAME = 'DeepSeek'
 const DEFAULT_AGNES_PROVIDER_NAME = 'Agnes AI'
 
 export function defaultModelProviderSettings(): ModelProviderSettingsV1 {
-  const defaultProvider = defaultDeepseekProviderProfile('', DEFAULT_DEEPSEEK_BASE_URL)
+  const defaultProvider = defaultModelProviderProfile('', DEFAULT_DEEPSEEK_BASE_URL)
   const agnesProvider = defaultAgnesProviderProfile()
   return {
     apiKey: defaultProvider.apiKey,
@@ -47,7 +47,7 @@ export function normalizeModelProviderSettings(
       : defaults.baseUrl
   const rawProviders = Array.isArray(input?.providers) ? input.providers : []
   const providersById = new Map<string, ModelProviderProfileV1>()
-  const defaultProvider = defaultDeepseekProviderProfile(apiKey, baseUrl)
+  const defaultProvider = defaultModelProviderProfile(apiKey, baseUrl)
   for (const builtInProvider of defaults.providers) {
     providersById.set(
       builtInProvider.id,
@@ -55,7 +55,7 @@ export function normalizeModelProviderSettings(
     )
   }
   for (const rawProvider of rawProviders) {
-    const fallback = providersById.get(normalizeProviderId(rawProvider?.id))
+    const fallback = providersById.get(normalizeModelProviderId(rawProvider?.id))
     const provider = normalizeModelProviderProfile(rawProvider, fallback)
     if (!provider) continue
     providersById.set(provider.id, provider.id === DEFAULT_MODEL_PROVIDER_ID
@@ -197,7 +197,7 @@ function defaultAgnesProviderProfile(): ModelProviderProfileV1 {
     name: DEFAULT_AGNES_PROVIDER_NAME,
     apiKey: '',
     baseUrl: normalizeDeepseekBaseUrl(DEFAULT_AGNES_BASE_URL),
-    apiType: 'chat_completions',
+    endpointFormat: 'chat_completions',
     models: [DEFAULT_AGNES_TEXT_MODEL]
   }
 }

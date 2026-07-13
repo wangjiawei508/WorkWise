@@ -28,6 +28,7 @@ import type {
   ClawImSettingsV1,
   ClawModel
 } from '@shared/app-settings'
+import { DEFAULT_PHONE_AGENT_NAME } from '@shared/app-settings'
 import type { ClawImInstallPollResult, ClawImInstallQrResult } from '@shared/kun-gui-api'
 import { confirmDialog } from '../../lib/confirm-dialog'
 import {

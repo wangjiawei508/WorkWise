@@ -98,6 +98,7 @@ import {
   requestWriteInlineCompletion
 } from '../services/write-inline-completion-service'
 import { requestWriteInfographic } from '../services/write-infographic-service'
+import { refreshWriteKnowledgeBase } from '../services/write-knowledge-service'
 import { copyWriteDocumentAsRichText, exportWriteDocument } from '../services/write-export-service'
 import { generateAgnesImage } from '../services/write-agnes-image-service'
 import {

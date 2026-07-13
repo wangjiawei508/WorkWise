@@ -15,11 +15,9 @@ import type {
 import { nextGuiUpdateCheckDelay } from '../shared/gui-update-schedule'
 import { DEFAULT_GUI_UPDATE_CHANNEL, normalizeGuiUpdateChannel } from '../shared/gui-update'
 
-// 更新源域名与 R2 prefix 保持旧值:线上还在运行的 DeepSeek GUI 老版本
-// 轮询的就是这条 feed 路径,改了它们就收不到 Kun 的升级包。品牌改名
-// 只改产物文件名(latest*.yml 内容指向新文件名,新老客户端都能下载)。
-const DEFAULT_R2_PUBLIC_BASE_URL = 'https://deepseek-gui.com/api/r2'
-const DEFAULT_R2_RELEASE_PREFIX = 'deepseek-gui'
+const DEFAULT_OFFICIAL_RELEASE_PREFIX = 'workwise'
+const DEFAULT_PRODUCT_PAGE_URL = 'https://www.railwise.cn/products/workwise/'
+const DEFAULT_GITHUB_REPO = 'wangjiawei508/WorkWise'
 const { autoUpdater } = electronUpdater
 
 function envWithLegacyFallback(kunName: string, legacyName: string): string {
@@ -79,11 +77,15 @@ function joinUrl(base: string, ...parts: string[]): string {
 }
 
 function envUpdateUrl(channel: GuiUpdateChannel): string {
-  const channelSpecific = envWithLegacyFallback(
-    `KUN_UPDATE_URL_${channel.toUpperCase()}`,
-    `DEEPSEEK_GUI_UPDATE_URL_${channel.toUpperCase()}`
-  )
-  const direct = channelSpecific || envWithLegacyFallback('KUN_UPDATE_URL', 'DEEPSEEK_GUI_UPDATE_URL')
+  const upper = channel.toUpperCase()
+  const channelSpecific =
+    process.env[`WORKWISE_UPDATE_URL_${upper}`]?.trim() ||
+    process.env[`WORKGPT_UPDATE_URL_${upper}`]?.trim()
+  const direct =
+    channelSpecific ||
+    process.env.WORKWISE_UPDATE_URL?.trim() ||
+    process.env.WORKGPT_UPDATE_URL?.trim() ||
+    ''
   return direct ? direct.replace(/\{channel\}/g, channel).replace(/\/?$/, '/') : ''
 }
 
@@ -178,9 +180,11 @@ function readPackageJson(): Record<string, unknown> | null {
   }
 }
 
-function resolveGithubReleaseUrl(): string | null {
-  const envRepo = normalizeGithubOwnerRepo(process.env.DEEPSEEK_GUI_GITHUB_REPO?.trim() ?? '')
-  if (envRepo) return `https://github.com/${envRepo}/releases`
+function resolveGithubRepo(): string | null {
+  const envRepo = normalizeGithubOwnerRepo(
+    (process.env.WORKWISE_GITHUB_REPO || process.env.WORKGPT_GITHUB_REPO)?.trim() ?? ''
+  )
+  if (envRepo) return envRepo
 
   const pkg = readPackageJson()
   const repository = pkg?.repository
@@ -215,7 +219,7 @@ function resolveUpdateFeedConfig(channel: GuiUpdateChannel): UpdateFeedConfig {
 }
 
 function downloadPageUrl(): string {
-  const direct = process.env.DEEPSEEK_GUI_DOWNLOAD_URL?.trim()
+  const direct = (process.env.WORKWISE_DOWNLOAD_URL || process.env.WORKGPT_DOWNLOAD_URL)?.trim()
   if (direct) return direct
 
   const configuredDownloadPage = (process.env.WORKWISE_DOWNLOAD_BASE_URL || process.env.PUBLIC_DOWNLOAD_PAGE_URL)?.trim()

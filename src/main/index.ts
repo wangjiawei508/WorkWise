@@ -7,8 +7,9 @@ import {
   JsonSettingsStore,
   devServerHintUrl
 } from './settings-store'
-import deepseekLogoPng from '../asset/img/deepseek.png?url'
-import deepseekTrayPng from '../asset/img/deepseek_gui_tray.png?url'
+import workgptLogoPng from '../asset/img/workgpt.png?url'
+import workgptDockPng from '../asset/img/workgpt_dock.png?url'
+import workgptTrayPng from '../asset/img/workgpt_tray.png?url'
 import { createAppIcon, pickTrayIcon } from './app-icon'
 import { configureLinuxWaylandImeSwitches } from './app-command-line'
 import { configureAppIdentity } from './app-identity'
@@ -75,7 +76,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url))
 // 品牌升级为 Kun 后仍保留旧 AppUserModelId:它必须和 electron-builder
 // 的 appId 一致才能让 Windows 通知 / 任务栏分组在升级前后连续,而
 // appId 因为 NSIS 升级 GUID 与 macOS 更新签名校验的原因永远不改。
-const APP_USER_MODEL_ID = 'com.xingyuzhong.deepseekgui'
+const APP_USER_MODEL_ID = 'com.wangjiawei508.workgpt'
 const HIDDEN_START_ARG = '--hidden'
 const startupTraceEnabled =
   process.env.KUN_STARTUP_TRACE === '1' || process.env.DEEPSEEK_GUI_STARTUP_TRACE === '1'
@@ -295,9 +296,10 @@ function installDevPreviewWebviewGuards(): void {
 }
 
 
-const appIcon = createAppIcon(deepseekLogoPng)
-const trayIcon = createAppIcon(deepseekTrayPng)
-traceStartup('app icon loaded', { source: deepseekLogoPng.startsWith('data:') ? 'data-url' : 'path' })
+const appIcon = createAppIcon(workgptLogoPng)
+const dockIcon = createAppIcon(workgptDockPng)
+const trayIcon = createAppIcon(workgptTrayPng)
+traceStartup('app icon loaded', { source: workgptLogoPng.startsWith('data:') ? 'data-url' : 'path' })
 const gotSingleInstanceLock = runningClawScheduleMcpServer || app.requestSingleInstanceLock()
 traceStartup('single instance lock checked', {
   gotSingleInstanceLock,

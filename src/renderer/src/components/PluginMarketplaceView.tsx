@@ -23,7 +23,14 @@ import {
 import { readBrowserStorageItem, writeBrowserStorageItem } from '../lib/browser-storage'
 import { normalizeWorkspaceRoot } from '../lib/workspace-path'
 import { getProvider } from '../agent/registry'
-import type { SkillListItem } from '@shared/kun-gui-api'
+import type {
+  BundledAgentPackSource,
+  BundledSkillSource,
+  GithubSkillSource,
+  ManagedToolId,
+  ManagedToolStatus,
+  SkillListItem
+} from '@shared/kun-gui-api'
 import type {
   CoreRuntimeInfoJson,
   CoreRuntimeToolDiagnosticsJson
@@ -81,6 +88,7 @@ type SkillRootOption = {
 }
 
 const INSTALLED_STORAGE_KEY = 'kun.installedPlugins'
+const ACTIVE_KIND_STORAGE_KEY = 'workwise.marketplace.kind'
 const GUI_SCHEDULE_MCP_SERVER_ID = 'gui_schedule'
 
 function loadInstalledPlugins(): string[] {
@@ -1122,8 +1130,8 @@ export function PluginMarketplaceView(): ReactElement {
   }, [activeKind])
 
   const refreshManagedTools = useCallback(async (): Promise<void> => {
-    if (typeof window.workgpt?.listManagedTools !== 'function') return
-    const result = await window.workgpt.listManagedTools()
+if (typeof window.kunGui?.listManagedTools !== 'function') return
+    const result = await window.kunGui.listManagedTools()
     if (result.ok) setManagedTools(result.tools)
   }, [])
 
@@ -1237,7 +1245,9 @@ export function PluginMarketplaceView(): ReactElement {
     void refreshMcpRuntimeOverlay()
   }, [activeKind, refreshMcpRuntimeOverlay])
 
-  const refreshSkillList = useCallback(async (): Promise<void> => {
+  const refreshSkillList = useCallback(async (
+    options: { syncOnline?: boolean } = {}
+  ): Promise<void> => {
     if (typeof window.kunGui?.listSkills !== 'function') {
       setDiscoveredSkills([])
       setSkillListError(t('pluginSkillScanUnavailable'))
@@ -1246,6 +1256,18 @@ export function PluginMarketplaceView(): ReactElement {
     setSkillListLoading(true)
     setSkillListError('')
     try {
+      let syncError = ''
+      if (options.syncOnline && typeof window.kunGui?.syncGithubSkills === 'function') {
+        const syncResult = await window.kunGui.syncGithubSkills(workspaceRoot || undefined)
+        if (syncResult.ok) {
+          if (syncResult.updated > 0) {
+            setNotice({ tone: 'success', message: t('pluginSkillSynced', { count: syncResult.updated }) })
+          }
+          syncError = syncResult.errors[0]?.message ?? ''
+        } else {
+          syncError = syncResult.message
+        }
+      }
       const result = await window.kunGui.listSkills(workspaceRoot || undefined)
       if (!result.ok) {
         setDiscoveredSkills([])
@@ -1416,8 +1438,8 @@ export function PluginMarketplaceView(): ReactElement {
   const addFilesystemMcp = async (item: MarketplaceItem): Promise<void> => {
     if (!item.mcpConfig) return
     let selectedRoot = workspaceRoot
-    if (typeof window.workgpt?.pickWorkspaceDirectory === 'function') {
-      const picked = await window.workgpt.pickWorkspaceDirectory(workspaceRoot || undefined)
+    if (typeof window.kunGui?.pickWorkspaceDirectory === 'function') {
+      const picked = await window.kunGui.pickWorkspaceDirectory(workspaceRoot || undefined)
       if (picked.canceled || !picked.path) {
         setNotice({ tone: 'info', message: t('pluginMcpFilesystemCanceled') })
         return
@@ -1464,27 +1486,27 @@ export function PluginMarketplaceView(): ReactElement {
     try {
       if (item.externalOnly) {
         const url = itemSourceUrl(item)
-        if (url) await window.workgpt.openExternal(url)
+        if (url) await window.kunGui.openExternal(url)
         setNotice({ tone: 'info', message: t('pluginExternalOpened') })
         return
       }
       if (item.managedToolId) {
-        if (typeof window.workgpt?.installManagedTool !== 'function') {
+        if (typeof window.kunGui?.installManagedTool !== 'function') {
           setNotice({ tone: 'error', message: t('pluginManagedToolUnavailable') })
           return
         }
         const current = managedTools.find((tool) => tool.id === item.managedToolId)
         const useUpdate = current?.state === 'installed' || current?.state === 'needs_login' || current?.state === 'update_available'
-        const result = useUpdate && typeof window.workgpt.updateManagedTool === 'function'
-          ? await window.workgpt.updateManagedTool(item.managedToolId)
-          : await window.workgpt.installManagedTool(item.managedToolId)
+        const result = useUpdate && typeof window.kunGui.updateManagedTool === 'function'
+          ? await window.kunGui.updateManagedTool(item.managedToolId)
+          : await window.kunGui.installManagedTool(item.managedToolId)
         if (!result.ok) {
           setNotice({ tone: 'error', message: result.message })
           return
         }
         await refreshManagedTools()
         if (result.status.externalUrl && result.status.state === 'needs_external_app') {
-          await window.workgpt.openExternal(result.status.externalUrl)
+          await window.kunGui.openExternal(result.status.externalUrl)
           setNotice({ tone: 'info', message: t('pluginExternalAppOpened') })
         } else if (result.status.state === 'needs_login') {
           setNotice({ tone: 'info', message: t('pluginManagedToolNeedsLogin') })
@@ -1508,11 +1530,11 @@ export function PluginMarketplaceView(): ReactElement {
       }
 
       if (item.bundledAgentPack) {
-        if (typeof window.workgpt?.installBundledAgentPack !== 'function') {
+        if (typeof window.kunGui?.installBundledAgentPack !== 'function') {
           setNotice({ tone: 'error', message: t('pluginSkillScanUnavailable') })
           return
         }
-        const result = await window.workgpt.installBundledAgentPack(item.bundledAgentPack)
+        const result = await window.kunGui.installBundledAgentPack(item.bundledAgentPack)
         if (!result.ok) {
           setNotice({ tone: 'error', message: result.message })
           return
@@ -1535,11 +1557,11 @@ export function PluginMarketplaceView(): ReactElement {
       }
       if (item.group === 'personal') return
       if (item.githubSkill) {
-        if (typeof window.workgpt?.installGithubSkill !== 'function') {
+        if (typeof window.kunGui?.installGithubSkill !== 'function') {
           setNotice({ tone: 'error', message: t('pluginSkillScanUnavailable') })
           return
         }
-        const result = await window.workgpt.installGithubSkill(selectedSkillRoot.path, item.githubSkill)
+        const result = await window.kunGui.installGithubSkill(selectedSkillRoot.path, item.githubSkill)
         if (!result.ok) {
           setNotice({ tone: 'error', message: result.message })
           return
@@ -1550,11 +1572,11 @@ export function PluginMarketplaceView(): ReactElement {
         return
       }
       if (item.bundledSkill) {
-        if (typeof window.workgpt?.installBundledSkill !== 'function') {
+        if (typeof window.kunGui?.installBundledSkill !== 'function') {
           setNotice({ tone: 'error', message: t('pluginSkillScanUnavailable') })
           return
         }
-        const result = await window.workgpt.installBundledSkill(selectedSkillRoot.path, item.bundledSkill)
+        const result = await window.kunGui.installBundledSkill(selectedSkillRoot.path, item.bundledSkill)
         if (!result.ok) {
           setNotice({ tone: 'error', message: result.message })
           return
@@ -2284,7 +2306,7 @@ function PluginDetailDialog({
           {sourceUrl ? (
             <button
               type="button"
-              onClick={() => void window.workgpt?.openExternal?.(sourceUrl)?.catch(() => undefined)}
+              onClick={() => void window.kunGui?.openExternal?.(sourceUrl)?.catch(() => undefined)}
               className="inline-flex h-10 items-center gap-2 rounded-xl border border-ds-border bg-ds-card px-3 text-[13px] font-semibold text-ds-ink shadow-sm transition hover:bg-ds-hover"
             >
               <ExternalLink className="h-4 w-4" strokeWidth={1.8} />

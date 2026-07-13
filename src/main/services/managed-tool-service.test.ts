@@ -16,6 +16,15 @@ describe('managed-tool-service', () => {
     expect(() => _internals.checksumFor(`${other}  other.zip`, 'wanted.zip')).toThrow('Checksum is missing')
   })
 
+  it('resolves official release versions and download URLs without the GitHub API', () => {
+    expect(_internals.releaseVersionFromUrl('https://github.com/larksuite/cli/releases/tag/v1.0.68')).toBe('1.0.68')
+    expect(_internals.releaseVersionFromHtml('<a href="/larksuite/cli/releases/tag/v1.0.68">latest</a>')).toBe('1.0.68')
+    expect(_internals.releaseAssetUrl('larksuite/cli', '1.0.68', 'checksums.txt')).toBe(
+      'https://github.com/larksuite/cli/releases/download/v1.0.68/checksums.txt'
+    )
+    expect(() => _internals.releaseVersionFromUrl('https://github.com/larksuite/cli/releases/latest')).toThrow('invalid')
+  })
+
   it('rejects path traversal and absolute paths in release archives', () => {
     expect(_internals.archiveEntryIsSafe('lark-cli/bin/lark-cli')).toBe(true)
     expect(_internals.archiveEntryIsSafe('../outside')).toBe(false)

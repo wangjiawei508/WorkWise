@@ -357,7 +357,7 @@ export function PlanPanel({
                 onImagePasteSaved={() => {
                   setOperationStatus('idle')
                 }}
-                onImagePasteError={(message) => setOperationStatus('error', message)}
+                onImagePasteError={(message: string) => setOperationStatus('error', message)}
                 fallback={
                   <WriteMarkdownEditor
                     value={content}

@@ -39,10 +39,12 @@ import { GUI_UPDATE_CHANNELS } from '../../shared/gui-update'
 import { KEYBOARD_SHORTCUT_COMMANDS } from '../../shared/keyboard-shortcuts'
 import { WRITE_EXPORT_FORMATS } from '../../shared/write-export'
 import { WRITE_INFOGRAPHIC_MAX_TEXT_CHARS } from '../../shared/write-infographic'
+import { AGNES_IMAGE_SIZES } from '../../shared/agnes-image'
 
 const MAX_BODY_BYTES = 2_000_000
 const MAX_PATH_LENGTH = 4_096
 const MAX_URL_LENGTH = 4_096
+const MAX_IMAGE_PROMPT_TEXT = 8_000
 const MAX_ID_LENGTH = 256
 const MAX_BRANCH_LENGTH = 255
 const MAX_EDITOR_ID_LENGTH = 64

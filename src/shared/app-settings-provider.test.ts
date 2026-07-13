@@ -7,6 +7,7 @@ import {
   defaultKeyboardShortcuts,
   defaultKunRuntimeSettings,
   defaultModelProviderSettings,
+  normalizeModelProviderSettings,
   getModelProviderPreset,
   modelProviderPresetProfile,
   defaultScheduleSettings,
@@ -64,7 +65,7 @@ describe('model provider settings', () => {
       id: DEFAULT_AGNES_PROVIDER_ID,
       name: 'Agnes AI',
       baseUrl: DEFAULT_AGNES_BASE_URL,
-      apiType: 'chat_completions',
+      endpointFormat: 'chat_completions',
       models: [DEFAULT_AGNES_TEXT_MODEL]
     }))
   })
@@ -79,7 +80,7 @@ describe('model provider settings', () => {
           name: 'DeepSeek',
           apiKey: 'sk-deepseek',
           baseUrl: 'https://api.deepseek.com',
-          apiType: 'chat_completions',
+          endpointFormat: 'chat_completions',
           models: ['deepseek-v4-pro']
         }
       ]

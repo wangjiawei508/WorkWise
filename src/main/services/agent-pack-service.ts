@@ -5,7 +5,7 @@ import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:pat
 import type {
   BundledAgentPackInstallResult,
   BundledAgentPackSource
-} from '../../shared/workgpt-api'
+} from '../../shared/kun-gui-api'
 import { expandHomePath, normalizeSkillFolderName } from './workspace-service'
 
 type AgentAssetKind = 'agent' | 'skill' | 'command' | 'tool' | 'lib' | 'template' | 'theme'

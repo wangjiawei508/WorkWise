@@ -10,7 +10,8 @@ import type {
   GithubSkillSource,
   GithubSkillSyncResult,
   SkillListItem
-} from '../../shared/workgpt-api'
+} from '../../shared/kun-gui-api'
+import { systemFetch } from './system-network'
 import { expandHomePath, normalizeSkillFolderName } from './workspace-service'
 
 export type GuiSkillScope = 'project' | 'global'
@@ -637,13 +638,13 @@ function githubContentsUrl(source: GithubSkillSourceMetadata, githubPath: string
 }
 
 async function fetchGithubJson<T>(url: string): Promise<T> {
-  const response = await fetch(url, { headers: githubHeaders() })
+  const response = await systemFetch(url, { headers: githubHeaders() })
   if (!response.ok) throw await githubResponseError(response)
   return await response.json() as T
 }
 
 async function fetchGithubBytes(url: string): Promise<Buffer> {
-  const response = await fetch(url, { headers: githubHeaders() })
+  const response = await systemFetch(url, { headers: githubHeaders() })
   if (!response.ok) throw await githubResponseError(response)
   return Buffer.from(await response.arrayBuffer())
 }

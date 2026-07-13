@@ -131,16 +131,16 @@ describe('buildInlineCompletionPayload', () => {
       context({
         head: 29,
         column: 21,
-        prefix: '# Draft\n\nAnother DeepSeek gui',
+        prefix: '# Draft\n\nAnother WORKGPT',
         suffix: ' mention needs alignment.',
-        prefixWindow: '# Draft\n\nAnother DeepSeek gui',
+        prefixWindow: '# Draft\n\nAnother WORKGPT',
         suffixWindow: ' mention needs alignment.',
-        currentLinePrefix: 'Another DeepSeek gui',
+        currentLinePrefix: 'Another WORKGPT',
         currentLineSuffix: ' mention needs alignment.',
-        currentLineText: 'Another DeepSeek gui mention needs alignment.',
-        currentLinePrefixTrimmed: 'Another DeepSeek gui',
+        currentLineText: 'Another WORKGPT mention needs alignment.',
+        currentLinePrefixTrimmed: 'Another WORKGPT',
         currentLineSuffixTrimmed: 'mention needs alignment.',
-        docPreview: '# Draft\n\nAnother DeepSeek gui',
+        docPreview: '# Draft\n\nAnother WORKGPT',
         editCandidate: {
           kind: 'selection',
           from: 26,
@@ -157,7 +157,7 @@ describe('buildInlineCompletionPayload', () => {
         recentEdits: [edit({
           from: 9,
           to: 21,
-          deletedText: 'DeepSeek GUI',
+          deletedText: 'WORKGPT',
           insertedText: 'Write mode'
         })]
       }
@@ -165,7 +165,7 @@ describe('buildInlineCompletionPayload', () => {
 
     expect(payload.editCandidate).toMatchObject({
       kind: 'selection',
-      original: 'DeepSeek gui'
+      original: 'WORKGPT'
     })
     expect(payload.editCandidate ? payload.editCandidate.to - payload.editCandidate.from : 0).toBe(7)
   })

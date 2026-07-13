@@ -1,6 +1,5 @@
 import {
   DEFAULT_GUI_UPDATE_CHANNEL,
-  DEFAULT_WORKSPACE_ROOT,
   defaultKunRuntimeSettings,
   applyKunRuntimePatch,
   getKunRuntimeSettings,
@@ -25,7 +24,7 @@ import type { GuiUpdateInfo } from '@shared/gui-update'
 type RendererSettingsShape = AppSettingsPatch
 type SettingsPatch = AppSettingsPatch
 
-export const DEFAULT_WORKSPACE_ROOT = '~/.kun/default_workspace'
+export const DEFAULT_WORKSPACE_ROOT = '~/.workwise/default_workspace'
 
 export function splitSettingsList(raw: string): string[] {
   return raw

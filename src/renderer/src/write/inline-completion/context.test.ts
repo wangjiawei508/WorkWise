@@ -16,11 +16,11 @@ describe('buildInlineCompletionRequestContext', () => {
     const doc = [
       '# Draft',
       '',
-      'Hi! Let me introduce a new feature in DeepSeek gui. It includes text completion and writing tools.'
+      'Hi! Let me introduce a new feature in WORKGPT. It includes text completion and writing tools.'
     ].join('\n')
 
     const context = buildInlineCompletionRequestContext(
-      stateAt(doc, 'DeepSeek gui'),
+      stateAt(doc, 'WORKGPT'),
       { filePath: '/tmp/workspace/draft.md' }
     )
 

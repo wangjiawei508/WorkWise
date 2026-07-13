@@ -4,7 +4,7 @@ import { FolderOpen, GitFork, RefreshCw, Settings } from 'lucide-react'
 import type { ClawImChannelV1 } from '@shared/app-settings'
 import { AnimatedWorkLogo } from './AnimatedWorkLogo'
 import { InitialSessionUsageHeatmap } from './InitialSessionUsageHeatmap'
-import { KunHeroStage } from './KunHeroStage'
+import { KunHeroStage } from './WorkHeroStage'
 
 /**
  * Empty / hero states rendered by `MessageTimeline` when there is no

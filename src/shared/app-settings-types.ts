@@ -42,8 +42,9 @@ export const SCHEDULE_REASONING_EFFORT_IDS = ['off', 'low', 'medium', 'high', 'm
 export const DEFAULT_SCHEDULE_INTERNAL_PORT = 8788
 // 这些默认目录与 legacy-data-migration.ts 的 HOME_DATA_MIGRATION_MAPPINGS
 // 一一对应:老安装的 ~/.deepseekgui/* 在启动期被搬到这里。
-export const DEFAULT_WRITE_WORKSPACE_ROOT = '~/.kun/write_workspace'
-export const DEFAULT_KUN_DATA_DIR = '~/.kun/data'
+export const DEFAULT_WORKSPACE_ROOT = '~/.workwise/default_workspace'
+export const DEFAULT_WRITE_WORKSPACE_ROOT = '~/.workwise/write_workspace'
+export const DEFAULT_KUN_DATA_DIR = '~/.workwise/kun'
 export const DEFAULT_KUN_MODEL = 'deepseek-v4-pro'
 export const DEFAULT_WRITE_INLINE_COMPLETION_BASE_URL = 'https://api.deepseek.com/beta'
 export const DEFAULT_WRITE_INLINE_COMPLETION_MODEL = 'deepseek-v4-flash'
@@ -59,6 +60,11 @@ export const DEFAULT_WRITE_KNOWLEDGE_PUBLIC_BASE_URL = 'https://kb.railwise.cn'
 export const DEFAULT_KUN_PORT = 8899
 export const DEFAULT_WEIXIN_BRIDGE_RPC_URL = 'http://127.0.0.1:18790/api/v1/admin/rpc'
 export const DEFAULT_MODEL_PROVIDER_ID = 'deepseek'
+export const DEFAULT_AGNES_PROVIDER_ID = 'agnes-ai'
+export const DEFAULT_AGNES_BASE_URL = 'https://apihub.agnes-ai.com/v1'
+export const DEFAULT_AGNES_TEXT_MODEL = 'agnes-2.0-flash'
+export const DEFAULT_AGNES_IMAGE_MODEL = 'agnes-image-2.1-flash'
+export const FALLBACK_AGNES_IMAGE_MODEL = 'agnes-image-2.0-flash'
 export type { ModelEndpointFormat }
 export type ModelProviderImageCapabilityV1 = {
   protocol: ImageGenerationProtocol

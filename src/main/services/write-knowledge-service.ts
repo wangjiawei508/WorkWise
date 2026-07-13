@@ -4,7 +4,7 @@ import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 import type { WriteKnowledgeBaseSettingsV1 } from '../../shared/app-settings'
 import type { WriteInlineCompletionRequest } from '../../shared/write-inline-completion'
-import type { WriteKnowledgeBaseStatus } from '../../shared/workgpt-api'
+import type { WriteKnowledgeBaseStatus } from '../../shared/kun-gui-api'
 
 const INDEX_TTL_MS = 6 * 60 * 60 * 1_000
 const API_HEALTH_TTL_MS = 5 * 60 * 1_000

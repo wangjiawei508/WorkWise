@@ -36,7 +36,7 @@ function HelpLinkButton({
   return (
     <button
       type="button"
-      onClick={() => void window.workgpt?.openExternal?.(href)?.catch(() => undefined)}
+onClick={() => void window.kunGui?.openExternal?.(href)?.catch(() => undefined)}
       className="inline-flex min-h-9 items-center gap-2 rounded-xl border border-ds-border bg-ds-card px-3 py-2 text-[13px] font-medium text-ds-ink shadow-sm transition hover:bg-ds-hover"
     >
       {icon}

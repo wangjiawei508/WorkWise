@@ -13,25 +13,30 @@ import {
   writeFile
 } from 'node:fs/promises'
 import { homedir } from 'node:os'
-import { basename, join, resolve } from 'node:path'
+import { basename, dirname, join, resolve } from 'node:path'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
+import JSZip from 'jszip'
 import type {
   ManagedToolId,
   ManagedToolListResult,
   ManagedToolResult,
   ManagedToolStatus
-} from '../../shared/workgpt-api'
-import { installGithubSkill } from './skill-service'
+} from '../../shared/kun-gui-api'
+import { describeNetworkFailure, systemFetch } from './system-network'
 
 const execFileAsync = promisify(execFile)
 const MAX_DOWNLOAD_BYTES = 64 * 1024 * 1024
+const MAX_SKILL_BUNDLE_DOWNLOAD_BYTES = 96 * 1024 * 1024
 const EGO_URL = 'https://lite.ego.app/'
 const RELEASE_CACHE_TTL_MS = 30 * 60 * 1_000
 
-type ReleaseAsset = { name?: string; browser_download_url?: string; size?: number }
-type GithubRelease = { tag_name?: string; assets?: ReleaseAsset[] }
-type ToolManifest = Record<string, { version: string; executablePath: string; installedAt: string }>
+type ToolManifest = Record<string, {
+  version: string
+  executablePath: string
+  installedAt: string
+  skillWarning?: string
+}>
 
 const releaseVersionCache = new Map<string, { version: string; expiresAt: number }>()
 
@@ -98,43 +103,63 @@ async function writeManifest(manifest: ToolManifest): Promise<void> {
   await writeFile(manifestPath(), `${JSON.stringify(manifest, null, 2)}\n`, 'utf8')
 }
 
-async function fetchRelease(repo: string): Promise<GithubRelease> {
-  const response = await fetch(`https://api.github.com/repos/${repo}/releases/latest`, {
-    headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'WorkWise' },
-    signal: AbortSignal.timeout(15_000)
-  })
+async function fetchLatestReleaseVersion(repo: string): Promise<string> {
+  let response: Response
+  try {
+    response = await systemFetch(`https://github.com/${repo}/releases/latest`, {
+      headers: { Accept: 'text/html', 'User-Agent': 'WorkWise' },
+      redirect: 'follow',
+      signal: AbortSignal.timeout(30_000)
+    })
+  } catch (error) {
+    throw new Error(describeNetworkFailure(error, `GitHub (${repo})`), { cause: error })
+  }
   if (!response.ok) throw new Error(`Unable to read ${repo} release (${response.status}).`)
-  return await response.json() as GithubRelease
+  if (response.url) return releaseVersionFromUrl(response.url)
+  return releaseVersionFromHtml(await response.text())
 }
 
 async function latestVersionFor(id: Exclude<ManagedToolId, 'ego-browser'>): Promise<string> {
   const cached = releaseVersionCache.get(id)
   if (cached && cached.expiresAt > Date.now()) return cached.version
-  const version = releaseVersion(await fetchRelease(repoFor(id)))
+  const version = await fetchLatestReleaseVersion(repoFor(id))
   releaseVersionCache.set(id, { version, expiresAt: Date.now() + RELEASE_CACHE_TTL_MS })
   return version
 }
 
-function releaseVersion(release: GithubRelease): string {
-  const version = release.tag_name?.trim().replace(/^v/, '') ?? ''
+function releaseVersionFromUrl(url: string): string {
+  const tag = /\/releases\/tag\/([^/?#]+)/.exec(url)?.[1] ?? ''
+  const version = decodeURIComponent(tag).trim().replace(/^v/, '')
   if (!/^\d+\.\d+\.\d+/.test(version)) throw new Error('Release version is invalid.')
   return version
 }
 
-function findAsset(release: GithubRelease, name: string): ReleaseAsset {
-  const asset = release.assets?.find((candidate) => candidate.name === name)
-  if (!asset?.browser_download_url) throw new Error(`Release asset is missing: ${name}`)
-  if ((asset.size ?? 0) > MAX_DOWNLOAD_BYTES) throw new Error(`Release asset is too large: ${name}`)
-  return asset
+function releaseVersionFromHtml(html: string): string {
+  const tag = /\/releases\/tag\/(v?\d+\.\d+\.\d+[^"'/?#\s<]*)/.exec(html)?.[1] ?? ''
+  const version = decodeURIComponent(tag).trim().replace(/^v/, '')
+  if (!/^\d+\.\d+\.\d+/.test(version)) throw new Error('Release version is invalid.')
+  return version
 }
 
-async function download(url: string): Promise<Buffer> {
-  const response = await fetch(url, { signal: AbortSignal.timeout(120_000) })
+function releaseAssetUrl(repo: string, version: string, name: string): string {
+  return `https://github.com/${repo}/releases/download/v${encodeURIComponent(version)}/${encodeURIComponent(name)}`
+}
+
+async function download(url: string, maxBytes = MAX_DOWNLOAD_BYTES): Promise<Buffer> {
+  let response: Response
+  try {
+    response = await systemFetch(url, {
+      headers: { 'User-Agent': 'WorkWise' },
+      signal: AbortSignal.timeout(180_000)
+    })
+  } catch (error) {
+    throw new Error(describeNetworkFailure(error, 'GitHub download'), { cause: error })
+  }
   if (!response.ok) throw new Error(`Download failed (${response.status}).`)
   const declared = Number(response.headers.get('content-length') || 0)
-  if (declared > MAX_DOWNLOAD_BYTES) throw new Error('Download exceeds the managed tool size limit.')
+  if (declared > maxBytes) throw new Error('Download exceeds the managed tool size limit.')
   const bytes = Buffer.from(await response.arrayBuffer())
-  if (bytes.length > MAX_DOWNLOAD_BYTES) throw new Error('Download exceeds the managed tool size limit.')
+  if (bytes.length > maxBytes) throw new Error('Download exceeds the managed tool size limit.')
   return bytes
 }
 
@@ -222,28 +247,107 @@ async function activateExecutable(id: Exclude<ManagedToolId, 'ego-browser'>, exe
   return active
 }
 
-async function installCompanionSkills(id: ManagedToolId): Promise<void> {
+async function replaceSkillDirectory(name: string, staged: string): Promise<void> {
+  const target = join(managedToolsSkillRoot(), name)
+  const backup = join(managedToolsSkillRoot(), `.${name}.previous-${randomUUID()}`)
+  const hadPrevious = existsSync(target)
+  if (hadPrevious) await rename(target, backup)
+  try {
+    await rename(staged, target)
+    await rm(backup, { recursive: true, force: true })
+  } catch (error) {
+    await rm(target, { recursive: true, force: true }).catch(() => undefined)
+    if (hadPrevious) await rename(backup, target).catch(() => undefined)
+    throw error
+  }
+}
+
+async function installGithubSkillBundle(
+  owner: string,
+  repo: string,
+  ref: string,
+  skillNames: string[]
+): Promise<void> {
+  const archiveUrl = `https://codeload.github.com/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/zip/${encodeURIComponent(ref)}`
+  const archive = await download(archiveUrl, MAX_SKILL_BUNDLE_DOWNLOAD_BYTES)
+  const zip = await JSZip.loadAsync(archive, { checkCRC32: true })
+  const entries = Object.values(zip.files)
+  if (entries.length === 0 || entries.length > 10_000) {
+    throw new Error('GitHub Skill bundle has an invalid file count.')
+  }
+  for (const entry of entries) {
+    if (!archiveEntryIsSafe(entry.name)) {
+      throw new Error(`GitHub Skill bundle contains an unsafe path: ${entry.name}`)
+    }
+  }
+
+  await mkdir(managedToolsSkillRoot(), { recursive: true })
+  let extractedBytes = 0
+  const staged: Array<{ name: string; path: string }> = []
+  try {
+    for (const name of skillNames) {
+      const marker = `/skills/${name}/`
+      const files = entries.filter((entry) => !entry.dir && entry.name.includes(marker))
+      if (files.length === 0) throw new Error(`GitHub Skill bundle is missing skills/${name}.`)
+      const archiveRoot = files[0].name.slice(0, files[0].name.indexOf(marker))
+      const stage = join(managedToolsSkillRoot(), `.${name}.next-${randomUUID()}`)
+      staged.push({ name, path: stage })
+      await mkdir(stage, { recursive: true })
+      for (const entry of files) {
+        const relativePath = entry.name.slice(entry.name.indexOf(marker) + marker.length)
+        if (repo === 'OfficeCLI' && name === 'officecli' && relativePath === 'SKILL.md') {
+          // The repository exposes skills/officecli/SKILL.md as a symlink to
+          // the root Skill. Install the target content explicitly below.
+          continue
+        }
+        if (typeof entry.unixPermissions === 'number' && (entry.unixPermissions & 0o170000) === 0o120000) {
+          throw new Error(`GitHub Skill contains a symbolic link: ${entry.name}`)
+        }
+        if (!archiveEntryIsSafe(relativePath)) {
+          throw new Error(`GitHub Skill bundle contains an unsafe Skill path: ${relativePath}`)
+        }
+        const bytes = await entry.async('nodebuffer')
+        extractedBytes += bytes.length
+        if (extractedBytes > MAX_DOWNLOAD_BYTES) {
+          throw new Error('GitHub Skill bundle exceeds the managed tool size limit.')
+        }
+        const destination = join(stage, ...relativePath.split('/'))
+        await mkdir(dirname(destination), { recursive: true })
+        await writeFile(destination, bytes)
+      }
+      if (repo === 'OfficeCLI' && name === 'officecli') {
+        const rootSkill = zip.file(`${archiveRoot}/SKILL.md`)
+        if (!rootSkill) throw new Error('OfficeCLI bundle is missing its root SKILL.md.')
+        const bytes = await rootSkill.async('nodebuffer')
+        extractedBytes += bytes.length
+        await writeFile(join(stage, 'SKILL.md'), bytes)
+      }
+      if (!existsSync(join(stage, 'SKILL.md'))) {
+        throw new Error(`GitHub Skill bundle is missing skills/${name}/SKILL.md.`)
+      }
+    }
+    for (const item of staged) await replaceSkillDirectory(item.name, item.path)
+  } finally {
+    await Promise.all(staged.map((item) => rm(item.path, { recursive: true, force: true })))
+  }
+}
+
+async function installCompanionSkills(id: ManagedToolId, version?: string): Promise<void> {
   await mkdir(managedToolsSkillRoot(), { recursive: true })
   if (id === 'lark-cli') {
-    for (const name of LARK_SKILLS) {
-      const result = await installGithubSkill(managedToolsSkillRoot(), {
-        owner: 'larksuite', repo: 'cli', path: `skills/${name}`, skillName: name, autoUpdate: true
-      })
-      if (!result.ok) throw new Error(result.message)
-    }
+    if (!version) throw new Error('Lark CLI release version is missing.')
+    await installGithubSkillBundle('larksuite', 'cli', `v${version}`, LARK_SKILLS)
   } else if (id === 'officecli') {
-    for (const name of OFFICE_SKILLS) {
-      const result = await installGithubSkill(managedToolsSkillRoot(), {
-        owner: 'iOfficeAI', repo: 'OfficeCLI', path: `skills/${name}`, skillName: name, autoUpdate: true
-      })
-      if (!result.ok) throw new Error(result.message)
-    }
+    if (!version) throw new Error('OfficeCLI release version is missing.')
+    await installGithubSkillBundle('iOfficeAI', 'OfficeCLI', `v${version}`, OFFICE_SKILLS)
   } else {
-    const result = await installGithubSkill(managedToolsSkillRoot(), {
-      owner: 'citrolabs', repo: 'ego-lite', path: 'skills/ego-browser', skillName: 'ego-browser', autoUpdate: true
-    })
-    if (!result.ok) throw new Error(result.message)
+    await installGithubSkillBundle('citrolabs', 'ego-lite', 'main', ['ego-browser'])
   }
+}
+
+function companionSkillWarning(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error)
+  return `The tool was installed, but its companion Skills could not be updated: ${message}`
 }
 
 async function runTool(path: string, args: string[]): Promise<{ ok: boolean; output: string }> {
@@ -285,16 +389,23 @@ export async function diagnoseManagedTool(id: ManagedToolId): Promise<ManagedToo
 export async function installManagedTool(id: ManagedToolId): Promise<ManagedToolResult> {
   try {
     if (id === 'ego-browser') {
-      await installCompanionSkills(id)
-      return diagnoseManagedTool(id)
+      let warning = ''
+      await installCompanionSkills(id).catch((error) => {
+        warning = companionSkillWarning(error)
+      })
+      const result = await diagnoseManagedTool(id)
+      if (result.ok && warning) {
+        result.status.message = [result.status.message, warning].filter(Boolean).join(' ')
+      }
+      return result
     }
-    const release = await fetchRelease(repoFor(id))
-    const version = releaseVersion(release)
+    const repo = repoFor(id)
+    const version = await latestVersionFor(id)
     const assetName = platformAsset(id, version)
     const checksumName = id === 'lark-cli' ? 'checksums.txt' : 'SHA256SUMS'
     const [assetBytes, checksumBytes] = await Promise.all([
-      download(findAsset(release, assetName).browser_download_url as string),
-      download(findAsset(release, checksumName).browser_download_url as string)
+      download(releaseAssetUrl(repo, version, assetName)),
+      download(releaseAssetUrl(repo, version, checksumName))
     ])
     const expected = checksumFor(checksumBytes.toString('utf8'), assetName)
     const actual = createHash('sha256').update(assetBytes).digest('hex')
@@ -312,7 +423,10 @@ export async function installManagedTool(id: ManagedToolId): Promise<ManagedTool
     let movedNew = false
     try {
       const executable = await extractAsset(id, assetName, assetBytes, temp)
-      await installCompanionSkills(id)
+      let skillWarning = ''
+      await installCompanionSkills(id, version).catch((error) => {
+        skillWarning = companionSkillWarning(error)
+      })
       if (existsSync(activePath)) await copyFile(activePath, activeBackup)
       if (existsSync(finalDir)) {
         await rename(finalDir, previousDir)
@@ -323,7 +437,12 @@ export async function installManagedTool(id: ManagedToolId): Promise<ManagedTool
       const finalExecutable = join(finalDir, executable.slice(temp.length + 1))
       const active = await activateExecutable(id, finalExecutable)
       const manifest = await readManifest()
-      manifest[id] = { version, executablePath: active, installedAt: new Date().toISOString() }
+      manifest[id] = {
+        version,
+        executablePath: active,
+        installedAt: new Date().toISOString(),
+        ...(skillWarning ? { skillWarning } : {})
+      }
       await writeManifest(manifest)
       await rm(previousDir, { recursive: true, force: true }).catch(() => undefined)
       await rm(activeBackup, { force: true }).catch(() => undefined)
@@ -340,7 +459,14 @@ export async function installManagedTool(id: ManagedToolId): Promise<ManagedTool
       }
       throw error
     }
-    return diagnoseManagedTool(id)
+    const diagnosed = await diagnoseManagedTool(id)
+    if (diagnosed.ok) {
+      const skillWarning = (await readManifest())[id]?.skillWarning
+      if (skillWarning) {
+        diagnosed.status.message = [diagnosed.status.message, skillWarning].filter(Boolean).join(' ')
+      }
+    }
+    return diagnosed
   } catch (error) {
     return { ok: false, message: error instanceof Error ? error.message : String(error) }
   }
@@ -397,4 +523,12 @@ export async function listManagedTools(): Promise<ManagedToolListResult> {
   }
 }
 
-export const _internals = { platformAsset, checksumFor, archiveEntryIsSafe, assertSafeArchiveListing }
+export const _internals = {
+  platformAsset,
+  checksumFor,
+  archiveEntryIsSafe,
+  assertSafeArchiveListing,
+  releaseVersionFromUrl,
+  releaseVersionFromHtml,
+  releaseAssetUrl
+}

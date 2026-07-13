@@ -1,7 +1,7 @@
 import type { Dispatch, ReactElement, SetStateAction } from 'react'
-import { Bot, ChevronLeft, Globe, ImageIcon, Keyboard, PencilLine, ServerCog, Settings, Smartphone } from 'lucide-react'
+import { Bot, ChevronLeft, Globe, HelpCircle, ImageIcon, Keyboard, PencilLine, ServerCog, Settings, Smartphone } from 'lucide-react'
 
-type SettingsCategory = 'general' | 'providers' | 'write' | 'imageGeneration' | 'agents' | 'shortcuts' | 'claw'
+type SettingsCategory = 'general' | 'providers' | 'write' | 'imageGeneration' | 'agents' | 'shortcuts' | 'claw' | 'help'
 
 export function SettingsSidebar({
   category,
@@ -78,7 +78,7 @@ export function SettingsSidebar({
             <Settings className="h-4 w-4" strokeWidth={1.75} />
           </div>
           <div className="min-w-0 text-[12px] text-ds-muted">
-            <div className="truncate font-medium text-ds-ink">Kun</div>
+            <div className="truncate font-medium text-ds-ink">WorkWise</div>
             <div className="truncate">{t('settingsFooter')}</div>
           </div>
         </div>
