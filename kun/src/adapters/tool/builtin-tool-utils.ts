@@ -104,7 +104,7 @@ export async function resolveWorkspacePath(inputPath: string, context: ToolHostC
   return {
     workspaceRoot: root,
     absolutePath,
-    relativePath: relativePath || '.'
+    relativePath: normalizeToolPath(relativePath || '.')
   }
 }
 
