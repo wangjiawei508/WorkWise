@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
-import { basename, isAbsolute, relative } from 'node:path'
+import { basename, isAbsolute, relative, resolve } from 'node:path'
 import type { GitBranchesResult } from '../../shared/git-branches'
 import { discoverGitRepositories, findNearestGitRoot } from './git-discovery'
 
@@ -57,13 +57,18 @@ export async function getGitBranches(workspaceRoot: string): Promise<GitBranches
     return { ok: false, reason: 'no_workspace', message: 'No working directory selected.' }
   }
   try {
-    const repositoryRoot = (await runGit(cwd, ['rev-parse', '--show-toplevel'])).stdout.trim()
-    const discovered: string[] = await discoverGitRepositories(workspaceRoot).catch(() => [])
+    const canonicalWorkspaceRoot = resolve(workspaceRoot)
+    const repositoryRoot = resolve(
+      (await runGit(cwd, ['rev-parse', '--show-toplevel'])).stdout.trim()
+    )
+    const discovered: string[] = (
+      await discoverGitRepositories(canonicalWorkspaceRoot).catch(() => [])
+    ).map((root) => resolve(root))
     const allRepositories = discovered.includes(repositoryRoot)
       ? discovered
       : [repositoryRoot, ...discovered]
     const repositories = [...new Set(allRepositories)].map((root) => {
-      const rel = relative(workspaceRoot, root)
+      const rel = relative(canonicalWorkspaceRoot, root)
       return {
         root,
         relativePath: !rel || isAbsolute(rel) || rel.startsWith('..') ? basename(root) : rel
