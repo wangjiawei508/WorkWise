@@ -4,7 +4,7 @@ import type {
   SseEndPayload,
   SseErrorPayload,
   SseEventPayload
-} from '@shared/kun-gui-api'
+} from '@shared/workwise-api'
 
 class RendererRuntimeClient {
   private cachedSettings: AppSettingsV1 | null = null
@@ -16,7 +16,7 @@ class RendererRuntimeClient {
     }
     if (this.cachedSettings) return this.cachedSettings
     if (this.settingsPromise) return this.settingsPromise
-    const task = window.kunGui.getSettings().then((settings) => {
+    const task = window.workwise.getSettings().then((settings) => {
       this.cachedSettings = settings
       return settings
     })
@@ -27,7 +27,16 @@ class RendererRuntimeClient {
   }
 
   async setSettings(partial: AppSettingsPatch): Promise<AppSettingsV1> {
-    const settings = await window.kunGui.setSettings(partial)
+    const current = await this.getSettings()
+    let settings: AppSettingsV1
+    try {
+      settings = await window.workwise.setSettings(partial, current.revision)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      if (!/revision conflict|stale_request/i.test(message)) throw error
+      const latest = await this.getSettings({ forceRefresh: true })
+      settings = await window.workwise.setSettings(partial, latest.revision)
+    }
     this.cachedSettings = settings
     this.settingsPromise = null
     return settings
@@ -40,30 +49,30 @@ class RendererRuntimeClient {
 
   runtimeRequest(path: string, method?: string, body?: string): Promise<RuntimeRequestResult> {
     if (body === undefined) {
-      if (method === undefined) return window.kunGui.runtimeRequest(path)
-      return window.kunGui.runtimeRequest(path, method)
+      if (method === undefined) return window.workwise.runtimeRequest(path)
+      return window.workwise.runtimeRequest(path, method)
     }
-    return window.kunGui.runtimeRequest(path, method, body)
+    return window.workwise.runtimeRequest(path, method, body)
   }
 
   startSse(threadId: string, sinceSeq: number, streamId?: string): Promise<{ streamId: string }> {
-    return window.kunGui.startSse(threadId, sinceSeq, streamId)
+    return window.workwise.startSse(threadId, sinceSeq, streamId)
   }
 
   stopSse(streamId: string): Promise<boolean> {
-    return window.kunGui.stopSse(streamId)
+    return window.workwise.stopSse(streamId)
   }
 
   onSseEvent(handler: (payload: SseEventPayload) => void): () => void {
-    return window.kunGui.onSseEvent(handler)
+    return window.workwise.onSseEvent(handler)
   }
 
   onSseEnd(handler: (payload: SseEndPayload) => void): () => void {
-    return window.kunGui.onSseEnd(handler)
+    return window.workwise.onSseEnd(handler)
   }
 
   onSseError(handler: (payload: SseErrorPayload) => void): () => void {
-    return window.kunGui.onSseError(handler)
+    return window.workwise.onSseError(handler)
   }
 }
 

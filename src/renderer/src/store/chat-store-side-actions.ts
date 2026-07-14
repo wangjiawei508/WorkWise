@@ -6,7 +6,7 @@ import type {
   ToolBlock,
   ToolEventPayload
 } from '../agent/types'
-import { DEFAULT_KUN_MODEL } from '@shared/app-settings'
+import { DEFAULT_MANAGED_RUNTIME_MODEL } from '@shared/app-settings'
 import type { ChatState, SideConversation, SidePanelState } from './chat-store-types'
 import { upsertUserBlock } from './chat-store-runtime-helpers'
 
@@ -41,7 +41,7 @@ function defaultSideModel(state: ChatState, parentThreadId: string): string {
   const parent = state.threads.find((thread) => thread.id === parentThreadId)
   if (parent?.model) return parent.model
   if (state.composerModel) return state.composerModel
-  return DEFAULT_KUN_MODEL
+  return DEFAULT_MANAGED_RUNTIME_MODEL
 }
 
 function sideReasoningEffortRequestValue(value: string): string | undefined {
@@ -543,7 +543,7 @@ export function createSideActions(ctx: SideContext): Pick<
       // as a generic runtimeRequest body — we use a direct request here
       // because the rename surface is title-only.
       try {
-        const response = await window.kunGui.runtimeRequest(
+        const response = await window.workwise.runtimeRequest(
           `/v1/threads/${encodeURIComponent(sideId)}`,
           'PATCH',
           JSON.stringify({ relation: 'primary' })

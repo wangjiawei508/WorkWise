@@ -1,7 +1,6 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
 import { randomUUID } from 'node:crypto'
 import { URL } from 'node:url'
-import { mkdir } from 'node:fs/promises'
 import type {
   AppSettingsV1,
   ScheduleReasoningEffort,
@@ -16,6 +15,7 @@ import {
   buildScheduleRuntimePrompt,
   normalizeScheduleReasoningEffort
 } from '../shared/app-settings'
+import { readLegacyWebhookSecret } from './compat/legacy-http'
 import {
   buildScheduledTaskFromDetectedRequest,
   detectClawScheduledTaskRequest
@@ -42,6 +42,8 @@ import {
   type ThreadDetailJson,
   type ThreadRecordJson
 } from './schedule-runtime-helpers'
+import { appCancellationRegistry } from './cancellation-registry'
+import { runtimeThreadInterruptPath } from '../shared/runtime-endpoints'
 
 export { computeScheduleNextRunAt } from './schedule-runtime-helpers'
 
@@ -78,6 +80,9 @@ export class ScheduleRuntime {
     }
     this.closeInternalServer()
     this.stopPowerSaveBlocker()
+    for (const taskId of this.runningTaskIds) {
+      void appCancellationRegistry.cancel({ scope: 'schedule', id: taskId }, 'schedule_runtime_stopped')
+    }
   }
 
   async status(): Promise<ScheduleRuntimeStatus> {
@@ -220,6 +225,7 @@ export class ScheduleRuntime {
   async deleteTaskById(taskId: string): Promise<boolean> {
     const settings = await this.deps.store.load()
     if (!settings.schedule.tasks.some((item) => item.id === taskId)) return false
+    await appCancellationRegistry.cancel({ scope: 'schedule', id: taskId }, 'schedule_deleted')
     const saved = await this.deps.store.patch({
       schedule: {
         tasks: settings.schedule.tasks.filter((item) => item.id !== taskId)
@@ -364,6 +370,21 @@ export class ScheduleRuntime {
         lastThreadId: result.threadId,
         updatedAt: startedAt.toISOString()
       }))
+      if (result.turnId) {
+        appCancellationRegistry.register(
+          { scope: 'schedule', id: task.id },
+          {
+            parent: { scope: 'app', id: 'app' },
+            cleanup: async () => {
+              await this.deps.runtimeRequest(
+                settings,
+                runtimeThreadInterruptPath(result.threadId, result.turnId ?? ''),
+                { method: 'POST', body: JSON.stringify({ discard: false }) }
+              ).catch(() => undefined)
+            }
+          }
+        )
+      }
       void this.monitorTaskTurn(task.id, result.threadId, result.turnId ?? '')
       return result
     } catch (error) {
@@ -418,14 +439,12 @@ export class ScheduleRuntime {
       this.deps.logError('schedule-task', 'Scheduled task failed', { message, taskId, threadId })
     } finally {
       this.runningTaskIds.delete(taskId)
+      appCancellationRegistry.release({ scope: 'schedule', id: taskId })
     }
   }
 
   private async runPrompt(settings: AppSettingsV1, options: RunPromptOptions): Promise<ScheduleRunResult> {
     const workspace = options.workspaceRoot.trim() || this.resolveDefaultWorkspaceRoot(settings)
-    if (workspace) {
-      await mkdir(workspace, { recursive: true })
-    }
     const model = normalizeTaskModel(options.model) ?? (settings.agents.kun.model.trim() || DEFAULT_SCHEDULE_MODEL)
     const create = await this.deps.runtimeRequest(settings, '/v1/threads', {
       method: 'POST',
@@ -556,9 +575,7 @@ export class ScheduleRuntime {
       const secret = settings.schedule.internal.secret.trim()
       if (secret) {
         const auth = req.headers.authorization ?? ''
-        // 新名字 x-kun-secret 优先;旧名字 x-deepseek-gui-secret 已配置
-        // 在外部系统里,属于对外契约,必须长期兼容。
-        const rawHeaderSecret = req.headers['x-kun-secret'] ?? req.headers['x-deepseek-gui-secret']
+        const rawHeaderSecret = req.headers['x-workwise-secret'] ?? readLegacyWebhookSecret(req.headers)
         const headerSecret = Array.isArray(rawHeaderSecret) ? rawHeaderSecret[0] : rawHeaderSecret
         if (auth !== `Bearer ${secret}` && headerSecret !== secret) {
           writeJson(res, 401, { ok: false, message: 'Unauthorized.' })

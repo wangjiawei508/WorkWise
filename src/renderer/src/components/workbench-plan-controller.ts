@@ -153,7 +153,7 @@ export function useWorkbenchPlanController({
     const planStore = useGuiPlanStore.getState()
     planStore.setSaveStatus('saving')
     try {
-      const result = await window.kunGui.writeWorkspaceFile({
+      const result = await window.workwise.writeWorkspaceFile({
         workspaceRoot: plan.workspaceRoot,
         path: plan.relativePath,
         content: contentToSave
@@ -180,7 +180,7 @@ export function useWorkbenchPlanController({
     targetWorkspaceRoot: string
   ): Promise<string[]> => {
     try {
-      const result = await window.kunGui.listWorkspaceDirectory({
+      const result = await window.workwise.listWorkspaceDirectory({
         workspaceRoot: targetWorkspaceRoot,
         path: GUI_PLAN_RELATIVE_DIR
       })
@@ -233,7 +233,7 @@ export function useWorkbenchPlanController({
     meta: PlanResultMatch['meta'],
     shouldOpen: boolean
   ): Promise<void> => {
-    const result = await window.kunGui.readWorkspaceFile({
+    const result = await window.workwise.readWorkspaceFile({
       workspaceRoot: meta.workspaceRoot,
       path: meta.relativePath
     })
@@ -316,7 +316,7 @@ export function useWorkbenchPlanController({
       return
     }
 
-    const requirement = await window.kunGui.readWorkspaceFile({
+    const requirement = await window.workwise.readWorkspaceFile({
       workspaceRoot: plan.workspaceRoot,
       path: draftRelativePath
     })
@@ -362,7 +362,7 @@ export function useWorkbenchPlanController({
     if (sent) {
       const tracePath = sddDraftTraceRelativePath(draftRelativePath)
       if (tracePath) {
-        await window.kunGui
+        await window.workwise
           .writeWorkspaceFile({
             workspaceRoot: plan.workspaceRoot,
             path: tracePath,

@@ -1,19 +1,23 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { basename, dirname, join } from 'node:path'
-import { atomicWriteFile } from '../../kun/src/adapters/file/atomic-write.js'
 import {
-  applyKunRuntimePatch,
+  atomicWriteFile,
+  backupFileIfPresent,
+  runSerialized
+} from './services/durable-file'
+import {
+  applyManagedRuntimePatch,
   kunSettingsEnvelope,
   DEFAULT_WORKSPACE_ROOT,
   DEFAULT_GUI_UPDATE_CHANNEL,
   DEFAULT_WRITE_WORKSPACE_ROOT,
   defaultClawSettings,
-  defaultKunRuntimeSettings,
+  defaultManagedRuntimeSettings,
   defaultModelProviderSettings,
   defaultScheduleSettings,
-  getKunRuntimeSettings,
-  mergeKunRuntimeSettings,
+  getManagedRuntimeSettings,
+  mergeManagedRuntimeSettings,
   mergeModelProviderSettings,
   defaultWriteSettings,
   mergeClawSettings,
@@ -25,11 +29,12 @@ import {
   normalizeAppSettings,
   type AppSettingsPatch,
   type AppSettingsV1,
+  type WorkWiseSettingsV2,
   type ClawImChannelV1,
   type ClawImConversationV1
 } from '../shared/app-settings'
 
-export type { AppSettingsV1 }
+export type { AppSettingsV1, WorkWiseSettingsV2 }
 
 const DEFAULT_WORKSPACE_ROOT_ABSOLUTE = expandHomePath(DEFAULT_WORKSPACE_ROOT)
 const DEFAULT_CLAW_CHANNELS_ROOT = join(homedir(), '.workwise', 'claw')
@@ -114,7 +119,7 @@ function normalizeClawConversationWorkspaceRoot(
   return expandHomePath(conversation.workspaceRoot) || defaultClawConversationWorkspaceRoot(channel, conversation)
 }
 
-function normalizeStoredSettings(settings: AppSettingsV1): AppSettingsV1 {
+function normalizeStoredSettings(settings: AppSettingsV1): WorkWiseSettingsV2 {
   const normalized = normalizeAppSettings(settings)
   const writeDefaultRoot = normalizeWriteWorkspaceRoot(normalized.write.defaultWorkspaceRoot)
   const writeActiveRoot = normalizeWriteWorkspaceRoot(normalized.write.activeWorkspaceRoot || writeDefaultRoot)
@@ -124,6 +129,11 @@ function normalizeStoredSettings(settings: AppSettingsV1): AppSettingsV1 {
   )]
   return {
     ...normalized,
+    schema: 'workwise.settings',
+    version: 2,
+    revision: Number.isSafeInteger(normalized.revision) && (normalized.revision ?? -1) >= 0
+      ? normalized.revision as number
+      : 0,
     workspaceRoot: normalizeWorkspaceRoot(normalized.workspaceRoot),
     write: {
       defaultWorkspaceRoot: writeDefaultRoot,
@@ -146,7 +156,7 @@ function normalizeStoredSettings(settings: AppSettingsV1): AppSettingsV1 {
   }
 }
 
-function serializeSettingsForDisk(settings: AppSettingsV1): string {
+function serializeSettingsForDisk(settings: WorkWiseSettingsV2): string {
   return JSON.stringify(normalizeStoredSettings(settings), null, 2)
 }
 
@@ -183,14 +193,16 @@ async function ensureClawChannelWorkspaceRootsExist(settings: AppSettingsV1): Pr
   }
 }
 
-const defaultSettings = (): AppSettingsV1 => ({
-  version: 1,
+const defaultSettings = (): WorkWiseSettingsV2 => ({
+  schema: 'workwise.settings',
+  version: 2,
+  revision: 0,
   locale: 'en',
   theme: 'system',
   uiFontScale: 'small',
   provider: defaultModelProviderSettings(),
   agents: {
-    kun: defaultKunRuntimeSettings()
+    kun: defaultManagedRuntimeSettings()
   },
   workspaceRoot: DEFAULT_WORKSPACE_ROOT_ABSOLUTE,
   log: {
@@ -211,15 +223,15 @@ const defaultSettings = (): AppSettingsV1 => ({
   schedule: defaultScheduleSettings()
 })
 
-function buildMergedSettings(parsed: Partial<AppSettingsV1>): AppSettingsV1 {
+function buildMergedSettings(parsed: Partial<AppSettingsV1>): WorkWiseSettingsV2 {
   const migrated = migrateLegacyAppSettings(parsed)
   const defaults = defaultSettings()
-  return {
+  return normalizeStoredSettings({
     ...defaults,
     ...migrated,
     provider: mergeModelProviderSettings(defaults.provider, migrated.provider),
     agents: kunSettingsEnvelope(
-      mergeKunRuntimeSettings(getKunRuntimeSettings(defaults), migrated.agents?.kun)
+      mergeManagedRuntimeSettings(getManagedRuntimeSettings(defaults), migrated.agents?.kun)
     ),
     log: { ...defaults.log, ...migrated.log },
     notifications: { ...defaults.notifications, ...migrated.notifications },
@@ -233,14 +245,14 @@ function buildMergedSettings(parsed: Partial<AppSettingsV1>): AppSettingsV1 {
     schedule: mergeScheduleSettings(defaults.schedule, migrated.schedule),
     guiUpdate: { ...defaults.guiUpdate, ...migrated.guiUpdate },
     codePromptPrefix: typeof migrated.codePromptPrefix === 'string' ? migrated.codePromptPrefix : ''
-  }
+  } as AppSettingsV1)
 }
 
 function isErrnoException(error: unknown): error is NodeJS.ErrnoException {
   return typeof error === 'object' && error !== null
 }
 
-async function loadDefaultSettings(): Promise<AppSettingsV1> {
+async function loadDefaultSettings(): Promise<WorkWiseSettingsV2> {
   const defaults = normalizeStoredSettings(defaultSettings())
   await ensureWorkspaceRootExists(defaults.workspaceRoot)
   await ensureWriteWorkspaceRootsExist(defaults)
@@ -273,10 +285,7 @@ function compatibleSettingsPaths(currentPath: string): string[] {
       .filter((dirName) => dirName !== currentDirName)
       .map((dirName) => join(parentDir, dirName))
   ]
-  const fileNames = [
-    currentFileName,
-    ...COMPATIBLE_SETTINGS_FILE_NAMES.filter((fileName) => fileName !== currentFileName)
-  ]
+  const fileNames = [currentFileName, ...COMPATIBLE_SETTINGS_FILE_NAMES]
   const candidates = new Set<string>()
   for (const directory of directories) {
     for (const fileName of fileNames) {
@@ -285,6 +294,60 @@ function compatibleSettingsPaths(currentPath: string): string[] {
     }
   }
   return [...candidates]
+}
+
+type SettingsMigrationManifestV2 = {
+  schema: 'workwise.migration'
+  version: 2
+  completedAt: string
+  sourcePath: string
+  targetPath: string
+  backupPath: string | null
+  sourceVersion: number | null
+}
+
+function migrationManifestPath(workwiseHome: string): string {
+  return join(workwiseHome, 'migrations', 'v2.json')
+}
+
+async function recordSettingsMigration(
+  sourcePath: string,
+  targetPath: string,
+  sourceVersion: number | null,
+  raw: string,
+  workwiseHome: string
+): Promise<void> {
+  const manifestPath = migrationManifestPath(workwiseHome)
+  const migrationRoot = dirname(manifestPath)
+  const backupName = `${basename(sourcePath, '.json')}-${Buffer.from(sourcePath).toString('hex').slice(-16)}.json`
+  const backupPath = join(migrationRoot, 'backups', backupName)
+  let recordedBackup: string | null = null
+  try {
+    const copied = await backupFileIfPresent(sourcePath, backupPath)
+    if (copied) recordedBackup = backupPath
+  } catch {
+    // The source may disappear between read and backup. Preserve the loaded bytes instead.
+    await atomicWriteFile(backupPath, raw)
+    recordedBackup = backupPath
+  }
+  const manifest: SettingsMigrationManifestV2 = {
+    schema: 'workwise.migration',
+    version: 2,
+    completedAt: new Date().toISOString(),
+    sourcePath,
+    targetPath,
+    backupPath: recordedBackup,
+    sourceVersion
+  }
+  await atomicWriteFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`)
+}
+
+export class SettingsRevisionConflictError extends Error {
+  readonly code = 'stale_request'
+  constructor(readonly expectedRevision: number, readonly actualRevision: number) {
+    super(`Settings revision conflict: expected ${expectedRevision}, found ${actualRevision}`)
+    this.name = 'SettingsRevisionConflictError'
+  }
 }
 
 async function readSettingsFileWithCompatibility(
@@ -316,13 +379,15 @@ async function readSettingsFileWithCompatibility(
 
 export class JsonSettingsStore {
   private path: string
-  private cache: AppSettingsV1 | null = null
+  private workwiseHome: string
+  private cache: WorkWiseSettingsV2 | null = null
 
-  constructor(userDataPath: string) {
+  constructor(userDataPath: string, options?: { workwiseHome?: string }) {
     this.path = join(userDataPath, SETTINGS_FILE_NAME)
+    this.workwiseHome = options?.workwiseHome ?? join(homedir(), '.workwise')
   }
 
-  async load(): Promise<AppSettingsV1> {
+  async load(): Promise<WorkWiseSettingsV2> {
     if (this.cache) return this.cache
 
     let raw = ''
@@ -330,7 +395,10 @@ export class JsonSettingsStore {
     try {
       const loaded = await readSettingsFileWithCompatibility(this.path)
       if (!loaded) {
-        this.cache = await loadDefaultSettings()
+        const defaults = await loadDefaultSettings()
+        await mkdir(dirname(this.path), { recursive: true })
+        await atomicWriteFile(this.path, serializeSettingsForDisk(defaults))
+        this.cache = defaults
         return this.cache
       }
       raw = loaded.raw
@@ -350,11 +418,11 @@ export class JsonSettingsStore {
         await this.save(defaults)
         if (backupPath) {
           console.warn(
-            `[kun-gui] Invalid settings JSON was replaced with defaults. Backup: ${backupPath}`
+            `[workwise] Invalid settings JSON was replaced with defaults. Backup: ${backupPath}`
           )
         } else {
           console.warn(
-            `[kun-gui] Invalid settings JSON was replaced with defaults. Backup could not be written for ${sourcePath}.`
+            `[workwise] Invalid settings JSON was replaced with defaults. Backup could not be written for ${sourcePath}.`
           )
         }
         return defaults
@@ -367,49 +435,66 @@ export class JsonSettingsStore {
     await ensureWorkspaceRootExists(normalized.workspaceRoot)
     await ensureWriteWorkspaceRootsExist(normalized)
     await ensureClawChannelWorkspaceRootsExist(normalized)
-    this.cache = normalized
-    if (sourcePath !== this.path) {
-      await this.save(normalized)
+    const needsV2Commit = sourcePath !== this.path || parsed.schema !== 'workwise.settings' || parsed.version !== 2
+    if (needsV2Commit) {
+      await recordSettingsMigration(
+        sourcePath,
+        this.path,
+        typeof parsed.version === 'number' ? parsed.version : null,
+        raw,
+        this.workwiseHome
+      )
+      await mkdir(dirname(this.path), { recursive: true })
+      await atomicWriteFile(this.path, serializeSettingsForDisk(normalized))
     }
+    this.cache = normalized
     return this.cache
   }
 
-  async save(data: AppSettingsV1): Promise<void> {
+  async save(data: AppSettingsV1): Promise<WorkWiseSettingsV2> {
     const normalized = normalizeStoredSettings(data)
     await ensureWorkspaceRootExists(normalized.workspaceRoot)
     await ensureWriteWorkspaceRootsExist(normalized)
     await ensureClawChannelWorkspaceRootsExist(normalized)
-    this.cache = normalized
     await mkdir(dirname(this.path), { recursive: true })
     await atomicWriteFile(this.path, serializeSettingsForDisk(normalized))
+    this.cache = normalized
+    return normalized
   }
 
-  async patch(partial: AppSettingsPatch): Promise<AppSettingsV1> {
-    const cur = await this.load()
-    const { agents: agentsPatch, provider: providerPatch, ...restPatch } = partial
-    const next = normalizeStoredSettings({
-      ...applyKunRuntimePatch(cur, agentsPatch?.kun),
-      ...restPatch,
-      provider: mergeModelProviderSettings(cur.provider, providerPatch),
-      log: { ...cur.log, ...(partial.log ?? {}) },
-      notifications: { ...cur.notifications, ...(partial.notifications ?? {}) },
-      appBehavior: normalizeAppBehaviorSettings({
-        ...cur.appBehavior,
-        ...(partial.appBehavior ?? {})
-      }),
-      keyboardShortcuts: normalizeKeyboardShortcuts({
-        bindings: {
-          ...cur.keyboardShortcuts.bindings,
-          ...(partial.keyboardShortcuts?.bindings ?? {})
-        }
-      }),
-      write: mergeWriteSettings(cur.write, partial.write),
-      claw: mergeClawSettings(cur.claw, partial.claw),
-      schedule: mergeScheduleSettings(cur.schedule, partial.schedule),
-      guiUpdate: { ...cur.guiUpdate, ...(partial.guiUpdate ?? {}) }
+  async patch(partial: AppSettingsPatch, expectedRevision?: number): Promise<WorkWiseSettingsV2> {
+    return runSerialized(`settings:${this.path}`, async () => {
+      const cur = await this.load()
+      if (expectedRevision !== undefined && expectedRevision !== cur.revision) {
+        throw new SettingsRevisionConflictError(expectedRevision, cur.revision)
+      }
+      const { agents: agentsPatch, provider: providerPatch, ...restPatch } = partial
+      const next = normalizeStoredSettings({
+        ...applyManagedRuntimePatch(cur, agentsPatch?.kun),
+        ...restPatch,
+        schema: 'workwise.settings',
+        version: 2,
+        revision: cur.revision + 1,
+        provider: mergeModelProviderSettings(cur.provider, providerPatch),
+        log: { ...cur.log, ...(partial.log ?? {}) },
+        notifications: { ...cur.notifications, ...(partial.notifications ?? {}) },
+        appBehavior: normalizeAppBehaviorSettings({
+          ...cur.appBehavior,
+          ...(partial.appBehavior ?? {})
+        }),
+        keyboardShortcuts: normalizeKeyboardShortcuts({
+          bindings: {
+            ...cur.keyboardShortcuts.bindings,
+            ...(partial.keyboardShortcuts?.bindings ?? {})
+          }
+        }),
+        write: mergeWriteSettings(cur.write, partial.write),
+        claw: mergeClawSettings(cur.claw, partial.claw),
+        schedule: mergeScheduleSettings(cur.schedule, partial.schedule),
+        guiUpdate: { ...cur.guiUpdate, ...(partial.guiUpdate ?? {}) }
+      })
+      return this.save(next)
     })
-    await this.save(next)
-    return next
   }
 }
 

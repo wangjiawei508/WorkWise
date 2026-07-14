@@ -101,19 +101,22 @@ npm run dev
 Common quality checks:
 
 ```bash
+npm run openspec:validate
+npm run verify:brand-boundary
 npm run typecheck
 npm run lint
 npm run test
 npm run build
 ```
 
-The repository contains a local agent runtime in `kun/`. `Kun` is an internal runtime name, not the user-facing product brand or download entry.
+The local agent is provided by WorkWise Agent Runtime through a stable HTTP/SSE boundary with the desktop application.
 
 ## Release policy
 
 - Public releases retain only the macOS Apple Silicon, macOS Intel, and Windows x64 user installers.
 - Intermediate build artifacts are not published, and unverified roadmap items are not presented as released capabilities.
 - [GitHub Releases](https://github.com/wangjiawei508/WorkWise/releases) is the public release log; the website and knowledge base synchronize version and platform information from it.
+- The 0.2.5 public behavior baseline is tracked in the [public behavior gap table](docs/PUBLIC_BEHAVIOR_GAP_0.2.5.zh-CN.md).
 
 ## Feedback
 

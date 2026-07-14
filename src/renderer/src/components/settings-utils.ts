@@ -1,10 +1,10 @@
 import {
   DEFAULT_GUI_UPDATE_CHANNEL,
-  defaultKunRuntimeSettings,
-  applyKunRuntimePatch,
-  getKunRuntimeSettings,
+  defaultManagedRuntimeSettings,
+  applyManagedRuntimePatch,
+  getManagedRuntimeSettings,
   kunSettingsEnvelope,
-  mergeKunRuntimeSettings,
+  mergeManagedRuntimeSettings,
   mergeClawSettings,
   mergeModelProviderSettings,
   mergeScheduleSettings,
@@ -38,7 +38,7 @@ export function listSettingsText(values: string[]): string {
 }
 
 export function hasValidPort(settings: AppSettingsV1): boolean {
-  const port = getKunRuntimeSettings(settings).port
+  const port = getManagedRuntimeSettings(settings).port
   return Number.isFinite(port) && port >= 1 && port <= 65535
 }
 
@@ -46,7 +46,7 @@ export function mergeSettings(current: AppSettingsV1, patch: SettingsPatch): App
   const safeCurrent = coerceRendererSettings(current)
   const { agents: agentsPatch, provider: providerPatch, ...restPatch } = patch
   return {
-    ...applyKunRuntimePatch(safeCurrent, agentsPatch?.kun),
+    ...applyManagedRuntimePatch(safeCurrent, agentsPatch?.kun),
     ...restPatch,
     provider: mergeModelProviderSettings(safeCurrent.provider, providerPatch),
     log: {
@@ -93,7 +93,7 @@ export function coerceRendererSettings(settings: AppSettingsV1): AppSettingsV1 {
     theme,
     uiFontScale,
     provider: normalizeModelProviderSettings(raw.provider),
-    agents: kunSettingsEnvelope(mergeKunRuntimeSettings(defaultKunRuntimeSettings(), getKunRuntimeSettings(settings))),
+    agents: kunSettingsEnvelope(mergeManagedRuntimeSettings(defaultManagedRuntimeSettings(), getManagedRuntimeSettings(settings))),
     workspaceRoot: typeof raw.workspaceRoot === 'string' ? raw.workspaceRoot : DEFAULT_WORKSPACE_ROOT,
     log: {
       enabled: raw.log?.enabled !== false,

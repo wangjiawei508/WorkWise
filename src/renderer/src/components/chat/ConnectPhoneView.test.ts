@@ -56,7 +56,7 @@ describe('ConnectPhoneView', () => {
 
     expect(html).toContain('Use your phone to connect WorkWise')
     expect(html).toContain('Generate authorization QR')
-    expect(html).not.toContain('Kun usage')
+    expect(html).not.toContain('WorkWise Runtime usage')
   })
 
   it('maps scan targets to the matching install API provider', () => {

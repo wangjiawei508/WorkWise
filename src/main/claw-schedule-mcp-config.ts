@@ -1,12 +1,17 @@
-import { mkdir, readFile, writeFile } from 'node:fs/promises'
+import { mkdir, readFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { basename, dirname, join, posix } from 'node:path'
 import type { AppSettingsV1 } from '../shared/app-settings'
+import {
+  LEGACY_SCHEDULE_MCP_MARKER_END,
+  LEGACY_SCHEDULE_MCP_MARKER_START
+} from './compat/legacy-mcp'
+import { atomicWriteFile as durableWriteFile } from './services/durable-file'
 
-const CLAW_SCHEDULE_MCP_MARKER_START = '# DeepSeek GUI plugin:mcp:claw-schedule START'
-const CLAW_SCHEDULE_MCP_MARKER_END = '# DeepSeek GUI plugin:mcp:claw-schedule END'
 export const GUI_SCHEDULE_MCP_SERVER_NAME = 'gui_schedule'
 const LEGACY_CLAW_SCHEDULE_MCP_SERVER_NAME = 'claw_schedule'
+const WORKWISE_SCHEDULE_MCP_MARKER_START = '# WorkWise plugin:mcp:claw-schedule START'
+const WORKWISE_SCHEDULE_MCP_MARKER_END = '# WorkWise plugin:mcp:claw-schedule END'
 const GUI_SCHEDULE_MCP_NODE_ENTRY = 'out/main/claw-schedule-mcp-node-entry.js'
 const ELECTRON_RUN_AS_NODE_ENV = { ELECTRON_RUN_AS_NODE: '1' }
 
@@ -23,16 +28,12 @@ type ClawScheduleMcpConfigPaths = {
   mcpJsonPath?: string
 }
 
-export function resolveKunConfigPath(): string {
-  return join(homedir(), '.kun', 'config.toml')
+export function resolveRuntimeConfigPath(): string {
+  return join(homedir(), '.workwise', 'mcp.json')
 }
 
-export function resolveDeepseekConfigPath(): string {
-  return resolveKunConfigPath()
-}
-
-export function resolveKunMcpJsonPath(): string {
-  return join(homedir(), '.kun', 'mcp.json')
+export function resolveRuntimeMcpJsonPath(): string {
+  return resolveRuntimeConfigPath()
 }
 
 function isRecord(value: unknown): value is JsonRecord {
@@ -168,14 +169,19 @@ function stripTomlTable(content: string, tableHeader: string): string {
 
 export function removeLegacyClawScheduleTomlConfig(content: string): string {
   const hasLegacyConfig =
-    content.includes(CLAW_SCHEDULE_MCP_MARKER_START) ||
+    content.includes(LEGACY_SCHEDULE_MCP_MARKER_START) ||
     content.split('\n').some((line) => line.trim() === '[mcp_servers.claw_schedule]')
   if (!hasLegacyConfig) return content
 
-  const withoutMarked = removeMarkedTomlBlock(
+  const withoutWorkWiseMarked = removeMarkedTomlBlock(
     content,
-    CLAW_SCHEDULE_MCP_MARKER_START,
-    CLAW_SCHEDULE_MCP_MARKER_END
+    WORKWISE_SCHEDULE_MCP_MARKER_START,
+    WORKWISE_SCHEDULE_MCP_MARKER_END
+  )
+  const withoutMarked = removeMarkedTomlBlock(
+    withoutWorkWiseMarked,
+    LEGACY_SCHEDULE_MCP_MARKER_START,
+    LEGACY_SCHEDULE_MCP_MARKER_END
   )
   const withoutLegacyTable = stripTomlTable(withoutMarked, '[mcp_servers.claw_schedule]')
   return withoutLegacyTable ? `${withoutLegacyTable}\n` : ''
@@ -194,7 +200,7 @@ async function readJsonFile(path: string): Promise<unknown | null> {
     return JSON.parse(raw) as unknown
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
-    throw new Error(`Failed to parse Kun MCP config at ${path}: ${message}`, { cause: error })
+    throw new Error(`Failed to parse WorkWise Runtime MCP config at ${path}: ${message}`, { cause: error })
   }
 }
 
@@ -209,7 +215,7 @@ async function cleanupLegacyTomlConfig(path: string): Promise<void> {
 
   const next = removeLegacyClawScheduleTomlConfig(current)
   if (next === current) return
-  await writeFile(path, next, 'utf8')
+  await durableWriteFile(path, next)
 }
 
 export function clawScheduleMcpSettingsChanged(prev: AppSettingsV1, next: AppSettingsV1): boolean {
@@ -224,10 +230,10 @@ export async function syncClawScheduleMcpConfig(
   launch: ClawScheduleMcpLaunchConfig,
   paths: ClawScheduleMcpConfigPaths = {}
 ): Promise<void> {
-  const configTomlPath = paths.configTomlPath ?? resolveKunConfigPath()
-  const mcpJsonPath = paths.mcpJsonPath ?? resolveKunMcpJsonPath()
+  const configTomlPath = paths.configTomlPath
+  const mcpJsonPath = paths.mcpJsonPath ?? resolveRuntimeMcpJsonPath()
 
-  await cleanupLegacyTomlConfig(configTomlPath)
+  if (configTomlPath) await cleanupLegacyTomlConfig(configTomlPath)
 
   const current = await readJsonFile(mcpJsonPath)
   const next = buildSyncedClawScheduleMcpJson(current, settings, launch)
@@ -236,5 +242,5 @@ export async function syncClawScheduleMcpConfig(
   if (nextText === currentText) return
 
   await mkdir(dirname(mcpJsonPath), { recursive: true })
-  await writeFile(mcpJsonPath, nextText, 'utf8')
+  await durableWriteFile(mcpJsonPath, nextText)
 }

@@ -550,7 +550,7 @@ export async function buildDocxFromMarkdown(options: {
         paragraph(runs, {
           numbering: currentList
             ? {
-                reference: currentList.type === 'ordered' ? 'workgpt-ordered' : 'workgpt-bullet',
+                reference: currentList.type === 'ordered' ? 'workwise-ordered' : 'workwise-bullet',
                 level: currentList.level
               }
             : undefined,
@@ -612,7 +612,7 @@ export async function buildDocxFromMarkdown(options: {
     numbering: {
       config: [
         {
-          reference: 'workgpt-bullet',
+          reference: 'workwise-bullet',
           levels: [
             { level: 0, format: LevelFormat.BULLET, text: '\u2022', alignment: AlignmentType.LEFT },
             { level: 1, format: LevelFormat.BULLET, text: '\u25E6', alignment: AlignmentType.LEFT },
@@ -620,7 +620,7 @@ export async function buildDocxFromMarkdown(options: {
           ]
         },
         {
-          reference: 'workgpt-ordered',
+          reference: 'workwise-ordered',
           levels: [
             { level: 0, format: LevelFormat.DECIMAL, text: '%1.', alignment: AlignmentType.LEFT },
             { level: 1, format: LevelFormat.LOWER_LETTER, text: '%2.', alignment: AlignmentType.LEFT },

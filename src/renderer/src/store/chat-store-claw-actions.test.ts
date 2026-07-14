@@ -72,12 +72,12 @@ describe('chat-store Claw actions helpers', () => {
     expect(clawThreadIdForProvider(item, conversation)).toBe('kun-channel-thread')
   })
 
-  it('recovers an unmapped Claw managed Kun session before creating a new empty one', () => {
+  it('recovers an unmapped Claw managed WorkWise Runtime session before creating a new empty one', () => {
     const item = channel()
     const recovered = findRecoverableClawThread(
       [
         thread('empty-claw-thread', '[Claw:Feishu Agent01]', '2026-06-01T00:02:00.000Z'),
-        thread('old-content-thread', `${CLAW_MANAGED_INSTRUCTIONS_HEADING} DeepSeek GUI scheduled-task tools`, '2026-06-01T00:01:00.000Z')
+        thread('old-content-thread', `${CLAW_MANAGED_INSTRUCTIONS_HEADING} WorkWise scheduled-task tools`, '2026-06-01T00:01:00.000Z')
       ],
       [item],
       item
@@ -130,7 +130,7 @@ describe('chat-store Claw actions helpers', () => {
         channels: [channel({ threadId: 'thr_missing', conversations: [] })]
       }
     }
-    const kunGui = {
+    const workwise = {
       getSettings: vi.fn(async () => settings),
       setSettings: vi.fn(async (patch: { claw?: { channels?: ClawImChannelV1[] } }) => {
         settings = {
@@ -144,7 +144,7 @@ describe('chat-store Claw actions helpers', () => {
         return settings
       })
     }
-    vi.stubGlobal('window', { kunGui })
+    vi.stubGlobal('window', { workwise })
 
     const provider = {
       createThread: vi.fn(),
@@ -208,10 +208,10 @@ describe('chat-store Claw actions helpers', () => {
     expect(state.activeClawChannelId).toBe('channel-1')
     expect(state.activeThreadId).toBeNull()
     expect(state.error).toBeNull()
-    expect(kunGui.setSettings).toHaveBeenCalledWith({
+    expect(workwise.setSettings).toHaveBeenCalledWith({
       claw: {
         channels: [expect.objectContaining({ id: 'channel-1', threadId: '' })]
       }
-    })
+    }, undefined)
   })
 })

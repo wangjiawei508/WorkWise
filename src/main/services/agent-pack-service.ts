@@ -5,8 +5,14 @@ import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:pat
 import type {
   BundledAgentPackInstallResult,
   BundledAgentPackSource
-} from '../../shared/kun-gui-api'
+} from '../../shared/workwise-api'
 import { expandHomePath, normalizeSkillFolderName } from './workspace-service'
+import {
+  LEGACY_AGENT_PACK_MANIFEST_DIR,
+  LEGACY_AGENT_PACK_SOURCE_METADATA_FILE,
+  LEGACY_SKILL_SOURCE_METADATA_FILE
+} from '../compat/legacy-metadata'
+import { atomicWriteFile as durableWriteFile } from './durable-file'
 
 type AgentAssetKind = 'agent' | 'skill' | 'command' | 'tool' | 'lib' | 'template' | 'theme'
 type AgentAssetTargetKind = 'file' | 'directory'
@@ -34,8 +40,8 @@ type AgentPackAssetSourceMetadata = {
   installedAt?: string
 }
 
-const AGENT_PACK_SOURCE_METADATA_FILE = '.workgpt-agent-pack-source.json'
-const AGENT_PACK_MANIFEST_DIR = '.workgpt-agent-packs'
+const AGENT_PACK_SOURCE_METADATA_FILE = '.workwise-agent-pack-source.json'
+const AGENT_PACK_MANIFEST_DIR = '.workwise-agent-packs'
 const MAX_AGENT_PACK_ASSETS = 256
 export const METRO_MONITORING_AGENT_PACK_ID = 'metro-monitoring-agent-pack'
 const CODEX_AGENT_PACK_LAYOUT: Record<AgentAssetKind, string> = {
@@ -242,7 +248,7 @@ async function installAgentPackAsset(
   metadata: AgentPackAssetSourceMetadata
 ): Promise<void> {
   await mkdir(dirname(targetPath), { recursive: true })
-  const tempDir = await mkdtemp(join(dirname(targetPath), `.workgpt-install-${safeTempName(metadata.name)}-`))
+  const tempDir = await mkdtemp(join(dirname(targetPath), `.workwise-install-${safeTempName(metadata.name)}-`))
   try {
     if (targetKind === 'directory') {
       await cp(sourcePath, tempDir, { recursive: true, force: true })
@@ -288,8 +294,11 @@ async function readAgentPackAssetSourceMetadata(
 ): Promise<AgentPackAssetSourceMetadata | undefined> {
   const targetKind = await existingTargetKind(targetPath)
   if (!targetKind) return undefined
-  const path = metadataPathForKnownTarget(targetPath, targetKind)
-  if (!existsSync(path)) return undefined
+  const path = [
+    metadataPathForKnownTarget(targetPath, targetKind),
+    legacyMetadataPathForKnownTarget(targetPath, targetKind)
+  ].find((candidate) => existsSync(candidate))
+  if (!path) return undefined
   const raw = JSON.parse(await readFile(path, 'utf8')) as unknown
   const record = objectValue(raw)
   if (!record || record.type !== 'bundled-agent-pack') return undefined
@@ -314,7 +323,7 @@ async function readLegacyBundledSkillSourceMetadata(
   if (source.kind !== 'skill') return false
   const targetKind = await existingTargetKind(targetPath)
   if (targetKind !== 'directory') return false
-  const path = join(targetPath, '.workgpt-skill-source.json')
+  const path = join(targetPath, LEGACY_SKILL_SOURCE_METADATA_FILE)
   if (!existsSync(path)) return false
   const raw = JSON.parse(await readFile(path, 'utf8')) as unknown
   const record = objectValue(raw)
@@ -325,6 +334,12 @@ function metadataPathForKnownTarget(targetPath: string, targetKind: AgentAssetTa
   return targetKind === 'directory'
     ? join(targetPath, AGENT_PACK_SOURCE_METADATA_FILE)
     : `${targetPath}${AGENT_PACK_SOURCE_METADATA_FILE}`
+}
+
+function legacyMetadataPathForKnownTarget(targetPath: string, targetKind: AgentAssetTargetKind): string {
+  return targetKind === 'directory'
+    ? join(targetPath, LEGACY_AGENT_PACK_SOURCE_METADATA_FILE)
+    : `${targetPath}${LEGACY_AGENT_PACK_SOURCE_METADATA_FILE}`
 }
 
 async function existingTargetKind(targetPath: string): Promise<AgentAssetTargetKind | null> {
@@ -353,8 +368,11 @@ async function removeObsoleteAgentPackAssets(
   currentDestinations: Set<string>
 ): Promise<void> {
   const manifestPath = agentPackInstallManifestPath(codexRoot, packId)
-  if (!existsSync(manifestPath)) return
-  const raw = JSON.parse(await readFile(manifestPath, 'utf8')) as unknown
+  const compatibleManifestPath = existsSync(manifestPath)
+    ? manifestPath
+    : join(codexRoot, LEGACY_AGENT_PACK_MANIFEST_DIR, `${packId}.json`)
+  if (!existsSync(compatibleManifestPath)) return
+  const raw = JSON.parse(await readFile(compatibleManifestPath, 'utf8')) as unknown
   const record = objectValue(raw)
   const assets = Array.isArray(record?.assets) ? record.assets : []
   for (const rawAsset of assets) {
@@ -381,7 +399,7 @@ async function writeAgentPackInstallManifest(
   const manifestDir = join(codexRoot, AGENT_PACK_MANIFEST_DIR)
   await mkdir(manifestDir, { recursive: true })
   const manifestPath = agentPackInstallManifestPath(codexRoot, stringValue(manifest.id))
-  await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, 'utf8')
+  await durableWriteFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`)
   return manifestPath
 }
 

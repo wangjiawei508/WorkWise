@@ -62,7 +62,7 @@ function createMacPackContext(root: string): {
     arch: 'arm64',
     packager: {
       appInfo: {
-        productFilename: 'Kun'
+        productFilename: 'WorkWise Runtime'
       }
     }
   }
@@ -75,8 +75,8 @@ afterEach(() => {
   }
 })
 
-describe('electron-builder Kun packaging', () => {
-  it('includes Kun runtime dependencies in the packaged app', () => {
+describe('electron-builder WorkWise packaging', () => {
+  it('includes WorkWise Runtime runtime dependencies in the packaged app', () => {
     expect(builderConfig.files).toEqual(expect.arrayContaining([
       'kun/dist/**/*',
       'kun/package.json',
@@ -112,16 +112,16 @@ describe('electron-builder Kun packaging', () => {
   })
 
   it('uses the Windows ICO asset for NSIS installers', () => {
-    expect(builderConfig.win.icon).toBe('./src/asset/img/workgpt.ico')
+    expect(builderConfig.win.icon).toBe('./src/asset/img/workwise.ico')
     expect(builderConfig.win.target).toEqual([{ target: 'nsis', arch: ['x64'] }])
   })
 
-  it('validates the unpacked Kun runtime before release artifacts are created', () => {
+  it('validates the unpacked managed runtime before release artifacts are created', () => {
     const root = tempRoot()
     const context = createMacPackContext(root)
     const unpackedRoot = afterPack._internals.unpackedAppRoot(context)
 
-    for (const relativePath of afterPack.KUN_RUNTIME_REQUIRED_PATHS) {
+    for (const relativePath of afterPack.MANAGED_RUNTIME_REQUIRED_PATHS) {
       touch(join(unpackedRoot, relativePath))
     }
     touch(join(unpackedRoot, 'node_modules/better-sqlite3/package.json'))
@@ -178,8 +178,8 @@ describe('electron-builder Kun packaging', () => {
 
   it('checks timestamp candidates across nested macOS signed code', () => {
     const root = tempRoot()
-    const appBundle = join(root, 'Kun.app')
-    const mainExecutable = join(appBundle, 'Contents/MacOS/Kun')
+    const appBundle = join(root, 'WorkWise.app')
+    const mainExecutable = join(appBundle, 'Contents/MacOS/WorkWise')
     const framework = join(appBundle, 'Contents/Frameworks/Electron Framework.framework')
     const nativeAddon = join(
       appBundle,

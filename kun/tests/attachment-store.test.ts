@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -17,9 +17,12 @@ import { buildHarness, readJson } from './http-server-test-harness.js'
 
 describe('Attachment store and multimodal input', () => {
   let dir = ''
+  let workspace = ''
 
   beforeEach(async () => {
     dir = await mkdtemp(join(tmpdir(), 'kun-attachments-'))
+    workspace = join(dir, 'workspace')
+    await mkdir(workspace)
   })
 
   afterEach(async () => {
@@ -34,18 +37,19 @@ describe('Attachment store and multimodal input', () => {
       data,
       mimeType: 'image/png',
       threadId: 'thr_1',
-      workspace: '/tmp/ws'
+      workspace: workspace
     })
     const second = await store.create({
       name: 'shot-again.png',
       data,
-      threadId: 'thr_1'
+      threadId: 'thr_1',
+      workspace
     })
 
     expect(second.id).toBe(first.id)
     expect(first).toMatchObject({ mimeType: 'image/png', width: 2, height: 3, byteSize: data.byteLength })
     await expect(store.resolveContent(first.id, { threadId: 'thr_2' })).rejects.toThrow(/not authorized/)
-    await expect(store.resolveContent(first.id, { workspace: '/tmp/ws' })).resolves.toMatchObject({ id: first.id })
+    await expect(store.resolveContent(first.id, { threadId: 'thr_1', workspace })).resolves.toMatchObject({ id: first.id })
   })
 
   it('repairs missing content when a duplicate attachment is uploaded again', async () => {
@@ -130,7 +134,7 @@ describe('Attachment store and multimodal input', () => {
     const uploaded = await readJson(upload) as { attachment: { id: string } }
     const metadata = await dispatchRequest(
       h.router,
-      new Request(`http://localhost/v1/attachments/${uploaded.attachment.id}`, {
+      new Request(`http://localhost/v1/attachments/${uploaded.attachment.id}?thread_id=thr_1`, {
         headers: { authorization: 'Bearer tok-1' }
       })
     )
@@ -168,7 +172,7 @@ describe('Attachment store and multimodal input', () => {
       name: 'shot.png',
       data: png(1, 1),
       threadId: 'thr_1',
-      workspace: '/tmp/ws'
+      workspace: workspace
     })
     const seenRequests: ModelRequest[] = []
     const model: ModelClient = {
@@ -184,7 +188,7 @@ describe('Attachment store and multimodal input', () => {
       modelCapabilities: () => visionCapabilities()
     })
     await bootstrapThread(h, {
-      workspace: '/tmp/ws',
+      workspace: workspace,
       request: { prompt: 'look', attachmentIds: [attachment.id], model: 'vision-model' }
     })
 
@@ -201,7 +205,7 @@ describe('Attachment store and multimodal input', () => {
       modelCapabilities: () => ({ ...visionCapabilities(), inputModalities: ['text'] })
     })
     await bootstrapThread(textOnly, {
-      workspace: '/tmp/ws',
+      workspace: workspace,
       request: { prompt: 'look', attachmentIds: [attachment.id], model: 'text-only' }
     })
     expect(await textOnly.loop.runTurn(textOnly.threadId, textOnly.turnId)).toBe('completed')
@@ -220,7 +224,7 @@ describe('Attachment store and multimodal input', () => {
       name: 'shot.png',
       data: png(1, 1),
       threadId: 'thr_1',
-      workspace: '/tmp/ws'
+      workspace: workspace
     })
     const seenRequests: ModelRequest[] = []
     const model: ModelClient = {
@@ -236,7 +240,7 @@ describe('Attachment store and multimodal input', () => {
       modelCapabilities: modelCapabilitiesForModel
     })
     await bootstrapThread(h, {
-      workspace: '/tmp/ws',
+      workspace: workspace,
       request: { prompt: 'look', attachmentIds: [attachment.id], model: 'deepseek-v4-pro' }
     })
 
@@ -276,7 +280,7 @@ describe('Attachment store and multimodal input', () => {
       name: 'shot.png',
       data: png(1, 1),
       threadId: 'thr_1',
-      workspace: '/tmp/ws'
+      workspace: workspace
     })
     const model: ModelClient = {
       provider: 'fake',
@@ -290,7 +294,7 @@ describe('Attachment store and multimodal input', () => {
       modelCapabilities: () => ({ ...visionCapabilities(), inputModalities: ['text'] })
     })
     await bootstrapThread(h, {
-      workspace: '/tmp/ws',
+      workspace: workspace,
       request: { prompt: 'look', attachmentIds: [attachment.id], model: 'text-only' }
     })
 

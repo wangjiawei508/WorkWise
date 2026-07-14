@@ -1,5 +1,5 @@
 import { existsSync } from 'node:fs'
-import { readFile, readdir, stat } from 'node:fs/promises'
+import { lstat, readFile, readdir, realpath, stat } from 'node:fs/promises'
 import { spawn, spawnSync, type ChildProcess } from 'node:child_process'
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import type { ToolHostContext } from '../../ports/tool-host.js'
@@ -57,16 +57,49 @@ export function workspaceRoot(workspace: string): string {
   return isAbsolute(workspace) ? resolve(workspace) : resolve(process.cwd(), workspace)
 }
 
-export function resolveWorkspacePath(inputPath: string, context: ToolHostContext): {
+function canonicalContains(root: string, target: string): boolean {
+  const normalize = (value: string): string =>
+    (process.platform === 'win32' ? value.toLowerCase() : value).replace(/[\\/]+$/, '')
+  const canonicalRoot = normalize(root)
+  const canonicalTarget = normalize(target)
+  return canonicalTarget === canonicalRoot || canonicalTarget.startsWith(`${canonicalRoot}${sep}`)
+}
+
+async function nearestExistingPath(path: string): Promise<string> {
+  let candidate = path
+  while (true) {
+    try {
+      await lstat(candidate)
+      return candidate
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+      const parent = dirname(candidate)
+      if (parent === candidate) throw error
+      candidate = parent
+    }
+  }
+}
+
+export async function resolveWorkspacePath(inputPath: string, context: ToolHostContext): Promise<{
   workspaceRoot: string
   absolutePath: string
   relativePath: string
-} {
+}> {
+  if (inputPath.includes('\0')) throw new Error('unsafe_path: path contains NUL')
+  if (/^(?:\\\\[?.]\\|\\\\|[a-zA-Z]:[^\\/])/.test(inputPath)) {
+    throw new Error('unsafe_path: unsupported Windows path form')
+  }
   const root = workspaceRoot(context.workspace)
   const absolutePath = isAbsolute(inputPath) ? resolve(inputPath) : resolve(root, inputPath)
   const relativePath = relative(root, absolutePath)
   if (relativePath === '..' || relativePath.startsWith(`..${sep}`) || isAbsolute(relativePath)) {
     throw new Error(`path escapes the workspace root: ${inputPath}`)
+  }
+  const canonicalRoot = await realpath(root)
+  const existing = await nearestExistingPath(absolutePath)
+  const canonicalExisting = await realpath(existing)
+  if (!canonicalContains(canonicalRoot, canonicalExisting)) {
+    throw new Error(`unsafe_path: path resolves outside the workspace root: ${inputPath}`)
   }
   return {
     workspaceRoot: root,

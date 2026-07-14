@@ -352,9 +352,9 @@ describe('ThreadService todos', () => {
   it('syncs plan checklists, patches linked checkboxes, and preserves removed tasks', async () => {
     const workspace = await mkdtemp(join(tmpdir(), 'kun-todos-'))
     try {
-      const relativePath = '.kunsdd/plan/demo.md'
+      const relativePath = '.workwise/plans/demo.md'
       const absolutePath = join(workspace, relativePath)
-      await mkdir(join(workspace, '.kunsdd', 'plan'), { recursive: true })
+      await mkdir(join(workspace, '.workwise', 'plans'), { recursive: true })
       const originalMarkdown = '# Plan\n\n- [ ] Build UI\n- [x] Add tests\n'
       await writeFile(absolutePath, originalMarkdown, 'utf-8')
 

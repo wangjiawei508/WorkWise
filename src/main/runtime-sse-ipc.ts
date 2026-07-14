@@ -2,14 +2,18 @@ import type { IpcMain } from 'electron'
 import { randomUUID } from 'node:crypto'
 import { URL } from 'node:url'
 import type { AppSettingsV1 } from '../shared/app-settings'
-import { kunThreadEventsPath } from '../shared/kun-endpoints'
+import { RUNTIME_RESOURCE_LIMITS_V1 } from '../shared/runtime-resource-limits'
+import { runtimeThreadEventsPath } from '../shared/runtime-endpoints'
 import { sseStartPayloadSchema, streamIdSchema } from './ipc/app-ipc-schemas'
 import type { JsonSettingsStore } from './settings-store'
-import { getRuntimeBaseUrlForSettings, runtimeAuthHeaders } from './runtime/kun-adapter'
+import { getRuntimeBaseUrlForSettings, runtimeAuthHeaders } from './runtime/managed-runtime-adapter'
+import { appCancellationRegistry } from './cancellation-registry'
 
 type SseControllerState = {
   controller: AbortController
   stoppedByClient: boolean
+  rendererId: number
+  releaseCancellation: () => void
 }
 
 const SSE_RECONNECT_BASE_MS = 750
@@ -18,6 +22,30 @@ const SSE_START_TIMEOUT_MS = 15_000
 
 
 const sseControllers = new Map<string, SseControllerState>()
+
+function byteLength(value: string): number {
+  return Buffer.byteLength(value, 'utf8')
+}
+
+function resourceLimitError(message: string): Error {
+  return Object.assign(new Error(message), { code: 'resource_limit' })
+}
+
+function activeRendererStreams(rendererId: number): number {
+  let count = 0
+  for (const state of sseControllers.values()) {
+    if (state.rendererId === rendererId) count += 1
+  }
+  return count
+}
+
+export async function stopAllRuntimeSse(reason = 'application_exit'): Promise<void> {
+  await Promise.all(
+    [...sseControllers.keys()].map((id) =>
+      appCancellationRegistry.cancel({ scope: 'subtask', id: `sse:${id}` }, reason)
+    )
+  )
+}
 
 async function sleepWithAbort(ms: number, signal: AbortSignal): Promise<void> {
   if (signal.aborted || ms <= 0) return
@@ -148,9 +176,30 @@ export function registerRuntimeSseIpc(options: {
       existing.stoppedByClient = true
       existing.controller.abort()
       sseControllers.delete(id)
+      existing.releaseCancellation()
+    }
+    if (sseControllers.size >= RUNTIME_RESOURCE_LIMITS_V1.sseApplication) {
+      throw resourceLimitError('The application SSE connection limit has been reached.')
+    }
+    if (activeRendererStreams(event.sender.id) >= RUNTIME_RESOURCE_LIMITS_V1.ssePerRenderer) {
+      throw resourceLimitError('The window SSE connection limit has been reached.')
     }
     const ac = new AbortController()
-    const state: SseControllerState = { controller: ac, stoppedByClient: false }
+    const cancellation = appCancellationRegistry.register(
+      { scope: 'subtask', id: `sse:${id}` },
+      {
+        parent: { scope: 'window', id: String(event.sender.id) },
+        cleanup: () => {
+          ac.abort('operation_cancelled')
+        }
+      }
+    )
+    const state: SseControllerState = {
+      controller: ac,
+      stoppedByClient: false,
+      rendererId: event.sender.id,
+      releaseCancellation: cancellation.release
+    }
     sseControllers.set(id, state)
     const base = getRuntimeBaseUrlForSettings(s)
 
@@ -164,7 +213,7 @@ export function registerRuntimeSseIpc(options: {
       let reconnectDelayMs = SSE_RECONNECT_BASE_MS
       try {
         while (!state.stoppedByClient && !ac.signal.aborted) {
-          const url = new URL(`${base}${kunThreadEventsPath(request.threadId)}`)
+          const url = new URL(`${base}${runtimeThreadEventsPath(request.threadId)}`)
           url.searchParams.set('since_seq', String(nextSinceSeq))
           const requestHeaders = { ...headers }
           if (nextSinceSeq > 0) {
@@ -199,33 +248,72 @@ export function registerRuntimeSseIpc(options: {
               // message — streaming turns otherwise pay a structured-clone
               // send per token delta.
               const batch: Record<string, unknown>[] = []
+              let batchBytes = 0
               let next: { block: string; rest: string } | null
               while ((next = takeSseBlock(buffer)) !== null) {
                 const block = next.block
                 buffer = next.rest
+                const blockBytes = byteLength(block)
+                if (blockBytes > RUNTIME_RESOURCE_LIMITS_V1.sseEventBytes) {
+                  throw resourceLimitError('An SSE event exceeded its hard limit.')
+                }
                 const parsed = parseSseData(block)
                 if (parsed !== null) {
                   const payload = coerceSsePayload(parsed)
                   if (typeof payload.seq === 'number') {
                     nextSinceSeq = Math.max(nextSinceSeq, payload.seq)
                   }
+                  if (
+                    (payload.kind === 'turn_completed' || payload.kind === 'turn_failed' || payload.kind === 'turn_aborted') &&
+                    typeof payload.turnId === 'string'
+                  ) {
+                    appCancellationRegistry.release({ scope: 'turn', id: payload.turnId })
+                    appCancellationRegistry.release({ scope: 'thread', id: request.threadId })
+                  }
+                  const payloadBytes = byteLength(JSON.stringify(payload))
+                  if (payloadBytes > RUNTIME_RESOURCE_LIMITS_V1.sseEventBytes) {
+                    throw resourceLimitError('An SSE event exceeded its hard limit.')
+                  }
+                  if (
+                    batch.length >= RUNTIME_RESOURCE_LIMITS_V1.sseBatchEvents ||
+                    batchBytes + payloadBytes > RUNTIME_RESOURCE_LIMITS_V1.sseBatchBytes
+                  ) {
+                    if (batch.length > 0) {
+                      if (!wc.isDestroyed()) {
+                        wc.send('runtime:sse-event', { streamId: id, events: batch.splice(0) })
+                      } else {
+                        batch.splice(0)
+                      }
+                      batchBytes = 0
+                    }
+                  }
                   batch.push(payload)
+                  batchBytes += payloadBytes
                 }
               }
+              if (byteLength(buffer) > RUNTIME_RESOURCE_LIMITS_V1.sseBufferBytes) {
+                throw resourceLimitError('The SSE receive buffer exceeded its hard limit.')
+              }
               if (batch.length > 0) {
-                wc.send('runtime:sse-event', { streamId: id, events: batch })
+                if (!wc.isDestroyed()) wc.send('runtime:sse-event', { streamId: id, events: batch })
               }
             }
             buffer += dec.decode()
             const trailing = buffer.trim()
             if (trailing) {
+              if (byteLength(trailing) > RUNTIME_RESOURCE_LIMITS_V1.sseEventBytes) {
+                throw resourceLimitError('An SSE event exceeded its hard limit.')
+              }
               const parsed = parseSseData(trailing)
               if (parsed !== null) {
                 const payload = coerceSsePayload(parsed)
+                if (byteLength(JSON.stringify(payload)) > RUNTIME_RESOURCE_LIMITS_V1.sseEventBytes) {
+                  throw resourceLimitError('An SSE event exceeded its hard limit.')
+                }
                 if (typeof payload.seq === 'number') {
                   nextSinceSeq = Math.max(nextSinceSeq, payload.seq)
                 }
-                wc.send('runtime:sse-event', { streamId: id, events: [payload] })
+                if (!wc.isDestroyed()) wc.send('runtime:sse-event', { streamId: id, events: [payload] })
               }
             }
           } catch (e) {
@@ -236,16 +324,23 @@ export function registerRuntimeSseIpc(options: {
               reconnectDelayMs = Math.min(reconnectDelayMs * 2, SSE_RECONNECT_MAX_MS)
               continue
             }
-            wc.send('runtime:sse-error', { streamId: id, message: msg })
+            if (!wc.isDestroyed()) {
+              wc.send('runtime:sse-error', {
+                streamId: id,
+                message: msg,
+                code: (e as { code?: unknown })?.code === 'resource_limit' ? 'resource_limit' : undefined
+              })
+            }
             logError('sse', `SSE stream error for thread ${request.threadId}`, { message: msg, streamId: id })
             return
           }
         }
       } finally {
         if (!state.stoppedByClient && !ac.signal.aborted) {
-          wc.send('runtime:sse-end', { streamId: id })
+          if (!wc.isDestroyed()) wc.send('runtime:sse-end', { streamId: id })
         }
         sseControllers.delete(id)
+        state.releaseCancellation()
       }
     })()
 

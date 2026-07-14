@@ -1,4 +1,5 @@
 import i18n from '../i18n'
+import { isLegacyDefaultWorkspacePath } from './legacy-workspace-paths'
 
 const DEFAULT_WORKSPACE_LABEL = 'default'
 
@@ -10,12 +11,9 @@ function normalizePathForMatch(path: string): string {
 // 仍会持有 ~/.deepseekgui 形式的路径)。
 function isDefaultWorkspacePath(path: string): boolean {
   const normalized = normalizePathForMatch(path)
-  return (
-    normalized === '~/.kun/default_workspace'
-    || normalized.endsWith('/.kun/default_workspace')
-    || normalized === '~/.deepseekgui/default_workspace'
-    || normalized.endsWith('/.deepseekgui/default_workspace')
-  )
+  return normalized === '~/.workwise/default_workspace'
+    || normalized.endsWith('/.workwise/default_workspace')
+    || isLegacyDefaultWorkspacePath(normalized)
 }
 
 export function workspaceLabelFromPath(path: string): string {

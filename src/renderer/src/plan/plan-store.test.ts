@@ -7,7 +7,7 @@ import {
   useGuiPlanStore
 } from './plan-store'
 
-const PLAN_REGISTRY_STORAGE_KEY = 'kun.plan.registry.v1'
+const PLAN_REGISTRY_STORAGE_KEY = 'workwise.plan.registry.v1'
 
 function createMemoryStorage(): Storage {
   const items = new Map<string, string>()

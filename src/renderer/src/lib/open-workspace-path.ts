@@ -11,12 +11,12 @@ export async function openWorkspacePathInEditor(
   target: WorkspacePathTarget,
   workspaceRoot?: string
 ): Promise<EditorOpenResult> {
-  if (typeof window === 'undefined' || typeof window.kunGui?.openEditorPath !== 'function') {
+  if (typeof window === 'undefined' || typeof window.workwise?.openEditorPath !== 'function') {
     return { ok: false, message: 'Editor bridge is unavailable.' }
   }
 
   try {
-    return await window.kunGui.openEditorPath({
+    return await window.workwise.openEditorPath({
       path: target.path,
       line: target.line,
       column: target.column,

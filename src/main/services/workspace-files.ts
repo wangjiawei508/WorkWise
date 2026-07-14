@@ -46,10 +46,18 @@ import {
   resolveWorkspaceDirectory,
   validateEntryName
 } from './workspace-paths'
+import { recheckContainedParent } from './canonical-containment'
+import { atomicWriteFile } from './durable-file'
 
 const MAX_FILE_PREVIEW_BYTES = 1_500_000
 const MAX_IMAGE_PREVIEW_BYTES = 12 * 1024 * 1024
 const WORKSPACE_IMAGE_DIR = 'img'
+
+function requiredWorkspaceRoot(workspaceRoot?: string): string {
+  const value = workspaceRoot?.trim()
+  if (!value) throw new Error('Workspace root is required for file mutations.')
+  return resolve(expandHomePath(value))
+}
 
 const WORKSPACE_IMAGE_MIME_BY_EXT = new Map([
   ['.png', 'image/png'],
@@ -164,9 +172,13 @@ export async function writeWorkspaceFile(
   payload: WorkspaceFileWritePayload
 ): Promise<WorkspaceFileWriteResult> {
   try {
+    const workspaceRoot = requiredWorkspaceRoot(payload.workspaceRoot)
     const targetPath = await resolveTargetPathWithinWorkspace(payload.path, payload.workspaceRoot)
     await mkdir(dirname(targetPath), { recursive: true })
-    await writeFile(targetPath, payload.content, 'utf8')
+    await recheckContainedParent(workspaceRoot, targetPath)
+    await atomicWriteFile(targetPath, payload.content, {
+      beforeReplace: () => recheckContainedParent(workspaceRoot, targetPath)
+    })
     return {
       ok: true,
       path: targetPath,
@@ -184,8 +196,10 @@ export async function createWorkspaceFile(
   payload: WorkspaceFileCreatePayload
 ): Promise<WorkspaceFileCreateResult> {
   try {
+    const workspaceRoot = requiredWorkspaceRoot(payload.workspaceRoot)
     const targetPath = await resolveTargetPathWithinWorkspace(payload.path, payload.workspaceRoot)
     await mkdir(dirname(targetPath), { recursive: true })
+    await recheckContainedParent(workspaceRoot, targetPath)
     if (await pathExists(targetPath)) {
       return { ok: false, message: 'File already exists.' }
     }
@@ -207,10 +221,12 @@ export async function createWorkspaceDirectory(
   payload: WorkspaceDirectoryCreatePayload
 ): Promise<WorkspaceDirectoryCreateResult> {
   try {
+    const workspaceRoot = requiredWorkspaceRoot(payload.workspaceRoot)
     const targetPath = await resolveTargetPathWithinWorkspace(payload.path, payload.workspaceRoot)
     if (await pathExists(targetPath)) {
       return { ok: false, message: 'Directory already exists.' }
     }
+    await recheckContainedParent(workspaceRoot, targetPath)
     await mkdir(targetPath)
     return {
       ok: true,
@@ -264,6 +280,7 @@ export async function saveWorkspaceClipboardImage(
   payload: WorkspaceClipboardImageSavePayload
 ): Promise<WorkspaceClipboardImageSaveResult> {
   try {
+    const workspaceRoot = requiredWorkspaceRoot(payload.workspaceRoot)
     const currentFilePath = await resolveOpenTargetPath(payload.currentFilePath, payload.workspaceRoot, {
       allowBasenameFallback: false
     })
@@ -285,7 +302,10 @@ export async function saveWorkspaceClipboardImage(
       join(imageDir, buildWorkspaceImageName()),
       payload.workspaceRoot
     )
-    await writeFile(targetPath, buffer)
+    await recheckContainedParent(workspaceRoot, targetPath)
+    await atomicWriteFile(targetPath, buffer, {
+      beforeReplace: () => recheckContainedParent(workspaceRoot, targetPath)
+    })
 
     return {
       ok: true,
@@ -305,6 +325,7 @@ export async function renameWorkspaceEntry(
   payload: WorkspaceEntryRenamePayload
 ): Promise<WorkspaceEntryRenameResult> {
   try {
+    const workspaceRoot = requiredWorkspaceRoot(payload.workspaceRoot)
     const sourcePath = await resolveTargetPathWithinWorkspace(payload.path, payload.workspaceRoot)
     await stat(sourcePath)
     const nextName = validateEntryName(payload.newName)
@@ -323,6 +344,8 @@ export async function renameWorkspaceEntry(
     if (await pathExists(targetPath)) {
       return { ok: false, message: 'A file or directory with that name already exists.' }
     }
+    await recheckContainedParent(workspaceRoot, sourcePath)
+    await recheckContainedParent(workspaceRoot, targetPath)
     await rename(sourcePath, targetPath)
     return {
       ok: true,
@@ -342,14 +365,16 @@ export async function deleteWorkspaceEntry(
   payload: WorkspaceEntryDeletePayload
 ): Promise<WorkspaceEntryDeleteResult> {
   try {
+    const workspaceRoot = requiredWorkspaceRoot(payload.workspaceRoot)
     const targetPath = await resolveTargetPathWithinWorkspace(payload.path, payload.workspaceRoot)
     const info = await stat(targetPath)
     if (payload.workspaceRoot?.trim()) {
-      const workspacePath = await canonicalPath(resolve(expandHomePath(payload.workspaceRoot)))
+      const workspacePath = await canonicalPath(workspaceRoot)
       if (targetPath === workspacePath) {
         return { ok: false, message: 'Deleting the workspace root is not supported.' }
       }
     }
+    await recheckContainedParent(workspaceRoot, targetPath)
     if (info.isDirectory()) {
       await rm(targetPath, { recursive: true })
     } else {

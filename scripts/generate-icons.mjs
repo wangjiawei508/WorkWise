@@ -5,21 +5,21 @@ import { basename, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const projectRoot = resolve(fileURLToPath(new URL('..', import.meta.url)))
-const defaultSource = resolve(projectRoot, 'src/asset/img/workgpt.svg')
+const defaultSource = resolve(projectRoot, 'src/asset/img/workwise.svg')
 const sourcePath = resolve(process.argv[2] || defaultSource)
 const iconDir = resolve(projectRoot, 'src/asset/img')
 
 const pngTargets = [
-  { size: 1024, path: resolve(iconDir, 'workgpt.png') },
-  { size: 512, path: resolve(iconDir, 'workgpt_tray.png') }
+  { size: 1024, path: resolve(iconDir, 'workwise.png') },
+  { size: 512, path: resolve(iconDir, 'workwise_tray.png') }
 ]
-const macDockPngPath = resolve(iconDir, 'workgpt_dock.png')
+const macDockPngPath = resolve(iconDir, 'workwise_dock.png')
 // Legacy .icns icons aren't masked onto Apple's modern macOS icon grid for us.
 // Keep the visible tile at roughly 80% of the canvas, matching the opaque body
 // of current built-in macOS app icons, and leave the remaining area transparent.
 const macIconScale = 0.8
 const icoSizes = [16, 24, 32, 48, 64, 128, 256]
-const icoPath = resolve(iconDir, 'workgpt.ico')
+const icoPath = resolve(iconDir, 'workwise.ico')
 
 app.on('window-all-closed', () => {
   // Keep this utility alive while it renders several hidden windows in sequence.
@@ -188,7 +188,7 @@ async function main() {
   await mkdir(iconDir, { recursive: true })
 
   const svgText = await readFile(sourcePath, 'utf8')
-  await writeFile(resolve(iconDir, 'workgpt.svg'), svgText, 'utf8')
+  await writeFile(resolve(iconDir, 'workwise.svg'), svgText, 'utf8')
 
   for (const target of pngTargets) {
     const png = await renderPng(svgText, target.size)

@@ -7,19 +7,19 @@ import {
   JsonSettingsStore,
   devServerHintUrl
 } from './settings-store'
-import workgptLogoPng from '../asset/img/workgpt.png?url'
-import workgptDockPng from '../asset/img/workgpt_dock.png?url'
-import workgptTrayPng from '../asset/img/workgpt_tray.png?url'
+import workwiseLogoPng from '../asset/img/workwise.png?url'
+import workwiseDockPng from '../asset/img/workwise_dock.png?url'
+import workwiseTrayPng from '../asset/img/workwise_tray.png?url'
 import { createAppIcon, pickTrayIcon } from './app-icon'
 import { configureLinuxWaylandImeSwitches } from './app-command-line'
 import { configureAppIdentity } from './app-identity'
-import { runLegacyKunDataMigration } from './legacy-data-migration'
+import { runLegacyDataImport } from './legacy-data-migration'
 import {
-  applyKunRuntimePatch,
+  applyManagedRuntimePatch,
   kunSettingsEnvelope,
   getActiveAgentApiKey,
-  getKunRuntimeSettings,
-  mergeKunRuntimeSettings,
+  getManagedRuntimeSettings,
+  mergeManagedRuntimeSettings,
   mergeClawSettings,
   mergeModelProviderSettings,
   mergeScheduleSettings,
@@ -27,7 +27,7 @@ import {
   normalizeAppSettings,
   normalizeAppBehaviorSettings,
   normalizeKeyboardShortcuts,
-  resolveKunRuntimeSettings,
+  resolveManagedRuntimeSettings,
   type AppBehaviorConfigV1,
   type AppSettingsPatch,
   type AppSettingsV1
@@ -37,11 +37,11 @@ import type { GuiUpdateState } from '../shared/gui-update'
 import { isAllowedDevPreviewUrl } from '../shared/dev-preview-url'
 import { fetchUpstreamModelIds } from './upstream-models'
 import {
-  kunRuntimeAdapter,
+  managedRuntimeAdapter,
   getRuntimeBaseUrlForSettings,
   runtimeAuthHeaders,
   runtimeRequestViaHost
-} from './runtime/kun-adapter'
+} from './runtime/managed-runtime-adapter'
 import { waitForRuntimeTurnsIdle } from './runtime/managed-runtime-idle'
 import { configureLogger, logError, logWarn, pruneOnStartup } from './logger'
 import { createClawRuntime, type ClawRuntime } from './claw-runtime'
@@ -49,7 +49,7 @@ import { createScheduleRuntime, type ScheduleRuntime } from './schedule-runtime'
 import { runClawScheduleMcpServerFromArgv } from './claw-schedule-mcp-server'
 import {
   clawScheduleMcpSettingsChanged,
-  resolveKunMcpJsonPath,
+  resolveRuntimeMcpJsonPath,
   syncClawScheduleMcpConfig,
   type ClawScheduleMcpLaunchConfig
 } from './claw-schedule-mcp-config'
@@ -61,7 +61,9 @@ import {
   startFeishuInstallQrcode,
   startWeixinInstallQrcode
 } from './claw-platform-install'
-import { registerRuntimeSseIpc } from './runtime-sse-ipc'
+import { registerRuntimeSseIpc, stopAllRuntimeSse } from './runtime-sse-ipc'
+import { appCancellationRegistry } from './cancellation-registry'
+import { drainSerializedWrites } from './services/durable-file'
 import {
   configureWeixinBridgeRuntimeContextProvider,
   ensureWeixinBridgeRpcUrl,
@@ -70,16 +72,17 @@ import {
   stopWeixinBridgeRuntime
 } from './weixin-bridge-runtime'
 import { webhookUrl } from './claw-runtime-helpers'
-import { isKunHealthResponseBody } from './kun-health'
+import { isRuntimeHealthResponseBody } from './runtime-health'
+import { legacyStartupTraceEnabled } from './compat/legacy-environment'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
-// 品牌升级为 Kun 后仍保留旧 AppUserModelId:它必须和 electron-builder
+// 品牌升级为 WorkWise Runtime 后仍保留旧 AppUserModelId:它必须和 electron-builder
 // 的 appId 一致才能让 Windows 通知 / 任务栏分组在升级前后连续,而
 // appId 因为 NSIS 升级 GUID 与 macOS 更新签名校验的原因永远不改。
 const APP_USER_MODEL_ID = 'com.wangjiawei508.workgpt'
 const HIDDEN_START_ARG = '--hidden'
 const startupTraceEnabled =
-  process.env.KUN_STARTUP_TRACE === '1' || process.env.DEEPSEEK_GUI_STARTUP_TRACE === '1'
+  process.env.WORKWISE_STARTUP_TRACE === '1' || legacyStartupTraceEnabled()
 const startupTraceStart = Date.now()
 
 function traceStartup(label: string, detail?: unknown): void {
@@ -163,22 +166,17 @@ if (runningClawScheduleMcpServer && process.platform === 'darwin') {
 // whenReady 副作用污染。
 configureAppIdentity()
 
-// 紧跟在身份设置之后、requestSingleInstanceLock() 之前做旧数据迁移:
-// 单实例锁文件就放在 userData 里,必须先把目录定下来。rename 失败
-// (典型场景:老版本还在运行)时退回旧目录,功能不受影响,下次再迁。
-const legacyMigration = runLegacyKunDataMigration({
+// 紧跟在身份设置之后、requestSingleInstanceLock() 之前做只读旧数据导入。
+// 源目录永不重命名或删除；已存在的 WorkWise 目标始终优先。
+const legacyMigration = runLegacyDataImport({
   userDataPath: app.getPath('userData'),
   homeDir: homedir(),
-  log: (message, detail) => console.warn(`[kun-gui] ${message}`, detail ?? '')
+  log: (message, detail) => console.warn(`[workwise] ${message}`, detail ?? '')
 })
-if (legacyMigration.userData.usedLegacyFallback) {
-  app.setPath('userData', legacyMigration.userData.userDataPath)
-}
 traceStartup('legacy data migration checked', {
   userDataPath: legacyMigration.userData.userDataPath,
   migratedUserData: legacyMigration.userData.migrated,
-  usedLegacyFallback: legacyMigration.userData.usedLegacyFallback,
-  settingsRewritten: legacyMigration.settingsRewritten
+  importedHomeEntries: legacyMigration.home.filter((entry) => entry.outcome === 'imported').length
 })
 
 configureLinuxWaylandImeSwitches()
@@ -197,6 +195,7 @@ let managedRuntimesStopPromise: Promise<void> | null = null
 let appBehavior: AppBehaviorConfigV1 = normalizeAppBehaviorSettings()
 let tray: Tray | null = null
 let isQuitting = false
+let gracefulShutdownPromise: Promise<void> | null = null
 
 type GuiUpdaterModule = typeof import('./gui-updater')
 
@@ -210,7 +209,19 @@ function emitClawChannelActivity(payload: { channelId: string; threadId: string 
 
 async function stopManagedRuntimesForQuit(): Promise<void> {
   if (managedRuntimesStoppedForQuit) return
-  await stopManagedRuntimes()
+  if (!gracefulShutdownPromise) {
+    gracefulShutdownPromise = (async () => {
+      await appCancellationRegistry.cancelAll('application_exit')
+      await stopAllRuntimeSse('application_exit')
+      scheduleRuntime?.stop()
+      clawRuntime?.stop()
+      stopWeixinBridgeRuntime()
+      await drainSerializedWrites()
+      await managedRuntimeAdapter.stopAndWait()
+    })()
+  }
+  const timeout = new Promise<void>((resolve) => setTimeout(resolve, 5_000))
+  await Promise.race([gracefulShutdownPromise, timeout])
   managedRuntimesStoppedForQuit = true
 }
 
@@ -220,7 +231,7 @@ async function stopManagedRuntimes(): Promise<void> {
       scheduleRuntime?.stop()
       clawRuntime?.stop()
       stopWeixinBridgeRuntime()
-      await kunRuntimeAdapter.stopAndWait()
+      await managedRuntimeAdapter.stopAndWait()
     })().finally(() => {
       managedRuntimesStopPromise = null
     })
@@ -296,10 +307,10 @@ function installDevPreviewWebviewGuards(): void {
 }
 
 
-const appIcon = createAppIcon(workgptLogoPng)
-const dockIcon = createAppIcon(workgptDockPng)
-const trayIcon = createAppIcon(workgptTrayPng)
-traceStartup('app icon loaded', { source: workgptLogoPng.startsWith('data:') ? 'data-url' : 'path' })
+const appIcon = createAppIcon(workwiseLogoPng)
+const dockIcon = createAppIcon(workwiseDockPng)
+const trayIcon = createAppIcon(workwiseTrayPng)
+traceStartup('app icon loaded', { source: workwiseLogoPng.startsWith('data:') ? 'data-url' : 'path' })
 const gotSingleInstanceLock = runningClawScheduleMcpServer || app.requestSingleInstanceLock()
 traceStartup('single instance lock checked', {
   gotSingleInstanceLock,
@@ -309,15 +320,15 @@ traceStartup('single instance lock checked', {
 function trayLabels(locale: AppSettingsV1['locale']): { show: string; quit: string; tooltip: string } {
   if (locale === 'zh') {
     return {
-      show: '显示 Kun',
+      show: '显示 WorkWise Runtime',
       quit: '退出',
-      tooltip: 'Kun'
+      tooltip: 'WorkWise Runtime'
     }
   }
   return {
-    show: 'Show Kun',
+    show: 'Show WorkWise Runtime',
     quit: 'Quit',
-    tooltip: 'Kun'
+    tooltip: 'WorkWise Runtime'
   }
 }
 
@@ -343,7 +354,7 @@ function syncLoginItemSettings(settings: AppSettingsV1): void {
     })
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
-    console.warn('[kun-gui] failed to update login item settings:', error)
+    console.warn('[workwise] failed to update login item settings:', error)
     logWarn('desktop-behavior', 'Failed to update login item settings.', { message })
   }
 }
@@ -416,7 +427,7 @@ async function showTurnCompleteNotification(
     return { ok: true, shown: false, reason: 'unsupported' }
   }
 
-  const title = normalizeNotificationText(payload.title, 'Kun', 80)
+  const title = normalizeNotificationText(payload.title, 'WorkWise Runtime', 80)
   const body = normalizeNotificationText(payload.body, 'Conversation complete.', 180)
 
   try {
@@ -479,7 +490,7 @@ async function probeThreadApi(settings: AppSettingsV1): Promise<
   }
 }
 
-async function waitForKunHealth(settings: AppSettingsV1, timeoutMs: number): Promise<boolean> {
+async function waitForRuntimeHealth(settings: AppSettingsV1, timeoutMs: number): Promise<boolean> {
   const base = getRuntimeBaseUrlForSettings(settings)
   const deadline = Date.now() + timeoutMs
 
@@ -490,7 +501,7 @@ async function waitForKunHealth(settings: AppSettingsV1, timeoutMs: number): Pro
         headers: runtimeAuthHeaders(settings),
         signal: AbortSignal.timeout(Math.max(250, Math.min(1_000, remaining)))
       })
-      if (res.ok && isKunHealthResponseBody(await res.text())) return true
+      if (res.ok && isRuntimeHealthResponseBody(await res.text())) return true
     } catch {
       /* retry until the deadline */
     }
@@ -538,7 +549,7 @@ function queueRuntimeSettingsApply(prev: AppSettingsV1, next: AppSettingsV1): vo
       await restartManagedRuntimeForSettingsChange(anchor, current)
     })
     .catch((error: unknown) => {
-      logWarn('settings-apply', 'Failed to apply Kun runtime settings in background', {
+      logWarn('settings-apply', 'Failed to apply WorkWise Runtime runtime settings in background', {
         message: error instanceof Error ? error.message : String(error)
       })
     })
@@ -562,7 +573,7 @@ function queueRuntimeMcpConfigApply(settings: AppSettingsV1): void {
       await restartManagedRuntimeForMcpConfigChange(current)
     })
     .catch((error: unknown) => {
-      logWarn('mcp-config', 'Failed to apply Kun MCP config change in background', {
+      logWarn('mcp-config', 'Failed to apply WorkWise Runtime MCP config change in background', {
         message: error instanceof Error ? error.message : String(error)
       })
     })
@@ -582,13 +593,13 @@ async function waitForQueuedRuntimeSettingsApply(): Promise<void> {
 
 /**
  * Build a stable fingerprint of the settings that affect the
- * Kun runtime so that `ensureRuntime` can debounce on real
+ * WorkWise Runtime runtime so that `ensureRuntime` can debounce on real
  * state instead of on a single in-flight promise. Without this,
  * a fresh call that arrives while a failing ensure is still pending
  * would re-throw the old error.
  */
 function runtimeFingerprint(settings: AppSettingsV1): string {
-  return stableSettingsStringify(resolveKunRuntimeSettings(settings))
+  return stableSettingsStringify(resolveManagedRuntimeSettings(settings))
 }
 
 async function ensureRuntime(settings: AppSettingsV1): Promise<void> {
@@ -605,30 +616,27 @@ async function ensureRuntime(settings: AppSettingsV1): Promise<void> {
     if (runtimeEnsureFingerprint === fingerprint) return
   }
   const task = ensureRuntimeOnce(settings)
-  runtimeEnsurePromise = task.finally(() => {
-    if (runtimeEnsurePromise === task) {
+  const trackedTask = task.finally(() => {
+    if (runtimeEnsurePromise === trackedTask) {
       runtimeEnsurePromise = null
       runtimeEnsureFingerprint = null
     }
   })
+  runtimeEnsurePromise = trackedTask
   runtimeEnsureFingerprint = fingerprint
-  try {
-    return await task
-  } finally {
-    /* cleanup runs via the .finally above */
-  }
+  return await trackedTask
 }
 
 async function ensureRuntimeOnce(settings: AppSettingsV1): Promise<void> {
   await waitForQueuedRuntimeSettingsApply()
-  await ensureKunRuntime(settings)
+  await ensureManagedRuntime(settings)
 }
 
-async function ensureKunRuntime(settings: AppSettingsV1): Promise<void> {
-  const runtime = getKunRuntimeSettings(settings)
+async function ensureManagedRuntime(settings: AppSettingsV1): Promise<void> {
+  const runtime = getManagedRuntimeSettings(settings)
   const hasApiKey = Boolean(resolveConfiguredApiKey(settings))
 
-  const healthy = await waitForKunHealth(settings, 2_000)
+  const healthy = await waitForRuntimeHealth(settings, 2_000)
   if (healthy) {
     const threadApi = await probeThreadApi(settings)
     if (threadApi.ok) return
@@ -638,17 +646,17 @@ async function ensureKunRuntime(settings: AppSettingsV1): Promise<void> {
   if (!hasApiKey) {
     throw runtimeJsonError(
       'missing_api_key',
-      'DeepSeek API Key is required before the GUI can start Kun.'
+      'DeepSeek API Key is required before the GUI can start WorkWise Runtime.'
     )
   }
   if (!runtime.autoStart) {
     throw runtimeJsonError(
       'runtime_offline',
-      'Kun is offline. Enable automatic startup in Settings, or start `kun serve` manually.'
+      'WorkWise Runtime is offline. Enable automatic startup in Settings, or start the bundled runtime manually.'
     )
   }
 
-  const adapter = kunRuntimeAdapter
+  const adapter = managedRuntimeAdapter
   const reclaim = await adapter.reclaimPort(runtime.port)
   if (!reclaim.ok) {
     throw runtimeJsonError('runtime_port_conflict', reclaim.message)
@@ -656,14 +664,14 @@ async function ensureKunRuntime(settings: AppSettingsV1): Promise<void> {
   try {
     await adapter.ensureRunning(settings)
   } catch (e) {
-    console.error('[kun-gui] failed to start kun:', e)
+    console.error('[workwise] failed to start runtime:', e)
     throw e
   }
-  const started = await waitForKunHealth(settings, 20_000)
+  const started = await waitForRuntimeHealth(settings, 20_000)
   if (!started) {
     throw runtimeJsonError(
       'runtime_unhealthy',
-      'Kun did not become healthy after launch.'
+      'WorkWise Runtime did not become healthy after launch.'
     )
   }
 
@@ -700,9 +708,14 @@ function createWindow(options: { suppressInitialShow?: boolean } = {}): void {
   }
   mainWindow.webContents.on('preload-error', (_event, preloadPath, error) => {
     const message = error instanceof Error ? error.message : String(error)
-    console.error(`[kun-gui] failed to load preload ${preloadPath}:`, error)
+    console.error(`[workwise] failed to load preload ${preloadPath}:`, error)
     logError('preload', 'Failed to load preload script', { preloadPath, message })
   })
+  const windowCancellation = appCancellationRegistry.register(
+    { scope: 'window', id: String(mainWindow.webContents.id) },
+    { parent: { scope: 'app', id: 'app' } }
+  )
+  const windowCancellationId = String(mainWindow.webContents.id)
   const showWindow = (): void => {
     if (options.suppressInitialShow) return
     if (!mainWindow || mainWindow.isDestroyed() || mainWindow.isVisible()) return
@@ -714,6 +727,11 @@ function createWindow(options: { suppressInitialShow?: boolean } = {}): void {
     mainWindow?.hide()
   })
   mainWindow.on('closed', () => {
+    void appCancellationRegistry.cancel(
+      { scope: 'window', id: windowCancellationId },
+      'window_destroyed'
+    )
+    windowCancellation.release()
     mainWindow = null
   })
   const devUrl = devServerHintUrl()
@@ -738,13 +756,13 @@ function createWindow(options: { suppressInitialShow?: boolean } = {}): void {
 }
 
 /**
- * Stable equality for the Kun runtime settings. Most fields are flat,
+ * Stable equality for the WorkWise Runtime runtime settings. Most fields are flat,
  * but GUI-managed capability options can be nested, so compare values
  * structurally while still surviving future field additions.
  */
-function kunRuntimeConfigChanged(prev: AppSettingsV1, next: AppSettingsV1): boolean {
-  const a = resolveKunRuntimeSettings(prev)
-  const b = resolveKunRuntimeSettings(next)
+function managedRuntimeConfigChanged(prev: AppSettingsV1, next: AppSettingsV1): boolean {
+  const a = resolveManagedRuntimeSettings(prev)
+  const b = resolveManagedRuntimeSettings(next)
   const keys = new Set([...Object.keys(a), ...Object.keys(b)] as Array<keyof typeof a>)
   for (const key of keys) {
     if (!stableSettingsValueEqual(a[key], b[key])) return true
@@ -772,7 +790,7 @@ function canonicalSettingsValue(value: unknown): unknown {
 }
 
 function runtimeStartupConfigChanged(prev: AppSettingsV1, next: AppSettingsV1): boolean {
-  return kunRuntimeConfigChanged(prev, next) || clawScheduleMcpSettingsChanged(prev, next)
+  return managedRuntimeConfigChanged(prev, next) || clawScheduleMcpSettingsChanged(prev, next)
 }
 
 async function restartManagedRuntimeForSettingsChange(
@@ -781,8 +799,8 @@ async function restartManagedRuntimeForSettingsChange(
 ): Promise<void> {
   if (!runtimeStartupConfigChanged(prev, next)) return
 
-  const runtime = resolveKunRuntimeSettings(next)
-  const adapter = kunRuntimeAdapter
+  const runtime = resolveManagedRuntimeSettings(next)
+  const adapter = managedRuntimeAdapter
   const wasRunning = adapter.isChildRunning()
 
   if (!wasRunning) return
@@ -794,18 +812,18 @@ async function restartManagedRuntimeForSettingsChange(
 
   try {
     await adapter.ensureRunning(next)
-    const healthy = await waitForKunHealth(next, 20_000)
+    const healthy = await waitForRuntimeHealth(next, 20_000)
     if (!healthy) {
-      console.warn('[kun-gui] Kun restart did not become healthy after settings change')
+      console.warn('[workwise] WorkWise Runtime restart did not become healthy after settings change')
     }
   } catch (e) {
-    console.warn('[kun-gui] Kun restart failed after settings change:', e)
+    console.warn('[workwise] WorkWise Runtime restart failed after settings change:', e)
   }
 }
 
 async function restartManagedRuntimeForMcpConfigChange(settings: AppSettingsV1): Promise<void> {
-  const runtime = resolveKunRuntimeSettings(settings)
-  const adapter = kunRuntimeAdapter
+  const runtime = resolveManagedRuntimeSettings(settings)
+  const adapter = managedRuntimeAdapter
   const wasRunning = adapter.isChildRunning()
 
   if (!wasRunning) return
@@ -815,12 +833,12 @@ async function restartManagedRuntimeForMcpConfigChange(settings: AppSettingsV1):
 
   try {
     await adapter.ensureRunning(settings)
-    const healthy = await waitForKunHealth(settings, 20_000)
+    const healthy = await waitForRuntimeHealth(settings, 20_000)
     if (!healthy) {
-      console.warn('[kun-gui] Kun restart did not become healthy after MCP config change')
+      console.warn('[workwise] WorkWise Runtime restart did not become healthy after MCP config change')
     }
   } catch (e) {
-    console.warn('[kun-gui] Kun restart failed after MCP config change:', e)
+    console.warn('[workwise] WorkWise Runtime restart failed after MCP config change:', e)
   }
 }
 
@@ -828,16 +846,16 @@ async function waitForManagedRuntimeReadyBeforeStop(
   settings: AppSettingsV1,
   source: string
 ): Promise<void> {
-  const healthy = await waitForKunHealth(settings, 20_000)
+  const healthy = await waitForRuntimeHealth(settings, 20_000)
   if (!healthy) {
-    logWarn(source, 'Kun did not become healthy before a managed restart; stopping it anyway')
+    logWarn(source, 'WorkWise Runtime did not become healthy before a managed restart; stopping it anyway')
     return
   }
   const idle = await waitForRuntimeTurnsIdle({ settings })
   if (idle === 'timeout') {
-    logWarn(source, 'Kun still has running turns after waiting; stopping it anyway')
+    logWarn(source, 'WorkWise Runtime still has running turns after waiting; stopping it anyway')
   } else if (idle === 'unavailable') {
-    logWarn(source, 'Could not verify Kun turn idleness before a managed restart; stopping it anyway')
+    logWarn(source, 'Could not verify WorkWise Runtime turn idleness before a managed restart; stopping it anyway')
   }
 }
 
@@ -922,11 +940,14 @@ app.whenReady().then(async () => {
   syncWeixinBridgeRuntime(initial)
 
   traceStartup('ipc registration:start')
-  const applySettingsPatch = async (partial: AppSettingsPatch): Promise<AppSettingsV1> => {
+  const applySettingsPatch = async (
+    partial: AppSettingsPatch,
+    expectedRevision?: number
+  ): Promise<AppSettingsV1> => {
     const prev = await store.load()
     const { agents: agentsPatch, provider: providerPatch, ...restPatch } = partial
     const next = normalizeAppSettings({
-      ...applyKunRuntimePatch(prev, agentsPatch?.kun),
+      ...applyManagedRuntimePatch(prev, agentsPatch?.kun),
       ...restPatch,
       provider: mergeModelProviderSettings(prev.provider, providerPatch),
       log: { ...prev.log, ...(partial.log ?? {}) },
@@ -949,7 +970,7 @@ app.whenReady().then(async () => {
     if (prev.log.enabled !== next.log.enabled || prev.log.retentionDays !== next.log.retentionDays) {
       configureLogger({ enabled: next.log.enabled, retentionDays: next.log.retentionDays })
     }
-    const saved = await store.patch(partial)
+    const saved = await store.patch(partial, expectedRevision)
     await syncClawScheduleMcpConfig(saved, getClawScheduleMcpLaunchConfig()).catch((error) => {
       console.error('[claw-schedule-mcp] failed to sync config after settings change:', error)
     })
@@ -986,8 +1007,8 @@ app.whenReady().then(async () => {
     pollFeishuInstall,
     startWeixinInstallQrcode,
     pollWeixinInstall,
-    resolveKunConfigPath: resolveKunMcpJsonPath,
-    onKunMcpConfigWritten: async () => {
+    resolveRuntimeConfigPath: resolveRuntimeMcpJsonPath,
+    onRuntimeMcpConfigWritten: async () => {
       const settings = await store.load()
       queueRuntimeMcpConfigApply(settings)
     },
@@ -1000,7 +1021,7 @@ app.whenReady().then(async () => {
   })
 
   void loadGuiUpdaterModule().catch((error) => {
-    console.warn('[kun-gui updater] failed to initialize on startup:', error)
+    console.warn('[workwise updater] failed to initialize on startup:', error)
   })
 
   registerRuntimeSseIpc({ ipcMain, store, ensureRuntime, logError })
@@ -1010,13 +1031,13 @@ app.whenReady().then(async () => {
   traceStartup('createWindow:returned')
 
   void pruneOnStartup().catch((err) => {
-    console.warn('[kun-gui] prune logs:', err)
+    console.warn('[workwise] prune logs:', err)
   })
 
   if (resolveConfiguredApiKey(initial)) {
     setTimeout(() => {
-      void kunRuntimeAdapter.resolveExecutable(initial).catch((err) => {
-        console.warn('[kun-gui] prewarm Kun binary:', err)
+      void managedRuntimeAdapter.resolveExecutable(initial).catch((err) => {
+        console.warn('[workwise] prewarm WorkWise Runtime binary:', err)
       })
     }, 1500)
   }
@@ -1031,15 +1052,15 @@ app.whenReady().then(async () => {
   })
 }).catch((error) => {
   const message = error instanceof Error ? error.message : String(error)
-  console.error('[kun-gui] startup failed:', error)
-  dialog.showErrorBox('Kun failed to start', message)
+  console.error('[workwise] startup failed:', error)
+  dialog.showErrorBox('WorkWise Runtime failed to start', message)
   app.quit()
 })
 }
 
 app.on('window-all-closed', () => {
   void stopManagedRuntimes().catch((error) => {
-    console.warn('[kun-gui] failed to stop Kun runtime:', error)
+    console.warn('[workwise] failed to stop WorkWise Runtime runtime:', error)
   })
   if (process.platform !== 'darwin') {
     app.quit()
@@ -1052,7 +1073,7 @@ app.on('before-quit', (event) => {
   event.preventDefault()
   void stopManagedRuntimesForQuit()
     .catch((error) => {
-      console.warn('[kun-gui] failed to stop Kun runtime:', error)
+      console.warn('[workwise] failed to stop WorkWise Runtime runtime:', error)
       managedRuntimesStoppedForQuit = true
     })
     .finally(() => {

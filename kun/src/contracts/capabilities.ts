@@ -148,7 +148,7 @@ export const WebCapabilityConfig = CapabilityToggleConfig.extend({
   allowDomains: z.array(z.string().min(1)).default([]),
   denyDomains: z.array(z.string().min(1)).default([]),
   /** Upper bound for web_fetch body bytes; fetched pages truncate here. */
-  maxFetchBytes: z.number().int().positive().default(1_000_000)
+  maxFetchBytes: z.number().int().positive().max(5 * 1024 * 1024).default(1024 * 1024)
 }).strict()
 export type WebCapabilityConfig = z.infer<typeof WebCapabilityConfig>
 

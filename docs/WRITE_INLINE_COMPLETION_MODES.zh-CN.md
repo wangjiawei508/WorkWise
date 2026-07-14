@@ -141,7 +141,7 @@ export type WriteInlineCompletionMode = 'short' | 'long' | 'edit'
 长补全会在 prompt 前加入隐藏注释：
 
 ```markdown
-<!-- DeepSeek GUI inline completion mode: long inspiration.
+<!-- WorkWise inline completion mode: long inspiration.
 The user paused at the cursor. Continue the draft with a grounded next thought...
 Return only insertable text...
 -->

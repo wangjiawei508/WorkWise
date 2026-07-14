@@ -74,12 +74,12 @@ export function formatPercent(value: number | null): string {
 }
 
 export async function loadThreadUsage(threadId: string): Promise<ThreadUsageSummary | null> {
-  if (typeof window.kunGui?.runtimeRequest !== 'function') return null
+  if (typeof window.workwise?.runtimeRequest !== 'function') return null
   const params = new URLSearchParams({
     group_by: 'thread',
     thread_id: threadId
   })
-  const r = await window.kunGui.runtimeRequest(`/v1/usage?${params.toString()}`, 'GET')
+  const r = await window.workwise.runtimeRequest(`/v1/usage?${params.toString()}`, 'GET')
   if (!r.ok || !r.body.trim()) return null
   const parsed = parseUsageResponse<{
     buckets?: Array<Record<string, unknown>>

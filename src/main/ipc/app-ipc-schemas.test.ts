@@ -27,7 +27,7 @@ describe('app-ipc-schemas', () => {
     expect(payload.path).toBe('/v1/threads?limit=1')
   })
 
-  it('accepts the Kun runtime info endpoint', () => {
+  it('accepts the WorkWise Runtime runtime info endpoint', () => {
     const payload = runtimeRequestPayloadSchema.parse({
       path: '/v1/runtime/info',
       method: 'GET'
@@ -36,7 +36,7 @@ describe('app-ipc-schemas', () => {
     expect(payload.path).toBe('/v1/runtime/info')
   })
 
-  it('accepts the Kun runtime tool diagnostics endpoint', () => {
+  it('accepts the WorkWise Runtime runtime tool diagnostics endpoint', () => {
     const payload = runtimeRequestPayloadSchema.parse({
       path: '/v1/runtime/tools',
       method: 'GET'
@@ -45,7 +45,7 @@ describe('app-ipc-schemas', () => {
     expect(payload.path).toBe('/v1/runtime/tools')
   })
 
-  it('accepts the Kun skills endpoint', () => {
+  it('accepts the WorkWise Runtime skills endpoint', () => {
     const payload = runtimeRequestPayloadSchema.parse({
       path: '/v1/skills',
       method: 'GET'
@@ -54,7 +54,7 @@ describe('app-ipc-schemas', () => {
     expect(payload.path).toBe('/v1/skills')
   })
 
-  it('accepts Kun attachment and memory endpoints', () => {
+  it('accepts WorkWise Runtime attachment and memory endpoints', () => {
     expect(runtimeRequestPayloadSchema.parse({
       path: '/v1/attachments',
       method: 'POST',
@@ -83,7 +83,7 @@ describe('app-ipc-schemas', () => {
     expect(skillListPayloadSchema.parse({})).toEqual({})
   })
 
-  it('accepts Kun thread goal endpoints', () => {
+  it('accepts WorkWise Runtime thread goal endpoints', () => {
     expect(runtimeRequestPayloadSchema.parse({
       path: '/v1/threads/thr_1/goal',
       method: 'GET'
@@ -99,7 +99,7 @@ describe('app-ipc-schemas', () => {
     }).path).toBe('/v1/threads/thr_1/goal')
   })
 
-  it('accepts the Kun thread review endpoint', () => {
+  it('accepts the WorkWise Runtime thread review endpoint', () => {
     expect(runtimeRequestPayloadSchema.parse({
       path: '/v1/threads/thr_1/review',
       method: 'POST',
@@ -107,7 +107,7 @@ describe('app-ipc-schemas', () => {
     }).path).toBe('/v1/threads/thr_1/review')
   })
 
-  it('rejects runtime request paths outside the modeled Kun API surface', () => {
+  it('rejects runtime request paths outside the modeled WorkWise Runtime API surface', () => {
     expect(() =>
       runtimeRequestPayloadSchema.parse({
         path: '/v1/runtime/secrets',

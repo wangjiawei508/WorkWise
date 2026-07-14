@@ -5,7 +5,7 @@
 # invented. Anything not in this block is editorial, not authoritative.
 
 schema_version: 1
-project: Kun
+project: WorkWise Agent Runtime
 single_runtime: kun
 themes: [light, dark, system]
 
@@ -224,7 +224,7 @@ window:
   app_region: drag           # html/body/-webkit-app-region
   no_drag_class: ds-no-drag  # add to anything clickable in the title bar
   macos_top_inset_px: 42     # safe area for traffic-light controls
-  app_icon: src/asset/img/deepseek.png
+  app_icon: src/asset/img/workwise.png
   secondary_logos: [deepseek.svg]
 
 # ---------- 9. Iconography ----------
@@ -286,8 +286,8 @@ i18n:
 
 # ---------- 13. Brand & voice ----------
 brand:
-  product_name: "Kun"
-  tagline: "把 Kun 的本地智能体能力带进桌面窗口"
+  product_name: "WorkWise Agent Runtime"
+  tagline: "把 WorkWise Agent Runtime 的本地智能体能力带进桌面窗口"
   hero_kw: [Code, Write, Connect phone]
   pillars:
     - "本地优先 (Local-first): settings, sessions, logs all on disk; model calls use your own DeepSeek API key."
@@ -311,7 +311,7 @@ a11y:
 
 # ---------- 15. Don't (anti-patterns enforced by the codebase) ----------
 dont:
-  - "Use a second live agent runtime — Kun is the only one."
+  - "Use a second live agent runtime — WorkWise Agent Runtime is the only one."
   - "Add AgentSwitcher / ConnectionStatusBar / RuntimeDiagnosticsDialog."
   - "Add CodeWhale/Reasonix adapters, process managers, RPC bridges, updaters, importers."
   - "Add a design/drawing starter card in the core workbench."
@@ -323,7 +323,7 @@ dont:
   - "Use a border radius smaller than 4px on a clickable surface."
 ---
 
-# Kun — DESIGN.md
+# WorkWise Agent Runtime — DESIGN.md
 
 > 单一权威设计文档。所有屏幕、所有组件、所有视觉决策,都从这里出。
 
@@ -353,8 +353,8 @@ the frontmatter wins, and the markdown needs an update.
 
 ## 1. Project at a glance
 
-Kun (formerly DeepSeek GUI) is a local desktop workbench built
-around its namesake **Kun** runtime. The desktop shell is Electron; the runtime is a TypeScript
+WorkWise Agent Runtime (formerly WorkWise) is a local desktop workbench built
+around its namesake **WorkWise Agent Runtime** runtime. The desktop shell is Electron; the runtime is a TypeScript
 package that speaks HTTP/SSE; the renderer is React 19 + Zustand 5;
 the visual system is TailwindCSS 3 with a hand-built token layer on
 top.
@@ -371,7 +371,7 @@ human staying in the loop on every mutating call.
 | **Write** | A long-form writing space: Markdown files, FIM completion, selection-scoped inline agent. |
 | **Connect phone** | Background automation: Feishu / Lark channels, webhook / relay, scheduled tasks. Internal route and storage names still use `claw` for compatibility. |
 
-All product surfaces share the same Kun HTTP/SSE boundary, the same
+All product surfaces share the same WorkWise Agent Runtime HTTP/SSE boundary, the same
 settings (API key, base URL, model), and the same visual system.
 
 ---
@@ -396,7 +396,7 @@ already built. New screens must follow them, not re-interpret them.
    important, it goes in Settings, not in the main canvas.
 4. **The renderer maps HTTP, it does not implement agent logic.**
    Approvals, steering, compaction, fork, resume, usage — all
-   come from Kun endpoints, never re-implemented in React.
+   come from WorkWise Agent Runtime endpoints, never re-implemented in React.
 5. **Stable visual identity, not visual novelty.** A new screen
    should look like a sibling of an existing one, not a fresh
    experiment. New components earn their place by replacing
@@ -588,7 +588,7 @@ containing many cells. Do not animate the composer.
 
 ### 3.9 Layout grammar
 
-Every screen in Kun follows the same macro-grammar:
+Every screen in WorkWise Agent Runtime follows the same macro-grammar:
 
 - **Topbar**: a translucent strip with the back button, session
   title, mode switcher, and right-side action cluster. The topbar
@@ -619,8 +619,8 @@ first.
   Write, and Connect phone"), second person for the user. No emoji. No
   marketing language. Error messages are full sentences ending in
   punctuation; never a raw stack trace.
-- The product name is "Kun" (formerly "DeepSeek GUI"). The bundled
-  runtime shares the name; say "Kun runtime" when the distinction matters.
+- The product name is "WorkWise Agent Runtime" (formerly "WorkWise"). The bundled
+  runtime shares the name; say "WorkWise Agent Runtime runtime" when the distinction matters.
   The main workbenches are "Code" and "Write"; the phone/IM surface is
   "Connect phone" in English and "连接手机" in zh copy. Internal code may
   still say `claw`, but production copy should not expose it as the product name.
@@ -678,7 +678,7 @@ If any box is unchecked, fix it before merging.
 │       │                                                      │
 │       │ spawn child process + HTTP/SSE                       │
 │       ▼                                                      │
-│ Kun (TypeScript package)                              │
+│ WorkWise Agent Runtime (TypeScript package)                              │
 │  serve --host 127.0.0.1 --port 7878                          │
 │  /health · /v1/* · SSE /v1/threads/{id}/events              │
 │  cache-first AgentLoop · ports & adapters · append-only log  │
@@ -700,15 +700,15 @@ Three lessons baked into this shape:
    workspace
    files, external editors, and Write export/completion) that the
    renderer can ask for.
-3. Kun **is** the agent. Loop, tool host, stores, model
+3. WorkWise Agent Runtime **is** the agent. Loop, tool host, stores, model
    client, server — all in one process, behind one HTTP/SSE
    boundary.
 
 ---
 
-## 5. Core runtime: Kun
+## 5. Core runtime: WorkWise Agent Runtime
 
-The Kun package (`kun/`) is the single active agent
+The WorkWise Agent Runtime package (`kun/`) is the single active agent
 runtime. It is a TypeScript ESM package that ships its own HTTP
 server and is built before the Electron app.
 
@@ -730,13 +730,13 @@ kun/src/
   telemetry/       # Usage counter, cache telemetry
   server/          # HTTP server, router, auth, SSE, response helpers,
                    # runtime-factory, route handlers
-  prompt/          # System prompt for the Kun identity
+  prompt/          # System prompt for the WorkWise Agent Runtime identity
   shared/          # Shared types with the GUI
 ```
 
 ### 5.2 Hexagonal shape
 
-Kun is structured as **ports & adapters**:
+WorkWise Agent Runtime is structured as **ports & adapters**:
 
 - `contracts/` — the boundary. Zod schemas describe every HTTP/SSE
   DTO. This is what the GUI imports indirectly through its mapper
@@ -789,7 +789,7 @@ telemetry. The principles:
   pinned constraints from the immutable prefix. Soft threshold
   16k tokens, hard threshold 24k tokens.
 - **Tool pair healing.** Before sending history to the model,
-  Kun drops orphan `tool_result`s and tool calls with
+  WorkWise Agent Runtime drops orphan `tool_result`s and tool calls with
   missing results, to avoid 400/retry storms.
 
 Cache hit rate is reported as `hit / (hit + miss)` using
@@ -891,7 +891,7 @@ next replay skips them).
 
 ### 6.1 Process roles
 
-- **Main** (`src/main/`) — Node process. Owns the Kun
+- **Main** (`src/main/`) — Node process. Owns the WorkWise Agent Runtime
   child process, settings store, updater, Connect phone runtime,
   file/git/editor helpers, Write services, IPC handlers, logger,
   GUI updater, macOS/Windows code-signing glue.
@@ -924,7 +924,7 @@ src/
     src/
       App.tsx                       # Suspense shell
       AppShell.tsx                  # routes Workbench / Settings / InitialSetup
-      agent/                        # AgentProvider interface + Kun impl
+      agent/                        # AgentProvider interface + WorkWise Agent Runtime impl
       components/                   # Workbench, Settings, ChangeInspector, …
       hooks/
       lib/                          # formatters, helpers, plan store, etc.
@@ -940,7 +940,7 @@ src/
 on the system. It includes:
 
 - `runtimeRequest(path, method, body)` — generic JSON request to
-  Kun.
+  WorkWise Agent Runtime.
 - `startSse(threadId, sinceSeq, streamId)` / `stopSse` /
   `onSseEvent` — SSE subscription for a thread.
 - `getSettings` / `setSettings` — typed settings I/O.
@@ -970,7 +970,7 @@ and validated at the IPC boundary by Zod schemas in
 
 ### 6.4 The runtime adapter
 
-The main process owns the Kun child process through a
+The main process owns the WorkWise Agent Runtime child process through a
 `LocalHttpRuntimeAdapter`:
 
 - `kunRuntimeAdapter.resolveExecutable(settings)` —
@@ -1041,7 +1041,7 @@ Persistence is layered:
   fork registry).
 - `electron-store` (main) — settings, Connect phone config (internal Claw key), write
   workspace config.
-- `~/.deepseekgui/kun` (Kun) — threads,
+- `~/.deepseekgui/kun` (WorkWise Agent Runtime) — threads,
   events, sessions, usage.
 
 ### 7.3 The AgentProvider interface
@@ -1094,13 +1094,13 @@ only which renderer and local workflow state the store pulls in.
 - **Code** — default mode, full agent flow, workspace roots,
   todo panel, changes inspector, plan panel, file preview, and dev browser.
 - **Write** — write-thread registry isolates Write sessions
-  from Code / Connect phone sessions. Uses the same Kun but a
+  from Code / Connect phone sessions. Uses the same WorkWise Agent Runtime but a
   separate `WRITE_ASSISTANT_THREAD_TITLE` namespace. Inline
   completion and selected-text agent go through dedicated
   main-process services.
 - **Connect phone** — internal `claw` channel registry. Each IM channel has its
   own thread id, model, and workspace root. Runs through
-  `ClawRuntime` (main process), which calls Kun over
+  `ClawRuntime` (main process), which calls WorkWise Agent Runtime over
   HTTP just like the renderer does.
 
 ---
@@ -1113,18 +1113,18 @@ only which renderer and local workflow state the store pulls in.
 | Session list / workbench layout | `localStorage` | JSON | Renderer |
 | Write thread registry | `localStorage` | JSON | Renderer |
 | Connect phone channels | OS app-data dir | JSON | `JsonSettingsStore` |
-| Threads / turns / events | `~/.deepseekgui/kun` | JSON + JSONL | Kun |
-| Usage counters | Kun data dir | JSON | Kun |
-| Skill / MCP files | Kun data dir + workspace | Markdown / JSON | Kun + renderer |
+| Threads / turns / events | `~/.deepseekgui/kun` | JSON + JSONL | WorkWise Agent Runtime |
+| Usage counters | WorkWise Agent Runtime data dir | JSON | WorkWise Agent Runtime |
+| Skill / MCP files | WorkWise Agent Runtime data dir + workspace | Markdown / JSON | WorkWise Agent Runtime + renderer |
 | GUI logs | OS app-data dir / `log/` | NDJSON | `logger.ts` |
 | Inline completion debug | OS app-data dir | NDJSON | `write-inline-completion-service.ts` |
 
 Default OS app-data paths (derived from the Electron `productName`,
-which current builds still ship as `DeepSeek GUI`):
+which current builds still ship as `WorkWise`):
 
-- macOS: `~/Library/Application Support/DeepSeek GUI`
-- Windows: `%APPDATA%\DeepSeek GUI`
-- Linux: `~/.config/DeepSeek GUI`
+- macOS: `~/Library/Application Support/WorkWise`
+- Windows: `%APPDATA%\WorkWise`
+- Linux: `~/.config/WorkWise`
 
 Uninstalling the app does not remove app data. Documented in
 the README and respected by the install script.
@@ -1186,13 +1186,13 @@ compaction block inline with a "show replaced" detail.
 
 ### 9.5 Connect phone automation
 
-- `ClawRuntime` (main process) creates and reuses Kun
+- `ClawRuntime` (main process) creates and reuses WorkWise Agent Runtime
   threads for each IM channel and each scheduled task.
 - Feishu / Lark integration uses `@larksuiteoapi/node-sdk`.
   Install is device-flow QR code; the renderer polls
   `claw:im-install:poll` until authorized.
 - Webhook / relay is a small HTTP server in `ClawRuntime` that
-  POSTs inbound webhooks into a Kun thread.
+  POSTs inbound webhooks into a WorkWise Agent Runtime thread.
 - Scheduled tasks are detected from natural-language Connect phone
   prompts (`claw-scheduled-task-detector.ts`) and stored under
   `claw.scheduledTasks` in settings.
@@ -1214,7 +1214,7 @@ Linux users build from source.
 directory. The renderer can open the log dir, and `log:error`
 lets any UI surface report a category / message / detail
 tuple. A startup trace is enabled by
-`DEEPSEEK_GUI_STARTUP_TRACE=1` and prints to stdout for
+`WORKWISE_STARTUP_TRACE=1` and prints to stdout for
 postmortem timing.
 
 ---
@@ -1248,7 +1248,7 @@ postmortem timing.
 These are enforced by `docs/AGENTS.md` and reflect real product
 decisions. New work must respect them.
 
-- **One live agent runtime: Kun.** No second live
+- **One live agent runtime: WorkWise Agent Runtime.** No second live
   provider, no provider switcher, no runtime diagnostics
   panel, no legacy CodeWhale / Reasonix process path.
 - **No UI surface for runtime internals.** No AgentSwitcher,
@@ -1259,7 +1259,7 @@ decisions. New work must respect them.
   may only appear in migration.
 - **Renderer does not implement agent logic.** Approvals,
   steering, compaction, fork, resume, usage — all come from
-  Kun endpoints, never re-implemented in React.
+  WorkWise Agent Runtime endpoints, never re-implemented in React.
 - **No new drawing / design starter card** in the core
   workbench.
 - **No emoji in production copy or as functional UI
@@ -1315,9 +1315,9 @@ Manual smoke (full list in `docs/AGENTS.md`):
 - Code: create thread, stream reply, approve / deny, interrupt.
 - Write: open workspace, request inline completion, run
   selected-text agent.
-- Connect phone: save settings, run a manual task through a Kun
+- Connect phone: save settings, run a manual task through a WorkWise Agent Runtime
   thread.
-- Settings → Agents: shows only Kun.
+- Settings → Agents: shows only WorkWise Agent Runtime.
 - Cache telemetry on a hot thread should stay ≥ 90% hit.
 
 If any check fails, the change is not ready.
@@ -1349,19 +1349,19 @@ If any check fails, the change is not ready.
 | HTTP routes | `kun/src/server/routes/` |
 | Tool host | `kun/src/adapters/tool/local-tool-host.ts` |
 | Model client | `kun/src/adapters/model/deepseek-compat-model-client.ts` |
-| Cache doc | `docs/kun-cache-optimization.md` |
-| Architecture doc | `docs/kun-architecture.md` |
-| Contribution doc | `docs/kun-contributing.md` |
+| Cache doc | `docs/runtime-cache-optimization.md` |
+| Architecture doc | `docs/runtime-architecture.md` |
+| Contribution doc | `docs/runtime-contributing.md` |
 
 ---
 
 ## 15. References
 
-- `docs/kun-architecture.md` — single-runtime plan and
+- `docs/runtime-architecture.md` — single-runtime plan and
   GUI拆改范围.
-- `docs/kun-cache-optimization.md` — cache hit rate
+- `docs/runtime-cache-optimization.md` — cache hit rate
   measurement, stable prefix rules, tool pair healing.
-- `docs/kun-contributing.md` — port & adapter / FCIS
+- `docs/runtime-contributing.md` — port & adapter / FCIS
   patterns, four PR archetypes.
 - `kun/README.md` — CLI flags, env vars, data dir layout,
   HTTP API.

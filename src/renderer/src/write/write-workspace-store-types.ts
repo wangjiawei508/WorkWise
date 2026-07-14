@@ -34,6 +34,8 @@ export type WriteWorkspaceState = {
   fileError: string | null
   fileLoading: boolean
   saveStatus: WriteSaveStatus
+  /** Monotonic revision of the last successfully persisted active file. */
+  saveRevision: number
   previewMode: WritePreviewMode
   assistantOpen: boolean
   assistantModel: string

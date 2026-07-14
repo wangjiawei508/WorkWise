@@ -1,11 +1,11 @@
 import type { AgentProvider } from './types'
-import { KunRuntimeProvider } from './kun-runtime'
+import { WorkWiseRuntimeProvider } from './managed-runtime'
 
 let cachedProvider: AgentProvider | null = null
 
 export function getProvider(): AgentProvider {
   if (cachedProvider) return cachedProvider
-  cachedProvider = new KunRuntimeProvider()
+  cachedProvider = new WorkWiseRuntimeProvider()
   return cachedProvider
 }
 

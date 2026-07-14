@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -482,6 +482,27 @@ describe('Kun built-in tools', () => {
     })
     expect((lsOutput.entries as Array<Record<string, unknown>>)[0]?.name).toBe('demo.txt')
     expect((lsOutput.names as Array<string>)[0]).toBe('demo.txt')
+  })
+
+  it.skipIf(process.platform === 'win32')('rejects workspace symlinks that resolve outside the canonical root', async () => {
+    const outside = await mkdtemp(join(tmpdir(), 'workwise-outside-'))
+    try {
+      await writeFile(join(outside, 'secret.txt'), 'secret', 'utf8')
+      await symlink(outside, join(workspace, 'outside-link'))
+
+      const readOutput = await executeTool(host, workspace, 'read', {
+        path: 'outside-link/secret.txt'
+      })
+      expect(String(readOutput.error)).toContain('unsafe_path')
+
+      const writeOutput = await executeTool(host, workspace, 'write', {
+        path: 'outside-link/new.txt',
+        content: 'blocked'
+      })
+      expect(String(writeOutput.error)).toContain('unsafe_path')
+    } finally {
+      await rm(outside, { recursive: true, force: true })
+    }
   })
 
   it('executes bash commands in the workspace', async () => {

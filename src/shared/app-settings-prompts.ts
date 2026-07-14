@@ -96,7 +96,7 @@ export function normalizeClawImRemoteSession(input: unknown): ClawImRemoteSessio
 }
 
 /**
- * Read the Kun thread id from a legacy `agentThreadIds` record.
+ * Read the WorkWise Runtime thread id from a legacy `agentThreadIds` record.
  * Returns the empty string when no candidate is present.
  */
 export function readLegacyAgentThreadId(input: unknown): string {

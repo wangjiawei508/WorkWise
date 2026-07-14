@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import {
-  applyKunRuntimePatch,
+  applyManagedRuntimePatch,
   kunSettingsEnvelope,
   kunSettingsPatch,
-  DEFAULT_KUN_DATA_DIR,
-  DEFAULT_KUN_MODEL,
+  DEFAULT_MANAGED_RUNTIME_DATA_DIR,
+  DEFAULT_MANAGED_RUNTIME_MODEL,
   DEFAULT_APPROVAL_POLICY,
   DEFAULT_SANDBOX_MODE,
   DEFAULT_WEIXIN_BRIDGE_RPC_URL,
@@ -12,18 +12,18 @@ import {
   buildClawRuntimePrompt,
   defaultClawSettings,
   defaultModelProviderSettings,
-  mergeKunRuntimeSettings,
+  mergeManagedRuntimeSettings,
   mergeScheduleSettings,
-  defaultKunRuntimeSettings,
+  defaultManagedRuntimeSettings,
   defaultScheduleSettings,
   defaultWriteSettings,
   defaultKeyboardShortcuts,
-  isKunRuntimeInsecure,
+  isManagedRuntimeInsecure,
   migrateLegacyAppSettings,
   normalizeAppSettings,
   parseClawUserPromptForDisplay,
   normalizeScheduleSettings,
-  resolveKunRuntimeSettings,
+  resolveManagedRuntimeSettings,
   resolveWriteInlineCompletionApiKey,
   resolveWriteInlineCompletionBaseUrl,
   resolveWriteInlineCompletionModel,
@@ -40,7 +40,7 @@ function settings(): AppSettingsV1 {
     uiFontScale: 'small',
     provider: defaultModelProviderSettings(),
     agents: {
-      kun: defaultKunRuntimeSettings()
+      kun: defaultManagedRuntimeSettings()
     },
     workspaceRoot: '/tmp/workspace',
     log: { enabled: false, retentionDays: 7 },
@@ -81,26 +81,26 @@ function clawChannel(provider: ClawImProvider, label: string, name = label): Cla
 
 describe('kun defaults', () => {
   it('keeps a single shared default data directory source', () => {
-    expect(defaultKunRuntimeSettings().dataDir).toBe(DEFAULT_KUN_DATA_DIR)
+    expect(defaultManagedRuntimeSettings().dataDir).toBe(DEFAULT_MANAGED_RUNTIME_DATA_DIR)
   })
 
   it('defaults the assistant model to v4 pro', () => {
-    expect(defaultKunRuntimeSettings().model).toBe(DEFAULT_KUN_MODEL)
+    expect(defaultManagedRuntimeSettings().model).toBe(DEFAULT_MANAGED_RUNTIME_MODEL)
   })
 
   it('defaults approval policy to auto', () => {
-    expect(defaultKunRuntimeSettings().approvalPolicy).toBe(DEFAULT_APPROVAL_POLICY)
-    expect(defaultKunRuntimeSettings().approvalPolicy).toBe('auto')
+    expect(defaultManagedRuntimeSettings().approvalPolicy).toBe(DEFAULT_APPROVAL_POLICY)
+    expect(defaultManagedRuntimeSettings().approvalPolicy).toBe('auto')
   })
 
   it('defaults sandbox mode to full access', () => {
-    expect(defaultKunRuntimeSettings().sandboxMode).toBe(DEFAULT_SANDBOX_MODE)
-    expect(defaultKunRuntimeSettings().sandboxMode).toBe('danger-full-access')
+    expect(defaultManagedRuntimeSettings().sandboxMode).toBe(DEFAULT_SANDBOX_MODE)
+    expect(defaultManagedRuntimeSettings().sandboxMode).toBe('danger-full-access')
   })
 
   it('defaults token economy mode to off', () => {
-    expect(defaultKunRuntimeSettings().tokenEconomyMode).toBe(false)
-    expect(defaultKunRuntimeSettings().tokenEconomy).toMatchObject({
+    expect(defaultManagedRuntimeSettings().tokenEconomyMode).toBe(false)
+    expect(defaultManagedRuntimeSettings().tokenEconomy).toMatchObject({
       enabled: false,
       compressToolDescriptions: true,
       compressToolResults: true,
@@ -117,7 +117,7 @@ describe('kun defaults', () => {
   })
 
   it('defaults MCP search discovery to off', () => {
-    expect(defaultKunRuntimeSettings().mcpSearch).toMatchObject({
+    expect(defaultManagedRuntimeSettings().mcpSearch).toMatchObject({
       enabled: false,
       mode: 'auto',
       autoThresholdToolCount: 24,
@@ -127,7 +127,7 @@ describe('kun defaults', () => {
   })
 
   it('defaults image generation to off with empty provider fields', () => {
-    expect(defaultKunRuntimeSettings().imageGeneration).toEqual({
+    expect(defaultManagedRuntimeSettings().imageGeneration).toEqual({
       enabled: false,
       providerId: '',
       protocol: 'openai-images',
@@ -139,8 +139,8 @@ describe('kun defaults', () => {
     })
   })
 
-  it('defaults advanced Kun runtime tuning to conservative values', () => {
-    expect(defaultKunRuntimeSettings()).toMatchObject({
+  it('defaults advanced WorkWise Runtime runtime tuning to conservative values', () => {
+    expect(defaultManagedRuntimeSettings()).toMatchObject({
       storage: {
         backend: 'hybrid',
         sqlitePath: ''
@@ -287,11 +287,11 @@ describe('claw settings', () => {
   })
 })
 
-describe('isKunRuntimeInsecure', () => {
+describe('isManagedRuntimeInsecure', () => {
   it('treats an empty runtime token as effectively insecure', () => {
     expect(
-      isKunRuntimeInsecure({
-        ...defaultKunRuntimeSettings(),
+      isManagedRuntimeInsecure({
+        ...defaultManagedRuntimeSettings(),
         insecure: false,
         runtimeToken: ''
       })
@@ -300,8 +300,8 @@ describe('isKunRuntimeInsecure', () => {
 
   it('keeps auth enabled when a token exists and insecure is false', () => {
     expect(
-      isKunRuntimeInsecure({
-        ...defaultKunRuntimeSettings(),
+      isManagedRuntimeInsecure({
+        ...defaultManagedRuntimeSettings(),
         insecure: false,
         runtimeToken: 'tok-1'
       })
@@ -309,10 +309,10 @@ describe('isKunRuntimeInsecure', () => {
   })
 })
 
-describe('mergeKunRuntimeSettings', () => {
+describe('mergeManagedRuntimeSettings', () => {
   it('merges a direct kun patch without the envelope wrapper', () => {
-    const current = defaultKunRuntimeSettings()
-    const next = mergeKunRuntimeSettings(current, {
+    const current = defaultManagedRuntimeSettings()
+    const next = mergeManagedRuntimeSettings(current, {
       model: 'deepseek-reasoner',
       port: 9000,
       tokenEconomyMode: true
@@ -325,8 +325,8 @@ describe('mergeKunRuntimeSettings', () => {
   })
 
   it('deep-merges token economy settings and keeps the legacy switch synced', () => {
-    const current = defaultKunRuntimeSettings()
-    const next = mergeKunRuntimeSettings(current, {
+    const current = defaultManagedRuntimeSettings()
+    const next = mergeManagedRuntimeSettings(current, {
       tokenEconomy: {
         enabled: true,
         compressToolResults: false,
@@ -345,14 +345,14 @@ describe('mergeKunRuntimeSettings', () => {
       current.tokenEconomy.historyHygiene.maxToolResultBytes
     )
 
-    const legacySwitch = mergeKunRuntimeSettings(next, { tokenEconomyMode: false })
+    const legacySwitch = mergeManagedRuntimeSettings(next, { tokenEconomyMode: false })
     expect(legacySwitch.tokenEconomyMode).toBe(false)
     expect(legacySwitch.tokenEconomy.enabled).toBe(false)
   })
 
   it('deep-merges MCP search settings', () => {
-    const current = defaultKunRuntimeSettings()
-    const next = mergeKunRuntimeSettings(current, {
+    const current = defaultManagedRuntimeSettings()
+    const next = mergeManagedRuntimeSettings(current, {
       mcpSearch: {
         enabled: true,
         mode: 'search',
@@ -366,9 +366,9 @@ describe('mergeKunRuntimeSettings', () => {
     expect(next.mcpSearch.topKMax).toBe(current.mcpSearch.topKMax)
   })
 
-  it('deep-merges advanced Kun settings', () => {
-    const current = defaultKunRuntimeSettings()
-    const next = mergeKunRuntimeSettings(current, {
+  it('deep-merges advanced WorkWise Runtime settings', () => {
+    const current = defaultManagedRuntimeSettings()
+    const next = mergeManagedRuntimeSettings(current, {
       storage: {
         sqlitePath: ' /tmp/kun.sqlite3 '
       },
@@ -394,8 +394,8 @@ describe('mergeKunRuntimeSettings', () => {
   })
 
   it('deep-merges image generation settings and normalizes invalid values', () => {
-    const current = defaultKunRuntimeSettings()
-    const next = mergeKunRuntimeSettings(current, {
+    const current = defaultManagedRuntimeSettings()
+    const next = mergeManagedRuntimeSettings(current, {
       imageGeneration: {
         enabled: true,
         baseUrl: ' https://api.siliconflow.cn/v1 ',
@@ -415,14 +415,14 @@ describe('mergeKunRuntimeSettings', () => {
       timeoutMs: 180000
     })
 
-    const sized = mergeKunRuntimeSettings(next, {
+    const sized = mergeManagedRuntimeSettings(next, {
       imageGeneration: { defaultSize: '1536x1024', timeoutMs: 240000 }
     })
     expect(sized.imageGeneration.defaultSize).toBe('1536x1024')
     expect(sized.imageGeneration.timeoutMs).toBe(240000)
     expect(sized.imageGeneration.apiKey).toBe('sk-image')
 
-    const invalidSize = mergeKunRuntimeSettings(sized, {
+    const invalidSize = mergeManagedRuntimeSettings(sized, {
       imageGeneration: { defaultSize: 'huge', timeoutMs: -5 }
     })
     expect(invalidSize.imageGeneration.defaultSize).toBe('')
@@ -432,7 +432,7 @@ describe('mergeKunRuntimeSettings', () => {
 
 describe('kun envelope helpers', () => {
   it('wraps runtime settings and patches into the compatibility shell', () => {
-    const runtime = defaultKunRuntimeSettings()
+    const runtime = defaultManagedRuntimeSettings()
     expect(kunSettingsEnvelope(runtime)).toEqual({ kun: runtime })
     expect(kunSettingsPatch({ model: 'deepseek-reasoner' })).toEqual({
       kun: { model: 'deepseek-reasoner' }
@@ -441,13 +441,13 @@ describe('kun envelope helpers', () => {
 
   it('applies a kun patch onto full app settings', () => {
     const current = settings()
-    const next = applyKunRuntimePatch(current, { model: 'deepseek-reasoner' })
+    const next = applyManagedRuntimePatch(current, { model: 'deepseek-reasoner' })
     expect(next.agents.kun.model).toBe('deepseek-reasoner')
     expect(next.write).toEqual(current.write)
   })
 })
 
-describe('legacy Kun defaults migration', () => {
+describe('legacy WorkWise Runtime defaults migration', () => {
   it('normalizes old master settings without an agents.kun envelope', () => {
     const normalized = normalizeAppSettings({
       version: 1,
@@ -489,7 +489,7 @@ describe('legacy Kun defaults migration', () => {
     expect('deepseek' in normalized).toBe(false)
   })
 
-  it('moves the legacy local HTTP default port to the Kun default port', () => {
+  it('moves the legacy local HTTP default port to the WorkWise Runtime default port', () => {
     const migrated = migrateLegacyAppSettings({
       version: 1,
       agentProvider: 'deepseek-runtime',
@@ -530,7 +530,7 @@ describe('legacy Kun defaults migration', () => {
     expect(migrated.agents?.kun?.approvalPolicy).toBe(DEFAULT_APPROVAL_POLICY)
   })
 
-  it('upgrades old persisted Kun defaults to the current defaults', () => {
+  it('upgrades old persisted WorkWise Runtime defaults to the current defaults', () => {
     const migrated = migrateLegacyAppSettings({
       version: 1,
       agents: {
@@ -542,12 +542,12 @@ describe('legacy Kun defaults migration', () => {
     } as Parameters<typeof migrateLegacyAppSettings>[0])
 
     expect(migrated.agents?.kun).toEqual(expect.objectContaining({
-      dataDir: DEFAULT_KUN_DATA_DIR,
-      model: DEFAULT_KUN_MODEL
+      dataDir: DEFAULT_MANAGED_RUNTIME_DATA_DIR,
+      model: DEFAULT_MANAGED_RUNTIME_MODEL
     }))
   })
 
-  it('preserves a non-legacy Kun model override', () => {
+  it('preserves a non-legacy WorkWise Runtime model override', () => {
     const migrated = migrateLegacyAppSettings({
       version: 1,
       agents: {
@@ -585,7 +585,7 @@ describe('legacy Kun defaults migration', () => {
       },
       agents: {
         kun: {
-          ...defaultKunRuntimeSettings(),
+          ...defaultManagedRuntimeSettings(),
           providerId: 'custom-provider-2',
           model: 'custom-model'
         }
@@ -605,7 +605,7 @@ describe('legacy Kun defaults migration', () => {
       ])
     )
     expect(migrated.agents.kun.providerId).toBe('custom-provider-2')
-    expect(resolveKunRuntimeSettings(migrated)).toEqual(
+    expect(resolveManagedRuntimeSettings(migrated)).toEqual(
       expect.objectContaining({
         apiKey: 'sk-custom',
         baseUrl: 'https://custom.example/v1',

@@ -24,7 +24,7 @@ function buildContext(overrides: Partial<ToolHostContext> = {}): ToolHostContext
   }
 }
 
-function buildGuiPlan(relativePath = '.kunsdd/plan/login.md', operation: 'draft' | 'refine' = 'draft') {
+function buildGuiPlan(relativePath = '.workwise/plans/login.md', operation: 'draft' | 'refine' = 'draft') {
   return {
     operation,
     workspaceRoot: '/tmp/ws',
@@ -123,11 +123,11 @@ describe('create_plan tool: path validation', () => {
       {
         markdown: '# nested',
         operation: 'draft',
-        plan_relative_path: '.kunsdd/plan/nested/a.md'
+        plan_relative_path: '.workwise/plans/nested/a.md'
       },
       buildContext({
         threadMode: 'plan',
-        guiPlan: buildGuiPlan('.kunsdd/plan/nested/a.md')
+        guiPlan: buildGuiPlan('.workwise/plans/nested/a.md')
       })
     )
     expect(result.isError).toBe(true)
@@ -154,11 +154,11 @@ describe('create_plan tool: path validation', () => {
       {
         markdown: '# not md',
         operation: 'draft',
-        plan_relative_path: '.kunsdd/plan/login.txt'
+        plan_relative_path: '.workwise/plans/login.txt'
       },
       buildContext({
         threadMode: 'plan',
-        guiPlan: buildGuiPlan('.kunsdd/plan/login.txt')
+        guiPlan: buildGuiPlan('.workwise/plans/login.txt')
       })
     )
     expect(result.isError).toBe(true)
@@ -169,14 +169,14 @@ describe('create_plan tool: path validation', () => {
       {
         markdown: '# mismatch',
         operation: 'refine',
-        plan_relative_path: '.kunsdd/plan/other.md'
+        plan_relative_path: '.workwise/plans/other.md'
       },
       buildContext({
         threadMode: 'plan',
         guiPlan: {
           operation: 'refine',
           workspaceRoot: '/tmp/ws',
-          relativePath: '.kunsdd/plan/login.md',
+          relativePath: '.workwise/plans/login.md',
           planId: 'plan_login'
         }
       })
@@ -193,7 +193,7 @@ describe('create_plan tool: path validation', () => {
       },
       buildContext({
         threadMode: 'plan',
-        guiPlan: buildGuiPlan('.kunsdd/plan/login.md', 'refine')
+        guiPlan: buildGuiPlan('.workwise/plans/login.md', 'refine')
       })
     )
     expect(result.isError).toBe(true)
@@ -213,7 +213,7 @@ describe('create_plan tool: execution safety', () => {
     )
     expect(result.isError).toBeFalsy()
     expect((result.output as { relative_path: string }).relative_path).toBe(
-      '.kunsdd/plan/disk-cleanup.md'
+      '.workwise/plans/disk-cleanup.md'
     )
   })
 
@@ -235,7 +235,7 @@ describe('create_plan tool: execution safety', () => {
       buildContext({ threadMode: 'plan', workspace: '/tmp/ws' })
     )
     expect(result.isError).toBe(true)
-    expect(JSON.stringify(result.output)).toMatch(/\.kunsdd\/plan/)
+    expect(JSON.stringify(result.output)).toMatch(/\.workwise\/plans/)
   })
 
   it('rejects when the model tries to execute create_plan on a normal turn through the tool host', async () => {
@@ -257,7 +257,7 @@ describe('create_plan tool: execution safety', () => {
         guiPlan: {
           operation: 'draft',
           workspaceRoot: '/tmp/ws',
-          relativePath: '.kunsdd/plan/login.md',
+          relativePath: '.workwise/plans/login.md',
           planId: 'plan_login'
         }
       })
@@ -306,7 +306,7 @@ describe('create_plan tool: execution safety', () => {
     expect(result.item.kind === 'tool_result'
       ? (result.item.output as { relative_path?: string }).relative_path
       : ''
-    ).toBe('.kunsdd/plan/safe-plan.md')
+    ).toBe('.workwise/plans/safe-plan.md')
   })
 })
 
@@ -319,8 +319,8 @@ describe('create_plan tool: success and atomic write', () => {
     previousMarkdown = '# previous plan\n'
     await mkdir(join(workspace, '.deepseekgui/plan'), { recursive: true })
     await writeFile(join(workspace, '.deepseekgui/plan/login.md'), previousMarkdown, 'utf8')
-    await mkdir(join(workspace, '.kunsdd/plan'), { recursive: true })
-    await writeFile(join(workspace, '.kunsdd/plan/login.md'), previousMarkdown, 'utf8')
+    await mkdir(join(workspace, '.workwise/plans'), { recursive: true })
+    await writeFile(join(workspace, '.workwise/plans/login.md'), previousMarkdown, 'utf8')
   })
 
   afterEach(async () => {
@@ -341,8 +341,8 @@ describe('create_plan tool: success and atomic write', () => {
         guiPlan: {
           operation: 'draft',
           workspaceRoot: workspace,
-          relativePath: '.kunsdd/plan/login.md',
-          planId: `${workspace}:.kunsdd/plan/login.md`,
+          relativePath: '.workwise/plans/login.md',
+          planId: `${workspace}:.workwise/plans/login.md`,
           sourceRequest: 'Add login',
           title: 'Login flow'
         }
@@ -359,12 +359,12 @@ describe('create_plan tool: success and atomic write', () => {
       byte_size: number
       saved_at: string
     }
-    expect(output.relative_path).toBe('.kunsdd/plan/login.md')
+    expect(output.relative_path).toBe('.workwise/plans/login.md')
     expect(output.operation).toBe('draft')
-    expect(output.summary).toContain('.kunsdd/plan/login.md')
+    expect(output.summary).toContain('.workwise/plans/login.md')
     expect(output.content_hash).toMatch(/^[a-f0-9]{16}$/)
     expect(output.byte_size).toBe(Buffer.byteLength('# Login plan\n\n- step 1', 'utf8'))
-    expect(output.absolute_path).toBe(join(workspace, '.kunsdd/plan/login.md'))
+    expect(output.absolute_path).toBe(join(workspace, '.workwise/plans/login.md'))
     const persisted = await readFile(output.absolute_path, 'utf8')
     expect(persisted).toBe('# Login plan\n\n- step 1')
   })
@@ -413,8 +413,8 @@ describe('create_plan tool: success and atomic write', () => {
     )
     expect(result.isError).toBeFalsy()
     const output = result.output as { relative_path: string; absolute_path: string }
-    // `.kunsdd/plan/login.md` already exists in this workspace.
-    expect(output.relative_path).toBe('.kunsdd/plan/login-2.md')
+    // `.workwise/plans/login.md` already exists in this workspace.
+    expect(output.relative_path).toBe('.workwise/plans/login-2.md')
     const persisted = await readFile(output.absolute_path, 'utf8')
     expect(persisted).toBe('# fresh')
   })
@@ -431,13 +431,13 @@ describe('create_plan tool: success and atomic write', () => {
         guiPlan: {
           operation: 'draft',
           workspaceRoot: workspace,
-          relativePath: '.kunsdd/plan/login.md',
-          planId: `${workspace}:.kunsdd/plan/login.md`
+          relativePath: '.workwise/plans/login.md',
+          planId: `${workspace}:.workwise/plans/login.md`
         }
       })
     )
     expect(result.isError).toBe(true)
-    const persisted = await readFile(join(workspace, '.kunsdd/plan/login.md'), 'utf8')
+    const persisted = await readFile(join(workspace, '.workwise/plans/login.md'), 'utf8')
     expect(persisted).toBe(previousMarkdown)
   })
 })

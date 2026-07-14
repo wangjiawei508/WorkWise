@@ -11,12 +11,12 @@ import {
 } from './app-settings-types'
 import { normalizeKeyboardShortcuts, type KeyboardShortcutsConfigV1 } from './keyboard-shortcuts'
 import {
-  defaultKunRuntimeSettings,
-  getKunRuntimeSettings,
+  defaultManagedRuntimeSettings,
+  getManagedRuntimeSettings,
   kunSettingsEnvelope,
-  mergeKunRuntimeSettings,
+  mergeManagedRuntimeSettings,
   migrateLegacyAppSettings
-} from './app-settings-kun'
+} from './app-settings-runtime'
 import { normalizeModelProviderSettings } from './app-settings-provider'
 import { normalizeDeepseekBaseUrl } from './app-settings-normalizers'
 import { normalizeClawSettings } from './app-settings-claw'
@@ -37,10 +37,14 @@ export function normalizeAppSettings(settings: AppSettingsV1): AppSettingsV1 {
     schedule?: ScheduleSettingsPatchV1
     guiUpdate?: Partial<GuiUpdateConfigV1>
   }
-  const runtime = getKunRuntimeSettings(maybeSettings)
+  const runtime = getManagedRuntimeSettings(maybeSettings)
   return {
     ...migrated,
-    version: 1,
+    schema: 'workwise.settings',
+    version: 2,
+    revision: Number.isSafeInteger(maybeSettings.revision) && (maybeSettings.revision ?? -1) >= 0
+      ? maybeSettings.revision
+      : 0,
     locale: maybeSettings.locale === 'zh' ? 'zh' : 'en',
     theme:
       maybeSettings.theme === 'light' || maybeSettings.theme === 'dark' || maybeSettings.theme === 'system'
@@ -53,7 +57,7 @@ export function normalizeAppSettings(settings: AppSettingsV1): AppSettingsV1 {
         ? maybeSettings.uiFontScale
         : 'small',
     provider: normalizeModelProviderSettings(maybeSettings.provider),
-    agents: kunSettingsEnvelope(mergeKunRuntimeSettings(defaultKunRuntimeSettings(), {
+    agents: kunSettingsEnvelope(mergeManagedRuntimeSettings(defaultManagedRuntimeSettings(), {
       ...runtime,
       baseUrl: runtime.baseUrl.trim() ? normalizeDeepseekBaseUrl(runtime.baseUrl) : ''
     })),
@@ -95,7 +99,7 @@ function shouldMigrateLegacySettings(settings: AppSettingsV1): boolean {
     agentProvider?: unknown
     deepseek?: unknown
     agents?: {
-      kun?: Partial<ReturnType<typeof defaultKunRuntimeSettings>>
+      kun?: Partial<ReturnType<typeof defaultManagedRuntimeSettings>>
       codewhale?: unknown
       reasonix?: unknown
     }

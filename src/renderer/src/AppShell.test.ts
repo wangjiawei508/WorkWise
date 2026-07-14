@@ -10,7 +10,7 @@ describe('AppShell', () => {
 
   it('keeps the macOS app shell on the same full-height flex chain as desktop titlebar platforms', () => {
     vi.stubGlobal('window', {
-      kunGui: { platform: 'darwin' }
+      workwise: { platform: 'darwin' }
     })
 
     const html = renderToStaticMarkup(createElement(AppShell))

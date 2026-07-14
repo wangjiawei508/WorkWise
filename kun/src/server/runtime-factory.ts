@@ -25,6 +25,7 @@ import {
   buildRuntimeCapabilityManifest,
   type KunCapabilitiesConfig
 } from '../contracts/capabilities.js'
+import { RUNTIME_RESOURCE_LIMITS_V1 } from '../contracts/resource-limits.js'
 import type { ApprovalPolicy, SandboxMode } from '../contracts/policy.js'
 import { AgentLoop } from '../loop/agent-loop.js'
 import { ContextCompactor } from '../loop/context-compactor.js'
@@ -61,6 +62,7 @@ import { SkillRuntime } from '../skills/skill-runtime.js'
 import { FileMemoryStore } from '../memory/memory-store.js'
 import { DelegationRuntime, FileDelegationStore } from '../delegation/delegation-runtime.js'
 import { createChildAgentExecutor } from '../delegation/child-agent-executor.js'
+import { stopAllBashSessions } from '../adapters/tool/builtin-bash-tool.js'
 
 export type KunServeRuntimeOptions = {
   host: string
@@ -355,7 +357,8 @@ export async function createKunServeRuntime(
       insecure: options.insecure,
       startedAt,
       pid: process.pid,
-      capabilities
+      capabilities,
+      resourceLimits: RUNTIME_RESOURCE_LIMITS_V1
     }),
     toolDiagnostics: async () => ({
       providers: registry.diagnostics(),
@@ -371,8 +374,15 @@ export async function createKunServeRuntime(
         : { enabled: false, rootDir: '', activeCount: 0, tombstoneCount: 0, lastInjectedIds: [] },
       imageGen: imageGenProviders.diagnostics
     }),
-    skills: () => skillRuntime.diagnostics(),
+    skills: async () => {
+      await skillRuntime.refresh()
+      return skillRuntime.diagnostics()
+    },
     shutdown: async () => {
+      turnService.abortAll('application_exit')
+      approvalGate.expireAll('application_exit')
+      userInputGate.reset()
+      await stopAllBashSessions('application_exit')
       try {
         await mcpProviders.close()
       } finally {

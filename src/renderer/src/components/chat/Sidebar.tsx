@@ -32,7 +32,7 @@ type Props = {
   activeThreadId: string | null
   activeView: 'chat' | 'write' | 'claw' | 'schedule'
   connectPhoneSidebarOpen: boolean
-  ikunModeEnabled: boolean
+  focusModeEnabled: boolean
   pluginsActive: boolean
   runtimeReady: boolean
   threadSearch: string
@@ -51,7 +51,7 @@ type Props = {
   onOpenPlugins: () => void
   onToggleConnectPhone: () => void
   onCodeOpen: () => void
-  onToggleIkunMode: () => void
+  onToggleFocusMode: () => void
   onWriteOpen: () => void
   onScheduleOpen: () => void
   onToggleSidebar: () => void
@@ -62,7 +62,7 @@ export function Sidebar({
   activeThreadId,
   activeView,
   connectPhoneSidebarOpen,
-  ikunModeEnabled,
+  focusModeEnabled,
   pluginsActive,
   runtimeReady,
   threadSearch,
@@ -81,7 +81,7 @@ export function Sidebar({
   onOpenPlugins,
   onToggleConnectPhone,
   onCodeOpen,
-  onToggleIkunMode,
+  onToggleFocusMode,
   onWriteOpen,
   onScheduleOpen,
   onToggleSidebar
@@ -134,9 +134,9 @@ export function Sidebar({
       <div className="ds-no-drag flex flex-col px-1">
         <WorkspaceModeTabs
           activeView={activeView}
-          ikunModeEnabled={ikunModeEnabled}
+          focusModeEnabled={focusModeEnabled}
           onCodeOpen={onCodeOpen}
-          onToggleIkunMode={onToggleIkunMode}
+          onToggleFocusMode={onToggleFocusMode}
           onWriteOpen={onWriteOpen}
         />
 

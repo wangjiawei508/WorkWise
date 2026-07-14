@@ -77,6 +77,8 @@ export class HrWidget extends WidgetType {
 
 export class ListBulletWidget extends WidgetType {
   constructor(
+    private marker: string,
+    private indent: number,
     private from: number,
     private to: number
   ) {
@@ -84,12 +86,18 @@ export class ListBulletWidget extends WidgetType {
   }
 
   eq(other: ListBulletWidget): boolean {
-    return other.from === this.from && other.to === this.to
+    return other.marker === this.marker &&
+      other.indent === this.indent &&
+      other.from === this.from &&
+      other.to === this.to
   }
 
   toDOM(view: EditorView): HTMLElement {
     const element = document.createElement('span')
     element.className = 'cm-write-md-list-bullet'
+    element.textContent = this.marker
+    element.dataset.marker = this.marker
+    element.dataset.indent = String(this.indent)
     element.title = 'Click to edit list marker'
     element.addEventListener('mousedown', (event) => {
       if (!isPrimaryMouseDown(event)) return
@@ -167,8 +175,8 @@ export class ImageWidget extends WidgetType {
     image.alt = this.alt
     image.loading = 'lazy'
     wrapper.appendChild(image)
-    if (this.localPath && typeof window.kunGui?.readWorkspaceImage === 'function') {
-      void window.kunGui.readWorkspaceImage({ path: this.localPath })
+    if (this.localPath && typeof window.workwise?.readWorkspaceImage === 'function') {
+      void window.workwise.readWorkspaceImage({ path: this.localPath })
         .then((result) => {
           if (result.ok) {
             image.src = result.dataUrl

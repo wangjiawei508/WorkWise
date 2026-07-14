@@ -3,7 +3,7 @@ import { FileQuestion, Lightbulb, ListChecks, PanelRightClose, Plus, Search, Spa
 import { useTranslation } from 'react-i18next'
 import type { ChatBlock, RuntimeConnectionStatus } from '../../agent/types'
 import type { QueuedUserMessage } from '../../store/chat-store-types'
-import type { ModelProviderModelGroup } from '@shared/kun-gui-api'
+import type { ModelProviderModelGroup } from '@shared/workwise-api'
 import type { SddDraft } from '../../sdd/sdd-draft-store'
 import { MessageTimeline } from '../chat/MessageTimeline'
 import { FloatingComposer } from '../chat/FloatingComposer'

@@ -2,7 +2,7 @@ const { execFileSync } = require('node:child_process')
 const { cpSync, existsSync, mkdirSync, rmSync } = require('node:fs')
 const { join } = require('node:path')
 
-const KUN_RUNTIME_REQUIRED_PATHS = [
+const MANAGED_RUNTIME_REQUIRED_PATHS = [
   'kun/dist/cli/serve-entry.js',
   'kun/package.json',
   'kun/package-lock.json',
@@ -66,8 +66,8 @@ function prunePackedKunDependencies(context) {
   const kunDir = join(root, 'kun')
   if (!existsSync(kunDir)) return
 
-  assertExists(join(kunDir, 'package.json'), 'Kun package manifest')
-  assertExists(join(kunDir, 'node_modules'), 'Kun node_modules')
+  assertExists(join(kunDir, 'package.json'), 'managed runtime package manifest')
+  assertExists(join(kunDir, 'node_modules'), 'managed runtime node_modules')
 
   const prune = npmCommand(['prune', '--omit=dev', '--ignore-scripts'])
   execFileSync(prune.command, prune.args, {
@@ -91,7 +91,7 @@ function prunePackedKunDependencies(context) {
 
 function validateBundledKunRuntime(context) {
   const root = unpackedAppRoot(context)
-  for (const relativePath of KUN_RUNTIME_REQUIRED_PATHS) {
+  for (const relativePath of MANAGED_RUNTIME_REQUIRED_PATHS) {
     assertExists(join(root, relativePath), relativePath)
   }
   assertExists(
@@ -160,7 +160,7 @@ async function afterPack(context) {
 }
 
 module.exports = afterPack
-module.exports.KUN_RUNTIME_REQUIRED_PATHS = KUN_RUNTIME_REQUIRED_PATHS
+module.exports.MANAGED_RUNTIME_REQUIRED_PATHS = MANAGED_RUNTIME_REQUIRED_PATHS
 module.exports._internals = {
   appBundlePath,
   packedResourcesDir,

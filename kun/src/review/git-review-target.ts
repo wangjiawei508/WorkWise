@@ -1,7 +1,8 @@
 import { execFile } from 'node:child_process'
+import { realpath } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { promisify } from 'node:util'
-import { join } from 'node:path'
+import { isAbsolute, join, relative, resolve } from 'node:path'
 import type { ReviewTarget } from '../contracts/review.js'
 
 const execFileAsync = promisify(execFile)
@@ -24,12 +25,13 @@ export async function resolveReviewTargetPrompt(
   options: ResolveReviewTargetOptions
 ): Promise<ResolvedReviewPrompt> {
   const workspace = normalizeWorkspace(options.workspace)
+  const repositoryRoot = await resolveRepositoryRoot(workspace, options.target.repositoryRoot)
   const maxDiffBytes = options.maxDiffBytes ?? DEFAULT_DIFF_MAX_BYTES
   if (options.target.kind === 'custom') {
     return {
       title: 'Custom code review',
       prompt: buildPrompt({
-        workspace,
+        workspace: repositoryRoot,
         title: 'Custom code review',
         body: [
           'The user supplied custom review instructions.',
@@ -42,15 +44,32 @@ export async function resolveReviewTargetPrompt(
     }
   }
 
-  await assertGitWorkspace(workspace)
+  await assertGitWorkspace(repositoryRoot)
   switch (options.target.kind) {
     case 'uncommittedChanges':
-      return resolveUncommittedChanges(workspace, maxDiffBytes)
+      return resolveUncommittedChanges(repositoryRoot, maxDiffBytes)
     case 'baseBranch':
-      return resolveBaseBranch(workspace, options.target.branch, maxDiffBytes)
+      return resolveBaseBranch(repositoryRoot, options.target.branch, maxDiffBytes)
     case 'commit':
-      return resolveCommit(workspace, options.target.sha, maxDiffBytes)
+      return resolveCommit(repositoryRoot, options.target.sha, maxDiffBytes)
   }
+}
+
+async function resolveRepositoryRoot(workspace: string, requested?: string): Promise<string> {
+  if (!requested?.trim()) return workspace
+  const workspaceReal = await realpath(workspace)
+  const candidate = isAbsolute(requested) ? requested : resolve(workspaceReal, requested)
+  const candidateReal = await realpath(candidate)
+  const rel = relative(workspaceReal, candidateReal)
+  if (rel === '..' || rel.startsWith(`..${process.platform === 'win32' ? '\\' : '/'}`) || isAbsolute(rel)) {
+    throw new Error('repository root must stay inside the workspace')
+  }
+  const resolvedByGit = (await runGit(candidateReal, ['rev-parse', '--show-toplevel'])).stdout.trim()
+  const gitReal = await realpath(resolvedByGit)
+  if (gitReal !== candidateReal) {
+    throw new Error('repository root must identify the selected Git repository')
+  }
+  return candidateReal
 }
 
 async function resolveUncommittedChanges(

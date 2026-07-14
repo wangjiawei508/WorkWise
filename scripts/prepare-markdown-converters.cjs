@@ -6,7 +6,7 @@ const { homedir } = require('node:os')
 
 const root = resolve(__dirname, '..')
 const downloadsDir = resolve(
-  process.env.WORKGPT_CONVERTER_ZIP_DIR ||
+  process.env.WORKWISE_CONVERTER_ZIP_DIR ||
     (process.argv[2] && !process.argv[2].startsWith('-') ? process.argv[2] : join(homedir(), 'Downloads'))
 )
 

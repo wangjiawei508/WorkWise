@@ -197,9 +197,9 @@ describe('workspace-service boundary checks', () => {
     expect(result.height).toBe(8)
   })
 
-  it('saves SDD pasted clipboard images into .kunsdd/img with draft-relative markdown', async () => {
-    const currentFilePath = join(workspaceRoot, '.kunsdd', 'draft', 'draft-1', 'requirement.md')
-    await mkdir(join(workspaceRoot, '.kunsdd', 'draft', 'draft-1'), { recursive: true })
+  it('saves SDD pasted clipboard images into .workwise/sdd/img with draft-relative markdown', async () => {
+    const currentFilePath = join(workspaceRoot, '.workwise/sdd', 'draft', 'draft-1', 'requirement.md')
+    await mkdir(join(workspaceRoot, '.workwise/sdd', 'draft', 'draft-1'), { recursive: true })
     await writeFile(currentFilePath, '# requirement', 'utf8')
 
     vi.mocked(clipboard.readImage).mockReturnValue({
@@ -210,13 +210,13 @@ describe('workspace-service boundary checks', () => {
     const result = await saveWorkspaceClipboardImage({
       workspaceRoot,
       currentFilePath,
-      imageDirectory: '.kunsdd/img'
+      imageDirectory: '.workwise/sdd/img'
     })
 
     expect(result.ok).toBe(true)
     if (!result.ok) return
 
-    expect(await realpath(dirname(result.path))).toBe(await realpath(join(workspaceRoot, '.kunsdd', 'img')))
+    expect(await realpath(dirname(result.path))).toBe(await realpath(join(workspaceRoot, '.workwise/sdd', 'img')))
     expect(result.markdownPath.startsWith('../../img/pasted-image-')).toBe(true)
     await expect(readFile(result.path)).resolves.toEqual(Buffer.from('sdd-png-bytes'))
   })

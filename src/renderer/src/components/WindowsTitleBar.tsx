@@ -1,20 +1,20 @@
 import type { ReactElement } from 'react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import type { DesktopCommand } from '@shared/kun-gui-api'
+import type { DesktopCommand } from '@shared/workwise-api'
 import {
   resolveKeyboardShortcutBindings,
   type KeyboardShortcutBindingsV1,
   type KeyboardShortcutCommandId
 } from '@shared/keyboard-shortcuts'
-import deepseekLogo from '../../../asset/img/deepseek.png'
+import workwiseLogo from '../../../asset/img/workwise.png'
 import { useKeyboardShortcutSettings } from '../lib/keyboard-shortcut-settings'
 import { useChatStore } from '../store/chat-store'
 
 type MenuAction = () => void | Promise<void>
 type TitleBarTranslate = (key: string, options?: Record<string, unknown>) => string
 
-const WORKGPT_GITHUB_URL = 'https://github.com/wangjiawei508/WorkWise'
+const WORKWISE_GITHUB_URL = 'https://github.com/wangjiawei508/WorkWise'
 const WORKWISE_PRODUCT_URL = 'https://www.railwise.cn/products/workwise/'
 
 export type WindowsTitleBarMenuItem =
@@ -54,28 +54,28 @@ type Props = {
 }
 
 function currentPlatform(): string {
-  return typeof window !== 'undefined' ? window.kunGui?.platform ?? 'unknown' : 'unknown'
+  return typeof window !== 'undefined' ? window.workwise?.platform ?? 'unknown' : 'unknown'
 }
 
 function defaultRunDesktopCommand(command: DesktopCommand): Promise<void> {
-  if (typeof window === 'undefined' || typeof window.kunGui?.runDesktopCommand !== 'function') {
+  if (typeof window === 'undefined' || typeof window.workwise?.runDesktopCommand !== 'function') {
     return Promise.resolve()
   }
-  return window.kunGui.runDesktopCommand(command)
+  return window.workwise.runDesktopCommand(command)
 }
 
 function defaultOpenLogDir(): Promise<void> {
-  if (typeof window === 'undefined' || typeof window.kunGui?.openLogDir !== 'function') {
+  if (typeof window === 'undefined' || typeof window.workwise?.openLogDir !== 'function') {
     return Promise.resolve()
   }
-  return window.kunGui.openLogDir().then(() => undefined)
+  return window.workwise.openLogDir().then(() => undefined)
 }
 
 function defaultOpenExternal(url: string): Promise<void> {
-if (typeof window === 'undefined' || typeof window.kunGui?.openExternal !== 'function') {
+if (typeof window === 'undefined' || typeof window.workwise?.openExternal !== 'function') {
     return Promise.resolve()
   }
-  return window.kunGui.openExternal(url)
+  return window.workwise.openExternal(url)
 }
 
 export function supportsDesktopTitleBar(platform: string): boolean {
@@ -211,14 +211,14 @@ export function WindowsTitleBar({ platform, actions }: Props): ReactElement | nu
     chooseWorkspace: () => void chooseWorkspace(),
     openSettings: () => openSettings('general'),
     openHelp: () => openSettings('help'),
-    openGithubHome: () => defaultOpenExternal(WORKGPT_GITHUB_URL),
+    openGithubHome: () => defaultOpenExternal(WORKWISE_GITHUB_URL),
     openReleases: () => defaultOpenExternal(WORKWISE_PRODUCT_URL),
     runDesktopCommand: defaultRunDesktopCommand,
     openLogDir: defaultOpenLogDir,
     showAbout: async () => {
       const version =
-        typeof window !== 'undefined' && typeof window.kunGui?.getAppVersion === 'function'
-          ? await window.kunGui.getAppVersion().catch(() => '')
+        typeof window !== 'undefined' && typeof window.workwise?.getAppVersion === 'function'
+          ? await window.workwise.getAppVersion().catch(() => '')
           : ''
       const message = t('windowsMenuAboutMessage', {
         version: version || t('windowsMenuUnknownVersion')
@@ -299,7 +299,7 @@ export function WindowsTitleBar({ platform, actions }: Props): ReactElement | nu
   return (
     <div ref={rootRef} className="ds-windows-titlebar ds-drag">
       <div className="ds-windows-titlebar-content">
-        <img src={deepseekLogo} alt="" aria-hidden="true" className="ds-windows-titlebar-icon" />
+        <img src={workwiseLogo} alt="" aria-hidden="true" className="ds-windows-titlebar-icon" />
         <nav className="ds-windows-menu ds-no-drag" aria-label={t('windowsMenuAriaLabel')}>
           {menus.map((menu) => {
             const open = activeMenuId === menu.id

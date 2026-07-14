@@ -14,7 +14,7 @@ import {
   rememberTurnModel
 } from './chat-store-helpers'
 
-const TURN_MODEL_STORAGE_KEY = 'kun.turnModelLabel'
+const TURN_MODEL_STORAGE_KEY = 'workwise.turnModelLabel'
 
 function createMemoryStorage(): Storage {
   const items = new Map<string, string>()
@@ -99,7 +99,7 @@ describe('chat-store Claw helpers', () => {
     ])
   })
 
-  it('deduplicates default workspace aliases while keeping legacy WorkGPT paths compatible', () => {
+  it('deduplicates default workspace aliases while keeping legacy WorkWise paths compatible', () => {
     expect(
       compactCodeWorkspaceRoots([
         '~/.deepseekgui/default_workspace',
@@ -145,7 +145,7 @@ describe('chat-store Claw helpers', () => {
 
   it('recognizes Claw managed prompt summaries as Claw sessions', () => {
     expect(
-      clawThreadTitleLooksManaged(`${CLAW_MANAGED_INSTRUCTIONS_HEADING} DeepSeek GUI scheduled-task tools`)
+      clawThreadTitleLooksManaged(`${CLAW_MANAGED_INSTRUCTIONS_HEADING} WorkWise scheduled-task tools`)
     ).toBe(true)
     expect(isClawThread({ id: 'kun-leaked', title: '[Claw:Feishu Agent]' })).toBe(true)
   })

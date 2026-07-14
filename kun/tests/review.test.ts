@@ -1,3 +1,7 @@
+import { execFileSync } from 'node:child_process'
+import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import {
   ReviewOutputSchema,
@@ -76,5 +80,44 @@ describe('review target prompt resolution', () => {
 
     expect(resolved.title).toBe('Custom code review')
     expect(resolved.prompt).toContain('Review src/auth.ts for regressions.')
+  })
+
+  it('reviews only an explicitly selected nested repository', async () => {
+    const workspace = await mkdtemp(join(tmpdir(), 'workwise-review-'))
+    try {
+      const nested = join(workspace, 'nested')
+      await mkdir(nested)
+      execFileSync('git', ['init', workspace], { stdio: 'pipe' })
+      execFileSync('git', ['init', nested], { stdio: 'pipe' })
+      await writeFile(join(workspace, 'outer.txt'), 'outer')
+      await writeFile(join(nested, 'inner.txt'), 'inner')
+
+      const resolved = await resolveReviewTargetPrompt({
+        target: { kind: 'uncommittedChanges', repositoryRoot: nested },
+        workspace
+      })
+
+      expect(resolved.prompt).toContain('inner.txt')
+      expect(resolved.prompt).not.toContain('outer.txt')
+    } finally {
+      await rm(workspace, { recursive: true, force: true })
+    }
+  })
+
+  it('rejects a repository root outside the canonical workspace', async () => {
+    const workspace = await mkdtemp(join(tmpdir(), 'workwise-review-'))
+    const outside = await mkdtemp(join(tmpdir(), 'workwise-review-outside-'))
+    try {
+      execFileSync('git', ['init', outside], { stdio: 'pipe' })
+      await expect(resolveReviewTargetPrompt({
+        target: { kind: 'uncommittedChanges', repositoryRoot: outside },
+        workspace
+      })).rejects.toThrow(/inside the workspace/)
+    } finally {
+      await Promise.all([
+        rm(workspace, { recursive: true, force: true }),
+        rm(outside, { recursive: true, force: true })
+      ])
+    }
   })
 })

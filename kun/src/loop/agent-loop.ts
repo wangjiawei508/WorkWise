@@ -71,6 +71,11 @@ import { CREATE_PLAN_TOOL_NAME } from '../adapters/tool/create-plan-tool.js'
 import { GET_GOAL_TOOL_NAME, UPDATE_GOAL_TOOL_NAME } from '../adapters/tool/goal-tools.js'
 import { TODO_LIST_TOOL_NAME, TODO_WRITE_TOOL_NAME } from '../adapters/tool/todo-tools.js'
 import { shellRuntimeInstruction } from '../adapters/tool/builtin-tool-utils.js'
+import { RUNTIME_RESOURCE_LIMITS_V1 } from '../contracts/resource-limits.js'
+import {
+  formatWorkspaceInstructions,
+  loadWorkspaceInstructions
+} from '../workspace/workspace-instructions.js'
 
 const PARALLEL_READ_ONLY_TOOL_NAMES = new Set(['read', 'grep', 'find', 'ls'])
 const MAX_PARALLEL_TOOL_CALLS = 3
@@ -412,6 +417,10 @@ export class AgentLoop {
       return 'aborted'
     }
     let goalTimer: GoalElapsedTimer | null = null
+    const turnTimeout = setTimeout(() => {
+      this.opts.turns.abortTurn(turnId, 'turn_total_timeout')
+    }, RUNTIME_RESOURCE_LIMITS_V1.turnTotalMs)
+    turnTimeout.unref?.()
     try {
       goalTimer = await this.startGoalElapsedTimer(threadId)
       await this.recordPipelineStage(threadId, turnId, 'setup')
@@ -428,7 +437,7 @@ export class AgentLoop {
     } catch (error) {
       const raw = error instanceof Error ? error.message : String(error)
       // Best-effort enrichment so the renderer can show "what failed where"
-      // instead of the bare "Kun turn failed" string. See issue #26.
+      // instead of the bare "WorkWise turn failed" string. See issue #26.
       const modelInfo = this.opts.model && 'config' in this.opts.model
         ? (this.opts.model as { config: { model?: string; baseUrl?: string } }).config
         : undefined
@@ -438,7 +447,7 @@ export class AgentLoop {
         ? (error.stack?.split('\n').slice(0, 3).join(' | ') ?? '')
         : ''
       const message = [
-        '[Kun turn failed]',
+        '[WorkWise turn failed]',
         `turn=${turnId}`,
         `thread=${threadId}`,
         `model=${modelName}`,
@@ -449,6 +458,8 @@ export class AgentLoop {
       await this.failTurn(threadId, turnId, message)
       return 'failed'
     } finally {
+      clearTimeout(turnTimeout)
+      this.opts.approvalGate.expireTurn(turnId, 'turn_finished')
       await this.finishGoalElapsedTimer(threadId, goalTimer)
       this.autoModelRoutes.delete(autoModelRouteKey(threadId, turnId))
       this.toolStormBreakers.delete(turnId)
@@ -635,6 +646,9 @@ export class AgentLoop {
       workspace: thread?.workspace ?? '',
       modelCapabilities
     })
+    if (stepIndex === 0) {
+      await this.opts.skillRuntime?.refresh()
+    }
     const skillResolution = this.opts.skillRuntime?.resolveTurn({
       prompt: turn?.prompt ?? '',
       workspace: thread?.workspace ?? ''
@@ -644,6 +658,9 @@ export class AgentLoop {
       instructions: [],
       injectedBytes: 0
     }
+    const workspaceInstructions = thread?.workspace
+      ? await loadWorkspaceInstructions(thread.workspace).catch(() => [])
+      : []
     const memories = await this.retrieveMemories({
       prompt: turn?.prompt ?? '',
       workspace: thread?.workspace ?? ''
@@ -749,6 +766,7 @@ export class AgentLoop {
       ...(activeGoalInstruction ? [activeGoalInstruction] : []),
       ...(activeTodoInstruction ? [activeTodoInstruction] : []),
       ...memoryInstructions(memories),
+      ...formatWorkspaceInstructions(workspaceInstructions),
       ...skillResolution.instructions,
       ...(userInputDisabled ? [userInputUnavailableInstruction()] : []),
       ...(effectiveToolSpecs.some((tool) => tool.name === 'bash') ? [shellRuntimeInstruction()] : []),
@@ -2005,7 +2023,7 @@ export class AgentLoop {
   /** Convenience factory for tests: builds a loop with sensible defaults. */
   static defaultPrefix(): ImmutablePrefix {
     return createImmutablePrefix({
-      systemPrompt: 'You are Kun, a careful and helpful assistant.',
+      systemPrompt: 'You are WorkWise, a careful and helpful assistant.',
       pinnedConstraints: ['user: preserve recent turns', 'project: keep responses concise']
     })
   }
@@ -2134,8 +2152,8 @@ function buildToolCatalogDriftMessage(toolCatalog: {
   const sample = toolCatalog.toolNames.slice(0, 12).join(', ')
   const suffix = toolCatalog.toolNames.length > 12 ? `, +${toolCatalog.toolNames.length - 12} more` : ''
   const policy = changeKind === 'additive'
-    ? 'Only additive tool changes are allowed in-place; Kun will continue with the refreshed tool list.'
-    : 'Non-additive tool changes can invalidate prompt-cache assumptions; Kun stopped this turn. Start a new thread after editing, removing, or reordering tool schemas.'
+    ? 'Only additive tool changes are allowed in-place; WorkWise will continue with the refreshed tool list.'
+    : 'Non-additive tool changes can invalidate prompt-cache assumptions; WorkWise stopped this turn. Start a new thread after editing, removing, or reordering tool schemas.'
   return [
     `Tool catalog changed for this thread (${toolCatalog.toolCount} tools, fingerprint ${toolCatalog.fingerprint}).`,
     policy,
@@ -2156,7 +2174,7 @@ function buildModelCompactionPrompt(input: {
     Math.max(1_024, input.maxBytes)
   )
   return [
-    'Summarize the following Kun conversation history for a context fold.',
+    'Summarize the following WorkWise conversation history for a context fold.',
     'Preserve user goals, requirements, decisions, files touched, tool outcomes, errors, constraints, active/pinned skills, and unresolved next steps.',
     'Do not invent facts. Do not include generic advice. Prefer concise bullets grouped by topic.',
     '',

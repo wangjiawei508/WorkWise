@@ -6,7 +6,7 @@ import {
   mergeScheduleSettings,
   defaultClawSettings,
   defaultKeyboardShortcuts,
-  defaultKunRuntimeSettings,
+  defaultManagedRuntimeSettings,
   defaultModelProviderSettings,
   defaultScheduleSettings,
   defaultWriteSettings,
@@ -37,7 +37,7 @@ function settings(): AppSettingsV1 {
     uiFontScale: 'small',
     provider: defaultModelProviderSettings(),
     agents: {
-      kun: defaultKunRuntimeSettings()
+      kun: defaultManagedRuntimeSettings()
     },
     workspaceRoot: '/tmp/workspace',
     log: { enabled: false, retentionDays: 7 },
@@ -66,7 +66,7 @@ function registerOptions(overrides: Partial<Parameters<typeof import('./register
     pollFeishuInstall: vi.fn() as never,
     startWeixinInstallQrcode: vi.fn() as never,
     pollWeixinInstall: vi.fn() as never,
-    resolveKunConfigPath: () => '/tmp/kun.json',
+    resolveRuntimeConfigPath: () => '/tmp/kun.json',
     showTurnCompleteNotification: vi.fn() as never,
     getAppVersion: () => '0.1.0',
     readGuiUpdateState: vi.fn() as never,
@@ -189,9 +189,9 @@ describe('registerAppIpcHandlers', () => {
 
   it('writes MCP config JSON and notifies the runtime apply hook', async () => {
     const { registerAppIpcHandlers } = await import('./register-app-ipc-handlers')
-    const tempRoot = mkdtempSync(join(tmpdir(), 'deepseek-gui-ipc-'))
+    const tempRoot = mkdtempSync(join(tmpdir(), 'workwise-ipc-'))
     const configPath = join(tempRoot, 'mcp.json')
-    const onKunMcpConfigWritten = vi.fn(async () => undefined)
+    const onRuntimeMcpConfigWritten = vi.fn(async () => undefined)
     const content = `${JSON.stringify({
       servers: {
         filesystem: {
@@ -203,16 +203,16 @@ describe('registerAppIpcHandlers', () => {
 
     try {
       registerAppIpcHandlers(registerOptions({
-        resolveKunConfigPath: () => configPath,
-        onKunMcpConfigWritten
+        resolveRuntimeConfigPath: () => configPath,
+        onRuntimeMcpConfigWritten
       }))
 
-      await expect(handlers.get('kun:config:write')?.({}, content)).resolves.toEqual({
+      await expect(handlers.get('runtime:config:write')?.({}, content)).resolves.toEqual({
         ok: true,
         path: configPath
       })
       expect(readFileSync(configPath, 'utf8')).toBe(content)
-      expect(onKunMcpConfigWritten).toHaveBeenCalledWith(configPath, content)
+      expect(onRuntimeMcpConfigWritten).toHaveBeenCalledWith(configPath, content)
     } finally {
       rmSync(tempRoot, { recursive: true, force: true })
     }
@@ -220,24 +220,24 @@ describe('registerAppIpcHandlers', () => {
 
   it('rejects invalid MCP config JSON before writing or applying it', async () => {
     const { registerAppIpcHandlers } = await import('./register-app-ipc-handlers')
-    const tempRoot = mkdtempSync(join(tmpdir(), 'deepseek-gui-ipc-'))
+    const tempRoot = mkdtempSync(join(tmpdir(), 'workwise-ipc-'))
     const configPath = join(tempRoot, 'mcp.json')
-    const onKunMcpConfigWritten = vi.fn(async () => undefined)
+    const onRuntimeMcpConfigWritten = vi.fn(async () => undefined)
 
     try {
       registerAppIpcHandlers(registerOptions({
-        resolveKunConfigPath: () => configPath,
-        onKunMcpConfigWritten
+        resolveRuntimeConfigPath: () => configPath,
+        onRuntimeMcpConfigWritten
       }))
 
-      await expect(handlers.get('kun:config:write')?.({}, '{')).rejects.toThrow(
+      await expect(handlers.get('runtime:config:write')?.({}, '{')).rejects.toThrow(
         /MCP config must be JSON/
       )
-      await expect(handlers.get('kun:config:write')?.({}, '[]')).rejects.toThrow(
+      await expect(handlers.get('runtime:config:write')?.({}, '[]')).rejects.toThrow(
         /MCP config must be a JSON object/
       )
       expect(existsSync(configPath)).toBe(false)
-      expect(onKunMcpConfigWritten).not.toHaveBeenCalled()
+      expect(onRuntimeMcpConfigWritten).not.toHaveBeenCalled()
     } finally {
       rmSync(tempRoot, { recursive: true, force: true })
     }

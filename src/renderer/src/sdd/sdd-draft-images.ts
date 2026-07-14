@@ -72,7 +72,7 @@ function normalizeRelativeParts(parts: string[]): string | null {
   for (const part of parts) {
     if (!part || part === '.') continue
     if (part === '..') {
-      if (stack.length === 0) return null
+      if (stack.length <= 1) return null
       stack.pop()
       continue
     }
@@ -88,7 +88,7 @@ export function resolveSddMarkdownImagePath(
   const raw = markdownPath.trim().replaceAll('\\', '/')
   if (!raw || raw.startsWith('/')) return null
   const direct = normalizeSddRelativePath(raw)
-  if (direct.startsWith('.kunsdd/')) return normalizeRelativeParts(direct.split('/'))
+  if (direct.startsWith('.workwise/sdd/')) return normalizeRelativeParts(direct.split('/'))
   return normalizeRelativeParts([...dirname(draftRelativePath).split('/'), ...raw.split('/')])
 }
 
@@ -118,7 +118,7 @@ export async function collectSddDraftImages(input: {
   readImage?: WorkspaceImageReader
   measureImage?: ImageMeasurer
 }): Promise<SddDraftImageCollection> {
-  const readImage = input.readImage ?? window.kunGui.readWorkspaceImage
+  const readImage = input.readImage ?? window.workwise.readWorkspaceImage
   const measureImage = input.measureImage ?? measureImageDataUrl
   const errors: string[] = []
   const images: SddDraftImageReference[] = []
@@ -132,7 +132,7 @@ export async function collectSddDraftImages(input: {
     }
     const normalizedPath = normalizeSddRelativePath(relativePath)
     if (!isSddImageRelativePath(normalizedPath)) {
-      errors.push(`SDD images must live under .kunsdd/img: ${parsed.markdownPath}`)
+      errors.push(`SDD images must live under .workwise/sdd/img: ${parsed.markdownPath}`)
       continue
     }
     if (seen.has(normalizedPath)) continue

@@ -144,7 +144,7 @@ These restrictions ensure that long completions only appear where the user actua
 Long completion adds a hidden comment before prompt:
 
 ```markdown
-<!-- DeepSeek GUI inline completion mode: long inspiration.
+<!-- WorkWise inline completion mode: long inspiration.
 The user paused at the cursor. Continue the draft with a grounded next thought...
 Return only insertable text...
 -->

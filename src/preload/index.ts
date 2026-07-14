@@ -1,13 +1,14 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
-import type { KunGuiApi } from '../shared/kun-gui-api'
+import type { WorkWiseApi } from '../shared/workwise-api'
 
 const api = {
   platform: process.platform,
   getSettings: () => ipcRenderer.invoke('settings:get'),
-  setSettings: (partial) =>
-    ipcRenderer.invoke('settings:set', partial),
+  setSettings: (partial, expectedRevision) =>
+    ipcRenderer.invoke('settings:set', { patch: partial, expectedRevision }),
   runtimeRequest: (path, method, body) =>
     ipcRenderer.invoke('runtime:request', { path, method, body }),
+  cancelOperation: (request) => ipcRenderer.invoke('operation:cancel', request),
   fetchUpstreamModels: () => ipcRenderer.invoke('upstream:models'),
   getClawStatus: () => ipcRenderer.invoke('claw:status'),
   runClawTask: (taskId) =>
@@ -25,6 +26,13 @@ const api = {
     ipcRenderer.invoke('dialog:confirm', options),
   listSkills: (workspaceRoot) =>
     ipcRenderer.invoke('skill:list', { workspaceRoot }),
+  refreshSkills: (workspaceRoot) =>
+    ipcRenderer.invoke('skill:refresh', { workspaceRoot }),
+  onSkillsChanged: (listener) => {
+    const wrapped = (_event: Electron.IpcRendererEvent, generation: number): void => listener(generation)
+    ipcRenderer.on('skills:changed', wrapped)
+    return () => ipcRenderer.removeListener('skills:changed', wrapped)
+  },
   saveSkillFile: (rootPath, skillName, content) =>
     ipcRenderer.invoke('skill:save-file', { rootPath, skillName, content }),
   installGithubSkill: (rootPath, source) =>
@@ -42,12 +50,12 @@ const api = {
   removeManagedTool: (id) => ipcRenderer.invoke('tool:remove-managed', id),
   openSkillRoot: (rootPath) =>
     ipcRenderer.invoke('skill:open-root', rootPath),
-  getKunConfigFile: () =>
-    ipcRenderer.invoke('kun:config:read'),
-  setKunConfigFile: (content) =>
-    ipcRenderer.invoke('kun:config:write', content),
-  openKunConfigDir: () =>
-    ipcRenderer.invoke('kun:config:open-dir'),
+  getRuntimeConfigFile: () =>
+    ipcRenderer.invoke('runtime:config:read'),
+  setRuntimeConfigFile: (content) =>
+    ipcRenderer.invoke('runtime:config:write', content),
+  openRuntimeConfigDir: () =>
+    ipcRenderer.invoke('runtime:config:open-dir'),
   getGitBranches: (workspaceRoot) =>
     ipcRenderer.invoke('git:branches', workspaceRoot),
   switchGitBranch: (workspaceRoot, branch) =>
@@ -186,6 +194,8 @@ const api = {
   getLogPath: () => ipcRenderer.invoke('log:get-path'),
   openLogDir: () => ipcRenderer.invoke('log:open-dir'),
   getPathForFile: (file: File) => webUtils.getPathForFile(file)
-} satisfies KunGuiApi
+} satisfies WorkWiseApi
 
+contextBridge.exposeInMainWorld('workwise', api)
+// Deprecated compatibility boundary for 0.2.x renderers. Remove after 0.3.x.
 contextBridge.exposeInMainWorld('kunGui', api)

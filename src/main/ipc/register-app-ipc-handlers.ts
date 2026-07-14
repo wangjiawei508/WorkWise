@@ -2,7 +2,7 @@ import { app, dialog, ipcMain, shell, type BrowserWindow, type WebContents } fro
 import { watch, type FSWatcher } from 'node:fs'
 import { randomUUID } from 'node:crypto'
 import { basename, dirname, extname, join, resolve } from 'node:path'
-import { copyFile, mkdir, readFile, writeFile } from 'node:fs/promises'
+import { mkdir, readFile } from 'node:fs/promises'
 import { z } from 'zod'
 import {
   type AppSettingsPatch,
@@ -23,7 +23,7 @@ import type {
   TurnCompleteNotificationPayload,
   UpstreamModelsResult,
   WorkspacePickResult
-} from '../../shared/kun-gui-api'
+} from '../../shared/workwise-api'
 import type { WorkspaceFileSaveAsResult } from '../../shared/workspace-file'
 import type { GuiUpdateDownloadResult, GuiUpdateInfo, GuiUpdateInstallResult, GuiUpdateState } from '../../shared/gui-update'
 import {
@@ -32,8 +32,9 @@ import {
   confirmDialogPayloadSchema,
   clawTaskFromTextPayloadSchema,
   bundledAgentPackInstallPayloadSchema,
+  cancelOperationPayloadSchema,
   bundledSkillInstallPayloadSchema,
-  deepseekConfigContentSchema,
+  runtimeConfigContentSchema,
   desktopCommandSchema,
   defaultPathSchema,
   gitBranchPayloadSchema,
@@ -50,7 +51,7 @@ import {
   shellOpenExternalUrlSchema,
   skillListPayloadSchema,
   skillSaveFilePayloadSchema,
-  settingsPatchSchema,
+  settingsSetPayloadSchema,
   streamIdSchema,
   workspaceDirectoryCreatePayloadSchema,
   workspaceClipboardImageSavePayloadSchema,
@@ -115,6 +116,9 @@ import {
   removeManagedTool,
   updateManagedTool
 } from '../services/managed-tool-service'
+import { appCancellationRegistry } from '../cancellation-registry'
+import { runtimeThreadInterruptPath } from '../../shared/runtime-endpoints'
+import { atomicWriteFile as durableWriteFile } from '../services/durable-file'
 
 type GuiUpdaterModule = typeof import('../gui-updater')
 
@@ -129,7 +133,7 @@ type WorkspaceFileWatchRecord = {
 type RegisterAppIpcHandlersOptions = {
   store: JsonSettingsStore
   getMainWindow: () => BrowserWindow | null
-  applySettingsPatch: (partial: AppSettingsPatch) => Promise<AppSettingsV1>
+  applySettingsPatch: (partial: AppSettingsPatch, expectedRevision?: number) => Promise<AppSettingsV1>
   runtimeRequest: (
     path: string,
     method?: string,
@@ -142,8 +146,8 @@ type RegisterAppIpcHandlersOptions = {
   pollFeishuInstall: (deviceCode: string) => Promise<ClawImInstallPollResult>
   startWeixinInstallQrcode: (weixinBridgeUrl?: string) => Promise<ClawImInstallQrResult>
   pollWeixinInstall: (deviceCode: string, weixinBridgeUrl?: string) => Promise<ClawImInstallPollResult>
-  resolveKunConfigPath: () => string
-  onKunMcpConfigWritten?: (path: string, content: string) => Promise<void> | void
+  resolveRuntimeConfigPath: () => string
+  onRuntimeMcpConfigWritten?: (path: string, content: string) => Promise<void> | void
   showTurnCompleteNotification: (
     payload: TurnCompleteNotificationPayload
   ) => Promise<SystemNotificationResult>
@@ -213,10 +217,10 @@ async function saveWorkspaceFileAs(
     await mkdir(dirname(targetPath), { recursive: true })
     if (sourcePath) {
       if (resolve(sourcePath) !== targetPath) {
-        await copyFile(sourcePath, targetPath)
+        await durableWriteFile(targetPath, await readFile(sourcePath))
       }
     } else if (request.dataBase64) {
-      await writeFile(targetPath, Buffer.from(request.dataBase64, 'base64'))
+      await durableWriteFile(targetPath, Buffer.from(request.dataBase64, 'base64'))
     } else {
       return { ok: false, message: 'No file data was available to save.' }
     }
@@ -316,8 +320,8 @@ export function registerAppIpcHandlers(options: RegisterAppIpcHandlersOptions): 
     pollFeishuInstall,
     startWeixinInstallQrcode,
     pollWeixinInstall,
-    resolveKunConfigPath,
-    onKunMcpConfigWritten,
+    resolveRuntimeConfigPath,
+    onRuntimeMcpConfigWritten,
     showTurnCompleteNotification,
     getAppVersion,
     readGuiUpdateState,
@@ -326,6 +330,19 @@ export function registerAppIpcHandlers(options: RegisterAppIpcHandlersOptions): 
     logError
   } = options
   const workspaceFileWatchers = new Map<string, WorkspaceFileWatchRecord>()
+  let skillCatalogGeneration = 1
+
+  const notifySkillsChanged = (): number => {
+    skillCatalogGeneration += 1
+    getMainWindow()?.webContents.send('skills:changed', skillCatalogGeneration)
+    return skillCatalogGeneration
+  }
+
+  const loadSkillCatalog = async (workspaceRoot?: string) => {
+    const settings = await store.load()
+    const result = await listGuiSkills(settings, workspaceRoot)
+    return result.ok ? { ...result, generation: skillCatalogGeneration } : result
+  }
 
   const disposeWorkspaceFileWatch = (watchId: string): boolean => {
     const record = workspaceFileWatchers.get(watchId)
@@ -410,15 +427,68 @@ export function registerAppIpcHandlers(options: RegisterAppIpcHandlersOptions): 
   }
 
   ipcMain.handle('settings:get', async () => store.load())
-  ipcMain.handle('settings:set', async (_, partial: unknown) =>
-    applySettingsPatch(
-      parseIpcPayload('settings:set', settingsPatchSchema, partial) as AppSettingsPatch
-    )
-  )
+  ipcMain.handle('settings:set', async (_, payload: unknown) => {
+    const parsed = parseIpcPayload('settings:set', settingsSetPayloadSchema, payload)
+    return parsed.expectedRevision === undefined
+      ? applySettingsPatch(parsed.patch as AppSettingsPatch)
+      : applySettingsPatch(parsed.patch as AppSettingsPatch, parsed.expectedRevision)
+  })
 
   ipcMain.handle('runtime:request', async (_, payload: unknown) => {
     const request = parseIpcPayload('runtime:request', runtimeRequestPayloadSchema, payload)
-    return runtimeRequest(request.path, request.method, request.body)
+    const method = (request.method ?? 'GET').toUpperCase()
+    const deleteThread = method === 'DELETE'
+      ? /^\/v1\/threads\/([^/?]+)$/.exec(request.path)
+      : null
+    if (deleteThread?.[1]) {
+      await appCancellationRegistry.cancel(
+        { scope: 'thread', id: decodeURIComponent(deleteThread[1]) },
+        'thread_deleted'
+      )
+    }
+    const result = await runtimeRequest(request.path, request.method, request.body)
+    const startMatch = method === 'POST'
+      ? /^\/v1\/threads\/([^/?]+)\/(?:turns|review)$/.exec(request.path)
+      : null
+    if (result.ok && startMatch?.[1]) {
+      try {
+        const body = JSON.parse(result.body) as { threadId?: unknown; turnId?: unknown }
+        const threadId = typeof body.threadId === 'string'
+          ? body.threadId
+          : decodeURIComponent(startMatch[1])
+        const turnId = typeof body.turnId === 'string' ? body.turnId : ''
+        if (threadId && turnId) {
+          appCancellationRegistry.register(
+            { scope: 'thread', id: threadId },
+            { parent: { scope: 'app', id: 'app' } }
+          )
+          appCancellationRegistry.register(
+            { scope: 'turn', id: turnId },
+            {
+              parent: { scope: 'thread', id: threadId },
+              cleanup: async () => {
+                await runtimeRequest(
+                  runtimeThreadInterruptPath(threadId, turnId),
+                  'POST',
+                  JSON.stringify({ discard: false })
+                ).catch(() => undefined)
+              }
+            }
+          )
+        }
+      } catch {
+        // Invalid successful responses are handled by the renderer contract parser.
+      }
+    }
+    return result
+  })
+  ipcMain.handle('operation:cancel', async (_, payload: unknown) => {
+    const request = parseIpcPayload('operation:cancel', cancelOperationPayloadSchema, payload)
+    const cancelled = await appCancellationRegistry.cancel(
+      { scope: request.scope, id: request.id },
+      request.reason
+    )
+    return { ok: true as const, cancelled }
   })
 
   ipcMain.handle('upstream:models', async () => fetchUpstreamModels())
@@ -603,7 +673,8 @@ export function registerAppIpcHandlers(options: RegisterAppIpcHandlersOptions): 
         const skillDir = join(rootPath, skillName)
         const filePath = join(skillDir, 'SKILL.md')
         await mkdir(skillDir, { recursive: true })
-        await writeFile(filePath, request.content, 'utf8')
+        await durableWriteFile(filePath, request.content)
+        notifySkillsChanged()
         return { ok: true as const, path: filePath }
       } catch (error) {
         return {
@@ -616,18 +687,26 @@ export function registerAppIpcHandlers(options: RegisterAppIpcHandlersOptions): 
 
   ipcMain.handle('skill:list', async (_, payload: unknown) => {
     const request = parseIpcPayload('skill:list', skillListPayloadSchema, payload)
-    const settings = await store.load()
-    return listGuiSkills(settings, request.workspaceRoot)
+    return loadSkillCatalog(request.workspaceRoot)
+  })
+
+  ipcMain.handle('skill:refresh', async (_, payload: unknown) => {
+    const request = parseIpcPayload('skill:refresh', skillListPayloadSchema, payload)
+    return loadSkillCatalog(request.workspaceRoot)
   })
 
   ipcMain.handle('skill:install-github', async (_, payload: unknown) => {
     const request = parseIpcPayload('skill:install-github', githubSkillInstallPayloadSchema, payload)
-    return installGithubSkill(request.rootPath, request.source)
+    const result = await installGithubSkill(request.rootPath, request.source)
+    if (result.ok) notifySkillsChanged()
+    return result
   })
 
   ipcMain.handle('skill:install-bundled', async (_, payload: unknown) => {
     const request = parseIpcPayload('skill:install-bundled', bundledSkillInstallPayloadSchema, payload)
-    return installBundledSkill(request.rootPath, request.source)
+    const result = await installBundledSkill(request.rootPath, request.source)
+    if (result.ok) notifySkillsChanged()
+    return result
   })
 
   ipcMain.handle('agent-pack:install-bundled', async (_, payload: unknown) => {
@@ -638,7 +717,9 @@ export function registerAppIpcHandlers(options: RegisterAppIpcHandlersOptions): 
   ipcMain.handle('skill:sync-github', async (_, payload: unknown) => {
     const request = parseIpcPayload('skill:sync-github', githubSkillSyncPayloadSchema, payload)
     const settings = await store.load()
-    return syncGithubManagedSkills(settings, request.workspaceRoot)
+    const result = await syncGithubManagedSkills(settings, request.workspaceRoot)
+    if (result.ok && result.updated > 0) notifySkillsChanged()
+    return result
   })
 
   ipcMain.handle('skill:open-root', async (_, rootPath: unknown) => {
@@ -658,8 +739,8 @@ export function registerAppIpcHandlers(options: RegisterAppIpcHandlersOptions): 
     }
   })
 
-  ipcMain.handle('kun:config:read', async () => {
-    const path = resolveKunConfigPath()
+  ipcMain.handle('runtime:config:read', async () => {
+    const path = resolveRuntimeConfigPath()
     try {
       const content = await readFile(path, 'utf8')
       return { path, content, exists: true as const }
@@ -671,18 +752,18 @@ export function registerAppIpcHandlers(options: RegisterAppIpcHandlersOptions): 
     }
   })
 
-  ipcMain.handle('kun:config:write', async (_, content: unknown) => {
+  ipcMain.handle('runtime:config:write', async (_, content: unknown) => {
     const validatedContent = parseIpcPayload(
-      'kun:config:write',
-      deepseekConfigContentSchema,
+      'runtime:config:write',
+      runtimeConfigContentSchema,
       content
     )
-    const path = resolveKunConfigPath()
+    const path = resolveRuntimeConfigPath()
     validateMcpConfigContent(validatedContent)
     await mkdir(dirname(path), { recursive: true })
-    await writeFile(path, validatedContent, 'utf8')
+    await durableWriteFile(path, validatedContent)
     try {
-      await onKunMcpConfigWritten?.(path, validatedContent)
+      await onRuntimeMcpConfigWritten?.(path, validatedContent)
     } catch (error: unknown) {
       logError('mcp-config', 'Failed to apply MCP config change after write', {
         path,
@@ -692,9 +773,9 @@ export function registerAppIpcHandlers(options: RegisterAppIpcHandlersOptions): 
     return { ok: true as const, path }
   })
 
-  ipcMain.handle('kun:config:open-dir', async () => {
+  ipcMain.handle('runtime:config:open-dir', async () => {
     try {
-      const path = resolveKunConfigPath()
+      const path = resolveRuntimeConfigPath()
       const dirPath = dirname(path)
       await mkdir(dirPath, { recursive: true })
       return openPathWithShell(dirPath)

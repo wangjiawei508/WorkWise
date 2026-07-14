@@ -5,14 +5,13 @@ import { AnimatedWorkLogo } from './AnimatedWorkLogo'
 import { WorkMetaRow } from './message-timeline-cards'
 
 describe('AnimatedWorkLogo', () => {
-  it('uses the Kun logo asset for the default work mark', async () => {
+  it('uses the WorkWise logo asset for the default work mark', async () => {
     const nodeFs = 'node:fs/promises'
     const { readFile } = await import(/* @vite-ignore */ nodeFs)
-    const logoSvg = await readFile(new URL('../../../../asset/img/deepseek.svg', import.meta.url), 'utf8')
+    const logoSvg = await readFile(new URL('../../../../asset/img/workwise.svg', import.meta.url), 'utf8')
 
-    expect(logoSvg).toContain('id="kun-logo"')
-    expect(logoSvg).toContain('id="kun-cutouts"')
-    expect(logoSvg).toContain('id="kun-blue"')
+    expect(logoSvg).toContain('WorkWise')
+    expect(logoSvg).toContain('id="bg"')
     expect(logoSvg).not.toContain('Layer_2')
   })
 

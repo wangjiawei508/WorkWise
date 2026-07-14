@@ -20,7 +20,7 @@ import {
   type WriteSettingsPatchV1,
   type WriteSettingsV1
 } from './app-settings-types'
-import { getActiveAgentApiKey, getKunRuntimeSettings } from './app-settings-kun'
+import { getActiveAgentApiKey, getManagedRuntimeSettings } from './app-settings-runtime'
 import { getModelProviderProfile, resolveModelProviderBaseUrl } from './app-settings-provider'
 import { compactStrings } from './app-settings-normalizers'
 
@@ -172,7 +172,7 @@ export function resolveWriteInlineCompletionProviderId(settings: AppSettingsV1):
   if (!inlineCompletion.inheritProvider && inlineCompletion.providerId.trim()) {
     return inlineCompletion.providerId.trim()
   }
-  return getKunRuntimeSettings(settings).providerId?.trim() || DEFAULT_MODEL_PROVIDER_ID
+  return getManagedRuntimeSettings(settings).providerId?.trim() || DEFAULT_MODEL_PROVIDER_ID
 }
 
 export function resolveWriteInlineCompletionProviderProfile(settings: AppSettingsV1): ModelProviderProfileV1 {
@@ -194,7 +194,7 @@ export function resolveWriteInlineCompletionModel(
     const providerModel = resolveWriteInlineCompletionProviderProfile(settings).models[0]?.trim()
     if (providerModel) return providerModel
   }
-  const runtimeModel = getKunRuntimeSettings(settings).model?.trim() ?? ''
+  const runtimeModel = getManagedRuntimeSettings(settings).model?.trim() ?? ''
   if (runtimeModel) return runtimeModel
   return normalizeWriteInlineCompletionModel(configured)
 }

@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   defaultClawSettings,
   defaultKeyboardShortcuts,
-  defaultKunRuntimeSettings,
+  defaultManagedRuntimeSettings,
   defaultModelProviderSettings,
   defaultScheduleSettings,
   defaultWriteSettings,
@@ -19,7 +19,7 @@ function settings(apiKey: string): AppSettingsV1 {
     provider: defaultModelProviderSettings(),
     agents: {
       kun: {
-        ...defaultKunRuntimeSettings(),
+        ...defaultManagedRuntimeSettings(),
         apiKey
       }
     },
@@ -45,7 +45,7 @@ describe('rendererRuntimeClient', () => {
   it('caches settings reads until invalidated', async () => {
     const getSettings = vi.fn(async () => settings('sk-1'))
     vi.stubGlobal('window', {
-      kunGui: {
+      workwise: {
         getSettings,
         setSettings: vi.fn(),
         runtimeRequest: vi.fn(),
@@ -69,7 +69,7 @@ describe('rendererRuntimeClient', () => {
     const getSettings = vi.fn(async () => settings('sk-1'))
     const setSettings = vi.fn(async () => settings('sk-2'))
     vi.stubGlobal('window', {
-      kunGui: {
+      workwise: {
         getSettings,
         setSettings,
         runtimeRequest: vi.fn(),

@@ -22,7 +22,7 @@ describe('app identity bootstrap', () => {
     configureAppIdentity()
     expect(setName).toHaveBeenCalledTimes(1)
     expect(setName).toHaveBeenCalledWith(APP_PRODUCT_NAME)
-    expect(APP_PRODUCT_NAME).toBe('Kun')
+    expect(APP_PRODUCT_NAME).toBe('WorkWise')
   })
 
   it('does not call app.setAppUserModelId (caller responsibility on win32)', async () => {

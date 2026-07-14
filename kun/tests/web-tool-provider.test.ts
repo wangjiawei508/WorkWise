@@ -9,6 +9,7 @@ import {
 import { modelCapabilitiesForModel } from '../src/loop/model-context-profile.js'
 import { DeterministicWebProvider } from '../src/ports/web-provider.js'
 import type { ToolHostContext } from '../src/ports/tool-host.js'
+import { SafeWebFetchError } from '../src/network/safe-web-fetch.js'
 
 function buildContext(): ToolHostContext {
   return {
@@ -109,13 +110,7 @@ describe('Web tool provider', () => {
     }
   })
 
-  it('truncates instead of failing when content-length exceeds max_bytes', async () => {
-    vi.stubGlobal('fetch', async () => new Response('abcdefghijklmnopqrstuvwxyz', {
-      headers: {
-        'content-length': '26',
-        'content-type': 'text/plain'
-      }
-    }))
+  it('returns payload_too_large instead of truncating oversized responses', async () => {
     const config = KunCapabilitiesConfig.parse({
       web: {
         enabled: true,
@@ -125,7 +120,12 @@ describe('Web tool provider', () => {
       }
     })
     const host = new LocalToolHost({
-      registry: new CapabilityRegistry(buildWebToolProviders(config.web).providers)
+      registry: new CapabilityRegistry(buildWebToolProviders(config.web, {
+        provider: {
+          id: 'safe-fetch',
+          fetch: async () => { throw new SafeWebFetchError('payload_too_large', 'Response exceeds the allowed size.') }
+        }
+      }).providers)
     })
 
     const result = await host.execute({
@@ -134,22 +134,15 @@ describe('Web tool provider', () => {
       arguments: { url: 'https://docs.example.test/large', max_bytes: 10 }
     }, buildContext())
 
-    expect(result.item).toMatchObject({ kind: 'tool_result', isError: false })
+    expect(result.item).toMatchObject({ kind: 'tool_result', isError: true })
     if (result.item.kind === 'tool_result') {
       expect(result.item.output).toMatchObject({
-        text: 'abcdefghij',
-        byteCount: 10,
-        truncated: true
+        error: { code: 'payload_too_large' }
       })
     }
   })
 
-  it('truncates oversized fetch responses via streaming when content-length is unknown', async () => {
-    vi.stubGlobal('fetch', async () => new Response('abcdefghijklmnopqrstuvwxyz', {
-      headers: {
-        'content-type': 'text/plain'
-      }
-    }))
+  it('surfaces blocked DNS without leaking a local address', async () => {
     const config = KunCapabilitiesConfig.parse({
       web: {
         enabled: true,
@@ -159,7 +152,12 @@ describe('Web tool provider', () => {
       }
     })
     const host = new LocalToolHost({
-      registry: new CapabilityRegistry(buildWebToolProviders(config.web).providers)
+      registry: new CapabilityRegistry(buildWebToolProviders(config.web, {
+        provider: {
+          id: 'safe-fetch',
+          fetch: async () => { throw new SafeWebFetchError('dns_blocked', 'The resolved address is not public.') }
+        }
+      }).providers)
     })
 
     const result = await host.execute({
@@ -168,28 +166,16 @@ describe('Web tool provider', () => {
       arguments: { url: 'https://docs.example.test/large', max_bytes: 10 }
     }, buildContext())
 
-    expect(result.item).toMatchObject({ kind: 'tool_result', isError: false })
+    expect(result.item).toMatchObject({ kind: 'tool_result', isError: true })
     if (result.item.kind === 'tool_result') {
       expect(result.item.output).toMatchObject({
-        text: 'abcdefghij',
-        byteCount: 10,
-        truncated: true,
-        telemetry: {
-          policy: 'allowed',
-          provider: 'fetch',
-          byteCount: 10
-        }
+        error: { code: 'dns_blocked' }
       })
+      expect(JSON.stringify(result.item.output)).not.toContain('127.0.0.1')
     }
   })
 
   it('raises tiny model-passed max_bytes budgets to a usable floor', async () => {
-    vi.stubGlobal('fetch', async () => new Response('x'.repeat(3000), {
-      headers: {
-        'content-length': '3000',
-        'content-type': 'text/plain'
-      }
-    }))
     const config = KunCapabilitiesConfig.parse({
       web: {
         enabled: true,
@@ -198,7 +184,18 @@ describe('Web tool provider', () => {
       }
     })
     const host = new LocalToolHost({
-      registry: new CapabilityRegistry(buildWebToolProviders(config.web).providers)
+      registry: new CapabilityRegistry(buildWebToolProviders(config.web, {
+        provider: new DeterministicWebProvider({
+          pages: {
+            'https://docs.example.test/page': {
+              url: 'https://docs.example.test/page',
+              finalUrl: 'https://docs.example.test/page',
+              contentType: 'text/plain',
+              text: 'x'.repeat(3000)
+            }
+          }
+        })
+      }).providers)
     })
 
     const result = await host.execute({

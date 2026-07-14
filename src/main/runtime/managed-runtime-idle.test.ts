@@ -7,7 +7,7 @@ import {
 import {
   defaultClawSettings,
   defaultKeyboardShortcuts,
-  defaultKunRuntimeSettings,
+  defaultManagedRuntimeSettings,
   defaultModelProviderSettings,
   defaultScheduleSettings,
   defaultWriteSettings,
@@ -20,7 +20,7 @@ const settings: AppSettingsV1 = {
   theme: 'system',
   uiFontScale: 'small',
   provider: defaultModelProviderSettings(),
-  agents: { kun: defaultKunRuntimeSettings() },
+  agents: { kun: defaultManagedRuntimeSettings() },
   workspaceRoot: '/tmp/workspace',
   log: { enabled: false, retentionDays: 7 },
   notifications: { turnComplete: true },

@@ -6,7 +6,7 @@ import { describe, expect, it } from 'vitest'
 import {
   defaultClawSettings,
   defaultKeyboardShortcuts,
-  defaultKunRuntimeSettings,
+  defaultManagedRuntimeSettings,
   defaultModelProviderSettings,
   defaultScheduleSettings,
   defaultWriteSettings,
@@ -37,7 +37,7 @@ function settings(dataDir: string, model = 'settings-model'): AppSettingsV1 {
     },
     agents: {
       kun: {
-        ...defaultKunRuntimeSettings(),
+        ...defaultManagedRuntimeSettings(),
         dataDir,
         model,
         providerId: 'custom-provider'
@@ -57,8 +57,8 @@ function settings(dataDir: string, model = 'settings-model'): AppSettingsV1 {
 }
 
 describe('upstream model picker list', () => {
-  it('includes Kun config model profiles, aliases, and the configured agent model', async () => {
-    const dataDir = mkdtempSync(join(tmpdir(), 'deepseek-gui-models-'))
+  it('includes WorkWise Runtime config model profiles, aliases, and the configured agent model', async () => {
+    const dataDir = mkdtempSync(join(tmpdir(), 'workwise-models-'))
     await mkdir(dataDir, { recursive: true })
     await writeFile(
       join(dataDir, 'config.json'),
@@ -93,7 +93,7 @@ describe('upstream model picker list', () => {
   })
 
   it('falls back to configured model ids when upstream cannot be queried', async () => {
-    const dataDir = mkdtempSync(join(tmpdir(), 'deepseek-gui-models-'))
+    const dataDir = mkdtempSync(join(tmpdir(), 'workwise-models-'))
     await mkdir(dataDir, { recursive: true })
     await writeFile(
       join(dataDir, 'config.json'),

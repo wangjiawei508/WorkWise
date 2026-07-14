@@ -2,6 +2,12 @@ import { z } from 'zod'
 import { TurnItem } from './items.js'
 import { isGuiPlanRelativePath } from '../shared/gui-plan.js'
 import { ApprovalPolicySchema, SandboxModeSchema } from './policy.js'
+import { RUNTIME_RESOURCE_LIMITS_V1 } from './resource-limits.js'
+
+const byteLimitedString = (maxBytes: number) =>
+  z.string().refine((value) => new TextEncoder().encode(value).byteLength <= maxBytes, {
+    message: `must not exceed ${maxBytes} UTF-8 bytes`
+  })
 
 /**
  * Mode enum, inlined here (instead of importing `ThreadMode` from
@@ -33,7 +39,7 @@ export const GuiPlanContextSchema = z.object({
     .string()
     .min(1)
     .refine(isGuiPlanRelativePath, {
-      message: 'relativePath must be a direct Markdown file under .kunsdd/plan'
+      message: 'relativePath must be a direct Markdown file under .workwise/plans'
     }),
   planId: z.string().min(1),
   sourceRequest: z.string().optional(),
@@ -88,8 +94,8 @@ export const TurnSchema = z.object({
 export type Turn = z.infer<typeof TurnSchema>
 
 export const StartTurnRequest = z.object({
-  prompt: z.string().min(1),
-  displayText: z.string().optional(),
+  prompt: byteLimitedString(RUNTIME_RESOURCE_LIMITS_V1.promptBytes).pipe(z.string().min(1)),
+  displayText: byteLimitedString(RUNTIME_RESOURCE_LIMITS_V1.displayTextBytes).optional(),
   model: z.string().optional(),
   reasoningEffort: TurnReasoningEffortSchema.optional(),
   approvalPolicy: ApprovalPolicySchema.optional(),
@@ -100,15 +106,7 @@ export const StartTurnRequest = z.object({
    * mode Kun advertises `create_plan` for the whole conversation.
    */
   mode: TurnModeSchema.optional(),
-  attachments: z
-    .array(
-      z.object({
-        path: z.string().min(1),
-        name: z.string().min(1)
-      })
-    )
-    .optional(),
-  attachmentIds: z.array(z.string().min(1)).default([]),
+  attachmentIds: z.array(z.string().min(1)).max(8).default([]),
   /**
    * Optional GUI plan context. When set, Kun advertises the
    * `create_plan` tool for the turn and writes only to the reserved
@@ -132,7 +130,7 @@ export const StartTurnResponse = z.object({
 export type StartTurnResponse = z.infer<typeof StartTurnResponse>
 
 export const SteerTurnRequest = z.object({
-  text: z.string().min(1)
+  text: byteLimitedString(RUNTIME_RESOURCE_LIMITS_V1.steerBytes).pipe(z.string().min(1))
 })
 export type SteerTurnRequest = z.infer<typeof SteerTurnRequest>
 

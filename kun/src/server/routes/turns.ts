@@ -35,6 +35,12 @@ export async function startTurn(
     if (error instanceof Error && /not found/i.test(error.message)) {
       return ERRORS.notFound(error.message)
     }
+    if ((error as { code?: unknown })?.code === 'turn_in_progress') {
+      return ERRORS.conflict('a turn is already running for this thread')
+    }
+    if ((error as { code?: unknown })?.code === 'resource_limit') {
+      return ERRORS.resourceLimit('the application turn concurrency limit has been reached')
+    }
     throw error
   }
 }

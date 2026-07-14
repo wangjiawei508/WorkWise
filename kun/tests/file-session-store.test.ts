@@ -5,9 +5,12 @@ import { join } from 'node:path'
 import type { UsageSnapshot } from '../src/contracts/usage.js'
 
 const atomicWriteFileMock = vi.hoisted(() => vi.fn())
+const atomicWriteFileLockedMock = vi.hoisted(() => vi.fn())
 
 vi.mock('../src/adapters/file/atomic-write.js', () => ({
-  atomicWriteFile: atomicWriteFileMock
+  atomicWriteFile: atomicWriteFileMock,
+  atomicWriteFileLocked: atomicWriteFileLockedMock,
+  serializeFileOperation: async (_path: string, operation: () => Promise<unknown>) => operation()
 }))
 
 const { FileSessionStore } = await import('../src/adapters/file/file-session-store.js')
@@ -17,9 +20,11 @@ describe('FileSessionStore', () => {
   let warnSpy: ReturnType<typeof vi.spyOn>
 
   beforeEach(async () => {
-    dataDir = await mkdtemp(join(tmpdir(), 'kun-session-'))
+    dataDir = await mkdtemp(join(tmpdir(), 'workwise-session-'))
     atomicWriteFileMock.mockReset()
     atomicWriteFileMock.mockResolvedValue(undefined)
+    atomicWriteFileLockedMock.mockReset()
+    atomicWriteFileLockedMock.mockResolvedValue(undefined)
     warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
   })
 
@@ -64,7 +69,7 @@ describe('FileSessionStore', () => {
 
     const error = new Error('operation not permitted') as Error & { code: string }
     error.code = 'EPERM'
-    atomicWriteFileMock.mockRejectedValueOnce(error)
+    atomicWriteFileLockedMock.mockRejectedValueOnce(error)
 
     await expect(sessionStore.appendEvent('thr_usage_compact', {
       kind: 'usage',
@@ -77,7 +82,7 @@ describe('FileSessionStore', () => {
 
     const events = await sessionStore.loadEventsSince('thr_usage_compact', 0)
     expect(events.map((event) => event.seq)).toEqual([1, 2, 3])
-    expect(atomicWriteFileMock).toHaveBeenCalledTimes(1)
+    expect(atomicWriteFileLockedMock).toHaveBeenCalledTimes(1)
     expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('usage event compaction failed'))
   })
 })

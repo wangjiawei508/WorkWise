@@ -1,5 +1,15 @@
-import { stat } from 'node:fs/promises'
-import { dirname, isAbsolute, parse, resolve } from 'node:path'
+import { lstat, readdir, realpath, stat } from 'node:fs/promises'
+import { dirname, isAbsolute, join, parse, relative, resolve } from 'node:path'
+
+const IGNORED_DIRECTORY_NAMES = new Set([
+  '.git',
+  'node_modules',
+  '.workwise',
+  'dist',
+  'build',
+  'out',
+  'coverage'
+])
 
 /**
  * Walk up the directory tree starting at `start` and return the path of the
@@ -45,4 +55,57 @@ export async function findNearestGitRoot(start: string): Promise<string | null> 
     current = parent
   }
   return null
+}
+
+/**
+ * Find top-level and nested repositories without following symlinks. Worktree
+ * and submodule `.git` files count as repository markers. Results are
+ * canonical paths contained by the canonical workspace root.
+ */
+export async function discoverGitRepositories(
+  workspaceRoot: string,
+  options: { maxDepth?: number; maxRepositories?: number } = {}
+): Promise<string[]> {
+  const maxDepth = Math.min(Math.max(options.maxDepth ?? 8, 0), 8)
+  const maxRepositories = Math.min(Math.max(options.maxRepositories ?? 64, 1), 64)
+  const root = await realpath(resolve(workspaceRoot))
+  const results: string[] = []
+
+  const visit = async (directory: string, depth: number): Promise<void> => {
+    if (results.length >= maxRepositories || depth > maxDepth) return
+    let entries
+    try {
+      entries = await readdir(directory, { withFileTypes: true })
+    } catch {
+      return
+    }
+    const marker = entries.find((entry) => entry.name === '.git')
+    if (marker) {
+      try {
+        const markerInfo = await lstat(join(directory, marker.name))
+        if (markerInfo.isDirectory() || markerInfo.isFile()) results.push(directory)
+      } catch {
+        // A repository marker that disappears during discovery is ignored.
+      }
+    }
+    if (depth === maxDepth) return
+    for (const entry of entries) {
+      if (results.length >= maxRepositories) break
+      if (!entry.isDirectory() || entry.isSymbolicLink() || IGNORED_DIRECTORY_NAMES.has(entry.name)) continue
+      const child = join(directory, entry.name)
+      try {
+        const childReal = await realpath(child)
+        const rel = relative(root, childReal)
+        if (rel === '..' || rel.startsWith(`..${process.platform === 'win32' ? '\\' : '/'}`) || isAbsolute(rel)) {
+          continue
+        }
+        await visit(childReal, depth + 1)
+      } catch {
+        // Ignore inaccessible or concurrently removed directories.
+      }
+    }
+  }
+
+  await visit(root, 0)
+  return [...new Set(results)]
 }

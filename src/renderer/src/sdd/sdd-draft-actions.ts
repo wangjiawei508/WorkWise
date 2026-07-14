@@ -41,7 +41,7 @@ export async function syncActiveSddDraftFromDisk(snapshot: SddDraftDiskSnapshot)
 
   let content = snapshot.content
   if (typeof content !== 'string') {
-    const result = await window.kunGui.readWorkspaceFile({
+    const result = await window.workwise.readWorkspaceFile({
       workspaceRoot: draft.workspaceRoot,
       path: draft.relativePath
     })
@@ -68,7 +68,7 @@ export async function saveActiveSddDraftToDisk(): Promise<boolean> {
 
   useSddDraftStore.getState().setSaveStatus('saving')
   try {
-    const result = await window.kunGui.writeWorkspaceFile({
+    const result = await window.workwise.writeWorkspaceFile({
       workspaceRoot: draft.workspaceRoot,
       path: draft.relativePath,
       content: snapshot.content

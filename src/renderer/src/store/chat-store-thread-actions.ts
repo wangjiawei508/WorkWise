@@ -163,7 +163,7 @@ export function createThreadActions(
         mode: 'agent'
       })
       // Register + activate optimistically before refreshing. A freshly created
-      // Kun thread may not be listed until the first message is written.
+      // WorkWise Runtime thread may not be listed until the first message is written.
       // Setting it active first lets refreshThreads preserve it in the sidebar.
       set((s) => ({
         activeThreadId: t.id,
@@ -538,7 +538,7 @@ export function createThreadActions(
         }))
         void get().refreshThreads()
       } catch (e) {
-        void window.kunGui.logError('create-thread', 'Failed to create thread', {
+        void window.workwise.logError('create-thread', 'Failed to create thread', {
           message: e instanceof Error ? e.message : String(e)
         }).catch(() => undefined)
         set({
@@ -631,8 +631,8 @@ export function createThreadActions(
           })()
         }))
       }
-      if (channel && typeof window.kunGui?.mirrorClawChannelMessage === 'function') {
-        const userMirror = await window.kunGui.mirrorClawChannelMessage(
+      if (channel && typeof window.workwise?.mirrorClawChannelMessage === 'function') {
+        const userMirror = await window.workwise.mirrorClawChannelMessage(
           activeThreadId,
           trimmedText,
           'user'
@@ -668,7 +668,7 @@ export function createThreadActions(
       return true
     } catch (e) {
       clearBusyWatchdog()
-      void window.kunGui.logError('send-message', 'Failed to send message', {
+      void window.workwise.logError('send-message', 'Failed to send message', {
         message: e instanceof Error ? e.message : String(e),
         threadId: activeThreadId
       }).catch(() => undefined)

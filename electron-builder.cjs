@@ -1,17 +1,9 @@
 const { existsSync, readFileSync } = require('node:fs')
 const { join } = require('node:path')
 
-// 品牌升级后构建环境变量改用 KUN_* 前缀;旧的 DEEPSEEK_GUI_* 仍然
-// 兼容读取,避免 CI / 本地发布脚本一刀切失效。
-function envWithLegacyFallback(kunName, legacyName) {
-  const value = process.env[kunName]
-  if (value !== undefined && value !== '') return value
-  return process.env[legacyName]
-}
-
 function loadLocalReleaseEnv() {
   const candidates = [
-    envWithLegacyFallback('KUN_RELEASE_ENV', 'DEEPSEEK_GUI_RELEASE_ENV'),
+    process.env.WORKWISE_RELEASE_ENV,
     join(__dirname, 'scripts', 'release.local.env'),
     join(__dirname, 'release.local.env')
   ].filter(Boolean)
@@ -51,38 +43,35 @@ const hasNotaryToolCredentials = Boolean(
     (process.env.APPLE_API_KEY || process.env.APPLE_API_KEY_BASE64)
 )
 
-// 更新源域名和 R2 release prefix 维持旧值不动:线上老版本轮询的就是
-// `…/deepseek-gui/channels/<channel>/latest/`,prefix 一改老客户端就再也
-// 收不到更新。品牌改名只动产物文件名,不动 feed 路径。
-const r2PublicBaseUrl = (process.env.R2_PUBLIC_BASE_URL || 'https://deepseek-gui.com/api/r2')
+const r2PublicBaseUrl = (process.env.WORKWISE_PUBLIC_BASE_URL || 'https://www.railwise.cn/downloads')
   .trim()
   .replace(/\/+$/, '')
-const r2ReleasePrefix = (process.env.R2_RELEASE_PREFIX || 'deepseek-gui')
+const r2ReleasePrefix = (process.env.WORKWISE_RELEASE_PREFIX || 'workwise')
   .trim()
   .replace(/^\/+|\/+$/g, '')
 const updateChannel = normalizeUpdateChannel(
-  envWithLegacyFallback('KUN_UPDATE_CHANNEL', 'DEEPSEEK_GUI_UPDATE_CHANNEL') || 'stable'
+  process.env.WORKWISE_UPDATE_CHANNEL || 'stable'
 )
 const genericUpdateUrl = `${r2PublicBaseUrl}/${r2ReleasePrefix}/channels/${updateChannel}/latest/`
 const releaseAppVersion = (
-  envWithLegacyFallback('KUN_APP_VERSION', 'DEEPSEEK_GUI_APP_VERSION') || ''
+  process.env.WORKWISE_APP_VERSION || ''
 ).trim()
 const artifactVersion = releaseAppVersion || '${version}'
 
 function normalizeUpdateChannel(raw) {
   const value = String(raw || '').trim()
   if (value === 'stable' || value === 'frontier') return value
-  throw new Error(`KUN_UPDATE_CHANNEL (or legacy DEEPSEEK_GUI_UPDATE_CHANNEL) must be "stable" or "frontier", got: ${raw}`)
+  throw new Error(`WORKWISE_UPDATE_CHANNEL must be "stable" or "frontier", got: ${raw}`)
 }
 
 if (releaseAppVersion && !/^\d+\.\d+\.\d+$/.test(releaseAppVersion)) {
   throw new Error(
-    `KUN_APP_VERSION (or legacy DEEPSEEK_GUI_APP_VERSION) must be a valid x.y.z semver for electron-updater, got: ${releaseAppVersion}`
+    `WORKWISE_APP_VERSION must be a valid x.y.z semver for electron-updater, got: ${releaseAppVersion}`
   )
 }
 
 module.exports = {
-  // appId 永远保持旧值,即使品牌已改名 Kun:
+  // Historical App ID must remain unchanged for in-place NSIS/Squirrel upgrades.
   //  - macOS 端 Squirrel.Mac 校验更新包签名时锚定 bundle identifier,
   //    换了 id 老版本会拒绝安装新版本;
   //  - Windows 端 NSIS 以 appId 派生卸载 GUID,换了 id 升级安装不会
@@ -102,7 +91,7 @@ module.exports = {
   ],
   npmRebuild: true,
   directories: {
-    output: envWithLegacyFallback('KUN_DIST_DIR', 'DEEPSEEK_GUI_DIST_DIR') || 'dist'
+    output: process.env.WORKWISE_DIST_DIR || 'dist'
   },
   files: [
     'out/**/*',
@@ -159,7 +148,7 @@ module.exports = {
     sign: hasExplicitMacSigningIdentity
   },
   win: {
-    icon: './src/asset/img/workgpt.ico',
+    icon: './src/asset/img/workwise.ico',
     target: [{ target: 'nsis', arch: ['x64'] }]
   },
   nsis: {
@@ -177,7 +166,7 @@ module.exports = {
   },
   linux: {
     category: 'Development',
-    icon: './src/asset/img/deepseek.png',
+    icon: './src/asset/img/workwise.png',
     target: [{ target: 'AppImage', arch: ['x64'] }]
   },
   extraMetadata: {

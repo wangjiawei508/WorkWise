@@ -1,20 +1,21 @@
 /**
- * Kun-side mirror of the shared GUI plan contract from
- * DeepSeek-GUI's `src/shared/gui-plan.ts`.
+ * Runtime-side mirror of the shared WorkWise plan contract.
  *
- * The renderer and the Kun package live in the same repo but
- * TypeScript's `rootDir` constraint prevents Kun from
+ * The renderer and runtime package live in the same repo but
+ * TypeScript's `rootDir` constraint prevents the runtime from
  * referencing the renderer-side file at build time. The values and
  * types are therefore re-declared here; the renderer remains the
  * canonical owner of the source of truth. Keep the two files in
  * sync when changing the public surface.
  */
 
-export const GUI_PLAN_RELATIVE_DIR = '.kunsdd/plan'
+export const GUI_PLAN_RELATIVE_DIR = '.workwise/plans'
 export const GUI_PLAN_LEGACY_RELATIVE_DIR = '.deepseekgui/plan'
+export const GUI_PLAN_KUN_LEGACY_RELATIVE_DIR = '.kunsdd/plan'
 export const GUI_PLAN_ACCEPTED_RELATIVE_DIRS = [
   GUI_PLAN_RELATIVE_DIR,
-  GUI_PLAN_LEGACY_RELATIVE_DIR
+  GUI_PLAN_LEGACY_RELATIVE_DIR,
+  GUI_PLAN_KUN_LEGACY_RELATIVE_DIR
 ] as const
 
 export const GUI_PLAN_CREATE_PLAN_TOOL_NAME = 'create_plan'
@@ -89,7 +90,7 @@ export function validateCreatePlanToolInput(input: Partial<CreatePlanToolInput>)
     if (!path) {
       issues.push('plan_relative_path must be non-empty when supplied')
     } else if (!isGuiPlanRelativePath(path)) {
-      issues.push('plan_relative_path must be a direct Markdown file under .kunsdd/plan')
+      issues.push('plan_relative_path must be a direct Markdown file under .workwise/plans')
     }
   }
   if (input.plan_id != null && typeof input.plan_id !== 'string') {

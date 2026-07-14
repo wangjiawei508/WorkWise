@@ -1,6 +1,6 @@
 import { readBrowserStorageItem, writeBrowserStorageItem } from './browser-storage'
 
-export const PREFERRED_EDITOR_STORAGE_KEY = 'kun.editor.preferredId'
+export const PREFERRED_EDITOR_STORAGE_KEY = 'workwise.editor.preferredId'
 
 export function readPreferredEditorId(): string | undefined {
   const value = readBrowserStorageItem(PREFERRED_EDITOR_STORAGE_KEY)?.trim()

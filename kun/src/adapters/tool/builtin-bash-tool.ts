@@ -1,6 +1,6 @@
-import { mkdir } from 'node:fs/promises'
 import { randomUUID } from 'node:crypto'
-import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
+import type { ChildProcessWithoutNullStreams } from 'node:child_process'
+import { rm } from 'node:fs/promises'
 import { LocalToolHost, type LocalTool } from './local-tool-host.js'
 import { OutputAccumulator } from './output-accumulator.js'
 import { DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES, formatSize } from './truncate.js'
@@ -16,6 +16,8 @@ import {
   withToolBoundary,
   workspaceRoot
 } from './builtin-tool-utils.js'
+import { safeSpawn } from './safe-spawn.js'
+import { RUNTIME_RESOURCE_LIMITS_V1 } from '../../contracts/resource-limits.js'
 
 const DEFAULT_BASH_YIELD_SECONDS = 10
 const MAX_BASH_YIELD_SECONDS = 60
@@ -39,6 +41,7 @@ type BashSession = {
   error?: string
   stopRequested: boolean
   finalized: boolean
+  rawOutputBytes: number
   exitWaiters: Set<() => void>
 }
 
@@ -68,6 +71,30 @@ type BashPayload = {
 }
 
 const bashSessions = new Map<string, BashSession>()
+let activeTemporaryOutputBytes = 0
+
+async function disposeSession(session: BashSession): Promise<void> {
+  activeTemporaryOutputBytes = Math.max(0, activeTemporaryOutputBytes - session.rawOutputBytes)
+  session.rawOutputBytes = 0
+  await session.output.closeTempFile().catch(() => undefined)
+  const path = session.output.snapshot().fullOutputPath
+  if (path) await rm(path, { force: true }).catch(() => undefined)
+  bashSessions.delete(session.id)
+}
+
+export async function stopAllBashSessions(reason = 'application_exit'): Promise<number> {
+  const running = [...bashSessions.values()].filter((session) => session.status === 'running')
+  for (const session of running) {
+    session.stopRequested = true
+    terminateSpawnTree(session.child)
+  }
+  await Promise.all(running.map((session) => waitForSessionExitOrDelay(session, STOP_GRACE_MS)))
+  for (const session of running) {
+    if (session.status === 'running') settleSession(session, 'failed', null, reason)
+  }
+  await Promise.all([...bashSessions.values()].map(disposeSession))
+  return running.length
+}
 
 async function bashExecute(
   command: string,
@@ -87,16 +114,15 @@ async function bashExecute(
   truncated: TextSlice
   fullOutputPath?: string
 }> {
-  await mkdir(cwd, { recursive: true })
   const shellRuntime = shellRuntimeInfo()
   let resultShell = shellRuntime.name
   const child = execOperation
     ? null
-    : spawn(shellRuntime.shell, shellCommandArgs(shellRuntime, command), {
+    : await safeSpawn(shellRuntime.shell, shellCommandArgs(shellRuntime, command), {
         cwd,
+        workspace: cwd,
         env: process.env,
         detached: process.platform !== 'win32',
-        stdio: ['ignore', 'pipe', 'pipe'],
         windowsHide: true
       })
   let timedOut = false
@@ -104,12 +130,24 @@ async function bashExecute(
   const output = new OutputAccumulator({
     maxLines: DEFAULT_MAX_LINES,
     maxBytes: DEFAULT_MAX_BYTES,
-    tempFilePrefix: 'kun-bash'
+    tempFilePrefix: 'workwise-shell'
   })
   let updateDirty = false
+  let rawOutputBytes = 0
+  let outputLimitExceeded = false
   let updateTimer: NodeJS.Timeout | undefined
   let lastUpdateAt = 0
   const handleData = (chunk: Buffer) => {
+    rawOutputBytes += chunk.byteLength
+    activeTemporaryOutputBytes += chunk.byteLength
+    if (
+      rawOutputBytes > RUNTIME_RESOURCE_LIMITS_V1.shellRawBytes ||
+      activeTemporaryOutputBytes > RUNTIME_RESOURCE_LIMITS_V1.temporaryToolOutputBytes
+    ) {
+      outputLimitExceeded = true
+      kill()
+      return
+    }
     output.append(chunk)
     scheduleUpdate()
   }
@@ -165,6 +203,7 @@ async function bashExecute(
   }, timeoutSeconds * 1000)
   const onAbort = () => kill()
   let exitCode: number | null
+  let executionError: unknown
   if (execOperation) {
     try {
       const result = await execOperation(command, cwd, {
@@ -174,6 +213,9 @@ async function bashExecute(
       })
       exitCode = result.exitCode
       resultShell = result.shell ?? resultShell
+    } catch (error) {
+      executionError = error
+      exitCode = null
     } finally {
       settled = true
       clearTimeout(timer)
@@ -197,17 +239,24 @@ async function bashExecute(
     })
   }
 
+  output.finish()
+  await emitUpdate()
+  const snapshot = output.snapshot({ persistIfTruncated: true })
+  await output.closeTempFile()
+  activeTemporaryOutputBytes = Math.max(0, activeTemporaryOutputBytes - rawOutputBytes)
+
+  if (executionError) throw executionError
+
   if (signal.aborted) {
     throw new Error('command aborted')
   }
   if (timedOut) {
     throw new Error(`command timed out after ${timeoutSeconds} seconds`)
   }
+  if (outputLimitExceeded) {
+    throw Object.assign(new Error('shell output exceeded its hard limit'), { code: 'resource_limit' })
+  }
 
-  output.finish()
-  await emitUpdate()
-  const snapshot = output.snapshot({ persistIfTruncated: true })
-  await output.closeTempFile()
   const truncated: TextSlice = {
     text: snapshot.content,
     truncated: snapshot.truncation.truncated,
@@ -232,7 +281,7 @@ function createOutputAccumulator(): OutputAccumulator {
   return new OutputAccumulator({
     maxLines: DEFAULT_MAX_LINES,
     maxBytes: DEFAULT_MAX_BYTES,
-    tempFilePrefix: 'kun-bash'
+    tempFilePrefix: 'workwise-shell'
   })
 }
 
@@ -329,7 +378,7 @@ async function sessionPayload(
 
 function scheduleSessionCleanup(session: BashSession): void {
   const timer = setTimeout(() => {
-    if (session.status !== 'running') bashSessions.delete(session.id)
+    if (session.status !== 'running') void disposeSession(session)
   }, FINISHED_SESSION_RETENTION_MS)
   timer.unref?.()
 }
@@ -391,13 +440,28 @@ async function startBashSession(
   },
   onUpdate?: (update: { output: unknown; isError?: boolean }) => Promise<void> | void
 ): Promise<{ payload: BashPayload; isError?: boolean }> {
-  await mkdir(input.cwd, { recursive: true })
+  const runningProcessCount = [...bashSessions.values()].filter(
+    (session) => session.status === 'running'
+  ).length
+  if (runningProcessCount >= RUNTIME_RESOURCE_LIMITS_V1.processesApplication) {
+    throw Object.assign(new Error('the application process limit has been reached'), {
+      code: 'resource_limit'
+    })
+  }
+  const workspaceProcessCount = [...bashSessions.values()].filter(
+    (session) => session.status === 'running' && session.cwd === input.cwd
+  ).length
+  if (workspaceProcessCount >= RUNTIME_RESOURCE_LIMITS_V1.processesPerWorkspace) {
+    throw Object.assign(new Error('the workspace process limit has been reached'), {
+      code: 'resource_limit'
+    })
+  }
   const shellRuntime = shellRuntimeInfo()
-  const child = spawn(shellRuntime.shell, shellCommandArgs(shellRuntime, input.command), {
+  const child = await safeSpawn(shellRuntime.shell, shellCommandArgs(shellRuntime, input.command), {
     cwd: input.cwd,
+    workspace: input.cwd,
     env: process.env,
     detached: process.platform !== 'win32',
-    stdio: ['pipe', 'pipe', 'pipe'],
     windowsHide: true
   })
   const session: BashSession = {
@@ -412,6 +476,7 @@ async function startBashSession(
     status: 'running',
     stopRequested: false,
     finalized: false,
+    rawOutputBytes: 0,
     exitWaiters: new Set()
   }
   bashSessions.set(session.id, session)
@@ -442,7 +507,18 @@ async function startBashSession(
   }
   const handleData = (chunk: Buffer | string) => {
     if (session.finalized) return
-    session.output.append(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk))
+    const data = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)
+    session.rawOutputBytes += data.byteLength
+    activeTemporaryOutputBytes += data.byteLength
+    if (
+      session.rawOutputBytes > RUNTIME_RESOURCE_LIMITS_V1.shellRawBytes ||
+      activeTemporaryOutputBytes > RUNTIME_RESOURCE_LIMITS_V1.temporaryToolOutputBytes
+    ) {
+      terminateSpawnTree(session.child)
+      settleSession(session, 'failed', null, 'shell output exceeded a hard limit')
+      return
+    }
+    session.output.append(data)
     scheduleUpdate()
   }
   child.stdout.on('data', handleData)

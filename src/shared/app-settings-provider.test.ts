@@ -5,7 +5,7 @@ import {
   DEFAULT_AGNES_TEXT_MODEL,
   defaultClawSettings,
   defaultKeyboardShortcuts,
-  defaultKunRuntimeSettings,
+  defaultManagedRuntimeSettings,
   defaultModelProviderSettings,
   normalizeModelProviderSettings,
   getModelProviderPreset,
@@ -13,7 +13,7 @@ import {
   defaultScheduleSettings,
   defaultWriteSettings,
   resolveKunImageGenerationSettings,
-  resolveKunRuntimeSettings,
+  resolveManagedRuntimeSettings,
   type AppSettingsV1
 } from './app-settings'
 
@@ -39,7 +39,7 @@ function settings(): AppSettingsV1 {
     },
     agents: {
       kun: {
-        ...defaultKunRuntimeSettings(),
+        ...defaultManagedRuntimeSettings(),
         providerId: 'custom',
         model: 'custom-model'
       }
@@ -93,15 +93,15 @@ describe('model provider settings', () => {
     }))
   })
 
-  it('resolves Kun runtime credentials from the selected provider', () => {
-    const runtime = resolveKunRuntimeSettings(settings())
+  it('resolves WorkWise Runtime runtime credentials from the selected provider', () => {
+    const runtime = resolveManagedRuntimeSettings(settings())
 
     expect(runtime.apiKey).toBe('sk-custom')
     expect(runtime.baseUrl).toBe('https://custom.example/v1')
     expect(runtime.endpointFormat).toBe('messages')
   })
 
-  it('creates Xiaomi and MiniMax provider presets for Kun runtime profiles', () => {
+  it('creates Xiaomi and MiniMax provider presets for WorkWise Runtime runtime profiles', () => {
     const xiaomi = getModelProviderPreset('xiaomi')
     const minimax = getModelProviderPreset('minimax')
 
@@ -130,7 +130,7 @@ describe('model provider settings', () => {
     const minimax = getModelProviderPreset('minimax')
     expect(minimax).not.toBeNull()
     const minimaxProfile = modelProviderPresetProfile(minimax!, 'sk-minimax')
-    const resolved = resolveKunRuntimeSettings({
+    const resolved = resolveManagedRuntimeSettings({
       ...settings(),
       provider: {
         ...defaultModelProviderSettings(),
@@ -141,7 +141,7 @@ describe('model provider settings', () => {
       },
       agents: {
         kun: {
-          ...defaultKunRuntimeSettings(),
+          ...defaultManagedRuntimeSettings(),
           providerId: minimaxProfile.id,
           model: minimaxProfile.models[0]
         }
@@ -175,9 +175,9 @@ describe('model provider settings', () => {
       },
       agents: {
         kun: {
-          ...defaultKunRuntimeSettings(),
+          ...defaultManagedRuntimeSettings(),
           imageGeneration: {
-            ...defaultKunRuntimeSettings().imageGeneration,
+            ...defaultManagedRuntimeSettings().imageGeneration,
             enabled: true,
             providerId: minimaxProfile.id
           }

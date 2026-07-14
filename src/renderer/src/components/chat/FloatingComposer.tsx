@@ -35,7 +35,7 @@ import {
   X
 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
-import type { ModelProviderModelGroup } from '@shared/kun-gui-api'
+import type { ModelProviderModelGroup } from '@shared/workwise-api'
 import type { WorkspaceEntry } from '@shared/workspace-file'
 import type { AttachmentReference, ReviewTarget } from '../../agent/types'
 import { useChatStore } from '../../store/chat-store'
@@ -353,7 +353,7 @@ async function loadWorkspaceFileIndex(workspaceRoot: string): Promise<WorkspaceF
       const current = queue.shift()
       if (!current) break
       visitedDirectories += 1
-      const result = await window.kunGui.listWorkspaceDirectory({
+      const result = await window.workwise.listWorkspaceDirectory({
         workspaceRoot: root,
         path: current.path
       })
@@ -605,9 +605,14 @@ export function FloatingComposer({
   const [composerMenuOpen, setComposerMenuOpen] = useState(false)
   const [goalPanelOpen, setGoalPanelOpen] = useState(false)
   const [goalRuntimeNowMs, setGoalRuntimeNowMs] = useState(() => Date.now())
+  const [reviewRepositoryRoot, setReviewRepositoryRoot] = useState('')
   const composerRootRef = useRef<HTMLDivElement | null>(null)
   const composerMenuButtonRef = useRef<HTMLButtonElement | null>(null)
   const composerMenuPanelRef = useRef<HTMLDivElement | null>(null)
+
+  useEffect(() => {
+    setReviewRepositoryRoot('')
+  }, [effectiveWorkspaceRoot])
   const goalPanelRef = useRef<HTMLDivElement | null>(null)
   const goalRuntimeStartedAtRef = useRef<number | null>(null)
   const placeholder = !runtimeReady
@@ -961,7 +966,10 @@ export function FloatingComposer({
     }
     if (commandId === 'review' && onReviewCommand) {
       setInput('')
-      void onReviewCommand({ kind: 'uncommittedChanges' })
+      void onReviewCommand({
+        kind: 'uncommittedChanges',
+        repositoryRoot: reviewRepositoryRoot || undefined
+      })
       draft.focusComposer()
       return
     }
@@ -1125,7 +1133,10 @@ export function FloatingComposer({
         const command = slashCommands.find((item) => item.id === 'review')
         if (command?.disabled) return
         setInput('')
-        void onReviewCommand(reviewCommand)
+        void onReviewCommand({
+          ...reviewCommand,
+          repositoryRoot: reviewRepositoryRoot || reviewCommand.repositoryRoot
+        })
         draft.focusComposer()
         return
       }
@@ -1299,7 +1310,7 @@ export function FloatingComposer({
       const paths: string[] = []
       for (const file of pathFiles) {
         try {
-          const path = window.kunGui.getPathForFile(file)
+          const path = window.workwise.getPathForFile(file)
           if (path) paths.push(path)
         } catch {
           // ignore files we cannot resolve a filesystem path for
@@ -1925,7 +1936,10 @@ export function FloatingComposer({
       {compact ? null : (
         <div className="ds-composer-footer mt-1 flex min-h-7 flex-wrap items-center justify-between gap-x-2.5 gap-y-1.5 px-3">
           <div className="ds-composer-footer-left flex min-w-0 flex-1 flex-wrap items-center gap-2">
-            <GitBranchPicker workspaceRoot={effectiveWorkspaceRoot} />
+            <GitBranchPicker
+              workspaceRoot={effectiveWorkspaceRoot}
+              onRepositoryRootChange={setReviewRepositoryRoot}
+            />
             {showThreadUsageFooter ? (
               <div
                 className="ds-composer-usage ds-no-drag inline-flex min-h-7 max-w-full min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5 overflow-visible rounded-lg border border-ds-border-muted bg-ds-card/72 px-2.5 py-0.5 text-[12.5px] font-medium leading-5 text-ds-muted shadow-sm"

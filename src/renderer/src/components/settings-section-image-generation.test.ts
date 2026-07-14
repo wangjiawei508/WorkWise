@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
-import { defaultKunRuntimeSettings } from '@shared/app-settings'
+import { defaultManagedRuntimeSettings } from '@shared/app-settings'
 import { SettingsSidebar } from './SettingsSidebar'
 import { ImageGenerationSettingsSection } from './settings-section-image-generation'
 
@@ -42,7 +42,7 @@ describe('ImageGenerationSettingsSection', () => {
       ctx: {
         t,
         kun: {
-          ...defaultKunRuntimeSettings(),
+          ...defaultManagedRuntimeSettings(),
           imageGeneration: {
             enabled: true,
             baseUrl: 'https://images.example.com/v1',

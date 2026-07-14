@@ -17,12 +17,12 @@ import {
 } from 'lucide-react'
 import { SettingsCard } from './settings-controls'
 
-const WORKGPT_GITHUB_URL = 'https://github.com/wangjiawei508/WorkWise'
+const WORKWISE_GITHUB_URL = 'https://github.com/wangjiawei508/WorkWise'
 const WORKWISE_PRODUCT_URL = 'https://www.railwise.cn/products/workwise/'
-const WORKGPT_ISSUES_URL = 'https://github.com/wangjiawei508/WorkWise/issues'
-const WORKGPT_README_URL = 'https://github.com/wangjiawei508/WorkWise#readme'
-const WORKGPT_GUIDE_URL = 'https://github.com/wangjiawei508/WorkWise/blob/main/docs/USER_GUIDE.zh-CN.md'
-const WORKGPT_AUTHOR_URL = 'https://github.com/wangjiawei508'
+const WORKWISE_ISSUES_URL = 'https://github.com/wangjiawei508/WorkWise/issues'
+const WORKWISE_README_URL = 'https://github.com/wangjiawei508/WorkWise#readme'
+const WORKWISE_GUIDE_URL = 'https://github.com/wangjiawei508/WorkWise/blob/main/docs/USER_GUIDE.zh-CN.md'
+const WORKWISE_AUTHOR_URL = 'https://github.com/wangjiawei508'
 
 function HelpLinkButton({
   href,
@@ -36,7 +36,7 @@ function HelpLinkButton({
   return (
     <button
       type="button"
-onClick={() => void window.kunGui?.openExternal?.(href)?.catch(() => undefined)}
+onClick={() => void window.workwise?.openExternal?.(href)?.catch(() => undefined)}
       className="inline-flex min-h-9 items-center gap-2 rounded-xl border border-ds-border bg-ds-card px-3 py-2 text-[13px] font-medium text-ds-ink shadow-sm transition hover:bg-ds-hover"
     >
       {icon}
@@ -90,12 +90,12 @@ export function HelpSettingsSection({ ctx }: { ctx: Record<string, any> }): Reac
           <p className="text-[13px] leading-6 text-ds-muted">{t('helpIntro')}</p>
           <div className="mt-4 flex flex-wrap gap-2">
             <HelpLinkButton
-              href={WORKGPT_GUIDE_URL}
+              href={WORKWISE_GUIDE_URL}
               icon={<BookOpen className="h-4 w-4" strokeWidth={1.8} />}
               label={t('helpOpenGuide')}
             />
             <HelpLinkButton
-              href={WORKGPT_GITHUB_URL}
+              href={WORKWISE_GITHUB_URL}
               icon={<Github className="h-4 w-4" strokeWidth={1.8} />}
               label={t('helpOpenGithub')}
             />
@@ -105,17 +105,17 @@ export function HelpSettingsSection({ ctx }: { ctx: Record<string, any> }): Reac
               label={t('helpOpenReleases')}
             />
             <HelpLinkButton
-              href={WORKGPT_README_URL}
+              href={WORKWISE_README_URL}
               icon={<FileText className="h-4 w-4" strokeWidth={1.8} />}
               label={t('helpOpenReadme')}
             />
             <HelpLinkButton
-              href={WORKGPT_ISSUES_URL}
+              href={WORKWISE_ISSUES_URL}
               icon={<ExternalLink className="h-4 w-4" strokeWidth={1.8} />}
               label={t('helpOpenIssues')}
             />
             <HelpLinkButton
-              href={WORKGPT_AUTHOR_URL}
+              href={WORKWISE_AUTHOR_URL}
               icon={<UserRound className="h-4 w-4" strokeWidth={1.8} />}
               label={t('helpOpenAuthor')}
             />

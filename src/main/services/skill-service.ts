@@ -1,5 +1,6 @@
 import { existsSync, readdirSync } from 'node:fs'
-import { cp, mkdir, mkdtemp, readdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
+import { cp, lstat, mkdir, mkdtemp, readdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
+import { randomUUID } from 'node:crypto'
 import { homedir } from 'node:os'
 import { basename, dirname, join, resolve } from 'node:path'
 import type { AppSettingsV1 } from '../../shared/app-settings'
@@ -10,9 +11,12 @@ import type {
   GithubSkillSource,
   GithubSkillSyncResult,
   SkillListItem
-} from '../../shared/kun-gui-api'
+} from '../../shared/workwise-api'
 import { systemFetch } from './system-network'
 import { expandHomePath, normalizeSkillFolderName } from './workspace-service'
+import { LEGACY_SKILL_SOURCE_METADATA_FILE } from '../compat/legacy-metadata'
+import { resolveContainedPath } from './canonical-containment'
+import { SKILL_PACKAGE_LIMITS, validateSkillPackage } from './skill-package-security'
 
 export type GuiSkillScope = 'project' | 'global'
 export type GuiSkillSource = NonNullable<SkillListItem['source']>
@@ -59,7 +63,7 @@ type GithubCommitResponse = {
   sha?: string
 }
 
-const SKILL_SOURCE_METADATA_FILE = '.workgpt-skill-source.json'
+const SKILL_SOURCE_METADATA_FILE = '.workwise-skill-source.json'
 const DEFAULT_GITHUB_REF = 'main'
 const MAX_GITHUB_SKILL_FILES = 512
 const MAX_GITHUB_SKILL_BYTES = 8 * 1024 * 1024
@@ -91,6 +95,7 @@ export async function guiSkillRootsForRuntime(
     process.env.CODEX_HOME ? join(normalizeSkillRootPath(process.env.CODEX_HOME), 'skills') : '',
     join(homedir(), '.codex', 'skills'),
     join(homedir(), '.agents', 'skills'),
+    join(homedir(), '.workwise', 'skills'),
     join(homedir(), '.kun', 'skills'),
     ...await discoverCodexPluginSkillRoots()
   ]
@@ -191,7 +196,7 @@ export async function installGithubSkill(
     }
 
     await mkdir(root, { recursive: true })
-    const tempDir = await mkdtemp(join(root, `.workgpt-install-${skillName}-`))
+    const tempDir = await mkdtemp(join(root, `.workwise-install-${skillName}-`))
     try {
       await downloadGithubSkillDirectory(requestedSource, tempDir)
       await writeSkillSourceMetadata(tempDir, {
@@ -199,6 +204,7 @@ export async function installGithubSkill(
         installedSha: latestSha,
         installedAt: new Date().toISOString()
       })
+      await validateSkillPackage(tempDir)
       await replaceSkillDirectory(targetDir, tempDir)
     } catch (error) {
       await rm(tempDir, { recursive: true, force: true }).catch(() => undefined)
@@ -234,15 +240,17 @@ export async function installBundledSkill(
       autoUpdate: false
     }
     await assertCanInstallIntoTarget(targetDir, requestedSource)
+    await validateSkillPackage(sourceDir)
 
     await mkdir(root, { recursive: true })
-    const tempDir = await mkdtemp(join(root, `.workgpt-install-${skillName}-`))
+    const tempDir = await mkdtemp(join(root, `.workwise-install-${skillName}-`))
     try {
       await cp(sourceDir, tempDir, { recursive: true, force: true })
       await writeSkillSourceMetadata(tempDir, {
         ...requestedSource,
         installedAt: new Date().toISOString()
       })
+      await validateSkillPackage(tempDir)
       await replaceSkillDirectory(targetDir, tempDir)
     } catch (error) {
       await rm(tempDir, { recursive: true, force: true }).catch(() => undefined)
@@ -352,18 +360,25 @@ async function packageCandidates(root: string): Promise<string[]> {
 }
 
 async function loadSkillSummary(root: string, scope: GuiSkillScope): Promise<GuiSkillSummary | null> {
+  await validateSkillPackage(root)
   const source = sourceForList(await readSkillSourceMetadata(root).catch(() => undefined))
   const manifestPath = join(root, 'skill.json')
   if (existsSync(manifestPath)) {
     const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as Record<string, unknown>
     const name = stringValue(manifest.name) || titleFromSlug(basename(root))
     const entry = stringValue(manifest.entry) || 'SKILL.md'
+    const entryPath = await resolveContainedPath({
+      root,
+      target: entry,
+      mustExist: true,
+      expect: 'file'
+    })
     return {
       id: slug(stringValue(manifest.id) || name || basename(root)),
       name,
       ...(stringValue(manifest.description) ? { description: stringValue(manifest.description) } : {}),
       root,
-      entryPath: join(root, entry),
+      entryPath,
       scope,
       legacy: false,
       ...(source ? { source } : {})
@@ -388,14 +403,28 @@ async function loadSkillSummary(root: string, scope: GuiSkillScope): Promise<Gui
 
 async function assertCanInstallIntoTarget(targetDir: string, source: SkillSourceMetadata): Promise<void> {
   if (!existsSync(targetDir)) return
+  const info = await lstat(targetDir)
+  if (info.isSymbolicLink() || !info.isDirectory()) {
+    throw new Error(`Skill target is not a safe directory: ${basename(targetDir)}.`)
+  }
   const existing = await readSkillSourceMetadata(targetDir).catch(() => undefined)
   if (skillSourceCanReplace(existing, source)) return
   throw new Error(`Skill "${basename(targetDir)}" already exists and is not managed by this source.`)
 }
 
 async function replaceSkillDirectory(targetDir: string, tempDir: string): Promise<void> {
-  await rm(targetDir, { recursive: true, force: true })
-  await rename(tempDir, targetDir)
+  const backupDir = `${targetDir}.workwise-backup-${randomUUID()}`
+  const hadTarget = existsSync(targetDir)
+  if (hadTarget) await rename(targetDir, backupDir)
+  try {
+    await rename(tempDir, targetDir)
+    await rm(backupDir, { recursive: true, force: true })
+  } catch (error) {
+    if (hadTarget && !existsSync(targetDir) && existsSync(backupDir)) {
+      await rename(backupDir, targetDir).catch(() => undefined)
+    }
+    throw error
+  }
 }
 
 async function writeSkillSourceMetadata(root: string, source: SkillSourceMetadata): Promise<void> {
@@ -407,8 +436,10 @@ async function writeSkillSourceMetadata(root: string, source: SkillSourceMetadat
 }
 
 async function readSkillSourceMetadata(root: string): Promise<SkillSourceMetadata | undefined> {
-  const path = join(root, SKILL_SOURCE_METADATA_FILE)
-  if (!existsSync(path)) return undefined
+  const path = [SKILL_SOURCE_METADATA_FILE, LEGACY_SKILL_SOURCE_METADATA_FILE]
+    .map((name) => join(root, name))
+    .find((candidate) => existsSync(candidate))
+  if (!path) return undefined
   const raw = JSON.parse(await readFile(path, 'utf8')) as unknown
   const record = objectValue(raw)
   if (!record) return undefined
@@ -523,6 +554,7 @@ async function downloadGithubSkillDirectory(
   if (!existsSync(join(destination, 'SKILL.md')) && !existsSync(join(destination, 'skill.json'))) {
     throw new Error('GitHub Skill directory must contain SKILL.md or skill.json.')
   }
+  await validateSkillPackage(destination)
 }
 
 async function downloadGithubEntry(
@@ -548,8 +580,12 @@ async function downloadGithubDirectory(
   source: GithubSkillSourceMetadata,
   githubPath: string,
   destination: string,
-  state: { files: number; bytes: number }
+  state: { files: number; bytes: number },
+  depth = 0
 ): Promise<void> {
+  if (depth > SKILL_PACKAGE_LIMITS.maxDepth) {
+    throw new Error(`GitHub Skill directory depth exceeds ${SKILL_PACKAGE_LIMITS.maxDepth}.`)
+  }
   const entries = await fetchGithubJson<GithubContentEntry[] | GithubContentEntry>(
     githubContentsUrl(source, githubPath)
   )
@@ -561,10 +597,12 @@ async function downloadGithubDirectory(
     const entryName = normalizeGithubEntryName(entry.name)
     const entryPath = normalizeGithubPath(stringValue(entry.path))
     if (entry.type === 'dir') {
-      await downloadGithubDirectory(source, entryPath, join(destination, entryName), state)
+      await downloadGithubDirectory(source, entryPath, join(destination, entryName), state, depth + 1)
       continue
     }
-    if (entry.type !== 'file') continue
+    if (entry.type !== 'file') {
+      throw new Error(`GitHub Skill contains an unsupported entry type: ${entryPath}.`)
+    }
     await downloadGithubFile(entry, join(destination, entryName), state)
   }
 }
@@ -582,11 +620,17 @@ async function downloadGithubFile(
     throw new Error(`GitHub Skill has too many files; limit is ${MAX_GITHUB_SKILL_FILES}.`)
   }
   const size = typeof entry.size === 'number' && Number.isFinite(entry.size) ? entry.size : 0
+  if (size > SKILL_PACKAGE_LIMITS.maxFileBytes) {
+    throw new Error(`GitHub Skill file exceeds 1 MiB: ${entryPath}.`)
+  }
   state.bytes += Math.max(0, size)
   if (state.bytes > MAX_GITHUB_SKILL_BYTES) {
     throw new Error(`GitHub Skill is too large; limit is ${Math.round(MAX_GITHUB_SKILL_BYTES / 1024 / 1024)}MB.`)
   }
   const bytes = await fetchGithubBytes(downloadUrl)
+  if (bytes.length > SKILL_PACKAGE_LIMITS.maxFileBytes) {
+    throw new Error(`GitHub Skill file exceeds 1 MiB: ${entryPath}.`)
+  }
   state.bytes += Math.max(0, bytes.length - size)
   if (state.bytes > MAX_GITHUB_SKILL_BYTES) {
     throw new Error(`GitHub Skill is too large; limit is ${Math.round(MAX_GITHUB_SKILL_BYTES / 1024 / 1024)}MB.`)
@@ -673,7 +717,15 @@ async function githubResponseError(response: Response): Promise<Error> {
 }
 
 function normalizeGithubPath(path: string | undefined): string {
-  return (path ?? '').trim().replace(/\\/g, '/').replace(/^\/+|\/+$/g, '')
+  const raw = (path ?? '').trim().replace(/\\/g, '/')
+  if (raw.startsWith('/') || /^[a-zA-Z]:/.test(raw)) {
+    throw new Error(`Unsafe GitHub path: ${path ?? ''}`)
+  }
+  const normalized = raw.replace(/^\/+|\/+$/g, '')
+  if (normalized.split('/').some((segment) => segment === '..' || segment === '.')) {
+    throw new Error(`Unsafe GitHub path: ${path ?? ''}`)
+  }
+  return normalized
 }
 
 function normalizeGithubIncludePaths(paths: string[] | undefined): string[] {

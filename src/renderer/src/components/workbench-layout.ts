@@ -10,10 +10,10 @@ import {
 import { WORKSPACE_FILE_PREVIEW_EVENT, type WorkspaceFilePreviewDetail } from '../lib/workspace-file-preview'
 import type { RightPanelMode } from './chat/WorkbenchTopBar'
 
-const LEFT_PANEL_WIDTH_KEY = 'kun.layout.leftSidebarWidth'
-const LEFT_PANEL_COLLAPSED_KEY = 'kun.layout.leftSidebarCollapsed'
-const RIGHT_PANEL_WIDTH_KEY = 'kun.layout.rightInspectorWidth'
-const RIGHT_PANEL_MODE_KEY = 'kun.layout.rightPanelMode'
+const LEFT_PANEL_WIDTH_KEY = 'workwise.layout.leftSidebarWidth'
+const LEFT_PANEL_COLLAPSED_KEY = 'workwise.layout.leftSidebarCollapsed'
+const RIGHT_PANEL_WIDTH_KEY = 'workwise.layout.rightInspectorWidth'
+const RIGHT_PANEL_MODE_KEY = 'workwise.layout.rightPanelMode'
 const LEFT_PANEL_DEFAULT = 304
 const RIGHT_PANEL_DEFAULT = 360
 export const CODE_PANEL_PREFERRED = 560

@@ -6,7 +6,7 @@ import type {
   CoreRuntimeInfoJson,
   CoreRuntimeSkillJson,
   CoreRuntimeToolDiagnosticsJson
-} from './kun-contract'
+} from './runtime-contract'
 import type { ApprovalPolicy, SandboxMode } from '@shared/app-settings'
 
 export type ToolItemKind = 'tool_call' | 'command_execution' | 'file_change'
@@ -188,10 +188,10 @@ export type CompactionBlock = {
 }
 
 export type ReviewTarget =
-  | { kind: 'uncommittedChanges' }
-  | { kind: 'baseBranch'; branch: string }
-  | { kind: 'commit'; sha: string }
-  | { kind: 'custom'; instructions: string }
+  | { kind: 'uncommittedChanges'; repositoryRoot?: string }
+  | { kind: 'baseBranch'; branch: string; repositoryRoot?: string }
+  | { kind: 'commit'; sha: string; repositoryRoot?: string }
+  | { kind: 'custom'; instructions: string; repositoryRoot?: string }
 
 export type ReviewFinding = {
   title: string
@@ -253,7 +253,7 @@ export type ChatBlock =
       approvalId: string
       summary: string
       toolName?: string
-      status: 'pending' | 'allowed' | 'denied' | 'error'
+      status: 'pending' | 'allowed' | 'denied' | 'expired' | 'error'
       errorMessage?: string
       meta?: RuntimeDisclosureMetadata
     }
@@ -364,7 +364,7 @@ export type ThreadErrorOptions = {
   terminal?: boolean
 }
 
-/** Cumulative usage/cost for a Kun thread. */
+/** Cumulative usage/cost for a WorkWise Runtime thread. */
 export type ThreadUsageSnapshot = {
   inputTokens: number
   outputTokens: number
@@ -385,6 +385,7 @@ export type ThreadUsageSnapshot = {
 
 export type ThreadEventSink = {
   onSeq(seq: number): void
+  onReplayReset?(seq: number): void | Promise<void>
   onDeltas(deltas: ThreadDeltaEvent[]): void
   onUserMessage(ev: UserMessageEventPayload): void
   onTool(ev: ToolEventPayload): void

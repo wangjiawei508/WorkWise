@@ -8,7 +8,7 @@ describe('RuntimeBanner', () => {
     const html = renderToStaticMarkup(createElement(RuntimeBanner, {
       message: 'Runtime request failed.',
       detail: 'Code: provider_unavailable\n\nMessage:\nprovider failed',
-      logPath: '/tmp/deepseek-gui/logs',
+      logPath: '/tmp/workwise/logs',
       runtimeReady: true,
       stageInsetClass: 'px-4',
       t: (key: string) => key,
@@ -20,7 +20,7 @@ describe('RuntimeBanner', () => {
     expect(html).toContain('Runtime request failed.')
     expect(html).toContain('runtimeErrorDetails')
     expect(html).toContain('runtimeErrorLogPath')
-    expect(html).toContain('/tmp/deepseek-gui/logs')
+    expect(html).toContain('/tmp/workwise/logs')
     expect(html).toContain('windowsMenuOpenLogDir')
   })
 })

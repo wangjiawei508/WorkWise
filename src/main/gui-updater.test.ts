@@ -38,8 +38,8 @@ beforeEach(() => {
   vi.doMock('electron', () => ({
     app: {
       isPackaged: true,
-      getAppPath: () => '/tmp/deepseek-gui-updater-test-app',
-      getPath: () => '/tmp/deepseek-gui-updater-test-user-data',
+      getAppPath: () => '/tmp/workwise-updater-test-app',
+      getPath: () => '/tmp/workwise-updater-test-user-data',
       getVersion: () => '0.1.0'
     },
     autoUpdater: nativeUpdater,
@@ -157,11 +157,6 @@ describe('gui updater source helpers', () => {
       WORKWISE_RELEASE_PREFIX: process.env.WORKWISE_RELEASE_PREFIX,
       WORKWISE_DOWNLOAD_URL: process.env.WORKWISE_DOWNLOAD_URL,
       WORKWISE_DOWNLOAD_BASE_URL: process.env.WORKWISE_DOWNLOAD_BASE_URL,
-      WORKGPT_UPDATE_URL: process.env.WORKGPT_UPDATE_URL,
-      WORKGPT_UPDATE_URL_STABLE: process.env.WORKGPT_UPDATE_URL_STABLE,
-      WORKGPT_UPDATE_PROVIDER: process.env.WORKGPT_UPDATE_PROVIDER,
-      WORKGPT_ENABLE_GITHUB_UPDATE_FALLBACK: process.env.WORKGPT_ENABLE_GITHUB_UPDATE_FALLBACK,
-      WORKGPT_DOWNLOAD_URL: process.env.WORKGPT_DOWNLOAD_URL,
       R2_PUBLIC_BASE_URL: process.env.R2_PUBLIC_BASE_URL,
       R2_RELEASE_PREFIX: process.env.R2_RELEASE_PREFIX,
       PUBLIC_DOWNLOAD_BASE_URL: process.env.PUBLIC_DOWNLOAD_BASE_URL,
@@ -176,11 +171,6 @@ describe('gui updater source helpers', () => {
     delete process.env.WORKWISE_RELEASE_PREFIX
     delete process.env.WORKWISE_DOWNLOAD_URL
     delete process.env.WORKWISE_DOWNLOAD_BASE_URL
-    delete process.env.WORKGPT_UPDATE_URL
-    delete process.env.WORKGPT_UPDATE_URL_STABLE
-    delete process.env.WORKGPT_UPDATE_PROVIDER
-    delete process.env.WORKGPT_ENABLE_GITHUB_UPDATE_FALLBACK
-    delete process.env.WORKGPT_DOWNLOAD_URL
     delete process.env.R2_PUBLIC_BASE_URL
     delete process.env.R2_RELEASE_PREFIX
     delete process.env.PUBLIC_DOWNLOAD_BASE_URL

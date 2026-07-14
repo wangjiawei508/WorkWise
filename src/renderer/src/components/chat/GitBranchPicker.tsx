@@ -1,13 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react'
 import { AlertCircle, Check, ChevronDown, GitBranch, Loader2, Plus, Search } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
-import type { GitBranchesResult } from '@shared/git-branches'
+import type { GitBranchesResult, GitRepositoryRow } from '@shared/git-branches'
 
 type Props = {
   workspaceRoot: string
+  onRepositoryRootChange?: (repositoryRoot: string) => void
 }
 
-export function GitBranchPicker({ workspaceRoot }: Props): ReactElement | null {
+export function GitBranchPicker({ workspaceRoot, onRepositoryRootChange }: Props): ReactElement | null {
   const { t } = useTranslation('common')
   const root = workspaceRoot.trim()
   const [open, setOpen] = useState(false)
@@ -16,23 +17,35 @@ export function GitBranchPicker({ workspaceRoot }: Props): ReactElement | null {
   const [loading, setLoading] = useState(false)
   const [actingBranch, setActingBranch] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [repositoryRoot, setRepositoryRoot] = useState(root)
+  const [repositories, setRepositories] = useState<GitRepositoryRow[]>([])
   const wrapRef = useRef<HTMLDivElement | null>(null)
   const inputRef = useRef<HTMLInputElement | null>(null)
 
-  const load = useCallback(async (): Promise<void> => {
-    if (!root || typeof window.kunGui?.getGitBranches !== 'function') return
+  const load = useCallback(async (targetRoot = repositoryRoot): Promise<void> => {
+    const resolvedTargetRoot = targetRoot.trim() || root
+    if (!resolvedTargetRoot || typeof window.workwise?.getGitBranches !== 'function') return
     setLoading(true)
     setError(null)
     try {
-      const next = await window.kunGui.getGitBranches(root)
+      const next = await window.workwise.getGitBranches(resolvedTargetRoot)
       setResult(next)
-      if (!next.ok) setError(next.message)
+      if (!next.ok) {
+        setError(next.message)
+      } else {
+        setRepositoryRoot(next.repositoryRoot)
+        onRepositoryRootChange?.(next.repositoryRoot)
+        setRepositories((previous) => {
+          const combined = [...previous, ...next.repositories]
+          return [...new Map(combined.map((repository) => [repository.root, repository])).values()]
+        })
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
     } finally {
       setLoading(false)
     }
-  }, [root])
+  }, [onRepositoryRootChange, repositoryRoot, root])
 
   useEffect(() => {
     setOpen(false)
@@ -40,6 +53,8 @@ export function GitBranchPicker({ workspaceRoot }: Props): ReactElement | null {
     setResult(null)
     setError(null)
     setActingBranch(null)
+    setRepositoryRoot(root)
+    setRepositories([])
   }, [root])
 
   useEffect(() => {
@@ -83,7 +98,7 @@ export function GitBranchPicker({ workspaceRoot }: Props): ReactElement | null {
     setActingBranch(branch)
     setError(null)
     try {
-      const next = await window.kunGui.switchGitBranch(root, branch)
+      const next = await window.workwise.switchGitBranch(repositoryRoot, branch)
       setResult(next)
       if (!next.ok) {
         setError(next.message)
@@ -104,7 +119,7 @@ export function GitBranchPicker({ workspaceRoot }: Props): ReactElement | null {
     setActingBranch(branch)
     setError(null)
     try {
-      const next = await window.kunGui.createAndSwitchGitBranch(root, branch)
+      const next = await window.workwise.createAndSwitchGitBranch(repositoryRoot, branch)
       setResult(next)
       if (!next.ok) {
         setError(next.message)
@@ -162,6 +177,27 @@ export function GitBranchPicker({ workspaceRoot }: Props): ReactElement | null {
           </div>
 
           <div className="max-h-[320px] overflow-y-auto px-3 py-3">
+            {repositories.length > 1 ? (
+              <div className="mb-3 border-b border-ds-border-muted pb-3">
+                <div className="mb-2 px-1 text-[13px] font-medium text-ds-faint">
+                  {t('gitRepositories')}
+                </div>
+                {repositories.map((repository) => (
+                  <button
+                    key={repository.root}
+                    type="button"
+                    className="flex w-full items-center gap-3 rounded-lg px-1 py-2 text-left text-[13px] text-ds-ink transition hover:bg-ds-hover"
+                    onClick={() => void load(repository.root)}
+                    disabled={loading || actingBranch != null}
+                  >
+                    <span className="min-w-0 flex-1 truncate">{repository.relativePath}</span>
+                    {repository.root === repositoryRoot ? (
+                      <Check className="h-4 w-4 shrink-0 text-ds-muted" strokeWidth={2} />
+                    ) : null}
+                  </button>
+                ))}
+              </div>
+            ) : null}
             <div className="mb-2 px-1 text-[13px] font-medium text-ds-faint">
               {t('gitBranches')}
             </div>

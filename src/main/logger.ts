@@ -1,8 +1,9 @@
 import { appendFile, mkdir, readdir, stat, unlink } from 'node:fs/promises'
 import { join } from 'node:path'
+import { LEGACY_LOG_FILE_PREFIXES } from './compat/legacy-log-prefixes'
 
 export type LogLevel = 'error' | 'warn' | 'info'
-export type ManagedLogFilePrefix = 'deepseek-gui' | 'kun'
+export type ManagedLogFilePrefix = 'workwise' | 'runtime'
 
 type LoggerConfig = {
   /** Directory where log files are stored. */
@@ -14,7 +15,11 @@ type LoggerConfig = {
 }
 
 let cfg: LoggerConfig = { dir: '', enabled: true, retentionDays: 2 }
-const MANAGED_LOG_FILE_PREFIXES: ManagedLogFilePrefix[] = ['deepseek-gui', 'kun']
+const MANAGED_LOG_FILE_PREFIXES: readonly string[] = [
+  'workwise',
+  'runtime',
+  ...LEGACY_LOG_FILE_PREFIXES
+]
 
 export function configureLogger(config: Partial<LoggerConfig>): void {
   cfg = { ...cfg, ...config }
@@ -76,7 +81,7 @@ export async function appendManagedLogLine(
 async function writeLogLine(level: LogLevel, category: string, message: string): Promise<void> {
   const stamp = new Date().toISOString()
   const line = `[${stamp}] [${level.toUpperCase()}] [${category}] ${message}\n`
-  await appendManagedLogLine('kun', line)
+  await appendManagedLogLine('workwise', line)
 }
 
 export function logError(category: string, message: string, detail?: unknown): void {

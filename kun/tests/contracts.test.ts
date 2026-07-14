@@ -79,7 +79,7 @@ describe('contracts', () => {
         source: {
           kind: 'plan',
           planId: 'plan_1',
-          relativePath: '.kunsdd/plan/plan.md',
+          relativePath: '.workwise/plans/plan.md',
           ordinal: 0,
           contentHash: 'abc'
         },

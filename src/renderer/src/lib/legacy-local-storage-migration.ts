@@ -1,6 +1,6 @@
 /**
- * 品牌从 DeepSeek GUI 升级为 Kun 时,localStorage 键前缀从
- * `deepseekgui.` 改成了 `kun.`。这里做一次性拷贝迁移:
+ * 历史版本使用过两组 localStorage 前缀。这里只负责将它们
+ * 一次性导入 `workwise.` 命名空间：
  *   - 只在新键不存在时拷贝,重复执行安全;
  *   - 旧键保留不删,用户回滚老版本时 UI 状态(线程注册表、布局等)
  *     仍然完整;
@@ -9,23 +9,24 @@
  *     拿到空状态。
  */
 
-const LEGACY_PREFIX = 'deepseekgui.'
-const NEW_PREFIX = 'kun.'
+const LEGACY_PREFIXES = ['deepseekgui.', 'kun.'] as const
+const NEW_PREFIX = 'workwise.'
 
 export function migrateLegacyLocalStorageKeys(storage: Pick<Storage, 'length' | 'key' | 'getItem' | 'setItem'>): number {
   let migrated = 0
-  let legacyKeys: string[] = []
+  let legacyKeys: Array<{ key: string; prefix: string }> = []
   try {
     for (let i = 0; i < storage.length; i += 1) {
       const key = storage.key(i)
-      if (key && key.startsWith(LEGACY_PREFIX)) legacyKeys.push(key)
+      const prefix = key ? LEGACY_PREFIXES.find((candidate) => key.startsWith(candidate)) : undefined
+      if (key && prefix) legacyKeys.push({ key, prefix })
     }
   } catch {
     legacyKeys = []
   }
 
-  for (const key of legacyKeys) {
-    const newKey = NEW_PREFIX + key.slice(LEGACY_PREFIX.length)
+  for (const { key, prefix } of legacyKeys) {
+    const newKey = NEW_PREFIX + key.slice(prefix.length)
     try {
       if (storage.getItem(newKey) !== null) continue
       const value = storage.getItem(key)

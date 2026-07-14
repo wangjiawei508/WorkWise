@@ -33,7 +33,9 @@ export const AttachmentUploadRequest = z.object({
   textFallback: AttachmentTextFallback.optional(),
   threadId: z.string().min(1).optional(),
   workspace: z.string().min(1).optional()
-}).strict()
+}).strict().refine((value) => Boolean(value.threadId || value.workspace), {
+  message: 'threadId or workspace is required'
+})
 export type AttachmentUploadRequest = z.infer<typeof AttachmentUploadRequest>
 
 export const AttachmentUploadResponse = z.object({

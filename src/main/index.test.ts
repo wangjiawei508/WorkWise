@@ -67,7 +67,7 @@ describe('app icon loader', () => {
     })
 
     it('passes an absolute source through unchanged', () => {
-      const absolute = 'C:\\Users\\me\\app.asar\\deepseek.png'
+      const absolute = 'C:\\Users\\me\\app.asar\\workwise.png'
       expect(mod.resolveAppIconPath(absolute, '/ignored')).toBe(absolute)
     })
 

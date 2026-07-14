@@ -100,7 +100,7 @@ export function buildRouter(runtime: ServerRuntime): Router {
   })
   router.add('GET', '/v1/attachments/:id', async (request, ctx) => {
     if (!authorize(request, runtime)) return ERRORS.unauthorized()
-    return getAttachmentMetadata(runtime.attachmentStore, ctx.params.id)
+    return getAttachmentMetadata(runtime.attachmentStore, ctx.params.id, request)
   })
   router.add('GET', '/v1/attachments/:id/content', async (request, ctx) => {
     if (!authorize(request, runtime)) return ERRORS.unauthorized()

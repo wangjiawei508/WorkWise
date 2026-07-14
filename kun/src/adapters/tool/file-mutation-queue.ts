@@ -5,7 +5,7 @@ import { join, resolve } from 'node:path'
 
 const fileMutationQueues = new Map<string, Promise<void>>()
 let registrationQueue = Promise.resolve()
-const FILE_MUTATION_LOCK_ROOT = join(tmpdir(), 'kun-file-mutation-locks')
+const FILE_MUTATION_LOCK_ROOT = join(tmpdir(), 'workwise-file-mutation-locks')
 const LOCK_OWNER_FILE = 'owner.json'
 const LOCK_POLL_MS = 25
 const LOCK_WAIT_TIMEOUT_MS = 60_000

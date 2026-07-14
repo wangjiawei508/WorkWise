@@ -32,6 +32,7 @@ import {
   parseClawUserPromptForDisplay
 } from '../shared/app-settings'
 import { parseClawCommand } from '../shared/claw-commands'
+import { readLegacyWebhookSecret } from './compat/legacy-http'
 import {
   asString,
   buildFeishuPrompt,
@@ -148,11 +149,11 @@ function imNewTopicText(settings: AppSettingsV1): string {
  */
 export function imWelcomeText(settings: AppSettingsV1, channel?: ClawImChannelV1): string {
   const profile = channel?.agentProfile
-  const name = profile?.name.trim() || channel?.label.trim() || 'Kun'
+  const name = profile?.name.trim() || channel?.label.trim() || 'WorkWise Runtime'
   const description = profile?.description.trim() ?? ''
   if (isChineseLocale(settings)) {
     return [
-      `你好，我是 ${name}，通过 Kun 连接到这个对话的 AI 助手。`,
+      `你好，我是 ${name}，通过 WorkWise Runtime 连接到这个对话的 AI 助手。`,
       ...(description ? [description] : []),
       '你可以直接发消息让我帮忙：回答问题、查资料、读写已连接电脑工作区里的文件、生成文档等，完成后我会在这里回复你。',
       imCommandHelpText(settings),
@@ -160,7 +161,7 @@ export function imWelcomeText(settings: AppSettingsV1, channel?: ClawImChannelV1
     ].join('\n\n')
   }
   return [
-    `Hi, I am ${name}, an AI assistant connected to this chat through Kun.`,
+    `Hi, I am ${name}, an AI assistant connected to this chat through WorkWise Runtime.`,
     ...(description ? [description] : []),
     'Send me a message and I will handle it on the connected computer: answering questions, research, reading and writing workspace files, generating documents — I reply here once done.',
     imCommandHelpText(settings),
@@ -901,7 +902,7 @@ export class ClawRuntime {
         { method: 'GET' }
       )
       if (!detailRes.ok) {
-        this.deps.logError('claw-feishu', 'Failed to read recent generated files from Kun thread', {
+        this.deps.logError('claw-feishu', 'Failed to read recent generated files from WorkWise Runtime thread', {
           ...context,
           threadId: targetThreadId,
           message: runtimeErrorMessage(detailRes, 'Failed to read thread result.')
@@ -913,7 +914,7 @@ export class ClawRuntime {
         maxFiles: 3
       })
     } catch (error) {
-      this.deps.logError('claw-feishu', 'Failed to inspect Kun thread for recent generated files', {
+      this.deps.logError('claw-feishu', 'Failed to inspect WorkWise Runtime thread for recent generated files', {
         ...context,
         threadId: targetThreadId,
         message: errorMessage(error)
@@ -1555,13 +1556,13 @@ export class ClawRuntime {
       if (url.pathname === '/claw/internal/gui-plan/create' && req.method === 'POST') {
         // The legacy `gui_plan_create` MCP bridge is no longer the
         // active plan path. GUI plan creation now flows through the
-        // native Kun `create_plan` tool. Reject legacy calls
+        // native WorkWise Runtime `create_plan` tool. Reject legacy calls
         // loudly so older clients see a clear migration error.
         writeJson(res, 410, {
           ok: false,
           code: 'gui_plan_create_retired',
           message:
-            'The /claw/internal/gui-plan/create endpoint is no longer active. Use the Kun create_plan tool.'
+            'The /claw/internal/gui-plan/create endpoint is no longer active. Use the WorkWise Runtime create_plan tool.'
         })
         return
       }
@@ -1575,9 +1576,7 @@ export class ClawRuntime {
       }
       if (im.secret) {
         const auth = req.headers.authorization ?? ''
-        // 新名字 x-kun-secret 优先;旧名字 x-deepseek-gui-secret 已配置
-        // 在外部系统里,属于对外契约,必须长期兼容。
-        const rawHeaderSecret = req.headers['x-kun-secret'] ?? req.headers['x-deepseek-gui-secret']
+        const rawHeaderSecret = req.headers['x-workwise-secret'] ?? readLegacyWebhookSecret(req.headers)
         const headerSecret = Array.isArray(rawHeaderSecret) ? rawHeaderSecret[0] : rawHeaderSecret
         if (auth !== `Bearer ${im.secret}` && headerSecret !== im.secret) {
           writeJson(res, 401, { ok: false, message: 'Unauthorized.' })

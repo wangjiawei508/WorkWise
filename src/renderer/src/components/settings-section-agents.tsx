@@ -11,10 +11,10 @@ import {
   DEFAULT_WRITE_INLINE_COMPLETION_MAX_TOKENS,
   DEFAULT_WRITE_INLINE_COMPLETION_MODEL,
   DEFAULT_WRITE_INLINE_LONG_COMPLETION_MAX_TOKENS,
-  DEFAULT_KUN_DATA_DIR,
+  DEFAULT_MANAGED_RUNTIME_DATA_DIR,
   WRITE_INLINE_COMPLETION_MODEL_IDS,
   defaultModelProviderSettings,
-  isKunRuntimeInsecure,
+  isManagedRuntimeInsecure,
 } from '@shared/app-settings'
 import type { GuiUpdateChannel } from '@shared/gui-update'
 import type { SkillRootId } from '../lib/skill-root-preference'
@@ -126,8 +126,8 @@ function usageNumber(value: unknown): number {
 }
 
 async function loadTokenEconomySavingsSummary(): Promise<TokenEconomySavingsSummary | null> {
-  if (typeof window === 'undefined' || typeof window.kunGui?.runtimeRequest !== 'function') return null
-  const response = await window.kunGui.runtimeRequest('/v1/usage?group_by=thread', 'GET')
+  if (typeof window === 'undefined' || typeof window.workwise?.runtimeRequest !== 'function') return null
+  const response = await window.workwise.runtimeRequest('/v1/usage?group_by=thread', 'GET')
   if (!response.ok || !response.body.trim()) return null
   const parsed = parseUsageResponse<{ totals?: Record<string, unknown> }>(response.body, 'token economy usage')
   const totals = parsed.totals ?? {}
@@ -518,7 +518,7 @@ export function AgentsSettingsSection({ ctx }: { ctx: Record<string, any> }): Re
                     control={
                       <input
                         className="w-full min-w-0 rounded-xl border border-ds-border bg-ds-card px-3 py-2 text-[14px] text-ds-ink shadow-sm focus:border-accent/40 focus:outline-none focus:ring-1 focus:ring-accent/30 md:max-w-md"
-                        placeholder={DEFAULT_KUN_DATA_DIR}
+                        placeholder={DEFAULT_MANAGED_RUNTIME_DATA_DIR}
                         value={kun.dataDir}
                         onChange={(e) => updateKun({ dataDir: e.target.value })}
                       />
@@ -706,7 +706,7 @@ export function AgentsSettingsSection({ ctx }: { ctx: Record<string, any> }): Re
                     }
                     control={
                       <Toggle
-                        checked={isKunRuntimeInsecure(kun)}
+                        checked={isManagedRuntimeInsecure(kun)}
                         disabled={!kun.runtimeToken.trim()}
                         onChange={(v) => updateKun({ insecure: v })}
                       />
@@ -1031,14 +1031,14 @@ export function AgentsSettingsSection({ ctx }: { ctx: Record<string, any> }): Re
                     }
                   />
                   <SettingRow
-                    title={t('kunMemoryRecords')}
-                    description={t('kunMemoryRecordsDesc')}
+                    title={t('runtimeMemoryRecords')}
+                    description={t('runtimeMemoryRecordsDesc')}
                     wideControl
                     control={
                       <div className="flex flex-col gap-2">
                         {memoryRecords.length === 0 ? (
                           <div className="rounded-xl border border-ds-border-muted bg-ds-main/40 px-3 py-3 text-[13px] text-ds-faint">
-                            {t('kunMemoryEmpty')}
+                            {t('runtimeMemoryEmpty')}
                           </div>
                         ) : (
                           memoryRecords.slice(0, 8).map((memory: any) => (
@@ -1049,7 +1049,7 @@ export function AgentsSettingsSection({ ctx }: { ctx: Record<string, any> }): Re
                                   <div className="mt-1 flex flex-wrap gap-1.5 text-[11px] text-ds-faint">
                                     <span className="font-mono">{memory.scope}</span>
                                     <span className="font-mono">{memory.id}</span>
-                                    {memory.disabledAt ? <span>{t('kunMemoryDisabled')}</span> : null}
+                                    {memory.disabledAt ? <span>{t('runtimeMemoryDisabled')}</span> : null}
                                     {memory.tags?.length ? <span>{compactList(memory.tags, '')}</span> : null}
                                   </div>
                                 </div>
@@ -1059,8 +1059,8 @@ export function AgentsSettingsSection({ ctx }: { ctx: Record<string, any> }): Re
                                     disabled={Boolean(memory.disabledAt)}
                                     onClick={() => void disableMemoryRecord(memory.id)}
                                     className="rounded-lg p-1.5 text-ds-muted transition hover:bg-ds-hover hover:text-ds-ink disabled:cursor-not-allowed disabled:opacity-45"
-                                    aria-label={t('kunMemoryDisable')}
-                                    title={t('kunMemoryDisable')}
+                                    aria-label={t('runtimeMemoryDisable')}
+                                    title={t('runtimeMemoryDisable')}
                                   >
                                     <Ban className="h-3.5 w-3.5" strokeWidth={1.8} />
                                   </button>
@@ -1068,8 +1068,8 @@ export function AgentsSettingsSection({ ctx }: { ctx: Record<string, any> }): Re
                                     type="button"
                                     onClick={() => void deleteMemoryRecord(memory.id)}
                                     className="rounded-lg p-1.5 text-ds-muted transition hover:bg-red-500/10 hover:text-red-600"
-                                    aria-label={t('kunMemoryDelete')}
-                                    title={t('kunMemoryDelete')}
+                                    aria-label={t('runtimeMemoryDelete')}
+                                    title={t('runtimeMemoryDelete')}
                                   >
                                     <Trash2 className="h-3.5 w-3.5" strokeWidth={1.8} />
                                   </button>

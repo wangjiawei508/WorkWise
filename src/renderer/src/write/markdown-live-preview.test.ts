@@ -125,9 +125,34 @@ describe('markdown live preview', () => {
     ])
   })
 
+  it('indexes long tilde/backtick fences and an unclosed fence through EOF', () => {
+    const state = EditorState.create({
+      doc: [
+        '````````ts',
+        'const marker = "```"',
+        '````````',
+        '',
+        '~~~~~text',
+        'still fenced'
+      ].join('\n')
+    })
+
+    const ranges = markdownLivePreviewTestInternals.collectMarkdownCodeBlockRangesFromState(
+      state,
+      0,
+      state.doc.length,
+      new Set()
+    )
+
+    expect(ranges.map((range) => range.block)).toEqual([
+      { language: 'ts', code: 'const marker = "```"' },
+      { language: 'text', code: 'still fenced' }
+    ])
+  })
+
   it('resolves root-level document images through the workspace image bridge', () => {
     vi.stubGlobal('window', {
-      kunGui: {
+      workwise: {
         readWorkspaceImage: vi.fn()
       }
     })
@@ -146,7 +171,7 @@ describe('markdown live preview', () => {
 
   it('parses bracketed image paths that contain spaces', () => {
     vi.stubGlobal('window', {
-      kunGui: {
+      workwise: {
         readWorkspaceImage: vi.fn()
       }
     })
@@ -172,7 +197,7 @@ describe('markdown live preview', () => {
       size: 4
     }))
     vi.stubGlobal('window', {
-      kunGui: {
+      workwise: {
         readWorkspaceImage
       }
     })

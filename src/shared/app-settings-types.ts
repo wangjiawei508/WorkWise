@@ -40,12 +40,12 @@ export const SCHEDULE_MODEL_IDS = CLAW_MODEL_IDS
 export const DEFAULT_SCHEDULE_REASONING_EFFORT = 'medium'
 export const SCHEDULE_REASONING_EFFORT_IDS = ['off', 'low', 'medium', 'high', 'max'] as const
 export const DEFAULT_SCHEDULE_INTERNAL_PORT = 8788
-// 这些默认目录与 legacy-data-migration.ts 的 HOME_DATA_MIGRATION_MAPPINGS
-// 一一对应:老安装的 ~/.deepseekgui/* 在启动期被搬到这里。
+// New installations only write WorkWise-owned paths. The dedicated legacy
+// import module may copy older data here without mutating its source.
 export const DEFAULT_WORKSPACE_ROOT = '~/.workwise/default_workspace'
 export const DEFAULT_WRITE_WORKSPACE_ROOT = '~/.workwise/write_workspace'
-export const DEFAULT_KUN_DATA_DIR = '~/.workwise/kun'
-export const DEFAULT_KUN_MODEL = 'deepseek-v4-pro'
+export const DEFAULT_MANAGED_RUNTIME_DATA_DIR = '~/.workwise/runtime'
+export const DEFAULT_MANAGED_RUNTIME_MODEL = 'deepseek-v4-pro'
 export const DEFAULT_WRITE_INLINE_COMPLETION_BASE_URL = 'https://api.deepseek.com/beta'
 export const DEFAULT_WRITE_INLINE_COMPLETION_MODEL = 'deepseek-v4-flash'
 export const WRITE_INLINE_COMPLETION_MODEL_IDS = ['deepseek-v4-pro', 'deepseek-v4-flash'] as const
@@ -57,7 +57,13 @@ export const DEFAULT_WRITE_INLINE_LONG_COMPLETION_MIN_ACCEPT_SCORE = 0.36
 export const DEFAULT_WRITE_INLINE_LONG_COMPLETION_MAX_TOKENS = 256
 export const DEFAULT_WRITE_KNOWLEDGE_API_BASE_URL = 'https://api.railwise.cn'
 export const DEFAULT_WRITE_KNOWLEDGE_PUBLIC_BASE_URL = 'https://kb.railwise.cn'
-export const DEFAULT_KUN_PORT = 8899
+export const DEFAULT_MANAGED_RUNTIME_PORT = 8899
+/** @deprecated Internal compatibility alias. */
+export const DEFAULT_KUN_DATA_DIR = DEFAULT_MANAGED_RUNTIME_DATA_DIR
+/** @deprecated Internal compatibility alias. */
+export const DEFAULT_KUN_MODEL = DEFAULT_MANAGED_RUNTIME_MODEL
+/** @deprecated Internal compatibility alias. */
+export const DEFAULT_KUN_PORT = DEFAULT_MANAGED_RUNTIME_PORT
 export const DEFAULT_WEIXIN_BRIDGE_RPC_URL = 'http://127.0.0.1:18790/api/v1/admin/rpc'
 export const DEFAULT_MODEL_PROVIDER_ID = 'deepseek'
 export const DEFAULT_AGNES_PROVIDER_ID = 'agnes-ai'
@@ -115,21 +121,25 @@ export type KunRuntimeSettingsV1 = {
   sandboxMode: SandboxMode
   /** Compress safe tool context before each model call. */
   tokenEconomyMode: boolean
-  /** Detailed token-saving behavior used when building Kun model requests. */
+  /** Detailed token-saving behavior used when building WorkWise Runtime model requests. */
   tokenEconomy: KunTokenEconomySettingsV1
   /** When true, the runtime skips bearer-token auth. Local dev only. */
   insecure: boolean
-  /** GUI-managed MCP progressive discovery/search settings written into Kun config.json. */
+  /** GUI-managed MCP progressive discovery/search settings written into WorkWise Runtime config.json. */
   mcpSearch: KunMcpSearchSettingsV1
-  /** Persistent store backend used by Kun. */
+  /** Persistent store backend used by WorkWise Runtime. */
   storage: KunStorageSettingsV1
-  /** Fallback compaction thresholds and summary behavior. Per-model thresholds live in Kun config models.profiles. */
+  /** Fallback compaction thresholds and summary behavior. Per-model thresholds live in WorkWise Runtime config models.profiles. */
   contextCompaction: KunContextCompactionSettingsV1
   /** Low-level loop guards and model argument repair tuning. */
   runtimeTuning: KunRuntimeTuningSettingsV1
   /** OpenAI-compatible image generation provider shared by chat agents and Write image tools. */
   imageGeneration: KunImageGenerationSettingsV1
 }
+
+/** WorkWise-owned selector view over the persisted `agents.kun` compatibility key. */
+export type ManagedRuntimeSettingsV1 = KunRuntimeSettingsV1
+export type ManagedRuntimeSettingsPatchV1 = KunRuntimeSettingsPatchV1
 
 export type KunImageGenerationSettingsV1 = {
   enabled: boolean
@@ -384,7 +394,7 @@ export type ClawImConversationV1 = {
   latestMessageId: string
   senderId: string
   senderName: string
-  /** Kun thread id this conversation maps to. */
+  /** WorkWise Runtime thread id this conversation maps to. */
   localThreadId: string
   workspaceRoot: string
   createdAt: string
@@ -397,7 +407,7 @@ export type ClawImChannelV1 = {
   label: string
   enabled: boolean
   model: string
-  /** Kun thread id this channel maps to. */
+  /** WorkWise Runtime thread id this channel maps to. */
   threadId: string
   workspaceRoot: string
   agentProfile: ClawImAgentProfileV1
@@ -422,13 +432,13 @@ export type WriteInlineCompletionSettingsV1 = {
   enabled: boolean
   retrievalEnabled: boolean
   longCompletionEnabled: boolean
-  /** When true, Write inherits Kun's selected provider instead of using `providerId`. */
+  /** When true, Write inherits WorkWise Runtime's selected provider instead of using `providerId`. */
   inheritProvider: boolean
   /** Selected provider for Write inline completion when `inheritProvider` is false. */
   providerId: string
   apiKey: string
   baseUrl: string
-  /** When true, Write inherits Kun's runtime model instead of using `model` as an override. */
+  /** When true, Write inherits WorkWise Runtime's runtime model instead of using `model` as an override. */
   inheritModel: boolean
   model: string
   debounceMs: number
@@ -511,7 +521,12 @@ export type GuiUpdateConfigV1 = {
 }
 
 export type AppSettingsV1 = {
-  version: 1
+  /** Present on WorkWise V2 settings; absent on legacy V1 input. */
+  schema?: 'workwise.settings'
+  /** V1 is accepted only as a migration input. New writes are always V2. */
+  version: 1 | 2
+  /** Monotonic on WorkWise V2 settings; absent on legacy V1 input. */
+  revision?: number
   locale: 'en' | 'zh'
   theme: 'system' | 'light' | 'dark'
   uiFontScale: UiFontScale
@@ -529,8 +544,14 @@ export type AppSettingsV1 = {
   codePromptPrefix: string
 }
 
+export type WorkWiseSettingsV2 = Omit<AppSettingsV1, 'schema' | 'version' | 'revision'> & {
+  schema: 'workwise.settings'
+  version: 2
+  revision: number
+}
+
 export type AppSettingsPatch = Partial<
-  Omit<AppSettingsV1, 'provider' | 'agents' | 'log' | 'notifications' | 'appBehavior' | 'keyboardShortcuts' | 'write' | 'claw' | 'schedule' | 'guiUpdate'>
+  Omit<AppSettingsV1, 'schema' | 'version' | 'revision' | 'provider' | 'agents' | 'log' | 'notifications' | 'appBehavior' | 'keyboardShortcuts' | 'write' | 'claw' | 'schedule' | 'guiUpdate'>
 > & {
   provider?: ModelProviderSettingsPatchV1
   agents?: KunSettingsEnvelopePatchV1

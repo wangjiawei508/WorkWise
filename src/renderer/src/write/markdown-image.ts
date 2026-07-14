@@ -24,7 +24,7 @@ export type WriteMarkdownImageLoadResult =
 
 function imageIpcAvailable(): boolean {
   return typeof window !== 'undefined' &&
-    typeof window.kunGui?.readWorkspaceImage === 'function'
+    typeof window.workwise?.readWorkspaceImage === 'function'
 }
 
 export function resolveWriteMarkdownImage(
@@ -76,7 +76,7 @@ export async function loadWriteMarkdownImage(
   }
 
   try {
-    const result = await window.kunGui.readWorkspaceImage({ path: resolved.localPath })
+    const result = await window.workwise.readWorkspaceImage({ path: resolved.localPath })
     if (result.ok) {
       return {
         ok: true,

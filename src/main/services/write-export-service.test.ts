@@ -7,7 +7,7 @@ import JSZip from 'jszip'
 
 vi.mock('electron', () => ({
   app: {
-    getAppPath: () => '/tmp/workgpt-test-app'
+    getAppPath: () => '/tmp/workwise-test-app'
   },
   BrowserWindow: class BrowserWindow {},
   clipboard: {
@@ -155,8 +155,8 @@ describe('write-export-service helpers', () => {
     expect(Object.keys(zip.files).some((name) => name.startsWith('word/media/'))).toBe(true)
   })
 
-  it('discovers bundled platform converters from WORKGPT_CONVERTER_ROOT', async () => {
-    const previous = process.env.WORKGPT_CONVERTER_ROOT
+  it('discovers bundled platform converters from WORKWISE_CONVERTER_ROOT', async () => {
+    const previous = process.env.WORKWISE_CONVERTER_ROOT
     const converterRoot = join(workspaceRoot, 'converters')
     const platformDir = process.platform === 'win32'
       ? 'win32-x64'
@@ -168,7 +168,7 @@ describe('write-export-service helpers', () => {
     await mkdir(join(converterRoot, platformDir), { recursive: true })
     await writeFile(join(converterRoot, platformDir, pandocName), '')
     await writeFile(join(converterRoot, platformDir, md2docxName), '')
-    process.env.WORKGPT_CONVERTER_ROOT = converterRoot
+    process.env.WORKWISE_CONVERTER_ROOT = converterRoot
 
     try {
       expect(resolveBundledMarkdownConverter()).toEqual({
@@ -177,9 +177,9 @@ describe('write-export-service helpers', () => {
       })
     } finally {
       if (previous === undefined) {
-        delete process.env.WORKGPT_CONVERTER_ROOT
+        delete process.env.WORKWISE_CONVERTER_ROOT
       } else {
-        process.env.WORKGPT_CONVERTER_ROOT = previous
+        process.env.WORKWISE_CONVERTER_ROOT = previous
       }
     }
   })

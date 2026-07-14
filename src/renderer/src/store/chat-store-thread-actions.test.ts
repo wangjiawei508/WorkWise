@@ -19,7 +19,7 @@ function thread(id: string): NormalizedThread {
     updatedAt: '2026-06-09T00:00:00.000Z',
     model: 'deepseek-v4-pro',
     mode: 'agent',
-    workspace: '/workspace/deepseek-gui',
+    workspace: '/workspace/workwise',
     status: 'running'
   }
 }
@@ -67,8 +67,8 @@ describe('chat-store-thread-actions queued messages', () => {
     const { actions, state } = buildHarness()
     const guiPlan: GuiPlanMessageContext = {
       operation: 'draft',
-      workspaceRoot: '/workspace/deepseek-gui',
-      relativePath: '.kunsdd/plan/feature.md',
+      workspaceRoot: '/workspace/workwise',
+      relativePath: '.workwise/plans/feature.md',
       planId: 'plan-1',
       sourceRequest: 'feature'
     }
@@ -97,8 +97,8 @@ describe('chat-store-thread-actions queued messages', () => {
         mode: 'plan',
         guiPlan: {
           operation: 'draft',
-          workspaceRoot: '/workspace/deepseek-gui',
-          relativePath: '.kunsdd/plan/one.md',
+          workspaceRoot: '/workspace/workwise',
+          relativePath: '.workwise/plans/one.md',
           planId: 'plan-1'
         }
       },

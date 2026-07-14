@@ -18,7 +18,7 @@ const PLAN = [
   ''
 ].join('\n')
 
-const PLAN_PATH = '.kunsdd/plan/sdd-x.md'
+const PLAN_PATH = '.workwise/plans/sdd-x.md'
 
 function todosWith(status: 'pending' | 'in_progress' | 'completed', rawText: string): ThreadTodoList {
   return {
@@ -81,7 +81,7 @@ describe('computeSddTrace', () => {
 
   it('ignores todos from other plan files', () => {
     const todos = todosWith('completed', '添加导出按钮 (covers: R-1)')
-    todos.items[0].source = { ...todos.items[0].source!, relativePath: '.kunsdd/plan/other.md' }
+    todos.items[0].source = { ...todos.items[0].source!, relativePath: '.workwise/plans/other.md' }
     const result = computeSddTrace({
       requirementMarkdown: REQUIREMENT,
       planMarkdown: PLAN,

@@ -18,7 +18,7 @@ import type {
   ClawImSettingsV1,
   ClawModel
 } from '@shared/app-settings'
-import type { ModelProviderModelGroup } from '@shared/kun-gui-api'
+import type { ModelProviderModelGroup } from '@shared/workwise-api'
 
 export type QueuedUserMessage = {
   id: string
@@ -31,7 +31,7 @@ export type QueuedUserMessage = {
   attachmentIds?: string[]
   attachments?: AttachmentReference[]
   /**
-   * Optional GUI plan context forwarded to Kun. The renderer
+   * Optional GUI plan context forwarded to WorkWise Runtime. The renderer
    * attaches it for plan/refine turns so the runtime can advertise
    * the native `create_plan` tool and gate the write to the reserved
    * plan artifact.
@@ -48,7 +48,7 @@ export type QueuedUserMessage = {
 
 /**
  * GUI plan context attached to a send-message call. Mirrors the
- * Kun `GuiPlanContextSchema` and is forwarded to the runtime
+ * WorkWise Runtime `GuiPlanContextSchema` and is forwarded to the runtime
  * request body so plan/refine turns are scoped to a reserved path.
  */
 export type GuiPlanMessageContext = {
@@ -173,9 +173,9 @@ export type ChatState = {
   setRoute: (r: AppRoute) => void
   openWrite: () => Promise<void>
   openCode: () => Promise<void>
-  ensureWriteThreadForWorkspace: (workspaceRoot?: string) => Promise<string | null>
-  createWriteThread: (workspaceRoot?: string) => Promise<string | null>
-  selectWriteThread: (threadId: string, workspaceRoot?: string) => Promise<void>
+  ensureWriteThreadForWorkspace: (workspaceRoot?: string, filePath?: string | null) => Promise<string | null>
+  createWriteThread: (workspaceRoot?: string, filePath?: string | null) => Promise<string | null>
+  selectWriteThread: (threadId: string, workspaceRoot?: string, filePath?: string | null) => Promise<void>
   openSettings: (section?: SettingsRouteSection) => void
   openPlugins: (host?: PluginHostRoute) => void
   openClaw: () => void

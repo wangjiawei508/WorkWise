@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   defaultClawSettings,
   defaultKeyboardShortcuts,
-  defaultKunRuntimeSettings,
+  defaultManagedRuntimeSettings,
   defaultModelProviderSettings,
   defaultScheduleSettings,
   defaultWriteSettings,
@@ -157,7 +157,7 @@ describe('skill-service', () => {
     expect(await readFile(join(skillInstallRoot, 'operational-monitoring', 'references', 'monitoring-scheme.md'), 'utf8'))
       .toContain('监测实施方案')
     const source = JSON.parse(
-      await readFile(join(skillInstallRoot, 'operational-monitoring', '.workgpt-skill-source.json'), 'utf8')
+      await readFile(join(skillInstallRoot, 'operational-monitoring', '.workwise-skill-source.json'), 'utf8')
     ) as Record<string, unknown>
     expect(source).toMatchObject({
       type: 'bundled',
@@ -193,7 +193,7 @@ describe('skill-service', () => {
     expect(await readFile(join(skillInstallRoot, 'di-bao-monitoring', 'assets', 'daily-report-template.md'), 'utf8'))
       .toContain('日报')
     const source = JSON.parse(
-      await readFile(join(skillInstallRoot, 'di-bao-monitoring', '.workgpt-skill-source.json'), 'utf8')
+      await readFile(join(skillInstallRoot, 'di-bao-monitoring', '.workwise-skill-source.json'), 'utf8')
     ) as Record<string, unknown>
     expect(source).toMatchObject({
       type: 'bundled',
@@ -217,7 +217,7 @@ describe('skill-service', () => {
     expect(await readFile(join(skillInstallRoot, 'ai-flavor-remover', 'README.md'), 'utf8'))
       .toContain('AI 味去除')
     const source = JSON.parse(
-      await readFile(join(skillInstallRoot, 'ai-flavor-remover', '.workgpt-skill-source.json'), 'utf8')
+      await readFile(join(skillInstallRoot, 'ai-flavor-remover', '.workwise-skill-source.json'), 'utf8')
     ) as Record<string, unknown>
     expect(source).toMatchObject({
       type: 'github',
@@ -291,7 +291,7 @@ describe('skill-service', () => {
       'svg_output'
     ))).toBe(false)
     const source = JSON.parse(
-      await readFile(join(installedRoot, '.workgpt-skill-source.json'), 'utf8')
+      await readFile(join(installedRoot, '.workwise-skill-source.json'), 'utf8')
     ) as Record<string, unknown>
     expect(source).toMatchObject({
       type: 'github',
@@ -463,7 +463,7 @@ describe('skill-service', () => {
     expect(await readFile(join(skillInstallRoot, 'di-bao-monitoring', 'references', 'guide.md'), 'utf8'))
       .toBe(referenceMarkdown)
     const source = JSON.parse(
-      await readFile(join(skillInstallRoot, 'di-bao-monitoring', '.workgpt-skill-source.json'), 'utf8')
+      await readFile(join(skillInstallRoot, 'di-bao-monitoring', '.workwise-skill-source.json'), 'utf8')
     ) as Record<string, unknown>
     expect(source).toMatchObject({
       type: 'github',
@@ -523,7 +523,7 @@ describe('skill-service', () => {
     expect(await readFile(join(skillInstallRoot, 'ai-flavor-remover', 'SKILL.md'), 'utf8'))
       .toContain('WorkWise Skill 包装')
     const source = JSON.parse(
-      await readFile(join(skillInstallRoot, 'ai-flavor-remover', '.workgpt-skill-source.json'), 'utf8')
+      await readFile(join(skillInstallRoot, 'ai-flavor-remover', '.workwise-skill-source.json'), 'utf8')
     ) as Record<string, unknown>
     expect(source).toMatchObject({
       type: 'github',
@@ -545,7 +545,7 @@ describe('skill-service', () => {
       theme: 'system',
       uiFontScale: 'small',
       provider: defaultModelProviderSettings(),
-      agents: { kun: defaultKunRuntimeSettings() },
+      agents: { kun: defaultManagedRuntimeSettings() },
       workspaceRoot,
       log: { enabled: false, retentionDays: 7 },
       notifications: { turnComplete: true },

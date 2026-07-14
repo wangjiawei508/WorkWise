@@ -1,4 +1,4 @@
-import { mkdir, readFile, readdir, rm, stat } from 'node:fs/promises'
+import { mkdir, readFile, readdir, rm, stat, truncate } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import type { ThreadStore, ThreadStoreListOptions } from '../../ports/thread-store.js'
 import type { ThreadRecord, ThreadSummary } from '../../contracts/threads.js'
@@ -133,6 +133,18 @@ export class FileThreadStore implements ThreadStore {
 export async function readJsonl<T>(path: string): Promise<T[]> {
   try {
     const content = await readFile(path, 'utf-8')
+    if (content && !content.endsWith('\n')) {
+      const finalLine = content.slice(content.lastIndexOf('\n') + 1).trim()
+      if (finalLine) {
+        try {
+          JSON.parse(finalLine)
+        } catch {
+          const buffer = Buffer.from(content, 'utf8')
+          const lastNewline = buffer.lastIndexOf(0x0a)
+          await truncate(path, lastNewline < 0 ? 0 : lastNewline + 1)
+        }
+      }
+    }
     const out: T[] = []
     for (const line of content.split('\n')) {
       const trimmed = line.trim()

@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   defaultClawSettings,
   defaultKeyboardShortcuts,
-  defaultKunRuntimeSettings,
+  defaultManagedRuntimeSettings,
   defaultModelProviderSettings,
   defaultScheduleSettings,
   defaultWriteSettings,
@@ -28,7 +28,7 @@ function settings(endpointFormat: ModelEndpointFormat): AppSettingsV1 {
     uiFontScale: 'small',
     provider,
     agents: {
-      kun: defaultKunRuntimeSettings()
+      kun: defaultManagedRuntimeSettings()
     },
     workspaceRoot: '/tmp/workspace',
     log: { enabled: false, retentionDays: 7 },

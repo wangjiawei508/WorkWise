@@ -1,7 +1,8 @@
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
+import { basename, isAbsolute, relative } from 'node:path'
 import type { GitBranchesResult } from '../../shared/git-branches'
-import { findNearestGitRoot } from './git-discovery'
+import { discoverGitRepositories, findNearestGitRoot } from './git-discovery'
 
 const execFileAsync = promisify(execFile)
 
@@ -57,6 +58,17 @@ export async function getGitBranches(workspaceRoot: string): Promise<GitBranches
   }
   try {
     const repositoryRoot = (await runGit(cwd, ['rev-parse', '--show-toplevel'])).stdout.trim()
+    const discovered: string[] = await discoverGitRepositories(workspaceRoot).catch(() => [])
+    const allRepositories = discovered.includes(repositoryRoot)
+      ? discovered
+      : [repositoryRoot, ...discovered]
+    const repositories = [...new Set(allRepositories)].map((root) => {
+      const rel = relative(workspaceRoot, root)
+      return {
+        root,
+        relativePath: !rel || isAbsolute(rel) || rel.startsWith('..') ? basename(root) : rel
+      }
+    })
     const currentRaw = (await runGit(cwd, ['branch', '--show-current'])).stdout.trim()
     const currentBranch = currentRaw || null
     const branchLines = (await runGit(cwd, ['branch', '--format=%(refname:short)'])).stdout
@@ -72,7 +84,7 @@ export async function getGitBranches(workspaceRoot: string): Promise<GitBranches
     const dirtyCount = (await runGit(cwd, ['status', '--porcelain=v1'])).stdout
       .split('\n')
       .filter((line) => line.trim().length > 0).length
-    return { ok: true, repositoryRoot, currentBranch, branches, dirtyCount }
+    return { ok: true, repositoryRoot, repositories, currentBranch, branches, dirtyCount }
   } catch (error) {
     return gitFailure(error)
   }

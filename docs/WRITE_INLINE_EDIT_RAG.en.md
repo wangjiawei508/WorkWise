@@ -57,7 +57,7 @@ Newly added is the editing layer:
 
 - When the user selects a short word or sentence, the editing scope is expanded to the current natural paragraph by default.
 - When the user selects long text or text that spans blank lines, only the original selection will be edited.
-- When users manually perform one-time phrase replacement, they will first use deterministic rules to replace other identical phrases in the same paragraph, such as `deepseek gui -> DeepSeek GUI`.
+- When users manually perform one-time phrase replacement, they will first use deterministic rules to replace other identical phrases in the same paragraph, such as `workwise -> WorkWise`.
 - The rendering side sends `prefix`, `suffix`, `original`, `instruction` and selection metadata.
 - The rendering end will bring the user/AI editing records of the current file in the last 2 minutes to help the model understand "continue to change like this".
 - The main process constructs an edit prompt and injects retrieved fragments as reference-only context.
@@ -68,7 +68,7 @@ Newly added is the editing layer:
 The key to editing prompt is to have clear boundaries:
 
 ```markdown
-<!-- DeepSeek GUI inline edit.
+<!-- WorkWise inline edit.
 You are replacing the missing middle between PREFIX and SUFFIX.
 Return exactly the replacement text for the edit scope.
 User instruction: ...
@@ -93,7 +93,7 @@ Explicit edit requests currently use the same `write:inline-completion` IPC, but
   "messages": [
     {
       "role": "system",
-      "content": "You are DeepSeek GUI inline writing..."
+      "content": "You are WorkWise inline writing..."
     },
     {
       "role": "user",
@@ -111,7 +111,7 @@ This allows the model to see both the front and rear boundaries of the edit and 
 
 BM25 + keyword RAG solves cross-file references, recent edits solves the editing intention that just happened in the current file. The implementation logs user input and deleted/inserted text produced by AI in-place editing, before and after neighbors, edit source, and AI editing instructions.
 
-Additionally, term casing and simple renaming are not entirely model dependent. The editor will propagate one-time phrase replacements in the same paragraph: when you change `deepseek gui` to `DeepSeek GUI` or `DXGUI`, other `deepseek gui` in the same natural paragraph will be replaced simultaneously. This deterministic layer is responsible for the consistency of "must happen", and recent edits and RAG are responsible for understanding this intent during subsequent AI edits.
+Additionally, term casing and simple renaming are not entirely model dependent. The editor will propagate one-time phrase replacements in the same paragraph: when you change `workwise` to `WorkWise` or `DXGUI`, other `workwise` in the same natural paragraph will be replaced simultaneously. This deterministic layer is responsible for the consistency of "must happen", and recent edits and RAG are responsible for understanding this intent during subsequent AI edits.
 
 When the user enters weak instructions such as "Continue to change like this", "Replace the same", "Retouch as before", the prompt will remind the model to infer the current editing mode from recent edits; if recent edits conflict with the current instruction, the current instruction will take precedence.
 
@@ -121,7 +121,7 @@ See `docs/WRITE_INLINE_EDIT_RECENT_EDITS.en.md` for detailed technical descripti
 Recent local edits in this file. Treat these as intent signals...
 
 [1] 2s ago; source=user; range=20-32
-Deleted: DeepSeek GUI
+Deleted: WorkWise
 Inserted: Write mode
 Around: Earlier term: [[edit]] should be consistent.
 

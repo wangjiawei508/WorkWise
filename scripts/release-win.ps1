@@ -52,10 +52,7 @@ function Require-Command([string]$Name) {
 }
 
 function Load-LocalReleaseEnv([string]$RootPath) {
-  $configured = [Environment]::GetEnvironmentVariable('KUN_RELEASE_ENV', 'Process')
-  if (-not $configured) {
-    $configured = [Environment]::GetEnvironmentVariable('DEEPSEEK_GUI_RELEASE_ENV', 'Process')
-  }
+  $configured = [Environment]::GetEnvironmentVariable('WORKWISE_RELEASE_ENV', 'Process')
   $candidates = @()
   if ($configured) { $candidates += $configured }
   $candidates += (Join-Path $RootPath 'scripts\release.local.env')
@@ -97,10 +94,8 @@ $RequestedChannel = if ($Stable) {
   $Channel
 } elseif ($env:RELEASE_CHANNEL) {
   $env:RELEASE_CHANNEL
-} elseif ($env:KUN_UPDATE_CHANNEL) {
-  $env:KUN_UPDATE_CHANNEL
-} elseif ($env:DEEPSEEK_GUI_UPDATE_CHANNEL) {
-  $env:DEEPSEEK_GUI_UPDATE_CHANNEL
+} elseif ($env:WORKWISE_UPDATE_CHANNEL) {
+  $env:WORKWISE_UPDATE_CHANNEL
 } else {
   'frontier'
 }
@@ -143,12 +138,10 @@ Write-Info "GitHub release tag: $TagName"
 Write-Info "Release channel: $ReleaseChannel"
 $ReleaseVersion = $TagName.TrimStart('v')
 Assert-Semver $ReleaseVersion
-$env:KUN_APP_VERSION = $ReleaseVersion
-$env:DEEPSEEK_GUI_APP_VERSION = $ReleaseVersion
+$env:WORKWISE_APP_VERSION = $ReleaseVersion
 $env:RELEASE_CHANNEL = $ReleaseChannel
-$env:KUN_UPDATE_CHANNEL = $ReleaseChannel
-$env:DEEPSEEK_GUI_UPDATE_CHANNEL = $ReleaseChannel
-Write-Info "App version: $env:KUN_APP_VERSION"
+$env:WORKWISE_UPDATE_CHANNEL = $ReleaseChannel
+Write-Info "App version: $env:WORKWISE_APP_VERSION"
 
 & gh release view $TagName 2>&1 | Out-Null
 if ($LASTEXITCODE -ne 0) {
@@ -164,9 +157,7 @@ Remove-Item -Recurse -Force -ErrorAction SilentlyContinue `
   (Join-Path $Root 'dist\mac'), `
   (Join-Path $Root 'dist\mac-arm64')
 Remove-Item -Force -ErrorAction SilentlyContinue `
-  (Join-Path $Root 'dist\Kun-*'), `
-  (Join-Path $Root 'dist\DeepSeek-GUI-*'), `
-  (Join-Path $Root 'dist\DeepSeek GUI-*'), `
+  (Join-Path $Root 'dist\WorkWise-*'), `
   (Join-Path $Root 'dist\latest*.yml'), `
   (Join-Path $Root 'dist\*.blockmap')
 

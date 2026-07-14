@@ -135,7 +135,7 @@ The results filter out low-scoring clips, empty clips, duplicate clips, and limi
 The search results will not be appended directly to the user text, but will be placed in front of the FIM prompt in the form of a hidden Markdown comment:
 
 ```markdown
-<!-- DeepSeek GUI inline completion references.
+<!-- WorkWise inline completion references.
 Use these snippets only for local terminology, factual continuity, and style. Do not insert or mention this comment.
 Completion mode: short.
 Retrieval: bm25-keyword; indexed 12 files / 38 chunks.

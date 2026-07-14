@@ -1,13 +1,15 @@
 import { randomBytes } from 'node:crypto'
-import { mkdir, readFile, writeFile } from 'node:fs/promises'
+import { mkdir, readFile } from 'node:fs/promises'
 import { isAbsolute, join, relative, resolve } from 'node:path'
 import type { KunCapabilitiesConfig } from '../../contracts/capabilities.js'
 import type { AttachmentStore } from '../../attachments/attachment-store.js'
 import { detectImage } from '../../attachments/attachment-store.js'
 import type { CapabilityToolProvider } from './capability-registry.js'
 import { LocalToolHost } from './local-tool-host.js'
+import { resolveWorkspacePath } from './builtin-tool-utils.js'
+import { atomicWriteFile } from '../file/atomic-write.js'
 
-const GENERATED_IMAGE_DIR = '.deepseekgui-images'
+const GENERATED_IMAGE_DIR = '.workwise/images'
 const MAX_REFERENCE_IMAGE_BYTES = 10 * 1024 * 1024
 const REFERENCE_MIME_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp'])
 const ASPECT_RATIOS = new Set(['1:1', '4:3', '3:4', '16:9', '9:16', '3:2', '2:3', '21:9'])
@@ -239,9 +241,13 @@ export function buildImageGenToolProviders(
       // Forward slashes regardless of platform: the path is echoed back to the
       // model and rendered in chat, where POSIX-style relative paths are expected.
       const relativePath = `${GENERATED_IMAGE_DIR}/${fileName}`
-      const absolutePath = join(context.workspace, GENERATED_IMAGE_DIR, fileName)
+      const { absolutePath } = await resolveWorkspacePath(relativePath, context)
       await mkdir(join(context.workspace, GENERATED_IMAGE_DIR), { recursive: true })
-      await writeFile(absolutePath, image.data)
+      await atomicWriteFile(absolutePath, image.data, {
+        beforeReplace: async () => {
+          await resolveWorkspacePath(absolutePath, context)
+        }
+      })
 
       const warnings: string[] = []
       const attachments: { id: string; name: string; mimeType: string; width?: number; height?: number }[] = []
