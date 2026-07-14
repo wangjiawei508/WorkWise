@@ -116,6 +116,34 @@ describe('electron-builder WorkWise packaging', () => {
     expect(builderConfig.win.target).toEqual([{ target: 'nsis', arch: ['x64'] }])
   })
 
+  it('uses GitHub Releases by default and keeps generic mirrors opt-in', () => {
+    const githubConfig = loadBuilderConfigWithEnv({
+      WORKWISE_UPDATE_PROVIDER: undefined,
+      WORKWISE_UPDATE_URL: undefined,
+      WORKWISE_PUBLIC_BASE_URL: undefined,
+      WORKWISE_GITHUB_REPO: undefined
+    })
+    expect(githubConfig.publish).toEqual([
+      {
+        provider: 'github',
+        owner: 'wangjiawei508',
+        repo: 'WorkWise'
+      }
+    ])
+
+    const genericConfig = loadBuilderConfigWithEnv({
+      WORKWISE_UPDATE_PROVIDER: 'generic',
+      WORKWISE_UPDATE_URL: 'https://downloads.example.test/{channel}/latest',
+      WORKWISE_PUBLIC_BASE_URL: undefined
+    })
+    expect(genericConfig.publish).toEqual([
+      {
+        provider: 'generic',
+        url: 'https://downloads.example.test/stable/latest/'
+      }
+    ])
+  })
+
   it('validates the unpacked managed runtime before release artifacts are created', () => {
     const root = tempRoot()
     const context = createMacPackContext(root)

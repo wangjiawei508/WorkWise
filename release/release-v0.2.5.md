@@ -36,3 +36,8 @@
 - OpenSpec strict validation、品牌边界、ESLint、TypeScript、主程序与内部运行时 Vitest、生产构建纳入质量门禁。
 - Windows 增加路径、junction、spawn、Git 与原子持久化回归任务。
 - Release 前执行 2 小时稳定性循环；夜间工作流分两段执行 8 小时稳定性循环。
+
+## 发布与更新
+
+- 正式安装包和自动更新元数据统一由 GitHub Actions 发布到 GitHub Releases，不需要额外的对象存储凭据。
+- macOS Release 同时生成 arm64/x64 updater ZIP；Windows Release 附带 blockmap，并在公开前回下载校验 YAML 元数据与 SHA-256 清单。

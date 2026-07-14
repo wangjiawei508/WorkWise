@@ -16,8 +16,8 @@ env:
   NODE_VERSION: '22'
   RELEASE_CHANNEL: stable
   WORKWISE_DOWNLOAD_URL: https://www.railwise.cn/products/workwise/
-  WORKWISE_PUBLIC_BASE_URL: https://www.railwise.cn/downloads
-  WORKWISE_RELEASE_PREFIX: workwise
+  WORKWISE_UPDATE_PROVIDER: github
+  WORKWISE_GITHUB_REPO: wangjiawei508/WorkWise
 
 jobs:
   prepare:
@@ -159,6 +159,7 @@ jobs:
           retention-days: 7
           path: |
             dist/WorkWise-*-mac-*.dmg
+            dist/WorkWise-*-mac-*.zip
             dist/latest-mac.yml
 
   build-windows:
@@ -347,14 +348,10 @@ jobs:
               --verify-tag
           fi
 
-      - name: Upload GitHub Release assets
+      - name: Upload GitHub Release assets and update metadata
         run: |
           set -euo pipefail
-          mapfile -d '' assets < <(
-            find public-release-assets -type f \
-              \( -name 'WorkWise-*-mac-Apple-Silicon.dmg' -o -name 'WorkWise-*-mac-Intel.dmg' -o -name 'WorkWise-*-win-x64.exe' \) \
-              -print0
-          )
+          mapfile -d '' assets < <(find website-release-assets -maxdepth 1 -type f -print0)
 
           if [[ "${#assets[@]}" -eq 0 ]]; then
             echo "::error::No release assets found"
@@ -369,14 +366,20 @@ jobs:
           mkdir downloaded-release
           gh release download "${TAG_NAME}" \
             --dir downloaded-release \
-            --pattern 'WorkWise-*-mac-Apple-Silicon.dmg' \
-            --pattern 'WorkWise-*-mac-Intel.dmg' \
-            --pattern 'WorkWise-*-win-x64.exe' \
+            --pattern 'WorkWise-*' \
+            --pattern 'latest*.yml' \
+            --pattern 'SHA256SUMS.txt' \
             --clobber
           required=(
             "WorkWise-${RELEASE_VERSION}-mac-Apple-Silicon.dmg"
             "WorkWise-${RELEASE_VERSION}-mac-Intel.dmg"
+            "WorkWise-${RELEASE_VERSION}-mac-arm64.zip"
+            "WorkWise-${RELEASE_VERSION}-mac-x64.zip"
             "WorkWise-${RELEASE_VERSION}-win-x64.exe"
+            "WorkWise-${RELEASE_VERSION}-win-x64.exe.blockmap"
+            "latest-mac.yml"
+            "latest.yml"
+            "SHA256SUMS.txt"
           )
           for file in "${required[@]}"; do
             test -s "downloaded-release/${file}" || {
@@ -385,6 +388,7 @@ jobs:
               exit 1
             }
           done
+          node ./scripts/verify-release-assets.cjs downloaded-release --check-sha256 SHA256SUMS.txt
 
       - name: Publish GitHub Release
         run: gh release edit "${TAG_NAME}" --draft=false --prerelease=false --latest

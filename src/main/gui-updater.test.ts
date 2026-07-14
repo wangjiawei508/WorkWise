@@ -146,7 +146,7 @@ describe('gui updater source helpers', () => {
     expect(module._internals.selectGithubRelease(releases, 'frontier')?.version).toBe('0.3.0-beta.1')
   })
 
-  it('does not assume an official feed and keeps configured feed overrides', async () => {
+  it('defaults to GitHub Releases and keeps explicit feed overrides', async () => {
     const previous = {
       WORKWISE_UPDATE_PROVIDER: process.env.WORKWISE_UPDATE_PROVIDER,
       WORKWISE_ENABLE_GITHUB_UPDATE_FALLBACK: process.env.WORKWISE_ENABLE_GITHUB_UPDATE_FALLBACK,
@@ -178,10 +178,17 @@ describe('gui updater source helpers', () => {
 
     try {
       const module = await import('./gui-updater')
-      expect(module._internals.resolveUpdateFeedConfig('stable')).toEqual({
-        kind: 'none'
+      expect(module._internals.resolveUpdateFeedConfig('stable')).toMatchObject({
+        kind: 'github',
+        owner: 'wangjiawei508',
+        repo: 'WorkWise'
       })
+      expect(module._internals.downloadPageUrl()).toBe('https://github.com/wangjiawei508/WorkWise/releases')
+
+      process.env.WORKWISE_UPDATE_PROVIDER = 'none'
+      expect(module._internals.resolveUpdateFeedConfig('stable')).toEqual({ kind: 'none' })
       expect(module._internals.downloadPageUrl()).toBe('https://www.railwise.cn/products/workwise/')
+      delete process.env.WORKWISE_UPDATE_PROVIDER
 
       process.env.WORKWISE_PUBLIC_BASE_URL = 'https://downloads.example.test/workwise'
       process.env.WORKWISE_RELEASE_PREFIX = 'desktop'

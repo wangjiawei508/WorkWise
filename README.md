@@ -9,19 +9,19 @@ WorkWise 是一个本地优先的桌面端 AI 工作台。它把 **Code**、**Wr
 - 产品官网：[www.railwise.cn/products/workwise](https://www.railwise.cn/products/workwise/)
 - 站内下载镜像：[下载与安装](https://www.railwise.cn/products/workwise/#download)
 - 官方文档：[kb.railwise.cn/products/workwise](https://kb.railwise.cn/products/workwise/)
-- 公开 Release：[v0.2.4](https://github.com/wangjiawei508/WorkWise/releases/tag/v0.2.4)
+- 公开 Release：[v0.2.5](https://github.com/wangjiawei508/WorkWise/releases/tag/v0.2.5)
 
 ## 当前版本
 
-当前稳定版为 **v0.2.4**，仅提供下列三个面向用户的安装包：
+当前稳定版为 **v0.2.5**，提供下列三个面向用户的安装包：
 
 | 平台 | 安装包 | 下载 |
 | --- | --- | --- |
-| macOS Apple Silicon | `WorkWise-0.2.4-mac-Apple-Silicon.dmg` | [站内镜像](https://www.railwise.cn/downloads/workwise/v0.2.4/WorkWise-0.2.4-mac-Apple-Silicon.dmg) |
-| macOS Intel | `WorkWise-0.2.4-mac-Intel.dmg` | [站内镜像](https://www.railwise.cn/downloads/workwise/v0.2.4/WorkWise-0.2.4-mac-Intel.dmg) |
-| Windows x64 | `WorkWise-0.2.4-win-x64.exe` | [站内镜像](https://www.railwise.cn/downloads/workwise/v0.2.4/WorkWise-0.2.4-win-x64.exe) |
+| macOS Apple Silicon | `WorkWise-0.2.5-mac-Apple-Silicon.dmg` | [GitHub 下载](https://github.com/wangjiawei508/WorkWise/releases/download/v0.2.5/WorkWise-0.2.5-mac-Apple-Silicon.dmg) |
+| macOS Intel | `WorkWise-0.2.5-mac-Intel.dmg` | [GitHub 下载](https://github.com/wangjiawei508/WorkWise/releases/download/v0.2.5/WorkWise-0.2.5-mac-Intel.dmg) |
+| Windows x64 | `WorkWise-0.2.5-win-x64.exe` | [GitHub 下载](https://github.com/wangjiawei508/WorkWise/releases/download/v0.2.5/WorkWise-0.2.5-win-x64.exe) |
 
-站内镜像是官网主下载入口；GitHub Release 用于核对公开版本、历史版本和问题反馈。当前不提供 Linux 客户端、便携版或激活码。
+GitHub Releases 是正式安装包和自动更新元数据的发布源，不需要额外的对象存储凭据；官网可继续作为下载导航入口。当前不提供 Linux 客户端、便携版或激活码。
 
 ## 为什么是 WorkWise
 
@@ -113,7 +113,7 @@ npm run build
 
 ## 发布规则
 
-- 公开 Release 仅保留 macOS Apple Silicon、macOS Intel、Windows x64 三个用户安装包。
+- 公开 Release 保留 macOS Apple Silicon、macOS Intel、Windows x64 三个用户安装包，并附带自动更新所需的 ZIP、blockmap、YAML 元数据和校验文件。
 - 不公开中间构建文件，也不将未验证路线图写成已发布能力。
 - 版本日志以 [GitHub Release](https://github.com/wangjiawei508/WorkWise/releases) 为准，官网与知识库同步产品版本和支持平台。
 - 0.2.5 的公开行为基线见[公开行为差距表](docs/PUBLIC_BEHAVIOR_GAP_0.2.5.zh-CN.md)。
