@@ -77,18 +77,23 @@ function toolExecutableName(id: ManagedToolId): string {
   return process.platform === 'win32' && id !== 'ego-browser' ? `${base}.exe` : base
 }
 
-function platformAsset(id: Exclude<ManagedToolId, 'ego-browser'>, version: string): string {
-  const arch = process.arch === 'arm64' ? 'arm64' : 'x64'
+function platformAsset(
+  id: Exclude<ManagedToolId, 'ego-browser'>,
+  version: string,
+  targetPlatform: NodeJS.Platform = process.platform,
+  targetArch: NodeJS.Architecture = process.arch
+): string {
+  const arch = targetArch === 'arm64' ? 'arm64' : 'x64'
   if (id === 'officecli') {
-    if (process.platform === 'darwin') return `officecli-mac-${arch}`
-    if (process.platform === 'win32') return `officecli-win-${arch}.exe`
+    if (targetPlatform === 'darwin') return `officecli-mac-${arch}`
+    if (targetPlatform === 'win32') return `officecli-win-${arch}.exe`
   }
   if (id === 'lark-cli') {
     const larkArch = arch === 'x64' ? 'amd64' : arch
-    if (process.platform === 'darwin') return `lark-cli-${version}-darwin-${larkArch}.tar.gz`
-    if (process.platform === 'win32') return `lark-cli-${version}-windows-${larkArch}.zip`
+    if (targetPlatform === 'darwin') return `lark-cli-${version}-darwin-${larkArch}.tar.gz`
+    if (targetPlatform === 'win32') return `lark-cli-${version}-windows-${larkArch}.zip`
   }
-  throw new Error(`${id} is not supported on ${process.platform}/${process.arch}.`)
+  throw new Error(`${id} is not supported on ${targetPlatform}/${targetArch}.`)
 }
 
 function repoFor(id: Exclude<ManagedToolId, 'ego-browser'>): string {
