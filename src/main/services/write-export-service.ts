@@ -1,5 +1,5 @@
 import { app, BrowserWindow, clipboard, dialog } from 'electron'
-import { spawn } from 'node:child_process'
+import type { ChildProcess } from 'node:child_process'
 import { createRequire } from 'node:module'
 import { existsSync } from 'node:fs'
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
@@ -21,6 +21,13 @@ import type {
 import { resolveWriteMarkdownResource } from '../../shared/write-markdown-resource'
 import { resolveWorkspaceFile } from './workspace-service'
 import { buildDocxFromMarkdown } from './write-docx-service'
+import {
+  legacyConverterRoot,
+  legacyMarkdownConverterPath,
+  legacyPandocPath
+} from '../compat/legacy-environment'
+import { safeSpawn } from './safe-spawn'
+import { atomicWriteFile as durableWriteFile } from './durable-file'
 
 type HtmlToDocxDocumentOptions = {
   title?: string
@@ -291,7 +298,7 @@ function platformConverterDirName(): string {
 }
 
 function converterSearchRoots(): string[] {
-  const envRoot = process.env.WORKGPT_CONVERTER_ROOT?.trim()
+  const envRoot = process.env.WORKWISE_CONVERTER_ROOT?.trim() || legacyConverterRoot()
   return [
     envRoot,
     join(process.resourcesPath || '', 'converters'),
@@ -305,7 +312,7 @@ function firstExistingPath(candidates: string[]): string {
 }
 
 function configuredPandocPath(): string {
-  const direct = process.env.WORKGPT_PANDOC_PATH?.trim() || process.env.PANDOC_PATH?.trim()
+  const direct = process.env.WORKWISE_PANDOC_PATH?.trim() || legacyPandocPath() || process.env.PANDOC_PATH?.trim()
   if (direct) return direct
 
   const executable = process.platform === 'win32' ? 'pandoc.exe' : 'pandoc'
@@ -319,7 +326,7 @@ function configuredPandocPath(): string {
 }
 
 export function resolveBundledMarkdownConverter(): { pandocPath: string; md2docxPath: string } {
-  const md2docxDirect = process.env.WORKGPT_MD2DOCX_PATH?.trim() || ''
+  const md2docxDirect = process.env.WORKWISE_MD2DOCX_PATH?.trim() || legacyMarkdownConverterPath()
   const executable = process.platform === 'win32' ? 'md2docx.exe' : 'md2docx.bin'
   const platformDir = platformConverterDirName()
   const md2docxPath = md2docxDirect || firstExistingPath(
@@ -339,11 +346,11 @@ function runCommand(
   args: string[],
   options: { cwd?: string; timeoutMs?: number } = {}
 ): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const child = spawn(command, args, {
+  return safeSpawn(command, args, {
       cwd: options.cwd,
+      workspaceRoot: options.cwd,
       stdio: ['ignore', 'ignore', 'pipe']
-    })
+    }).then((child: ChildProcess) => new Promise((resolve, reject) => {
     let stderr = ''
     const timer = options.timeoutMs
       ? setTimeout(() => {
@@ -368,7 +375,7 @@ function runCommand(
       }
       reject(new Error(`${command} exited with code ${code ?? 'unknown'}${stderr ? `: ${stderr.trim()}` : ''}`))
     })
-  })
+    }))
 }
 
 function mimeTypeForPath(filePath: string): string | null {
@@ -580,7 +587,7 @@ async function exportDocxWithPandoc(options: {
   const pandoc = resolveBundledMarkdownConverter().pandocPath
   if (!pandoc || !isMarkdownFile(options.sourcePath)) return false
 
-  const tempDir = await mkdtemp(join(tmpdir(), 'workgpt-pandoc-'))
+  const tempDir = await mkdtemp(join(tmpdir(), 'workwise-pandoc-'))
   const tempMarkdownPath = join(tempDir, basename(options.sourcePath) || 'document.md')
   try {
     await writeFile(tempMarkdownPath, options.content, 'utf8')
@@ -619,7 +626,7 @@ async function exportDocxWithMd2docx(options: {
   const md2docx = resolveBundledMarkdownConverter().md2docxPath
   if (!md2docx || !isMarkdownFile(options.sourcePath)) return false
 
-  const tempDir = await mkdtemp(join(tmpdir(), 'workgpt-md2docx-'))
+  const tempDir = await mkdtemp(join(tmpdir(), 'workwise-md2docx-'))
   const tempMarkdownPath = join(tempDir, basename(options.sourcePath) || 'document.md')
   try {
     await writeFile(tempMarkdownPath, options.content, 'utf8')
@@ -733,19 +740,19 @@ export async function exportWriteDocument(
     })
 
     if (payload.format === 'html' || payload.format === 'doc') {
-      await writeFile(targetPath, html, 'utf8')
+      await durableWriteFile(targetPath, html)
     } else if (payload.format === 'docx') {
       const docx = await htmlToDocx(html, null, {
         title,
-        creator: 'Kun',
+        creator: 'WorkWise Runtime',
         keywords: ['markdown', 'export'],
         description: `Exported from ${basename(sourcePath)}`,
         font: 'Arial',
         fontSize: 24
       })
-      await writeFile(targetPath, await bufferFromDocxResult(docx))
+      await durableWriteFile(targetPath, await bufferFromDocxResult(docx))
     } else {
-      await writeFile(targetPath, await renderHtmlToPdf(html))
+      await durableWriteFile(targetPath, await renderHtmlToPdf(html))
     }
 
     return {

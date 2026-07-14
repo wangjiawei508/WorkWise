@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import {
   defaultClawSettings,
   defaultKeyboardShortcuts,
-  defaultKunRuntimeSettings,
+  defaultManagedRuntimeSettings,
   defaultModelProviderSettings,
   defaultScheduleSettings,
   defaultWriteSettings,
@@ -31,7 +31,7 @@ function createSettings(patch: Partial<AppSettingsV1['write']['inlineCompletion'
     provider: defaultModelProviderSettings(),
     agents: {
       kun: {
-        ...defaultKunRuntimeSettings(),
+        ...defaultManagedRuntimeSettings(),
         apiKey: 'sk-test'
       }
     },
@@ -149,7 +149,7 @@ describe('requestWriteInlineCompletion', () => {
       suffix: ' a test.',
       max_tokens: 64
     })
-    expect(body.prompt).toContain('Kun inline completion')
+    expect(body.prompt).toContain('WorkWise Runtime inline completion')
     expect(body.prompt).toContain('Return only the text to insert at the cursor')
     expect(body.prompt).not.toContain('<<<SHORT')
     expect(body.prompt).toContain('<<<PREFIX')
@@ -202,7 +202,7 @@ describe('requestWriteInlineCompletion', () => {
       suffix: ' a test.',
       responseChars: 0
     })
-    expect(debugEntries[0].prompt).toContain('Kun inline completion')
+    expect(debugEntries[0].prompt).toContain('WorkWise Runtime inline completion')
     expect(debugEntries[0].prompt.endsWith('# Draft\n\nThis is')).toBe(true)
   })
 
@@ -231,7 +231,7 @@ describe('requestWriteInlineCompletion', () => {
     })
   })
 
-  it('falls back to the General baseUrl and Kun model when write keeps defaults', async () => {
+  it('falls back to the General baseUrl and WorkWise Runtime model when write keeps defaults', async () => {
     const fetchMock = vi.fn(async () =>
       new Response(JSON.stringify({ choices: [{ text: ' fallback text' }] }), {
         status: 200,
@@ -440,7 +440,7 @@ describe('requestWriteInlineCompletion', () => {
         startColumn: 1,
         endLine: 3,
         endColumn: 38,
-        original: 'DeepSeek GUI keeps text editing local.'
+        original: 'WorkWise keeps text editing local.'
       },
       recentEdits: [{
         source: 'user' as const,
@@ -448,7 +448,7 @@ describe('requestWriteInlineCompletion', () => {
         filePath: '/tmp/workspace/draft.md',
         from: 9,
         to: 21,
-        deletedText: 'DeepSeek GUI',
+        deletedText: 'WorkWise',
         insertedText: 'Write mode',
         beforeContext: '',
         afterContext: ' keeps text editing local.'
@@ -465,7 +465,7 @@ describe('requestWriteInlineCompletion', () => {
         replacement: 'Write mode keeps text editing local.',
         from: 9,
         to: 47,
-        original: 'DeepSeek GUI keeps text editing local.',
+        original: 'WorkWise keeps text editing local.',
         scopeKind: 'paragraph'
       }
     })
@@ -513,7 +513,7 @@ describe('requestWriteInlineCompletion', () => {
         startColumn: 1,
         endLine: 3,
         endColumn: 38,
-        original: 'DeepSeek GUI keeps text editing local.'
+        original: 'WorkWise keeps text editing local.'
       }
     }
 
@@ -565,7 +565,7 @@ describe('requestWriteInlineCompletion', () => {
         startColumn: 1,
         endLine: 3,
         endColumn: 38,
-        original: 'DeepSeek GUI keeps text editing local.'
+        original: 'WorkWise keeps text editing local.'
       }
     }
 
@@ -585,7 +585,7 @@ describe('requestWriteInlineCompletion', () => {
     const request = createRequest()
 
     const prompt = buildWriteInlineCompletionPrompt(request, null)
-    expect(prompt).toContain('Kun inline completion')
+    expect(prompt).toContain('WorkWise Runtime inline completion')
     expect(prompt).toContain('<<<PREFIX')
     expect(prompt).toContain('<<<SUFFIX')
     expect(prompt).not.toContain('<<<SHORT')
@@ -608,7 +608,7 @@ describe('parseWriteInlineAction', () => {
       editTarget: {
         from: 9,
         to: 21,
-        original: 'DeepSeek GUI',
+        original: 'WorkWise',
         scopeKind: 'selection'
       }
     })).toEqual({
@@ -616,7 +616,7 @@ describe('parseWriteInlineAction', () => {
       replacement: 'Write mode',
       from: 9,
       to: 21,
-      original: 'DeepSeek GUI',
+      original: 'WorkWise',
       scopeKind: 'selection'
     })
   })

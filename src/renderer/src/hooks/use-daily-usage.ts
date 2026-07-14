@@ -206,8 +206,8 @@ export function normalizeDailyUsageResponse(raw: RawDailyUsageResponse): DailyUs
 }
 
 export async function loadDailyUsage(range: DailyUsageRange): Promise<DailyUsageSummary | null> {
-  if (typeof window.kunGui?.runtimeRequest !== 'function') return null
-  const response = await window.kunGui.runtimeRequest(buildDailyUsagePath(range), 'GET')
+  if (typeof window.workwise?.runtimeRequest !== 'function') return null
+  const response = await window.workwise.runtimeRequest(buildDailyUsagePath(range), 'GET')
   if (!response.ok || !response.body.trim()) {
     throw new Error(`daily usage request failed: ${response.status}`)
   }

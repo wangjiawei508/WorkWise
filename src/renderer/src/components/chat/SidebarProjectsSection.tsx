@@ -22,7 +22,7 @@ import { formatRelativeTime } from '../../lib/format-relative-time'
 import { workspaceLabelFromPath } from '../../lib/workspace-label'
 import {
   isClawWorkspacePath,
-  isInternalDeepSeekGuiWorkspace,
+  isInternalWriteWorkspace,
   isInternalTemporaryWorkspace,
   normalizeWorkspaceRoot,
   workspaceRootIdentityKey
@@ -102,7 +102,7 @@ export function buildSidebarWorkspaceGroups(options: {
 
   for (const th of options.threads) {
     if (isInternalTemporaryWorkspace(th.workspace)) continue
-    if (isInternalDeepSeekGuiWorkspace(th.workspace)) continue
+    if (isInternalWriteWorkspace(th.workspace)) continue
     if (isClawWorkspacePath(th.workspace)) continue
     if ((th.archived === true) !== options.showArchived) continue
     const key = normalizeWorkspaceRoot(th.workspace)
@@ -125,7 +125,7 @@ export function buildSidebarWorkspaceGroups(options: {
       const key = normalizeWorkspaceRoot(workspacePath)
       if (!key || map.has(workspaceRootIdentityKey(key))) continue
       if (isInternalTemporaryWorkspace(key)) continue
-      if (isInternalDeepSeekGuiWorkspace(key)) continue
+      if (isInternalWriteWorkspace(key)) continue
       if (isClawWorkspacePath(key)) continue
       upsertWorkspace(key)
     }

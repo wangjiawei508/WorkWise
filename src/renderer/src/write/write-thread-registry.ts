@@ -10,24 +10,40 @@ export const MAX_WRITE_THREAD_REGISTRY_WORKSPACES = 80
 export type WriteThreadWorkspaceRecord = {
   activeThreadId: string
   threadIds: string[]
+  archived?: boolean
 }
 
 export type WriteThreadRegistry = {
-  version: 1
+  version: 2
   workspaces: Record<string, WriteThreadWorkspaceRecord>
+  files: Record<string, WriteThreadWorkspaceRecord>
 }
 
 type WriteThreadCandidate = Pick<NormalizedThread, 'id' | 'workspace'> &
   Partial<Pick<NormalizedThread, 'title' | 'updatedAt' | 'archived'>>
 
-const WRITE_THREAD_REGISTRY_KEY = 'kun.write.threadRegistry.v1'
+const WRITE_THREAD_REGISTRY_KEY = 'workwise.write.threadRegistry.v2'
+const LEGACY_WRITE_THREAD_REGISTRY_KEY = 'workwise.write.threadRegistry.v1'
 
 export function emptyWriteThreadRegistry(): WriteThreadRegistry {
-  return { version: 1, workspaces: {} }
+  return { version: 2, workspaces: {}, files: {} }
 }
 
 export function writeWorkspaceKey(workspaceRoot: string | undefined | null): string {
   return normalizeWorkspaceRoot(workspaceRoot ?? '')
+}
+
+export function writeFileContextKey(
+  workspaceRoot: string | undefined | null,
+  filePath: string | undefined | null
+): string {
+  const workspace = writeWorkspaceKey(workspaceRoot)
+  if (!workspace) return ''
+  const normalizedFile = normalizeWorkspaceRoot(filePath ?? '')
+    .replace(/\\/g, '/')
+    .replace(/\/+$/, '')
+    .toLowerCase()
+  return `${workspace}::${normalizedFile || '@scratch'}`
 }
 
 function normalizeWriteWorkspacePathForMatch(workspaceRoot: string | undefined | null): string {
@@ -104,14 +120,18 @@ function trimRegistryWorkspaces(
 
 export function normalizeWriteThreadRegistry(raw: unknown): WriteThreadRegistry {
   if (!raw || typeof raw !== 'object') return emptyWriteThreadRegistry()
-  const source = raw as { workspaces?: unknown }
+  const source = raw as { workspaces?: unknown; files?: unknown }
   if (!source.workspaces || typeof source.workspaces !== 'object') return emptyWriteThreadRegistry()
 
-  const workspaces: WriteThreadRegistry['workspaces'] = {}
-  for (const [workspaceRoot, value] of Object.entries(source.workspaces as Record<string, unknown>)) {
-    const key = writeWorkspaceKey(workspaceRoot)
+  const normalizeRecords = (
+    records: Record<string, unknown>,
+    keyFor: (key: string) => string
+  ): Record<string, WriteThreadWorkspaceRecord> => {
+    const normalized: Record<string, WriteThreadWorkspaceRecord> = {}
+    for (const [rawKey, value] of Object.entries(records)) {
+    const key = keyFor(rawKey)
     if (!key || !value || typeof value !== 'object') continue
-    const record = value as { activeThreadId?: unknown; threadIds?: unknown }
+    const record = value as { activeThreadId?: unknown; threadIds?: unknown; archived?: unknown }
     const threadIds = normalizeThreadIds(record.threadIds)
     const activeThreadId =
       typeof record.activeThreadId === 'string' && record.activeThreadId.trim()
@@ -122,19 +142,38 @@ export function normalizeWriteThreadRegistry(raw: unknown): WriteThreadRegistry 
       : threadIds
     const cappedIds = nextIds.slice(0, MAX_WRITE_THREAD_IDS_PER_WORKSPACE)
     if (cappedIds.length > 0) {
-      workspaces[key] = {
+      normalized[key] = {
         activeThreadId: cappedIds[0],
-        threadIds: cappedIds
+        threadIds: cappedIds,
+        ...(record.archived === true ? { archived: true } : {})
       }
     }
   }
-  return { version: 1, workspaces: trimRegistryWorkspaces(workspaces) }
+    return normalized
+  }
+  const workspaces = normalizeRecords(
+    source.workspaces as Record<string, unknown>,
+    (key) => writeWorkspaceKey(key)
+  )
+  const files = source.files && typeof source.files === 'object'
+    ? normalizeRecords(source.files as Record<string, unknown>, (key) => key.trim())
+    : Object.fromEntries(
+        Object.entries(workspaces).map(([workspace, record]) => [
+          writeFileContextKey(workspace, null),
+          record
+        ])
+      )
+  return {
+    version: 2,
+    workspaces: trimRegistryWorkspaces(workspaces),
+    files: trimRegistryWorkspaces(files)
+  }
 }
 
 export function readWriteThreadRegistry(storage: BrowserStorageLike | null = browserStorage()): WriteThreadRegistry {
   if (!storage) return emptyWriteThreadRegistry()
   try {
-    const raw = storage.getItem(WRITE_THREAD_REGISTRY_KEY)
+    const raw = storage.getItem(WRITE_THREAD_REGISTRY_KEY) ?? storage.getItem(LEGACY_WRITE_THREAD_REGISTRY_KEY)
     return normalizeWriteThreadRegistry(raw ? JSON.parse(raw) : null)
   } catch {
     return emptyWriteThreadRegistry()
@@ -158,6 +197,9 @@ export function writeThreadIds(registry: WriteThreadRegistry = readWriteThreadRe
   for (const record of Object.values(registry.workspaces)) {
     for (const id of record.threadIds) ids.add(id)
   }
+  for (const record of Object.values(registry.files)) {
+    for (const id of record.threadIds) ids.add(id)
+  }
   return ids
 }
 
@@ -176,6 +218,9 @@ export function writeWorkspaceForThreadId(
   if (!id) return ''
   for (const [workspaceRoot, record] of Object.entries(registry.workspaces)) {
     if (record.threadIds.includes(id)) return workspaceRoot
+  }
+  for (const [contextKey, record] of Object.entries(registry.files)) {
+    if (record.threadIds.includes(id)) return contextKey.split('::', 1)[0] ?? ''
   }
   return ''
 }
@@ -240,13 +285,14 @@ export function hydrateWriteThreadRegistry(
     }
   }
 
-  return normalizeWriteThreadRegistry({ version: 1, workspaces })
+  return normalizeWriteThreadRegistry({ ...normalized, version: 2, workspaces })
 }
 
 export function markWriteThread(
   workspaceRoot: string,
   threadId: string,
-  registry: WriteThreadRegistry = readWriteThreadRegistry()
+  registry: WriteThreadRegistry = readWriteThreadRegistry(),
+  filePath?: string | null
 ): WriteThreadRegistry {
   const key = writeWorkspaceKey(workspaceRoot)
   const id = threadId.trim()
@@ -254,12 +300,19 @@ export function markWriteThread(
   const record = registry.workspaces[key] ?? { activeThreadId: '', threadIds: [] }
   const threadIds = [id, ...record.threadIds.filter((item) => item !== id)]
   const workspaces = { ...registry.workspaces }
+  const contextKey = writeFileContextKey(workspaceRoot, filePath)
+  const contextRecord = registry.files[contextKey] ?? { activeThreadId: '', threadIds: [] }
+  const contextThreadIds = [id, ...contextRecord.threadIds.filter((item) => item !== id)]
   delete workspaces[key]
   return normalizeWriteThreadRegistry({
     ...registry,
     workspaces: {
       ...workspaces,
       [key]: { activeThreadId: id, threadIds }
+    },
+    files: {
+      ...registry.files,
+      [contextKey]: { activeThreadId: id, threadIds: contextThreadIds }
     }
   })
 }
@@ -279,7 +332,17 @@ export function forgetWriteThread(
       threadIds
     }
   }
-  return normalizeWriteThreadRegistry({ version: 1, workspaces })
+  const files: WriteThreadRegistry['files'] = {}
+  for (const [contextKey, record] of Object.entries(registry.files)) {
+    const threadIds = record.threadIds.filter((item) => item !== id)
+    if (threadIds.length === 0) continue
+    files[contextKey] = {
+      activeThreadId: record.activeThreadId === id ? threadIds[0] : record.activeThreadId,
+      threadIds,
+      ...(record.archived ? { archived: true } : {})
+    }
+  }
+  return normalizeWriteThreadRegistry({ version: 2, workspaces, files })
 }
 
 export function pruneWriteThreadRegistry(
@@ -296,18 +359,30 @@ export function pruneWriteThreadRegistry(
       : threadIds[0]
     workspaces[workspaceRoot] = { activeThreadId, threadIds }
   }
-  return normalizeWriteThreadRegistry({ version: 1, workspaces })
+  const files: WriteThreadRegistry['files'] = {}
+  for (const [contextKey, record] of Object.entries(registry.files)) {
+    const threadIds = record.threadIds.filter((id) => known.has(id))
+    if (threadIds.length === 0) continue
+    files[contextKey] = {
+      activeThreadId: threadIds.includes(record.activeThreadId) ? record.activeThreadId : threadIds[0],
+      threadIds,
+      ...(record.archived ? { archived: true } : {})
+    }
+  }
+  return normalizeWriteThreadRegistry({ version: 2, workspaces, files })
 }
 
 export function activeWriteThreadForWorkspace(
   workspaceRoot: string,
   threads: NormalizedThread[],
-  registry: WriteThreadRegistry = readWriteThreadRegistry()
+  registry: WriteThreadRegistry = readWriteThreadRegistry(),
+  filePath?: string | null
 ): NormalizedThread | null {
   const key = writeWorkspaceKey(workspaceRoot)
   if (!key) return null
-  const record = registry.workspaces[key]
-  if (!record) return null
+  const fileRecord = registry.files[writeFileContextKey(workspaceRoot, filePath)]
+  const record = filePath === undefined ? registry.workspaces[key] : fileRecord
+  if (!record || record.archived) return null
   const candidates = record.threadIds
     .map((id) => threads.find((thread) => thread.id === id) ?? null)
     .filter((thread): thread is NormalizedThread => Boolean(thread))
@@ -316,4 +391,44 @@ export function activeWriteThreadForWorkspace(
       writeWorkspacePathsMatch(writeWorkspaceForThreadId(thread.id, registry) || thread.workspace, key)
     )
   return candidates.find((thread) => thread.id === record.activeThreadId) ?? candidates[0] ?? null
+}
+
+export function writeThreadMatchesFileContext(
+  threadId: string,
+  workspaceRoot: string,
+  filePath: string | null | undefined,
+  registry: WriteThreadRegistry = readWriteThreadRegistry()
+): boolean {
+  const record = registry.files[writeFileContextKey(workspaceRoot, filePath)]
+  return Boolean(record && !record.archived && record.threadIds.includes(threadId))
+}
+
+export function moveWriteFileContext(
+  workspaceRoot: string,
+  previousPath: string,
+  nextPath: string,
+  registry: WriteThreadRegistry = readWriteThreadRegistry()
+): WriteThreadRegistry {
+  const previous = writeFileContextKey(workspaceRoot, previousPath)
+  const next = writeFileContextKey(workspaceRoot, nextPath)
+  const record = registry.files[previous]
+  if (!record || previous === next) return registry
+  const files = { ...registry.files }
+  delete files[previous]
+  files[next] = { ...record, archived: false }
+  return normalizeWriteThreadRegistry({ ...registry, files })
+}
+
+export function archiveWriteFileContext(
+  workspaceRoot: string,
+  filePath: string,
+  registry: WriteThreadRegistry = readWriteThreadRegistry()
+): WriteThreadRegistry {
+  const key = writeFileContextKey(workspaceRoot, filePath)
+  const record = registry.files[key]
+  if (!record) return registry
+  return normalizeWriteThreadRegistry({
+    ...registry,
+    files: { ...registry.files, [key]: { ...record, archived: true } }
+  })
 }

@@ -159,7 +159,7 @@ export function GuiUpdateControl({
         {releaseUrl ? (
           <button
             type="button"
-            onClick={() => void window.kunGui.openExternal(releaseUrl).catch(() => undefined)}
+            onClick={() => void window.workwise.openExternal(releaseUrl).catch(() => undefined)}
             className="inline-flex items-center gap-1.5 rounded-xl bg-ds-userbubble px-3 py-2 text-[13px] font-medium text-ds-userbubbleFg shadow-sm transition hover:opacity-90"
           >
             {t('guiUpdateOpenRelease')}

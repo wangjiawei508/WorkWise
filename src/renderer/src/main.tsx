@@ -12,7 +12,7 @@ import './styles/write-rich-editor.css'
 import App from './App'
 import './i18n'
 
-document.documentElement.dataset.platform = window.kunGui?.platform ?? 'unknown'
+document.documentElement.dataset.platform = window.workwise?.platform ?? 'unknown'
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>

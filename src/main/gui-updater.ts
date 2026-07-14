@@ -14,15 +14,20 @@ import type {
 } from '../shared/gui-update'
 import { nextGuiUpdateCheckDelay } from '../shared/gui-update-schedule'
 import { DEFAULT_GUI_UPDATE_CHANNEL, normalizeGuiUpdateChannel } from '../shared/gui-update'
+import {
+  legacyDownloadUrl,
+  legacyGithubRepo,
+  legacyGithubUpdateFallbackEnabled,
+  legacyUnsignedUpdatesEnabled,
+  legacyUpdateChannel,
+  legacyUpdateProvider,
+  legacyUpdateUrl
+} from './compat/legacy-environment'
 
 const DEFAULT_OFFICIAL_RELEASE_PREFIX = 'workwise'
 const DEFAULT_PRODUCT_PAGE_URL = 'https://www.railwise.cn/products/workwise/'
 const DEFAULT_GITHUB_REPO = 'wangjiawei508/WorkWise'
 const { autoUpdater } = electronUpdater
-
-function envWithLegacyFallback(kunName: string, legacyName: string): string {
-  return process.env[kunName]?.trim() || process.env[legacyName]?.trim() || ''
-}
 
 let initialized = false
 let getMainWindow: (() => BrowserWindow | null) | null = null
@@ -31,7 +36,7 @@ let lastState: GuiUpdateState = { status: 'idle' }
 let downloaded = false
 let downloadPromise: Promise<string[]> | null = null
 let configuredChannel: GuiUpdateChannel = normalizeGuiUpdateChannel(
-  envWithLegacyFallback('KUN_UPDATE_CHANNEL', 'DEEPSEEK_GUI_UPDATE_CHANNEL') || undefined
+  process.env.WORKWISE_UPDATE_CHANNEL?.trim() || legacyUpdateChannel() || undefined
 )
 let configuredFeedUrl = ''
 let getSelectedChannel: (() => GuiUpdateChannel | Promise<GuiUpdateChannel>) | null = null
@@ -80,11 +85,10 @@ function envUpdateUrl(channel: GuiUpdateChannel): string {
   const upper = channel.toUpperCase()
   const channelSpecific =
     process.env[`WORKWISE_UPDATE_URL_${upper}`]?.trim() ||
-    process.env[`WORKGPT_UPDATE_URL_${upper}`]?.trim()
+    legacyUpdateUrl(channel)
   const direct =
     channelSpecific ||
     process.env.WORKWISE_UPDATE_URL?.trim() ||
-    process.env.WORKGPT_UPDATE_URL?.trim() ||
     ''
   return direct ? direct.replace(/\{channel\}/g, channel).replace(/\/?$/, '/') : ''
 }
@@ -92,7 +96,7 @@ function envUpdateUrl(channel: GuiUpdateChannel): string {
 function updateProviderSetting(): string {
   return (
     process.env.WORKWISE_UPDATE_PROVIDER ||
-    process.env.WORKGPT_UPDATE_PROVIDER ||
+    legacyUpdateProvider() ||
     ''
   ).trim().toLowerCase()
 }
@@ -105,7 +109,7 @@ function shouldFallbackToGithubUpdateProvider(): boolean {
   return (
     shouldUseGithubUpdateProvider() ||
     process.env.WORKWISE_ENABLE_GITHUB_UPDATE_FALLBACK === '1' ||
-    process.env.WORKGPT_ENABLE_GITHUB_UPDATE_FALLBACK === '1'
+    legacyGithubUpdateFallbackEnabled()
   )
 }
 
@@ -182,7 +186,7 @@ function readPackageJson(): Record<string, unknown> | null {
 
 function resolveGithubRepo(): string | null {
   const envRepo = normalizeGithubOwnerRepo(
-    (process.env.WORKWISE_GITHUB_REPO || process.env.WORKGPT_GITHUB_REPO)?.trim() ?? ''
+    (process.env.WORKWISE_GITHUB_REPO || legacyGithubRepo()).trim()
   )
   if (envRepo) return envRepo
 
@@ -219,7 +223,7 @@ function resolveUpdateFeedConfig(channel: GuiUpdateChannel): UpdateFeedConfig {
 }
 
 function downloadPageUrl(): string {
-  const direct = (process.env.WORKWISE_DOWNLOAD_URL || process.env.WORKGPT_DOWNLOAD_URL)?.trim()
+  const direct = (process.env.WORKWISE_DOWNLOAD_URL || legacyDownloadUrl()).trim()
   if (direct) return direct
 
   const configuredDownloadPage = (process.env.WORKWISE_DOWNLOAD_BASE_URL || process.env.PUBLIC_DOWNLOAD_PAGE_URL)?.trim()
@@ -306,7 +310,7 @@ function parseYamlScalar(source: string, key: string): string {
 
 function macAutoUpdateAllowed(): boolean {
   if (process.platform !== 'darwin') return true
-  if (process.env.DEEPSEEK_GUI_ALLOW_UNSIGNED_UPDATES === '1') return true
+  if (legacyUnsignedUpdatesEnabled()) return true
 
   const pkg = readPackageJson()
   const hints = pkg?.buildHints
@@ -429,7 +433,7 @@ async function runScheduledGuiUpdateCheck(): Promise<void> {
       await writeLastScheduledCheckAt(nowMs)
       await checkGuiUpdate()
     } catch (error) {
-      console.warn('[kun-gui updater] scheduled GUI update check failed:', error)
+      console.warn('[workwise updater] scheduled GUI update check failed:', error)
     } finally {
       backgroundCheckPromise = null
       void scheduleNextBackgroundCheck()
@@ -669,9 +673,9 @@ export function initializeGuiUpdater(
   }
 
   autoUpdater.logger = {
-    info: (message?: unknown) => console.info('[kun-gui updater]', message),
-    warn: (message?: unknown) => console.warn('[kun-gui updater]', message),
-    error: (message?: unknown) => console.error('[kun-gui updater]', message)
+    info: (message?: unknown) => console.info('[workwise updater]', message),
+    warn: (message?: unknown) => console.warn('[workwise updater]', message),
+    error: (message?: unknown) => console.error('[workwise updater]', message)
   }
 
   autoUpdater.on('checking-for-update', () => {
@@ -710,7 +714,7 @@ export function initializeGuiUpdater(
 
   nativeAutoUpdater?.on?.('before-quit-for-update', () => {
     void runBeforeInstallUpdate().catch((error) => {
-      console.warn('[kun-gui updater] failed to stop runtimes before update quit:', error)
+      console.warn('[workwise updater] failed to stop runtimes before update quit:', error)
     })
   })
 

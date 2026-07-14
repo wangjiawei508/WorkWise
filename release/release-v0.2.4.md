@@ -2,7 +2,7 @@
 
 ## 合规基线
 
-- 代码基线调整为 Kun 最后一个经审计的 MIT 提交 `363fdf566657cd4d60801f62b0b8f3aa8dfbf2fc`。
+- 代码基线调整为 WorkWise Agent Runtime 最后一个经审计的 MIT 提交 `363fdf566657cd4d60801f62b0b8f3aa8dfbf2fc`。
 - 不包含后续 PolyForm Noncommercial 源码；WorkWise 后续功能均以自主提交和独立兼容层维护。
 - 保留原 MIT `LICENSE`，并在 `FORK_NOTICE.md` 记录上游边界和实现策略。
 
@@ -17,7 +17,7 @@
 
 ## 后续计划
 
-- Kun 在 MIT 基线之后新增的 Design 工作区不包含在 0.2.4 中；WorkWise 将以独立实现方式在后续版本提供。
+- WorkWise Agent Runtime 在 MIT 基线之后新增的 Design 工作区不包含在 0.2.4 中；WorkWise 将以独立实现方式在后续版本提供。
 - MIMO 与 MiniMax 的图片理解、文件及音视频输入能力将在后续版本继续进行端到端适配和验证。
 
 ## 验证

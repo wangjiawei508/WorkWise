@@ -9,7 +9,7 @@ describe('agent-pack-service', () => {
   let tempRoot = ''
 
   beforeEach(async () => {
-    tempRoot = await mkdtemp(join(tmpdir(), 'workgpt-agent-pack-'))
+    tempRoot = await mkdtemp(join(tmpdir(), 'workwise-agent-pack-'))
   })
 
   afterEach(async () => {
@@ -38,7 +38,7 @@ describe('agent-pack-service', () => {
       tool: 33
     })
     expect(installed.manifestPath).toBe(
-      join(codexRoot, '.workgpt-agent-packs', 'metro-monitoring-agent-pack.json')
+      join(codexRoot, '.workwise-agent-packs', 'metro-monitoring-agent-pack.json')
     )
     expect(await readFile(join(codexRoot, 'agents', 'data_analyst.md'), 'utf8'))
       .toContain('数据')
@@ -56,7 +56,7 @@ describe('agent-pack-service', () => {
       .toContain('monthly')
 
     const source = JSON.parse(
-      await readFile(join(codexRoot, 'skills', 'monitoring-design', '.workgpt-agent-pack-source.json'), 'utf8')
+      await readFile(join(codexRoot, 'skills', 'monitoring-design', '.workwise-agent-pack-source.json'), 'utf8')
     ) as Record<string, unknown>
     expect(source).toMatchObject({
       type: 'bundled-agent-pack',
@@ -66,7 +66,7 @@ describe('agent-pack-service', () => {
       version: '1.2.34'
     })
     const fileSource = JSON.parse(
-      await readFile(join(codexRoot, 'agents', 'data_analyst.md.workgpt-agent-pack-source.json'), 'utf8')
+      await readFile(join(codexRoot, 'agents', 'data_analyst.md.workwise-agent-pack-source.json'), 'utf8')
     ) as Record<string, unknown>
     expect(fileSource).toMatchObject({
       type: 'bundled-agent-pack',
@@ -114,7 +114,7 @@ describe('agent-pack-service', () => {
     expect(await readFile(managedSkill, 'utf8')).not.toBe('# stale managed copy\n')
   })
 
-  it('can upgrade a WORKGPT bundled skill into the bundled agent pack', async () => {
+  it('can upgrade a WORKWISE bundled skill into the bundled agent pack', async () => {
     const codexRoot = join(tempRoot, 'codex-legacy-bundled')
     const legacySkill = join(codexRoot, 'skills', 'di-bao-monitoring')
     await mkdir(legacySkill, { recursive: true })
@@ -133,7 +133,7 @@ describe('agent-pack-service', () => {
     expect(installed.ok).toBe(true)
     expect(await readFile(join(legacySkill, 'SKILL.md'), 'utf8')).toContain('地铁')
     const source = JSON.parse(
-      await readFile(join(legacySkill, '.workgpt-agent-pack-source.json'), 'utf8')
+      await readFile(join(legacySkill, '.workwise-agent-pack-source.json'), 'utf8')
     ) as Record<string, unknown>
     expect(source).toMatchObject({
       type: 'bundled-agent-pack',

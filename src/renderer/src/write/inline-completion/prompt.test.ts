@@ -90,7 +90,7 @@ describe('buildInlineCompletionPayload', () => {
       recentEdits: [edit({
         from: 9,
         to: 21,
-        deletedText: 'DeepSeek GUI',
+        deletedText: 'WorkWise',
         insertedText: 'Write mode'
       })]
     })
@@ -116,7 +116,7 @@ describe('buildInlineCompletionPayload', () => {
         recentEdits: [edit({
           from: 9,
           to: 21,
-          deletedText: 'DeepSeek GUI',
+          deletedText: 'WorkWise',
           insertedText: 'Write mode'
         })]
       }
@@ -131,16 +131,16 @@ describe('buildInlineCompletionPayload', () => {
       context({
         head: 29,
         column: 21,
-        prefix: '# Draft\n\nAnother WORKGPT',
+        prefix: '# Draft\n\nAnother WORKWISE',
         suffix: ' mention needs alignment.',
-        prefixWindow: '# Draft\n\nAnother WORKGPT',
+        prefixWindow: '# Draft\n\nAnother WORKWISE',
         suffixWindow: ' mention needs alignment.',
-        currentLinePrefix: 'Another WORKGPT',
+        currentLinePrefix: 'Another WORKWISE',
         currentLineSuffix: ' mention needs alignment.',
-        currentLineText: 'Another WORKGPT mention needs alignment.',
-        currentLinePrefixTrimmed: 'Another WORKGPT',
+        currentLineText: 'Another WORKWISE mention needs alignment.',
+        currentLinePrefixTrimmed: 'Another WORKWISE',
         currentLineSuffixTrimmed: 'mention needs alignment.',
-        docPreview: '# Draft\n\nAnother WORKGPT',
+        docPreview: '# Draft\n\nAnother WORKWISE',
         editCandidate: {
           kind: 'selection',
           from: 26,
@@ -157,7 +157,7 @@ describe('buildInlineCompletionPayload', () => {
         recentEdits: [edit({
           from: 9,
           to: 21,
-          deletedText: 'WORKGPT',
+          deletedText: 'WORKWISE',
           insertedText: 'Write mode'
         })]
       }
@@ -165,8 +165,8 @@ describe('buildInlineCompletionPayload', () => {
 
     expect(payload.editCandidate).toMatchObject({
       kind: 'selection',
-      original: 'WORKGPT'
+      original: 'WORKWISE'
     })
-    expect(payload.editCandidate ? payload.editCandidate.to - payload.editCandidate.from : 0).toBe(7)
+    expect(payload.editCandidate ? payload.editCandidate.to - payload.editCandidate.from : 0).toBe(8)
   })
 })

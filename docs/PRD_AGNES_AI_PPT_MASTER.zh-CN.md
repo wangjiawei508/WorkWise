@@ -125,7 +125,7 @@ PPT Master 不是普通 PPT 模板填充器，而是一套 “harness + model = 
 - `skills/ppt-master/templates/layouts/` 中少量官方通用布局
 - `skills/ppt-master/examples/` 中 1-2 个轻量顶级咨询风示例，只保留 `design_spec.md` 与 `svg_final/`
 - `skills/ppt-master/projects/` 空占位目录，用于说明默认项目输出结构
-- `.workgpt-skill-source.json`，记录上游 GitHub 来源和白名单同步路径
+- `.workwise-skill-source.json`，记录上游 GitHub 来源和白名单同步路径
 
 明确禁止内置：
 

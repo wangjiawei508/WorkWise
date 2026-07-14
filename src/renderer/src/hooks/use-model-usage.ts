@@ -156,8 +156,8 @@ export function normalizeModelUsageResponse(raw: RawModelUsageResponse): ModelUs
 }
 
 export async function loadModelUsage(range: DailyUsageRange): Promise<ModelUsageSummary | null> {
-  if (typeof window.kunGui?.runtimeRequest !== 'function') return null
-  const response = await window.kunGui.runtimeRequest(buildModelUsagePath(range), 'GET')
+  if (typeof window.workwise?.runtimeRequest !== 'function') return null
+  const response = await window.workwise.runtimeRequest(buildModelUsagePath(range), 'GET')
   if (!response.ok || !response.body.trim()) {
     throw new Error(`model usage request failed: ${response.status}`)
   }

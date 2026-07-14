@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import {
   defaultClawSettings,
   defaultKeyboardShortcuts,
-  defaultKunRuntimeSettings,
+  defaultManagedRuntimeSettings,
   defaultModelProviderSettings,
   defaultScheduleSettings,
   defaultWriteSettings,
@@ -23,7 +23,7 @@ function buildSettings(): AppSettingsV1 {
     uiFontScale: 'small',
     provider: defaultModelProviderSettings(),
     agents: {
-      kun: defaultKunRuntimeSettings()
+      kun: defaultManagedRuntimeSettings()
     },
     workspaceRoot: '/tmp/workspace',
     log: { enabled: true, retentionDays: 7 },
@@ -412,7 +412,7 @@ describe('ClawRuntime', () => {
     })
   })
 
-  it('reads assistant text from the Kun thread detail shape used by the real runtime', async () => {
+  it('reads assistant text from the WorkWise Runtime thread detail shape used by the real runtime', async () => {
     const settings = buildSettings()
     const runtimeRequest = vi.fn(async (_settings, path, init) => {
       if (path === '/v1/threads') {
@@ -734,7 +734,7 @@ describe('ClawRuntime', () => {
     )
   })
 
-  it('handles webhook /help as an IM command before starting a Kun turn', async () => {
+  it('handles webhook /help as an IM command before starting a WorkWise Runtime turn', async () => {
     const settings = buildSettings()
     settings.claw.im.enabled = true
     settings.claw.channels = [buildChannel({ provider: 'weixin' as const, id: 'channel_weixin' })]
@@ -927,7 +927,7 @@ describe('ClawRuntime', () => {
     expect(send).toHaveBeenCalledTimes(2)
     const welcomeCall = send.mock.calls[0] as unknown as [string, { markdown?: string }, Record<string, unknown>]
     expect(welcomeCall[0]).toBe('oc_chat_a')
-    expect(welcomeCall[1].markdown).toContain('Kun')
+    expect(welcomeCall[1].markdown).toContain('WorkWise Runtime')
     expect(welcomeCall[1].markdown).toContain('`/new`')
     expect(welcomeCall[1].markdown).toContain('`/model`')
     expect(welcomeCall[2]).toEqual({})
@@ -1128,7 +1128,7 @@ describe('ClawRuntime', () => {
     }).handleWebhook(req, res)
 
     const reply = String(JSON.parse(responseBody).reply)
-    expect(reply).toContain('Kun')
+    expect(reply).toContain('WorkWise Runtime')
     expect(reply).toContain('`/new`')
     expect(reply.endsWith('hello from GUI')).toBe(true)
     expect(current().claw.channels[0].welcomeSentAt).toBeTruthy()
@@ -1517,7 +1517,7 @@ describe('ClawRuntime', () => {
   })
 
   it('sends the latest generated workspace file to Feishu when the user asks for it', async () => {
-    const workspaceRoot = await mkdtemp(join(tmpdir(), 'deepseek-gui-feishu-file-'))
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'workwise-feishu-file-'))
     const filePath = join(workspaceRoot, 'hello.md')
     await writeFile(filePath, '# Hello\n')
     const realFilePath = await realpath(filePath)
@@ -1669,7 +1669,7 @@ describe('ClawRuntime', () => {
   })
 
   it('sends generated image tool output to Feishu for image requests', async () => {
-    const workspaceRoot = await mkdtemp(join(tmpdir(), 'deepseek-gui-feishu-image-'))
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'workwise-feishu-image-'))
     const imageDir = join(workspaceRoot, '.deepseekgui-images')
     const imagePath = join(imageDir, 'img-20260611000100-abcd.png')
     await mkdir(imageDir, { recursive: true })
@@ -1801,7 +1801,7 @@ describe('ClawRuntime', () => {
   })
 
   it('returns gated generated files in the WeChat webhook reply for image requests', async () => {
-    const workspaceRoot = await mkdtemp(join(tmpdir(), 'deepseek-gui-weixin-image-'))
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'workwise-weixin-image-'))
     const imageDir = join(workspaceRoot, '.deepseekgui-images')
     const imagePath = join(imageDir, 'img-20260611000200-beef.png')
     await mkdir(imageDir, { recursive: true })

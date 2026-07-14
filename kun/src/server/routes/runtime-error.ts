@@ -23,6 +23,8 @@ export const ERRORS = {
     errorResponse({ code: 'attachment_validation_failed', message, details: issues }, 400),
   conflict: (message: string) =>
     errorResponse({ code: 'conflict', message }, 409),
+  resourceLimit: (message: string) =>
+    errorResponse({ code: 'resource_limit', message }, 429),
   notImplemented: (message: string) =>
     errorResponse({ code: 'not_implemented', message }, 501),
   unavailable: (message: string) =>

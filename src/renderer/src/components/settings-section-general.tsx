@@ -5,9 +5,9 @@ import {
   DEFAULT_WRITE_INLINE_COMPLETION_MAX_TOKENS,
   DEFAULT_WRITE_INLINE_COMPLETION_MODEL,
   DEFAULT_WRITE_INLINE_LONG_COMPLETION_MAX_TOKENS,
-  DEFAULT_KUN_DATA_DIR,
+  DEFAULT_MANAGED_RUNTIME_DATA_DIR,
   WRITE_INLINE_COMPLETION_MODEL_IDS,
-  isKunRuntimeInsecure
+  isManagedRuntimeInsecure
 } from '@shared/app-settings'
 import type { GuiUpdateChannel } from '@shared/gui-update'
 import type { SkillRootId } from '../lib/skill-root-preference'
@@ -87,7 +87,7 @@ export function GeneralSettingsSection({ ctx }: { ctx: Record<string, any> }): R
     splitSettingsList,
     listSettingsText
   } = ctx
-  const platform = typeof window !== 'undefined' ? window.kunGui?.platform ?? '' : ''
+  const platform = typeof window !== 'undefined' ? window.workwise?.platform ?? '' : ''
   const openAtLoginSupported = platform === 'win32' || platform === 'darwin'
   const startMinimizedSupported = platform === 'win32'
   const desktopBehavior = form.appBehavior
@@ -339,12 +339,12 @@ export function GeneralSettingsSection({ ctx }: { ctx: Record<string, any> }): R
                       <button
                         type="button"
                         className="inline-flex items-center gap-1.5 rounded-xl border border-ds-border bg-ds-card px-3 py-1.5 text-[13px] font-medium text-ds-ink shadow-sm transition hover:bg-ds-hover disabled:opacity-50"
-                        disabled={typeof window.kunGui?.openLogDir !== 'function'}
+                        disabled={typeof window.workwise?.openLogDir !== 'function'}
                         onClick={async () => {
-                          if (typeof window.kunGui?.openLogDir !== 'function') return
+                          if (typeof window.workwise?.openLogDir !== 'function') return
                           setLogDirOpenError(null)
                           try {
-                            const result = await window.kunGui.openLogDir()
+                            const result = await window.workwise.openLogDir()
                             if (!result.ok) setLogDirOpenError(result.message ?? 'Unknown error')
                           } catch (e) {
                             setLogDirOpenError(e instanceof Error ? e.message : String(e))

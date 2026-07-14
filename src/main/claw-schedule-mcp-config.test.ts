@@ -8,16 +8,15 @@ import {
   removeLegacyClawScheduleTomlConfig,
   resolveClawScheduleMcpCommand,
   resolveClawScheduleMcpNodeEntryPath,
-  resolveDeepseekConfigPath,
-  resolveKunConfigPath,
-  resolveKunMcpJsonPath,
+  resolveRuntimeConfigPath,
+  resolveRuntimeMcpJsonPath,
   syncClawScheduleMcpConfig,
   type ClawScheduleMcpLaunchConfig
 } from './claw-schedule-mcp-config'
 import {
   defaultClawSettings,
   defaultKeyboardShortcuts,
-  defaultKunRuntimeSettings,
+  defaultManagedRuntimeSettings,
   defaultModelProviderSettings,
   defaultScheduleSettings,
   defaultWriteSettings,
@@ -34,7 +33,7 @@ function createSettings(patch: Partial<AppSettingsV1['schedule']['internal']> = 
     uiFontScale: 'small',
     provider: defaultModelProviderSettings(),
     agents: {
-      kun: defaultKunRuntimeSettings()
+      kun: defaultManagedRuntimeSettings()
     },
     workspaceRoot: '/tmp/workspace',
     log: {
@@ -72,19 +71,18 @@ function createSettings(patch: Partial<AppSettingsV1['schedule']['internal']> = 
 }
 
 const launch: ClawScheduleMcpLaunchConfig = {
-  appPath: '/Applications/Kun.app',
-  execPath: '/Applications/Kun.app/Contents/MacOS/Kun',
+  appPath: '/Applications/WorkWise.app',
+  execPath: '/Applications/WorkWise.app/Contents/MacOS/WorkWise',
   isPackaged: false
 }
 
 describe('claw schedule MCP config', () => {
-  it('uses Kun config files by default', () => {
-    expect(resolveKunConfigPath()).toBe(join(homedir(), '.kun', 'config.toml'))
-    expect(resolveKunMcpJsonPath()).toBe(join(homedir(), '.kun', 'mcp.json'))
-    expect(resolveDeepseekConfigPath()).toBe(resolveKunConfigPath())
+  it('uses the WorkWise MCP config by default', () => {
+    expect(resolveRuntimeConfigPath()).toBe(join(homedir(), '.workwise', 'mcp.json'))
+    expect(resolveRuntimeMcpJsonPath()).toBe(resolveRuntimeConfigPath())
   })
 
-  it('writes the gui_schedule server to the Kun MCP JSON config shape', () => {
+  it('writes the gui_schedule server to the WorkWise Runtime MCP JSON config shape', () => {
     const settings = createSettings({ port: 9787, secret: 'top-secret' })
     const synced = buildSyncedClawScheduleMcpJson(
       {
@@ -128,10 +126,10 @@ describe('claw schedule MCP config', () => {
 
   it('uses the macOS Electron helper for real app bundle paths', () => {
     expect(resolveClawScheduleMcpCommand(launch, 'darwin')).toBe(
-      '/Applications/Kun.app/Contents/Frameworks/Kun Helper.app/Contents/MacOS/Kun Helper'
+      '/Applications/WorkWise.app/Contents/Frameworks/WorkWise Helper.app/Contents/MacOS/WorkWise Helper'
     )
     expect(resolveClawScheduleMcpCommand({
-      appPath: '/tmp/deepseek-gui-test-app',
+      appPath: '/tmp/workwise-test-app',
       execPath: '/tmp/electron',
       isPackaged: false
     }, 'darwin')).toBe('/tmp/electron')
@@ -149,11 +147,11 @@ describe('claw schedule MCP config', () => {
         'command = "old"',
         'args = []',
         '',
-        '# DeepSeek GUI plugin:mcp:claw-schedule START',
+        '# WorkWise plugin:mcp:claw-schedule START',
         '[mcp_servers.claw_schedule]',
         'command = "electron"',
         'args = []',
-        '# DeepSeek GUI plugin:mcp:claw-schedule END',
+        '# WorkWise plugin:mcp:claw-schedule END',
         '',
         '[providers.deepseek]',
         'api_key = ""'
@@ -163,7 +161,7 @@ describe('claw schedule MCP config', () => {
     expect(cleaned).toContain('[mcp_servers.context7]')
     expect(cleaned).toContain('[providers.deepseek]')
     expect(cleaned).not.toContain('[mcp_servers.claw_schedule]')
-    expect(cleaned).not.toContain('DeepSeek GUI plugin:mcp:claw-schedule')
+    expect(cleaned).not.toContain('WorkWise plugin:mcp:claw-schedule')
   })
 
   it('does not rewrite config.toml text when there is no legacy claw_schedule block', () => {
@@ -190,11 +188,11 @@ describe('claw schedule MCP config', () => {
       [
         'provider = "deepseek"',
         '',
-        '# DeepSeek GUI plugin:mcp:claw-schedule START',
+        '# WorkWise plugin:mcp:claw-schedule START',
         '[mcp_servers.claw_schedule]',
         'command = "electron"',
         'args = []',
-        '# DeepSeek GUI plugin:mcp:claw-schedule END',
+        '# WorkWise plugin:mcp:claw-schedule END',
         ''
       ].join('\n'),
       'utf8'

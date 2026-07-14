@@ -24,7 +24,7 @@ let sandbox = ''
 let repoRoot = ''
 
 beforeEach(async () => {
-  sandbox = await mkdtemp(join(tmpdir(), 'ds-gui-git-service-'))
+  sandbox = await mkdtemp(join(tmpdir(), 'workwise-git-service-'))
   repoRoot = await realpath(sandbox)
   // Initialise a real git repo with one commit on `main` and a few sub-dirs.
   // `realpath` resolves the macOS /tmp symlink so the returned repositoryRoot
@@ -90,7 +90,7 @@ describe('getGitBranches — integration with real git', () => {
 
   it('returns not_git_repo when the path is outside any repository', async () => {
     // A fresh tmpdir (no .git anywhere up the chain on this host).
-    const outside = await mkdtemp(join(tmpdir(), 'ds-gui-git-outside-'))
+    const outside = await mkdtemp(join(tmpdir(), 'workwise-git-outside-'))
     try {
       const result = await getGitBranches(outside)
       expect(result.ok).toBe(false)

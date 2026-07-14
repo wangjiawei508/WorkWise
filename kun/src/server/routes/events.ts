@@ -2,6 +2,7 @@ import { encodeSseEvent } from '../sse.js'
 import type { EventBus } from '../../ports/event-bus.js'
 import type { SessionStore } from '../../ports/session-store.js'
 import type { RuntimeEvent } from '../../contracts/events.js'
+import { RUNTIME_RESOURCE_LIMITS_V1 } from '../../contracts/resource-limits.js'
 
 const HEARTBEAT_INTERVAL_MS = 15_000
 
@@ -64,9 +65,31 @@ export function buildEventStreamResponse(input: {
           controller.enqueue(encoder.encode(encodeSseEvent(event)))
         }
         const highestSeq = await input.sessionStore.highestSeq(input.threadId).catch(() => 0)
-        const backlog = sinceSeq >= highestSeq
+        let backlog = sinceSeq >= highestSeq
           ? []
           : await input.sessionStore.loadEventsSince(input.threadId, sinceSeq)
+        const replayBytes = backlog.reduce(
+          (total, event) => total + Buffer.byteLength(JSON.stringify(event), 'utf8'),
+          0
+        )
+        if (
+          backlog.length > RUNTIME_RESOURCE_LIMITS_V1.sseReplayEvents ||
+          replayBytes > RUNTIME_RESOURCE_LIMITS_V1.sseReplayBytes
+        ) {
+          const reset = {
+            kind: 'replay_reset',
+            seq: highestSeq,
+            timestamp: new Date().toISOString(),
+            threadId: input.threadId
+          }
+          controller.enqueue(
+            encoder.encode(
+              `id: ${highestSeq}\nevent: replay_reset\ndata: ${JSON.stringify(reset)}\n\n`
+            )
+          )
+          lastDeliveredSeq = highestSeq
+          backlog = []
+        }
         for (const event of backlog) {
           deliver(event)
         }

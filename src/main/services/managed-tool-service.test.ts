@@ -3,10 +3,17 @@ import { _internals } from './managed-tool-service'
 
 describe('managed-tool-service', () => {
   it('selects the current platform asset with an explicit architecture name', () => {
-    const office = _internals.platformAsset('officecli', '1.2.3')
-    const lark = _internals.platformAsset('lark-cli', '1.2.3')
-    expect(office).toMatch(/^officecli-(mac|win)-(arm64|x64)(\.exe)?$/)
-    expect(lark).toMatch(/^lark-cli-1\.2\.3-(darwin|windows)-(arm64|amd64)\.(tar\.gz|zip)$/)
+    expect(_internals.platformAsset('officecli', '1.2.3', 'darwin', 'arm64')).toBe('officecli-mac-arm64')
+    expect(_internals.platformAsset('officecli', '1.2.3', 'win32', 'x64')).toBe('officecli-win-x64.exe')
+    expect(_internals.platformAsset('lark-cli', '1.2.3', 'darwin', 'x64')).toBe(
+      'lark-cli-1.2.3-darwin-amd64.tar.gz'
+    )
+    expect(_internals.platformAsset('lark-cli', '1.2.3', 'win32', 'arm64')).toBe(
+      'lark-cli-1.2.3-windows-arm64.zip'
+    )
+    expect(() => _internals.platformAsset('officecli', '1.2.3', 'linux', 'x64')).toThrow(
+      'officecli is not supported on linux/x64'
+    )
   })
 
   it('reads only the checksum belonging to the selected asset', () => {

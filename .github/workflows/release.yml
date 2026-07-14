@@ -40,15 +40,34 @@ jobs:
         id: version
         run: node ./scripts/compute-ci-release-version.cjs --no-fetch
 
+  stability:
+    name: Two-hour pre-release stability
+    runs-on: ubuntu-latest
+    needs: prepare
+    timeout-minutes: 130
+    steps:
+      - name: Check out tag
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.ref }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci
+      - run: npm run test:stability
+        env:
+          WORKWISE_STABILITY_MINUTES: '120'
+          WORKWISE_STABILITY_INTERVAL_MINUTES: '10'
+
   build-macos:
     name: Build macOS
     runs-on: macos-latest
-    needs: prepare
+    needs: [prepare, stability]
     env:
       WORKWISE_APP_VERSION: ${{ needs.prepare.outputs.version }}
-      WORKGPT_APP_VERSION: ${{ needs.prepare.outputs.version }}
       WORKWISE_UPDATE_CHANNEL: stable
-      WORKGPT_UPDATE_CHANNEL: stable
       RELEASE_CHANNEL: stable
       # Mapped to env so steps can branch on presence (secrets are not allowed
       # in step-level `if:` conditions). When the signing secrets are absent the
@@ -145,12 +164,10 @@ jobs:
   build-windows:
     name: Build Windows
     runs-on: windows-latest
-    needs: prepare
+    needs: [prepare, stability]
     env:
       WORKWISE_APP_VERSION: ${{ needs.prepare.outputs.version }}
-      WORKGPT_APP_VERSION: ${{ needs.prepare.outputs.version }}
       WORKWISE_UPDATE_CHANNEL: stable
-      WORKGPT_UPDATE_CHANNEL: stable
       RELEASE_CHANNEL: stable
       CSC_IDENTITY_AUTO_DISCOVERY: 'false'
     steps:
@@ -198,7 +215,6 @@ jobs:
       PREVIOUS_TAG: ${{ needs.prepare.outputs.previous_tag }}
       RELEASE_CHANNEL: stable
       WORKWISE_UPDATE_CHANNEL: stable
-      WORKGPT_UPDATE_CHANNEL: stable
       MAC_SIGNED: ${{ secrets.MAC_CODESIGN_P12_BASE64 != '' && secrets.APPLE_API_KEY_BASE64 != '' }}
     steps:
       - name: Check out tag

@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { DEFAULT_WEIXIN_BRIDGE_RPC_URL } from '../shared/app-settings'
+import { legacyWeixinBridgeUrls } from './compat/legacy-environment'
 
 type ClawPlatformInstallStartResult =
   | { ok: true; url: string; deviceCode: string; userCode: string; interval: number; expireIn: number }
@@ -16,11 +17,6 @@ const MAX_FEISHU_INSTALL_TARGETS = 32
 const weixinInstallSessions = new Map<string, string>()
 const MAX_WEIXIN_INSTALL_SESSIONS = 32
 const WEIXIN_ALREADY_CONNECTED_MESSAGE = '已连接过此 OpenClaw'
-const WEIXIN_BRIDGE_URL_ENV_KEYS = [
-  'DEEPSEEK_GUI_WEIXIN_BRIDGE_URL',
-  'DEEPSEEK_GUI_OPENCLAW_GATEWAY_URL',
-  'OPENCLAW_GATEWAY_URL'
-]
 const WEIXIN_BRIDGE_MISSING_MESSAGE =
   'WeChat login bridge is unavailable. Restart the app and try generating the WeChat QR code again.'
 const WEIXIN_CHANNEL_ID = 'openclaw-weixin'
@@ -131,8 +127,11 @@ export function configureManagedWeixinBridgeUrlResolver(
 async function resolveWeixinBridgeUrl(configuredWeixinBridgeUrl?: string): Promise<string> {
   const configured = configuredWeixinBridgeUrl?.trim() ?? ''
   if (configured) return configured
-  for (const key of WEIXIN_BRIDGE_URL_ENV_KEYS) {
-    const value = process.env[key]?.trim()
+  for (const value of [
+    process.env.WORKWISE_WEIXIN_BRIDGE_URL?.trim(),
+    process.env.OPENCLAW_GATEWAY_URL?.trim(),
+    ...legacyWeixinBridgeUrls()
+  ]) {
     if (value) return value
   }
   if (managedWeixinBridgeUrlResolver) return managedWeixinBridgeUrlResolver()

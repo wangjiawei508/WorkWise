@@ -29,9 +29,9 @@ import {
 } from '../lib/browser-storage'
 import type { WritePreviewMode, WriteWorkspaceState } from './write-workspace-store-types'
 
-export const WRITE_PREVIEW_MODE_KEY = 'kun.write.preview-mode'
-export const WRITE_ASSISTANT_OPEN_KEY = 'kun.write.assistant-open'
-export const WRITE_ASSISTANT_MODEL_KEY = 'kun.write.assistant-model'
+export const WRITE_PREVIEW_MODE_KEY = 'workwise.write.preview-mode'
+export const WRITE_ASSISTANT_OPEN_KEY = 'workwise.write.assistant-open'
+export const WRITE_ASSISTANT_MODEL_KEY = 'workwise.write.assistant-model'
 const DEFAULT_WRITE_ASSISTANT_MODEL = 'auto'
 
 export function readStoredPreviewMode(): WritePreviewMode {
@@ -268,6 +268,7 @@ export function initialState(): Pick<
   | 'fileError'
   | 'fileLoading'
   | 'saveStatus'
+  | 'saveRevision'
   | 'selection'
   | 'quotedSelections'
   | 'recentEdits'
@@ -289,6 +290,7 @@ export function initialState(): Pick<
     fileError: null,
     fileLoading: false,
     saveStatus: 'saved',
+    saveRevision: 0,
     selection: emptySelection(),
     quotedSelections: [],
     recentEdits: []

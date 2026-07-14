@@ -32,6 +32,7 @@ export type TurnServiceDeps = {
 export class TurnService {
   private readonly deps: TurnServiceDeps
   private readonly inflightTurns = new Map<string, AbortController>()
+  private readonly terminalTurns = new Set<string>()
   private readonly threadMutationQueues = new Map<string, Promise<void>>()
 
   constructor(deps: TurnServiceDeps) {
@@ -44,7 +45,18 @@ export class TurnService {
   }): Promise<StartTurnResponse> {
     const thread = await this.deps.threadStore.get(input.threadId)
     if (!thread) throw new Error(`thread not found: ${input.threadId}`)
+    if (thread.turns.some((turn) => turn.status === 'running')) {
+      throw Object.assign(new Error('a turn is already running for this thread'), {
+        code: 'turn_in_progress'
+      })
+    }
+    if (this.inflightTurns.size >= 4) {
+      throw Object.assign(new Error('the application turn concurrency limit has been reached'), {
+        code: 'resource_limit'
+      })
+    }
     const turnId = this.deps.ids.next('turn')
+    this.terminalTurns.delete(turnId)
     const turn = createTurnRecord({
       id: turnId,
       threadId: input.threadId,
@@ -111,6 +123,9 @@ export class TurnService {
   }
 
   async interruptTurn(input: { threadId: string; turnId: string; discard?: boolean }): Promise<{ status: TurnStatus }> {
+    if (this.terminalTurns.has(input.turnId)) return { status: 'aborted' }
+    this.terminalTurns.add(input.turnId)
+    try {
     const controller = this.inflightTurns.get(input.turnId)
     if (controller) controller.abort()
     this.deps.steering.clear()
@@ -139,7 +154,11 @@ export class TurnService {
       )
       return { ...touchThread(current, this.deps.nowIso()), turns: next, status: 'idle' }
     })
-    return { status: 'aborted' }
+      return { status: 'aborted' }
+    } catch (error) {
+      this.terminalTurns.delete(input.turnId)
+      throw error
+    }
   }
 
   async compact(input: { threadId: string; turnId?: string; request: CompactRequest }): Promise<CompactResponse> {
@@ -212,6 +231,9 @@ export class TurnService {
     status: Extract<TurnStatus, 'completed' | 'failed' | 'aborted'>
     error?: string
   }): Promise<void> {
+    if (this.terminalTurns.has(input.turnId)) return
+    this.terminalTurns.add(input.turnId)
+    try {
     this.inflightTurns.delete(input.turnId)
     this.deps.inflight.end(input.turnId)
     this.deps.steering.clear()
@@ -238,10 +260,32 @@ export class TurnService {
         message: input.error
       }))
     }
+    } catch (error) {
+      this.terminalTurns.delete(input.turnId)
+      throw error
+    }
   }
 
   getAbortController(turnId: string): AbortSignal | undefined {
     return this.inflightTurns.get(turnId)?.signal
+  }
+
+  abortTurn(turnId: string, reason = 'operation_cancelled'): boolean {
+    const controller = this.inflightTurns.get(turnId)
+    if (!controller || controller.signal.aborted) return false
+    controller.abort(reason)
+    return true
+  }
+
+  abortAll(reason = 'application_exit'): number {
+    let count = 0
+    for (const [turnId, controller] of this.inflightTurns) {
+      if (controller.signal.aborted) continue
+      controller.abort(reason)
+      count += 1
+      this.deps.inflight.end(turnId)
+    }
+    return count
   }
 
   async getTurn(threadId: string, turnId: string): Promise<Turn | null> {

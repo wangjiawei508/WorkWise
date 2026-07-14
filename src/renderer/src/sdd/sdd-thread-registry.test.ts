@@ -10,7 +10,7 @@ import {
 } from './sdd-thread-registry'
 import type { SddDraft } from './sdd-draft-store'
 
-const SDD_THREAD_REGISTRY_KEY = 'kun.sdd.threadRegistry.v1'
+const SDD_THREAD_REGISTRY_KEY = 'workwise.sdd.threadRegistry.v1'
 
 function createMemoryStorage(): BrowserStorageLike {
   const items = new Map<string, string>()
@@ -24,9 +24,9 @@ function createMemoryStorage(): BrowserStorageLike {
 
 function draft(partial: Partial<SddDraft> = {}): SddDraft {
   return {
-    id: '/tmp/app:.kunsdd/draft/draft-1/requirement.md',
+    id: '/tmp/app:.workwise/sdd/draft/draft-1/requirement.md',
     workspaceRoot: '/tmp/app',
-    relativePath: '.kunsdd/draft/draft-1/requirement.md',
+    relativePath: '.workwise/sdd/draft/draft-1/requirement.md',
     createdAt: '2026-01-01T00:00:00.000Z',
     updatedAt: '2026-01-01T00:00:00.000Z',
     ...partial
@@ -71,7 +71,7 @@ describe('sdd-thread-registry', () => {
     expect(isSddAssistantThread({ id: 'thread-sdd-1' }, registry)).toBe(false)
     expect(isSddAssistantThread({
       id: 'thread-sdd-1',
-      title: '下一步: .kunsdd/draft/draft-1/requirement.md'
+      title: '下一步: .workwise/sdd/draft/draft-1/requirement.md'
     }, registry)).toBe(false)
   })
 
@@ -93,11 +93,11 @@ describe('sdd-thread-registry', () => {
 
     expect(isSddAssistantThread({
       id: 'thread-legacy-next',
-      title: '下一步: .kunsdd/draft/draft-1/requirement.md'
+      title: '下一步: .workwise/sdd/draft/draft-1/requirement.md'
     }, registry)).toBe(true)
     expect(isSddAssistantThread({
       id: 'thread-legacy-workspace',
-      workspace: '/tmp/app/.kunsdd/draft/draft-1'
+      workspace: '/tmp/app/.workwise/sdd/draft/draft-1'
     }, registry)).toBe(true)
     expect(isSddAssistantThread({
       id: 'thread-normal',

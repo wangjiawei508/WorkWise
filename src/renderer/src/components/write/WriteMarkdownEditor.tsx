@@ -393,8 +393,8 @@ export function WriteMarkdownEditor({
       language: 'markdown',
       getModel: () => completionModelRef.current,
       requestCompletion: async (context, mode) => {
-        if (typeof window.kunGui?.requestWriteInlineCompletion !== 'function') return null
-        const result = await window.kunGui.requestWriteInlineCompletion(
+        if (typeof window.workwise?.requestWriteInlineCompletion !== 'function') return null
+        const result = await window.workwise.requestWriteInlineCompletion(
           buildInlineCompletionPayload(context, {
             model: completionModelRef.current,
             workspaceRoot: workspaceRootRef.current,
@@ -467,10 +467,10 @@ export function WriteMarkdownEditor({
               event.preventDefault()
               return true
             }
-            if (typeof window.kunGui?.saveWorkspaceClipboardImage !== 'function') return false
+            if (typeof window.workwise?.saveWorkspaceClipboardImage !== 'function') return false
 
             event.preventDefault()
-            void window.kunGui
+            void window.workwise
               .saveWorkspaceClipboardImage({
                 workspaceRoot: nextWorkspaceRoot,
                 currentFilePath: nextFilePath,
@@ -579,7 +579,28 @@ export function WriteMarkdownEditor({
     lastSelectionRef.current = initialSelection
     onSelectionChangeRef.current(initialSelection)
 
+    let geometryFrame = 0
+    const refreshSelectionGeometry = (): void => {
+      if (geometryFrame) return
+      geometryFrame = window.requestAnimationFrame(() => {
+        geometryFrame = 0
+        if (view.state.selection.ranges.every((range) => range.empty)) return
+        const nextSelection = selectionState(view)
+        lastSelectionRef.current = nextSelection
+        onSelectionChangeRef.current(nextSelection)
+      })
+    }
+    view.scrollDOM.addEventListener('scroll', refreshSelectionGeometry, { passive: true })
+    window.addEventListener('resize', refreshSelectionGeometry, { passive: true })
+    window.visualViewport?.addEventListener('resize', refreshSelectionGeometry, { passive: true })
+    window.visualViewport?.addEventListener('scroll', refreshSelectionGeometry, { passive: true })
+
     return () => {
+      if (geometryFrame) window.cancelAnimationFrame(geometryFrame)
+      view.scrollDOM.removeEventListener('scroll', refreshSelectionGeometry)
+      window.removeEventListener('resize', refreshSelectionGeometry)
+      window.visualViewport?.removeEventListener('resize', refreshSelectionGeometry)
+      window.visualViewport?.removeEventListener('scroll', refreshSelectionGeometry)
       view.destroy()
       viewRef.current = null
       themeCompartmentRef.current = null

@@ -75,7 +75,7 @@ export function parseServeOptions(
         ? raw['runtime-token']
         : typeof raw.runtimeToken === 'string'
           ? raw.runtimeToken
-          : env.KUN_RUNTIME_TOKEN ??
+          : env.WORKWISE_RUNTIME_TOKEN ?? env.KUN_RUNTIME_TOKEN ??
             configServe.runtimeToken ??
             DEFAULT_SERVE_OPTIONS.runtimeToken,
     apiKey:

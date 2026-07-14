@@ -132,7 +132,7 @@ norm = (tf * (k1 + 1)) / (tf + k1 * (1 - b + b * chunkLength / avgLength))
 检索结果不会直接追加到用户正文里，而是以隐藏 Markdown comment 形式放在 FIM prompt 前：
 
 ```markdown
-<!-- DeepSeek GUI inline completion references.
+<!-- WorkWise inline completion references.
 Use these snippets only for local terminology, factual continuity, and style. Do not insert or mention this comment.
 Completion mode: short.
 Retrieval: bm25-keyword; indexed 12 files / 38 chunks.

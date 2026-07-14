@@ -23,6 +23,12 @@ export const KunErrorCode = z.enum([
   'policy_blocked',
   'model_modality_unsupported',
   'attachment_validation_failed',
+  'payload_too_large',
+  'resource_limit',
+  'unsafe_url',
+  'unsafe_path',
+  'operation_cancelled',
+  'stale_request',
   'internal_error',
   'not_implemented',
   'aborted'

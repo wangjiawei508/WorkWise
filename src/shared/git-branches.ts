@@ -3,10 +3,16 @@ export type GitBranchRow = {
   current: boolean
 }
 
+export type GitRepositoryRow = {
+  root: string
+  relativePath: string
+}
+
 export type GitBranchesResult =
   | {
       ok: true
       repositoryRoot: string
+      repositories: GitRepositoryRow[]
       currentBranch: string | null
       branches: GitBranchRow[]
       dirtyCount: number

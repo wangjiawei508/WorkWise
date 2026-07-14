@@ -458,8 +458,8 @@ function useMediaPreviewUrls(media: TimelineMediaReference[]): Record<string, st
               previewUrl: `data:${content.attachment.mimeType};base64,${content.dataBase64}`
             }
           }
-          if (request.mode === 'workspace-image' && request.path && typeof window.kunGui?.readWorkspaceImage === 'function') {
-            const result = await window.kunGui.readWorkspaceImage({
+          if (request.mode === 'workspace-image' && request.path && typeof window.workwise?.readWorkspaceImage === 'function') {
+            const result = await window.workwise.readWorkspaceImage({
               path: request.path,
               ...(workspaceRoot ? { workspaceRoot } : {})
             })
@@ -533,7 +533,7 @@ function MediaPreviewTile({
           ? t('generatedFileSaveFailed')
           : t('generatedFileDownload')
   const handleSaveAs = async (): Promise<void> => {
-    if (saveState === 'saving' || typeof window.kunGui?.saveWorkspaceFileAs !== 'function') return
+    if (saveState === 'saving' || typeof window.workwise?.saveWorkspaceFileAs !== 'function') return
     const data = dataUrlPayload(previewUrl)
     if (!filePath && !data) {
       setSaveState('error')
@@ -541,7 +541,7 @@ function MediaPreviewTile({
     }
     setSaveState('saving')
     try {
-      const result = await window.kunGui.saveWorkspaceFileAs({
+      const result = await window.workwise.saveWorkspaceFileAs({
         suggestedName: title,
         ...(filePath ? { sourcePath: filePath } : {}),
         ...(workspaceRoot ? { workspaceRoot } : {}),
@@ -558,7 +558,7 @@ function MediaPreviewTile({
       }
     } catch (error) {
       setSaveState('error')
-      void window.kunGui?.logError?.('file-save-as', 'Failed to save generated file', {
+      void window.workwise?.logError?.('file-save-as', 'Failed to save generated file', {
         message: error instanceof Error ? error.message : String(error),
         filePath,
         title
@@ -1313,6 +1313,8 @@ export function MessageBubble({ block, nested = false }: { block: ChatBlock; nes
         ? t('approvalAllowed')
         : block.status === 'denied'
           ? t('approvalDenied')
+          : block.status === 'expired'
+            ? t('approvalExpired')
           : block.status === 'error'
             ? t('approvalFailed')
             : t('approvalPending')

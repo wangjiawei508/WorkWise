@@ -41,7 +41,7 @@ function thread(id: string, goal: ThreadGoal | null = null): NormalizedThread {
     updatedAt: '2026-06-04T00:00:00.000Z',
     model: 'deepseek-v4-pro',
     mode: 'agent',
-    workspace: '/workspace/deepseek-gui',
+    workspace: '/workspace/workwise',
     status: 'idle',
     goal
   }
@@ -297,7 +297,7 @@ describe('chat-store-maintenance-actions goal actions', () => {
     expect(state.blocks.map((block) => ('status' in block ? block.status : block.kind))).toEqual([
       'user',
       'error',
-      'error',
+      'expired',
       'cancelled',
       'assistant'
     ])
@@ -307,7 +307,7 @@ describe('chat-store-maintenance-actions goal actions', () => {
 
   it('keeps the turn settled when the backend interrupt fails', async () => {
     ;(globalThis as { window?: unknown }).window = {
-      kunGui: {
+      workwise: {
         logError: vi.fn(async () => undefined)
       }
     }

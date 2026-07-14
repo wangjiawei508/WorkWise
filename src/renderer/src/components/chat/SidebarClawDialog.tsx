@@ -24,7 +24,7 @@ import type {
   ClawImProvider,
   ClawRunMode
 } from '@shared/app-settings'
-import type { ClawImInstallQrResult } from '@shared/kun-gui-api'
+import type { ClawImInstallQrResult } from '@shared/workwise-api'
 import { confirmDialog } from '../../lib/confirm-dialog'
 import {
   ClawProviderLogo,
@@ -223,9 +223,9 @@ export function ClawAddImDialog({
 
   useEffect(() => {
     let cancelled = false
-    if (typeof window.kunGui?.getSettings !== 'function') return
+    if (typeof window.workwise?.getSettings !== 'function') return
     setLoadingConfig(true)
-    void window.kunGui
+    void window.workwise
       .getSettings()
       .then((settings) => {
         if (cancelled) return
@@ -272,7 +272,7 @@ export function ClawAddImDialog({
   )
   const bindingPayload = useMemo(() => {
     const payload: Record<string, unknown> = {
-      kind: 'kun.claw-im',
+      kind: 'workwise.claw-im',
       provider: effectiveProvider,
       endpoint,
       method: 'POST',
@@ -313,7 +313,7 @@ export function ClawAddImDialog({
 
   const startOfficialInstallQr = async (): Promise<void> => {
     if (!officialInstallProvider) return
-    if (typeof window.kunGui?.startClawImInstallQr !== 'function') {
+    if (typeof window.workwise?.startClawImInstallQr !== 'function') {
       setInstallQr({
         status: 'error',
         url: '',
@@ -332,7 +332,7 @@ export function ClawAddImDialog({
     setInstallQr({ status: 'loading', url: '', deviceCode: '', userCode: '', timeLeft: 0, error: '' })
     let result: ClawImInstallQrResult
     try {
-      result = await window.kunGui.startClawImInstallQr(officialInstallProvider, {
+      result = await window.workwise.startClawImInstallQr(officialInstallProvider, {
         isLark: officialInstallProvider === 'feishu' && officialInstallTarget === 'lark'
       })
     } catch (e) {
@@ -385,7 +385,7 @@ export function ClawAddImDialog({
     }, 1000)
     const waitForInstall = async (): Promise<void> => {
       try {
-        const poll = await window.kunGui.pollClawImInstall(officialInstallProvider, result.deviceCode)
+        const poll = await window.workwise.pollClawImInstall(officialInstallProvider, result.deviceCode)
         if (installAttempt !== installAttemptRef.current) return
         if (poll.done) {
           clearInstallTimers()

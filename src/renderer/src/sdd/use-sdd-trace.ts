@@ -93,20 +93,20 @@ export function useSddTrace(input: {
     }
     let cancelled = false
     const load = async (): Promise<void> => {
-      if (typeof window.kunGui?.readWorkspaceFile !== 'function') return
-      const requirement = await window.kunGui
+      if (typeof window.workwise?.readWorkspaceFile !== 'function') return
+      const requirement = await window.workwise
         .readWorkspaceFile({ workspaceRoot, path: draftRelativePath })
         .catch(() => null)
       if (!cancelled) setDiskRequirement(requirement?.ok ? requirement.content : null)
       if (!planIsActive) {
-        const plan = await window.kunGui
+        const plan = await window.workwise
           .readWorkspaceFile({ workspaceRoot, path: planRelativePath })
           .catch(() => null)
         if (!cancelled) setDiskPlan(plan?.ok ? plan.content : null)
       }
       const tracePath = sddDraftTraceRelativePath(draftRelativePath)
       if (tracePath) {
-        const trace = await window.kunGui
+        const trace = await window.workwise
           .readWorkspaceFile({ workspaceRoot, path: tracePath })
           .catch(() => null)
         if (!cancelled) setSnapshot(trace?.ok ? parseTraceSnapshot(trace.content) : null)
@@ -163,8 +163,8 @@ export function useSddTrace(input: {
           await saveActiveSddDraftToDisk()
           return
         }
-        if (typeof window.kunGui?.writeWorkspaceFile !== 'function') return
-        const written = await window.kunGui.writeWorkspaceFile({
+        if (typeof window.workwise?.writeWorkspaceFile !== 'function') return
+        const written = await window.workwise.writeWorkspaceFile({
           workspaceRoot,
           path: draftRelativePath,
           content: next

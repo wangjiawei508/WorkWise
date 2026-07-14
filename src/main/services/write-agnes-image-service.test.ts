@@ -5,7 +5,7 @@ import {
   DEFAULT_AGNES_PROVIDER_ID,
   defaultClawSettings,
   defaultKeyboardShortcuts,
-  defaultKunRuntimeSettings,
+  defaultManagedRuntimeSettings,
   defaultModelProviderSettings,
   defaultScheduleSettings,
   defaultWriteSettings,
@@ -28,7 +28,7 @@ function settings(): AppSettingsV1 {
           : item
       )
     },
-    agents: { kun: defaultKunRuntimeSettings() },
+    agents: { kun: defaultManagedRuntimeSettings() },
     workspaceRoot: '/tmp/workspace',
     log: { enabled: false, retentionDays: 7 },
     notifications: { turnComplete: true },

@@ -77,11 +77,11 @@ export async function validateFileReference(
   if (cached !== undefined) return cached instanceof Promise ? cached : cached
 
   const task = (async (): Promise<SettledValidation> => {
-    if (typeof window === 'undefined' || typeof window.kunGui?.resolveWorkspaceFile !== 'function') {
+    if (typeof window === 'undefined' || typeof window.workwise?.resolveWorkspaceFile !== 'function') {
       return { status: 'invalid' }
     }
 
-    const result = await window.kunGui.resolveWorkspaceFile({
+    const result = await window.workwise.resolveWorkspaceFile({
       path: normalizedTarget.path,
       line: normalizedTarget.line,
       column: normalizedTarget.column,

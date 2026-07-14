@@ -105,14 +105,14 @@ PPT Master 内置的是瘦身工作流能力，不是完整官方仓库。它包
 
 ## 本地数据
 
-新安装默认使用 `workwise` 命名目录；从旧版本升级时，已有 `workgpt` 历史目录仍会被兼容读取，不会自动删除历史会话或文件：
+新安装默认使用 `workwise` 命名目录；从旧版本升级时，已有历史目录仍会被兼容读取，不会自动删除历史会话或文件：
 
 | 数据 | 默认位置 |
 | --- | --- |
 | 默认工作区 | `~/.workwise/default_workspace` |
 | 写作空间 | `~/.workwise/write_workspace` |
 | 运行时与会话数据 | `~/.workwise/kun` 或系统应用数据目录 |
-| 设置文件 | macOS: `~/Library/Application Support/WorkWise/workwise-settings.json`；Windows: `%APPDATA%\WorkWise\workwise-settings.json`；旧版 `workgpt-settings.json` 会自动兼容读取 |
+| 设置文件 | macOS: `~/Library/Application Support/WorkWise/workwise-settings.json`；Windows: `%APPDATA%\WorkWise\workwise-settings.json`；历史设置会由迁移模块只读导入 |
 | 日志 | 可在设置的通用页面打开 |
 
 卸载应用不会自动删除这些数据。彻底清理前请确认不再需要历史会话、MCP 配置和 Skills。

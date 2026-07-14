@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { mkdtemp, readFile, readdir, rm } from 'node:fs/promises'
+import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -59,7 +59,7 @@ describe('atomicWriteFile', () => {
     }
   })
 
-  it('falls back to a direct write after Windows rename retries are exhausted', async () => {
+  it('preserves the old file and rejects after Windows rename retries are exhausted', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'kun-atomic-'))
     vi.spyOn(process, 'platform', 'get').mockReturnValue('win32')
     renameMock.mockImplementation(async () => {
@@ -70,14 +70,15 @@ describe('atomicWriteFile', () => {
 
     try {
       const path = join(dir, 'events.jsonl')
-      await atomicWriteFile(path, '{"seq":1}', {
+      await writeFile(path, '{"old":true}')
+      await expect(atomicWriteFile(path, '{"seq":1}', {
         renameRetry: {
           attempts: 2,
           baseDelayMs: 0
         }
-      })
+      })).rejects.toMatchObject({ code: 'EPERM' })
 
-      expect(await readFile(path, 'utf-8')).toBe('{"seq":1}')
+      expect(await readFile(path, 'utf-8')).toBe('{"old":true}')
       expect(renameMock).toHaveBeenCalledTimes(2)
       expect((await readdir(dir)).filter((name) => name.endsWith('.tmp'))).toEqual([])
     } finally {

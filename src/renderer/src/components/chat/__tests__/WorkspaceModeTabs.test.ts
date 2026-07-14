@@ -143,24 +143,24 @@ describe('WorkspaceModeTabs', () => {
     expect(html).toContain('Code / Write')
   })
 
-  it('can render an iKun visual mode switch under the tabs', () => {
+  it('can render an Focus visual mode switch under the tabs', () => {
     const onCodeOpen = vi.fn()
     const onWriteOpen = vi.fn()
-    const onToggleIkunMode = vi.fn()
+    const onToggleFocusMode = vi.fn()
 
     const html = renderToStaticMarkup(
       createElement(WorkspaceModeTabs, {
         activeView: 'chat',
-        ikunModeEnabled: true,
+        focusModeEnabled: true,
         onCodeOpen,
-        onToggleIkunMode,
+        onToggleFocusMode,
         onWriteOpen
       })
     )
 
     expect(html).toContain('role="switch"')
     expect(html).toContain('aria-checked="true"')
-    expect(html).toContain('iKun')
+    expect(html).toContain('Focus')
     expect(html).toContain('On')
     expect(html.match(/role="tab"/g)?.length).toBe(2)
   })

@@ -74,9 +74,18 @@ export function applyRequestHistoryHygiene(
 
 function normalizeOptions(options: RequestHistoryHygieneOptions): Required<RequestHistoryHygieneOptions> {
   return {
-    maxToolResultLines: Math.max(1, Math.floor(options.maxToolResultLines ?? DEFAULT_MAX_TOOL_RESULT_LINES)),
-    maxToolResultBytes: Math.max(512, Math.floor(options.maxToolResultBytes ?? DEFAULT_MAX_TOOL_RESULT_BYTES)),
-    maxToolResultTokens: Math.max(128, Math.floor(options.maxToolResultTokens ?? DEFAULT_MAX_TOOL_RESULT_TOKENS)),
+    maxToolResultLines: Math.min(
+      DEFAULT_MAX_TOOL_RESULT_LINES,
+      Math.max(1, Math.floor(options.maxToolResultLines ?? DEFAULT_MAX_TOOL_RESULT_LINES))
+    ),
+    maxToolResultBytes: Math.min(
+      DEFAULT_MAX_TOOL_RESULT_BYTES,
+      Math.max(512, Math.floor(options.maxToolResultBytes ?? DEFAULT_MAX_TOOL_RESULT_BYTES))
+    ),
+    maxToolResultTokens: Math.min(
+      DEFAULT_MAX_TOOL_RESULT_TOKENS,
+      Math.max(128, Math.floor(options.maxToolResultTokens ?? DEFAULT_MAX_TOOL_RESULT_TOKENS))
+    ),
     maxToolArgumentStringBytes:
       Math.max(512, Math.floor(options.maxToolArgumentStringBytes ?? DEFAULT_MAX_TOOL_ARGUMENT_STRING_BYTES)),
     maxToolArgumentStringTokens:

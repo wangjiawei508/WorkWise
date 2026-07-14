@@ -1,0 +1,70 @@
+name: Quality
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - master
+      - 'codex/**'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: quality-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality:
+    name: OpenSpec, brand, lint, type, test, build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: npm run openspec:validate
+      - run: npm run verify:brand-boundary
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm --prefix kun run typecheck
+      - run: npm --prefix kun test
+      - run: npm run build
+
+  windows-security:
+    name: Windows path, spawn, persistence
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test -- --run src/main/services/canonical-containment.test.ts src/main/services/safe-spawn.test.ts src/main/services/durable-file.test.ts src/main/services/git-service.test.ts
+      - run: npm --prefix kun test -- --run tests/atomic-write.test.ts tests/builtin-tools.test.ts
+
+  electron-smoke:
+    name: Electron production smoke
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - name: Launch packaged production preview
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xvfb
+          set +e
+          xvfb-run -a timeout --signal=INT 30s npm run preview
+          status=$?
+          if [ "$status" -ne 0 ] && [ "$status" -ne 124 ]; then exit "$status"; fi

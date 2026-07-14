@@ -5,14 +5,17 @@ import {
   MAX_WRITE_THREAD_REGISTRY_WORKSPACES,
   WRITE_ASSISTANT_THREAD_TITLE,
   activeWriteThreadForWorkspace,
+  archiveWriteFileContext,
   emptyWriteThreadRegistry,
   forgetWriteThread,
   hydrateWriteThreadRegistry,
   isWriteThreadId,
   markWriteThread,
+  moveWriteFileContext,
   pruneWriteThreadRegistry,
   readWriteThreadRegistry,
   saveWriteThreadRegistry,
+  writeThreadMatchesFileContext,
   writeWorkspaceForThreadId
 } from './write-thread-registry'
 
@@ -56,6 +59,26 @@ describe('write-thread-registry', () => {
 
     expect(second.workspaces['/Users/zxy/workspace'].activeThreadId).toBe('thread-2')
     expect(second.workspaces['/Users/zxy/workspace'].threadIds).toEqual(['thread-2', 'thread-1'])
+  })
+
+  it('isolates assistant sessions by active file and migrates rename/delete mappings', () => {
+    const workspace = '/Users/zxy/workspace'
+    const fileA = `${workspace}/a.md`
+    const fileB = `${workspace}/b.md`
+    let registry = markWriteThread(workspace, 'thread-a', emptyWriteThreadRegistry(), fileA)
+    registry = markWriteThread(workspace, 'thread-b', registry, fileB)
+    const threads = [thread('thread-a', workspace), thread('thread-b', workspace)]
+
+    expect(activeWriteThreadForWorkspace(workspace, threads, registry, fileA)?.id).toBe('thread-a')
+    expect(activeWriteThreadForWorkspace(workspace, threads, registry, fileB)?.id).toBe('thread-b')
+    expect(writeThreadMatchesFileContext('thread-b', workspace, fileA, registry)).toBe(false)
+
+    registry = moveWriteFileContext(workspace, fileA, `${workspace}/renamed.md`, registry)
+    expect(activeWriteThreadForWorkspace(workspace, threads, registry, `${workspace}/renamed.md`)?.id).toBe('thread-a')
+    expect(activeWriteThreadForWorkspace(workspace, threads, registry, fileA)).toBeNull()
+
+    registry = archiveWriteFileContext(workspace, `${workspace}/renamed.md`, registry)
+    expect(activeWriteThreadForWorkspace(workspace, threads, registry, `${workspace}/renamed.md`)).toBeNull()
   })
 
   it('caps remembered write thread ids per workspace', () => {

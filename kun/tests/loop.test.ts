@@ -112,7 +112,7 @@ describe('AgentLoop', () => {
       kind: 'turn_failed',
       message: expect.stringContaining('model stream exploded')
     })
-    expect(failed?.kind === 'turn_failed' ? failed.message : '').toContain('[Kun turn failed]')
+    expect(failed?.kind === 'turn_failed' ? failed.message : '').toContain('[WorkWise turn failed]')
   })
 
   it('fails the turn when the model stream yields an error chunk', async () => {
@@ -451,7 +451,7 @@ describe('AgentLoop', () => {
 	    expect(items.find((item) => item.kind === 'error' && item.code === 'tool_catalog_changed'))
 	      .toMatchObject({
 	        kind: 'error',
-	        message: expect.stringContaining('Kun stopped this turn')
+	        message: expect.stringContaining('WorkWise stopped this turn')
 	      })
 	  })
 
@@ -1355,8 +1355,8 @@ describe('AgentLoop', () => {
           guiPlan: {
             operation: 'draft',
             workspaceRoot: workspace,
-            relativePath: '.kunsdd/plan/auth.md',
-            planId: `${workspace}:.kunsdd/plan/auth.md`,
+            relativePath: '.workwise/plans/auth.md',
+            planId: `${workspace}:.workwise/plans/auth.md`,
             sourceRequest: 'Add auth',
             title: 'Auth'
           }
@@ -1366,16 +1366,16 @@ describe('AgentLoop', () => {
       expect(status).toBe('completed')
       expect(observedToolLists[0]).toContain(CREATE_PLAN_TOOL_NAME)
       expect(observedRequiredToolNames).toEqual([CREATE_PLAN_TOOL_NAME, undefined])
-      await expect(readFile(join(workspace, '.kunsdd/plan/auth.md'), 'utf8')).resolves.toBe('# Generated plan')
+      await expect(readFile(join(workspace, '.workwise/plans/auth.md'), 'utf8')).resolves.toBe('# Generated plan')
       const turn = await h.turns.getTurn(h.threadId, h.turnId)
-      expect(turn?.guiPlan?.relativePath).toBe('.kunsdd/plan/auth.md')
+      expect(turn?.guiPlan?.relativePath).toBe('.workwise/plans/auth.md')
       const items = await h.sessionStore.loadItems(h.threadId)
       const result = items.find((item) => item.kind === 'tool_result' && item.callId === 'call_plan')
       expect(result).toBeDefined()
       if (result?.kind === 'tool_result') {
         expect(result.toolName).toBe(CREATE_PLAN_TOOL_NAME)
         expect(result.output).toMatchObject({
-          relative_path: '.kunsdd/plan/auth.md',
+          relative_path: '.workwise/plans/auth.md',
           workspace_root: workspace,
           operation: 'draft'
         })
@@ -1406,8 +1406,8 @@ describe('AgentLoop', () => {
           guiPlan: {
             operation: 'draft',
             workspaceRoot: workspace,
-            relativePath: '.kunsdd/plan/auth.md',
-            planId: `${workspace}:.kunsdd/plan/auth.md`,
+            relativePath: '.workwise/plans/auth.md',
+            planId: `${workspace}:.workwise/plans/auth.md`,
             sourceRequest: 'Add auth'
           }
         }
@@ -1417,7 +1417,7 @@ describe('AgentLoop', () => {
       const items = await h.sessionStore.loadItems(h.threadId)
 
       expect(status).toBe('completed')
-      await expect(readFile(join(workspace, '.kunsdd/plan/auth.md'), 'utf8')).resolves.toBe(
+      await expect(readFile(join(workspace, '.workwise/plans/auth.md'), 'utf8')).resolves.toBe(
         '## Plan\nImplement auth.'
       )
       expect(items.some((item) =>
@@ -1463,8 +1463,8 @@ describe('AgentLoop', () => {
       expect(
         planResult?.kind === 'tool_result' &&
         (planResult.output as { relative_path?: string }).relative_path
-      ).toBe('.kunsdd/plan/plan-sidebar-footer-polish.md')
-      await expect(readFile(join(workspace, '.kunsdd/plan/plan-sidebar-footer-polish.md'), 'utf8')).resolves.toBe(
+      ).toBe('.workwise/plans/plan-sidebar-footer-polish.md')
+      await expect(readFile(join(workspace, '.workwise/plans/plan-sidebar-footer-polish.md'), 'utf8')).resolves.toBe(
         '## Plan\nPolish the sidebar footer.'
       )
     } finally {
@@ -1523,7 +1523,7 @@ describe('AgentLoop', () => {
       expect(writeResult?.kind === 'tool_result' ? JSON.stringify(writeResult.output) : '')
         .toContain('not advertised by active tool policy')
       await expect(readFile(join(workspace, 'forbidden.txt'), 'utf8')).rejects.toThrow()
-      await expect(readFile(join(workspace, '.kunsdd/plan/plan-a-safe-change.md'), 'utf8')).resolves.toBe(
+      await expect(readFile(join(workspace, '.workwise/plans/plan-a-safe-change.md'), 'utf8')).resolves.toBe(
         '## Plan\nStay read-only until build mode.'
       )
     } finally {
@@ -1578,7 +1578,7 @@ describe('AgentLoop', () => {
       expect(bashResult?.kind === 'tool_result' ? JSON.stringify(bashResult.output) : '')
         .toContain('not advertised by active tool policy')
       await expect(readFile(join(workspace, 'forbidden.txt'), 'utf8')).rejects.toThrow()
-      await expect(readFile(join(workspace, '.kunsdd/plan/plan-without-shell-mutations.md'), 'utf8')).resolves.toBe(
+      await expect(readFile(join(workspace, '.workwise/plans/plan-without-shell-mutations.md'), 'utf8')).resolves.toBe(
         '## Plan\nUse read-only inspection only.'
       )
     } finally {
@@ -1606,8 +1606,8 @@ describe('AgentLoop', () => {
           guiPlan: {
             operation: 'draft',
             workspaceRoot: workspace,
-            relativePath: '.kunsdd/plan/auth.md',
-            planId: `${workspace}:.kunsdd/plan/auth.md`,
+            relativePath: '.workwise/plans/auth.md',
+            planId: `${workspace}:.workwise/plans/auth.md`,
             sourceRequest: 'Add auth'
           }
         }
@@ -1664,8 +1664,8 @@ describe('AgentLoop', () => {
           guiPlan: {
             operation: 'draft',
             workspaceRoot: workspace,
-            relativePath: '.kunsdd/plan/auth.md',
-            planId: `${workspace}:.kunsdd/plan/auth.md`,
+            relativePath: '.workwise/plans/auth.md',
+            planId: `${workspace}:.workwise/plans/auth.md`,
             sourceRequest: 'Add auth'
           }
         }
@@ -1675,7 +1675,7 @@ describe('AgentLoop', () => {
 
       expect(status).toBe('completed')
       expect(observedRequiredToolNames).toEqual([CREATE_PLAN_TOOL_NAME, CREATE_PLAN_TOOL_NAME, undefined])
-      await expect(readFile(join(workspace, '.kunsdd/plan/auth.md'), 'utf8')).resolves.toBe(
+      await expect(readFile(join(workspace, '.workwise/plans/auth.md'), 'utf8')).resolves.toBe(
         '## Plan\nImplement auth after checking context.'
       )
     } finally {

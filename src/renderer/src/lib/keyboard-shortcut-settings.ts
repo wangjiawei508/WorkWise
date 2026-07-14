@@ -21,8 +21,8 @@ export function useKeyboardShortcutSettings(): KeyboardShortcutsConfigV1 {
       if (!cancelled) setShortcuts(normalizeKeyboardShortcuts(settings.keyboardShortcuts))
     }
 
-    if (typeof window.kunGui?.getSettings === 'function') {
-      void window.kunGui.getSettings().then(apply).catch(() => undefined)
+    if (typeof window.workwise?.getSettings === 'function') {
+      void window.workwise.getSettings().then(apply).catch(() => undefined)
     }
 
     const onSettingsChanged = (event: Event): void => {

@@ -19,7 +19,7 @@ describe('openWorkspacePathInEditor', () => {
     const openEditorPath = vi.fn(async () => {
       throw new Error('editor launch failed')
     })
-    vi.stubGlobal('window', { kunGui: { openEditorPath } })
+    vi.stubGlobal('window', { workwise: { openEditorPath } })
 
     await expect(openWorkspacePathInEditor({ path: '/tmp/demo.ts' })).resolves.toEqual({
       ok: false,

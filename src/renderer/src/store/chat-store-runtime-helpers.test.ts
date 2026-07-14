@@ -78,7 +78,7 @@ describe('chat-store-runtime-helpers compaction state', () => {
 
     expect(settled.map((block) => ('status' in block ? block.status : ''))).toEqual([
       'error',
-      'error',
+      'expired',
       'cancelled',
       'success'
     ])

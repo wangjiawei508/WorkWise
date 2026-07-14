@@ -16,7 +16,7 @@ function installResolveWorkspaceFile(
   Object.defineProperty(globalThis, 'window', {
     configurable: true,
     value: {
-      kunGui: {
+      workwise: {
         resolveWorkspaceFile
       }
     }

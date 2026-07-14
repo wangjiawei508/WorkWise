@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { findNearestGitRoot } from './git-discovery'
+import { discoverGitRepositories, findNearestGitRoot } from './git-discovery'
 
 let sandbox = ''
 
@@ -98,5 +98,40 @@ describe('findNearestGitRoot', () => {
     // git-ish, so the walker should return null without throwing.
     const result = await findNearestGitRoot('/this/path/does/not/exist/anywhere')
     expect(result).toBeNull()
+  })
+})
+
+describe('discoverGitRepositories', () => {
+  it('finds top-level, nested, and worktree repositories without traversing ignored folders', async () => {
+    const nested = join(sandbox, 'packages', 'nested')
+    const worktree = join(sandbox, 'packages', 'worktree')
+    const ignored = join(sandbox, 'node_modules', 'ignored')
+    await makeRepo(sandbox)
+    await makeRepo(nested)
+    await mkdir(worktree, { recursive: true })
+    await writeFile(join(worktree, '.git'), 'gitdir: /tmp/worktree\n', 'utf8')
+    await makeRepo(ignored)
+
+    const repositories = await discoverGitRepositories(sandbox)
+    const canonicalSandbox = await realpath(sandbox)
+
+    expect(repositories).toContain(canonicalSandbox)
+    expect(repositories).toContain(await realpath(nested))
+    expect(repositories).toContain(await realpath(worktree))
+    expect(repositories).not.toContain(await realpath(ignored))
+  })
+
+  it('honors the depth and repository count bounds', async () => {
+    await makeRepo(sandbox)
+    const depthOne = join(sandbox, 'one')
+    const depthTwo = join(depthOne, 'two')
+    await makeRepo(depthOne)
+    await makeRepo(depthTwo)
+
+    const canonicalSandbox = await realpath(sandbox)
+    expect(await discoverGitRepositories(sandbox, { maxDepth: 1, maxRepositories: 64 }))
+      .toEqual([canonicalSandbox, await realpath(depthOne)])
+    expect(await discoverGitRepositories(sandbox, { maxDepth: 8, maxRepositories: 1 }))
+      .toEqual([canonicalSandbox])
   })
 })

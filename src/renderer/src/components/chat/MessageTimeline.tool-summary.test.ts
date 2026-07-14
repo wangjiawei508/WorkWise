@@ -122,7 +122,7 @@ describe('MessageTimeline tool summaries', () => {
   })
 })
 
-describe('MessageTimeline Kun runtime metadata smoke', () => {
+describe('MessageTimeline WorkWise Runtime runtime metadata smoke', () => {
   beforeEach(() => {
     useChatStore.setState({
       route: 'chat',
@@ -207,7 +207,7 @@ describe('MessageTimeline Kun runtime metadata smoke', () => {
         },
         sources: [
           {
-            title: 'Kun docs',
+            title: 'WorkWise Runtime docs',
             url: 'https://example.com/kun'
           }
         ]
@@ -238,7 +238,7 @@ describe('MessageTimeline Kun runtime metadata smoke', () => {
         },
         sources: [
           {
-            title: 'Kun docs',
+            title: 'WorkWise Runtime docs',
             url: 'https://example.com/kun'
           }
         ]

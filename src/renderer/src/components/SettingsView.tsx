@@ -7,9 +7,9 @@ import {
   DEFAULT_WRITE_WORKSPACE_ROOT,
   type AppSettingsPatch,
   getActiveAgentApiKey,
-  getKunRuntimeSettings,
+  getManagedRuntimeSettings,
   getModelProviderSettings,
-  isKunRuntimeInsecure,
+  isManagedRuntimeInsecure,
   resolveWriteInlineCompletionApiKey,
   resolveWriteInlineCompletionBaseUrl,
   resolveWriteInlineCompletionModel,
@@ -21,7 +21,7 @@ import type {
   CoreMemoryRecordJson,
   CoreRuntimeInfoJson,
   CoreRuntimeToolDiagnosticsJson
-} from '../agent/kun-contract'
+} from '../agent/runtime-contract'
 import type { WriteInlineCompletionDebugEntry } from '@shared/write-inline-completion'
 import { applyTheme, applyUiFontScale } from '../lib/apply-theme'
 import { formatWorkspacePickerError } from '../lib/format-workspace-picker-error'
@@ -44,7 +44,7 @@ import {
   mergeSettings,
   splitSettingsList
 } from './settings-utils'
-import { loadKunDiagnostics } from '../lib/load-kun-diagnostics'
+import { loadRuntimeDiagnostics } from '../lib/load-runtime-diagnostics'
 import { emitRendererSettingsChanged } from '../lib/keyboard-shortcut-settings'
 import {
   AgentsSettingsSection,
@@ -99,7 +99,7 @@ export function SettingsView(): ReactElement {
   const [logDirOpenError, setLogDirOpenError] = useState<string | null>(null)
   const [skillRootId, setSkillRootId] = useState<SkillRootId>(() => loadPreferredSkillRootId())
   const [skillNotice, setSkillNotice] = useState<InlineNotice | null>(null)
-  const [mcpConfigPath, setMcpConfigPath] = useState('~/.kun/mcp.json')
+  const [mcpConfigPath, setMcpConfigPath] = useState('~/.workwise/mcp.json')
   const [mcpConfigText, setMcpConfigText] = useState('')
   const [mcpConfigExists, setMcpConfigExists] = useState(false)
   const [mcpLoading, setMcpLoading] = useState(false)
@@ -127,7 +127,7 @@ export function SettingsView(): ReactElement {
   const formTheme = form?.theme
   const formUiFontScale = form?.uiFontScale
   const formWorkspaceRoot = form?.workspaceRoot
-  const formKun = form ? getKunRuntimeSettings(form) : null
+  const formKun = form ? getManagedRuntimeSettings(form) : null
   const formPort = formKun?.port
   const formGuiUpdateChannel = form?.guiUpdate?.channel
   const {
@@ -151,7 +151,7 @@ export function SettingsView(): ReactElement {
 
   useEffect(() => {
     let cancelled = false
-    if (typeof window.kunGui === 'undefined') {
+    if (typeof window.workwise === 'undefined') {
       setLoadError('PRELOAD_BRIDGE')
       return
     }
@@ -175,16 +175,16 @@ export function SettingsView(): ReactElement {
   }, [formTheme, formUiFontScale])
 
   useEffect(() => {
-    if (typeof window.kunGui?.getLogPath !== 'function') return
-    void window.kunGui.getLogPath().then((p) => setLogPath(p)).catch(() => undefined)
+    if (typeof window.workwise?.getLogPath !== 'function') return
+    void window.workwise.getLogPath().then((p) => setLogPath(p)).catch(() => undefined)
   }, [category])
 
   const loadWriteDebugEntries = useCallback(async (): Promise<void> => {
     setWriteDebugLoading(true)
     setWriteDebugError(null)
     try {
-      const completionEntries = typeof window.kunGui?.listWriteInlineCompletionDebugEntries === 'function'
-        ? await window.kunGui.listWriteInlineCompletionDebugEntries()
+      const completionEntries = typeof window.workwise?.listWriteInlineCompletionDebugEntries === 'function'
+        ? await window.workwise.listWriteInlineCompletionDebugEntries()
         : []
       setWriteCompletionDebugEntries(completionEntries)
       setWriteCompletionDebugSelectedId((current) =>
@@ -311,7 +311,7 @@ export function SettingsView(): ReactElement {
       {
         id: 'global-deepseek',
         label: tCommon('pluginSkillRootGlobalDeepseek'),
-        path: '~/.kun/skills',
+        path: '~/.workwise/skills',
         available: true
       }
     ]
@@ -334,11 +334,11 @@ export function SettingsView(): ReactElement {
   }, [skillRootId, skillRootOptions])
 
   const loadMcpConfig = async (): Promise<void> => {
-    if (typeof window.kunGui?.getKunConfigFile !== 'function') return
+    if (typeof window.workwise?.getRuntimeConfigFile !== 'function') return
     setMcpLoading(true)
     setMcpNotice(null)
     try {
-      const config = await window.kunGui.getKunConfigFile()
+      const config = await window.workwise.getRuntimeConfigFile()
       setMcpConfigPath(config.path)
       setMcpConfigText(config.content)
       setMcpConfigExists(config.exists)
@@ -363,20 +363,20 @@ export function SettingsView(): ReactElement {
       setSkillNotice({ tone: 'error', message: t('skillsRootUnavailable') })
       return
     }
-    if (typeof window.kunGui?.openSkillRoot !== 'function') return
+    if (typeof window.workwise?.openSkillRoot !== 'function') return
     setSkillNotice(null)
-    const result = await window.kunGui.openSkillRoot(selectedSkillRoot.path)
+    const result = await window.workwise.openSkillRoot(selectedSkillRoot.path)
     if (!result.ok) {
       setSkillNotice({ tone: 'error', message: result.message ?? t('applyFailed') })
     }
   }
 
   const saveMcpConfig = async (): Promise<void> => {
-    if (typeof window.kunGui?.setKunConfigFile !== 'function') return
+    if (typeof window.workwise?.setRuntimeConfigFile !== 'function') return
     setMcpBusy(true)
     setMcpNotice(null)
     try {
-      const result = await window.kunGui.setKunConfigFile(mcpConfigText)
+      const result = await window.workwise.setRuntimeConfigFile(mcpConfigText)
       setMcpConfigPath(result.path)
       setMcpConfigExists(true)
       setMcpNotice({
@@ -394,8 +394,8 @@ export function SettingsView(): ReactElement {
   }
 
   const openMcpConfigDir = async (): Promise<void> => {
-    if (typeof window.kunGui?.openKunConfigDir !== 'function') return
-    const result = await window.kunGui.openKunConfigDir()
+    if (typeof window.workwise?.openRuntimeConfigDir !== 'function') return
+    const result = await window.workwise.openRuntimeConfigDir()
     if (!result.ok) {
       setMcpNotice({ tone: 'error', message: result.message ?? t('applyFailed') })
     }
@@ -406,7 +406,7 @@ export function SettingsView(): ReactElement {
     setRuntimeDiagnosticsBusy(true)
     setRuntimeDiagnosticsNotice(null)
     try {
-      const loaded = await loadKunDiagnostics(provider, {
+      const loaded = await loadRuntimeDiagnostics(provider, {
         workspace: normalizeWorkspaceRoot(formWorkspaceRoot)
       })
       if (loaded.runtimeInfo !== undefined) setRuntimeInfo(loaded.runtimeInfo)
@@ -594,7 +594,7 @@ export function SettingsView(): ReactElement {
     )
   }
 
-  const kun = getKunRuntimeSettings(form)
+  const kun = getManagedRuntimeSettings(form)
   const provider = getModelProviderSettings(form)
   const activeApiKey = getActiveAgentApiKey(form)
 
@@ -629,10 +629,10 @@ export function SettingsView(): ReactElement {
   const pickWorkspace = async (): Promise<void> => {
     try {
       setWorkspacePickerError(null)
-      if (typeof window.kunGui?.pickWorkspaceDirectory !== 'function') {
+      if (typeof window.workwise?.pickWorkspaceDirectory !== 'function') {
         throw new Error('workspace:pick-directory unavailable')
       }
-      const picked = await window.kunGui.pickWorkspaceDirectory(form.workspaceRoot || undefined)
+      const picked = await window.workwise.pickWorkspaceDirectory(form.workspaceRoot || undefined)
       if (!picked.canceled && picked.path) {
         update({ workspaceRoot: picked.path })
       }
@@ -649,10 +649,10 @@ export function SettingsView(): ReactElement {
   const pickWriteWorkspace = async (): Promise<void> => {
     try {
       setWriteWorkspacePickerError(null)
-      if (typeof window.kunGui?.pickWorkspaceDirectory !== 'function') {
+      if (typeof window.workwise?.pickWorkspaceDirectory !== 'function') {
         throw new Error('workspace:pick-directory unavailable')
       }
-      const picked = await window.kunGui.pickWorkspaceDirectory(
+      const picked = await window.workwise.pickWorkspaceDirectory(
         form.write.defaultWorkspaceRoot || DEFAULT_WRITE_WORKSPACE_ROOT
       )
       if (!picked.canceled && picked.path) {
@@ -688,10 +688,10 @@ export function SettingsView(): ReactElement {
   const pickClawWorkspace = async (): Promise<void> => {
     try {
       setClawWorkspacePickerError(null)
-      if (typeof window.kunGui?.pickWorkspaceDirectory !== 'function') {
+      if (typeof window.workwise?.pickWorkspaceDirectory !== 'function') {
         throw new Error('workspace:pick-directory unavailable')
       }
-      const picked = await window.kunGui.pickWorkspaceDirectory(
+      const picked = await window.workwise.pickWorkspaceDirectory(
         form.claw.im.workspaceRoot || form.workspaceRoot || undefined
       )
       if (!picked.canceled && picked.path) {
@@ -711,8 +711,8 @@ export function SettingsView(): ReactElement {
     setWriteDebugLoading(true)
     setWriteDebugError(null)
     try {
-      if (typeof window.kunGui?.clearWriteInlineCompletionDebugEntries === 'function') {
-        await window.kunGui.clearWriteInlineCompletionDebugEntries()
+      if (typeof window.workwise?.clearWriteInlineCompletionDebugEntries === 'function') {
+        await window.workwise.clearWriteInlineCompletionDebugEntries()
       }
       setWriteCompletionDebugEntries([])
       setWriteCompletionDebugSelectedId(null)

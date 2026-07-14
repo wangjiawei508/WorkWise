@@ -664,7 +664,18 @@ export function createMaintenanceActions(
       }))
     } catch (e) {
       const msg = formatRuntimeError(e)
-      void window.kunGui.logError('approval', 'Failed to submit approval decision', {
+      const code = getRuntimeErrorCode(e)
+      if (code === 'not_found' || code === 'conflict' || code === 'approval_not_pending') {
+        set((s) => ({
+          blocks: s.blocks.map((b) =>
+            b.id === blockId && b.kind === 'approval'
+              ? { ...b, status: 'expired' as const, errorMessage: undefined }
+              : b
+          )
+        }))
+        return
+      }
+      void window.workwise.logError('approval', 'Failed to submit approval decision', {
         message: msg,
         blockId
       }).catch(() => undefined)
@@ -751,7 +762,7 @@ export function createMaintenanceActions(
       }))
     } catch (e) {
       const msg = formatRuntimeError(e)
-      void window.kunGui.logError('user-input', 'Failed to resolve user input', {
+      void window.workwise.logError('user-input', 'Failed to resolve user input', {
         message: msg,
         blockId
       }).catch(() => undefined)
@@ -784,7 +795,7 @@ export function createMaintenanceActions(
       await p.interruptTurn(activeThreadId, currentTurnId, { discard: options?.discard === true })
     } catch (e) {
       const msg = formatRuntimeError(e)
-      void window.kunGui.logError('interrupt', 'Failed to interrupt turn', { message: msg }).catch(() => undefined)
+      void window.workwise.logError('interrupt', 'Failed to interrupt turn', { message: msg }).catch(() => undefined)
       set({
         error: msg,
         ...(shouldOpenSettingsForError(e)

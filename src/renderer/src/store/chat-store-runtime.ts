@@ -20,6 +20,7 @@ import type { ChatState } from './chat-store-types'
 import { isClawThread } from './chat-store-helpers'
 import {
   collectAssistantTextForTurn,
+  expirePendingApprovals,
   reconcileOptimisticUserBlock,
   settlePendingRuntimeWorkAfterInterrupt,
   threadSnapshotLooksRunning,
@@ -253,29 +254,29 @@ export function clearWatchedCompletionNotification(threadId: string): void {
 }
 
 function notifyTurnComplete(threadId: string | null, state: ChatState, dedupeKey: string): void {
-  if (!threadId || typeof window.kunGui?.showTurnCompleteNotification !== 'function') return
+  if (!threadId || typeof window.workwise?.showTurnCompleteNotification !== 'function') return
   if (!rememberCompletionNotificationKey(dedupeKey)) return
 
   const threadTitle =
     state.threads.find((thread) => thread.id === threadId)?.title?.trim() ||
     i18n.t('common:untitledThread')
 
-  void window.kunGui
+  void window.workwise
     .showTurnCompleteNotification({
       threadId,
       title: i18n.t('common:turnCompleteNotificationTitle'),
       body: i18n.t('common:turnCompleteNotificationBody', { title: threadTitle })
     })
     .then((result) => {
-      if (result.ok || typeof window.kunGui?.logError !== 'function') return
-      void window.kunGui.logError('notification', 'Turn completion notification failed', {
+      if (result.ok || typeof window.workwise?.logError !== 'function') return
+      void window.workwise.logError('notification', 'Turn completion notification failed', {
         message: result.message,
         threadId
       }).catch(() => undefined)
     })
     .catch((error: unknown) => {
-      if (typeof window.kunGui?.logError !== 'function') return
-      void window.kunGui.logError('notification', 'Turn completion notification failed', {
+      if (typeof window.workwise?.logError !== 'function') return
+      void window.workwise.logError('notification', 'Turn completion notification failed', {
         message: error instanceof Error ? error.message : String(error),
         threadId
       }).catch(() => undefined)
@@ -540,6 +541,10 @@ export function buildThreadEventSink(
   }
 
   return {
+    onReplayReset: () => {
+      if (!isCurrentStream() || !boundThreadId) return
+      void get().selectThread(boundThreadId)
+    },
     onSeq: (seq) => {
       if (!isCurrentStream()) return
       resetBusyRecoveryAttempts()
@@ -1028,6 +1033,7 @@ export function buildThreadEventSink(
           currentTurnId: null
         })
         if (s.busy) base.busy = false
+        base.blocks = expirePendingApprovals(base.blocks ?? s.blocks)
         const id = s.activeThreadId
         if (id) {
           const w = { ...s.watchTurnCompletion }
@@ -1040,8 +1046,8 @@ export function buildThreadEventSink(
         }
         return base
       })
-      if (pendingMirror && assistantMirrorText && typeof window.kunGui?.mirrorClawChannelMessage === 'function') {
-        void window.kunGui.mirrorClawChannelMessage(
+      if (pendingMirror && assistantMirrorText && typeof window.workwise?.mirrorClawChannelMessage === 'function') {
+        void window.workwise.mirrorClawChannelMessage(
           pendingMirror.threadId,
           assistantMirrorText,
           'assistant'

@@ -6,18 +6,18 @@ import {
   DEFAULT_DEEPSEEK_BASE_URL,
   defaultClawSettings,
   defaultKeyboardShortcuts,
-  defaultKunRuntimeSettings,
+  defaultManagedRuntimeSettings,
   defaultModelProviderSettings,
   defaultScheduleSettings,
   defaultWriteSettings,
   migrateLegacyAppSettings,
   type AppSettingsV1
 } from '../shared/app-settings'
-import { kunRuntimeAdapter } from './runtime/kun-adapter'
+import { managedRuntimeAdapter } from './runtime/managed-runtime-adapter'
 import { JsonSettingsStore } from './settings-store'
 
-describe('Kun single-agent regression', () => {
-  it('seeds provider credentials and Kun port from legacy local HTTP settings', () => {
+describe('WorkWise Runtime single-agent regression', () => {
+  it('seeds provider credentials and WorkWise Runtime port from legacy local HTTP settings', () => {
     const migrated = migrateLegacyAppSettings({
       version: 1,
       agentProvider: 'codewhale',
@@ -48,7 +48,7 @@ describe('Kun single-agent regression', () => {
     }))
   })
 
-  it('does not carry legacy local-runtime binary paths into Kun', () => {
+  it('does not carry legacy local-runtime binary paths into WorkWise Runtime', () => {
     const migrated = migrateLegacyAppSettings({
       version: 1,
       agentProvider: 'deepseek-runtime',
@@ -64,7 +64,7 @@ describe('Kun single-agent regression', () => {
     }))
   })
 
-  it('does not keep the legacy default local HTTP port for Kun', () => {
+  it('does not keep the legacy default local HTTP port for WorkWise Runtime', () => {
     const migrated = migrateLegacyAppSettings({
       version: 1,
       agentProvider: 'codewhale',
@@ -78,7 +78,7 @@ describe('Kun single-agent regression', () => {
     expect(migrated.agents?.kun?.port).toBe(8899)
   })
 
-  it('seeds provider credentials and Kun model from legacy reasoning settings', () => {
+  it('seeds provider credentials and WorkWise Runtime model from legacy reasoning settings', () => {
     const migrated = migrateLegacyAppSettings({
       version: 1,
       agentProvider: 'reasonix',
@@ -104,7 +104,7 @@ describe('Kun single-agent regression', () => {
     }))
   })
 
-  it('Kun adapter reports base url and id', () => {
+  it('WorkWise Runtime adapter reports base url and id', () => {
     const settings: AppSettingsV1 = {
       version: 1,
       locale: 'en',
@@ -112,7 +112,7 @@ describe('Kun single-agent regression', () => {
       uiFontScale: 'small',
       provider: defaultModelProviderSettings(),
       agents: {
-        kun: defaultKunRuntimeSettings(9000)
+        kun: defaultManagedRuntimeSettings(9000)
       },
       workspaceRoot: '/tmp',
       log: { enabled: true, retentionDays: 7 },
@@ -126,14 +126,14 @@ describe('Kun single-agent regression', () => {
       codePromptPrefix: ''
     }
 
-    expect(kunRuntimeAdapter.id).toBe('kun')
-    expect(kunRuntimeAdapter.getBaseUrl(settings)).toBe('http://127.0.0.1:9000')
+    expect(managedRuntimeAdapter.id).toBe('kun')
+    expect(managedRuntimeAdapter.getBaseUrl(settings)).toBe('http://127.0.0.1:9000')
   })
 
-  it('JsonSettingsStore saves only Kun after legacy settings migration', async () => {
+  it('JsonSettingsStore saves only WorkWise Runtime after legacy settings migration', async () => {
     const userDataDir = await mkdtemp(join(tmpdir(), 'ca-settings-'))
     await writeFile(
-      join(userDataDir, 'deepseek-gui-settings.json'),
+      join(userDataDir, 'workwise-settings.json'),
       JSON.stringify({
         version: 1,
         agentProvider: 'codewhale',

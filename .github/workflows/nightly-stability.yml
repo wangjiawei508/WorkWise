@@ -1,0 +1,43 @@
+name: Nightly stability
+
+on:
+  schedule:
+    - cron: '0 16 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  segment-one:
+    name: Stability hours 1-4
+    runs-on: ubuntu-latest
+    timeout-minutes: 250
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: npm run test:stability
+        env:
+          WORKWISE_STABILITY_MINUTES: '240'
+          WORKWISE_STABILITY_INTERVAL_MINUTES: '10'
+
+  segment-two:
+    name: Stability hours 5-8
+    needs: segment-one
+    runs-on: ubuntu-latest
+    timeout-minutes: 250
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: npm run test:stability
+        env:
+          WORKWISE_STABILITY_MINUTES: '240'
+          WORKWISE_STABILITY_INTERVAL_MINUTES: '10'

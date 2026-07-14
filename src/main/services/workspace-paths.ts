@@ -1,8 +1,12 @@
 import { type Dirent } from 'node:fs'
 import { access, readdir, realpath, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
-import { basename, isAbsolute, join, relative, resolve } from 'node:path'
+import { basename, isAbsolute, join, resolve } from 'node:path'
 import type { WorkspaceDirectoryTarget } from '../../shared/workspace-file'
+import {
+  assertSafePathInput,
+  resolveContainedPath
+} from './canonical-containment'
 
 export type ResolveTargetOptions = {
   allowBasenameFallback?: boolean
@@ -50,7 +54,8 @@ export async function pathExists(targetPath: string): Promise<boolean> {
 }
 
 function sanitizeUserPath(raw: string): string {
-  const value = raw.trim().replace(/\0/g, '')
+  const value = raw.trim()
+  assertSafePathInput(value)
   if (
     (value.startsWith('"') && value.endsWith('"')) ||
     (value.startsWith("'") && value.endsWith("'")) ||
@@ -134,21 +139,16 @@ export async function canonicalPath(targetPath: string): Promise<string> {
   }
 }
 
-function isWithinWorkspace(workspaceRoot: string, targetPath: string): boolean {
-  const rel = relative(workspaceRoot, targetPath)
-  return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel))
-}
-
 async function enforceWorkspaceBoundary(targetPath: string, workspaceRoot?: string): Promise<string> {
   const rawWorkspace = workspaceRoot?.trim()
   if (!rawWorkspace) return targetPath
 
-  const workspacePath = await canonicalPath(resolve(expandHomePath(rawWorkspace)))
-  const canonicalTarget = await canonicalPath(targetPath)
-  if (!isWithinWorkspace(workspacePath, canonicalTarget)) {
-    throw new Error('Path must stay within the selected workspace.')
-  }
-  return canonicalTarget
+  return resolveContainedPath({
+    root: resolve(expandHomePath(rawWorkspace)),
+    target: targetPath,
+    mustExist: true,
+    allowRoot: true
+  })
 }
 
 export async function resolveTargetPathWithinWorkspace(rawPath: string, workspaceRoot?: string): Promise<string> {
@@ -161,26 +161,11 @@ export async function resolveTargetPathWithinWorkspace(rawPath: string, workspac
     return isAbsolute(expanded) ? resolve(expanded) : resolve(expanded)
   }
 
-  const workspacePath = await canonicalPath(resolve(expandHomePath(rawWorkspace)))
-  if (!isAbsolute(expanded)) {
-    const direct = resolve(workspacePath, expanded)
-    if (!isWithinWorkspace(workspacePath, direct)) {
-      throw new Error('Path must stay within the selected workspace.')
-    }
-    return direct
-  }
-
-  const direct = resolve(expanded)
-  if (isWithinWorkspace(workspacePath, direct)) {
-    return direct
-  }
-  if (await pathExists(direct)) {
-    const canonicalTarget = await canonicalPath(direct)
-    if (isWithinWorkspace(workspacePath, canonicalTarget)) {
-      return canonicalTarget
-    }
-  }
-  throw new Error('Path must stay within the selected workspace.')
+  return resolveContainedPath({
+    root: resolve(expandHomePath(rawWorkspace)),
+    target: expanded,
+    rejectFinalLink: true
+  })
 }
 
 export async function resolveOpenTargetPath(
@@ -224,7 +209,13 @@ export async function resolveWorkspaceDirectory(
 
   const targetPath = payload.path?.trim()
     ? await resolveOpenTargetPath(payload.path, workspaceRoot, { allowBasenameFallback: false })
-    : await canonicalPath(resolve(expandHomePath(workspaceRoot)))
+    : await resolveContainedPath({
+      root: resolve(expandHomePath(workspaceRoot)),
+      target: '.',
+      mustExist: true,
+      allowRoot: true,
+      expect: 'directory'
+    })
   const info = await stat(targetPath)
   if (!info.isDirectory()) {
     throw new Error('Target path is not a directory.')

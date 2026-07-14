@@ -814,8 +814,8 @@ export function InitialSessionUsageHeatmapView({
 
   useEffect(() => {
     let cancelled = false
-    if (typeof window === 'undefined' || typeof window.kunGui?.getSettings !== 'function') return
-    void window.kunGui.getSettings()
+    if (typeof window === 'undefined' || typeof window.workwise?.getSettings !== 'function') return
+    void window.workwise.getSettings()
       .then((settings) => {
         if (!cancelled) setModelLabel(settings.agents.kun.model.trim())
       })

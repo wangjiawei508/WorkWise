@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -406,24 +406,27 @@ describe('Kun built-in tools', () => {
     expect(String(output.output)).toContain('hello local bash')
   })
 
-  it('prefers the fd backend path when an fd executable candidate is provided', async () => {
-    await mkdir(join(workspace, 'notes'), { recursive: true })
-    await writeFile(join(workspace, 'notes', 'demo.txt'), 'demo\n', 'utf8')
-    const fdHost = new LocalToolHost({
-      tools: [
-        createFindLocalTool({
-          fdExecutableCandidates: ['/bin/echo'],
-          rgExecutableCandidates: []
-        })
-      ]
-    })
-    const output = await executeTool(fdHost, workspace, 'find', {
-      pattern: '*.txt',
-      path: '.'
-    })
-    expect(output.backend).toBe('fd')
-    expect(output.matches).toHaveLength(1)
-  })
+  it.skipIf(process.platform === 'win32')(
+    'prefers the fd backend path when an fd executable candidate is provided',
+    async () => {
+      await mkdir(join(workspace, 'notes'), { recursive: true })
+      await writeFile(join(workspace, 'notes', 'demo.txt'), 'demo\n', 'utf8')
+      const fdHost = new LocalToolHost({
+        tools: [
+          createFindLocalTool({
+            fdExecutableCandidates: ['/bin/echo'],
+            rgExecutableCandidates: []
+          })
+        ]
+      })
+      const output = await executeTool(fdHost, workspace, 'find', {
+        pattern: '*.txt',
+        path: '.'
+      })
+      expect(output.backend).toBe('fd')
+      expect(output.matches).toHaveLength(1)
+    }
+  )
 
   it('writes, reads, edits, and searches workspace files', async () => {
     const writeOutput = await executeTool(host, workspace, 'write', {
@@ -484,6 +487,27 @@ describe('Kun built-in tools', () => {
     expect((lsOutput.names as Array<string>)[0]).toBe('demo.txt')
   })
 
+  it.skipIf(process.platform === 'win32')('rejects workspace symlinks that resolve outside the canonical root', async () => {
+    const outside = await mkdtemp(join(tmpdir(), 'workwise-outside-'))
+    try {
+      await writeFile(join(outside, 'secret.txt'), 'secret', 'utf8')
+      await symlink(outside, join(workspace, 'outside-link'))
+
+      const readOutput = await executeTool(host, workspace, 'read', {
+        path: 'outside-link/secret.txt'
+      })
+      expect(String(readOutput.error)).toContain('unsafe_path')
+
+      const writeOutput = await executeTool(host, workspace, 'write', {
+        path: 'outside-link/new.txt',
+        content: 'blocked'
+      })
+      expect(String(writeOutput.error)).toContain('unsafe_path')
+    } finally {
+      await rm(outside, { recursive: true, force: true })
+    }
+  })
+
   it('executes bash commands in the workspace', async () => {
     await writeFile(join(workspace, 'cmd.txt'), 'from bash\n', 'utf8')
     const output = await executeTool(host, workspace, 'bash', {
@@ -504,7 +528,9 @@ describe('Kun built-in tools', () => {
 
     expect(output.exit_code).toBe(0)
     expect(String(output.output)).toContain('done')
-    expect(Date.now() - startedAt).toBeLessThan(1500)
+    // The background child lives for five seconds. Allow slower Windows CI
+    // process cleanup while still proving we do not wait for that child.
+    expect(Date.now() - startedAt).toBeLessThan(3000)
   })
 
   it('returns a pollable bash session for foreground long-running commands', async () => {

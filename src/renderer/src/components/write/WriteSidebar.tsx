@@ -40,11 +40,11 @@ import { WriteFileTree } from './WriteFileTree'
 type Props = {
   activeView: 'chat' | 'write' | 'claw' | 'schedule'
   connectPhoneSidebarOpen: boolean
-  ikunModeEnabled: boolean
+  focusModeEnabled: boolean
   onCodeOpen: () => void
   onWriteOpen: () => void
   onOpenSettings: (section?: SettingsRouteSection) => void
-  onToggleIkunMode: () => void
+  onToggleFocusMode: () => void
   onToggleConnectPhone: () => void
   onToggleSidebar: () => void
 }
@@ -60,11 +60,11 @@ type Translate = (key: string, opts?: Record<string, unknown>) => string
 export function WriteSidebar({
   activeView,
   connectPhoneSidebarOpen,
-  ikunModeEnabled,
+  focusModeEnabled,
   onCodeOpen,
   onWriteOpen,
   onOpenSettings,
-  onToggleIkunMode,
+  onToggleFocusMode,
   onToggleConnectPhone,
   onToggleSidebar
 }: Props): ReactElement {
@@ -223,10 +223,10 @@ export function WriteSidebar({
   const pickWriteWorkspace = async (): Promise<void> => {
     try {
       setFileError(null)
-      if (typeof window.kunGui?.pickWorkspaceDirectory !== 'function') {
+      if (typeof window.workwise?.pickWorkspaceDirectory !== 'function') {
         throw new Error('workspace:pick-directory unavailable')
       }
-      const picked = await window.kunGui.pickWorkspaceDirectory(workspaceRoot || defaultWorkspaceRoot || undefined)
+      const picked = await window.workwise.pickWorkspaceDirectory(workspaceRoot || defaultWorkspaceRoot || undefined)
       if (!picked.canceled && picked.path) {
         await addWriteWorkspace(picked.path)
         if (runtimeConnection === 'ready') void ensureWriteThreadForWorkspace(picked.path)
@@ -285,9 +285,9 @@ export function WriteSidebar({
       <div className="ds-no-drag flex flex-col px-0.5">
         <WorkspaceModeTabs
           activeView={activeView}
-          ikunModeEnabled={ikunModeEnabled}
+          focusModeEnabled={focusModeEnabled}
           onCodeOpen={onCodeOpen}
-          onToggleIkunMode={onToggleIkunMode}
+          onToggleFocusMode={onToggleFocusMode}
           onWriteOpen={onWriteOpen}
         />
         <SidebarCommandRow

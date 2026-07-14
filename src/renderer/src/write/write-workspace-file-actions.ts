@@ -14,6 +14,12 @@ import {
   rememberActiveFile,
   writeDirnameFromPath
 } from './write-workspace-store-helpers'
+import {
+  archiveWriteFileContext,
+  moveWriteFileContext,
+  readWriteThreadRegistry,
+  saveWriteThreadRegistry
+} from './write-thread-registry'
 
 type WriteFileActions = Pick<
   WriteWorkspaceState,
@@ -86,9 +92,9 @@ export function createWriteFileActions({
       const requestedRoot = normalizePath(path || workspaceRoot)
       const targetKey = path ? requestedRoot : '__root__'
       set((state) => ({ loadingDirs: { ...state.loadingDirs, [targetKey]: true } }))
-      let result: Awaited<ReturnType<typeof window.kunGui.listWorkspaceDirectory>>
+      let result: Awaited<ReturnType<typeof window.workwise.listWorkspaceDirectory>>
       try {
-        result = await window.kunGui.listWorkspaceDirectory({ workspaceRoot, path })
+        result = await window.workwise.listWorkspaceDirectory({ workspaceRoot, path })
       } catch (error) {
         set((state) => ({
           loadingDirs: withoutLoadingDirs(state.loadingDirs, [targetKey, requestedRoot]),
@@ -168,7 +174,7 @@ export function createWriteFileActions({
       set({ fileLoading: true, fileError: null })
       try {
         if (isWriteImageFilePath(path)) {
-          const result = await window.kunGui.readWorkspaceImage({ path, workspaceRoot })
+          const result = await window.workwise.readWorkspaceImage({ path, workspaceRoot })
           if (!result.ok) {
             set({ fileLoading: false, fileError: result.message })
             return
@@ -186,13 +192,14 @@ export function createWriteFileActions({
             fileLoading: false,
             fileError: null,
             saveStatus: 'saved',
+            saveRevision: 0,
             selection: emptySelection(),
             quotedSelections: []
           })
           return
         }
 
-        const result = await window.kunGui.readWorkspaceFile({ path, workspaceRoot })
+        const result = await window.workwise.readWorkspaceFile({ path, workspaceRoot })
         if (!result.ok) {
           set({ fileLoading: false, fileError: result.message })
           return
@@ -210,6 +217,7 @@ export function createWriteFileActions({
           fileLoading: false,
           fileError: null,
           saveStatus: 'saved',
+          saveRevision: 0,
           selection: emptySelection(),
           quotedSelections: []
         })
@@ -228,6 +236,7 @@ export function createWriteFileActions({
             fileLoading: false,
             fileError: null,
             saveStatus: 'saved',
+            saveRevision: 0,
             selection: emptySelection(),
             quotedSelections: []
           })
@@ -243,9 +252,9 @@ export function createWriteFileActions({
     },
 
     createFile: async (workspaceRoot, path, content = '') => {
-      let result: Awaited<ReturnType<typeof window.kunGui.createWorkspaceFile>>
+      let result: Awaited<ReturnType<typeof window.workwise.createWorkspaceFile>>
       try {
-        result = await window.kunGui.createWorkspaceFile({ workspaceRoot, path, content })
+        result = await window.workwise.createWorkspaceFile({ workspaceRoot, path, content })
       } catch (error) {
         set({ fileError: formatActionError(error) })
         return null
@@ -260,9 +269,9 @@ export function createWriteFileActions({
     },
 
     createDirectory: async (workspaceRoot, path) => {
-      let result: Awaited<ReturnType<typeof window.kunGui.createWorkspaceDirectory>>
+      let result: Awaited<ReturnType<typeof window.workwise.createWorkspaceDirectory>>
       try {
-        result = await window.kunGui.createWorkspaceDirectory({ workspaceRoot, path })
+        result = await window.workwise.createWorkspaceDirectory({ workspaceRoot, path })
       } catch (error) {
         set({ fileError: formatActionError(error) })
         return null
@@ -282,9 +291,10 @@ export function createWriteFileActions({
 
     renameEntry: async (workspaceRoot, path, newName) => {
       cancelExternalSyncAnimation()
-      let result: Awaited<ReturnType<typeof window.kunGui.renameWorkspaceEntry>>
+      const activeFileBeforeRename = get().activeFilePath
+      let result: Awaited<ReturnType<typeof window.workwise.renameWorkspaceEntry>>
       try {
-        result = await window.kunGui.renameWorkspaceEntry({ workspaceRoot, path, newName })
+        result = await window.workwise.renameWorkspaceEntry({ workspaceRoot, path, newName })
       } catch (error) {
         set({ fileError: formatActionError(error) })
         return null
@@ -292,6 +302,24 @@ export function createWriteFileActions({
       if (!result.ok) {
         set({ fileError: result.message })
         return null
+      }
+      if (activeFileBeforeRename) {
+        const previousPrefixForContext = `${normalizePath(result.previousPath)}/`
+        const nextActiveContext = activeFileBeforeRename === result.previousPath
+          ? result.path
+          : activeFileBeforeRename.startsWith(previousPrefixForContext)
+            ? `${result.path}/${activeFileBeforeRename.slice(previousPrefixForContext.length)}`
+            : null
+        if (nextActiveContext) {
+          saveWriteThreadRegistry(
+            moveWriteFileContext(
+              workspaceRoot,
+              activeFileBeforeRename,
+              nextActiveContext,
+              readWriteThreadRegistry()
+            )
+          )
+        }
       }
       const previousPrefix = `${normalizePath(result.previousPath)}/`
       set((state) => {
@@ -323,6 +351,7 @@ export function createWriteFileActions({
           fileSize: keepActiveFile ? state.fileSize : 0,
           fileTruncated: keepActiveFile ? state.fileTruncated : false,
           saveStatus: keepActiveFile ? state.saveStatus : 'saved',
+          saveRevision: keepActiveFile ? state.saveRevision : 0,
           selection: nextActiveFileKind === 'text' ? state.selection : emptySelection(),
           quotedSelections: nextActiveFileKind === 'text' ? state.quotedSelections : [],
           expandedDirs,
@@ -341,9 +370,9 @@ export function createWriteFileActions({
 
     deleteEntry: async (workspaceRoot, path) => {
       cancelExternalSyncAnimation()
-      let result: Awaited<ReturnType<typeof window.kunGui.deleteWorkspaceEntry>>
+      let result: Awaited<ReturnType<typeof window.workwise.deleteWorkspaceEntry>>
       try {
-        result = await window.kunGui.deleteWorkspaceEntry({ workspaceRoot, path })
+        result = await window.workwise.deleteWorkspaceEntry({ workspaceRoot, path })
       } catch (error) {
         set({ fileError: formatActionError(error) })
         return false
@@ -352,6 +381,9 @@ export function createWriteFileActions({
         set({ fileError: result.message })
         return false
       }
+      saveWriteThreadRegistry(
+        archiveWriteFileContext(workspaceRoot, result.path, readWriteThreadRegistry())
+      )
       const deletedPath = normalizePath(result.path)
       const currentActiveFilePath = get().activeFilePath
       const activePath = currentActiveFilePath ? normalizePath(currentActiveFilePath) : ''
@@ -368,6 +400,7 @@ export function createWriteFileActions({
           fileTruncated: false,
           fileError: null,
           saveStatus: 'saved',
+          saveRevision: 0,
           selection: emptySelection(),
           quotedSelections: []
         })

@@ -636,17 +636,20 @@ function buildMarkdownDecorations(view: EditorView): DecorationSet {
           }
           case 'ListMark': {
             const markText = view.state.doc.sliceString(node.from, node.to)
-            if (markText !== '-' && markText !== '*' && markText !== '+') break
+            if (!/^[-*+]$/.test(markText) && !/^\d+[.)]$/.test(markText)) break
             let hideTo = node.to
             if (view.state.doc.sliceString(hideTo, hideTo + 1) === ' ') hideTo += 1
             const rest = view.state.doc.sliceString(node.to, Math.min(node.to + 5, line.to))
             if (/^ ?\[[ xX]\]/.test(rest)) {
               ranges.push({ from: node.from, to: hideTo, deco: hideMark })
             } else {
+              const leadingWhitespace = /^\s*/.exec(line.text)?.[0].length ?? 0
               ranges.push({
                 from: node.from,
                 to: hideTo,
-                deco: Decoration.replace({ widget: new ListBulletWidget(node.from, hideTo) })
+                deco: Decoration.replace({
+                  widget: new ListBulletWidget(markText, leadingWhitespace, node.from, hideTo)
+                })
               })
             }
             break

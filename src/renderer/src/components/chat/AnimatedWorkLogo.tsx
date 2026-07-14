@@ -1,5 +1,5 @@
 import type { ReactElement } from 'react'
-import workwiseLogo from '../../../../asset/img/workgpt.svg'
+import workwiseLogo from '../../../../asset/img/workwise.svg'
 
 /** Compact WorkWise activity mark used in the conversation timeline. */
 export function AnimatedWorkLogo({

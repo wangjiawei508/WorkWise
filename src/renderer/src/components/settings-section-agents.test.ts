@@ -3,7 +3,7 @@ import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import {
   DEFAULT_MODEL_PROVIDER_ID,
-  defaultKunRuntimeSettings,
+  defaultManagedRuntimeSettings,
   defaultModelProviderSettings,
   getModelProviderPreset,
   modelProviderPresetProfile,
@@ -48,14 +48,14 @@ const labels: Record<string, string> = {
   imageGenModel: 'Image model',
   imageGenBaseUrlPlaceholder: 'https://api.example.com/v1',
   baseUrlPlaceholder: 'https://api.example.com/v1',
-  kunApiKey: 'Kun API key',
-  kunApiKeyDesc: 'Kun API key description',
+  kunApiKey: 'WorkWise Runtime API key',
+  kunApiKeyDesc: 'WorkWise Runtime API key description',
   kunApiKeyPlaceholder: 'Inherit API key',
   kunApiKeyInherited: 'Inherited API key',
   kunApiKeyMissing: 'Missing API key',
   kunApiKeyOverride: 'Override API key',
-  kunBaseUrl: 'Kun base URL',
-  kunBaseUrlDesc: 'Kun base URL description',
+  kunBaseUrl: 'WorkWise Runtime base URL',
+  kunBaseUrlDesc: 'WorkWise Runtime base URL description',
   kunBaseUrlPlaceholder: 'Inherit base URL',
   kunBaseUrlOfficial: 'Official base URL',
   kunBaseUrlInherited: 'Inherited base URL',
@@ -66,9 +66,9 @@ const labels: Record<string, string> = {
   autoStartDesc: 'Auto start description',
   port: 'Port',
   portDesc: 'Port description',
-  kunBinary: 'Kun binary',
-  kunBinaryDesc: 'Kun binary description',
-  kunBinaryPlaceholder: 'Bundled Kun',
+  kunBinary: 'WorkWise Runtime binary',
+  kunBinaryDesc: 'WorkWise Runtime binary description',
+  kunBinaryPlaceholder: 'Bundled WorkWise Runtime',
   kunDataDir: 'Data dir',
   kunDataDirDesc: 'Data dir description',
   kunModel: 'Model',
@@ -138,7 +138,7 @@ const labels: Record<string, string> = {
   kunToolStormThreshold: 'Tool storm threshold',
   kunToolArgumentRepair: 'Tool argument repair',
   kunToolArgumentRepairDesc: 'Tool argument repair description',
-  kunDiagnostics: 'Kun diagnostics',
+  kunDiagnostics: 'WorkWise Runtime diagnostics',
   kunDiagnosticsAdvanced: 'Detailed diagnostics',
   kunDiagnosticsAdvancedDesc: 'Detailed diagnostics description',
   kunRuntimeCapabilities: 'Runtime capabilities',
@@ -152,12 +152,12 @@ const labels: Record<string, string> = {
   kunDiagnosticsMcpServers: 'MCP servers',
   kunDiagnosticsSkills: 'Discovered Skills',
   kunDiagnosticsAttachments: 'Attachments',
-  kunMemoryRecords: 'Memory records',
-  kunMemoryRecordsDesc: 'Memory records description',
-  kunMemoryEmpty: 'No memories',
-  kunMemoryDisable: 'Disable memory',
-  kunMemoryDelete: 'Delete memory',
-  kunMemoryDisabled: 'Disabled',
+  runtimeMemoryRecords: 'Memory records',
+  runtimeMemoryRecordsDesc: 'Memory records description',
+  runtimeMemoryEmpty: 'No memories',
+  runtimeMemoryDisable: 'Disable memory',
+  runtimeMemoryDelete: 'Delete memory',
+  runtimeMemoryDisabled: 'Disabled',
   skill: 'Skill',
   skillsLocation: 'Skill location',
   skillsLocationDesc: 'Skill location description',
@@ -230,7 +230,7 @@ function baseCtx(): Record<string, unknown> {
   const asyncNoop = async () => undefined
   const ref = { current: null }
   const kun = {
-    ...defaultKunRuntimeSettings(),
+    ...defaultManagedRuntimeSettings(),
     autoStart: true,
     runtimeToken: '',
     insecure: true
@@ -302,7 +302,7 @@ function baseCtx(): Record<string, unknown> {
     skillNotice: null,
     openSkillRoot: asyncNoop,
     openPlugins: noop,
-    mcpConfigPath: '/tmp/project/.kun/mcp.json',
+    mcpConfigPath: '/tmp/project/.workwise/mcp.json',
     mcpConfigExists: true,
     mcpConfigText: '{"mcpServers":{}}',
     setMcpConfigText: noop,
@@ -328,7 +328,7 @@ function baseCtx(): Record<string, unknown> {
   }
 }
 
-describe('AgentsSettingsSection Kun diagnostics smoke', () => {
+describe('AgentsSettingsSection WorkWise Runtime diagnostics smoke', () => {
   it('builds a single patch when adding and selecting a model provider', () => {
     const provider = defaultModelProviderSettings()
     const customProvider = {
@@ -423,7 +423,7 @@ describe('AgentsSettingsSection Kun diagnostics smoke', () => {
           providers: [...provider.providers, customProvider]
         },
         kun: {
-          ...defaultKunRuntimeSettings(),
+          ...defaultManagedRuntimeSettings(),
           providerId: customProvider.id
         }
       }
@@ -511,7 +511,7 @@ describe('AgentsSettingsSection Kun diagnostics smoke', () => {
 
     const html = renderToStaticMarkup(createElement(AgentsSettingsSection, { ctx }))
 
-    expect(html).toContain('Kun diagnostics')
+    expect(html).toContain('WorkWise Runtime diagnostics')
     expect(html).toContain('MCP')
     expect(html).toContain('available')
     expect(html).toContain('2/2')
@@ -529,7 +529,7 @@ describe('AgentsSettingsSection Kun diagnostics smoke', () => {
     const html = renderToStaticMarkup(createElement(AgentsSettingsSection, { ctx: baseCtx() }))
 
     expect(html).toContain('External tool config path')
-    expect(html).toContain('/tmp/project/.kun/mcp.json')
+    expect(html).toContain('/tmp/project/.workwise/mcp.json')
     expect(html).toContain('Model and API credentials do not live in this MCP file')
     expect(html).not.toContain('DeepSeek auth')
     expect(html).not.toContain('Base URL are stored in this file')

@@ -1,9 +1,13 @@
 import { createHash } from 'node:crypto'
-import { mkdir, readFile, readdir, writeFile } from 'node:fs/promises'
-import { join } from 'node:path'
+import { mkdir, readFile, readdir, realpath } from 'node:fs/promises'
+import { join, resolve } from 'node:path'
 import type { AttachmentsCapabilityConfig } from '../contracts/capabilities.js'
 import type { AttachmentDiagnostics, AttachmentMetadata, AttachmentTextFallback } from '../contracts/attachments.js'
 import { AttachmentMetadata as AttachmentMetadataSchema } from '../contracts/attachments.js'
+import { atomicWriteFile } from '../adapters/file/atomic-write.js'
+
+const MAX_ATTACHMENT_BYTES = 5 * 1024 * 1024
+const ATTACHMENT_ID_PATTERN = /^att_[a-f0-9]{24}$/
 
 export type AttachmentContent = AttachmentMetadata & {
   data: Buffer
@@ -49,13 +53,24 @@ export class FileAttachmentStore implements AttachmentStore {
     if (!image) throw new Error('unsupported image MIME type')
     if (input.mimeType && input.mimeType !== image.mimeType) throw new Error('declared MIME type does not match image content')
     if (!this.options.config.allowedMimeTypes.includes(image.mimeType)) throw new Error(`image MIME type is not allowed: ${image.mimeType}`)
-    if (input.data.byteLength > this.options.config.maxImageBytes) throw new Error(`image exceeds ${this.options.config.maxImageBytes} byte limit`)
+    const maxImageBytes = Math.min(this.options.config.maxImageBytes, MAX_ATTACHMENT_BYTES)
+    if (input.data.byteLength > maxImageBytes) throw new Error(`image exceeds ${maxImageBytes} byte limit`)
     const maxDimension = Math.max(image.width ?? 0, image.height ?? 0)
     if (maxDimension > this.options.config.maxImageDimension) {
       throw new Error(`image exceeds ${this.options.config.maxImageDimension}px dimension limit`)
     }
     if (input.textFallback) validateTextFallback(input.textFallback, this.options.config)
-    const hash = createHash('sha256').update(input.data).digest('hex')
+    const workspace = input.workspace ? await canonicalWorkspace(input.workspace) : undefined
+    const threadId = input.threadId?.trim() || undefined
+    if (!threadId && !workspace) throw new Error('attachment requires a thread or workspace scope')
+    const scopedInput = { threadId, workspace }
+    const hash = createHash('sha256')
+      .update(input.data)
+      .update('\0')
+      .update(workspace ?? '')
+      .update('\0')
+      .update(threadId ?? '')
+      .digest('hex')
     const id = `att_${hash.slice(0, 24)}`
     const contentPath = this.contentPath(id)
     const metadataPath = this.metadataPath(id)
@@ -66,9 +81,9 @@ export class FileAttachmentStore implements AttachmentStore {
         ...existing,
         ...(input.textFallback ? { textFallback: input.textFallback } : {}),
         updatedAt: now
-      }, input)
-      await writeFile(contentPath, input.data)
-      await writeFile(metadataPath, JSON.stringify(next, null, 2), 'utf8')
+      }, scopedInput)
+      await atomicWriteFile(contentPath, input.data)
+      await atomicWriteFile(metadataPath, JSON.stringify(next, null, 2))
       return next
     }
     const metadata: AttachmentMetadata = AttachmentMetadataSchema.parse(mergeScope({
@@ -84,9 +99,9 @@ export class FileAttachmentStore implements AttachmentStore {
       workspaces: [],
       createdAt: now,
       updatedAt: now
-    }, input))
-    await writeFile(contentPath, input.data)
-    await writeFile(metadataPath, JSON.stringify(metadata, null, 2), 'utf8')
+    }, scopedInput))
+    await atomicWriteFile(contentPath, input.data)
+    await atomicWriteFile(metadataPath, JSON.stringify(metadata, null, 2))
     return metadata
   }
 
@@ -101,7 +116,11 @@ export class FileAttachmentStore implements AttachmentStore {
   async resolveContent(id: string, scope: { threadId?: string; workspace?: string }): Promise<AttachmentContent> {
     const metadata = await this.get(id)
     if (!metadata) throw new Error(`attachment not found: ${id}`)
-    if (!isAuthorized(metadata, scope)) throw new Error(`attachment is not authorized for this turn: ${id}`)
+    const canonicalScope = {
+      threadId: scope.threadId?.trim() || undefined,
+      workspace: scope.workspace ? await canonicalWorkspace(scope.workspace) : undefined
+    }
+    if (!isAuthorized(metadata, canonicalScope)) throw new Error(`attachment is not authorized for this turn: ${id}`)
     return {
       ...metadata,
       data: await readFile(this.contentPath(id))
@@ -139,10 +158,12 @@ export class FileAttachmentStore implements AttachmentStore {
   }
 
   private contentPath(id: string): string {
+    if (!ATTACHMENT_ID_PATTERN.test(id)) throw new Error('invalid attachment id')
     return join(this.options.rootDir, `${id}.bin`)
   }
 
   private metadataPath(id: string): string {
+    if (!ATTACHMENT_ID_PATTERN.test(id)) throw new Error('invalid attachment id')
     return join(this.options.rootDir, `${id}.json`)
   }
 }
@@ -160,10 +181,15 @@ function mergeUnique(values: string[], value: string | undefined): string[] {
 }
 
 function isAuthorized(metadata: AttachmentMetadata, scope: { threadId?: string; workspace?: string }): boolean {
-  if (metadata.threadIds.length === 0 && metadata.workspaces.length === 0) return true
-  if (scope.threadId && metadata.threadIds.includes(scope.threadId)) return true
-  if (scope.workspace && metadata.workspaces.includes(scope.workspace)) return true
-  return false
+  if (metadata.threadIds.length === 0 && metadata.workspaces.length === 0) return false
+  if (metadata.threadIds.length > 0 && (!scope.threadId || !metadata.threadIds.includes(scope.threadId))) return false
+  if (metadata.workspaces.length > 0 && (!scope.workspace || !metadata.workspaces.includes(scope.workspace))) return false
+  return true
+}
+
+async function canonicalWorkspace(workspace: string): Promise<string> {
+  const canonical = await realpath(resolve(workspace))
+  return process.platform === 'win32' ? canonical.toLowerCase() : canonical
 }
 
 function validateTextFallback(fallback: AttachmentTextFallback, config: AttachmentsCapabilityConfig): void {

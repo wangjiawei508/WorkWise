@@ -53,7 +53,7 @@ async function resizeImageWithSips(
   const maxWidth = options.maxWidth ?? DEFAULT_IMAGE_MAX_DIMENSION
   const maxHeight = options.maxHeight ?? DEFAULT_IMAGE_MAX_DIMENSION
   const maxBytes = options.maxBytes ?? DEFAULT_IMAGE_MAX_BASE64_BYTES
-  const tempDir = await mkdtemp(join(tmpdir(), 'kun-read-image-'))
+  const tempDir = await mkdtemp(join(tmpdir(), 'workwise-read-image-'))
   const inputPath = join(tempDir, `input.${imageExtension(mimeType)}`)
   const outputPath = join(tempDir, `output.${imageExtension(mimeType)}`)
   try {

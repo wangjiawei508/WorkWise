@@ -1,11 +1,11 @@
-import { appendFile, mkdir, readFile, stat } from 'node:fs/promises'
+import { mkdir, open, readFile, stat } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import type { SessionStore } from '../../ports/session-store.js'
 import type { RuntimeEvent } from '../../contracts/events.js'
 import type { TurnItem } from '../../contracts/items.js'
 import type { AgentSession } from '../../domain/session.js'
 import { readJsonl } from './file-thread-store.js'
-import { atomicWriteFile } from './atomic-write.js'
+import { atomicWriteFile, atomicWriteFileLocked, serializeFileOperation } from './atomic-write.js'
 
 const DEFAULT_USAGE_EVENT_COMPACTION_MAX_BYTES = 5 * 1024 * 1024
 const DEFAULT_USAGE_EVENT_RETENTION_DAYS = 365
@@ -49,18 +49,20 @@ export class FileSessionStore implements SessionStore {
   async appendEvent(threadId: string, event: RuntimeEvent): Promise<void> {
     await this.ensureDir(this.threadDir(threadId))
     const path = this.eventsPath(threadId)
-    await appendFile(path, `${JSON.stringify(event)}\n`, 'utf-8')
-    if (event.kind === 'usage') {
-      await this.compactUsageEventsIfLarge(threadId).catch((error) => {
-        warnUsageCompaction(threadId, error)
-      })
-    }
+    await serializeFileOperation(path, async () => {
+      await appendJsonlLine(path, event)
+      if (event.kind === 'usage') {
+        await this.compactUsageEventsIfLarge(threadId).catch((error) => {
+          warnUsageCompaction(threadId, error)
+        })
+      }
+    })
   }
 
   async appendItem(threadId: string, item: TurnItem): Promise<void> {
     await this.ensureDir(this.threadDir(threadId))
     const path = this.messagesPath(threadId)
-    await appendFile(path, `${JSON.stringify(item)}\n`, 'utf-8')
+    await serializeFileOperation(path, () => appendJsonlLine(path, item))
   }
 
   async rewriteItems(threadId: string, items: TurnItem[]): Promise<void> {
@@ -70,13 +72,16 @@ export class FileSessionStore implements SessionStore {
   }
 
   async updateItem(threadId: string, itemId: string, patch: Partial<TurnItem>): Promise<TurnItem | null> {
-    const items = await this.loadItems(threadId)
-    const current = items.find((item) => item.id === itemId)
-    if (!current) return null
-    const updated = { ...current, ...patch } as TurnItem
-    await this.ensureDir(this.threadDir(threadId))
-    await appendFile(this.messagesPath(threadId), `${JSON.stringify(updated)}\n`, 'utf-8')
-    return updated
+    const path = this.messagesPath(threadId)
+    return serializeFileOperation(path, async () => {
+      const items = await this.loadItemsUnlocked(threadId)
+      const current = items.find((item) => item.id === itemId)
+      if (!current) return null
+      const updated = { ...current, ...patch } as TurnItem
+      await this.ensureDir(this.threadDir(threadId))
+      await appendJsonlLine(path, updated)
+      return updated
+    })
   }
 
   async loadEventsSince(threadId: string, sinceSeq: number): Promise<RuntimeEvent[]> {
@@ -87,6 +92,10 @@ export class FileSessionStore implements SessionStore {
   }
 
   async loadItems(threadId: string): Promise<TurnItem[]> {
+    return this.loadItemsUnlocked(threadId)
+  }
+
+  private async loadItemsUnlocked(threadId: string): Promise<TurnItem[]> {
     const raw = await readJsonl<TurnItem>(this.messagesPath(threadId))
     const latestById = new Map<string, TurnItem>()
     for (const item of raw) {
@@ -161,7 +170,7 @@ export class FileSessionStore implements SessionStore {
     })
     if (compacted.length >= events.length) return
     const contents = compacted.map((event) => JSON.stringify(event)).join('\n')
-    await this.atomicWrite(path, contents ? `${contents}\n` : '')
+    await atomicWriteFileLocked(path, contents ? `${contents}\n` : '')
   }
 
   /** Used by the loop during shutdown to verify the file actually exists. */
@@ -172,6 +181,16 @@ export class FileSessionStore implements SessionStore {
     } catch {
       return false
     }
+  }
+}
+
+async function appendJsonlLine(path: string, value: unknown): Promise<void> {
+  const handle = await open(path, 'a', 0o600)
+  try {
+    await handle.writeFile(`${JSON.stringify(value)}\n`, 'utf8')
+    await handle.sync()
+  } finally {
+    await handle.close()
   }
 }
 
@@ -244,5 +263,5 @@ function usageCoalescingBucket(event: RuntimeEvent): string {
 
 function warnUsageCompaction(threadId: string, error: unknown): void {
   const message = error instanceof Error ? error.message : String(error)
-  console.warn(`[kun] usage event compaction failed for ${threadId}; keeping append-only log: ${message}`)
+  console.warn(`[workwise:runtime] usage event compaction failed for ${threadId}; keeping append-only log: ${message}`)
 }

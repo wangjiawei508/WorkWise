@@ -46,13 +46,23 @@ export function settlePendingRuntimeWorkAfterInterrupt(blocks: ChatBlock[]): Cha
     }
     if (block.kind === 'approval' && block.status === 'pending') {
       changed = true
-      return { ...block, status: 'error' as const }
+      return { ...block, status: 'expired' as const }
     }
     if (block.kind === 'user_input' && block.status === 'pending') {
       changed = true
       return { ...block, status: 'cancelled' as const }
     }
     return block
+  })
+  return changed ? next : blocks
+}
+
+export function expirePendingApprovals(blocks: ChatBlock[]): ChatBlock[] {
+  let changed = false
+  const next = blocks.map((block): ChatBlock => {
+    if (block.kind !== 'approval' || block.status !== 'pending') return block
+    changed = true
+    return { ...block, status: 'expired' as const }
   })
   return changed ? next : blocks
 }

@@ -3,7 +3,7 @@ import {
   createSideActions,
   teardownAllSideSubscriptions
 } from './chat-store-side-actions'
-import { DEFAULT_KUN_MODEL } from '@shared/app-settings'
+import { DEFAULT_MANAGED_RUNTIME_MODEL } from '@shared/app-settings'
 import type { ChatState } from './chat-store-types'
 import type { AgentProvider, NormalizedThread, ThreadEventSink } from '../agent/types'
 
@@ -234,7 +234,7 @@ function buildHarness(overrides: Partial<ChatState> = {}): Harness {
 describe('chat-store-side-actions', () => {
   beforeEach(() => {
     ;(globalThis as { window?: unknown }).window = {
-      kunGui: {
+      workwise: {
         runtimeRequest: vi.fn(async () => ({ ok: true, status: 200, body: '{}' }))
       }
     }
@@ -308,7 +308,7 @@ describe('chat-store-side-actions', () => {
     )
   })
 
-  it('uses the Kun default model when side creation has no parent or composer model to inherit', async () => {
+  it('uses the WorkWise Runtime default model when side creation has no parent or composer model to inherit', async () => {
     const { actions, state } = buildHarness({
       threads: [],
       activeThreadId: 'thr_missing',
@@ -319,7 +319,7 @@ describe('chat-store-side-actions', () => {
     const id = await actions.spawnSideConversation()
 
     expect(id).toBe('side_thr_missing')
-    expect(state.sideConversations[id!].model).toBe(DEFAULT_KUN_MODEL)
+    expect(state.sideConversations[id!].model).toBe(DEFAULT_MANAGED_RUNTIME_MODEL)
   })
 
   it('a side turn updates only its own blocks/busy and tears down its subscription on close', async () => {
@@ -351,7 +351,7 @@ describe('chat-store-side-actions', () => {
   it('promoteSideConversation clears the relation by PATCH /v1/threads/{id} and refreshes the thread list', async () => {
     const { actions, state } = buildHarness()
     const id = (await actions.spawnSideConversation())!
-    const runtimeRequest = globalThis.window.kunGui.runtimeRequest as ReturnType<typeof vi.fn>
+    const runtimeRequest = globalThis.window.workwise.runtimeRequest as ReturnType<typeof vi.fn>
     runtimeRequest.mockClear()
 
     await actions.promoteSideConversation(id)

@@ -1,4 +1,4 @@
-export const SDD_RELATIVE_DIR = '.kunsdd'
+export const SDD_RELATIVE_DIR = '.workwise/sdd'
 export const SDD_DRAFT_RELATIVE_DIR = `${SDD_RELATIVE_DIR}/draft`
 export const SDD_IMAGE_RELATIVE_DIR = `${SDD_RELATIVE_DIR}/img`
 export const SDD_DRAFT_FILE_NAME = 'requirement.md'
@@ -18,11 +18,12 @@ export function isSddDraftRelativePath(value: string): boolean {
   const normalized = normalizeSddRelativePath(value)
   const parts = normalized.split('/')
   return (
-    parts.length === 4 &&
-    parts[0] === '.kunsdd' &&
-    parts[1] === 'draft' &&
-    UUID_LIKE.test(parts[2] ?? '') &&
-    parts[3] === SDD_DRAFT_FILE_NAME
+    parts.length === 5 &&
+    parts[0] === '.workwise' &&
+    parts[1] === 'sdd' &&
+    parts[2] === 'draft' &&
+    UUID_LIKE.test(parts[3] ?? '') &&
+    parts[4] === SDD_DRAFT_FILE_NAME
   )
 }
 
@@ -30,23 +31,23 @@ export function isSddDraftRelativePath(value: string): boolean {
 export function sddDraftFolderFromRelativePath(value: string): string | null {
   const normalized = normalizeSddRelativePath(value)
   const parts = normalized.split('/')
-  if (parts.length !== 4 || parts[0] !== '.kunsdd' || parts[1] !== 'draft') return null
-  return UUID_LIKE.test(parts[2] ?? '') ? parts[2] : null
+  if (parts.length !== 5 || parts[0] !== '.workwise' || parts[1] !== 'sdd' || parts[2] !== 'draft') return null
+  return UUID_LIKE.test(parts[3] ?? '') ? parts[3] : null
 }
 
-/** Sidecar trace file for a draft (`.kunsdd/draft/<uuid>/trace.json`). */
+/** Sidecar trace file for a draft (`.workwise/sdd/draft/<uuid>/trace.json`). */
 export function sddDraftTraceRelativePath(draftRelativePath: string): string | null {
   const folder = sddDraftFolderFromRelativePath(draftRelativePath)
   return folder ? `${SDD_DRAFT_RELATIVE_DIR}/${folder}/${SDD_TRACE_FILE_NAME}` : null
 }
 
 /**
- * Map an SDD-generated plan path (`.kunsdd/plan/sdd-<uuid>[-n].md`) back to
+ * Map an SDD-generated plan path (`.workwise/plans/sdd-<uuid>[-n].md`) back to
  * its requirement draft path, or null for non-SDD plans.
  */
 export function sddDraftRelativePathForPlanPath(planRelativePath: string): string | null {
   const normalized = normalizeSddRelativePath(planRelativePath)
-  const match = /^\.kunsdd\/plan\/sdd-([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(?:-\d+)?\.md$/i.exec(
+  const match = /^\.workwise\/plans\/sdd-([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(?:-\d+)?\.md$/i.exec(
     normalized
   )
   if (!match) return null

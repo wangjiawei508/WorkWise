@@ -79,6 +79,8 @@ export function formatWriteQuotedSelectionForPrompt(selection: WriteQuotedSelect
 type WritePromptContext = {
   workspaceRoot?: string
   activeFilePath?: string | null
+  contentHash?: string
+  saveRevision?: number
 }
 
 export type WritePromptDisplayContext = {
@@ -116,6 +118,8 @@ export function composeWritePrompt(
   if (context.activeFilePath?.trim()) {
     contextLines.push(`当前文件: ${relativeWritePath(context.workspaceRoot ?? '', context.activeFilePath)}`)
   }
+  if (context.contentHash?.trim()) contextLines.push(`内容哈希: ${context.contentHash.trim()}`)
+  if (typeof context.saveRevision === 'number') contextLines.push(`保存版本: ${context.saveRevision}`)
   const contextText = contextLines.length > 0
     ? `[写作上下文]\n${contextLines.join('\n')}`
     : ''

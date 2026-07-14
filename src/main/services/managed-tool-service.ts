@@ -22,8 +22,9 @@ import type {
   ManagedToolListResult,
   ManagedToolResult,
   ManagedToolStatus
-} from '../../shared/kun-gui-api'
+} from '../../shared/workwise-api'
 import { describeNetworkFailure, systemFetch } from './system-network'
+import { atomicWriteFile as durableWriteFile } from './durable-file'
 
 const execFileAsync = promisify(execFile)
 const MAX_DOWNLOAD_BYTES = 64 * 1024 * 1024
@@ -38,7 +39,8 @@ type ToolManifest = Record<string, {
   skillWarning?: string
 }>
 
-const releaseVersionCache = new Map<string, { version: string; expiresAt: number }>()
+type ReleaseInfo = { version: string; tag: string; assets: Map<string, string> }
+const releaseVersionCache = new Map<string, { release: ReleaseInfo; expiresAt: number }>()
 
 const LARK_SKILLS = [
   'lark-approval', 'lark-apps', 'lark-attendance', 'lark-base', 'lark-calendar',
@@ -75,18 +77,23 @@ function toolExecutableName(id: ManagedToolId): string {
   return process.platform === 'win32' && id !== 'ego-browser' ? `${base}.exe` : base
 }
 
-function platformAsset(id: Exclude<ManagedToolId, 'ego-browser'>, version: string): string {
-  const arch = process.arch === 'arm64' ? 'arm64' : 'x64'
+function platformAsset(
+  id: Exclude<ManagedToolId, 'ego-browser'>,
+  version: string,
+  targetPlatform: NodeJS.Platform = process.platform,
+  targetArch: NodeJS.Architecture = process.arch
+): string {
+  const arch = targetArch === 'arm64' ? 'arm64' : 'x64'
   if (id === 'officecli') {
-    if (process.platform === 'darwin') return `officecli-mac-${arch}`
-    if (process.platform === 'win32') return `officecli-win-${arch}.exe`
+    if (targetPlatform === 'darwin') return `officecli-mac-${arch}`
+    if (targetPlatform === 'win32') return `officecli-win-${arch}.exe`
   }
   if (id === 'lark-cli') {
     const larkArch = arch === 'x64' ? 'amd64' : arch
-    if (process.platform === 'darwin') return `lark-cli-${version}-darwin-${larkArch}.tar.gz`
-    if (process.platform === 'win32') return `lark-cli-${version}-windows-${larkArch}.zip`
+    if (targetPlatform === 'darwin') return `lark-cli-${version}-darwin-${larkArch}.tar.gz`
+    if (targetPlatform === 'win32') return `lark-cli-${version}-windows-${larkArch}.zip`
   }
-  throw new Error(`${id} is not supported on ${process.platform}/${process.arch}.`)
+  throw new Error(`${id} is not supported on ${targetPlatform}/${targetArch}.`)
 }
 
 function repoFor(id: Exclude<ManagedToolId, 'ego-browser'>): string {
@@ -100,10 +107,39 @@ async function readManifest(): Promise<ToolManifest> {
 
 async function writeManifest(manifest: ToolManifest): Promise<void> {
   await mkdir(managedToolsRoot(), { recursive: true })
-  await writeFile(manifestPath(), `${JSON.stringify(manifest, null, 2)}\n`, 'utf8')
+  await durableWriteFile(manifestPath(), `${JSON.stringify(manifest, null, 2)}\n`)
 }
 
-async function fetchLatestReleaseVersion(repo: string): Promise<string> {
+async function fetchLatestRelease(repo: string): Promise<ReleaseInfo> {
+  try {
+    const apiResponse = await systemFetch(`https://api.github.com/repos/${repo}/releases/latest`, {
+      headers: {
+        Accept: 'application/vnd.github+json',
+        'User-Agent': 'WorkWise',
+        'X-GitHub-Api-Version': '2022-11-28'
+      },
+      signal: AbortSignal.timeout(30_000)
+    })
+    if (apiResponse.ok) {
+      const payload = await apiResponse.json() as {
+        tag_name?: unknown
+        assets?: Array<{ name?: unknown; browser_download_url?: unknown }>
+      }
+      const tag = typeof payload.tag_name === 'string' ? payload.tag_name.trim() : ''
+      const version = tag.replace(/^v/, '')
+      if (!/^\d+\.\d+\.\d+/.test(version)) throw new Error('Release version is invalid.')
+      const assets = new Map<string, string>()
+      for (const asset of payload.assets ?? []) {
+        if (typeof asset.name === 'string' && typeof asset.browser_download_url === 'string') {
+          assets.set(asset.name, asset.browser_download_url)
+        }
+      }
+      return { version, tag, assets }
+    }
+  } catch (error) {
+    if (error instanceof Error && error.message === 'Release version is invalid.') throw error
+    // The public release redirect is a rate-limit-safe fallback.
+  }
   let response: Response
   try {
     response = await systemFetch(`https://github.com/${repo}/releases/latest`, {
@@ -115,16 +151,22 @@ async function fetchLatestReleaseVersion(repo: string): Promise<string> {
     throw new Error(describeNetworkFailure(error, `GitHub (${repo})`), { cause: error })
   }
   if (!response.ok) throw new Error(`Unable to read ${repo} release (${response.status}).`)
-  if (response.url) return releaseVersionFromUrl(response.url)
-  return releaseVersionFromHtml(await response.text())
+  const version = response.url
+    ? releaseVersionFromUrl(response.url)
+    : releaseVersionFromHtml(await response.text())
+  return { version, tag: `v${version}`, assets: new Map() }
+}
+
+async function latestReleaseFor(id: Exclude<ManagedToolId, 'ego-browser'>): Promise<ReleaseInfo> {
+  const cached = releaseVersionCache.get(id)
+  if (cached && cached.expiresAt > Date.now()) return cached.release
+  const release = await fetchLatestRelease(repoFor(id))
+  releaseVersionCache.set(id, { release, expiresAt: Date.now() + RELEASE_CACHE_TTL_MS })
+  return release
 }
 
 async function latestVersionFor(id: Exclude<ManagedToolId, 'ego-browser'>): Promise<string> {
-  const cached = releaseVersionCache.get(id)
-  if (cached && cached.expiresAt > Date.now()) return cached.version
-  const version = await fetchLatestReleaseVersion(repoFor(id))
-  releaseVersionCache.set(id, { version, expiresAt: Date.now() + RELEASE_CACHE_TTL_MS })
-  return version
+  return (await latestReleaseFor(id)).version
 }
 
 function releaseVersionFromUrl(url: string): string {
@@ -400,12 +442,15 @@ export async function installManagedTool(id: ManagedToolId): Promise<ManagedTool
       return result
     }
     const repo = repoFor(id)
-    const version = await latestVersionFor(id)
+    const release = await latestReleaseFor(id)
+    const version = release.version
     const assetName = platformAsset(id, version)
     const checksumName = id === 'lark-cli' ? 'checksums.txt' : 'SHA256SUMS'
+    const assetUrl = release.assets.get(assetName) ?? releaseAssetUrl(repo, version, assetName)
+    const checksumUrl = release.assets.get(checksumName) ?? releaseAssetUrl(repo, version, checksumName)
     const [assetBytes, checksumBytes] = await Promise.all([
-      download(releaseAssetUrl(repo, version, assetName)),
-      download(releaseAssetUrl(repo, version, checksumName))
+      download(assetUrl),
+      download(checksumUrl)
     ])
     const expected = checksumFor(checksumBytes.toString('utf8'), assetName)
     const actual = createHash('sha256').update(assetBytes).digest('hex')

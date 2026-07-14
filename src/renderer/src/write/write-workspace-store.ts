@@ -121,9 +121,9 @@ export const useWriteWorkspaceStore = create<WriteWorkspaceState>((set, get) => 
     let size = options.size
     let truncated = options.truncated
     if (typeof content !== 'string') {
-      let result: Awaited<ReturnType<typeof window.kunGui.readWorkspaceFile>>
+      let result: Awaited<ReturnType<typeof window.workwise.readWorkspaceFile>>
       try {
-        result = await window.kunGui.readWorkspaceFile({
+        result = await window.workwise.readWorkspaceFile({
           path: snapshot.activeFilePath,
           workspaceRoot
         })
@@ -232,7 +232,7 @@ export const useWriteWorkspaceStore = create<WriteWorkspaceState>((set, get) => 
     if (path && !pathsEqual(path, snapshot.activeFilePath)) return false
 
     try {
-      const result = await window.kunGui.readWorkspaceImage({
+      const result = await window.workwise.readWorkspaceImage({
         path: snapshot.activeFilePath,
         workspaceRoot
       })
@@ -283,7 +283,7 @@ export const useWriteWorkspaceStore = create<WriteWorkspaceState>((set, get) => 
     }
     set({ saveStatus: 'saving' })
     try {
-      const result = await window.kunGui.writeWorkspaceFile({
+      const result = await window.workwise.writeWorkspaceFile({
         path: state.activeFilePath,
         workspaceRoot,
         content: state.fileContent
@@ -293,7 +293,11 @@ export const useWriteWorkspaceStore = create<WriteWorkspaceState>((set, get) => 
         return false
       }
       lastSavedContent = state.fileContent
-      set({ saveStatus: 'saved', fileError: null })
+      set((latest) => ({
+        saveStatus: latest.fileContent === state.fileContent ? 'saved' : 'dirty',
+        saveRevision: latest.saveRevision + 1,
+        fileError: null
+      }))
       return true
     } catch (error) {
       set({

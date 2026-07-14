@@ -3,13 +3,14 @@ import type { AttachmentStore } from '../../attachments/attachment-store.js'
 import { jsonResponse, type JsonResponse } from '../response.js'
 import { readJsonBody } from '../read-json-body.js'
 import { ERRORS } from './runtime-error.js'
+import { RUNTIME_RESOURCE_LIMITS_V1 } from '../../contracts/resource-limits.js'
 
 export async function uploadAttachment(
   store: AttachmentStore | undefined,
   request: Request
 ): Promise<JsonResponse | Response> {
   if (!store) return ERRORS.unavailable('attachment store is unavailable')
-  const body = await readJsonBody(request)
+  const body = await readJsonBody(request, RUNTIME_RESOURCE_LIMITS_V1.attachmentRequestBodyBytes)
   if (!body.ok) return body.response
   const parsed = AttachmentUploadRequest.safeParse(body.value)
   if (!parsed.success) return ERRORS.attachmentValidation('invalid attachment upload body', parsed.error.issues)
@@ -30,12 +31,21 @@ export async function uploadAttachment(
 
 export async function getAttachmentMetadata(
   store: AttachmentStore | undefined,
-  id: string
+  id: string,
+  request: Request
 ): Promise<JsonResponse> {
   if (!store) return ERRORS.unavailable('attachment store is unavailable')
-  const attachment = await store.get(id)
-  if (!attachment) return ERRORS.notFound(`attachment not found: ${id}`)
-  return jsonResponse({ attachment })
+  const url = new URL(request.url)
+  try {
+    const { data: _data, ...attachment } = await store.resolveContent(id, {
+      threadId: url.searchParams.get('thread_id') ?? undefined,
+      workspace: url.searchParams.get('workspace') ?? undefined
+    })
+    return jsonResponse({ attachment })
+  } catch (error) {
+    const message = errorMessage(error)
+    return /not authorized/i.test(message) ? ERRORS.forbidden(message) : ERRORS.notFound(message)
+  }
 }
 
 export async function getAttachmentContent(

@@ -1,8 +1,8 @@
 blank_issues_enabled: false
 contact_links:
   - name: Security vulnerability report
-    url: mailto:security@deepseek-gui.com
+    url: mailto:security@railwise.cn
     about: Please report security issues privately instead of opening a public issue.
   - name: Contribution guide
-    url: https://github.com/KunAgent/Kun/blob/master/docs/CONTRIBUTING.md
+    url: https://github.com/wangjiawei508/WorkWise/blob/main/docs/CONTRIBUTING.md
     about: Read the contribution workflow and validation expectations before opening a PR.

@@ -1,8 +1,8 @@
 # 代理运行时说明
 
-Kun 桌面应用当前只有一个可运行的本地 Agent 运行时：仓库自带的同名 **Kun** 运行时。
+WorkWise Agent Runtime 桌面应用当前只有一个可运行的本地 Agent 运行时：仓库自带的同名 **WorkWise Agent Runtime** 运行时。
 
-不要新增第二套运行时、运行时切换器、运行时诊断面板，或旧的 CodeWhale / Reasonix 进程路径。Code、Write、连接手机三个入口都统一走同一个 Kun HTTP/SSE 边界。连接手机在代码内部仍沿用 `claw` 命名作为兼容标识。
+不要新增第二套运行时、运行时切换器、运行时诊断面板，或旧的 CodeWhale / Reasonix 进程路径。Code、Write、连接手机三个入口都统一走同一个 WorkWise Agent Runtime HTTP/SSE 边界。连接手机在代码内部仍沿用 `claw` 命名作为兼容标识。
 
 ## 允许的扩展路径
 
@@ -42,12 +42,12 @@ npm run build
 
 手工冒烟检查：
 
-- Code 可以创建 Kun 会话、流式回传回复、进行工具审批/拒绝、以及中断回合。
-- CodeWhale 的等价能力应保持在 Kun 下可用：会话搜索/归档筛选、fork、会话恢复、`request_user_input` 提交与取消、usage 查询。
+- Code 可以创建 WorkWise Agent Runtime 会话、流式回传回复、进行工具审批/拒绝、以及中断回合。
+- CodeWhale 的等价能力应保持在 WorkWise Agent Runtime 下可用：会话搜索/归档筛选、fork、会话恢复、`request_user_input` 提交与取消、usage 查询。
 - 缓存指标使用 DeepSeek 原生 `prompt_cache_hit_tokens` / `prompt_cache_miss_tokens`；在稳定前缀热身后，热门对话的 hit rate 应长期保持在 90% 以上。
 - 不可变前缀漂移与异常的 tool-call/tool-result 历史必须在请求下发 DeepSeek 前被拦截。
 - Write 可以打开工作区、发起 inline 补全、使用选中文本助手动作。
-- 连接手机可以保存设置，并通过 Kun 会话执行手工任务。
-- 设置 -> Agent 仅显示 Kun。
+- 连接手机可以保存设置，并通过 WorkWise Agent Runtime 会话执行手工任务。
+- 设置 -> Agent 仅显示 WorkWise Agent Runtime。
 
-完整方案见 [`docs/kun-architecture.md`](./kun-architecture.md)。
+完整方案见 [`docs/runtime-architecture.md`](./runtime-architecture.md)。

@@ -9,7 +9,7 @@ import {
 import { createPortal } from 'react-dom'
 import { Brain, Check, ChevronDown, ChevronRight, Gauge } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
-import type { ModelProviderModelGroup } from '@shared/kun-gui-api'
+import type { ModelProviderModelGroup } from '@shared/workwise-api'
 
 export type ComposerReasoningEffort = 'low' | 'medium' | 'high' | 'max'
 

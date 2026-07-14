@@ -101,19 +101,22 @@ npm run dev
 常用质量检查：
 
 ```bash
+npm run openspec:validate
+npm run verify:brand-boundary
 npm run typecheck
 npm run lint
 npm run test
 npm run build
 ```
 
-本地智能体运行时由仓库内的 `kun/` 模块提供；`Kun` 仅是内部运行时名称，不是面向用户的产品品牌或下载入口。
+本地智能体由 WorkWise Agent Runtime 提供，并通过稳定的 HTTP/SSE 边界与桌面应用协作。
 
 ## 发布规则
 
 - 公开 Release 仅保留 macOS Apple Silicon、macOS Intel、Windows x64 三个用户安装包。
 - 不公开中间构建文件，也不将未验证路线图写成已发布能力。
 - 版本日志以 [GitHub Release](https://github.com/wangjiawei508/WorkWise/releases) 为准，官网与知识库同步产品版本和支持平台。
+- 0.2.5 的公开行为基线见[公开行为差距表](docs/PUBLIC_BEHAVIOR_GAP_0.2.5.zh-CN.md)。
 
 ## 反馈
 

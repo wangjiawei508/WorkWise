@@ -16,22 +16,22 @@ describe('buildInlineCompletionRequestContext', () => {
     const doc = [
       '# Draft',
       '',
-      'Hi! Let me introduce a new feature in WORKGPT. It includes text completion and writing tools.'
+      'Hi! Let me introduce a new feature in WORKWISE. It includes text completion and writing tools.'
     ].join('\n')
 
     const context = buildInlineCompletionRequestContext(
-      stateAt(doc, 'WORKGPT'),
+      stateAt(doc, 'WORKWISE'),
       { filePath: '/tmp/workspace/draft.md' }
     )
 
     const candidate = context.editCandidate
     expect(candidate).toMatchObject({
       kind: 'selection',
-      original: 'WORKGPT',
+      original: 'WORKWISE',
       startLine: 3,
       endLine: 3
     })
-    expect(candidate ? candidate.to - candidate.from : 0).toBe(7)
+    expect(candidate ? candidate.to - candidate.from : 0).toBe(8)
   })
 
   it('uses the previous word when the cursor has advanced past trailing whitespace', () => {

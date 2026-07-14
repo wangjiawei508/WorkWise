@@ -24,6 +24,7 @@ import { encodeSseEvent } from '../src/server/sse.js'
 import type { UsageSnapshot } from '../src/contracts/usage.js'
 import { buildRuntimeCapabilityManifest } from '../src/contracts/capabilities.js'
 import { modelCapabilitiesForModel } from '../src/loop/model-context-profile.js'
+import { RUNTIME_RESOURCE_LIMITS_V1 } from '../src/contracts/resource-limits.js'
 
 function makeModel(chunks: ModelStreamChunk[]): ModelClient {
   return {
@@ -157,7 +158,8 @@ export function buildHarness(): Harness {
       sandboxMode: 'workspace-write',
       insecure: false,
       startedAt,
-      capabilities
+      capabilities,
+      resourceLimits: RUNTIME_RESOURCE_LIMITS_V1
     })
   }
   return {

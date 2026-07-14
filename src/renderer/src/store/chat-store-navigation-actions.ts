@@ -56,6 +56,7 @@ import {
   readWriteThreadRegistry,
   saveWriteThreadRegistry,
   writeThreadBelongsToWorkspace,
+  writeThreadMatchesFileContext,
   writeWorkspaceForThreadId
 } from '../write/write-thread-registry'
 import {
@@ -194,7 +195,7 @@ export function createNavigationActions(
     syncTurnCompletionPoll(set, get)
   },
 
-  ensureWriteThreadForWorkspace: async (workspaceRoot) => {
+  ensureWriteThreadForWorkspace: async (workspaceRoot, filePath) => {
     const state = get()
     const targetWorkspace = normalizeWorkspaceRoot(workspaceRoot) || (await readActiveWriteWorkspace(state.workspaceRoot))
     if (!targetWorkspace) {
@@ -215,22 +216,26 @@ export function createNavigationActions(
     const activeThread = state.activeThreadId
       ? state.threads.find((thread) => thread.id === state.activeThreadId) ?? null
       : null
-    if (activeThread && writeThreadBelongsToWorkspace(activeThread, targetWorkspace, registry)) {
+    if (
+      activeThread &&
+      writeThreadBelongsToWorkspace(activeThread, targetWorkspace, registry) &&
+      writeThreadMatchesFileContext(activeThread.id, targetWorkspace, filePath, registry)
+    ) {
       set({ route: 'write', error: null })
       return activeThread.id
     }
 
-    const existing = activeWriteThreadForWorkspace(targetWorkspace, state.threads, registry)
+    const existing = activeWriteThreadForWorkspace(targetWorkspace, state.threads, registry, filePath)
     if (existing) {
       set({ route: 'write' })
       await get().selectThread(existing.id)
       return existing.id
     }
 
-    return get().createWriteThread(targetWorkspace)
+    return get().createWriteThread(targetWorkspace, filePath)
   },
 
-  createWriteThread: async (workspaceRoot) => {
+  createWriteThread: async (workspaceRoot, filePath) => {
     const targetWorkspace = normalizeWorkspaceRoot(workspaceRoot) || (await readActiveWriteWorkspace(get().workspaceRoot))
     if (!targetWorkspace) {
       set({ error: i18n.t('common:workspaceRequiredToCreateThread') })
@@ -247,7 +252,7 @@ export function createNavigationActions(
         title: WRITE_ASSISTANT_THREAD_TITLE,
         mode: 'agent'
       })
-      saveWriteThreadRegistry(markWriteThread(targetWorkspace, thread.id))
+      saveWriteThreadRegistry(markWriteThread(targetWorkspace, thread.id, readWriteThreadRegistry(), filePath))
       set((s) => ({
         route: 'write',
         threads: s.threads.some((item) => item.id === thread.id) ? s.threads : [thread, ...s.threads],
@@ -267,7 +272,7 @@ export function createNavigationActions(
     }
   },
 
-  selectWriteThread: async (threadId, workspaceRoot) => {
+  selectWriteThread: async (threadId, workspaceRoot, filePath) => {
     const targetId = threadId.trim()
     if (!targetId) return
     const thread = get().threads.find((item) => item.id === targetId)
@@ -275,7 +280,7 @@ export function createNavigationActions(
       normalizeWorkspaceRoot(thread?.workspace) ||
       (await readActiveWriteWorkspace(get().workspaceRoot))
     if (targetWorkspace) {
-      saveWriteThreadRegistry(markWriteThread(targetWorkspace, targetId))
+      saveWriteThreadRegistry(markWriteThread(targetWorkspace, targetId, readWriteThreadRegistry(), filePath))
     }
     set({ route: 'write' })
     await get().selectThread(targetId)
@@ -285,9 +290,9 @@ export function createNavigationActions(
     const prev = get().runtimeConnection
     if (mode === 'user') set({ runtimeConnection: 'checking' })
     try {
-      if (typeof window.kunGui === 'undefined') {
+      if (typeof window.workwise === 'undefined') {
         throw new Error(
-          'Preload bridge missing (window.kunGui). Restart the app or check BrowserWindow preload path.'
+          'Preload bridge missing (window.workwise). Restart the app or check BrowserWindow preload path.'
         )
       }
       const settings = await rendererRuntimeClient.getSettings({ forceRefresh: true })
@@ -334,13 +339,13 @@ export function createNavigationActions(
     if (bootPromise) return bootPromise
     bootPromise = (async () => {
       try {
-        if (typeof window.kunGui === 'undefined') {
+        if (typeof window.workwise === 'undefined') {
           set({
             error: formatRuntimeError(
-              'Preload bridge missing (window.kunGui). Restart the app or check BrowserWindow preload path.'
+              'Preload bridge missing (window.workwise). Restart the app or check BrowserWindow preload path.'
             ),
             runtimeConnection: 'offline',
-            runtimeErrorDetail: 'Preload bridge missing (window.kunGui). Restart the app or check BrowserWindow preload path.',
+            runtimeErrorDetail: 'Preload bridge missing (window.workwise). Restart the app or check BrowserWindow preload path.',
             initialSetupOpen: false,
             initialSetupMode: 'required'
           })
@@ -353,11 +358,11 @@ export function createNavigationActions(
         applyTheme(settings.theme)
         applyUiFontScale(settings.uiFontScale)
         await get().applyI18nFromSettings(settings.locale)
-        if (!clawChannelActivityUnsubscribe && typeof window.kunGui.onClawChannelActivity === 'function') {
-          clawChannelActivityUnsubscribe = window.kunGui.onClawChannelActivity(({ channelId, threadId }) => {
+        if (!clawChannelActivityUnsubscribe && typeof window.workwise.onClawChannelActivity === 'function') {
+          clawChannelActivityUnsubscribe = window.workwise.onClawChannelActivity(({ channelId, threadId }) => {
             void (async () => {
               const state = get()
-              if (typeof window.kunGui === 'undefined') return
+              if (typeof window.workwise === 'undefined') return
               const settings = await rendererRuntimeClient.getSettings({ forceRefresh: true })
               const channels = settings.claw.channels
               const activeChannelId = channels.some(
@@ -418,10 +423,10 @@ export function createNavigationActions(
   chooseWorkspace: async ({ createThreadAfter = false, selectThreadAfter = true } = {}) => {
     try {
       const wasWriteRoute = get().route === 'write'
-      if (typeof window.kunGui === 'undefined' || typeof window.kunGui.pickWorkspaceDirectory !== 'function') {
+      if (typeof window.workwise === 'undefined' || typeof window.workwise.pickWorkspaceDirectory !== 'function') {
         throw new Error(i18n.t('common:workspacePickerUnavailable'))
       }
-      const picked = await window.kunGui.pickWorkspaceDirectory(get().workspaceRoot || undefined)
+      const picked = await window.workwise.pickWorkspaceDirectory(get().workspaceRoot || undefined)
       if (picked.canceled || !picked.path) {
         if (createThreadAfter) {
           set({ error: i18n.t('common:workspaceRequiredToCreateThread') })
@@ -500,7 +505,7 @@ export function createNavigationActions(
 
   clearWorkspace: async () => {
     try {
-      if (typeof window.kunGui === 'undefined' || typeof window.kunGui.setSettings !== 'function') {
+      if (typeof window.workwise === 'undefined' || typeof window.workwise.setSettings !== 'function') {
         return
       }
       const next = await rendererRuntimeClient.setSettings({ workspaceRoot: '' })
@@ -562,7 +567,7 @@ export function createNavigationActions(
       // If the deleted workspace is the current workspaceRoot, clear it.
       if (normalizeWorkspaceRoot(get().workspaceRoot) === normalizedPath) {
         try {
-          if (typeof window.kunGui?.setSettings === 'function') {
+          if (typeof window.workwise?.setSettings === 'function') {
             const next = await rendererRuntimeClient.setSettings({ workspaceRoot: '' })
             set({
               workspaceRoot: normalizeWorkspaceRoot(next.workspaceRoot),
@@ -612,7 +617,7 @@ export function createNavigationActions(
       const forkRegistry = hydrateThreadForkRegistry(sidebarThreads, readThreadForkRegistry())
       saveThreadForkRegistry(forkRegistry)
       const enrichedThreads = enrichThreadsWithForkInfo(sidebarThreads, forkRegistry)
-      // Preserve the active Kun thread when it is not in the listing yet.
+      // Preserve the active WorkWise Runtime thread when it is not in the listing yet.
       // A brand-new thread can be absent from `listThreads` until the first
       // message is written. Without this, the optimistic thread would be wiped
       // from the sidebar and its live turn aborted by the selection clearing

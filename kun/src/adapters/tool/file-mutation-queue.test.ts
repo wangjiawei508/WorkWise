@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { withFileMutationQueue } from './file-mutation-queue.js'
 
-const lockRoot = join(tmpdir(), 'kun-file-mutation-locks')
+const lockRoot = join(tmpdir(), 'workwise-file-mutation-locks')
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
@@ -32,7 +32,7 @@ describe('withFileMutationQueue', () => {
   })
 
   async function tempFile(): Promise<string> {
-    tempDir = await mkdtemp(join(tmpdir(), 'kun-file-queue-'))
+    tempDir = await mkdtemp(join(tmpdir(), 'workwise-file-queue-'))
     const path = join(tempDir, 'target.txt')
     await writeFile(path, 'initial', 'utf8')
     return path

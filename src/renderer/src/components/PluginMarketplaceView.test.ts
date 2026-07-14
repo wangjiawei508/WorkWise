@@ -14,7 +14,7 @@ describe('PluginMarketplaceView MCP config helpers', () => {
     const existing = JSON.stringify({
       timeouts: { read_timeout: 120 },
       servers: {
-        gui_schedule: { command: '/Applications/DeepSeek GUI.app' }
+        gui_schedule: { command: '/Applications/WorkWise.app' }
       }
     })
 
@@ -26,7 +26,7 @@ describe('PluginMarketplaceView MCP config helpers', () => {
 
     expect(merged.alreadyExists).toBe(false)
     expect(parsed.timeouts).toEqual({ read_timeout: 120 })
-    expect(parsed.servers.gui_schedule).toEqual({ command: '/Applications/DeepSeek GUI.app' })
+    expect(parsed.servers.gui_schedule).toEqual({ command: '/Applications/WorkWise.app' })
     expect(parsed.servers.playwright).toMatchObject({
       enabled: true,
       transport: 'stdio',
@@ -47,7 +47,7 @@ describe('PluginMarketplaceView MCP config helpers', () => {
     expect(JSON.parse(second.text).servers.context7).toMatchObject({ command: 'npx' })
   })
 
-  it('accepts custom JSON as either a single server or a Kun config fragment', () => {
+  it('accepts custom JSON as either a single server or a WorkWise Runtime config fragment', () => {
     expect(customMcpConfigFragment(
       'docs',
       '{"transport":"stdio","command":"npx","args":["-y","docs-mcp"]}',
@@ -76,7 +76,7 @@ describe('PluginMarketplaceView MCP config helpers', () => {
     })
   })
 
-  it('detects MCP servers from full Kun capability config', () => {
+  it('detects MCP servers from full WorkWise Runtime capability config', () => {
     const content = JSON.stringify({
       capabilities: {
         mcp: {

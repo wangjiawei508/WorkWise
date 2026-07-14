@@ -1,10 +1,11 @@
 import { existsSync } from 'node:fs'
-import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
+import { mkdir, readFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 import type { WriteKnowledgeBaseSettingsV1 } from '../../shared/app-settings'
 import type { WriteInlineCompletionRequest } from '../../shared/write-inline-completion'
-import type { WriteKnowledgeBaseStatus } from '../../shared/kun-gui-api'
+import type { WriteKnowledgeBaseStatus } from '../../shared/workwise-api'
+import { atomicWriteFile as durableWriteFile } from './durable-file'
 
 const INDEX_TTL_MS = 6 * 60 * 60 * 1_000
 const API_HEALTH_TTL_MS = 5 * 60 * 1_000
@@ -81,11 +82,12 @@ async function persistCache(): Promise<void> {
   try {
     const path = persistentCachePath()
     await mkdir(dirname(path), { recursive: true })
-    const temp = `${path}.tmp`
     const pages = trimmedPageEntries()
     pageCache = new Map(pages.map((entry) => [entry.url, entry]))
-    await writeFile(temp, `${JSON.stringify({ version: 1, index: staticCache, pages } satisfies PersistentCache)}\n`, 'utf8')
-    await rename(temp, path)
+    await durableWriteFile(
+      path,
+      `${JSON.stringify({ version: 1, index: staticCache, pages } satisfies PersistentCache)}\n`
+    )
   } catch {
     // Cache persistence is opportunistic.
   }

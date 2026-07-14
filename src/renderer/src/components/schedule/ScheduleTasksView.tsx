@@ -223,8 +223,8 @@ export function ScheduleTasksView({
     try {
       const [nextSettings, nextStatus] = await Promise.all([
         rendererRuntimeClient.getSettings({ forceRefresh: true }),
-        typeof window.kunGui?.getScheduleStatus === 'function'
-          ? window.kunGui.getScheduleStatus()
+        typeof window.workwise?.getScheduleStatus === 'function'
+          ? window.workwise.getScheduleStatus()
           : Promise.resolve(null)
       ])
       setSettings(nextSettings)
@@ -254,8 +254,8 @@ export function ScheduleTasksView({
     setSettings({ ...settings, schedule: nextSchedule })
     const saved = await rendererRuntimeClient.setSettings({ schedule: nextSchedule })
     setSettings(saved)
-    if (typeof window.kunGui?.getScheduleStatus === 'function') {
-      setStatus(await window.kunGui.getScheduleStatus())
+    if (typeof window.workwise?.getScheduleStatus === 'function') {
+      setStatus(await window.workwise.getScheduleStatus())
     }
   }
 
@@ -289,10 +289,10 @@ export function ScheduleTasksView({
   const pickDialogWorkspace = async (): Promise<void> => {
     if (!dialog) return
     try {
-      if (typeof window.kunGui?.pickWorkspaceDirectory !== 'function') {
+      if (typeof window.workwise?.pickWorkspaceDirectory !== 'function') {
         throw new Error(t('workspacePickerUnavailable'))
       }
-      const picked = await window.kunGui.pickWorkspaceDirectory(resolveDialogWorkspaceRoot(dialog.draft.workspaceRoot) || undefined)
+      const picked = await window.workwise.pickWorkspaceDirectory(resolveDialogWorkspaceRoot(dialog.draft.workspaceRoot) || undefined)
       if (picked.canceled || !picked.path) return
       onDraftChangeInDialog({ workspaceRoot: picked.path })
       setDialogError(null)
@@ -362,8 +362,8 @@ export function ScheduleTasksView({
   }
 
   const runTask = async (taskId: string): Promise<void> => {
-    if (typeof window.kunGui?.runScheduleTask !== 'function') return
-    const result = await window.kunGui.runScheduleTask(taskId)
+    if (typeof window.workwise?.runScheduleTask !== 'function') return
+    const result = await window.workwise.runScheduleTask(taskId)
     if (!result.ok) {
       setError(result.message)
       return

@@ -62,9 +62,9 @@ export function createAppActions(options: CreateAppActionsOptions): Pick<
 
     loadComposerModels: async () => {
       if (getComposerModelLoadPromise()) return getComposerModelLoadPromise()!
-      if (typeof window.kunGui === 'undefined') return
+      if (typeof window.workwise === 'undefined') return
       const task = (async () => {
-        const res = await window.kunGui.fetchUpstreamModels()
+        const res = await window.workwise.fetchUpstreamModels()
         const pick = mergeComposerPickList(res.ok, res.ok ? res.modelIds : [])
         const groups = res.ok ? res.modelGroups ?? [] : []
         const allowed = new Set(pick)
@@ -125,7 +125,7 @@ export function createAppActions(options: CreateAppActionsOptions): Pick<
     },
 
     reloadUiSettings: async () => {
-      if (typeof window.kunGui === 'undefined') return
+      if (typeof window.workwise === 'undefined') return
       const settings = await rendererRuntimeClient.getSettings({ forceRefresh: true })
       const workspaceRoot = normalizeWorkspaceRoot(settings.workspaceRoot)
       applyTheme(settings.theme)

@@ -11,6 +11,7 @@ import {
   normalizeModelEndpointFormat,
   type ModelEndpointFormat
 } from '../../contracts/model-endpoint-format.js'
+import { RUNTIME_RESOURCE_LIMITS_V1 } from '../../contracts/resource-limits.js'
 
 /**
  * Configuration for the compatible HTTP model client. Chat
@@ -657,6 +658,14 @@ export class DeepseekCompatModelClient implements ModelClient {
         while ((boundary = buffer.indexOf('\n\n')) >= 0) {
           const frame = buffer.slice(0, boundary)
           buffer = buffer.slice(boundary + 2)
+          if (Buffer.byteLength(frame, 'utf8') > RUNTIME_RESOURCE_LIMITS_V1.modelFrameBytes) {
+            yield {
+              kind: 'error',
+              message: 'model stream frame exceeded its hard limit',
+              code: 'resource_limit'
+            }
+            return
+          }
           const dataLines = frame
             .split('\n')
             .filter((line) => line.startsWith('data:'))
@@ -685,9 +694,43 @@ export class DeepseekCompatModelClient implements ModelClient {
           )
           textAccumulator = result.text
           reasoningAccumulator = result.reasoning
+          if (
+            Buffer.byteLength(textAccumulator, 'utf8') +
+              Buffer.byteLength(reasoningAccumulator, 'utf8') >
+            RUNTIME_RESOURCE_LIMITS_V1.modelTextBytes
+          ) {
+            yield {
+              kind: 'error',
+              message: 'model output exceeded its hard limit',
+              code: 'resource_limit'
+            }
+            return
+          }
+          if (
+            [...pendingArguments.values()].some(
+              (pending) =>
+                Buffer.byteLength(pending.arguments, 'utf8') >
+                RUNTIME_RESOURCE_LIMITS_V1.toolArgumentsBytes
+            )
+          ) {
+            yield {
+              kind: 'error',
+              message: 'tool arguments exceeded their hard limit',
+              code: 'resource_limit'
+            }
+            return
+          }
           if (result.usage) usage = mergeUsageSnapshots(usage, result.usage)
           if (result.finishReason) finishReason = result.finishReason
           for (const chunk of result.chunks) yield chunk
+        }
+        if (Buffer.byteLength(buffer, 'utf8') > RUNTIME_RESOURCE_LIMITS_V1.modelFrameBytes) {
+          yield {
+            kind: 'error',
+            message: 'model stream frame exceeded its hard limit',
+            code: 'resource_limit'
+          }
+          return
         }
         if (sawDone) break
       }

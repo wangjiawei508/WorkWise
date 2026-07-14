@@ -35,4 +35,33 @@ describe('readJsonBody', () => {
       message: 'invalid JSON body'
     })
   })
+
+  it('accepts the exact byte limit and rejects one byte over it', async () => {
+    const body = JSON.stringify({ value: 'safe' })
+    const limit = Buffer.byteLength(body)
+    await expect(readJsonBody(new Request('http://localhost/v1/demo', {
+      method: 'POST',
+      body
+    }), limit)).resolves.toMatchObject({ ok: true })
+
+    const tooLarge = await readJsonBody(new Request('http://localhost/v1/demo', {
+      method: 'POST',
+      body: `${body} `
+    }), limit)
+    expect(tooLarge.ok).toBe(false)
+    if (tooLarge.ok) return
+    expect(tooLarge.response.status).toBe(413)
+    expect(JSON.parse(tooLarge.response.body)).toMatchObject({ code: 'payload_too_large' })
+  })
+
+  it('rejects an oversized Content-Length before reading the stream', async () => {
+    const result = await readJsonBody(new Request('http://localhost/v1/demo', {
+      method: 'POST',
+      headers: { 'content-length': '101' },
+      body: '{}'
+    }), 100)
+    expect(result.ok).toBe(false)
+    if (result.ok) return
+    expect(result.response.status).toBe(413)
+  })
 })

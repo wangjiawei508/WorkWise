@@ -31,19 +31,23 @@ export type ReviewOutput = z.infer<typeof ReviewOutputSchema>
 
 export const ReviewTargetSchema = z.discriminatedUnion('kind', [
   z.object({
-    kind: z.literal('uncommittedChanges')
+    kind: z.literal('uncommittedChanges'),
+    repositoryRoot: z.string().trim().min(1).optional()
   }),
   z.object({
     kind: z.literal('baseBranch'),
-    branch: z.string().trim().min(1)
+    branch: z.string().trim().min(1),
+    repositoryRoot: z.string().trim().min(1).optional()
   }),
   z.object({
     kind: z.literal('commit'),
-    sha: z.string().trim().min(1)
+    sha: z.string().trim().min(1),
+    repositoryRoot: z.string().trim().min(1).optional()
   }),
   z.object({
     kind: z.literal('custom'),
-    instructions: z.string().trim().min(1)
+    instructions: z.string().trim().min(1),
+    repositoryRoot: z.string().trim().min(1).optional()
   })
 ])
 export type ReviewTarget = z.infer<typeof ReviewTargetSchema>

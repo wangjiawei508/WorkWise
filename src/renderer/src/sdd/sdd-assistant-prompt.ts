@@ -5,7 +5,7 @@ export function composeSddAssistantPrompt(options: {
   workspaceRoot: string
 }): string {
   return [
-    'You are helping clarify and improve an SDD requirement draft inside Kun.',
+    'You are helping clarify and improve an SDD requirement draft inside WorkWise Runtime.',
     `Workspace: ${options.workspaceRoot}`,
     `Draft file: ${options.draftRelativePath}`,
     '',

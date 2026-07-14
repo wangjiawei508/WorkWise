@@ -5,11 +5,11 @@ import {
   getModelProviderProfile,
   getModelProviderSettings,
   listModelProviderModelIds,
-  resolveKunRuntimeSettings,
+  resolveManagedRuntimeSettings,
   type AppSettingsV1
 } from '../shared/app-settings'
 import { DEFAULT_COMPOSER_MODEL_IDS } from '../shared/default-composer-models'
-import type { ModelProviderModelGroup } from '../shared/kun-gui-api'
+import type { ModelProviderModelGroup } from '../shared/workwise-api'
 import { upstreamOpenAiModelsUrl } from '../shared/openai-compat-url'
 
 export type FetchUpstreamModelsResult =
@@ -32,7 +32,7 @@ export async function fetchUpstreamModelIds(
   if (!key) {
     return modelListOrError(configuredModelIds, configuredGroups, 'Missing API key; cannot query upstream /v1/models.')
   }
-  const runtime = resolveKunRuntimeSettings(settings)
+  const runtime = resolveManagedRuntimeSettings(settings)
   const activeProvider = getModelProviderProfile(settings, runtime.providerId)
   const url = upstreamOpenAiModelsUrl(runtime.baseUrl)
   try {
@@ -92,7 +92,7 @@ export async function fetchUpstreamModelIds(
 }
 
 export async function readConfiguredKunModelIds(settings: AppSettingsV1): Promise<string[]> {
-  const runtime = resolveKunRuntimeSettings(settings)
+  const runtime = resolveManagedRuntimeSettings(settings)
   const configPath = join(expandHome(runtime.dataDir), 'config.json')
   const ids = [runtime.model, ...listModelProviderModelIds(settings)]
   let parsed: unknown
@@ -177,7 +177,7 @@ async function readConfiguredProfileAliasGroups(
   settings: AppSettingsV1,
   providerGroups: readonly ModelProviderModelGroup[]
 ): Promise<ModelProviderModelGroup[]> {
-  const runtime = resolveKunRuntimeSettings(settings)
+  const runtime = resolveManagedRuntimeSettings(settings)
   const configPath = join(expandHome(runtime.dataDir), 'config.json')
   let parsed: unknown
   try {

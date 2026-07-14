@@ -1,6 +1,6 @@
 export * from './app-settings-types'
 export * from './app-settings-provider'
-export * from './app-settings-kun'
+export * from './app-settings-runtime'
 export * from './app-settings-prompts'
 export * from './app-settings-normalizers'
 export * from './app-settings-schedule'

@@ -15,10 +15,11 @@ import type { EditLocalToolOptions, WriteLocalToolOptions } from './builtin-tool
 import { defaultEditLocalToolOperations, defaultWriteLocalToolOperations } from './builtin-tool-operations.js'
 import { parseEditInstructions, resolveWorkspacePath, withToolBoundary } from './builtin-tool-utils.js'
 import { assertCanWritePath } from './sandbox-policy.js'
+import { atomicWriteFile } from '../file/atomic-write.js'
 
 export function createWriteLocalTool(_options: WriteLocalToolOptions = {}): LocalTool {
   const mkdirOp = _options.operations?.mkdir ?? defaultWriteLocalToolOperations.mkdir!
-  const writeFileOp = _options.operations?.writeFile ?? defaultWriteLocalToolOperations.writeFile!
+  const writeFileOp = _options.operations?.writeFile
   return LocalToolHost.defineTool({
     name: 'write',
     description: 'Create or overwrite a workspace file with the provided content.',
@@ -39,11 +40,20 @@ export function createWriteLocalTool(_options: WriteLocalToolOptions = {}): Loca
       if (!rawPath.trim() || content == null) {
         return { output: { error: 'path and content are required' }, isError: true }
       }
-      const { absolutePath, relativePath } = resolveWorkspacePath(rawPath, context)
+      const { absolutePath, relativePath } = await resolveWorkspacePath(rawPath, context)
       assertCanWritePath(absolutePath, context)
       return withFileMutationQueue(absolutePath, async () => {
+        await resolveWorkspacePath(rawPath, context)
         await mkdirOp(dirname(absolutePath))
-        await writeFileOp(absolutePath, content)
+        if (writeFileOp) {
+          await writeFileOp(absolutePath, content)
+        } else {
+          await atomicWriteFile(absolutePath, content, {
+            beforeReplace: async () => {
+              await resolveWorkspacePath(rawPath, context)
+            }
+          })
+        }
         return {
           output: {
             path: absolutePath,
@@ -61,7 +71,7 @@ export const createWriteToolDefinition = createWriteLocalTool
 
 export function createEditLocalTool(_options: EditLocalToolOptions = {}): LocalTool {
   const readFileOp = _options.operations?.readFile ?? defaultEditLocalToolOperations.readFile!
-  const writeFileOp = _options.operations?.writeFile ?? defaultEditLocalToolOperations.writeFile!
+  const writeFileOp = _options.operations?.writeFile
   return LocalToolHost.defineTool({
     name: 'edit',
     description: 'Edit a workspace file using exact text replacement. Supports multiple disjoint edits in one call.',
@@ -95,16 +105,25 @@ export function createEditLocalTool(_options: EditLocalToolOptions = {}): LocalT
       if (!rawPath.trim() || edits.length === 0) {
         return { output: { error: 'path and at least one edit are required' }, isError: true }
       }
-      const { absolutePath, relativePath } = resolveWorkspacePath(rawPath, context)
+      const { absolutePath, relativePath } = await resolveWorkspacePath(rawPath, context)
       assertCanWritePath(absolutePath, context)
       return withFileMutationQueue(absolutePath, async () => {
+        await resolveWorkspacePath(rawPath, context)
         const rawSource = await readFileOp(absolutePath)
         const { bom, text: source } = stripBom(rawSource)
         const lineEnding = detectLineEnding(source)
         const normalizedSource = normalizeToLF(source)
         const { baseContent, newContent } = applyEditsToNormalizedContent(normalizedSource, edits, relativePath)
         const next = bom + restoreLineEndings(newContent, lineEnding)
-        await writeFileOp(absolutePath, next)
+        if (writeFileOp) {
+          await writeFileOp(absolutePath, next)
+        } else {
+          await atomicWriteFile(absolutePath, next, {
+            beforeReplace: async () => {
+              await resolveWorkspacePath(rawPath, context)
+            }
+          })
+        }
         const diff = generateDisplayDiff(baseContent, newContent)
         const patch = generateUnifiedPatch(relativePath, baseContent, newContent)
         return {

@@ -2,15 +2,64 @@ import { mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from 'node:fs/
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { DEFAULT_APPROVAL_POLICY, defaultKunRuntimeSettings, defaultModelProviderSettings } from '../shared/app-settings'
+import { DEFAULT_APPROVAL_POLICY, defaultManagedRuntimeSettings, defaultModelProviderSettings } from '../shared/app-settings'
 import { DEFAULT_GUI_UPDATE_CHANNEL } from '../shared/gui-update'
-import { JsonSettingsStore } from './settings-store'
+import { JsonSettingsStore, SettingsRevisionConflictError } from './settings-store'
 
 describe('JsonSettingsStore', () => {
+  it('writes new settings with the WorkWise V2 envelope', async () => {
+    const userDataDir = await mkdtemp(join(tmpdir(), 'workwise-settings-v2-'))
+    const store = new JsonSettingsStore(userDataDir, { workwiseHome: join(userDataDir, '.workwise') })
+
+    const loaded = await store.load()
+    const persisted = JSON.parse(await readFile(join(userDataDir, 'workwise-settings.json'), 'utf8'))
+
+    expect(loaded).toMatchObject({ schema: 'workwise.settings', version: 2, revision: 0 })
+    expect(persisted).toMatchObject({ schema: 'workwise.settings', version: 2, revision: 0 })
+  })
+
+  it('serializes concurrent patches and rejects stale revisions without changing state', async () => {
+    const userDataDir = await mkdtemp(join(tmpdir(), 'workwise-settings-revision-'))
+    const store = new JsonSettingsStore(userDataDir, { workwiseHome: join(userDataDir, '.workwise') })
+    const initial = await store.load()
+
+    const [first, second] = await Promise.all([
+      store.patch({ locale: 'zh' }, initial.revision),
+      store.patch({ theme: 'dark' })
+    ])
+
+    expect(first.revision).toBe(1)
+    expect(second.revision).toBe(2)
+    await expect(store.patch({ locale: 'en' }, 0)).rejects.toBeInstanceOf(SettingsRevisionConflictError)
+    const current = await store.load()
+    expect(current).toMatchObject({ revision: 2, locale: 'zh', theme: 'dark' })
+  })
+
+  it('records a read-only V1 import and leaves the legacy source unchanged', async () => {
+    const userDataDir = await mkdtemp(join(tmpdir(), 'workwise-settings-migrate-'))
+    const legacyPath = join(userDataDir, 'workgpt-settings.json')
+    const legacyRaw = JSON.stringify({ version: 1, locale: 'zh' })
+    await writeFile(legacyPath, legacyRaw, 'utf8')
+    const workwiseHome = join(userDataDir, '.workwise')
+    const store = new JsonSettingsStore(userDataDir, { workwiseHome })
+
+    const loaded = await store.load()
+    const manifest = JSON.parse(await readFile(join(workwiseHome, 'migrations', 'v2.json'), 'utf8'))
+
+    expect(loaded).toMatchObject({ schema: 'workwise.settings', version: 2, locale: 'zh' })
+    expect(manifest).toMatchObject({
+      schema: 'workwise.migration',
+      version: 2,
+      sourcePath: legacyPath,
+      targetPath: join(userDataDir, 'workwise-settings.json')
+    })
+    expect(await readFile(legacyPath, 'utf8')).toBe(legacyRaw)
+  })
+
   it('defaults GUI updates to the stable channel for new settings', async () => {
     const userDataDir = await mkdtemp(join(tmpdir(), 'ds-gui-settings-'))
 
-    const store = new JsonSettingsStore(userDataDir)
+    const store = new JsonSettingsStore(userDataDir, { workwiseHome: join(userDataDir, '.workwise') })
     const loaded = await store.load()
 
     expect(loaded.guiUpdate.channel).toBe(DEFAULT_GUI_UPDATE_CHANNEL)
@@ -25,7 +74,7 @@ describe('JsonSettingsStore', () => {
   it('creates a default write workspace with welcome.md', async () => {
     const userDataDir = await mkdtemp(join(tmpdir(), 'ds-gui-settings-'))
 
-    const store = new JsonSettingsStore(userDataDir)
+    const store = new JsonSettingsStore(userDataDir, { workwiseHome: join(userDataDir, '.workwise') })
     const loaded = await store.load()
 
     expect(loaded.write.defaultWorkspaceRoot).toContain('.workwise')
@@ -58,7 +107,7 @@ describe('JsonSettingsStore', () => {
       'utf8'
     )
 
-    const store = new JsonSettingsStore(userDataDir)
+    const store = new JsonSettingsStore(userDataDir, { workwiseHome: join(userDataDir, '.workwise') })
     const loaded = await store.load()
 
     expect(loaded.write.inlineCompletion.inheritModel).toBe(false)
@@ -81,14 +130,14 @@ describe('JsonSettingsStore', () => {
       'utf8'
     )
 
-    const store = new JsonSettingsStore(userDataDir)
+    const store = new JsonSettingsStore(userDataDir, { workwiseHome: join(userDataDir, '.workwise') })
     const loaded = await store.load()
 
     expect(loaded.write.inlineCompletion.inheritModel).toBe(true)
     expect(loaded.write.inlineCompletion.model).toBe('deepseek-v4-flash')
   })
 
-  it('migrates legacy deepseek.autoStart=false into Kun', async () => {
+  it('migrates legacy deepseek.autoStart=false into WorkWise Runtime', async () => {
     const userDataDir = await mkdtemp(join(tmpdir(), 'ds-gui-settings-'))
     const workspaceRoot = join(userDataDir, 'workspace')
     await mkdir(workspaceRoot, { recursive: true })
@@ -105,13 +154,13 @@ describe('JsonSettingsStore', () => {
       'utf8'
     )
 
-    const store = new JsonSettingsStore(userDataDir)
+    const store = new JsonSettingsStore(userDataDir, { workwiseHome: join(userDataDir, '.workwise') })
     const loaded = await store.load()
 
     expect(loaded.agents.kun.autoStart).toBe(false)
   })
 
-  it('migrates existing Kun credentials into General provider settings', async () => {
+  it('migrates existing WorkWise Runtime credentials into General provider settings', async () => {
     const userDataDir = await mkdtemp(join(tmpdir(), 'ds-gui-settings-'))
 
     await writeFile(
@@ -128,7 +177,7 @@ describe('JsonSettingsStore', () => {
       'utf8'
     )
 
-    const store = new JsonSettingsStore(userDataDir)
+    const store = new JsonSettingsStore(userDataDir, { workwiseHome: join(userDataDir, '.workwise') })
     const loaded = await store.load()
 
     expect(loaded.provider.apiKey).toBe('sk-existing')
@@ -164,7 +213,7 @@ describe('JsonSettingsStore', () => {
         },
         agents: {
           kun: {
-            ...defaultKunRuntimeSettings(),
+            ...defaultManagedRuntimeSettings(),
             providerId: 'custom-provider-2',
             model: 'custom-model'
           }
@@ -173,7 +222,7 @@ describe('JsonSettingsStore', () => {
       'utf8'
     )
 
-    const firstStore = new JsonSettingsStore(userDataDir)
+    const firstStore = new JsonSettingsStore(userDataDir, { workwiseHome: join(userDataDir, '.workwise') })
     const firstLoaded = await firstStore.load()
 
     expect(firstLoaded.provider.providers).toEqual(
@@ -190,7 +239,7 @@ describe('JsonSettingsStore', () => {
     expect(firstLoaded.agents.kun.providerId).toBe('custom-provider-2')
     await firstStore.save(firstLoaded)
 
-    const secondStore = new JsonSettingsStore(userDataDir)
+    const secondStore = new JsonSettingsStore(userDataDir, { workwiseHome: join(userDataDir, '.workwise') })
     const secondLoaded = await secondStore.load()
 
     expect(secondLoaded.provider.providers).toEqual(
@@ -245,14 +294,14 @@ describe('JsonSettingsStore', () => {
       'utf8'
     )
 
-    const store = new JsonSettingsStore(userDataDir)
+    const store = new JsonSettingsStore(userDataDir, { workwiseHome: join(userDataDir, '.workwise') })
     const loaded = await store.load()
 
     expect(loaded.workspaceRoot).toBe(workspaceRoot)
     expect((await stat(workspaceRoot)).isDirectory()).toBe(true)
   })
 
-  it('migrates legacy deepseek-runtime agentProvider to Kun', async () => {
+  it('migrates legacy deepseek-runtime agentProvider to WorkWise Runtime', async () => {
     const userDataDir = await mkdtemp(join(tmpdir(), 'ds-gui-settings-'))
 
     await writeFile(
@@ -265,7 +314,7 @@ describe('JsonSettingsStore', () => {
       'utf8'
     )
 
-    const store = new JsonSettingsStore(userDataDir)
+    const store = new JsonSettingsStore(userDataDir, { workwiseHome: join(userDataDir, '.workwise') })
     const loaded = await store.load()
 
     expect(loaded.agents.kun.port).toBe(8787)
@@ -276,7 +325,7 @@ describe('JsonSettingsStore', () => {
     const settingsPath = join(userDataDir, 'deepseek-gui-settings.json')
     await writeFile(settingsPath, '{ invalid json', 'utf8')
 
-    const store = new JsonSettingsStore(userDataDir)
+    const store = new JsonSettingsStore(userDataDir, { workwiseHome: join(userDataDir, '.workwise') })
     const loaded = await store.load()
     const files = await readdir(userDataDir)
     const backupName = files.find((file) => file.startsWith('deepseek-gui-settings.invalid-'))
@@ -290,7 +339,7 @@ describe('JsonSettingsStore', () => {
   })
 
   it('loads the legacy file name inside the current userData dir and re-saves it under the new name', async () => {
-    // userData 整目录迁移后的常见形态:目录已经叫 Kun,里面还是旧文件名。
+    // userData 整目录迁移后的常见形态:目录已经叫 WorkWise Runtime,里面还是旧文件名。
     const userDataDir = await mkdtemp(join(tmpdir(), 'ds-gui-settings-'))
     await writeFile(
       join(userDataDir, 'deepseek-gui-settings.json'),
@@ -298,7 +347,7 @@ describe('JsonSettingsStore', () => {
       'utf8'
     )
 
-    const store = new JsonSettingsStore(userDataDir)
+    const store = new JsonSettingsStore(userDataDir, { workwiseHome: join(userDataDir, '.workwise') })
     const loaded = await store.load()
 
     expect(loaded.provider.apiKey).toBe('sk-migrated')
@@ -313,14 +362,14 @@ describe('JsonSettingsStore', () => {
     const settingsPath = join(userDataDir, 'deepseek-gui-settings.json')
     await mkdir(settingsPath, { recursive: true })
 
-    const store = new JsonSettingsStore(userDataDir)
+    const store = new JsonSettingsStore(userDataDir, { workwiseHome: join(userDataDir, '.workwise') })
 
     await expect(store.load()).rejects.toThrow(/Failed to read settings file/)
   })
 
-  it('merges Kun settings patches', async () => {
+  it('merges WorkWise Runtime settings patches', async () => {
     const userDataDir = await mkdtemp(join(tmpdir(), 'ds-gui-settings-'))
-    const store = new JsonSettingsStore(userDataDir)
+    const store = new JsonSettingsStore(userDataDir, { workwiseHome: join(userDataDir, '.workwise') })
     await store.load()
 
     const saved = await store.patch({
@@ -338,7 +387,7 @@ describe('JsonSettingsStore', () => {
 
   it('merges desktop behavior patches without keeping invalid startup state', async () => {
     const userDataDir = await mkdtemp(join(tmpdir(), 'ds-gui-settings-'))
-    const store = new JsonSettingsStore(userDataDir)
+    const store = new JsonSettingsStore(userDataDir, { workwiseHome: join(userDataDir, '.workwise') })
     await store.load()
 
     const enabled = await store.patch({
@@ -369,7 +418,7 @@ describe('JsonSettingsStore', () => {
   it('omits agentProvider when writing normalized settings to disk', async () => {
     const userDataDir = await mkdtemp(join(tmpdir(), 'ds-gui-settings-'))
     const settingsPath = join(userDataDir, 'workwise-settings.json')
-    const store = new JsonSettingsStore(userDataDir)
+    const store = new JsonSettingsStore(userDataDir, { workwiseHome: join(userDataDir, '.workwise') })
     await store.load()
     await store.patch({
       agents: {
@@ -389,7 +438,7 @@ describe('JsonSettingsStore', () => {
     )
   })
 
-  it('folds legacy Claw thread ids into the single Kun mapping', async () => {
+  it('folds legacy Claw thread ids into the single WorkWise Runtime mapping', async () => {
     const userDataDir = await mkdtemp(join(tmpdir(), 'ds-gui-settings-'))
 
     await writeFile(
@@ -420,7 +469,7 @@ describe('JsonSettingsStore', () => {
       'utf8'
     )
 
-    const store = new JsonSettingsStore(userDataDir)
+    const store = new JsonSettingsStore(userDataDir, { workwiseHome: join(userDataDir, '.workwise') })
     const loaded = await store.load()
     const channel = loaded.claw.channels[0]
     const conversation = channel?.conversations[0]
@@ -459,7 +508,7 @@ describe('JsonSettingsStore', () => {
       'utf8'
     )
 
-    const store = new JsonSettingsStore(userDataDir)
+    const store = new JsonSettingsStore(userDataDir, { workwiseHome: join(userDataDir, '.workwise') })
     const loaded = await store.load()
     const channel = loaded.claw.channels[0]
     const conversation = channel?.conversations[0]
@@ -472,7 +521,7 @@ describe('JsonSettingsStore', () => {
     const userDataDir = await mkdtemp(join(tmpdir(), 'ds-gui-settings-atomic-'))
 
     try {
-      const store = new JsonSettingsStore(userDataDir)
+      const store = new JsonSettingsStore(userDataDir, { workwiseHome: join(userDataDir, '.workwise') })
       const loaded = await store.load()
       await store.save(loaded)
 

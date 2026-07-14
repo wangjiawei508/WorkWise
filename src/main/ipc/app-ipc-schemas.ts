@@ -1,31 +1,31 @@
 import { z } from 'zod'
 import {
-  KUN_APPROVAL_TEMPLATE,
-  KUN_ATTACHMENT_CONTENT_TEMPLATE,
-  KUN_ATTACHMENT_DIAGNOSTICS_TEMPLATE,
-  KUN_ATTACHMENTS_TEMPLATE,
-  KUN_ATTACHMENT_TEMPLATE,
-  KUN_HEALTH_TEMPLATE,
-  KUN_MEMORY_DIAGNOSTICS_TEMPLATE,
-  KUN_MEMORY_RECORD_TEMPLATE,
-  KUN_MEMORY_TEMPLATE,
-  KUN_RUNTIME_INFO_TEMPLATE,
-  KUN_RUNTIME_TOOLS_TEMPLATE,
-  KUN_SESSION_RESUME_TEMPLATE,
-  KUN_SKILLS_TEMPLATE,
-  KUN_THREADS_TEMPLATE,
-  KUN_THREAD_COMPACT_TEMPLATE,
-  KUN_THREAD_FORK_TEMPLATE,
-  KUN_THREAD_GOAL_TEMPLATE,
-  KUN_THREAD_REVIEW_TEMPLATE,
-  KUN_THREAD_TODOS_TEMPLATE,
-  KUN_THREAD_INTERRUPT_TEMPLATE,
-  KUN_THREAD_STEER_TEMPLATE,
-  KUN_THREAD_TURNS_TEMPLATE,
-  KUN_THREAD_TEMPLATE,
-  KUN_USER_INPUT_TEMPLATE,
-  KUN_USAGE_TEMPLATE
-} from '../../shared/kun-endpoints'
+  RUNTIME_APPROVAL_TEMPLATE,
+  RUNTIME_ATTACHMENT_CONTENT_TEMPLATE,
+  RUNTIME_ATTACHMENT_DIAGNOSTICS_TEMPLATE,
+  RUNTIME_ATTACHMENTS_TEMPLATE,
+  RUNTIME_ATTACHMENT_TEMPLATE,
+  RUNTIME_HEALTH_TEMPLATE,
+  RUNTIME_MEMORY_DIAGNOSTICS_TEMPLATE,
+  RUNTIME_MEMORY_RECORD_TEMPLATE,
+  RUNTIME_MEMORY_TEMPLATE,
+  RUNTIME_INFO_TEMPLATE,
+  RUNTIME_TOOLS_TEMPLATE,
+  RUNTIME_SESSION_RESUME_TEMPLATE,
+  RUNTIME_SKILLS_TEMPLATE,
+  RUNTIME_THREADS_TEMPLATE,
+  RUNTIME_THREAD_COMPACT_TEMPLATE,
+  RUNTIME_THREAD_FORK_TEMPLATE,
+  RUNTIME_THREAD_GOAL_TEMPLATE,
+  RUNTIME_THREAD_REVIEW_TEMPLATE,
+  RUNTIME_THREAD_TODOS_TEMPLATE,
+  RUNTIME_THREAD_INTERRUPT_TEMPLATE,
+  RUNTIME_THREAD_STEER_TEMPLATE,
+  RUNTIME_THREAD_TURNS_TEMPLATE,
+  RUNTIME_THREAD_TEMPLATE,
+  RUNTIME_USER_INPUT_TEMPLATE,
+  RUNTIME_USAGE_TEMPLATE
+} from '../../shared/runtime-endpoints'
 import {
   CLAW_MODEL_IDS,
   IMAGE_GENERATION_PROTOCOLS,
@@ -34,14 +34,16 @@ import {
   SCHEDULE_REASONING_EFFORT_IDS,
   WRITE_INLINE_COMPLETION_MODEL_IDS
 } from '../../shared/app-settings'
-import { DESKTOP_COMMANDS } from '../../shared/kun-gui-api'
+import { DESKTOP_COMMANDS } from '../../shared/workwise-api'
 import { GUI_UPDATE_CHANNELS } from '../../shared/gui-update'
 import { KEYBOARD_SHORTCUT_COMMANDS } from '../../shared/keyboard-shortcuts'
 import { WRITE_EXPORT_FORMATS } from '../../shared/write-export'
 import { WRITE_INFOGRAPHIC_MAX_TEXT_CHARS } from '../../shared/write-infographic'
 import { AGNES_IMAGE_SIZES } from '../../shared/agnes-image'
+import { CANCELLATION_SCOPES } from '../../shared/cancellation'
+import { RUNTIME_RESOURCE_LIMITS_V1 } from '../../shared/runtime-resource-limits'
 
-const MAX_BODY_BYTES = 2_000_000
+const MAX_BODY_BYTES = RUNTIME_RESOURCE_LIMITS_V1.jsonRequestBodyBytes
 const MAX_PATH_LENGTH = 4_096
 const MAX_URL_LENGTH = 4_096
 const MAX_IMAGE_PROMPT_TEXT = 8_000
@@ -110,31 +112,31 @@ function compileEndpoint(
 }
 
 const ENDPOINTS: readonly EndpointTemplate[] = [
-  compileEndpoint(KUN_HEALTH_TEMPLATE, ['GET']),
-  compileEndpoint(KUN_RUNTIME_INFO_TEMPLATE, ['GET']),
-  compileEndpoint(KUN_RUNTIME_TOOLS_TEMPLATE, ['GET']),
-  compileEndpoint(KUN_SKILLS_TEMPLATE, ['GET']),
-  compileEndpoint(KUN_ATTACHMENTS_TEMPLATE, ['POST']),
-  compileEndpoint(KUN_ATTACHMENT_DIAGNOSTICS_TEMPLATE, ['GET']),
-  compileEndpoint(KUN_ATTACHMENT_TEMPLATE, ['GET']),
-  compileEndpoint(KUN_ATTACHMENT_CONTENT_TEMPLATE, ['GET']),
-  compileEndpoint(KUN_MEMORY_TEMPLATE, ['GET', 'POST']),
-  compileEndpoint(KUN_MEMORY_DIAGNOSTICS_TEMPLATE, ['GET']),
-  compileEndpoint(KUN_MEMORY_RECORD_TEMPLATE, ['PATCH', 'DELETE']),
-  compileEndpoint(KUN_THREADS_TEMPLATE, ['GET', 'POST']),
-  compileEndpoint(KUN_THREAD_TEMPLATE, ['GET', 'PATCH', 'DELETE']),
-  compileEndpoint(KUN_THREAD_FORK_TEMPLATE, ['POST']),
-  compileEndpoint(KUN_THREAD_GOAL_TEMPLATE, ['GET', 'POST', 'DELETE']),
-  compileEndpoint(KUN_THREAD_TODOS_TEMPLATE, ['GET', 'POST', 'DELETE']),
-  compileEndpoint(KUN_THREAD_COMPACT_TEMPLATE, ['POST']),
-  compileEndpoint(KUN_THREAD_REVIEW_TEMPLATE, ['POST']),
-  compileEndpoint(KUN_THREAD_TURNS_TEMPLATE, ['POST']),
-  compileEndpoint(KUN_THREAD_STEER_TEMPLATE, ['POST']),
-  compileEndpoint(KUN_THREAD_INTERRUPT_TEMPLATE, ['POST']),
-  compileEndpoint(KUN_APPROVAL_TEMPLATE, ['POST']),
-  compileEndpoint(KUN_USER_INPUT_TEMPLATE, ['POST']),
-  compileEndpoint(KUN_SESSION_RESUME_TEMPLATE, ['POST']),
-  compileEndpoint(KUN_USAGE_TEMPLATE, ['GET'])
+  compileEndpoint(RUNTIME_HEALTH_TEMPLATE, ['GET']),
+  compileEndpoint(RUNTIME_INFO_TEMPLATE, ['GET']),
+  compileEndpoint(RUNTIME_TOOLS_TEMPLATE, ['GET']),
+  compileEndpoint(RUNTIME_SKILLS_TEMPLATE, ['GET']),
+  compileEndpoint(RUNTIME_ATTACHMENTS_TEMPLATE, ['POST']),
+  compileEndpoint(RUNTIME_ATTACHMENT_DIAGNOSTICS_TEMPLATE, ['GET']),
+  compileEndpoint(RUNTIME_ATTACHMENT_TEMPLATE, ['GET']),
+  compileEndpoint(RUNTIME_ATTACHMENT_CONTENT_TEMPLATE, ['GET']),
+  compileEndpoint(RUNTIME_MEMORY_TEMPLATE, ['GET', 'POST']),
+  compileEndpoint(RUNTIME_MEMORY_DIAGNOSTICS_TEMPLATE, ['GET']),
+  compileEndpoint(RUNTIME_MEMORY_RECORD_TEMPLATE, ['PATCH', 'DELETE']),
+  compileEndpoint(RUNTIME_THREADS_TEMPLATE, ['GET', 'POST']),
+  compileEndpoint(RUNTIME_THREAD_TEMPLATE, ['GET', 'PATCH', 'DELETE']),
+  compileEndpoint(RUNTIME_THREAD_FORK_TEMPLATE, ['POST']),
+  compileEndpoint(RUNTIME_THREAD_GOAL_TEMPLATE, ['GET', 'POST', 'DELETE']),
+  compileEndpoint(RUNTIME_THREAD_TODOS_TEMPLATE, ['GET', 'POST', 'DELETE']),
+  compileEndpoint(RUNTIME_THREAD_COMPACT_TEMPLATE, ['POST']),
+  compileEndpoint(RUNTIME_THREAD_REVIEW_TEMPLATE, ['POST']),
+  compileEndpoint(RUNTIME_THREAD_TURNS_TEMPLATE, ['POST']),
+  compileEndpoint(RUNTIME_THREAD_STEER_TEMPLATE, ['POST']),
+  compileEndpoint(RUNTIME_THREAD_INTERRUPT_TEMPLATE, ['POST']),
+  compileEndpoint(RUNTIME_APPROVAL_TEMPLATE, ['POST']),
+  compileEndpoint(RUNTIME_USER_INPUT_TEMPLATE, ['POST']),
+  compileEndpoint(RUNTIME_SESSION_RESUME_TEMPLATE, ['POST']),
+  compileEndpoint(RUNTIME_USAGE_TEMPLATE, ['GET'])
 ]
 
 function isAllowedRuntimeRequest(value: { path: string; method?: string }): boolean {
@@ -159,12 +161,31 @@ export const runtimeRequestPayloadSchema = z
       value.startsWith('/') ? value : `/${value}`
     ),
     method: z.enum(['GET', 'POST', 'PUT', 'PATCH', 'DELETE']).optional(),
-    body: z.string().max(MAX_BODY_BYTES).optional()
+    body: z.string().optional()
+  })
+  .strict()
+  .superRefine((payload, context) => {
+    if (payload.body === undefined) return
+    let pathname = ''
+    try {
+      pathname = new URL(payload.path, 'http://localhost').pathname
+    } catch {
+      return
+    }
+    const limit = compileEndpoint(RUNTIME_ATTACHMENTS_TEMPLATE, ['POST']).match(pathname)
+      ? RUNTIME_RESOURCE_LIMITS_V1.attachmentRequestBodyBytes
+      : RUNTIME_RESOURCE_LIMITS_V1.jsonRequestBodyBytes
+    if (Buffer.byteLength(payload.body, 'utf8') > limit) {
+      context.addIssue({
+        code: 'custom',
+        path: ['body'],
+        message: `request body exceeds the ${limit}-byte hard limit`
+      })
+    }
   })
   .refine((payload) => isAllowedRuntimeRequest(payload), {
     message: 'runtime request path is not allowed'
   })
-  .strict()
 
 const localeSchema = z.enum(['en', 'zh'])
 const themeSchema = z.enum(['system', 'light', 'dark'])
@@ -545,6 +566,14 @@ const settingsPatchObjectSchema = z.object({
 }).strict()
 
 export const settingsPatchSchema = z.preprocess(stripLegacySettingsPatchKeys, settingsPatchObjectSchema)
+export const settingsSetPayloadSchema = z.union([
+  z.object({
+    patch: settingsPatchSchema,
+    expectedRevision: z.number().int().nonnegative().optional()
+  }).strict(),
+  // Compatibility for 0.2.x preload callers. New callers send the envelope above.
+  settingsPatchSchema.transform((patch) => ({ patch, expectedRevision: undefined }))
+])
 
 export const skillSaveFilePayloadSchema = z
   .object({
@@ -598,7 +627,7 @@ export const skillListPayloadSchema = z
   .strict()
 
 export const rootPathSchema = trimmedString(MAX_PATH_LENGTH)
-export const deepseekConfigContentSchema = z.string().max(MAX_CONFIG_FILE_BYTES)
+export const runtimeConfigContentSchema = z.string().max(MAX_CONFIG_FILE_BYTES)
 
 export const workspaceRootSchema = trimmedString(MAX_PATH_LENGTH)
 export const gitBranchPayloadSchema = z
@@ -898,3 +927,9 @@ export const sseStartPayloadSchema = z
   .strict()
 
 export const streamIdSchema = trimmedString(MAX_ID_LENGTH)
+
+export const cancelOperationPayloadSchema = z.object({
+  scope: z.enum(CANCELLATION_SCOPES),
+  id: trimmedString(MAX_ID_LENGTH),
+  reason: optionalTrimmedString(512)
+}).strict()

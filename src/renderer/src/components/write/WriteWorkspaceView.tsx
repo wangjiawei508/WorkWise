@@ -219,11 +219,11 @@ export function WriteWorkspaceView({
   }
 
   const preparePptMaster = async (): Promise<void> => {
-if (typeof window.kunGui?.installBundledSkill !== 'function') {
+if (typeof window.workwise?.installBundledSkill !== 'function') {
       setFileError(t('writePptMasterUnavailable'))
       return
     }
-    const result = await window.kunGui.installBundledSkill('~/.workwise/tools/skills', {
+    const result = await window.workwise.installBundledSkill('~/.workwise/tools/skills', {
       id: 'ppt-master',
       skillName: 'ppt-master'
     })
@@ -263,7 +263,7 @@ if (typeof window.kunGui?.installBundledSkill !== 'function') {
       setFileError(t(selection.ranges.length > 1 ? 'writeInlineEditMultiSelection' : 'writeInlineEditNoSelection'))
       return
     }
-    if (typeof window.kunGui?.requestWriteInlineCompletion !== 'function') {
+    if (typeof window.workwise?.requestWriteInlineCompletion !== 'function') {
       setFileError(t('writeInlineEditUnavailable'))
       return
     }
@@ -285,7 +285,7 @@ if (typeof window.kunGui?.installBundledSkill !== 'function') {
 
     setInlineEditInFlight(true)
     try {
-      const result = await window.kunGui.requestWriteInlineCompletion(
+      const result = await window.workwise.requestWriteInlineCompletion(
         buildWriteInlineEditCompletionRequest(draft.request)
       )
       if (!result.ok) {
@@ -371,7 +371,7 @@ if (typeof window.kunGui?.installBundledSkill !== 'function') {
       setFileError(t('writeInlineEditNoSelection'))
       return
     }
-    if (typeof window.kunGui?.generateWriteInfographic !== 'function') {
+    if (typeof window.workwise?.generateWriteInfographic !== 'function') {
       setFileError(t('writeInfographicUnavailable'))
       return
     }
@@ -379,7 +379,7 @@ if (typeof window.kunGui?.installBundledSkill !== 'function') {
     const richHandle = richModeActive ? richHandleRef.current : null
     setInfographicInFlight(true)
     try {
-      const result = await window.kunGui.generateWriteInfographic({
+      const result = await window.workwise.generateWriteInfographic({
         text: selection.text.trim().slice(0, WRITE_INFOGRAPHIC_MAX_TEXT_CHARS),
         filePath: activeFilePath,
         workspaceRoot
@@ -440,10 +440,10 @@ if (typeof window.kunGui?.installBundledSkill !== 'function') {
   const pickWriteWorkspace = async (): Promise<void> => {
     try {
       setFileError(null)
-      if (typeof window.kunGui?.pickWorkspaceDirectory !== 'function') {
+      if (typeof window.workwise?.pickWorkspaceDirectory !== 'function') {
         throw new Error('workspace:pick-directory unavailable')
       }
-      const picked = await window.kunGui.pickWorkspaceDirectory(workspaceRoot || undefined)
+      const picked = await window.workwise.pickWorkspaceDirectory(workspaceRoot || undefined)
       if (!picked.canceled && picked.path) {
         await addWriteWorkspace(picked.path)
         if (runtimeConnection === 'ready') void ensureWriteThreadForWorkspace(picked.path)
@@ -456,7 +456,7 @@ if (typeof window.kunGui?.installBundledSkill !== 'function') {
   const exportCurrentFile = async (format: WriteExportFormat): Promise<void> => {
     if (!activeFilePath) return
     if (!activeFileIsText) return
-    if (typeof window.kunGui?.exportWriteDocument !== 'function') {
+    if (typeof window.workwise?.exportWriteDocument !== 'function') {
       showExportNotice({ tone: 'error', message: t('writeExportUnavailable') })
       return
     }
@@ -464,7 +464,7 @@ if (typeof window.kunGui?.installBundledSkill !== 'function') {
     setExportMenuOpen(false)
     setExportingFormat(format)
     try {
-      const result = await window.kunGui.exportWriteDocument({
+      const result = await window.workwise.exportWriteDocument({
         path: activeFilePath,
         workspaceRoot,
         format,
@@ -502,7 +502,7 @@ if (typeof window.kunGui?.installBundledSkill !== 'function') {
   const copyCurrentFileAsRichText = async (): Promise<void> => {
     if (!activeFilePath) return
     if (!activeFileIsText) return
-    if (typeof window.kunGui?.copyWriteDocumentAsRichText !== 'function') {
+    if (typeof window.workwise?.copyWriteDocumentAsRichText !== 'function') {
       showExportNotice({ tone: 'error', message: t('writeCopyRichTextUnavailable') })
       return
     }
@@ -510,7 +510,7 @@ if (typeof window.kunGui?.installBundledSkill !== 'function') {
     setExportMenuOpen(false)
     setExportingFormat(WRITE_RICH_CLIPBOARD_ACTION)
     try {
-      const result = await window.kunGui.copyWriteDocumentAsRichText({
+      const result = await window.workwise.copyWriteDocumentAsRichText({
         path: activeFilePath,
         workspaceRoot,
         content: fileContent
@@ -563,14 +563,14 @@ if (typeof window.kunGui?.installBundledSkill !== 'function') {
       setFileError(t('writeReadOnlySaveDisabled'))
       return
     }
-    if (typeof window.kunGui?.generateAgnesImage !== 'function') {
+    if (typeof window.workwise?.generateAgnesImage !== 'function') {
       showExportNotice({ tone: 'error', message: t('writeAgnesImageUnavailable') })
       return
     }
 
     setAgnesImageGenerating(true)
     try {
-      const result = await window.kunGui.generateAgnesImage({
+      const result = await window.workwise.generateAgnesImage({
         workspaceRoot,
         currentFilePath: activeFilePath,
         prompt: payload.prompt,
@@ -713,15 +713,15 @@ if (typeof window.kunGui?.installBundledSkill !== 'function') {
   useEffect(() => {
     if (!activeFilePath || !workspaceRoot.trim() || (!activeFileIsText && !activeFileIsImage)) return
     if (
-      typeof window.kunGui?.watchWorkspaceFile !== 'function' ||
-      typeof window.kunGui?.unwatchWorkspaceFile !== 'function' ||
-      typeof window.kunGui?.onWorkspaceFileChanged !== 'function'
+      typeof window.workwise?.watchWorkspaceFile !== 'function' ||
+      typeof window.workwise?.unwatchWorkspaceFile !== 'function' ||
+      typeof window.workwise?.onWorkspaceFileChanged !== 'function'
     ) {
       return
     }
 
     return startWriteWorkspaceFileWatch({
-      api: window.kunGui,
+      api: window.workwise,
       workspaceRoot,
       path: activeFilePath,
       kind: activeFileIsImage ? 'image' : 'text',

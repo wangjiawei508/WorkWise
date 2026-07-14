@@ -2,6 +2,7 @@ import { z } from 'zod'
 import { ApprovalPolicySchema, SandboxModeSchema } from './policy.js'
 import { RuntimeCapabilityManifest } from './capabilities.js'
 import { MODEL_ENDPOINT_FORMATS } from './model-endpoint-format.js'
+import { RuntimeResourceLimitsV1 } from './resource-limits.js'
 
 export const RuntimeInfoResponse = z
   .object({
@@ -17,7 +18,8 @@ export const RuntimeInfoResponse = z
     insecure: z.boolean().optional(),
     startedAt: z.string(),
     pid: z.number().int().positive().optional(),
-    capabilities: RuntimeCapabilityManifest
+    capabilities: RuntimeCapabilityManifest,
+    resourceLimits: RuntimeResourceLimitsV1
   })
   .strict()
 export type RuntimeInfoResponse = z.infer<typeof RuntimeInfoResponse>

@@ -14,10 +14,10 @@ import {
   resolveKeyboardShortcutBindings,
   type KeyboardShortcutCommandId
 } from '@shared/keyboard-shortcuts'
-import type { DesktopCommand, SkillListItem } from '@shared/kun-gui-api'
+import type { DesktopCommand, SkillListItem } from '@shared/workwise-api'
 import type { ClipboardImageReadResult } from '@shared/workspace-file'
 import type { AttachmentReference, ChatBlock } from '../agent/types'
-import type { CoreRuntimeInfoJson, CoreRuntimeSkillJson } from '../agent/kun-contract'
+import type { CoreRuntimeInfoJson, CoreRuntimeSkillJson } from '../agent/runtime-contract'
 import { getProvider } from '../agent/registry'
 import { rendererRuntimeClient } from '../agent/runtime-client'
 import { useChatStore } from '../store/chat-store'
@@ -73,7 +73,7 @@ import { isChatAttachmentUploadEnabled } from '../lib/attachment-upload-availabi
 import { normalizeWorkspaceRoot } from '../lib/workspace-path'
 import { useKeyboardShortcutSettings } from '../lib/keyboard-shortcut-settings'
 import { collectComposerChangeSummary } from '../lib/composer-change-summary'
-import { readIkunModePreference, writeIkunModePreference } from '../lib/ikun-mode'
+import { readFocusModePreference, writeFocusModePreference } from '../lib/focus-mode'
 import {
   buildComposerFileContextPrompt,
   mergeComposerFileReferences,
@@ -83,6 +83,15 @@ import {
 const ChangeInspector = lazy(() =>
   import('./ChangeInspector').then((module) => ({ default: module.ChangeInspector }))
 )
+
+function writeContentHash(value: string): string {
+  let hash = 0x811c9dc5
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index)
+    hash = Math.imul(hash, 0x01000193)
+  }
+  return `fnv1a-${(hash >>> 0).toString(16).padStart(8, '0')}`
+}
 const DevBrowserPanel = lazy(() =>
   import('./DevBrowserPanel').then((module) => ({ default: module.DevBrowserPanel }))
 )
@@ -343,6 +352,7 @@ export function Workbench(): ReactElement {
     }))
   )
   const [input, setInput] = useState('')
+  const [skillCatalogGeneration, setSkillCatalogGeneration] = useState(0)
   const [mode, setMode] = useState<'plan' | 'agent'>('agent')
   const [composerReasoningEffort, setComposerReasoningEffort] =
     useState<ComposerReasoningEffort>('max')
@@ -356,12 +366,14 @@ export function Workbench(): ReactElement {
   const [attachmentUploadBusy, setAttachmentUploadBusy] = useState(false)
   const [attachmentUploadError, setAttachmentUploadError] = useState<string | null>(null)
   const [connectPhoneSidebarOpen, setConnectPhoneSidebarOpen] = useState(false)
-  const [ikunModeEnabled, setIkunModeEnabled] = useState(readIkunModePreference)
+  const [focusModeEnabled, setFocusModeEnabled] = useState(readFocusModePreference)
   const [runtimeLogPath, setRuntimeLogPath] = useState('')
   const writeAssistantOpen = useWriteWorkspaceStore((s) => s.assistantOpen)
   const setWriteAssistantOpen = useWriteWorkspaceStore((s) => s.setAssistantOpen)
   const writeAssistantModel = useWriteWorkspaceStore((s) => s.assistantModel)
   const setWriteAssistantModel = useWriteWorkspaceStore((s) => s.setAssistantModel)
+  const activeWriteWorkspaceRoot = useWriteWorkspaceStore((s) => s.workspaceRoot)
+  const activeWriteFilePath = useWriteWorkspaceStore((s) => s.activeFilePath)
   const activeSddDraft = useSddDraftStore((s) => s.activeDraft)
   const sddDraftOperationStatus = useSddDraftStore((s) => s.operationStatus)
   const writeAssistantPickList = useMemo(() => {
@@ -392,6 +404,30 @@ export function Workbench(): ReactElement {
   const restoredSddDraftWorkspaceRef = useRef('')
   const sddUpgradeInFlightRef = useRef(false)
   const sddUpgradeTargetRef = useRef<PendingSddPlanTarget | null>(null)
+  const writeContextGenerationRef = useRef(0)
+
+  useEffect(() => {
+    if (route !== 'write' || runtimeConnection !== 'ready' || busy) return
+    const targetWorkspace = activeWriteWorkspaceRoot || workspaceRoot
+    if (!targetWorkspace) return
+    const generation = ++writeContextGenerationRef.current
+    void ensureWriteThreadForWorkspace(targetWorkspace, activeWriteFilePath).then(() => {
+      if (writeContextGenerationRef.current === generation) return
+      const latest = useWriteWorkspaceStore.getState()
+      void ensureWriteThreadForWorkspace(
+        latest.workspaceRoot || workspaceRoot,
+        latest.activeFilePath
+      )
+    })
+  }, [
+    activeWriteFilePath,
+    activeWriteWorkspaceRoot,
+    busy,
+    ensureWriteThreadForWorkspace,
+    route,
+    runtimeConnection,
+    workspaceRoot
+  ])
   const timelineBlocks = blocks
   const timelineLiveReasoning = liveReasoning
   const timelineLiveAssistant = liveAssistant
@@ -493,8 +529,8 @@ export function Workbench(): ReactElement {
 
   useEffect(() => {
     const runDesktopShortcut = (command: DesktopCommand): void => {
-      if (typeof window.kunGui?.runDesktopCommand !== 'function') return
-      void window.kunGui.runDesktopCommand(command)
+      if (typeof window.workwise?.runDesktopCommand !== 'function') return
+      void window.workwise.runDesktopCommand(command)
     }
 
     const onKeyDown = (event: KeyboardEvent): void => {
@@ -548,9 +584,9 @@ export function Workbench(): ReactElement {
     latestDevPreviewUrl !== null
 
   useEffect(() => {
-    if (typeof window === 'undefined' || typeof window.kunGui?.getLogPath !== 'function') return
+    if (typeof window === 'undefined' || typeof window.workwise?.getLogPath !== 'function') return
     let cancelled = false
-    void window.kunGui
+    void window.workwise
       .getLogPath()
       .then((path) => {
         if (!cancelled) setRuntimeLogPath(path)
@@ -563,8 +599,8 @@ export function Workbench(): ReactElement {
 
   useEffect(() => {
     if (typeof document === 'undefined') return
-    document.documentElement.setAttribute('data-ikun-mode', ikunModeEnabled ? 'on' : 'off')
-  }, [ikunModeEnabled])
+    document.documentElement.setAttribute('data-focus-mode', focusModeEnabled ? 'on' : 'off')
+  }, [focusModeEnabled])
 
   useEffect(() => {
     const previousThreadId = prevThreadId.current
@@ -582,6 +618,22 @@ export function Workbench(): ReactElement {
     }
     openSideConversationDraft()
   }
+
+  useEffect(() => {
+    if (typeof window.workwise?.onSkillsChanged !== 'function') return
+    let timer: number | null = null
+    const unsubscribe = window.workwise.onSkillsChanged((generation) => {
+      if (timer != null) window.clearTimeout(timer)
+      timer = window.setTimeout(() => {
+        setSkillCatalogGeneration((current) => Math.max(current, generation))
+        timer = null
+      }, 500)
+    })
+    return () => {
+      if (timer != null) window.clearTimeout(timer)
+      unsubscribe()
+    }
+  }, [])
 
   useEffect(() => {
     let cancelled = false
@@ -634,14 +686,14 @@ export function Workbench(): ReactElement {
   )
 
   const mirrorClawCommand = async (userText: string, replyText: string): Promise<void> => {
-    if (!activeThreadId || typeof window.kunGui?.mirrorClawChannelMessage !== 'function') return
-    const userResult = await window.kunGui.mirrorClawChannelMessage(
+    if (!activeThreadId || typeof window.workwise?.mirrorClawChannelMessage !== 'function') return
+    const userResult = await window.workwise.mirrorClawChannelMessage(
       activeThreadId,
       userText,
       'user'
     )
     if (!userResult.ok) return
-    await window.kunGui.mirrorClawChannelMessage(
+    await window.workwise.mirrorClawChannelMessage(
       activeThreadId,
       replyText,
       'assistant'
@@ -710,9 +762,9 @@ export function Workbench(): ReactElement {
     const runtimeReady = runtimeConnection === 'ready'
     if (!runtimeReady) setRuntimeInfo(null)
     const provider = getProvider()
-    const localSkillsTask = typeof window !== 'undefined' && typeof window.kunGui?.listSkills === 'function'
-      ? window.kunGui.listSkills(activeSkillWorkspace || undefined)
-      : Promise.resolve({ ok: true as const, skills: [], validationErrors: [] })
+    const localSkillsTask = typeof window !== 'undefined' && typeof window.workwise?.listSkills === 'function'
+      ? window.workwise.listSkills(activeSkillWorkspace || undefined)
+      : Promise.resolve({ ok: true as const, generation: 0, skills: [], validationErrors: [] })
     void Promise.allSettled([
       runtimeReady && provider.getRuntimeInfo ? provider.getRuntimeInfo() : Promise.resolve(null),
       runtimeReady && provider.listSkills ? provider.listSkills() : Promise.resolve([]),
@@ -737,7 +789,7 @@ export function Workbench(): ReactElement {
     return () => {
       cancelled = true
     }
-  }, [activeSkillWorkspace, runtimeConnection])
+  }, [activeSkillWorkspace, runtimeConnection, skillCatalogGeneration])
 
   const attachmentUploadEnabled = isChatAttachmentUploadEnabled({
     runtimeConnection,
@@ -833,11 +885,11 @@ export function Workbench(): ReactElement {
 
   const handlePasteClipboardImage = async (options: { silentNoImage?: boolean } = {}): Promise<void> => {
     if (!attachmentUploadEnabled) return
-    if (typeof window.kunGui?.readClipboardImage !== 'function') {
+    if (typeof window.workwise?.readClipboardImage !== 'function') {
       setAttachmentUploadError(t('composerAttachmentUnavailable'))
       return
     }
-    const image = await window.kunGui.readClipboardImage()
+    const image = await window.workwise.readClipboardImage()
     if (!image.ok) {
       if (options.silentNoImage) return
       setAttachmentUploadError(image.message)
@@ -846,32 +898,59 @@ export function Workbench(): ReactElement {
     await handlePickAttachments([clipboardImageToFile(image)])
   }
 
-  const sendWritePrompt = (value: string): void => {
+  const sendWritePrompt = async (value: string): Promise<void> => {
     const v = value.trim()
     if (!v) return
-    const writeState = useWriteWorkspaceStore.getState()
-    const writeWorkspaceRoot = writeState.workspaceRoot || workspaceRoot
-    const prompt = composeWritePrompt(v, writeState.quotedSelections, {
+    const initialWriteState = useWriteWorkspaceStore.getState()
+    const writeWorkspaceRoot = initialWriteState.workspaceRoot || workspaceRoot
+    const inputSnapshot = value
+    const quoteSnapshot = initialWriteState.quotedSelections.map((quote) => ({ ...quote }))
+    const activeFileSnapshot = initialWriteState.activeFilePath
+
+    let savedCurrentRevision = false
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const saved = await useWriteWorkspaceStore.getState().flushSave(writeWorkspaceRoot)
+      const latest = useWriteWorkspaceStore.getState()
+      if (!saved) return
+      if (
+        latest.activeFilePath === activeFileSnapshot &&
+        (latest.activeFileKind !== 'text' || latest.saveStatus === 'saved')
+      ) {
+        savedCurrentRevision = true
+        break
+      }
+    }
+    if (!savedCurrentRevision) {
+      useWriteWorkspaceStore.getState().setFileError(t('writeSaveBeforeSendFailed'))
+      return
+    }
+
+    const savedState = useWriteWorkspaceStore.getState()
+    const prompt = composeWritePrompt(v, quoteSnapshot, {
       workspaceRoot: writeWorkspaceRoot,
-      activeFilePath: writeState.activeFilePath
+      activeFilePath: savedState.activeFilePath,
+      contentHash: writeContentHash(savedState.fileContent),
+      saveRevision: savedState.saveRevision
     })
+    const threadId = await ensureWriteThreadForWorkspace(writeWorkspaceRoot, savedState.activeFilePath)
+    if (!threadId) return
+
+    inputRef.current = ''
     setInput('')
-    void (async () => {
-      const threadId = await ensureWriteThreadForWorkspace(writeWorkspaceRoot)
-      if (!threadId) {
-        setInput(v)
-        return
-      }
-      const model = writeState.assistantModel.trim()
-      const reasoningEffort = composerReasoningEffortRequestValue(composerReasoningEffort)
-      const sent = await sendMessage(prompt, mode === 'plan' ? 'plan' : 'agent', {
-        ...(model ? { model } : {}),
-        ...(reasoningEffort ? { reasoningEffort } : {})
-      })
-      if (sent) {
-        useWriteWorkspaceStore.getState().clearQuotedSelections()
-      }
-    })()
+    const model = savedState.assistantModel.trim()
+    const reasoningEffort = composerReasoningEffortRequestValue(composerReasoningEffort)
+    const sent = await sendMessage(prompt, mode === 'plan' ? 'plan' : 'agent', {
+      ...(model ? { model } : {}),
+      ...(reasoningEffort ? { reasoningEffort } : {})
+    })
+    if (!sent) {
+      if (!inputRef.current.trim()) setInput(inputSnapshot)
+      return
+    }
+    const currentQuoteIds = new Set(useWriteWorkspaceStore.getState().quotedSelections.map((quote) => quote.id))
+    for (const quote of quoteSnapshot) {
+      if (currentQuoteIds.has(quote.id)) useWriteWorkspaceStore.getState().removeQuotedSelection(quote.id)
+    }
   }
 
   const createSddAssistantThreadForDraft = async (draft: SddDraft): Promise<string | null> => {
@@ -995,7 +1074,7 @@ export function Workbench(): ReactElement {
     }
     const restored = await restoreRememberedSddDraft({
       workspaceRoot: targetWorkspace,
-      readWorkspaceFile: window.kunGui.readWorkspaceFile
+      readWorkspaceFile: window.workwise.readWorkspaceFile
     })
     if (restored.kind === 'restored') {
       await openSddRequirementDraft(restored.draft, restored.content, {
@@ -1017,7 +1096,7 @@ export function Workbench(): ReactElement {
       `## ${t('sddTemplateAcceptance')}`,
       ''
     ].join('\n')
-    const result = await window.kunGui.createWorkspaceFile({
+    const result = await window.workwise.createWorkspaceFile({
       workspaceRoot: targetWorkspace,
       path: draft.relativePath,
       content: initialContent
@@ -1043,7 +1122,7 @@ export function Workbench(): ReactElement {
     restoredSddDraftWorkspaceRef.current = targetWorkspace
     void restoreRememberedSddDraft({
       workspaceRoot: targetWorkspace,
-      readWorkspaceFile: window.kunGui.readWorkspaceFile
+      readWorkspaceFile: window.workwise.readWorkspaceFile
     }).then((restored) => {
       if (cancelled || restored.kind !== 'restored') return
       if (useSddDraftStore.getState().activeDraft) return
@@ -1229,7 +1308,7 @@ export function Workbench(): ReactElement {
     // requirement drift against the plan that is about to be generated.
     const tracePath = sddDraftTraceRelativePath(draft.relativePath)
     if (tracePath) {
-      await window.kunGui
+      await window.workwise
         .writeWorkspaceFile({
           workspaceRoot: draft.workspaceRoot,
           path: tracePath,
@@ -1251,7 +1330,7 @@ export function Workbench(): ReactElement {
     let remainingChars = COMPOSER_FILE_CONTEXT_MAX_TOTAL_CHARS
     for (const reference of references) {
       if (remainingChars <= 0) break
-      const result = await window.kunGui.readWorkspaceFile({
+      const result = await window.workwise.readWorkspaceFile({
         workspaceRoot: workspace,
         path: reference.relativePath || reference.path
       })
@@ -1348,7 +1427,7 @@ export function Workbench(): ReactElement {
       return
     }
     if (route === 'write') {
-      sendWritePrompt(v)
+      await sendWritePrompt(v)
       return
     }
     if (route === 'claw') {
@@ -1411,8 +1490,8 @@ export function Workbench(): ReactElement {
       }
       setInput('')
       void (async () => {
-        const taskResult = typeof window.kunGui?.createClawTaskFromText === 'function'
-          ? await window.kunGui.createClawTaskFromText(v, {
+        const taskResult = typeof window.workwise?.createClawTaskFromText === 'function'
+          ? await window.workwise.createClawTaskFromText(v, {
               channelId: activeClawChannelId,
               modelHint: activeClawChannel?.model,
               mode
@@ -1493,10 +1572,10 @@ export function Workbench(): ReactElement {
     openSchedule()
   }
 
-  const toggleIkunMode = (): void => {
-    setIkunModeEnabled((enabled) => {
+  const toggleFocusMode = (): void => {
+    setFocusModeEnabled((enabled) => {
       const next = !enabled
-      writeIkunModePreference(next)
+      writeFocusModePreference(next)
       return next
     })
   }
@@ -1530,7 +1609,7 @@ export function Workbench(): ReactElement {
     const writeWorkspaceRoot = writeState.workspaceRoot || workspaceRoot
     setInput('')
     writeState.clearQuotedSelections()
-    void createWriteThread(writeWorkspaceRoot)
+    void createWriteThread(writeWorkspaceRoot, writeState.activeFilePath)
   }
 
   const renderRuntimeBanner = (message: string, detail?: string | null): ReactElement => (
@@ -1542,8 +1621,8 @@ export function Workbench(): ReactElement {
       stageInsetClass={stageInsetClass}
       t={t}
       onOpenLogDir={
-        typeof window !== 'undefined' && typeof window.kunGui?.openLogDir === 'function'
-          ? () => window.kunGui.openLogDir()
+        typeof window !== 'undefined' && typeof window.workwise?.openLogDir === 'function'
+          ? () => window.workwise.openLogDir()
           : undefined
       }
       onOpenSettings={() => openSettings('agents')}
@@ -1684,11 +1763,11 @@ export function Workbench(): ReactElement {
               <WriteSidebar
                 activeView={sidebarView}
                 connectPhoneSidebarOpen={connectPhoneSidebarOpen}
-                ikunModeEnabled={ikunModeEnabled}
+                focusModeEnabled={focusModeEnabled}
                 onCodeOpen={openCodeMode}
                 onWriteOpen={openWriteMode}
                 onOpenSettings={(section) => openSettings(section)}
-                onToggleIkunMode={toggleIkunMode}
+                onToggleFocusMode={toggleFocusMode}
                 onToggleConnectPhone={toggleConnectPhone}
                 onToggleSidebar={toggleLeftSidebar}
               />
@@ -1698,7 +1777,7 @@ export function Workbench(): ReactElement {
               activeThreadId={activeThreadId}
               activeView={sidebarView}
               connectPhoneSidebarOpen={connectPhoneSidebarOpen}
-              ikunModeEnabled={ikunModeEnabled}
+              focusModeEnabled={focusModeEnabled}
               pluginsActive={route === 'plugins'}
               runtimeReady={runtimeConnection === 'ready'}
               threadSearch={threadSearch}
@@ -1718,7 +1797,7 @@ export function Workbench(): ReactElement {
               onToggleConnectPhone={toggleConnectPhone}
               onCodeOpen={openCodeMode}
               onWriteOpen={openWriteMode}
-              onToggleIkunMode={toggleIkunMode}
+              onToggleFocusMode={toggleFocusMode}
               onScheduleOpen={openScheduleView}
               onToggleSidebar={toggleLeftSidebar}
             />

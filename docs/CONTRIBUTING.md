@@ -2,7 +2,7 @@
 
 [简体中文](./CONTRIBUTING.zh-CN.md)
 
-Thank you for contributing to Kun.
+Thank you for contributing to WorkWise Agent Runtime.
 
 This document explains how contributors should collaborate on the project, what standards to follow, and how changes should be proposed.
 
@@ -10,7 +10,7 @@ This document explains how contributors should collaborate on the project, what 
 
 Code is easy. Good taste is rare.
 
-For Kun, taste means clear workflows, restrained interfaces, humane copy, and behavior that feels obvious after one use. Strong contributions show judgment, not just implementation.
+For WorkWise Agent Runtime, taste means clear workflows, restrained interfaces, humane copy, and behavior that feels obvious after one use. Strong contributions show judgment, not just implementation.
 
 ## Contribution Scope
 
@@ -47,7 +47,7 @@ Rules:
 
 ## Shape of a Typical PR
 
-A well-structured PR for Kun is focused and self-contained. It typically:
+A well-structured PR for WorkWise Agent Runtime is focused and self-contained. It typically:
 
 - Touches **1-3 new files** and modifies **2-5 existing files** for wiring
 - Scopes to a single feature, fix, or documentation update
@@ -179,7 +179,7 @@ Examples:
 When reporting issues, please include:
 
 - Operating system and version
-- Kun version (from Settings or the About dialog)
+- WorkWise Agent Runtime version (from Settings or the About dialog)
 - Bundled `kun` version (`kun --version` in the same directory, if available)
 - Steps to reproduce the issue
 - Expected vs actual behavior
@@ -202,4 +202,4 @@ If requirements are unclear, ask for clarification before making broad architect
 
 ## License
 
-By contributing to Kun, you agree that your contributions will be licensed under the [MIT License](../LICENSE).
+By contributing to WorkWise Agent Runtime, you agree that your contributions will be licensed under the [MIT License](../LICENSE).

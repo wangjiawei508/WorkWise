@@ -30,11 +30,11 @@ import type {
   ManagedToolId,
   ManagedToolStatus,
   SkillListItem
-} from '@shared/kun-gui-api'
+} from '@shared/workwise-api'
 import type {
   CoreRuntimeInfoJson,
   CoreRuntimeToolDiagnosticsJson
-} from '../agent/kun-contract'
+} from '../agent/runtime-contract'
 import { useChatStore } from '../store/chat-store'
 import { NoticeView, TabButton, type MarketplaceNotice } from './PluginMarketplaceParts'
 import {
@@ -87,7 +87,7 @@ type SkillRootOption = {
   available: boolean
 }
 
-const INSTALLED_STORAGE_KEY = 'kun.installedPlugins'
+const INSTALLED_STORAGE_KEY = 'workwise.installedPlugins'
 const ACTIVE_KIND_STORAGE_KEY = 'workwise.marketplace.kind'
 const GUI_SCHEDULE_MCP_SERVER_ID = 'gui_schedule'
 
@@ -1130,8 +1130,8 @@ export function PluginMarketplaceView(): ReactElement {
   }, [activeKind])
 
   const refreshManagedTools = useCallback(async (): Promise<void> => {
-if (typeof window.kunGui?.listManagedTools !== 'function') return
-    const result = await window.kunGui.listManagedTools()
+if (typeof window.workwise?.listManagedTools !== 'function') return
+    const result = await window.workwise.listManagedTools()
     if (result.ok) setManagedTools(result.tools)
   }, [])
 
@@ -1169,7 +1169,7 @@ if (typeof window.kunGui?.listManagedTools !== 'function') return
       {
         id: 'global-deepseek',
         label: t('pluginSkillRootGlobalDeepseek'),
-        path: '~/.kun/skills',
+        path: '~/.workwise/skills',
         available: true
       }
     ]
@@ -1192,8 +1192,8 @@ if (typeof window.kunGui?.listManagedTools !== 'function') return
   }, [skillRootId, skillRootOptions])
 
   const readMcpConfig = useCallback(async (): Promise<string> => {
-    if (typeof window.kunGui?.getKunConfigFile !== 'function') return mcpConfigText
-    const file = await window.kunGui.getKunConfigFile()
+    if (typeof window.workwise?.getRuntimeConfigFile !== 'function') return mcpConfigText
+    const file = await window.workwise.getRuntimeConfigFile()
     setMcpConfigText(file.content)
     setMcpLoaded(true)
     return file.content
@@ -1207,7 +1207,7 @@ if (typeof window.kunGui?.listManagedTools !== 'function') return
   }, [activeKind, mcpLoaded, readMcpConfig])
 
   const refreshMcpRuntimeOverlay = useCallback(async (): Promise<void> => {
-    if (typeof window.kunGui?.runtimeRequest !== 'function') {
+    if (typeof window.workwise?.runtimeRequest !== 'function') {
       setRuntimeInfo(null)
       setToolDiagnostics(null)
       setRuntimeOverlayError(t('pluginMcpRuntimeUnavailable'))
@@ -1248,7 +1248,7 @@ if (typeof window.kunGui?.listManagedTools !== 'function') return
   const refreshSkillList = useCallback(async (
     options: { syncOnline?: boolean } = {}
   ): Promise<void> => {
-    if (typeof window.kunGui?.listSkills !== 'function') {
+    if (typeof window.workwise?.listSkills !== 'function') {
       setDiscoveredSkills([])
       setSkillListError(t('pluginSkillScanUnavailable'))
       return
@@ -1257,8 +1257,8 @@ if (typeof window.kunGui?.listManagedTools !== 'function') return
     setSkillListError('')
     try {
       let syncError = ''
-      if (options.syncOnline && typeof window.kunGui?.syncGithubSkills === 'function') {
-        const syncResult = await window.kunGui.syncGithubSkills(workspaceRoot || undefined)
+      if (options.syncOnline && typeof window.workwise?.syncGithubSkills === 'function') {
+        const syncResult = await window.workwise.syncGithubSkills(workspaceRoot || undefined)
         if (syncResult.ok) {
           if (syncResult.updated > 0) {
             setNotice({ tone: 'success', message: t('pluginSkillSynced', { count: syncResult.updated }) })
@@ -1268,7 +1268,7 @@ if (typeof window.kunGui?.listManagedTools !== 'function') return
           syncError = syncResult.message
         }
       }
-      const result = await window.kunGui.listSkills(workspaceRoot || undefined)
+      const result = await window.workwise.listSkills(workspaceRoot || undefined)
       if (!result.ok) {
         setDiscoveredSkills([])
         setSkillListError(result.message)
@@ -1428,7 +1428,7 @@ if (typeof window.kunGui?.listManagedTools !== 'function') return
       setNotice({ tone: 'info', message: t('pluginAlreadyAdded') })
       return
     }
-    const result = await window.kunGui.setKunConfigFile(merged.text)
+    const result = await window.workwise.setRuntimeConfigFile(merged.text)
     setMcpConfigText(merged.text)
     setMcpLoaded(true)
     markInstalled(storageKey('mcp', id))
@@ -1438,8 +1438,8 @@ if (typeof window.kunGui?.listManagedTools !== 'function') return
   const addFilesystemMcp = async (item: MarketplaceItem): Promise<void> => {
     if (!item.mcpConfig) return
     let selectedRoot = workspaceRoot
-    if (typeof window.kunGui?.pickWorkspaceDirectory === 'function') {
-      const picked = await window.kunGui.pickWorkspaceDirectory(workspaceRoot || undefined)
+    if (typeof window.workwise?.pickWorkspaceDirectory === 'function') {
+      const picked = await window.workwise.pickWorkspaceDirectory(workspaceRoot || undefined)
       if (picked.canceled || !picked.path) {
         setNotice({ tone: 'info', message: t('pluginMcpFilesystemCanceled') })
         return
@@ -1486,27 +1486,27 @@ if (typeof window.kunGui?.listManagedTools !== 'function') return
     try {
       if (item.externalOnly) {
         const url = itemSourceUrl(item)
-        if (url) await window.kunGui.openExternal(url)
+        if (url) await window.workwise.openExternal(url)
         setNotice({ tone: 'info', message: t('pluginExternalOpened') })
         return
       }
       if (item.managedToolId) {
-        if (typeof window.kunGui?.installManagedTool !== 'function') {
+        if (typeof window.workwise?.installManagedTool !== 'function') {
           setNotice({ tone: 'error', message: t('pluginManagedToolUnavailable') })
           return
         }
         const current = managedTools.find((tool) => tool.id === item.managedToolId)
         const useUpdate = current?.state === 'installed' || current?.state === 'needs_login' || current?.state === 'update_available'
-        const result = useUpdate && typeof window.kunGui.updateManagedTool === 'function'
-          ? await window.kunGui.updateManagedTool(item.managedToolId)
-          : await window.kunGui.installManagedTool(item.managedToolId)
+        const result = useUpdate && typeof window.workwise.updateManagedTool === 'function'
+          ? await window.workwise.updateManagedTool(item.managedToolId)
+          : await window.workwise.installManagedTool(item.managedToolId)
         if (!result.ok) {
           setNotice({ tone: 'error', message: result.message })
           return
         }
         await refreshManagedTools()
         if (result.status.externalUrl && result.status.state === 'needs_external_app') {
-          await window.kunGui.openExternal(result.status.externalUrl)
+          await window.workwise.openExternal(result.status.externalUrl)
           setNotice({ tone: 'info', message: t('pluginExternalAppOpened') })
         } else if (result.status.state === 'needs_login') {
           setNotice({ tone: 'info', message: t('pluginManagedToolNeedsLogin') })
@@ -1530,11 +1530,11 @@ if (typeof window.kunGui?.listManagedTools !== 'function') return
       }
 
       if (item.bundledAgentPack) {
-        if (typeof window.kunGui?.installBundledAgentPack !== 'function') {
+        if (typeof window.workwise?.installBundledAgentPack !== 'function') {
           setNotice({ tone: 'error', message: t('pluginSkillScanUnavailable') })
           return
         }
-        const result = await window.kunGui.installBundledAgentPack(item.bundledAgentPack)
+        const result = await window.workwise.installBundledAgentPack(item.bundledAgentPack)
         if (!result.ok) {
           setNotice({ tone: 'error', message: result.message })
           return
@@ -1557,11 +1557,11 @@ if (typeof window.kunGui?.listManagedTools !== 'function') return
       }
       if (item.group === 'personal') return
       if (item.githubSkill) {
-        if (typeof window.kunGui?.installGithubSkill !== 'function') {
+        if (typeof window.workwise?.installGithubSkill !== 'function') {
           setNotice({ tone: 'error', message: t('pluginSkillScanUnavailable') })
           return
         }
-        const result = await window.kunGui.installGithubSkill(selectedSkillRoot.path, item.githubSkill)
+        const result = await window.workwise.installGithubSkill(selectedSkillRoot.path, item.githubSkill)
         if (!result.ok) {
           setNotice({ tone: 'error', message: result.message })
           return
@@ -1572,11 +1572,11 @@ if (typeof window.kunGui?.listManagedTools !== 'function') return
         return
       }
       if (item.bundledSkill) {
-        if (typeof window.kunGui?.installBundledSkill !== 'function') {
+        if (typeof window.workwise?.installBundledSkill !== 'function') {
           setNotice({ tone: 'error', message: t('pluginSkillScanUnavailable') })
           return
         }
-        const result = await window.kunGui.installBundledSkill(selectedSkillRoot.path, item.bundledSkill)
+        const result = await window.workwise.installBundledSkill(selectedSkillRoot.path, item.bundledSkill)
         if (!result.ok) {
           setNotice({ tone: 'error', message: result.message })
           return
@@ -1594,7 +1594,7 @@ if (typeof window.kunGui?.listManagedTools !== 'function') return
         description,
         item.skillInstructions ?? description
       )
-      const result = await window.kunGui.saveSkillFile(selectedSkillRoot.path, item.id, content)
+      const result = await window.workwise.saveSkillFile(selectedSkillRoot.path, item.id, content)
       if (!result.ok) {
         setNotice({ tone: 'error', message: result.message })
         return
@@ -1636,7 +1636,7 @@ if (typeof window.kunGui?.listManagedTools !== 'function') return
         }
         const body = customSkillBody.trim() || t('pluginCustomSkillFallbackBody')
         const content = buildSkillContent(id, customName.trim() || id, description, body)
-        const result = await window.kunGui.saveSkillFile(selectedSkillRoot.path, id, content)
+        const result = await window.workwise.saveSkillFile(selectedSkillRoot.path, id, content)
         if (!result.ok) {
           setNotice({ tone: 'error', message: result.message })
           return
@@ -1662,7 +1662,7 @@ if (typeof window.kunGui?.listManagedTools !== 'function') return
   const openManageTarget = async (): Promise<void> => {
     try {
       if (activeKind === 'mcp') {
-        const result = await window.kunGui.openKunConfigDir()
+        const result = await window.workwise.openRuntimeConfigDir()
         if (!result.ok) setNotice({ tone: 'error', message: result.message ?? t('pluginActionFailed') })
         return
       }
@@ -1674,7 +1674,7 @@ if (typeof window.kunGui?.listManagedTools !== 'function') return
         setNotice({ tone: 'error', message: t('pluginSkillRootMissing') })
         return
       }
-      const result = await window.kunGui.openSkillRoot(selectedSkillRoot.path)
+      const result = await window.workwise.openSkillRoot(selectedSkillRoot.path)
       if (!result.ok) setNotice({ tone: 'error', message: result.message ?? t('pluginActionFailed') })
     } catch (e) {
       setNotice({ tone: 'error', message: e instanceof Error ? e.message : String(e) })
@@ -2050,7 +2050,7 @@ function marketplaceSourceTone(tone: MarketplaceItem['statusTone']): string {
 
 function runtimeOverlayErrorMessage(error: unknown, fallback: string): string {
   const message = error instanceof Error ? error.message : String(error)
-  return /runtimeRequest|kunGui|Cannot read properties/i.test(message) ? fallback : message
+  return /runtimeRequest|workwise|Cannot read properties/i.test(message) ? fallback : message
 }
 
 function mcpTokenRequiredKey(tokenSetup: MarketplaceItem['tokenSetup']): string {
@@ -2306,7 +2306,7 @@ function PluginDetailDialog({
           {sourceUrl ? (
             <button
               type="button"
-              onClick={() => void window.kunGui?.openExternal?.(sourceUrl)?.catch(() => undefined)}
+              onClick={() => void window.workwise?.openExternal?.(sourceUrl)?.catch(() => undefined)}
               className="inline-flex h-10 items-center gap-2 rounded-xl border border-ds-border bg-ds-card px-3 text-[13px] font-semibold text-ds-ink shadow-sm transition hover:bg-ds-hover"
             >
               <ExternalLink className="h-4 w-4" strokeWidth={1.8} />

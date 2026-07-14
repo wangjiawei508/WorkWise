@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   defaultClawSettings,
   defaultKeyboardShortcuts,
-  defaultKunRuntimeSettings,
+  defaultManagedRuntimeSettings,
   defaultModelProviderSettings,
   defaultScheduleSettings,
   defaultWriteSettings,
@@ -54,7 +54,7 @@ function settingsWith(
     provider: defaultModelProviderSettings(),
     agents: {
       kun: {
-        ...defaultKunRuntimeSettings(),
+        ...defaultManagedRuntimeSettings(),
         apiKey: 'test-key'
       }
     },
@@ -171,7 +171,7 @@ describe('ScheduleRuntime', () => {
     expect(store.read().claw.tasks).toEqual([])
   })
 
-  it('starts a Kun thread with a Schedule title and records running status', async () => {
+  it('starts a WorkWise Runtime thread with a Schedule title and records running status', async () => {
     const task = makeTask({ reasoningEffort: 'max' })
     const runtimeRequest = vi.fn(async (_settings, path, init) => {
       if (path === '/v1/threads') {
@@ -219,7 +219,7 @@ describe('ScheduleRuntime', () => {
     })
   })
 
-  it('reads assistant text from the real Kun thread detail shape', async () => {
+  it('reads assistant text from the real WorkWise Runtime thread detail shape', async () => {
     const task = makeTask()
     const runtimeRequest = vi.fn(async (_settings, path, init) => {
       if (path === '/v1/threads') {

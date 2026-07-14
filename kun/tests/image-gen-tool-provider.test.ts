@@ -155,15 +155,15 @@ describe('Image gen tool provider', () => {
     expect(output.size).toBe('1024x576')
     expect(output.warnings).toEqual([])
     expect(output.files[0]).toMatchObject({ mimeType: 'image/png', width: 1024, height: 576 })
-    expect(output.files[0].relativePath.startsWith('.deepseekgui-images/')).toBe(true)
+    expect(output.files[0].relativePath.startsWith('.workwise/images/')).toBe(true)
     expect(existsSync(output.files[0].absolutePath)).toBe(true)
     expect(JSON.stringify(output)).not.toMatch(/base64|b64_json/)
     expect(client.generateCalls[0]).toMatchObject({ prompt: 'a sunset over the sea', size: '1024x576' })
 
     expect(output.attachments).toHaveLength(1)
     const id = output.attachments[0].id
-    await expect(store.resolveContent(id, { threadId: 'thr_1' })).resolves.toMatchObject({ mimeType: 'image/png' })
-    await expect(store.resolveContent(id, { threadId: 'thr_other' })).rejects.toThrow(/not authorized/)
+    await expect(store.resolveContent(id, { threadId: 'thr_1', workspace })).resolves.toMatchObject({ mimeType: 'image/png' })
+    await expect(store.resolveContent(id, { threadId: 'thr_other', workspace })).rejects.toThrow(/not authorized/)
   })
 
   it('posts generations as JSON and decodes b64_json responses', async () => {

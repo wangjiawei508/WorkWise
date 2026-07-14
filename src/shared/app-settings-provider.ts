@@ -19,7 +19,7 @@ import {
   type ModelProviderSettingsV1
 } from './app-settings-types'
 import { normalizeModelEndpointFormat } from '../../kun/src/contracts/model-endpoint-format.js'
-import { getKunRuntimeSettings } from './app-settings-kun'
+import { getKunRuntimeSettings } from './app-settings-runtime'
 import { normalizeDeepseekBaseUrl } from './app-settings-normalizers'
 import { DEFAULT_COMPOSER_MODEL_IDS } from './default-composer-models'
 
@@ -179,6 +179,8 @@ export function resolveKunRuntimeSettings(settings: AppSettingsV1): KunRuntimeSe
     imageGeneration: resolveKunImageGenerationSettings(settings)
   }
 }
+
+export const resolveManagedRuntimeSettings = resolveKunRuntimeSettings
 
 function defaultModelProviderProfile(apiKey: string, baseUrl: string): ModelProviderProfileV1 {
   return {

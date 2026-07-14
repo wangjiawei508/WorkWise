@@ -3,9 +3,10 @@ import type { WebFetchResult, WebProvider, WebSearchResult } from '../../ports/w
 import { sourceIdFor, UnavailableWebProvider } from '../../ports/web-provider.js'
 import type { CapabilityToolProvider } from './capability-registry.js'
 import { LocalToolHost } from './local-tool-host.js'
+import { SafeWebFetchError, safeWebFetch } from '../../network/safe-web-fetch.js'
 
 const DEFAULT_WEB_TIMEOUT_MS = 15_000
-const DEFAULT_WEB_MAX_BYTES = 1_000_000
+const DEFAULT_WEB_MAX_BYTES = 1024 * 1024
 // Models sometimes pass tiny max_bytes budgets (2000 was common in the
 // wild); below this floor the extracted text is too small to be useful.
 const MIN_WEB_FETCH_BYTES = 4_096
@@ -49,7 +50,9 @@ export function buildWebToolProviders(
     }
   }
 
-  const provider: WebProvider = options.provider ?? (web.fetchEnabled ? new FetchWebProvider(options.nowIso) : new UnavailableWebProvider(web.provider))
+  const provider: WebProvider = options.provider ?? (web.fetchEnabled
+    ? new FetchWebProvider(web, options.nowIso)
+    : new UnavailableWebProvider(web.provider))
   const tools = []
   if (web.fetchEnabled) {
     tools.push(createFetchTool(web, provider))
@@ -138,7 +141,8 @@ function createFetchTool(config: WebCapabilityConfig, provider: WebProvider) {
           }))
         }
       } catch (error) {
-        return toolError('fetch_failed', errorMessage(error), telemetry({
+        const code = error instanceof SafeWebFetchError ? error.code : 'fetch_failed'
+        return toolError(code, errorMessage(error), telemetry({
           startedAt,
           policy: 'allowed',
           url: policy.url.href,
@@ -203,7 +207,10 @@ class FetchWebProvider implements WebProvider {
   readonly id = 'fetch'
   private readonly nowIso: () => string
 
-  constructor(nowIso: (() => string) | undefined) {
+  constructor(
+    private readonly policy: Pick<WebCapabilityConfig, 'allowDomains' | 'denyDomains'>,
+    nowIso: (() => string) | undefined
+  ) {
     this.nowIso = nowIso ?? (() => new Date().toISOString())
   }
 
@@ -213,68 +220,25 @@ class FetchWebProvider implements WebProvider {
     timeoutMs: number
     signal: AbortSignal
   }): Promise<WebFetchResult> {
-    const controller = new AbortController()
-    const timeout = setTimeout(() => controller.abort(), request.timeoutMs)
-    const onAbort = () => controller.abort()
-    request.signal.addEventListener('abort', onAbort, { once: true })
-    try {
-      const response = await fetch(request.url, { signal: controller.signal })
-      if (!response.ok) throw new Error(`HTTP ${response.status}`)
-
-      // Oversized pages truncate at maxBytes via the streaming read below.
-      // Hard-failing on the declared content-length made most real pages
-      // unfetchable whenever the model passed a small byte budget.
-
-      // Stream response body with size limit
-      const reader = response.body?.getReader()
-      if (!reader) throw new Error('response body is not readable')
-
-      const chunks: Uint8Array[] = []
-      let totalBytes = 0
-      let truncated = false
-
-      while (true) {
-        const { done, value } = await reader.read()
-        if (done) break
-
-        const remaining = request.maxBytes - totalBytes
-        if (remaining <= 0) {
-          truncated = true
-          reader.cancel()
-          break
-        }
-
-        if (value.length > remaining) {
-          chunks.push(value.subarray(0, remaining))
-          totalBytes += remaining
-          truncated = true
-          reader.cancel()
-          break
-        }
-
-        chunks.push(value)
-        totalBytes += value.length
-      }
-
-      const buffer = Buffer.concat(chunks)
-      const contentType = response.headers.get('content-type') ?? undefined
-      const raw = buffer.toString('utf8')
-      const extracted = extractReadableText(raw, contentType)
-      const finalUrl = response.url || request.url
-      return {
-        sourceId: sourceIdFor('fetch', finalUrl),
-        url: request.url,
-        finalUrl,
-        title: extracted.title,
-        contentType,
-        text: extracted.text,
-        retrievedAt: this.nowIso(),
-        byteCount: totalBytes,
-        truncated
-      }
-    } finally {
-      clearTimeout(timeout)
-      request.signal.removeEventListener('abort', onAbort)
+    const response = await safeWebFetch(request.url, {
+      allowDomains: this.policy.allowDomains,
+      denyDomains: this.policy.denyDomains,
+      maxBytes: request.maxBytes,
+      totalTimeoutMs: Math.min(request.timeoutMs, DEFAULT_WEB_TIMEOUT_MS)
+    }, request.signal)
+    const contentType = response.headers['content-type']
+    const raw = response.body.toString('utf8')
+    const extracted = extractReadableText(raw, contentType)
+    return {
+      sourceId: sourceIdFor('fetch', response.finalUrl),
+      url: request.url,
+      finalUrl: response.finalUrl,
+      title: extracted.title,
+      contentType,
+      text: extracted.text,
+      retrievedAt: this.nowIso(),
+      byteCount: response.body.byteLength,
+      truncated: false
     }
   }
 }
