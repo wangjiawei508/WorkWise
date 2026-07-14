@@ -9,19 +9,19 @@ WorkWise is a local-first desktop AI workbench. It brings **Code**, **Write**, r
 - Product page: [www.railwise.cn/products/workwise](https://www.railwise.cn/products/workwise/)
 - Direct mirror downloads: [Download and installation](https://www.railwise.cn/products/workwise/#download)
 - Documentation: [kb.railwise.cn/products/workwise](https://kb.railwise.cn/products/workwise/)
-- Public release: [v0.2.4](https://github.com/wangjiawei508/WorkWise/releases/tag/v0.2.4)
+- Public release: [v0.2.5](https://github.com/wangjiawei508/WorkWise/releases/tag/v0.2.5)
 
 ## Current release
 
-The current stable release is **v0.2.4**. It has exactly three user-facing installers:
+The current stable release is **v0.2.5**. It has three user-facing installers:
 
 | Platform | Installer | Download |
 | --- | --- | --- |
-| macOS Apple Silicon | `WorkWise-0.2.4-mac-Apple-Silicon.dmg` | [Direct mirror](https://www.railwise.cn/downloads/workwise/v0.2.4/WorkWise-0.2.4-mac-Apple-Silicon.dmg) |
-| macOS Intel | `WorkWise-0.2.4-mac-Intel.dmg` | [Direct mirror](https://www.railwise.cn/downloads/workwise/v0.2.4/WorkWise-0.2.4-mac-Intel.dmg) |
-| Windows x64 | `WorkWise-0.2.4-win-x64.exe` | [Direct mirror](https://www.railwise.cn/downloads/workwise/v0.2.4/WorkWise-0.2.4-win-x64.exe) |
+| macOS Apple Silicon | `WorkWise-0.2.5-mac-Apple-Silicon.dmg` | [GitHub download](https://github.com/wangjiawei508/WorkWise/releases/download/v0.2.5/WorkWise-0.2.5-mac-Apple-Silicon.dmg) |
+| macOS Intel | `WorkWise-0.2.5-mac-Intel.dmg` | [GitHub download](https://github.com/wangjiawei508/WorkWise/releases/download/v0.2.5/WorkWise-0.2.5-mac-Intel.dmg) |
+| Windows x64 | `WorkWise-0.2.5-win-x64.exe` | [GitHub download](https://github.com/wangjiawei508/WorkWise/releases/download/v0.2.5/WorkWise-0.2.5-win-x64.exe) |
 
-The website mirror is the primary download route. GitHub Releases remains the source for public release history and issue reports. There is currently no Linux client, portable edition, or activation-code flow.
+GitHub Releases is the production source for installers and automatic-update metadata, with no separate object-storage credentials required. The product website may continue to act as the download navigator. There is currently no Linux client, portable edition, or activation-code flow.
 
 ## Why WorkWise
 
@@ -113,7 +113,7 @@ The local agent is provided by WorkWise Agent Runtime through a stable HTTP/SSE 
 
 ## Release policy
 
-- Public releases retain only the macOS Apple Silicon, macOS Intel, and Windows x64 user installers.
+- Public releases retain the macOS Apple Silicon, macOS Intel, and Windows x64 user installers, plus the ZIP, blockmap, YAML metadata, and checksum files required for automatic updates.
 - Intermediate build artifacts are not published, and unverified roadmap items are not presented as released capabilities.
 - [GitHub Releases](https://github.com/wangjiawei508/WorkWise/releases) is the public release log; the website and knowledge base synchronize version and platform information from it.
 - The 0.2.5 public behavior baseline is tracked in the [public behavior gap table](docs/PUBLIC_BEHAVIOR_GAP_0.2.5.zh-CN.md).

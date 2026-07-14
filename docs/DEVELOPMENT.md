@@ -129,31 +129,27 @@ Update documentation when changes affect:
 
 ## Merge Guidance
 
-Merge contribution changes into `develop` only after:
+Merge contribution changes into the default `main` branch only after:
 
 - review feedback is addressed
 - checks pass
 - the change is considered stable enough for the daily integration branch
 
-`master` is reserved for stable releases. After maintainers decide the current `develop` state is ready to publish, they merge `develop` into `master`.
+Stable release tags are created from a reviewed `main` commit after maintainers decide it is ready to publish.
 
 ## Release Automation
 
-Stable releases are published by GitHub Actions when a same-repository PR from `develop` into `master` is merged.
+Stable releases are published by GitHub Actions when a `vX.Y.Z` tag is pushed.
 
 The release workflow:
 
-- computes the next `vX.Y.Z` patch tag from the latest three-part semver tag
-- reuses a tag that already points at the merge commit when a workflow is rerun
-- builds signed and notarized macOS arm64/x64 packages and a Windows x64 installer
-- uploads user installers and update metadata to the WorkWise official download source / R2(S3) `stable` channel; GitHub Releases are kept as developer release records and a collaboration fallback
-- promotes the official download source / R2(S3) `stable/latest` only after all platform uploads succeed
+- validates the release version from the pushed three-part semver tag
+- runs the two-hour pre-release stability job before packaging
+- builds macOS arm64/x64 DMG installers and updater ZIPs plus a Windows x64 installer
+- uploads the user installers, updater metadata, blockmap, and checksum manifest directly to GitHub Releases
+- downloads the published assets again and verifies their metadata and SHA-256 values before making the release public
 
-Repository maintainers must configure these GitHub Actions secrets before the first automated release:
-
-- Official download source / R2(S3): `R2_BUCKET`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `WORKWISE_PUBLIC_BASE_URL` or `R2_PUBLIC_BASE_URL`, and either `R2_ACCOUNT_ID` or `R2_ENDPOINT`
-- Optional path prefix: `WORKWISE_RELEASE_PREFIX` or legacy `R2_RELEASE_PREFIX`
-- macOS signing: `MAC_CODESIGN_P12_BASE64`, `CSC_KEY_PASSWORD`, `APPLE_API_KEY_BASE64`, `APPLE_API_KEY_ID`, `APPLE_API_ISSUER`
+GitHub Releases uses the workflow-provided `GITHUB_TOKEN`; no object-storage, FTP, or SSH credentials are required. For signed and notarized macOS builds, repository maintainers may configure `MAC_CODESIGN_P12_BASE64`, `CSC_KEY_PASSWORD`, `APPLE_API_KEY_BASE64`, `APPLE_API_KEY_ID`, and `APPLE_API_ISSUER`. Without the complete Apple secret set, the workflow publishes an explicitly marked unsigned macOS build and automatic installation remains disabled on macOS.
 
 The repository Actions settings must allow `GITHUB_TOKEN` to write repository contents so the workflow can create tags and publish releases.
 

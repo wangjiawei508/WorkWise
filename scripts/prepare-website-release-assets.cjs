@@ -53,11 +53,15 @@ function main() {
   const entries = readdirSync(inputDir)
   const arm64Dmg = findOne(entries, /^WorkWise-.+-mac-arm64\.dmg$/, 'macOS arm64 dmg')
   const x64Dmg = findOne(entries, /^WorkWise-.+-mac-x64\.dmg$/, 'macOS x64 dmg')
+  const arm64Zip = findOne(entries, /^WorkWise-.+-mac-arm64\.zip$/, 'macOS arm64 update zip')
+  const x64Zip = findOne(entries, /^WorkWise-.+-mac-x64\.zip$/, 'macOS x64 update zip')
   const winExe = findOne(entries, /^WorkWise-.+-win-x64\.exe$/, 'Windows x64 exe')
 
   const fileMap = new Map()
   copyMapped(inputDir, outputDir, arm64Dmg, `WorkWise-${version}-mac-Apple-Silicon.dmg`, fileMap)
   copyMapped(inputDir, outputDir, x64Dmg, `WorkWise-${version}-mac-Intel.dmg`, fileMap)
+  copyMapped(inputDir, outputDir, arm64Zip, `WorkWise-${version}-mac-arm64.zip`, fileMap)
+  copyMapped(inputDir, outputDir, x64Zip, `WorkWise-${version}-mac-x64.zip`, fileMap)
   copyMapped(inputDir, outputDir, winExe, `WorkWise-${version}-win-x64.exe`, fileMap)
 
   const winBlockMap = `${winExe}.blockmap`

@@ -63,6 +63,6 @@
 
 - [x] 9.1 Add brand, migration, containment, SSRF, resource-boundary, cancellation, persistence, Write, Windows, Git, approval, and Skill tests
 - [x] 9.2 Pass OpenSpec strict validation, brand verification, ESLint, TypeScript, Vitest, Electron smoke, and production build
-- [ ] 9.3 Verify macOS arm64/x64 and Windows x64 packaging with WorkWise artifact names and update metadata
+- [x] 9.3 Verify macOS arm64/x64 and Windows x64 packaging with WorkWise artifact names and update metadata
 - [x] 9.4 Complete short local stress verification and configure the two-hour pre-release and eight-hour nightly stability jobs
-- [ ] 9.5 Update version and release notes to 0.2.5, commit the staged phases, push, merge, tag, and verify the GitHub Actions release
+- [x] 9.5 Update version and release notes to 0.2.5, commit the staged phases, push, merge, tag, and verify the GitHub Actions release

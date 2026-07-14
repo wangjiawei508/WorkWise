@@ -129,31 +129,27 @@ PR 描述建议至少包含：
 
 ## 合并建议
 
-贡献改动只有在满足以下条件后，才应该合入 `develop`：
+贡献改动只有在满足以下条件后，才应该合入默认 `main` 分支：
 
 - Review 意见已处理
 - 检查项通过
 - 改动已经达到适合进入日常集成分支的稳定程度
 
-`master` 仅用于稳定发布。维护者确认 `develop` 中的改动适合发布后，再将 `develop` 合入 `master`。
+维护者确认经过审查的 `main` 提交适合发布后，再从该提交创建稳定版本标签。
 
 ## 自动发布
 
-当同仓库内从 `develop` 指向 `master` 的 PR 被合并后，GitHub Actions 会自动发布稳定版本。
+推送 `vX.Y.Z` 标签后，GitHub Actions 会自动发布稳定版本。
 
 发布 workflow 会：
 
-- 基于最新三段式 semver tag 自动生成下一个 `vX.Y.Z` patch tag
-- 如果 rerun 时当前 merge commit 已经有 tag，则复用该 tag
-- 构建已签名并公证的 macOS arm64/x64 包和 Windows x64 安装器
-- 将用户安装包和更新元数据上传到发布环境配置的静态更新源 / R2(S3) `stable` 渠道；GitHub Releases 仅作为开发者发布记录和备用协作入口
-- 只有在全部平台上传成功后，才会 promote 静态更新源 / R2(S3) `stable/latest`
+- 校验所推送的三段式 semver 标签与发布版本
+- 打包前执行两小时稳定性任务
+- 构建 macOS arm64/x64 DMG 安装包和自动更新 ZIP，以及 Windows x64 安装器
+- 将用户安装包、更新元数据、blockmap 和校验清单直接上传到 GitHub Releases
+- Release 公开前重新下载全部资产，校验元数据和 SHA-256
 
-首次自动发布前，维护者需要配置这些 GitHub Actions secrets：
-
-- 静态更新源 / R2(S3)：`R2_BUCKET`、`R2_ACCESS_KEY_ID`、`R2_SECRET_ACCESS_KEY`、`WORKWISE_PUBLIC_BASE_URL` 或 `R2_PUBLIC_BASE_URL`，以及 `R2_ACCOUNT_ID` 或 `R2_ENDPOINT`
-- 可选路径前缀：`WORKWISE_RELEASE_PREFIX` 或旧变量 `R2_RELEASE_PREFIX`
-- macOS 签名：`MAC_CODESIGN_P12_BASE64`、`CSC_KEY_PASSWORD`、`APPLE_API_KEY_BASE64`、`APPLE_API_KEY_ID`、`APPLE_API_ISSUER`
+GitHub Releases 直接使用工作流自带的 `GITHUB_TOKEN`，不需要对象存储、FTP 或 SSH 凭据。如需签名并公证 macOS 安装包，可配置 `MAC_CODESIGN_P12_BASE64`、`CSC_KEY_PASSWORD`、`APPLE_API_KEY_BASE64`、`APPLE_API_KEY_ID` 和 `APPLE_API_ISSUER`。Apple 凭据不完整时，工作流会明确发布未签名 macOS 版本，且 macOS 自动安装保持禁用。
 
 仓库的 Actions 设置还需要允许 `GITHUB_TOKEN` 写入 repository contents，这样 workflow 才能创建 tag 并发布 Release。
 

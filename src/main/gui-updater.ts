@@ -101,13 +101,16 @@ function updateProviderSetting(): string {
   ).trim().toLowerCase()
 }
 
-function shouldUseGithubUpdateProvider(): boolean {
-  return updateProviderSetting() === 'github'
+function shouldUseGithubUpdateProvider(channel: GuiUpdateChannel = configuredChannel): boolean {
+  const configured = updateProviderSetting()
+  if (configured === 'github') return true
+  if (configured === 'generic' || configured === 'none') return false
+  return !genericUpdateFeedUrl(channel)
 }
 
-function shouldFallbackToGithubUpdateProvider(): boolean {
+function shouldFallbackToGithubUpdateProvider(channel: GuiUpdateChannel): boolean {
   return (
-    shouldUseGithubUpdateProvider() ||
+    shouldUseGithubUpdateProvider(channel) ||
     process.env.WORKWISE_ENABLE_GITHUB_UPDATE_FALLBACK === '1' ||
     legacyGithubUpdateFallbackEnabled()
   )
@@ -210,7 +213,7 @@ function resolveGithubReleaseUrl(): string | null {
 }
 
 function resolveUpdateFeedConfig(channel: GuiUpdateChannel): UpdateFeedConfig {
-  if (shouldUseGithubUpdateProvider()) {
+  if (shouldUseGithubUpdateProvider(channel)) {
     const fullName = resolveGithubRepo()
     const [owner, repo] = fullName?.split('/') ?? []
     if (owner && repo) return { kind: 'github', owner, repo, fullName: `${owner}/${repo}` }
@@ -229,7 +232,7 @@ function downloadPageUrl(): string {
   const configuredDownloadPage = (process.env.WORKWISE_DOWNLOAD_BASE_URL || process.env.PUBLIC_DOWNLOAD_PAGE_URL)?.trim()
   if (configuredDownloadPage) return configuredDownloadPage
 
-  if (shouldUseGithubUpdateProvider()) {
+  if (shouldUseGithubUpdateProvider(configuredChannel)) {
     const releaseUrl = resolveGithubReleaseUrl()
     if (releaseUrl) return releaseUrl
   }
@@ -491,7 +494,7 @@ async function checkManualUpdate(
   const releaseUrl = downloadPageUrl()
 
   const githubFallback = async (): Promise<GuiUpdateInfo | null> => {
-    if (!shouldFallbackToGithubUpdateProvider()) return null
+    if (!shouldFallbackToGithubUpdateProvider(channel)) return null
 
     const repo = resolveGithubRepo()
     if (!repo) return null
@@ -565,7 +568,7 @@ async function checkManualUpdate(
     }
   }
 
-  if (shouldUseGithubUpdateProvider()) {
+  if (shouldUseGithubUpdateProvider(channel)) {
     const github = await githubFallback()
     if (github) return github
     return {
@@ -597,7 +600,7 @@ async function checkManualUpdate(
     const res = await fetch(url, {
       headers: {
         Accept: 'application/x-yaml,text/yaml,text/plain,*/*',
-        'User-Agent': `kun/${currentVersion}`
+        'User-Agent': `workwise/${currentVersion}`
       }
     })
     if (!res.ok) {

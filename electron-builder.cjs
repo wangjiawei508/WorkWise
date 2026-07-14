@@ -43,16 +43,27 @@ const hasNotaryToolCredentials = Boolean(
     (process.env.APPLE_API_KEY || process.env.APPLE_API_KEY_BASE64)
 )
 
-const r2PublicBaseUrl = (process.env.WORKWISE_PUBLIC_BASE_URL || 'https://www.railwise.cn/downloads')
-  .trim()
-  .replace(/\/+$/, '')
-const r2ReleasePrefix = (process.env.WORKWISE_RELEASE_PREFIX || 'workwise')
-  .trim()
-  .replace(/^\/+|\/+$/g, '')
 const updateChannel = normalizeUpdateChannel(
   process.env.WORKWISE_UPDATE_CHANNEL || 'stable'
 )
-const genericUpdateUrl = `${r2PublicBaseUrl}/${r2ReleasePrefix}/channels/${updateChannel}/latest/`
+const configuredPublicBaseUrl = (process.env.WORKWISE_PUBLIC_BASE_URL || '')
+  .trim()
+  .replace(/\/+$/, '')
+const releasePrefix = (process.env.WORKWISE_RELEASE_PREFIX || 'workwise')
+  .trim()
+  .replace(/^\/+|\/+$/g, '')
+const explicitUpdateUrl = (process.env.WORKWISE_UPDATE_URL || '').trim()
+const hasGenericUpdateFeed = Boolean(explicitUpdateUrl || configuredPublicBaseUrl)
+const updateProvider = (
+  process.env.WORKWISE_UPDATE_PROVIDER || (hasGenericUpdateFeed ? 'generic' : 'github')
+).trim().toLowerCase()
+const configuredGithubRepo = (process.env.WORKWISE_GITHUB_REPO || 'wangjiawei508/WorkWise').trim()
+const githubRepoMatch = configuredGithubRepo.match(/^([\w.-]+)\/([\w.-]+)$/)
+const genericUpdateUrl = explicitUpdateUrl
+  ? explicitUpdateUrl.replace(/\{channel\}/g, updateChannel).replace(/\/?$/, '/')
+  : hasGenericUpdateFeed
+    ? `${configuredPublicBaseUrl}/${releasePrefix}/channels/${updateChannel}/latest/`
+    : ''
 const releaseAppVersion = (
   process.env.WORKWISE_APP_VERSION || ''
 ).trim()
@@ -68,6 +79,16 @@ if (releaseAppVersion && !/^\d+\.\d+\.\d+$/.test(releaseAppVersion)) {
   throw new Error(
     `WORKWISE_APP_VERSION must be a valid x.y.z semver for electron-updater, got: ${releaseAppVersion}`
   )
+}
+
+if (!['github', 'generic', 'none'].includes(updateProvider)) {
+  throw new Error(`WORKWISE_UPDATE_PROVIDER must be "github", "generic", or "none", got: ${updateProvider}`)
+}
+if (updateProvider === 'github' && !githubRepoMatch) {
+  throw new Error(`WORKWISE_GITHUB_REPO must look like owner/repo, got: ${configuredGithubRepo}`)
+}
+if (updateProvider === 'generic' && !genericUpdateUrl) {
+  throw new Error('A generic update provider requires WORKWISE_UPDATE_URL or WORKWISE_PUBLIC_BASE_URL.')
 }
 
 module.exports = {
@@ -119,12 +140,22 @@ module.exports = {
     }
   ],
   artifactName: `WorkWise-${artifactVersion}-\${os}-\${arch}.\${ext}`,
-  publish: [
-    {
-      provider: 'generic',
-      url: genericUpdateUrl
-    }
-  ],
+  publish: updateProvider === 'github'
+    ? [
+        {
+          provider: 'github',
+          owner: githubRepoMatch[1],
+          repo: githubRepoMatch[2]
+        }
+      ]
+    : updateProvider === 'generic'
+      ? [
+          {
+            provider: 'generic',
+            url: genericUpdateUrl
+          }
+        ]
+      : null,
   afterPack: './scripts/after-pack.cjs',
   afterSign: './scripts/mac-notarize.cjs',
   mac: {
