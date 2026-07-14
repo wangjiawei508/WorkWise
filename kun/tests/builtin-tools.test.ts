@@ -528,7 +528,9 @@ describe('Kun built-in tools', () => {
 
     expect(output.exit_code).toBe(0)
     expect(String(output.output)).toContain('done')
-    expect(Date.now() - startedAt).toBeLessThan(1500)
+    // The background child lives for five seconds. Allow slower Windows CI
+    // process cleanup while still proving we do not wait for that child.
+    expect(Date.now() - startedAt).toBeLessThan(3000)
   })
 
   it('returns a pollable bash session for foreground long-running commands', async () => {
