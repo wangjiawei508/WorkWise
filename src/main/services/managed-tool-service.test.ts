@@ -54,8 +54,8 @@ async function skillBundle(root: string, names: string[], includeRootSkill = fal
   return zip.generateAsync({ type: 'nodebuffer' })
 }
 
-async function larkArchive(root: string, version: string): Promise<Buffer> {
-  if (process.platform === 'win32') {
+async function larkArchive(root: string, version: string, assetName: string): Promise<Buffer> {
+  if (assetName.endsWith('.zip')) {
     const zip = new JSZip()
     zip.file('lark-cli.exe', `lark ${version}\n`)
     return zip.generateAsync({ type: 'nodebuffer' })
@@ -71,7 +71,7 @@ async function larkArchive(root: string, version: string): Promise<Buffer> {
 async function fixture(id: 'lark-cli' | 'officecli', version: string): Promise<Fixture> {
   const assetName = _internals.platformAsset(id, version)
   const asset = id === 'lark-cli'
-    ? await larkArchive(toolsRoot, version)
+    ? await larkArchive(toolsRoot, version, assetName)
     : Buffer.from(`officecli ${version}\n`)
   const checksumName = id === 'lark-cli' ? 'checksums.txt' : 'SHA256SUMS'
   const hash = createHash('sha256').update(asset).digest('hex')
@@ -192,6 +192,19 @@ describe('managed-tool-service', () => {
     await expect(removeManagedTool('officecli')).resolves.toMatchObject({ status: { state: 'not_installed' } })
     expect(existsSync(join(toolsRoot, 'manifest.json'))).toBe(true)
     expect(JSON.parse(readFileSync(join(toolsRoot, 'manifest.json'), 'utf8'))).toEqual({})
+  })
+
+  it('extracts the Windows Lark zip without depending on PowerShell argument forwarding', async () => {
+    _internals.setTargetPlatformForTests({ platform: 'win32', arch: 'x64' })
+    const lark = await fixture('lark-cli', '1.2.3')
+    const office = await fixture('officecli', '1.2.3')
+    mockOfficialDownloads({ 'lark-cli': lark, officecli: office })
+
+    await expect(installManagedTool('lark-cli')).resolves.toMatchObject({
+      ok: true,
+      status: { id: 'lark-cli', state: 'needs_login', installedVersion: '1.2.3' }
+    })
+    expect(existsSync(join(managedToolsBinDir(), 'lark-cli.exe'))).toBe(true)
   })
 
   it('keeps the previous tool when an update checksum fails', async () => {

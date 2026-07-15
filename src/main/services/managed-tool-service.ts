@@ -250,6 +250,42 @@ async function findFile(root: string, name: string): Promise<string | null> {
   return null
 }
 
+async function extractZipAsset(bytes: Buffer, target: string): Promise<void> {
+  const zip = await JSZip.loadAsync(bytes, { checkCRC32: true })
+  const entries = Object.values(zip.files)
+  if (entries.length === 0 || entries.length > 512) {
+    throw new Error('Downloaded archive has an invalid file count.')
+  }
+
+  const destinations = new Set<string>()
+  let extractedBytes = 0
+  for (const entry of entries) {
+    const normalized = entry.name.trim().replaceAll('\\', '/').replace(/^\.\//, '')
+    if (!archiveEntryIsSafe(normalized)) {
+      throw new Error(`Downloaded archive contains an unsafe path: ${entry.name}`)
+    }
+    if (typeof entry.unixPermissions === 'number' && (entry.unixPermissions & 0o170000) === 0o120000) {
+      throw new Error(`Downloaded archive contains a symbolic link: ${entry.name}`)
+    }
+    if (entry.dir) continue
+
+    const collisionKey = normalized.toLocaleLowerCase('en-US')
+    if (destinations.has(collisionKey)) {
+      throw new Error(`Downloaded archive contains a path collision: ${entry.name}`)
+    }
+    destinations.add(collisionKey)
+
+    const fileBytes = await entry.async('nodebuffer')
+    extractedBytes += fileBytes.length
+    if (extractedBytes > MAX_DOWNLOAD_BYTES) {
+      throw new Error('Downloaded archive exceeds the managed tool size limit.')
+    }
+    const destination = join(target, ...normalized.split('/'))
+    await mkdir(dirname(destination), { recursive: true })
+    await writeFile(destination, fileBytes)
+  }
+}
+
 async function extractAsset(id: Exclude<ManagedToolId, 'ego-browser'>, assetName: string, bytes: Buffer, target: string): Promise<string> {
   await mkdir(target, { recursive: true })
   const executableName = toolExecutableName(id)
@@ -259,27 +295,18 @@ async function extractAsset(id: Exclude<ManagedToolId, 'ego-browser'>, assetName
     if (managedToolTarget().platform !== 'win32') await chmod(path, 0o755)
     return path
   }
-  const archivePath = join(target, assetName)
-  await writeFile(archivePath, bytes)
   if (assetName.endsWith('.tar.gz')) {
+    const archivePath = join(target, assetName)
+    await writeFile(archivePath, bytes)
     const listing = await execFileAsync('tar', ['-tzf', archivePath], { timeout: 30_000, maxBuffer: 2 * 1024 * 1024 })
     assertSafeArchiveListing(listing.stdout)
     await execFileAsync('tar', ['-xzf', archivePath, '-C', target], { timeout: 30_000 })
+    await rm(archivePath, { force: true })
   } else if (assetName.endsWith('.zip') && managedToolTarget().platform === 'win32') {
-    const listing = await execFileAsync('powershell', [
-      '-NoProfile', '-NonInteractive', '-Command',
-      'Add-Type -AssemblyName System.IO.Compression.FileSystem; $z=[IO.Compression.ZipFile]::OpenRead($args[0]); try { $z.Entries | ForEach-Object { $_.FullName } } finally { $z.Dispose() }',
-      archivePath
-    ], { timeout: 30_000, maxBuffer: 2 * 1024 * 1024 })
-    assertSafeArchiveListing(listing.stdout)
-    await execFileAsync('powershell', [
-      '-NoProfile', '-NonInteractive', '-Command',
-      'Expand-Archive -LiteralPath $args[0] -DestinationPath $args[1] -Force', archivePath, target
-    ], { timeout: 30_000 })
+    await extractZipAsset(bytes, target)
   } else {
     throw new Error(`Unsupported archive: ${assetName}`)
   }
-  await rm(archivePath, { force: true })
   const executable = await findFile(target, executableName)
   if (!executable) throw new Error(`Installed archive does not contain ${executableName}.`)
   if (managedToolTarget().platform !== 'win32') await chmod(executable, 0o755)
