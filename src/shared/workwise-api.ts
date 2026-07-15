@@ -227,9 +227,16 @@ export type ConfirmDialogOptions = {
 export type SseEventPayload = { streamId: string; events: unknown[] }
 export type SseEndPayload = { streamId: string }
 export type SseErrorPayload = { streamId: string; status?: number; message?: string }
+export type ApplicationMenuAction =
+  | 'new-chat'
+  | 'choose-workspace'
+  | 'settings'
+  | 'help-center'
+  | 'check-updates'
 
 export type WorkWiseApi = {
   platform: string
+  onApplicationMenuAction: (handler: (action: ApplicationMenuAction) => void) => () => void
   getSettings: () => Promise<WorkWiseSettingsV2>
   setSettings: (partial: AppSettingsPatch, expectedRevision?: number) => Promise<WorkWiseSettingsV2>
   runtimeRequest: (path: string, method?: string, body?: string) => Promise<RuntimeRequestResult>

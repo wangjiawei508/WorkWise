@@ -722,6 +722,34 @@ export function registerAppIpcHandlers(options: RegisterAppIpcHandlersOptions): 
     return result
   })
 
+  ipcMain.handle('tool:list-managed', async () => listManagedTools())
+
+  ipcMain.handle('tool:install-managed', async (_, payload: unknown) => {
+    const id = parseIpcPayload('tool:install-managed', managedToolIdSchema, payload)
+    const result = await installManagedTool(id)
+    if (result.ok) notifySkillsChanged()
+    return result
+  })
+
+  ipcMain.handle('tool:update-managed', async (_, payload: unknown) => {
+    const id = parseIpcPayload('tool:update-managed', managedToolIdSchema, payload)
+    const result = await updateManagedTool(id)
+    if (result.ok) notifySkillsChanged()
+    return result
+  })
+
+  ipcMain.handle('tool:diagnose-managed', async (_, payload: unknown) => {
+    const id = parseIpcPayload('tool:diagnose-managed', managedToolIdSchema, payload)
+    return diagnoseManagedTool(id)
+  })
+
+  ipcMain.handle('tool:remove-managed', async (_, payload: unknown) => {
+    const id = parseIpcPayload('tool:remove-managed', managedToolIdSchema, payload)
+    const result = await removeManagedTool(id)
+    if (result.ok) notifySkillsChanged()
+    return result
+  })
+
   ipcMain.handle('skill:open-root', async (_, rootPath: unknown) => {
     const normalizedRootPath = parseIpcPayload('skill:open-root', rootPathSchema, rootPath)
     try {

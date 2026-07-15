@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, Notification, powerSaveBlocker, Tray } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, Notification, powerSaveBlocker, shell, Tray, type MessageBoxOptions } from 'electron'
 import { existsSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
@@ -34,6 +34,7 @@ import {
 } from '../shared/app-settings'
 import { parseRuntimeErrorBody, runtimeErrorToError, type RuntimeErrorCode } from '../shared/runtime-error'
 import type { GuiUpdateState } from '../shared/gui-update'
+import type { ApplicationMenuAction } from '../shared/workwise-api'
 import { isAllowedDevPreviewUrl } from '../shared/dev-preview-url'
 import { fetchUpstreamModelIds } from './upstream-models'
 import {
@@ -74,6 +75,10 @@ import {
 import { webhookUrl } from './claw-runtime-helpers'
 import { isRuntimeHealthResponseBody } from './runtime-health'
 import { legacyStartupTraceEnabled } from './compat/legacy-environment'
+import {
+  applicationMenuLabels,
+  buildApplicationMenuTemplate
+} from './application-menu'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 // 品牌升级为 WorkWise Runtime 后仍保留旧 AppUserModelId:它必须和 electron-builder
@@ -194,6 +199,7 @@ let managedRuntimesStoppedForQuit = false
 let managedRuntimesStopPromise: Promise<void> | null = null
 let appBehavior: AppBehaviorConfigV1 = normalizeAppBehaviorSettings()
 let tray: Tray | null = null
+let currentLocale: AppSettingsV1['locale'] = 'en'
 let isQuitting = false
 let gracefulShutdownPromise: Promise<void> | null = null
 
@@ -247,7 +253,8 @@ async function loadGuiUpdaterModule(): Promise<GuiUpdaterModule> {
           module.initializeGuiUpdater(
             () => mainWindow,
             async () => (await store.load()).guiUpdate.channel,
-            stopManagedRuntimesForQuit
+            stopManagedRuntimesForQuit,
+            showGuiUpdateAvailableNotification
           )
           guiUpdaterInitialized = true
         }
@@ -367,6 +374,69 @@ function revealMainWindow(): void {
   if (mainWindow.isMinimized()) mainWindow.restore()
   mainWindow.show()
   mainWindow.focus()
+}
+
+function sendApplicationMenuAction(action: ApplicationMenuAction): void {
+  revealMainWindow()
+  const contents = mainWindow?.webContents
+  if (!contents || contents.isDestroyed()) return
+  contents.send('app:menu-action', action)
+}
+
+function showAboutDialog(): void {
+  const labels = applicationMenuLabels(currentLocale)
+  const options: MessageBoxOptions = {
+    type: 'info',
+    title: labels.app.about,
+    message: 'WorkWise',
+    detail: currentLocale === 'zh'
+      ? `智能工作台\n版本 ${app.getVersion()}`
+      : `AI workbench\nVersion ${app.getVersion()}`,
+    buttons: [currentLocale === 'zh' ? '好' : 'OK']
+  }
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    void dialog.showMessageBox(mainWindow, options)
+  } else {
+    void dialog.showMessageBox(options)
+  }
+}
+
+function checkForUpdatesFromMenu(): void {
+  sendApplicationMenuAction('check-updates')
+  void loadGuiUpdaterModule()
+    .then((module) => module.checkGuiUpdate())
+    .catch((error) => {
+      console.warn('[workwise updater] menu update check failed:', error)
+    })
+}
+
+function showGuiUpdateAvailableNotification(info: Extract<GuiUpdateState, { status: 'available' }>['info']): void {
+  if (!Notification.isSupported()) return
+  const notification = new Notification({
+    title: currentLocale === 'zh' ? 'WorkWise 有新版本' : 'A WorkWise update is available',
+    body: currentLocale === 'zh'
+      ? `版本 ${info.latestVersion} 已发布，点击查看更新。`
+      : `Version ${info.latestVersion} is available. Click to view the update.`,
+    icon: appIcon.isEmpty() ? undefined : appIcon
+  })
+  notification.on('click', () => sendApplicationMenuAction('check-updates'))
+  notification.show()
+}
+
+function syncApplicationMenu(settings: AppSettingsV1): void {
+  currentLocale = settings.locale
+  const template = buildApplicationMenuTemplate(settings.locale, process.platform, {
+    send: sendApplicationMenuAction,
+    openExternal: (url) => void shell.openExternal(url),
+    checkForUpdates: checkForUpdatesFromMenu,
+    showAbout: showAboutDialog,
+    openLogs: () => void shell.openPath(resolveLogDirectory()),
+    quit: () => {
+      isQuitting = true
+      app.quit()
+    }
+  })
+  Menu.setApplicationMenu(Menu.buildFromTemplate(template))
 }
 
 function syncTray(settings: AppSettingsV1): void {
@@ -901,6 +971,7 @@ app.whenReady().then(async () => {
   const initial = await store.load()
   traceStartup('settings load:done')
   appBehavior = initial.appBehavior
+  syncApplicationMenu(initial)
   syncLoginItemSettings(initial)
   syncTray(initial)
   await syncClawScheduleMcpConfig(initial, getClawScheduleMcpLaunchConfig()).catch((error) => {
@@ -982,6 +1053,7 @@ app.whenReady().then(async () => {
     clawRuntime?.sync(saved)
     syncWeixinBridgeRuntime(saved)
     syncLoginItemSettings(saved)
+    syncApplicationMenu(saved)
     syncTray(saved)
     return saved
   }

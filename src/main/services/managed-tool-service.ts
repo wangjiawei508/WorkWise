@@ -392,7 +392,9 @@ function companionSkillWarning(error: unknown): string {
   return `The tool was installed, but its companion Skills could not be updated: ${message}`
 }
 
-async function runTool(path: string, args: string[]): Promise<{ ok: boolean; output: string }> {
+type ToolRunner = (path: string, args: string[]) => Promise<{ ok: boolean; output: string }>
+
+const defaultToolRunner: ToolRunner = async (path, args) => {
   try {
     const result = await execFileAsync(path, args, { timeout: 10_000, maxBuffer: 512 * 1024 })
     return { ok: true, output: `${result.stdout || ''}${result.stderr || ''}`.trim() }
@@ -400,6 +402,12 @@ async function runTool(path: string, args: string[]): Promise<{ ok: boolean; out
     const value = error as { stdout?: string; stderr?: string; message?: string }
     return { ok: false, output: `${value.stdout || ''}${value.stderr || value.message || ''}`.trim() }
   }
+}
+
+let toolRunner: ToolRunner = defaultToolRunner
+
+async function runTool(path: string, args: string[]): Promise<{ ok: boolean; output: string }> {
+  return toolRunner(path, args)
 }
 
 export async function diagnoseManagedTool(id: ManagedToolId): Promise<ManagedToolResult> {
@@ -575,5 +583,12 @@ export const _internals = {
   assertSafeArchiveListing,
   releaseVersionFromUrl,
   releaseVersionFromHtml,
-  releaseAssetUrl
+  releaseAssetUrl,
+  larkSkills: LARK_SKILLS,
+  officeSkills: OFFICE_SKILLS,
+  clearReleaseCache: () => releaseVersionCache.clear(),
+  setToolRunnerForTests: (runner?: ToolRunner) => {
+    if (process.env.NODE_ENV !== 'test') throw new Error('Managed tool test runner is only available in tests.')
+    toolRunner = runner ?? defaultToolRunner
+  }
 }

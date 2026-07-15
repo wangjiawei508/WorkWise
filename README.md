@@ -1,95 +1,105 @@
-# WorkWise
+<div align="center">
+  <img src="./src/asset/img/workwise.png" width="112" alt="WorkWise 图标" />
+  <h1>WorkWise</h1>
+  <p><strong>让 AI 进入真实工作流。</strong></p>
+  <p>本地优先的桌面 AI 工作台，把代码、写作、技能与交付放在一个应用里。</p>
+  <p>
+    简体中文 · <a href="./README.en.md">English</a>
+  </p>
+  <p>
+    <a href="https://www.railwise.cn/products/workwise/">产品主页</a> ·
+    <a href="./docs/product-introduction.zh-CN.md">软件介绍</a> ·
+    <a href="./docs/USER_GUIDE.zh-CN.md">使用指南</a> ·
+    <a href="https://github.com/wangjiawei508/WorkWise/releases">版本与下载</a> ·
+    <a href="https://github.com/wangjiawei508/WorkWise/issues">问题反馈</a>
+  </p>
+</div>
 
-[English](./README.en.md) | 简体中文
+---
 
-> 让 AI 进入真实工作流。
+WorkWise 面向需要长期上下文、反复修改和正式交付的工作。它不只是一个聊天窗口：项目文件、会话、文档、方法和扩展能力围绕同一个本地工作区组织，让 AI 真正参与从理解任务到交付成果的完整过程。
 
-WorkWise 是一个本地优先的桌面端 AI 工作台。它把 **Code**、**Write**、可复用 **Skills**、**MCP 插件**、本地工作区和文档交付放在同一个应用里，服务需要持续上下文、反复迭代和正式交付的真实工作。
+## 一眼看懂
 
-- 产品官网：[www.railwise.cn/products/workwise](https://www.railwise.cn/products/workwise/)
-- 站内下载镜像：[下载与安装](https://www.railwise.cn/products/workwise/#download)
-- 官方文档：[kb.railwise.cn/products/workwise](https://kb.railwise.cn/products/workwise/)
-- 公开 Release：[v0.2.5](https://github.com/wangjiawei508/WorkWise/releases/tag/v0.2.5)
+| Code 工作台 | Write 写作工作台 |
+| --- | --- |
+| 理解项目、修改文件、运行工具、审查变更 | 编写 Markdown、调用写作助手、预览并导出文档 |
+| ![WorkWise Code 工作台](./src/asset/img/code.gif) | ![WorkWise Write 写作工作台](./src/asset/img/write.gif) |
 
-## 当前版本
+## 你可以用它做什么
 
-当前稳定版为 **v0.2.5**，提供下列三个面向用户的安装包：
+- **处理本地项目**：围绕真实目录理解文件、规划任务、执行修改、运行测试并审查结果。
+- **完成正式文档**：在 Write 中编辑和预览 Markdown，并通过 HTML、PDF、DOC、DOCX 等路径交付。
+- **复用自己的方法**：把模板、规范和高频流程沉淀为 Skills，减少重复说明。
+- **扩展外部能力**：通过 MCP、命令行工具和插件市场连接经过确认的工具与数据源。
+- **连接行业知识**：写作可结合本地资料与 RailWise 官方知识库，结果保留来源链接供复核。
+- **保持数据边界**：工作区、会话和设置以本机为中心；敏感资料是否发送给模型由用户配置和权限决定。
 
-| 平台 | 安装包 | 下载 |
+## 核心体验
+
+### Code：从任务到可审查的修改
+
+Code 工作台适合开发、资料整理、自动化和长链路任务。会话、计划、Todo、审批、文件变更和工具输出集中在一条时间线中；涉及写入或外部操作时，仍由用户确认权限和最终结果。
+
+### Write：从草稿到可交付文档
+
+Write 提供 Markdown 编辑、实时预览、选区助手、知识检索和多种文档导出。PPT Master、写作优化、行业报告等 Skills 可补充方法与模板，但事实、图片、表格和正式版式仍需人工复核。
+
+### Skills、MCP 与命令行工具
+
+插件市场把能力分为三类，界面保持简单：
+
+1. **Skills**：可复用的工作方法和专业流程。
+2. **MCP**：连接外部工具与数据源的标准接口。
+3. **命令行工具**：由 WorkWise 隔离管理，或引导安装配套应用。
+
+内置项目会显示来源、安装方式和安全状态；未通过路径、体积或包结构检查的 Skill 不会被安装。
+
+## 三步开始
+
+1. 从 [GitHub Releases](https://github.com/wangjiawei508/WorkWise/releases) 下载与你的电脑匹配的安装包。
+2. 首次启动时选择语言，配置你有权使用的模型 API Key，并选择本地工作区。
+3. 在 Code 中处理项目，或在 Write 中创建文档；需要时再添加 Skills、MCP 或命令行工具。
+
+### 支持平台
+
+| 平台 | 架构 | 安装包 |
 | --- | --- | --- |
-| macOS Apple Silicon | `WorkWise-0.2.5-mac-Apple-Silicon.dmg` | [GitHub 下载](https://github.com/wangjiawei508/WorkWise/releases/download/v0.2.5/WorkWise-0.2.5-mac-Apple-Silicon.dmg) |
-| macOS Intel | `WorkWise-0.2.5-mac-Intel.dmg` | [GitHub 下载](https://github.com/wangjiawei508/WorkWise/releases/download/v0.2.5/WorkWise-0.2.5-mac-Intel.dmg) |
-| Windows x64 | `WorkWise-0.2.5-win-x64.exe` | [GitHub 下载](https://github.com/wangjiawei508/WorkWise/releases/download/v0.2.5/WorkWise-0.2.5-win-x64.exe) |
+| macOS | Apple Silicon | `WorkWise-*-mac-Apple-Silicon.dmg` |
+| macOS | Intel | `WorkWise-*-mac-Intel.dmg` |
+| Windows | x64 | `WorkWise-*-win-x64.exe` |
 
-GitHub Releases 是正式安装包和自动更新元数据的发布源，不需要额外的对象存储凭据；官网可继续作为下载导航入口。当前不提供 Linux 客户端、便携版或激活码。
+当前不提供 Linux 桌面客户端和便携版。请始终从 [GitHub Releases](https://github.com/wangjiawei508/WorkWise/releases) 或 [WorkWise 产品主页](https://www.railwise.cn/products/workwise/)进入下载。
 
-## 为什么是 WorkWise
+## 更新与帮助
 
-AI 不应只停留在临时问答。真实工作往往需要长期保留项目资料、文件、会话、方法和交付标准。
+WorkWise 默认从官方 GitHub Releases 检查新版本：
 
-1. **上下文持续**：本地工作区、会话和文档围绕同一个任务组织，减少反复交代背景。
-2. **写作到交付**：Markdown 写作、预览、富文本复制及 Word / PDF 等交付路径被放在同一条工作流中。
-3. **经验可复用**：把常用方法、模板和规范沉淀为 Skills，让个人和团队不必每次从零编写 Prompt。
-4. **扩展有边界**：MCP 与插件用于接入额外工具和数据源；应用只把已验证能力作为正式功能公开。
-
-## 核心能力
-
-### Code 工作台
-
-围绕本地项目和资料目录协作，辅助理解、修改、测试、构建、审查与交付。会话、计划、Todo、目标和权限策略用于支撑较长的任务链，而不是替代人工判断。
-
-### Write 写作工作台
-
-用于 Markdown 和文档型工作的完整链路：
-
-- 编辑、预览和整理 Markdown / 文本内容。
-- 富文本复制，以及 HTML、PDF、DOC、DOCX 等交付路径。
-- 通过 AI Word、去 AI 味写作、PPT Master 等 Skills 辅助结构整理、表达优化和成果复核。
-- 正式提交前保留人工复核，尤其是图片、表格、版式和事实性内容。
-
-详见：[Write 与文档导出](https://kb.railwise.cn/products/workwise/write-export/)。
-
-### Skills 与 MCP
-
-Skills 是 WorkWise 的可复用资产层，可用于封装高频方法、写作规范、模板和行业流程。MCP 与插件市场用于管理扩展的来源、用途和安装状态，适合在确认权限和适用范围后接入更多工具。
-
-详见：[Skills 与模板](https://kb.railwise.cn/products/workwise/templates/)。
-
-### 本地优先
-
-工作区、会话和设置以本机为中心。模型调用需要使用你有权使用的 API Key 或兼容服务；请根据组织要求处理敏感资料、访问权限和本地清理。
-
-详见：[本地数据与安全](https://kb.railwise.cn/products/workwise/security-data/)。
+- 启动后在后台检查，发现新版本时显示提醒。
+- 可从“帮助 → 检查更新”或“设置 → 通用 → 软件更新”手动检查。
+- 支持自动安装的构建可在应用内完成更新；其他情况会打开版本下载页。
+- 帮助菜单同时提供产品主页、个人主页、软件介绍、GitHub 项目和日志目录。
 
 ## 能力状态
 
-| 状态 | 范围 |
+| 状态 | 说明 |
 | --- | --- |
-| 正式可用 | Code、Write、模型配置、工作区会话、内置 Skills、下载入口、GUI 更新检查 |
-| 预览能力 | 高级 MCP 插件市场、可选在线 Skill 更新、复杂 Markdown / DOCX 导出、移动端连接、定时任务 |
-| 发展方向 | 企业知识库、投标辅助、经营分析与更多行业智能体套件 |
+| 稳定能力 | Code、Write、工作区会话、模型配置、内置 Skills、软件更新检查 |
+| 预览能力 | 高级 MCP 编排、在线 Skill 更新、复杂 DOCX 导出、连接手机、定时任务 |
+| 后续方向 | Design、Loop、多模态模型、企业知识库和更多行业智能体 |
 
-不把预览能力或发展方向描述为已稳定发布的功能。
+预览能力和后续方向不会被描述为已经稳定交付的功能。详细边界见[软件介绍](./docs/product-introduction.zh-CN.md)。
 
-## 快速开始
+## 本地数据与安全
 
-1. 下载与你的设备匹配的安装包并完成安装。
-2. 在设置中配置 DeepSeek、Agnes AI 或其他 OpenAI 兼容服务。
-3. 选择本地项目或资料目录作为工作区。
-4. 在 Code 中处理项目任务，或在 Write 中开始文档工作。
-5. 根据需要启用 Skills；正式导出前检查文档内容、图片、表格和排版。
+- 新版数据默认存放在 `~/.workwise`，项目计划和规范存放在工作区内的 `.workwise`。
+- WorkWise 不要求激活码；模型调用的账号、额度和计费由相应服务商管理。
+- 使用客户资料、商业文件或内部知识前，请遵循组织的数据分级和授权要求。
+- 安装第三方 Skill、MCP 或命令行工具前，请核对来源、许可证和所需权限。
 
-- [快速开始](https://kb.railwise.cn/products/workwise/quickstart/)
-- [安装指南](https://kb.railwise.cn/products/workwise/install-guide/)
-- [常见问题](https://kb.railwise.cn/products/workwise/faq/)
+更多说明：[本地数据与安全](https://kb.railwise.cn/products/workwise/security-data/)。
 
-### 安装提示
-
-- **macOS**：首次打开遇到系统安全提示时，先确认安装包来源。必要时可在“系统设置 → 隐私与安全性”中允许打开；仍无法启动时，参考安装文档中的备用 `xattr` 方案。
-- **Windows**：如出现 Defender 或 SmartScreen 提示，请先核对下载来源、文件名和版本，再按组织安全策略继续。
-- **模型服务**：API Key、额度、模型可用性和计费规则由对应服务商及你的账户权限决定。
-
-## 开发
+## 开发与贡献
 
 ```bash
 git clone https://github.com/wangjiawei508/WorkWise.git
@@ -98,7 +108,7 @@ npm install
 npm run dev
 ```
 
-常用质量检查：
+提交前建议运行：
 
 ```bash
 npm run openspec:validate
@@ -109,24 +119,14 @@ npm run test
 npm run build
 ```
 
-本地智能体由 WorkWise Agent Runtime 提供，并通过稳定的 HTTP/SSE 边界与桌面应用协作。
-
-## 发布规则
-
-- 公开 Release 保留 macOS Apple Silicon、macOS Intel、Windows x64 三个用户安装包，并附带自动更新所需的 ZIP、blockmap、YAML 元数据和校验文件。
-- 不公开中间构建文件，也不将未验证路线图写成已发布能力。
-- 版本日志以 [GitHub Release](https://github.com/wangjiawei508/WorkWise/releases) 为准，官网与知识库同步产品版本和支持平台。
-- 0.2.5 的公开行为基线见[公开行为差距表](docs/PUBLIC_BEHAVIOR_GAP_0.2.5.zh-CN.md)。
+- [开发说明](./docs/DEVELOPMENT.zh-CN.md)
+- [贡献指南](./docs/CONTRIBUTING.zh-CN.md)
+- [0.2.5 公开行为差距表](./docs/PUBLIC_BEHAVIOR_GAP_0.2.5.zh-CN.md)
 
 ## 反馈
 
-欢迎通过 [GitHub Issues](https://github.com/wangjiawei508/WorkWise/issues) 提交问题和建议。请尽量附上：
+欢迎在 [GitHub Issues](https://github.com/wangjiawei508/WorkWise/issues) 提交问题和建议。为了更快定位，请附上 WorkWise 版本、操作系统与架构、复现步骤、截图或必要日志；不要公开 API Key、客户资料或其他敏感信息。
 
-- WorkWise 版本、操作系统和芯片架构。
-- 可复现的操作步骤、截图或错误日志。
-- 文档导出问题的最小 Markdown 示例。
-- Skills / MCP 的来源、触发方式和报错信息。
+## 许可证与来源
 
-## 许可证
-
-[MIT](./LICENSE)
+WorkWise 以 [MIT License](./LICENSE) 发布。历史来源与第三方声明见仓库内许可证及来源说明文件。

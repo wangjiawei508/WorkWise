@@ -313,20 +313,70 @@ function buildSkillContent(id: string, title: string, description: string, instr
   ].join('\n')
 }
 
+const MARKETPLACE_TEXT_FALLBACKS: Record<string, string> = {
+  pluginSkillAgentReachTitle: 'Agent Reach',
+  pluginSkillAgentReachDesc: 'Search and read public web content.',
+  pluginSkillAgentReachDetail: 'Install the official Agent Reach Skill from GitHub.',
+  pluginSkillIanTitle: 'Ian Xiaohei illustrations',
+  pluginSkillIanDesc: 'Illustration references for articles and presentations.',
+  pluginSkillIanDetail: 'Install the lightweight text-only Skill package from GitHub.',
+  pluginSkillGuizangTitle: 'Guizang illustration materials',
+  pluginSkillGuizangDesc: 'Browse the illustration project and its installation guide.',
+  pluginSkillGuizangDetail: 'Open the upstream project without redistributing its files.',
+  pluginExternalOnly: 'Open project',
+  pluginCliLarkTitle: 'Lark CLI',
+  pluginCliLarkDesc: 'Connect to Lark apps, documents, and collaboration tasks.',
+  pluginCliLarkDetail: 'Install the official Lark CLI and companion Skills.',
+  pluginCliOfficeTitle: 'OfficeCLI',
+  pluginCliOfficeDesc: 'Create and process Office documents.',
+  pluginCliOfficeDetail: 'Install OfficeCLI and document-specific Skills.',
+  pluginCliEgoTitle: 'Ego browser assistant',
+  pluginCliEgoDesc: 'Run web tasks in a dedicated browser.',
+  pluginCliEgoDetail: 'Open the official Ego Lite installer and detect the browser after setup.',
+  pluginCliManaged: 'Managed by WorkWise',
+  pluginCliExternalApp: 'Companion app required'
+}
+
+export function marketplaceText(
+  t: (key: string) => string,
+  key: string,
+  fallback = ''
+): string {
+  const value = t(key)
+  return value && value !== key ? value : MARKETPLACE_TEXT_FALLBACKS[key] ?? fallback
+}
+
+export function friendlyMarketplaceError(
+  message: string,
+  t: (key: string) => string
+): string {
+  const normalized = message.trim()
+  if (/Unsafe Skill package:.*file exceeds/i.test(normalized)) {
+    return marketplaceText(t, 'pluginErrorUnsafeSkillTooLarge', 'Skill package contains an oversized file.')
+  }
+  if (/Unsafe Skill package/i.test(normalized)) {
+    return marketplaceText(t, 'pluginErrorUnsafeSkill', 'Skill package did not pass the safety check.')
+  }
+  if (/\bfetch failed\b|network|ENOTFOUND|ECONNRESET|ETIMEDOUT/i.test(normalized)) {
+    return marketplaceText(t, 'pluginErrorNetwork', 'The download source could not be reached.')
+  }
+  return normalized
+}
+
 function itemTitle(item: MarketplaceItem, t: (key: string) => string): string {
-  return item.title ?? (item.titleKey ? t(item.titleKey) : item.id)
+  return item.title ?? (item.titleKey ? marketplaceText(t, item.titleKey, item.id) : item.id)
 }
 
 function itemDescription(item: MarketplaceItem, t: (key: string) => string): string {
-  return item.description ?? (item.descriptionKey ? t(item.descriptionKey) : '')
+  return item.description ?? (item.descriptionKey ? marketplaceText(t, item.descriptionKey) : '')
 }
 
 function itemDetail(item: MarketplaceItem, t: (key: string) => string): string {
-  return item.detail ?? (item.detailKey ? t(item.detailKey) : itemDescription(item, t))
+  return item.detail ?? (item.detailKey ? marketplaceText(t, item.detailKey, itemDescription(item, t)) : itemDescription(item, t))
 }
 
 function itemSourceLabel(item: MarketplaceItem, t: (key: string) => string): string {
-  return item.sourceLabel ?? (item.sourceLabelKey ? t(item.sourceLabelKey) : '')
+  return item.sourceLabel ?? (item.sourceLabelKey ? marketplaceText(t, item.sourceLabelKey) : '')
 }
 
 function itemSourceUrl(item: MarketplaceItem): string {
@@ -1202,9 +1252,9 @@ if (typeof window.workwise?.listManagedTools !== 'function') return
   useEffect(() => {
     if (activeKind !== 'mcp' || mcpLoaded) return
     void readMcpConfig().catch((e) => {
-      setNotice({ tone: 'error', message: e instanceof Error ? e.message : String(e) })
+      setNotice({ tone: 'error', message: friendlyMarketplaceError(e instanceof Error ? e.message : String(e), t) })
     })
-  }, [activeKind, mcpLoaded, readMcpConfig])
+  }, [activeKind, mcpLoaded, readMcpConfig, t])
 
   const refreshMcpRuntimeOverlay = useCallback(async (): Promise<void> => {
     if (typeof window.workwise?.runtimeRequest !== 'function') {
@@ -1474,7 +1524,7 @@ if (typeof window.workwise?.listManagedTools !== 'function') return
       setTokenSetupItem(null)
       setTokenValue('')
     } catch (e) {
-      setNotice({ tone: 'error', message: e instanceof Error ? e.message : String(e) })
+      setNotice({ tone: 'error', message: friendlyMarketplaceError(e instanceof Error ? e.message : String(e), t) })
     } finally {
       setBusyId(null)
     }
@@ -1501,7 +1551,7 @@ if (typeof window.workwise?.listManagedTools !== 'function') return
           ? await window.workwise.updateManagedTool(item.managedToolId)
           : await window.workwise.installManagedTool(item.managedToolId)
         if (!result.ok) {
-          setNotice({ tone: 'error', message: result.message })
+          setNotice({ tone: 'error', message: friendlyMarketplaceError(result.message, t) })
           return
         }
         await refreshManagedTools()
@@ -1536,7 +1586,7 @@ if (typeof window.workwise?.listManagedTools !== 'function') return
         }
         const result = await window.workwise.installBundledAgentPack(item.bundledAgentPack)
         if (!result.ok) {
-          setNotice({ tone: 'error', message: result.message })
+          setNotice({ tone: 'error', message: friendlyMarketplaceError(result.message, t) })
           return
         }
         markInstalled(storageKey('skill', item.id))
@@ -1563,7 +1613,7 @@ if (typeof window.workwise?.listManagedTools !== 'function') return
         }
         const result = await window.workwise.installGithubSkill(selectedSkillRoot.path, item.githubSkill)
         if (!result.ok) {
-          setNotice({ tone: 'error', message: result.message })
+          setNotice({ tone: 'error', message: friendlyMarketplaceError(result.message, t) })
           return
         }
         markInstalled(storageKey('skill', item.id))
@@ -1578,7 +1628,7 @@ if (typeof window.workwise?.listManagedTools !== 'function') return
         }
         const result = await window.workwise.installBundledSkill(selectedSkillRoot.path, item.bundledSkill)
         if (!result.ok) {
-          setNotice({ tone: 'error', message: result.message })
+          setNotice({ tone: 'error', message: friendlyMarketplaceError(result.message, t) })
           return
         }
         markInstalled(storageKey('skill', item.id))
@@ -1596,14 +1646,14 @@ if (typeof window.workwise?.listManagedTools !== 'function') return
       )
       const result = await window.workwise.saveSkillFile(selectedSkillRoot.path, item.id, content)
       if (!result.ok) {
-        setNotice({ tone: 'error', message: result.message })
+        setNotice({ tone: 'error', message: friendlyMarketplaceError(result.message, t) })
         return
       }
       markInstalled(storageKey('skill', item.id))
       await refreshSkillList()
       setNotice({ tone: 'success', message: t('pluginSkillAdded', { path: result.path }) })
     } catch (e) {
-      setNotice({ tone: 'error', message: e instanceof Error ? e.message : String(e) })
+      setNotice({ tone: 'error', message: friendlyMarketplaceError(e instanceof Error ? e.message : String(e), t) })
     } finally {
       setBusyId(null)
     }
@@ -1638,7 +1688,7 @@ if (typeof window.workwise?.listManagedTools !== 'function') return
         const content = buildSkillContent(id, customName.trim() || id, description, body)
         const result = await window.workwise.saveSkillFile(selectedSkillRoot.path, id, content)
         if (!result.ok) {
-          setNotice({ tone: 'error', message: result.message })
+          setNotice({ tone: 'error', message: friendlyMarketplaceError(result.message, t) })
           return
         }
         markInstalled(storageKey('skill', id))
@@ -1653,7 +1703,7 @@ if (typeof window.workwise?.listManagedTools !== 'function') return
       setCustomSkillBody('')
       setCustomOpen(false)
     } catch (e) {
-      setNotice({ tone: 'error', message: e instanceof Error ? e.message : String(e) })
+      setNotice({ tone: 'error', message: friendlyMarketplaceError(e instanceof Error ? e.message : String(e), t) })
     } finally {
       setBusyId(null)
     }
@@ -1677,7 +1727,7 @@ if (typeof window.workwise?.listManagedTools !== 'function') return
       const result = await window.workwise.openSkillRoot(selectedSkillRoot.path)
       if (!result.ok) setNotice({ tone: 'error', message: result.message ?? t('pluginActionFailed') })
     } catch (e) {
-      setNotice({ tone: 'error', message: e instanceof Error ? e.message : String(e) })
+      setNotice({ tone: 'error', message: friendlyMarketplaceError(e instanceof Error ? e.message : String(e), t) })
     }
   }
 
@@ -1693,7 +1743,7 @@ if (typeof window.workwise?.listManagedTools !== 'function') return
               {t('pluginTabSkill')}
             </TabButton>
             <TabButton active={activeKind === 'cli'} onClick={() => setActiveKind('cli')}>
-              {t('pluginTabCli')}
+              {marketplaceText(t, 'pluginTabCli', 'CLI')}
             </TabButton>
           </div>
           <div className="flex items-center gap-2">
@@ -1720,7 +1770,11 @@ if (typeof window.workwise?.listManagedTools !== 'function') return
 
         <div className="mt-9 flex flex-col items-center text-center">
           <h1 className="text-[32px] font-semibold text-ds-ink md:text-[40px]">
-            {activeKind === 'mcp' ? t('pluginMcpTitle') : activeKind === 'skill' ? t('pluginSkillTitle') : t('pluginCliTitle')}
+            {activeKind === 'mcp'
+              ? t('pluginMcpTitle')
+              : activeKind === 'skill'
+                ? t('pluginSkillTitle')
+                : marketplaceText(t, 'pluginCliTitle', 'Command-line tools')}
           </h1>
         </div>
 
@@ -1731,7 +1785,11 @@ if (typeof window.workwise?.listManagedTools !== 'function') return
               value={query}
               onChange={(event) => setQuery(event.target.value)}
               className="h-11 w-full rounded-2xl border border-ds-border bg-ds-card pl-11 pr-4 text-[15px] text-ds-ink shadow-sm outline-none transition focus:border-accent/40 focus:ring-1 focus:ring-accent/30"
-              placeholder={activeKind === 'mcp' ? t('pluginSearchMcp') : activeKind === 'skill' ? t('pluginSearchSkill') : t('pluginSearchCli')}
+              placeholder={activeKind === 'mcp'
+                ? t('pluginSearchMcp')
+                : activeKind === 'skill'
+                  ? t('pluginSearchSkill')
+                  : marketplaceText(t, 'pluginSearchCli', 'Search CLI tools')}
             />
           </label>
           <label className="relative w-full md:w-[168px]">
@@ -1789,8 +1847,11 @@ if (typeof window.workwise?.listManagedTools !== 'function') return
               {t('pluginSkillOnlineUpdate')}
             </button>
             {skillListError ? (
-              <span className="text-[12px] text-red-700 dark:text-red-300">
-                {skillListError}
+              <span
+                className="text-[12px] text-red-700 dark:text-red-300"
+                title={skillListError}
+              >
+                {friendlyMarketplaceError(skillListError, t)}
               </span>
             ) : (
               <span className="text-[12px] text-ds-faint">

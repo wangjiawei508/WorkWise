@@ -28,7 +28,27 @@ function loadLocalReleaseEnv() {
   }
 }
 
+function managedRuntimeProductionPackageRoots() {
+  const lockPath = join(__dirname, 'kun', 'package-lock.json')
+  const lock = JSON.parse(readFileSync(lockPath, 'utf8'))
+  const roots = Object.entries(lock.packages || {})
+    .filter(([packagePath, metadata]) =>
+      packagePath.startsWith('node_modules/') &&
+      !metadata.dev &&
+      packagePath !== 'node_modules/better-sqlite3'
+    )
+    .map(([packagePath]) => `kun/${packagePath}`)
+    .sort()
+
+  if (!roots.includes('kun/node_modules/zod') || !roots.includes('kun/node_modules/@modelcontextprotocol/sdk')) {
+    throw new Error('kun/package-lock.json is missing required production runtime dependencies.')
+  }
+  return roots
+}
+
 loadLocalReleaseEnv()
+
+const managedRuntimeProductionRoots = managedRuntimeProductionPackageRoots()
 
 const hasExplicitMacSigningIdentity = Boolean(
   process.env.CSC_LINK ||
@@ -103,9 +123,6 @@ module.exports = {
   asar: true,
   asarUnpack: [
     'src/asset/skills/**/*',
-    '**/kun/dist/**/*',
-    '**/kun/package*.json',
-    '**/kun/node_modules/**/*',
     '**/node_modules/better-sqlite3/**/*',
     '**/node_modules/bindings/**/*',
     '**/node_modules/file-uri-to-path/**/*'
@@ -118,10 +135,6 @@ module.exports = {
     'out/**/*',
     'src/asset/skills/**/*',
     'package.json',
-    'kun/dist/**/*',
-    'kun/package.json',
-    'kun/package-lock.json',
-    'kun/node_modules/**/*',
     '!**/*.map',
     '!**/*.d.ts',
     '!**/*.ts',
@@ -133,6 +146,22 @@ module.exports = {
     // runtime to send media, and that chain resolves openclaw/plugin-sdk/*.
   ],
   extraResources: [
+    {
+      from: 'kun',
+      to: 'app.asar.unpacked/kun',
+      filter: [
+        'dist/**/*',
+        'package.json',
+        'package-lock.json'
+      ]
+    },
+    {
+      from: 'kun/node_modules',
+      to: 'app.asar.unpacked/kun/runtime-deps',
+      filter: [
+        ...managedRuntimeProductionRoots.map((root) => `${root.slice('kun/node_modules/'.length)}/**/*`)
+      ]
+    },
     {
       from: 'src/asset/agent-packs',
       to: 'src/asset/agent-packs',

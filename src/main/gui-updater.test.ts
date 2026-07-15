@@ -54,6 +54,7 @@ beforeEach(() => {
 afterEach(() => {
   vi.clearAllTimers()
   vi.useRealTimers()
+  vi.unstubAllGlobals()
   vi.doUnmock('electron')
   vi.doUnmock('electron-updater')
   vi.resetModules()
@@ -224,5 +225,45 @@ describe('gui updater source helpers', () => {
         }
       }
     }
+  })
+
+  it('ignores a scheduled-check timestamp written by another app version', async () => {
+    const module = await import('./gui-updater')
+    const checkedAt = '2026-07-14T00:00:00.000Z'
+
+    expect(module._internals.parseScheduledCheckAt(JSON.stringify({
+      lastCheckedAt: checkedAt,
+      appVersion: '0.1.0'
+    }), '0.1.0')).toBe(Date.parse(checkedAt))
+    expect(module._internals.parseScheduledCheckAt(JSON.stringify({
+      lastCheckedAt: checkedAt,
+      appVersion: '0.1.0'
+    }), '0.2.0')).toBeNull()
+  })
+
+  it('coalesces concurrent checks for the same update channel', async () => {
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      headers: new Headers(),
+      json: async () => [
+        {
+          tag_name: 'v0.2.0',
+          html_url: 'https://github.com/wangjiawei508/WorkWise/releases/tag/v0.2.0',
+          published_at: '2026-07-14T00:00:00.000Z'
+        }
+      ]
+    }))
+    vi.stubGlobal('fetch', fetchMock)
+    const module = await import('./gui-updater')
+
+    const [first, second] = await Promise.all([
+      module.checkGuiUpdate('stable'),
+      module.checkGuiUpdate('stable')
+    ])
+
+    expect(first).toEqual(second)
+    expect(first).toMatchObject({ ok: true, latestVersion: '0.2.0', hasUpdate: true })
+    expect(fetchMock).toHaveBeenCalledTimes(1)
   })
 })

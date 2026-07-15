@@ -11,6 +11,7 @@ import { rendererRuntimeClient } from '../agent/runtime-client'
 import { applyTheme } from '../lib/apply-theme'
 import { useChatStore } from '../store/chat-store'
 import { Eye, EyeOff, ExternalLink, Sparkles, Sun, Moon, Monitor, X } from 'lucide-react'
+import { initialSetupSettingsPatch } from './initial-setup-settings'
 
 type ThemePref = AppSettingsV1['theme']
 type SetupFormPatch = AppSettingsPatch
@@ -101,7 +102,7 @@ export function InitialSetupDialog(): ReactElement {
     setSaving(true)
     setError(null)
     try {
-      const next = await rendererRuntimeClient.setSettings(current)
+      const next = await rendererRuntimeClient.setSettings(initialSetupSettingsPatch(current))
       setCurrentForm(next)
       await applyI18n(next.locale)
       void reloadUiSettings()
