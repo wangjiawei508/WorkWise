@@ -93,6 +93,9 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Verify managed CLI upstreams on macOS
+        run: npm run test:managed-tools:live
+
       - name: Resolve signing mode
         id: signing
         run: |
@@ -186,6 +189,9 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
+
+      - name: Verify managed CLI upstreams on Windows
+        run: npm run test:managed-tools:live
 
       - name: Build Windows installer
         run: npm run dist:win

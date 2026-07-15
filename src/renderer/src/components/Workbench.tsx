@@ -579,6 +579,34 @@ export function Workbench(): ReactElement {
     openSettings,
     setMode
   ])
+
+  useEffect(() => {
+    if (typeof window.workwise?.onApplicationMenuAction !== 'function') return
+    return window.workwise.onApplicationMenuAction((action) => {
+      if (action === 'new-chat') {
+        void createThread()
+        return
+      }
+      if (action === 'choose-workspace') {
+        void chooseWorkspace()
+        return
+      }
+      if (action === 'settings') {
+        openSettings('general')
+        return
+      }
+      if (action === 'help-center') {
+        openSettings('help')
+        return
+      }
+      if (action === 'check-updates') {
+        openSettings('general')
+        if (typeof window.workwise?.checkGuiUpdate === 'function') {
+          void window.workwise.checkGuiUpdate().catch(() => undefined)
+        }
+      }
+    })
+  }, [chooseWorkspace, createThread, openSettings])
   const showDevPreviewCard =
     route === 'chat' &&
     latestDevPreviewUrl !== null

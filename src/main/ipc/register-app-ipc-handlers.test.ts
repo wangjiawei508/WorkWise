@@ -15,6 +15,21 @@ import {
 } from '../../shared/app-settings'
 
 const handlers = new Map<string, (event: unknown, payload?: unknown) => Promise<unknown>>()
+const managedToolMocks = vi.hoisted(() => ({
+  list: vi.fn(async () => ({ ok: true, tools: [] })),
+  install: vi.fn(async () => ({ ok: false, message: 'fixture' })),
+  update: vi.fn(async () => ({ ok: false, message: 'fixture' })),
+  diagnose: vi.fn(async (id: string) => ({ ok: true, status: { id, state: 'not_installed' } })),
+  remove: vi.fn(async () => ({ ok: false, message: 'fixture' }))
+}))
+
+vi.mock('../services/managed-tool-service', () => ({
+  listManagedTools: managedToolMocks.list,
+  installManagedTool: managedToolMocks.install,
+  updateManagedTool: managedToolMocks.update,
+  diagnoseManagedTool: managedToolMocks.diagnose,
+  removeManagedTool: managedToolMocks.remove
+}))
 
 vi.mock('electron', () => ({
   app: {
@@ -80,6 +95,7 @@ function registerOptions(overrides: Partial<Parameters<typeof import('./register
 describe('registerAppIpcHandlers', () => {
   beforeEach(() => {
     handlers.clear()
+    vi.clearAllMocks()
   })
 
   it('rejects invalid settings patches at the handler boundary', async () => {
@@ -113,6 +129,40 @@ describe('registerAppIpcHandlers', () => {
     const handler = handlers.get('settings:set')
     await expect(handler?.({}, payload)).resolves.toEqual(settings())
     expect(applySettingsPatch).toHaveBeenCalledWith(payload)
+  })
+
+  it('registers every managed-tool IPC handler and validates tool ids', async () => {
+    const { registerAppIpcHandlers } = await import('./register-app-ipc-handlers')
+
+    registerAppIpcHandlers(registerOptions())
+
+    for (const channel of [
+      'tool:list-managed',
+      'tool:install-managed',
+      'tool:update-managed',
+      'tool:diagnose-managed',
+      'tool:remove-managed'
+    ]) {
+      expect(handlers.get(channel), channel).toBeTypeOf('function')
+    }
+
+    await expect(
+      handlers.get('tool:install-managed')?.({}, 'unknown-tool')
+    ).rejects.toThrow(/Invalid payload for tool:install-managed/)
+
+    await expect(handlers.get('tool:list-managed')?.({})).resolves.toEqual({ ok: true, tools: [] })
+    await expect(handlers.get('tool:install-managed')?.({}, 'lark-cli')).resolves.toMatchObject({ ok: false })
+    await expect(handlers.get('tool:update-managed')?.({}, 'officecli')).resolves.toMatchObject({ ok: false })
+    await expect(handlers.get('tool:diagnose-managed')?.({}, 'ego-browser')).resolves.toMatchObject({
+      ok: true,
+      status: { id: 'ego-browser' }
+    })
+    await expect(handlers.get('tool:remove-managed')?.({}, 'officecli')).resolves.toMatchObject({ ok: false })
+    expect(managedToolMocks.list).toHaveBeenCalledOnce()
+    expect(managedToolMocks.install).toHaveBeenCalledWith('lark-cli')
+    expect(managedToolMocks.update).toHaveBeenCalledWith('officecli')
+    expect(managedToolMocks.diagnose).toHaveBeenCalledWith('ego-browser')
+    expect(managedToolMocks.remove).toHaveBeenCalledWith('officecli')
   })
 
   it('saves generated files to a user-selected path', async () => {

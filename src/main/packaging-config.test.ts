@@ -7,6 +7,8 @@ import { afterEach, describe, expect, it } from 'vitest'
 const require = createRequire(import.meta.url)
 const builderConfig = require('../../electron-builder.cjs')
 const afterPack = require('../../scripts/after-pack.cjs')
+const packagedAsar = require('../../scripts/verify-packaged-asar.cjs')
+const asar = require('@electron/asar')
 const macNotarize = require('../../scripts/mac-notarize.cjs')
 
 const tempRoots: string[] = []
@@ -77,16 +79,17 @@ afterEach(() => {
 
 describe('electron-builder WorkWise packaging', () => {
   it('includes WorkWise Runtime runtime dependencies in the packaged app', () => {
-    expect(builderConfig.files).toEqual(expect.arrayContaining([
-      'kun/dist/**/*',
-      'kun/package.json',
-      'kun/package-lock.json',
-      'kun/node_modules/**/*'
-    ]))
     expect(builderConfig.asarUnpack).toEqual(expect.arrayContaining([
-      'src/asset/skills/**/*',
-      '**/kun/dist/**/*',
-      '**/kun/package*.json',
+      'src/asset/skills/**/*'
+    ]))
+    expect(builderConfig.files).not.toEqual(expect.arrayContaining([
+      'kun/dist/**/*',
+      'kun/node_modules/**/*',
+      'kun/node_modules/typescript/**/*',
+      'kun/node_modules/vitest/**/*',
+      'kun/node_modules/better-sqlite3/**/*'
+    ]))
+    expect(builderConfig.asarUnpack).not.toEqual(expect.arrayContaining([
       '**/kun/node_modules/**/*'
     ]))
     expect(builderConfig.asarUnpack).not.toEqual(expect.arrayContaining([
@@ -103,6 +106,23 @@ describe('electron-builder WorkWise packaging', () => {
       '!**/node_modules/openclaw/**/*'
     ]))
     expect(builderConfig.extraResources).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        from: 'kun',
+        to: 'app.asar.unpacked/kun',
+        filter: expect.arrayContaining([
+          'dist/**/*',
+          'package.json',
+          'package-lock.json'
+        ])
+      }),
+      expect.objectContaining({
+        from: 'kun/node_modules',
+        to: 'app.asar.unpacked/kun/runtime-deps',
+        filter: expect.arrayContaining([
+          'zod/**/*',
+          '@modelcontextprotocol/sdk/**/*'
+        ])
+      }),
       {
         from: 'src/asset/agent-packs',
         to: 'src/asset/agent-packs',
@@ -163,15 +183,22 @@ describe('electron-builder WorkWise packaging', () => {
     )
   })
 
-  it('runs npm through cmd.exe during Windows afterPack hooks', () => {
-    expect(afterPack._internals.npmCommand(['prune'], 'win32')).toEqual({
-      command: 'cmd.exe',
-      args: ['/d', '/s', '/c', 'npm', 'prune']
+  it('detects missing unpacked ASAR entries after packaging hooks', async () => {
+    const root = tempRoot()
+    const source = join(root, 'source')
+    const archive = join(root, 'app.asar')
+    touch(join(source, 'out/main/index.js'))
+    touch(join(source, 'native/addon.node'))
+    await asar.createPackageWithOptions(source, archive, { unpack: '**/*.node' })
+
+    expect(packagedAsar.verifyAsarArchive(archive, join(source, 'out'))).toMatchObject({
+      compiledFiles: 1
     })
-    expect(afterPack._internals.npmCommand(['prune'], 'darwin')).toEqual({
-      command: 'npm',
-      args: ['prune']
-    })
+
+    rmSync(`${archive}.unpacked`, { recursive: true, force: true })
+    expect(() => packagedAsar.verifyAsarArchive(archive, join(source, 'out'))).toThrow(
+      /ASAR entry is unreadable/
+    )
   })
 
   it('selects only the matching platform Markdown converter directory', () => {

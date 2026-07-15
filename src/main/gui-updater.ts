@@ -44,6 +44,9 @@ let beforeInstallUpdate: (() => void | Promise<void>) | null = null
 let beforeInstallUpdatePromise: Promise<void> | null = null
 let backgroundCheckTimer: NodeJS.Timeout | null = null
 let backgroundCheckPromise: Promise<void> | null = null
+let guiUpdateCheckPromise: Promise<GuiUpdateInfo> | null = null
+let guiUpdateCheckChannel: GuiUpdateChannel | null = null
+let onBackgroundUpdateAvailable: ((info: Extract<GuiUpdateInfo, { ok: true }>) => void) | null = null
 
 const GUI_UPDATE_SCHEDULE_FILE = 'gui-update-schedule.json'
 
@@ -143,7 +146,16 @@ function guiUpdateSchedulePath(): string {
 async function readLastScheduledCheckAt(): Promise<number | null> {
   try {
     const raw = await readFile(guiUpdateSchedulePath(), 'utf8')
-    const parsed = JSON.parse(raw) as { lastCheckedAt?: unknown }
+    return parseScheduledCheckAt(raw, app.getVersion())
+  } catch {
+    return null
+  }
+}
+
+function parseScheduledCheckAt(raw: string, currentVersion: string): number | null {
+  try {
+    const parsed = JSON.parse(raw) as { lastCheckedAt?: unknown; appVersion?: unknown }
+    if (parsed.appVersion !== currentVersion) return null
     const ms = typeof parsed.lastCheckedAt === 'string' ? Date.parse(parsed.lastCheckedAt) : Number.NaN
     return Number.isFinite(ms) ? ms : null
   } catch {
@@ -156,7 +168,10 @@ async function writeLastScheduledCheckAt(nowMs: number): Promise<void> {
   await mkdir(dirname(path), { recursive: true })
   await writeFile(
     path,
-    JSON.stringify({ lastCheckedAt: new Date(nowMs).toISOString() }, null, 2),
+    JSON.stringify({
+      lastCheckedAt: new Date(nowMs).toISOString(),
+      appVersion: app.getVersion()
+    }, null, 2),
     'utf8'
   )
 }
@@ -434,7 +449,8 @@ async function runScheduledGuiUpdateCheck(): Promise<void> {
       if (shouldSkipScheduledCheck()) return
       const nowMs = Date.now()
       await writeLastScheduledCheckAt(nowMs)
-      await checkGuiUpdate()
+      const info = await checkGuiUpdate()
+      if (info.ok && info.hasUpdate) onBackgroundUpdateAvailable?.(info)
     } catch (error) {
       console.warn('[workwise updater] scheduled GUI update check failed:', error)
     } finally {
@@ -660,11 +676,13 @@ async function checkManualUpdate(
 export function initializeGuiUpdater(
   windowGetter: () => BrowserWindow | null,
   channelGetter?: () => GuiUpdateChannel | Promise<GuiUpdateChannel>,
-  beforeInstall?: () => void | Promise<void>
+  beforeInstall?: () => void | Promise<void>,
+  updateAvailable?: (info: Extract<GuiUpdateInfo, { ok: true }>) => void
 ): void {
   getMainWindow = windowGetter
   getSelectedChannel = channelGetter ?? null
   beforeInstallUpdate = beforeInstall ?? null
+  onBackgroundUpdateAvailable = updateAvailable ?? null
   if (initialized) return
   initialized = true
 
@@ -728,8 +746,7 @@ export function getGuiUpdateState(): GuiUpdateState {
   return lastState
 }
 
-export async function checkGuiUpdate(channel?: GuiUpdateChannel): Promise<GuiUpdateInfo> {
-  const selectedChannel = await resolveUpdateChannel(channel)
+async function performGuiUpdateCheck(selectedChannel: GuiUpdateChannel): Promise<GuiUpdateInfo> {
   configureUpdaterChannel(selectedChannel)
 
   if (resolveUpdateFeedConfig(selectedChannel).kind === 'none') {
@@ -765,6 +782,21 @@ export async function checkGuiUpdate(channel?: GuiUpdateChannel): Promise<GuiUpd
     emitGuiUpdateState({ status: 'error', info, message, code: 'unknown' })
     return info
   }
+}
+
+export async function checkGuiUpdate(channel?: GuiUpdateChannel): Promise<GuiUpdateInfo> {
+  const selectedChannel = await resolveUpdateChannel(channel)
+  if (guiUpdateCheckPromise) {
+    if (guiUpdateCheckChannel === selectedChannel) return guiUpdateCheckPromise
+    await guiUpdateCheckPromise.catch(() => undefined)
+    return checkGuiUpdate(selectedChannel)
+  }
+  guiUpdateCheckChannel = selectedChannel
+  guiUpdateCheckPromise = performGuiUpdateCheck(selectedChannel).finally(() => {
+    guiUpdateCheckPromise = null
+    guiUpdateCheckChannel = null
+  })
+  return guiUpdateCheckPromise
 }
 
 export async function downloadGuiUpdate(channel?: GuiUpdateChannel): Promise<GuiUpdateDownloadResult> {
@@ -846,5 +878,6 @@ export const _internals = {
   selectGithubRelease,
   genericUpdateFeedUrl,
   resolveUpdateFeedConfig,
-  downloadPageUrl
+  downloadPageUrl,
+  parseScheduledCheckAt
 }

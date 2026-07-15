@@ -23,6 +23,8 @@ const WORKWISE_ISSUES_URL = 'https://github.com/wangjiawei508/WorkWise/issues'
 const WORKWISE_README_URL = 'https://github.com/wangjiawei508/WorkWise#readme'
 const WORKWISE_GUIDE_URL = 'https://github.com/wangjiawei508/WorkWise/blob/main/docs/USER_GUIDE.zh-CN.md'
 const WORKWISE_AUTHOR_URL = 'https://github.com/wangjiawei508'
+const WORKWISE_PRODUCT_INTRO_URL =
+  'https://github.com/wangjiawei508/WorkWise/blob/main/docs/product-introduction.zh-CN.md'
 
 function HelpLinkButton({
   href,
@@ -118,6 +120,11 @@ export function HelpSettingsSection({ ctx }: { ctx: Record<string, any> }): Reac
               href={WORKWISE_AUTHOR_URL}
               icon={<UserRound className="h-4 w-4" strokeWidth={1.8} />}
               label={t('helpOpenAuthor')}
+            />
+            <HelpLinkButton
+              href={WORKWISE_PRODUCT_INTRO_URL}
+              icon={<FileText className="h-4 w-4" strokeWidth={1.8} />}
+              label={t('helpOpenProductIntro')}
             />
           </div>
         </div>

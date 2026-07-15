@@ -1,5 +1,134 @@
-import { describe, expect, it } from 'vitest'
-import { _internals } from './managed-tool-service'
+import { execFileSync } from 'node:child_process'
+import { createHash } from 'node:crypto'
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync
+} from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import JSZip from 'jszip'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+
+const systemFetchMock = vi.hoisted(() => vi.fn())
+
+vi.mock('./system-network', () => ({
+  systemFetch: systemFetchMock,
+  describeNetworkFailure: (error: unknown, target: string) =>
+    `${target} connection failed: ${error instanceof Error ? error.message : String(error)}`
+}))
+
+import {
+  _internals,
+  diagnoseManagedTool,
+  installManagedTool,
+  listManagedTools,
+  managedToolsBinDir,
+  managedToolsSkillRoot,
+  removeManagedTool,
+  updateManagedTool
+} from './managed-tool-service'
+
+type Fixture = {
+  version: string
+  assetName: string
+  asset: Buffer
+  checksumName: string
+  checksum: string
+  skills: Buffer
+}
+
+let toolsRoot = ''
+
+function response(body: string | Buffer, status = 200, headers: HeadersInit = {}): Response {
+  return new Response(body as unknown as BodyInit, { status, headers })
+}
+
+async function skillBundle(root: string, names: string[], includeRootSkill = false): Promise<Buffer> {
+  const zip = new JSZip()
+  if (includeRootSkill) zip.file(`${root}/SKILL.md`, '# OfficeCLI\n')
+  for (const name of names) zip.file(`${root}/skills/${name}/SKILL.md`, `# ${name}\n`)
+  return zip.generateAsync({ type: 'nodebuffer' })
+}
+
+async function larkArchive(root: string, version: string): Promise<Buffer> {
+  if (process.platform === 'win32') {
+    const zip = new JSZip()
+    zip.file('lark-cli.exe', `lark ${version}\n`)
+    return zip.generateAsync({ type: 'nodebuffer' })
+  }
+  const source = join(root, `lark-${version}`)
+  const archive = join(root, `lark-${version}.tar.gz`)
+  mkdirSync(source, { recursive: true })
+  writeFileSync(join(source, 'lark-cli'), `#!/bin/sh\necho ${version}\n`)
+  execFileSync('tar', ['-czf', archive, '-C', source, 'lark-cli'])
+  return readFileSync(archive)
+}
+
+async function fixture(id: 'lark-cli' | 'officecli', version: string): Promise<Fixture> {
+  const assetName = _internals.platformAsset(id, version)
+  const asset = id === 'lark-cli'
+    ? await larkArchive(toolsRoot, version)
+    : Buffer.from(`officecli ${version}\n`)
+  const checksumName = id === 'lark-cli' ? 'checksums.txt' : 'SHA256SUMS'
+  const hash = createHash('sha256').update(asset).digest('hex')
+  const skills = await skillBundle(
+    `${id}-${version}`,
+    id === 'lark-cli' ? _internals.larkSkills : _internals.officeSkills,
+    id === 'officecli'
+  )
+  return { version, assetName, asset, checksumName, checksum: `${hash}  ${assetName}\n`, skills }
+}
+
+function mockOfficialDownloads(fixtures: Record<'lark-cli' | 'officecli', Fixture>, egoSkills?: Buffer): void {
+  systemFetchMock.mockImplementation(async (input: string | URL | Request) => {
+    const url = String(input instanceof Request ? input.url : input)
+    const id = url.includes('larksuite/cli') || url.includes('/lark-cli/') ? 'lark-cli' : 'officecli'
+    const item = fixtures[id]
+
+    if (url.includes('api.github.com/repos/')) {
+      return response(JSON.stringify({
+        tag_name: `v${item.version}`,
+        assets: [
+          { name: item.assetName, browser_download_url: `https://assets.test/${id}/${item.assetName}` },
+          { name: item.checksumName, browser_download_url: `https://assets.test/${id}/${item.checksumName}` }
+        ]
+      }), 200, { 'content-type': 'application/json' })
+    }
+    if (url === `https://assets.test/${id}/${item.assetName}`) return response(item.asset)
+    if (url === `https://assets.test/${id}/${item.checksumName}`) return response(item.checksum)
+    if (url.includes('codeload.github.com/larksuite/cli/')) return response(fixtures['lark-cli'].skills)
+    if (url.includes('codeload.github.com/iOfficeAI/OfficeCLI/')) return response(fixtures.officecli.skills)
+    if (url.includes('codeload.github.com/citrolabs/ego-lite/')) {
+      if (!egoSkills) throw new Error('Missing ego fixture.')
+      return response(egoSkills)
+    }
+    throw new Error(`Unexpected managed tool request: ${url}`)
+  })
+}
+
+beforeEach(() => {
+  toolsRoot = mkdtempSync(join(tmpdir(), 'workwise-managed-tools-'))
+  process.env.WORKWISE_TOOLS_ROOT = toolsRoot
+  _internals.clearReleaseCache()
+  _internals.setTargetPlatformForTests({ platform: 'darwin', arch: 'arm64' })
+  _internals.setToolRunnerForTests(async (_path, args) => {
+    if (args.join(' ') === 'auth status') return { ok: false, output: 'not logged in' }
+    return { ok: true, output: '1.2.3' }
+  })
+  systemFetchMock.mockReset()
+})
+
+afterEach(() => {
+  _internals.setToolRunnerForTests()
+  _internals.setTargetPlatformForTests()
+  _internals.clearReleaseCache()
+  delete process.env.WORKWISE_TOOLS_ROOT
+  rmSync(toolsRoot, { recursive: true, force: true })
+})
 
 describe('managed-tool-service', () => {
   it('selects the current platform asset with an explicit architecture name', () => {
@@ -38,5 +167,72 @@ describe('managed-tool-service', () => {
     expect(_internals.archiveEntryIsSafe('folder/../../outside')).toBe(false)
     expect(_internals.archiveEntryIsSafe('C:\\outside.exe')).toBe(false)
     expect(() => _internals.assertSafeArchiveListing('bin/lark-cli\n../outside')).toThrow('unsafe path')
+  })
+
+  it('installs, diagnoses, lists, and removes Lark and Office tools atomically', async () => {
+    const lark = await fixture('lark-cli', '1.2.3')
+    const office = await fixture('officecli', '1.2.3')
+    mockOfficialDownloads({ 'lark-cli': lark, officecli: office })
+
+    await expect(installManagedTool('lark-cli')).resolves.toMatchObject({
+      ok: true,
+      status: { id: 'lark-cli', state: 'needs_login', installedVersion: '1.2.3' }
+    })
+    await expect(installManagedTool('officecli')).resolves.toMatchObject({
+      ok: true,
+      status: { id: 'officecli', state: 'installed', installedVersion: '1.2.3' }
+    })
+    expect(existsSync(join(managedToolsBinDir(), process.platform === 'win32' ? 'lark-cli.exe' : 'lark-cli'))).toBe(true)
+    expect(existsSync(join(managedToolsBinDir(), process.platform === 'win32' ? 'officecli.exe' : 'officecli'))).toBe(true)
+    expect(existsSync(join(managedToolsSkillRoot(), 'lark-doc', 'SKILL.md'))).toBe(true)
+    expect(existsSync(join(managedToolsSkillRoot(), 'officecli-pptx', 'SKILL.md'))).toBe(true)
+
+    await expect(listManagedTools()).resolves.toMatchObject({ ok: true })
+    await expect(removeManagedTool('lark-cli')).resolves.toMatchObject({ status: { state: 'not_installed' } })
+    await expect(removeManagedTool('officecli')).resolves.toMatchObject({ status: { state: 'not_installed' } })
+    expect(existsSync(join(toolsRoot, 'manifest.json'))).toBe(true)
+    expect(JSON.parse(readFileSync(join(toolsRoot, 'manifest.json'), 'utf8'))).toEqual({})
+  })
+
+  it('keeps the previous tool when an update checksum fails', async () => {
+    const lark = await fixture('lark-cli', '1.2.3')
+    const office = await fixture('officecli', '1.2.3')
+    mockOfficialDownloads({ 'lark-cli': lark, officecli: office })
+    await expect(installManagedTool('officecli')).resolves.toMatchObject({ ok: true })
+    const active = join(managedToolsBinDir(), process.platform === 'win32' ? 'officecli.exe' : 'officecli')
+    const original = readFileSync(active)
+
+    const broken = await fixture('officecli', '1.2.4')
+    broken.checksum = `${'0'.repeat(64)}  ${broken.assetName}\n`
+    _internals.clearReleaseCache()
+    mockOfficialDownloads({ 'lark-cli': lark, officecli: broken })
+
+    await expect(updateManagedTool('officecli')).resolves.toMatchObject({
+      ok: false,
+      message: expect.stringContaining('Checksum verification failed')
+    })
+    expect(readFileSync(active)).toEqual(original)
+    await expect(diagnoseManagedTool('officecli')).resolves.toMatchObject({
+      ok: true,
+      status: { installedVersion: '1.2.3', state: 'installed' }
+    })
+  })
+
+  it('installs and removes the ego-browser companion Skill without requiring the external app', async () => {
+    const lark = await fixture('lark-cli', '1.2.3')
+    const office = await fixture('officecli', '1.2.3')
+    const ego = await skillBundle('ego-lite-main', ['ego-browser'])
+    mockOfficialDownloads({ 'lark-cli': lark, officecli: office }, ego)
+
+    await expect(installManagedTool('ego-browser')).resolves.toMatchObject({
+      ok: true,
+      status: { id: 'ego-browser', state: 'needs_external_app' }
+    })
+    expect(existsSync(join(managedToolsSkillRoot(), 'ego-browser', 'SKILL.md'))).toBe(true)
+    await expect(removeManagedTool('ego-browser')).resolves.toMatchObject({
+      ok: true,
+      status: { state: 'needs_external_app' }
+    })
+    expect(existsSync(join(managedToolsSkillRoot(), 'ego-browser'))).toBe(false)
   })
 })

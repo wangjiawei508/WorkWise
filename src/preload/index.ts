@@ -3,6 +3,14 @@ import type { WorkWiseApi } from '../shared/workwise-api'
 
 const api = {
   platform: process.platform,
+  onApplicationMenuAction: (handler) => {
+    const wrapped = (
+      _event: Electron.IpcRendererEvent,
+      action: Parameters<typeof handler>[0]
+    ): void => handler(action)
+    ipcRenderer.on('app:menu-action', wrapped)
+    return () => ipcRenderer.removeListener('app:menu-action', wrapped)
+  },
   getSettings: () => ipcRenderer.invoke('settings:get'),
   setSettings: (partial, expectedRevision) =>
     ipcRenderer.invoke('settings:set', { patch: partial, expectedRevision }),

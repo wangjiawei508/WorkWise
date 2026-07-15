@@ -14,8 +14,12 @@ function testActions(): WindowsTitleBarActions {
     chooseWorkspace: vi.fn(),
     openSettings: vi.fn(),
     openHelp: vi.fn(),
+    openProductHome: vi.fn(),
+    openAuthorHome: vi.fn(),
+    openProductIntro: vi.fn(),
     openGithubHome: vi.fn(),
     openReleases: vi.fn(),
+    checkForUpdates: vi.fn(),
     runDesktopCommand: vi.fn(),
     openLogDir: vi.fn(),
     showAbout: vi.fn()
@@ -71,8 +75,12 @@ describe('WindowsTitleBar', () => {
     await item('reload').onSelect()
     await item('maximize').onSelect()
     await item('help-center').onSelect()
+    await item('product-home').onSelect()
+    await item('author-home').onSelect()
+    await item('product-intro').onSelect()
     await item('github-home').onSelect()
     await item('releases').onSelect()
+    await item('check-updates').onSelect()
     await item('open-log-dir').onSelect()
 
     expect(actions.createThread).toHaveBeenCalledTimes(1)
@@ -82,8 +90,12 @@ describe('WindowsTitleBar', () => {
     expect(actions.runDesktopCommand).toHaveBeenCalledWith('reload')
     expect(actions.runDesktopCommand).toHaveBeenCalledWith('toggleMaximize')
     expect(actions.openHelp).toHaveBeenCalledTimes(1)
+    expect(actions.openProductHome).toHaveBeenCalledTimes(1)
+    expect(actions.openAuthorHome).toHaveBeenCalledTimes(1)
+    expect(actions.openProductIntro).toHaveBeenCalledTimes(1)
     expect(actions.openGithubHome).toHaveBeenCalledTimes(1)
     expect(actions.openReleases).toHaveBeenCalledTimes(1)
+    expect(actions.checkForUpdates).toHaveBeenCalledTimes(1)
     expect(actions.openLogDir).toHaveBeenCalledTimes(1)
   })
 })

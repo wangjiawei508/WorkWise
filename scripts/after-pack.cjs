@@ -1,6 +1,7 @@
 const { execFileSync } = require('node:child_process')
-const { cpSync, existsSync, mkdirSync, rmSync } = require('node:fs')
+const { cpSync, existsSync, mkdirSync, renameSync, rmSync } = require('node:fs')
 const { join } = require('node:path')
+const { verifyAsarArchive } = require('./verify-packaged-asar.cjs')
 
 const MANAGED_RUNTIME_REQUIRED_PATHS = [
   'kun/dist/cli/serve-entry.js',
@@ -51,44 +52,6 @@ function assertExists(path, label) {
   }
 }
 
-function npmCommand(args, platform = process.platform) {
-  if (platform === 'win32') {
-    return {
-      command: 'cmd.exe',
-      args: ['/d', '/s', '/c', 'npm', ...args]
-    }
-  }
-  return { command: 'npm', args }
-}
-
-function prunePackedKunDependencies(context) {
-  const root = unpackedAppRoot(context)
-  const kunDir = join(root, 'kun')
-  if (!existsSync(kunDir)) return
-
-  assertExists(join(kunDir, 'package.json'), 'managed runtime package manifest')
-  assertExists(join(kunDir, 'node_modules'), 'managed runtime node_modules')
-
-  const prune = npmCommand(['prune', '--omit=dev', '--ignore-scripts'])
-  execFileSync(prune.command, prune.args, {
-    cwd: kunDir,
-    env: {
-      ...process.env,
-      npm_config_audit: 'false',
-      npm_config_fund: 'false'
-    },
-    stdio: 'inherit'
-  })
-
-  // Keep native SQLite on the app root dependency so electron-builder's
-  // native-module rebuild owns the target arch and Electron ABI.
-  assertExists(
-    join(root, 'node_modules', 'better-sqlite3', 'package.json'),
-    'root better-sqlite3 dependency'
-  )
-  rmSync(join(kunDir, 'node_modules', 'better-sqlite3'), { recursive: true, force: true })
-}
-
 function validateBundledKunRuntime(context) {
   const root = unpackedAppRoot(context)
   for (const relativePath of MANAGED_RUNTIME_REQUIRED_PATHS) {
@@ -98,6 +61,15 @@ function validateBundledKunRuntime(context) {
     join(root, 'node_modules', 'better-sqlite3', 'package.json'),
     'root better-sqlite3 dependency'
   )
+}
+
+function activateBundledRuntimeDependencies(context) {
+  const runtimeRoot = join(unpackedAppRoot(context), 'kun')
+  const staged = join(runtimeRoot, 'runtime-deps')
+  const target = join(runtimeRoot, 'node_modules')
+  assertExists(staged, 'staged managed runtime dependencies')
+  rmSync(target, { recursive: true, force: true })
+  renameSync(staged, target)
 }
 
 function copyBundledMarkdownConverters(context) {
@@ -153,9 +125,16 @@ function maybeAdhocSignMacApp(context) {
 }
 
 async function afterPack(context) {
-  prunePackedKunDependencies(context)
+  activateBundledRuntimeDependencies(context)
   validateBundledKunRuntime(context)
   copyBundledMarkdownConverters(context)
+  const integrity = verifyAsarArchive(
+    join(packedResourcesDir(context), 'app.asar'),
+    join(__dirname, '..', 'out')
+  )
+  console.log(
+    `[after-pack] ASAR integrity passed: ${integrity.files} files, ${integrity.compiledFiles} compiled files.`
+  )
   maybeAdhocSignMacApp(context)
 }
 
@@ -165,8 +144,7 @@ module.exports._internals = {
   appBundlePath,
   packedResourcesDir,
   unpackedAppRoot,
-  npmCommand,
-  prunePackedKunDependencies,
+  activateBundledRuntimeDependencies,
   validateBundledKunRuntime,
   copyBundledMarkdownConverters,
   converterDirNameForContext,
