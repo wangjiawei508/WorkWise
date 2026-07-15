@@ -114,6 +114,7 @@ beforeEach(() => {
   toolsRoot = mkdtempSync(join(tmpdir(), 'workwise-managed-tools-'))
   process.env.WORKWISE_TOOLS_ROOT = toolsRoot
   _internals.clearReleaseCache()
+  _internals.setTargetPlatformForTests({ platform: 'darwin', arch: 'arm64' })
   _internals.setToolRunnerForTests(async (_path, args) => {
     if (args.join(' ') === 'auth status') return { ok: false, output: 'not logged in' }
     return { ok: true, output: '1.2.3' }
@@ -123,6 +124,7 @@ beforeEach(() => {
 
 afterEach(() => {
   _internals.setToolRunnerForTests()
+  _internals.setTargetPlatformForTests()
   _internals.clearReleaseCache()
   delete process.env.WORKWISE_TOOLS_ROOT
   rmSync(toolsRoot, { recursive: true, force: true })

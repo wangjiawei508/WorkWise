@@ -56,6 +56,17 @@ const OFFICE_SKILLS = [
   'officecli-word-form', 'officecli-xlsx'
 ]
 
+type ManagedToolTarget = {
+  platform: NodeJS.Platform
+  arch: NodeJS.Architecture
+}
+
+let managedToolTargetOverride: ManagedToolTarget | undefined
+
+function managedToolTarget(): ManagedToolTarget {
+  return managedToolTargetOverride ?? { platform: process.platform, arch: process.arch }
+}
+
 export function managedToolsRoot(): string {
   return resolve(process.env.WORKWISE_TOOLS_ROOT?.trim() || join(homedir(), '.workwise', 'tools'))
 }
@@ -74,14 +85,14 @@ function manifestPath(): string {
 
 function toolExecutableName(id: ManagedToolId): string {
   const base = id === 'officecli' ? 'officecli' : id === 'lark-cli' ? 'lark-cli' : 'ego-browser'
-  return process.platform === 'win32' && id !== 'ego-browser' ? `${base}.exe` : base
+  return managedToolTarget().platform === 'win32' && id !== 'ego-browser' ? `${base}.exe` : base
 }
 
 function platformAsset(
   id: Exclude<ManagedToolId, 'ego-browser'>,
   version: string,
-  targetPlatform: NodeJS.Platform = process.platform,
-  targetArch: NodeJS.Architecture = process.arch
+  targetPlatform: NodeJS.Platform = managedToolTarget().platform,
+  targetArch: NodeJS.Architecture = managedToolTarget().arch
 ): string {
   const arch = targetArch === 'arm64' ? 'arm64' : 'x64'
   if (id === 'officecli') {
@@ -245,7 +256,7 @@ async function extractAsset(id: Exclude<ManagedToolId, 'ego-browser'>, assetName
   if (id === 'officecli') {
     const path = join(target, executableName)
     await writeFile(path, bytes)
-    if (process.platform !== 'win32') await chmod(path, 0o755)
+    if (managedToolTarget().platform !== 'win32') await chmod(path, 0o755)
     return path
   }
   const archivePath = join(target, assetName)
@@ -254,7 +265,7 @@ async function extractAsset(id: Exclude<ManagedToolId, 'ego-browser'>, assetName
     const listing = await execFileAsync('tar', ['-tzf', archivePath], { timeout: 30_000, maxBuffer: 2 * 1024 * 1024 })
     assertSafeArchiveListing(listing.stdout)
     await execFileAsync('tar', ['-xzf', archivePath, '-C', target], { timeout: 30_000 })
-  } else if (assetName.endsWith('.zip') && process.platform === 'win32') {
+  } else if (assetName.endsWith('.zip') && managedToolTarget().platform === 'win32') {
     const listing = await execFileAsync('powershell', [
       '-NoProfile', '-NonInteractive', '-Command',
       'Add-Type -AssemblyName System.IO.Compression.FileSystem; $z=[IO.Compression.ZipFile]::OpenRead($args[0]); try { $z.Entries | ForEach-Object { $_.FullName } } finally { $z.Dispose() }',
@@ -271,7 +282,7 @@ async function extractAsset(id: Exclude<ManagedToolId, 'ego-browser'>, assetName
   await rm(archivePath, { force: true })
   const executable = await findFile(target, executableName)
   if (!executable) throw new Error(`Installed archive does not contain ${executableName}.`)
-  if (process.platform !== 'win32') await chmod(executable, 0o755)
+  if (managedToolTarget().platform !== 'win32') await chmod(executable, 0o755)
   return executable
 }
 
@@ -279,7 +290,7 @@ async function activateExecutable(id: Exclude<ManagedToolId, 'ego-browser'>, exe
   await mkdir(managedToolsBinDir(), { recursive: true })
   const active = join(managedToolsBinDir(), toolExecutableName(id))
   const next = `${active}.next-${randomUUID()}`
-  if (process.platform === 'win32') {
+  if (managedToolTarget().platform === 'win32') {
     await copyFile(executable, next)
     await rm(active, { force: true })
   } else {
@@ -507,7 +518,7 @@ export async function installManagedTool(id: ManagedToolId): Promise<ManagedTool
         await rm(activePath, { force: true }).catch(() => undefined)
         await mkdir(managedToolsBinDir(), { recursive: true }).catch(() => undefined)
         await copyFile(activeBackup, activePath).catch(() => undefined)
-        if (process.platform !== 'win32') await chmod(activePath, 0o755).catch(() => undefined)
+        if (managedToolTarget().platform !== 'win32') await chmod(activePath, 0o755).catch(() => undefined)
         await rm(activeBackup, { force: true }).catch(() => undefined)
       }
       throw error
@@ -590,5 +601,9 @@ export const _internals = {
   setToolRunnerForTests: (runner?: ToolRunner) => {
     if (process.env.NODE_ENV !== 'test') throw new Error('Managed tool test runner is only available in tests.')
     toolRunner = runner ?? defaultToolRunner
+  },
+  setTargetPlatformForTests: (target?: ManagedToolTarget) => {
+    if (process.env.NODE_ENV !== 'test') throw new Error('Managed tool target override is only available in tests.')
+    managedToolTargetOverride = target
   }
 }
