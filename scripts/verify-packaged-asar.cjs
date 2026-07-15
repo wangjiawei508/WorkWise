@@ -6,6 +6,10 @@ function normalizedRelative(root, path) {
   return relative(root, path).split(sep).join('/')
 }
 
+function normalizeArchiveEntry(listedPath) {
+  return listedPath.replaceAll('\\', '/').replace(/^\/+/, '')
+}
+
 function collectFiles(root, current = root, result = []) {
   const { readdirSync } = require('node:fs')
   for (const entry of readdirSync(current, { withFileTypes: true })) {
@@ -22,7 +26,7 @@ function verifyAsarArchive(archivePath, compiledOutputRoot) {
 
   let files = 0
   for (const listedPath of asar.listPackage(archive)) {
-    const entryPath = listedPath.replace(/^\//, '')
+    const entryPath = normalizeArchiveEntry(listedPath)
     if (!entryPath) continue
     const stat = asar.statFile(archive, entryPath)
     if (stat.files) continue
@@ -64,4 +68,4 @@ if (require.main === module) {
   console.log(`ASAR integrity passed: ${result.files} files, ${result.compiledFiles} compiled files.`)
 }
 
-module.exports = { verifyAsarArchive, _internals: { collectFiles, normalizedRelative } }
+module.exports = { verifyAsarArchive, _internals: { collectFiles, normalizedRelative, normalizeArchiveEntry } }

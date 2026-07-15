@@ -201,6 +201,13 @@ describe('electron-builder WorkWise packaging', () => {
     )
   })
 
+  it('normalizes Windows separators returned by the ASAR listing API', () => {
+    expect(packagedAsar._internals.normalizeArchiveEntry('\\node_modules\\better-sqlite3\\package.json'))
+      .toBe('node_modules/better-sqlite3/package.json')
+    expect(packagedAsar._internals.normalizeArchiveEntry('/out/main/index.js'))
+      .toBe('out/main/index.js')
+  })
+
   it('selects only the matching platform Markdown converter directory', () => {
     expect(afterPack._internals.converterDirNameForContext({
       electronPlatformName: 'darwin',
