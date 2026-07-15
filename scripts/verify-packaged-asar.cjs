@@ -7,7 +7,7 @@ function normalizedRelative(root, path) {
 }
 
 function normalizeArchiveEntry(listedPath) {
-  return listedPath.replaceAll('\\', '/').replace(/^\/+/, '')
+  return listedPath.split(/[\\/]+/).filter(Boolean).join(sep)
 }
 
 function collectFiles(root, current = root, result = []) {
