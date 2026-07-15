@@ -42,15 +42,16 @@ function verifyAsarArchive(archivePath, compiledOutputRoot) {
   if (compiledOutputRoot) {
     const outputRoot = resolve(compiledOutputRoot)
     for (const relativePath of collectFiles(outputRoot)) {
-      const archiveEntry = `out/${relativePath}`
+      const displayArchiveEntry = `out/${relativePath}`
+      const archiveEntry = normalizeArchiveEntry(displayArchiveEntry)
       let packaged
       try {
         packaged = asar.extractFile(archive, archiveEntry)
       } catch (error) {
-        throw new Error(`Compiled output is missing from ASAR: ${archiveEntry}: ${error instanceof Error ? error.message : String(error)}`)
+        throw new Error(`Compiled output is missing from ASAR: ${displayArchiveEntry}: ${error instanceof Error ? error.message : String(error)}`)
       }
       const local = readFileSync(join(outputRoot, ...relativePath.split('/')))
-      if (!packaged.equals(local)) throw new Error(`Compiled output differs in ASAR: ${archiveEntry}`)
+      if (!packaged.equals(local)) throw new Error(`Compiled output differs in ASAR: ${displayArchiveEntry}`)
       compiledFiles += 1
     }
   }
