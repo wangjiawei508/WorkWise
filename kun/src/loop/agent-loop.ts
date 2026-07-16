@@ -81,7 +81,8 @@ import {
   incompleteTurnContinuationInstruction,
   latestTurnAssistantText,
   looksLikeProgressOnlyReply,
-  promptRequiresFileDeliverable
+  promptRequiresFileDeliverable,
+  requiredFileExtensionsForPrompt
 } from './turn-completion-guard.js'
 
 const PARALLEL_READ_ONLY_TOOL_NAMES = new Set(['read', 'grep', 'find', 'ls'])
@@ -657,11 +658,17 @@ export class AgentLoop {
       modelCapabilities
     })
     if (stepIndex === 0) {
-      await this.opts.skillRuntime?.refresh()
+      await this.opts.skillRuntime?.refresh(thread?.workspace ?? '')
     }
+    const continuationTurn = previousWorkflowTurn(
+      thread?.turns ?? [],
+      turnId,
+      turn?.prompt ?? ''
+    )
     const skillResolution = this.opts.skillRuntime?.resolveTurn({
       prompt: turn?.prompt ?? '',
-      workspace: thread?.workspace ?? ''
+      workspace: thread?.workspace ?? '',
+      preferredSkillIds: continuationTurn?.activeSkillIds
     }) ?? {
       activeSkillIds: [],
       activations: [],
@@ -677,13 +684,18 @@ export class AgentLoop {
     })
     const planTurnActive = effectiveMode === 'plan' || Boolean(activePlanContext)
     const turnPrompt = turn?.prompt || latestUserMessageText(healed.items, turnId)
-    const requiresFileDeliverable = !planTurnActive && promptRequiresFileDeliverable(turnPrompt)
-    const hasFileDeliverable = hasSuccessfulFileDeliverable(healed.items, turnId)
+    const workflowPrompt = continuationTurn?.prompt
+      ? `${continuationTurn.prompt}\n${turnPrompt}`
+      : turnPrompt
+    const requiresFileDeliverable = !planTurnActive && promptRequiresFileDeliverable(workflowPrompt)
+    const requiredFileExtensions = requiredFileExtensionsForPrompt(workflowPrompt)
+    const hasFileDeliverable = hasSuccessfulFileDeliverable(healed.items, turnId, workflowPrompt)
     const completionRecoveryInstruction = stepIndex > 0
       ? incompleteTurnContinuationInstruction({
           requiresFileDeliverable,
           hasFileDeliverable,
-          previousAssistantText: latestTurnAssistantText(healed.items, turnId)
+          previousAssistantText: latestTurnAssistantText(healed.items, turnId),
+          ...(requiredFileExtensions ? { requiredFileExtensions } : {})
         })
       : null
     const activeGoalInstruction = planTurnActive
@@ -2185,6 +2197,34 @@ function normalizeSandboxMode(
     default:
       return DEFAULT_SANDBOX_MODE
   }
+}
+
+function previousWorkflowTurn(
+  turns: ReadonlyArray<{ id: string; prompt: string; activeSkillIds: readonly string[] }>,
+  currentTurnId: string,
+  currentPrompt: string
+): { prompt: string; activeSkillIds: readonly string[] } | undefined {
+  if (!isWorkflowContinuationPrompt(currentPrompt)) return undefined
+  const currentIndex = turns.findIndex((candidate) => candidate.id === currentTurnId)
+  const endIndex = currentIndex >= 0 ? currentIndex : turns.length
+  for (let index = endIndex - 1; index >= 0; index -= 1) {
+    const candidate = turns[index]
+    if (!candidate?.prompt.trim()) continue
+    return {
+      prompt: candidate.prompt,
+      activeSkillIds: candidate.activeSkillIds
+    }
+  }
+  return undefined
+}
+
+function isWorkflowContinuationPrompt(prompt: string): boolean {
+  const normalized = prompt.replace(/\s+/g, ' ').trim()
+  if (!normalized || normalized.length > 120) return false
+  if (/(?:取消|停止|暂停|不要|不用|换个|换一|cancel|stop|pause|instead)/i.test(normalized)) {
+    return false
+  }
+  return /(?:确认|可以|同意|没问题|就这样|开始执行|开始生成|继续|按这个|照这个|执行吧|go ahead|proceed|continue|approved?)/i.test(normalized)
 }
 
 function isAdditiveToolCatalogChange(previous: ToolCatalogSnapshot, current: ToolCatalogSnapshot): boolean {

@@ -223,7 +223,12 @@ export function WriteWorkspaceView({
       setFileError(t('writePptMasterUnavailable'))
       return
     }
-    const result = await window.workwise.installBundledSkill('~/.workwise/tools/skills', {
+    if (!workspaceReady) {
+      await pickWriteWorkspace()
+      return
+    }
+    const root = rootDirectory || workspaceRoot
+    const result = await window.workwise.installBundledSkill(writeJoinPath(root, '.agents/skills'), {
       id: 'ppt-master',
       skillName: 'ppt-master'
     })

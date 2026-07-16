@@ -784,7 +784,7 @@ function bundledSkillRootCandidates(): string[] {
   ])
 }
 
-function resolveBundledSkillDirectory(bundleId: string): string | null {
+export function resolveBundledSkillDirectory(bundleId: string): string | null {
   for (const root of bundledSkillRootCandidates()) {
     const candidate = join(root, bundleId)
     if (existsSync(join(candidate, 'SKILL.md')) || existsSync(join(candidate, 'skill.json'))) {

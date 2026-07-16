@@ -17,6 +17,15 @@ const PROGRESS_ONLY_PATTERN =
 const DELIVERED_RESULT_PATTERN =
   /(?:文档|文件|报告|方案|表格|PPT|PDF|Word|Excel|Markdown).{0,24}(?:已完成|已生成|已创建|已保存|已写入|已导出)|(?:已完成|已生成|已创建|已保存|已写入|已导出).{0,24}(?:文档|文件|报告|方案|表格|PPT|PDF|Word|Excel|Markdown)|(?:document|file|report|spreadsheet|presentation).{0,40}(?:completed|created|generated|saved|written|exported)/i
 
+const PPT_DELIVERABLE_PATTERN =
+  /(?:\bpptx?\b|powerpoint|slide deck|presentation|演示文稿|幻灯片|做\s*PPT|生成\s*PPT|PPT\s*Master)/i
+
+const PPT_SPECIFIC_DELIVERABLE_PATTERN =
+  /(?:\bpptx?\b|powerpoint|slide deck|演示文稿|幻灯片|做\s*PPT|生成\s*PPT|PPT\s*Master)/i
+
+const HTML_DELIVERABLE_PATTERN =
+  /(?:\bhtml?\b|网页演示|web presentation|browser presentation)/i
+
 function pathExtension(value: string): string {
   const name = value.split(/[\\/]/).filter(Boolean).at(-1) ?? value
   if (!name.includes('.')) return ''
@@ -52,13 +61,31 @@ export function promptRequiresFileDeliverable(prompt: string): boolean {
   return DELIVERY_ACTION_PATTERN.test(normalized) || EXPLICIT_FILE_PATTERN.test(normalized)
 }
 
-export function hasSuccessfulFileDeliverable(items: readonly TurnItem[], turnId: string): boolean {
+export function requiredFileExtensionsForPrompt(prompt: string): readonly string[] | undefined {
+  if (HTML_DELIVERABLE_PATTERN.test(prompt) && !PPT_SPECIFIC_DELIVERABLE_PATTERN.test(prompt)) {
+    return undefined
+  }
+  if (PPT_DELIVERABLE_PATTERN.test(prompt)) return ['ppt', 'pptx']
+  return undefined
+}
+
+export function hasSuccessfulFileDeliverable(
+  items: readonly TurnItem[],
+  turnId: string,
+  prompt = ''
+): boolean {
+  const requiredExtensions = requiredFileExtensionsForPrompt(prompt)
   return items.some((item) =>
     item.turnId === turnId &&
     item.kind === 'tool_result' &&
     item.status === 'completed' &&
     item.isError !== true &&
-    outputPaths(item.output).some((path) => DELIVERABLE_EXTENSIONS.has(pathExtension(path)))
+    outputPaths(item.output).some((path) => {
+      const extension = pathExtension(path)
+      return requiredExtensions
+        ? requiredExtensions.includes(extension)
+        : DELIVERABLE_EXTENSIONS.has(extension)
+    })
   )
 }
 
@@ -83,13 +110,18 @@ export function incompleteTurnContinuationInstruction(input: {
   requiresFileDeliverable: boolean
   hasFileDeliverable: boolean
   previousAssistantText: string
+  requiredFileExtensions?: readonly string[]
 }): string | null {
   if (input.requiresFileDeliverable && !input.hasFileDeliverable) {
+    const requiredTypeInstruction = input.requiredFileExtensions?.length
+      ? `The requested deliverable must be a ${input.requiredFileExtensions.map((extension) => `.${extension}`).join(' or ')} file. HTML, an outline, or a preview alone does not satisfy this request.`
+      : ''
     return [
       'The user explicitly requested a file deliverable, but this turn has not produced one yet.',
+      requiredTypeInstruction,
       'Continue the task now. Use an available file-writing tool to save the completed deliverable inside the workspace.',
       'Do not stop after announcing what you will do. After writing the file, verify it and give its exact path.'
-    ].join(' ')
+    ].filter(Boolean).join(' ')
   }
   if (looksLikeProgressOnlyReply(input.previousAssistantText)) {
     return [
