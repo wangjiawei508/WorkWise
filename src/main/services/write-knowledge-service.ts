@@ -4,7 +4,11 @@ import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 import type { WriteKnowledgeBaseSettingsV1 } from '../../shared/app-settings'
 import type { WriteInlineCompletionRequest } from '../../shared/write-inline-completion'
-import type { WriteKnowledgeBaseStatus } from '../../shared/workwise-api'
+import type {
+  WriteKnowledgeBaseStatus,
+  WriteKnowledgeSearchResult,
+  WriteKnowledgeSnippet as SharedWriteKnowledgeSnippet
+} from '../../shared/workwise-api'
 import { atomicWriteFile as durableWriteFile } from './durable-file'
 
 const INDEX_TTL_MS = 6 * 60 * 60 * 1_000
@@ -12,16 +16,11 @@ const API_HEALTH_TTL_MS = 5 * 60 * 1_000
 const API_TIMEOUT_MS = 1_200
 const STATIC_TIMEOUT_MS = 2_500
 const MAX_RESULTS = 3
+const MAX_EXPLICIT_SEARCH_RESULTS = 24
 const PAGE_TTL_MS = 24 * 60 * 60 * 1_000
 const MAX_PAGE_CACHE_BYTES = 20 * 1024 * 1024
 
-export type WriteKnowledgeSnippet = {
-  title: string
-  url: string
-  text: string
-  score: number
-  source: 'railwise-api' | 'railwise-static'
-}
+export type WriteKnowledgeSnippet = SharedWriteKnowledgeSnippet
 
 export type WriteKnowledgeContext = {
   source: 'api' | 'static' | 'stale-cache' | 'unavailable'
@@ -180,6 +179,32 @@ function rankStaticEntries(entries: StaticEntry[], keywords: string[]): Array<{ 
     }
     return { entry, score }
   }).sort((a, b) => b.score - a.score)
+}
+
+function isKnowledgeListQuery(query: string): boolean {
+  return /(哪些|什么|有什么|多少|列表|目录|分类|包含|全部|所有)/u.test(query)
+}
+
+function categorySummary(entries: StaticEntry[]): Array<{ name: string; count: number }> {
+  const counts = new Map<string, number>()
+  for (const entry of entries) {
+    const name = entry.type || '未分类'
+    counts.set(name, (counts.get(name) ?? 0) + 1)
+  }
+  return [...counts.entries()]
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+    .map(([name, count]) => ({ name, count }))
+}
+
+function staticSnippet(entry: StaticEntry, score: number): WriteKnowledgeSnippet {
+  return {
+    title: entry.title,
+    url: entry.url,
+    text: [entry.type, entry.summary, pageCache.get(entry.url)?.text]
+      .filter(Boolean).join(' · ').slice(0, 1_800),
+    score,
+    source: 'railwise-static'
+  }
 }
 
 async function fetchStaticIndex(settings: WriteKnowledgeBaseSettingsV1): Promise<StaticCache | null> {
@@ -349,6 +374,71 @@ export async function retrieveWriteKnowledgeContext(
   return result
 }
 
+/** Explicit RailWise search for the Write assistant conversation. */
+export async function searchWriteKnowledge(
+  query: string,
+  settings: WriteKnowledgeBaseSettingsV1
+): Promise<WriteKnowledgeSearchResult> {
+  const normalizedQuery = query.trim().slice(0, 800)
+  const keywords = tokenize(normalizedQuery, 24)
+  if (!settings.enabled || keywords.length === 0) {
+    return { source: 'unavailable', keywords, snippets: [] }
+  }
+
+  const listQuery = isKnowledgeListQuery(normalizedQuery)
+  if (!listQuery) {
+    const api = await searchApi(settings, keywords)
+    if (api?.length) {
+      return {
+        source: 'api',
+        keywords,
+        snippets: api.map((item) => ({
+          title: item.title,
+          url: item.url,
+          text: item.snippet.slice(0, 1_800),
+          score: item.score,
+          source: 'railwise-api'
+        }))
+      }
+    }
+  }
+
+  const cache = await fetchStaticIndex(settings)
+  if (cache) {
+    const ranked = listQuery
+      ? cache.entries.map((entry, index) => ({ entry, score: Math.max(0, cache.entries.length - index) }))
+      : rankStaticEntries(cache.entries, keywords).filter((candidate) => candidate.score > 0)
+    const snippets = ranked
+      .slice(0, listQuery ? MAX_EXPLICIT_SEARCH_RESULTS : MAX_RESULTS)
+      .map(({ entry, score }) => staticSnippet(entry, score))
+    for (const snippet of snippets.slice(0, 2)) void refreshPageBody(snippet.url, settings)
+    return {
+      source: Date.now() - cache.fetchedAt > INDEX_TTL_MS ? 'stale-cache' : 'static',
+      keywords,
+      snippets,
+      totalEntries: cache.entries.length,
+      ...(listQuery ? { categories: categorySummary(cache.entries) } : {}),
+      refreshedAt: new Date(cache.fetchedAt).toISOString()
+    }
+  }
+
+  const api = await searchApi(settings, keywords)
+  if (api?.length) {
+    return {
+      source: 'api',
+      keywords,
+      snippets: api.map((item) => ({
+        title: item.title,
+        url: item.url,
+        text: item.snippet.slice(0, 1_800),
+        score: item.score,
+        source: 'railwise-api'
+      }))
+    }
+  }
+  return { source: 'unavailable', keywords, snippets: [] }
+}
+
 export function getWriteKnowledgeBaseStatus(
   settings: WriteKnowledgeBaseSettingsV1
 ): WriteKnowledgeBaseStatus {
@@ -387,4 +477,13 @@ export function clearWriteKnowledgeCache(): void {
   lastContext = null
 }
 
-export const _internals = { parseStaticIndex, validApiResults, tokenize, scoreEntry, rankStaticEntries, pageTextFromHtml }
+export const _internals = {
+  parseStaticIndex,
+  validApiResults,
+  tokenize,
+  scoreEntry,
+  rankStaticEntries,
+  pageTextFromHtml,
+  isKnowledgeListQuery,
+  categorySummary
+}

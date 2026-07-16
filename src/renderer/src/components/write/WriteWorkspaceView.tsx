@@ -824,6 +824,7 @@ if (typeof window.workwise?.installBundledSkill !== 'function') {
         onExportFile={(format) => void exportCurrentFile(format)}
         onGenerateImage={() => setAgnesImageDialogOpen(true)}
         onGeneratePresentation={() => void preparePptMaster()}
+        onAskKnowledgeBase={() => setAssistantPrompt(t('writeKnowledgeBaseAskPrompt'))}
         knowledgeBaseEnabled={knowledgeBase.enabled}
         onPickWorkspace={() => void pickWriteWorkspace()}
         onSave={() => {

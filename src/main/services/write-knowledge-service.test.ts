@@ -8,7 +8,8 @@ import type { WriteInlineCompletionRequest } from '../../shared/write-inline-com
 import {
   buildKnowledgeQuery,
   clearWriteKnowledgeCache,
-  retrieveWriteKnowledgeContext
+  retrieveWriteKnowledgeContext,
+  searchWriteKnowledge
 } from './write-knowledge-service'
 
 function request(): WriteInlineCompletionRequest {
@@ -105,5 +106,25 @@ describe('write-knowledge-service', () => {
     expect(keywords.length).toBeLessThanOrEqual(12)
     expect(keywords.join(' ')).not.toContain('客户')
     expect(keywords.join(' ')).not.toContain('方案.md')
+  })
+
+  it('returns a directory and category summary for explicit KB list questions', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response([
+      '# RailWise Knowledge Base Full Index',
+      '- [工程监测](https://kb.railwise.cn/monitoring) (工程监测) - 工程监测知识。',
+      '- [AI 工具](https://kb.railwise.cn/ai) (AI指南) - AI 工具知识。',
+      '- [项目案例](https://kb.railwise.cn/case) (案例) - 案例知识。'
+    ].join('\n'), { status: 200 })))
+
+    const result = await searchWriteKnowledge('RailWise KB 中有哪些知识库？', defaultWriteSettings().knowledgeBase)
+
+    expect(result.source).toBe('static')
+    expect(result.totalEntries).toBe(3)
+    expect(result.snippets).toHaveLength(3)
+    expect(result.categories).toEqual(expect.arrayContaining([
+      { name: '工程监测', count: 1 },
+      { name: 'AI指南', count: 1 },
+      { name: '案例', count: 1 }
+    ]))
   })
 })

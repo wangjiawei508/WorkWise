@@ -68,6 +68,7 @@ import {
   writeRichClipboardPayloadSchema,
   writeInfographicPayloadSchema,
   writeInlineCompletionPayloadSchema,
+  writeKnowledgeSearchPayloadSchema,
   workspaceRootSchema
 } from './app-ipc-schemas'
 import type { JsonSettingsStore } from '../settings-store'
@@ -99,7 +100,7 @@ import {
   requestWriteInlineCompletion
 } from '../services/write-inline-completion-service'
 import { requestWriteInfographic } from '../services/write-infographic-service'
-import { refreshWriteKnowledgeBase } from '../services/write-knowledge-service'
+import { refreshWriteKnowledgeBase, searchWriteKnowledge } from '../services/write-knowledge-service'
 import { copyWriteDocumentAsRichText, exportWriteDocument } from '../services/write-export-service'
 import { generateAgnesImage } from '../services/write-agnes-image-service'
 import {
@@ -994,6 +995,11 @@ export function registerAppIpcHandlers(options: RegisterAppIpcHandlersOptions): 
   ipcMain.handle('write:knowledge-base:refresh', async () => {
     const settings = await store.load()
     return refreshWriteKnowledgeBase(settings.write.knowledgeBase)
+  })
+  ipcMain.handle('write:knowledge-base:search', async (_, payload: unknown) => {
+    const settings = await store.load()
+    const { query } = parseIpcPayload('write:knowledge-base:search', writeKnowledgeSearchPayloadSchema, payload)
+    return searchWriteKnowledge(query, settings.write.knowledgeBase)
   })
   ipcMain.handle('desktop:command', async (event, command: unknown) => {
     runDesktopCommand(

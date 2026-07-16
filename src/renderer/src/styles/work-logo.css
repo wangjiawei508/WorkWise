@@ -90,7 +90,7 @@
 }
 
 .ds-claw-empty-work-logo.ds-work-logo {
-  transform: translateZ(0) scale(2.35);
+  transform: translateZ(0) scale(1.2);
 }
 
 .ds-work-logo::after {
@@ -136,11 +136,28 @@
 }
 
 .ds-work-logo-image {
-  filter: drop-shadow(0 4px 8px var(--work-logo-glow));
+  /* Keep the small activity mark crisp. The old stacked glow/echo layers
+     produced jagged ghost strokes on some Chromium/Electron GPUs. */
+  filter: none;
 }
 
 .ds-work-logo.is-active .ds-work-logo-image {
   clip-path: none;
+}
+
+/* The activity mark is intentionally a single logo now. The surrounding
+   signal/orbit decorations were attractive at large sizes but turned into
+   three noisy, serrated shapes at the 15–26px sizes used by the timeline and
+   wake screen. Keep their selectors and keyframes below for compatibility,
+   while preventing them from being painted. */
+.ds-work-logo-echo,
+.ds-work-logo-halo,
+.ds-work-logo-orbit,
+.ds-work-logo-signal,
+.ds-work-logo-node,
+.ds-work-logo-scan,
+.ds-work-logo-spark {
+  display: none;
 }
 
 .ds-work-logo-echo {
@@ -343,7 +360,7 @@
 }
 
 .ds-runtime-wake-logo.ds-work-logo {
-  transform: translateZ(0) scale(2.08);
+  transform: translateZ(0) scale(1.35);
   z-index: 2;
 }
 

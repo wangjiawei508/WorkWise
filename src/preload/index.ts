@@ -125,6 +125,7 @@ const api = {
     ipcRenderer.invoke('write:inline-completion-debug:clear'),
   getWriteKnowledgeBaseStatus: () => ipcRenderer.invoke('write:knowledge-base:status'),
   refreshWriteKnowledgeBase: () => ipcRenderer.invoke('write:knowledge-base:refresh'),
+  searchWriteKnowledge: (query) => ipcRenderer.invoke('write:knowledge-base:search', { query }),
   startSse: (threadId, sinceSeq, streamId) =>
     ipcRenderer.invoke('runtime:sse:start', { threadId, sinceSeq, streamId }),
   stopSse: (streamId) => ipcRenderer.invoke('runtime:sse:stop', streamId),

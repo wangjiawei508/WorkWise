@@ -14,7 +14,7 @@ import {
   resolveKeyboardShortcutBindings,
   type KeyboardShortcutCommandId
 } from '@shared/keyboard-shortcuts'
-import type { DesktopCommand, SkillListItem } from '@shared/workwise-api'
+import type { DesktopCommand, SkillListItem, WriteKnowledgeSearchResult } from '@shared/workwise-api'
 import type { ClipboardImageReadResult } from '@shared/workspace-file'
 import type { AttachmentReference, ChatBlock } from '../agent/types'
 import type { CoreRuntimeInfoJson, CoreRuntimeSkillJson } from '../agent/runtime-contract'
@@ -954,12 +954,19 @@ export function Workbench(): ReactElement {
     }
 
     const savedState = useWriteWorkspaceStore.getState()
+    let knowledge: WriteKnowledgeSearchResult | undefined
+    if (savedState.knowledgeBase.enabled && typeof window.workwise?.searchWriteKnowledge === 'function') {
+      knowledge = await Promise.race([
+        window.workwise.searchWriteKnowledge(v).catch(() => undefined),
+        new Promise<undefined>((resolve) => window.setTimeout(() => resolve(undefined), 4_000))
+      ])
+    }
     const prompt = composeWritePrompt(v, quoteSnapshot, {
       workspaceRoot: writeWorkspaceRoot,
       activeFilePath: savedState.activeFilePath,
       contentHash: writeContentHash(savedState.fileContent),
       saveRevision: savedState.saveRevision
-    })
+    }, knowledge)
     const threadId = await ensureWriteThreadForWorkspace(writeWorkspaceRoot, savedState.activeFilePath)
     if (!threadId) return
 

@@ -119,6 +119,28 @@ type PendingToolCall = {
   name?: string
   arguments: string
 }
+
+/**
+ * Providers usually send a delta, but a few OpenAI-compatible gateways send
+ * the complete text seen so far on every SSE frame. Appending those frames as
+ * if they were deltas produces visible repetition such as “当前当前” or
+ * “RailWiseWise”. Keep the public stream contract delta-based while accepting
+ * either wire format.
+ */
+function appendProviderText(previous: string, incoming: string): { next: string; delta: string } {
+  if (!incoming) return { next: previous, delta: '' }
+  if (!previous) return { next: incoming, delta: incoming }
+  if (incoming === previous) return { next: previous, delta: '' }
+
+  // Cumulative streams repeat the complete prefix. Require at least two
+  // characters so a one-character token that happens to start with the
+  // previous token is not mistaken for a snapshot.
+  if (previous.length >= 2 && incoming.startsWith(previous)) {
+    return { next: incoming, delta: incoming.slice(previous.length) }
+  }
+
+  return { next: previous + incoming, delta: incoming }
+}
 type StreamReadResult =
   | { kind: 'chunk'; value?: Uint8Array; done: boolean }
   | { kind: 'timeout' }
@@ -807,13 +829,19 @@ export class DeepseekCompatModelClient implements ModelClient {
       if (delta && typeof delta === 'object') {
         const content = delta.content
         if (typeof content === 'string' && content.length > 0) {
-          text += content
-          chunks.push({ kind: 'assistant_text_delta', text: content })
+          const normalized = appendProviderText(text, content)
+          text = normalized.next
+          if (normalized.delta) {
+            chunks.push({ kind: 'assistant_text_delta', text: normalized.delta })
+          }
         }
         const reasoningContent = delta.reasoning_content ?? delta.reasoning
         if (typeof reasoningContent === 'string' && reasoningContent.length > 0) {
-          reasoning += reasoningContent
-          chunks.push({ kind: 'assistant_reasoning_delta', text: reasoningContent })
+          const normalized = appendProviderText(reasoning, reasoningContent)
+          reasoning = normalized.next
+          if (normalized.delta) {
+            chunks.push({ kind: 'assistant_reasoning_delta', text: normalized.delta })
+          }
         }
         const toolCalls = delta.tool_calls as
           | {
@@ -919,8 +947,11 @@ export class DeepseekCompatModelClient implements ModelClient {
     if (type === 'response.output_text.delta') {
       const delta = recordString(payload, 'delta')
       if (delta) {
-        text += delta
-        chunks.push({ kind: 'assistant_text_delta', text: delta })
+        const normalized = appendProviderText(text, delta)
+        text = normalized.next
+        if (normalized.delta) {
+          chunks.push({ kind: 'assistant_text_delta', text: normalized.delta })
+        }
       }
     } else if (
       type === 'response.reasoning_text.delta' ||
@@ -929,8 +960,11 @@ export class DeepseekCompatModelClient implements ModelClient {
     ) {
       const delta = recordString(payload, 'delta')
       if (delta) {
-        reasoning += delta
-        chunks.push({ kind: 'assistant_reasoning_delta', text: delta })
+        const normalized = appendProviderText(reasoning, delta)
+        reasoning = normalized.next
+        if (normalized.delta) {
+          chunks.push({ kind: 'assistant_reasoning_delta', text: normalized.delta })
+        }
       }
     } else if (type === 'response.function_call_arguments.delta') {
       const callId = responseStreamCallId(payload, pendingArguments, pendingByIndex)
@@ -1025,14 +1059,20 @@ export class DeepseekCompatModelClient implements ModelClient {
       if (deltaType === 'text_delta') {
         const value = recordString(delta, 'text')
         if (value) {
-          text += value
-          chunks.push({ kind: 'assistant_text_delta', text: value })
+          const normalized = appendProviderText(text, value)
+          text = normalized.next
+          if (normalized.delta) {
+            chunks.push({ kind: 'assistant_text_delta', text: normalized.delta })
+          }
         }
       } else if (deltaType === 'thinking_delta') {
         const value = recordString(delta, 'thinking')
         if (value) {
-          reasoning += value
-          chunks.push({ kind: 'assistant_reasoning_delta', text: value })
+          const normalized = appendProviderText(reasoning, value)
+          reasoning = normalized.next
+          if (normalized.delta) {
+            chunks.push({ kind: 'assistant_reasoning_delta', text: normalized.delta })
+          }
         }
       } else if (deltaType === 'input_json_delta') {
         const callId = anthropicStreamCallId(index, pendingArguments, pendingByIndex)
