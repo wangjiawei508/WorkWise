@@ -62,4 +62,27 @@ describe('weixin bridge runtime', () => {
     expect(webhookGeneratedFiles({ ok: true, reply: 'no files' })).toEqual([])
     expect(webhookGeneratedFiles({ files: 'not-an-array' })).toEqual([])
   })
+
+  it('retries transient WeChat delivery failures and returns the successful result', async () => {
+    const operation = vi.fn()
+      .mockRejectedValueOnce(new Error('temporary network failure'))
+      .mockRejectedValueOnce(new Error('temporary gateway failure'))
+      .mockResolvedValueOnce({ messageId: 'delivered' })
+
+    await expect(
+      weixinBridgeRuntimeInternals.retryWithDelays(operation, [0, 0, 0])
+    ).resolves.toEqual({ messageId: 'delivered' })
+    expect(operation).toHaveBeenCalledTimes(3)
+  })
+
+  it('surfaces the last WeChat delivery error after all retries fail', async () => {
+    const operation = vi.fn()
+      .mockRejectedValueOnce(new Error('first failure'))
+      .mockRejectedValueOnce(new Error('final failure'))
+
+    await expect(
+      weixinBridgeRuntimeInternals.retryWithDelays(operation, [0, 0])
+    ).rejects.toThrow('final failure')
+    expect(operation).toHaveBeenCalledTimes(2)
+  })
 })

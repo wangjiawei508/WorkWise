@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { friendlyMarketplaceError, marketplaceText } from './PluginMarketplaceView'
+import {
+  friendlyMarketplaceError,
+  managedToolStatusIsInstalled,
+  marketplaceText
+} from './PluginMarketplaceView'
 
 const missing = (key: string): string => key
 
@@ -19,5 +23,17 @@ describe('plugin marketplace localization fallbacks', () => {
     expect(friendlyMarketplaceError('TypeError: fetch failed', missing)).toContain(
       'could not be reached'
     )
+  })
+
+  it('keeps installed CLIs visible when login or a health check needs attention', () => {
+    expect(managedToolStatusIsInstalled({ id: 'lark-cli', state: 'needs_login' })).toBe(true)
+    expect(managedToolStatusIsInstalled({
+      id: 'officecli',
+      state: 'error',
+      executablePath: '/tools/bin/officecli',
+      message: 'health check failed'
+    })).toBe(true)
+    expect(managedToolStatusIsInstalled({ id: 'ego-browser', state: 'needs_external_app' })).toBe(false)
+    expect(managedToolStatusIsInstalled({ id: 'officecli', state: 'not_installed' })).toBe(false)
   })
 })

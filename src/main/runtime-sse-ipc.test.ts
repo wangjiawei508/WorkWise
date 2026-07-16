@@ -75,6 +75,15 @@ describe('runtime SSE IPC lifecycle', () => {
     await expect(harness.stop('stable-stream')).resolves.toBe(true)
   })
 
+  it('retires a stale stream with a different id when the same window subscribes again', async () => {
+    const harness = createHarness()
+
+    await expect(harness.start('stale-stream')).resolves.toEqual({ streamId: 'stale-stream' })
+    await expect(harness.start('current-stream')).resolves.toEqual({ streamId: 'current-stream' })
+    await expect(harness.stop('stale-stream')).resolves.toBe(false)
+    await expect(harness.stop('current-stream')).resolves.toBe(true)
+  })
+
   it('releases the stream slot when its renderer window is cancelled', async () => {
     const harness = createHarness()
 

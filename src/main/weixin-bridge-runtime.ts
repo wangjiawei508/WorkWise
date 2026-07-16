@@ -29,6 +29,10 @@ const DEFAULT_LONG_POLL_TIMEOUT_MS = 35_000
 const DEFAULT_API_TIMEOUT_MS = 15_000
 const RETRY_DELAY_MS = 2_000
 const BACKOFF_DELAY_MS = 30_000
+const WEIXIN_SEND_RETRY_DELAYS_MS = [0, 750, 2_000] as const
+const WEIXIN_SLOW_REPLY_NOTICE_MS = 8_000
+const WEIXIN_SLOW_REPLY_TEXT = '收到，正在处理，请稍候…'
+const WEIXIN_FAILED_REPLY_TEXT = '这次处理没有成功，请稍后重试。'
 const MessageType = {
   BOT: 2
 } as const
@@ -732,7 +736,7 @@ async function getUpdates(
 }
 
 function generateMessageId(): string {
-  return `kun-weixin-${randomUUID()}`
+  return `workwise-weixin-${randomUUID()}`
 }
 
 async function sendMessageWeixin(params: {
@@ -765,6 +769,27 @@ async function sendMessageWeixin(params: {
     }
   )
   return { messageId }
+}
+
+async function retryWithDelays<T>(
+  operation: () => Promise<T>,
+  delaysMs: readonly number[] = WEIXIN_SEND_RETRY_DELAYS_MS
+): Promise<T> {
+  const attempts = delaysMs.length > 0 ? delaysMs : [0]
+  let lastError: unknown = new Error('Operation failed without an error.')
+  for (const delayMs of attempts) {
+    if (delayMs > 0) await sleep(delayMs)
+    try {
+      return await operation()
+    } catch (error) {
+      lastError = error
+    }
+  }
+  throw lastError
+}
+
+async function sendMessageWeixinWithRetry(params: Parameters<typeof sendMessageWeixin>[0]): Promise<{ messageId: string }> {
+  return retryWithDelays(() => sendMessageWeixin(params))
 }
 
 function textFromItemList(itemList: unknown): string {
@@ -882,7 +907,7 @@ async function sendGeneratedFilesWeixin(
         filePath: file.path,
         message: error instanceof Error ? error.message : String(error)
       })
-      await sendMessageWeixin({
+      await sendMessageWeixinWithRetry({
         account,
         to,
         text: `文件 ${file.fileName} 发送失败，请稍后再试。`,
@@ -942,10 +967,30 @@ async function monitorWeixinAccount(accountId: string, signal: AbortSignal): Pro
   const dispatchToSender = (message: WeixinMessage, to: string, contextToken: string | undefined): void => {
     const task = async (): Promise<void> => {
       if (signal.aborted) return
-      const result = await postToWorkWiseWebhook(message, account.accountId)
+      const slowReply = { promise: null as Promise<void> | null }
+      const slowReplyTimer = setTimeout(() => {
+        slowReply.promise = sendMessageWeixinWithRetry({
+          account,
+          to,
+          text: WEIXIN_SLOW_REPLY_TEXT,
+          contextToken
+        }).then(() => undefined).catch((error) => {
+          logWarn('weixin-bridge', 'Failed to send WeChat processing notice.', {
+            accountId: account.accountId,
+            message: error instanceof Error ? error.message : String(error)
+          })
+        })
+      }, WEIXIN_SLOW_REPLY_NOTICE_MS)
+      let result: JsonRecord
+      try {
+        result = await postToWorkWiseWebhook(message, account.accountId)
+      } finally {
+        clearTimeout(slowReplyTimer)
+      }
+      if (slowReply.promise) await slowReply.promise
       const reply = recordString(result, 'reply') || recordString(result, 'text')
       if (reply) {
-        await sendMessageWeixin({
+        await sendMessageWeixinWithRetry({
           account,
           to,
           text: reply,
@@ -958,10 +1003,22 @@ async function monitorWeixinAccount(accountId: string, signal: AbortSignal): Pro
     }
     const chained = (senderChains.get(to) ?? Promise.resolve())
       .then(task)
-      .catch((error) => {
+      .catch(async (error) => {
         logWarn('weixin-bridge', 'WeChat message dispatch failed.', {
           accountId: account.accountId,
           message: error instanceof Error ? error.message : String(error)
+        })
+        if (signal.aborted) return
+        await sendMessageWeixinWithRetry({
+          account,
+          to,
+          text: WEIXIN_FAILED_REPLY_TEXT,
+          contextToken
+        }).catch((sendError) => {
+          logWarn('weixin-bridge', 'Failed to send WeChat failure notice.', {
+            accountId: account.accountId,
+            message: sendError instanceof Error ? sendError.message : String(sendError)
+          })
         })
       })
     senderChains.set(to, chained)
@@ -1225,7 +1282,7 @@ export async function sendWeixinBridgeMessage(options: {
       return { ok: false as const, message: 'WeChat account is not configured.' }
     }
     await restoreContextTokens(account.accountId)
-    const result = await sendMessageWeixin({
+    const result = await sendMessageWeixinWithRetry({
       account,
       to,
       text,
@@ -1256,5 +1313,6 @@ export function stopWeixinBridgeRuntime(): void {
 export const weixinBridgeRuntimeInternals = {
   buildBaseInfo,
   normalizeAccountId,
+  retryWithDelays,
   webhookGeneratedFiles
 }

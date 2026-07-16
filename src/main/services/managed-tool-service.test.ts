@@ -192,7 +192,14 @@ describe('managed-tool-service', () => {
     expect(existsSync(join(managedToolsSkillRoot(), 'lark-doc', 'SKILL.md'))).toBe(true)
     expect(existsSync(join(managedToolsSkillRoot(), 'officecli-pptx', 'SKILL.md'))).toBe(true)
 
-    await expect(listManagedTools()).resolves.toMatchObject({ ok: true })
+    await expect(listManagedTools()).resolves.toMatchObject({
+      ok: true,
+      tools: [
+        { id: 'lark-cli', state: 'needs_login', installedVersion: '1.2.3' },
+        { id: 'officecli', state: 'installed', installedVersion: '1.2.3' },
+        { id: 'ego-browser', state: 'needs_external_app' }
+      ]
+    })
     await expect(removeManagedTool('lark-cli')).resolves.toMatchObject({ status: { state: 'not_installed' } })
     await expect(removeManagedTool('officecli')).resolves.toMatchObject({ status: { state: 'not_installed' } })
     expect(existsSync(join(toolsRoot, 'manifest.json'))).toBe(true)

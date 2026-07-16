@@ -197,18 +197,16 @@ export function WriteWorkspaceToolbar({
             <button
               type="button"
               onClick={onGenerateImage}
-              disabled={!activeFilePath || !activeFileIsText || readOnly}
-              className={`${toolbarIconButtonClass()} disabled:cursor-not-allowed disabled:opacity-40`}
-              title={readOnly ? t('writeReadOnlySaveDisabled') : t('writeAgnesImageGenerate')}
-              aria-label={readOnly ? t('writeReadOnlySaveDisabled') : t('writeAgnesImageGenerate')}
+              className={toolbarIconButtonClass()}
+              title={t('writeAgnesImageGenerate')}
+              aria-label={t('writeAgnesImageGenerate')}
             >
               <ImagePlus className="h-4 w-4" strokeWidth={1.85} />
             </button>
             <button
               type="button"
               onClick={onGeneratePresentation}
-              disabled={!activeFilePath || !activeFileIsText}
-              className={`${toolbarIconButtonClass()} disabled:cursor-not-allowed disabled:opacity-40`}
+              className={toolbarIconButtonClass()}
               title={t('writeGeneratePpt')}
               aria-label={t('writeGeneratePpt')}
             >

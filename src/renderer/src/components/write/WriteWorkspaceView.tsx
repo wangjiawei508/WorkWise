@@ -202,15 +202,15 @@ export function WriteWorkspaceView({
     setExportNotice(notice)
   }
 
-  const createDraftFile = async (): Promise<void> => {
+  const createDraftFile = async (): Promise<string | null> => {
     if (!workspaceReady) {
       await pickWriteWorkspace()
-      return
+      return null
     }
     const root = rootDirectory || workspaceRoot
     const stamp = new Date().toISOString().replace(/[:.]/g, '-')
     const path = writeJoinPath(root, `draft-${stamp}.md`)
-    await createFile(workspaceRoot, path, `# ${t('writeUntitledDraft')}\n\n`)
+    return createFile(workspaceRoot, path, `# ${t('writeUntitledDraft')}\n\n`)
   }
 
   const setAssistantPrompt = (prompt: string): void => {
@@ -219,7 +219,7 @@ export function WriteWorkspaceView({
   }
 
   const preparePptMaster = async (): Promise<void> => {
-if (typeof window.workwise?.installBundledSkill !== 'function') {
+    if (typeof window.workwise?.installBundledSkill !== 'function') {
       setFileError(t('writePptMasterUnavailable'))
       return
     }
@@ -236,6 +236,26 @@ if (typeof window.workwise?.installBundledSkill !== 'function') {
       : t('writePptWorkspaceReference', { workspace: workspaceName })
     setAssistantPrompt(t('writePptMasterPrompt', { document: documentRef }))
     showExportNotice({ tone: 'success', message: t('writePptMasterReady') })
+  }
+
+  const openAgnesImageGenerator = async (): Promise<void> => {
+    if (!activeFilePath) {
+      const createdPath = await createDraftFile()
+      if (!createdPath) return
+      setFileError(null)
+      setAgnesImageDialogOpen(true)
+      return
+    }
+    if (!activeFileIsText) {
+      setFileError(t('writeAgnesImageNeedsFile'))
+      return
+    }
+    if (renderSafety.readOnly) {
+      setFileError(t('writeReadOnlySaveDisabled'))
+      return
+    }
+    setFileError(null)
+    setAgnesImageDialogOpen(true)
   }
 
   const submitInlineAgent = (prompt: string): void => {
@@ -822,7 +842,7 @@ if (typeof window.workwise?.installBundledSkill !== 'function') {
         setPreviewMode={setPreviewMode}
         onCopyRichText={() => void copyCurrentFileAsRichText()}
         onExportFile={(format) => void exportCurrentFile(format)}
-        onGenerateImage={() => setAgnesImageDialogOpen(true)}
+        onGenerateImage={() => void openAgnesImageGenerator()}
         onGeneratePresentation={() => void preparePptMaster()}
         onAskKnowledgeBase={() => setAssistantPrompt(t('writeKnowledgeBaseAskPrompt'))}
         knowledgeBaseEnabled={knowledgeBase.enabled}

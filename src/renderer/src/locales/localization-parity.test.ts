@@ -31,6 +31,7 @@ const REQUIRED_CHINESE_NAVIGATION_COPY = {
   pluginDetailKindSkill: '技能',
   rightPanelTodo: '待办',
   writeModeLiveShort: '实时',
+  writeGeneratePpt: '生成 PPT',
   writeInlineAgentAskAi: '询问 AI',
   toolActiveSkills: '已启用技能'
 } as const

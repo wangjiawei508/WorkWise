@@ -55,6 +55,12 @@ function activeRendererStreams(rendererId: number): number {
   return count
 }
 
+function stopRendererSseControllers(rendererId: number, reason = 'renderer_stream_replaced'): void {
+  for (const [id, state] of [...sseControllers.entries()]) {
+    if (state.rendererId === rendererId) stopSseController(id, reason)
+  }
+}
+
 export async function stopAllRuntimeSse(reason = 'application_exit'): Promise<void> {
   const ids = [...sseControllers.keys()]
   for (const id of ids) stopSseController(id, reason)
@@ -188,6 +194,11 @@ export function registerRuntimeSseIpc(options: {
     const requestedId = request.streamId?.trim() ?? ''
     const id = requestedId || randomUUID()
     stopSseController(id, 'stream_replaced')
+    // The renderer owns one active thread subscription. A route/thread switch
+    // can race with the old stop IPC, especially when a fetch is reconnecting.
+    // Retire every previous subscription for this window before reserving the
+    // replacement slot so stale streams cannot accumulate until the hard cap.
+    stopRendererSseControllers(event.sender.id)
     if (sseControllers.size >= RUNTIME_RESOURCE_LIMITS_V1.sseApplication) {
       throw resourceLimitError('The application SSE connection limit has been reached.')
     }
@@ -367,7 +378,6 @@ export function registerRuntimeSseIpc(options: {
 
   ipcMain.handle('runtime:sse:stop', async (_, streamId: unknown) => {
     const normalizedStreamId = streamIdSchema.parse(streamId)
-    stopSseController(normalizedStreamId)
-    return true
+    return stopSseController(normalizedStreamId)
   })
 }
