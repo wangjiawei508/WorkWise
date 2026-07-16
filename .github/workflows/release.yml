@@ -379,7 +379,10 @@ jobs:
           # old zips, blockmaps, checksums, and update metadata before adding
           # the three user-facing installers. Update metadata remains in the
           # internal website-channel artifact for a future external update feed.
-          mapfile -t existing < <(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${TAG_NAME}" --jq '.assets[].name')
+          # Draft releases are not returned by the REST `releases/tags/:tag`
+          # endpoint. Read the release through the gh CLI instead so the
+          # cleanup also works on the first publish attempt.
+          mapfile -t existing < <(gh release view "${TAG_NAME}" --json assets --jq '.assets[].name')
           for asset in "${existing[@]}"; do
             keep=false
             for file in "${required[@]}"; do
