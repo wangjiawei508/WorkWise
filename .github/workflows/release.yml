@@ -323,7 +323,10 @@ jobs:
       - name: Generate release notes
         run: |
           set -euo pipefail
-          if [[ -n "${PREVIOUS_TAG}" ]]; then
+          curated_notes="release/release-${TAG_NAME}.md"
+          if [[ -s "${curated_notes}" ]]; then
+            cp "${curated_notes}" release-notes.md
+          elif [[ -n "${PREVIOUS_TAG}" ]]; then
             node ./scripts/generate-release-notes.cjs "${PREVIOUS_TAG}" > release-notes.md
           else
             node ./scripts/generate-release-notes.cjs > release-notes.md
