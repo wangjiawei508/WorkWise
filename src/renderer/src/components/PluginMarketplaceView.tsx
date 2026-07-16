@@ -349,7 +349,8 @@ const MARKETPLACE_TEXT_FALLBACKS: Record<string, string> = {
   pluginCliEgoDesc: 'Run web tasks in a dedicated browser.',
   pluginCliEgoDetail: 'Open the official Ego Lite installer and detect the browser after setup.',
   pluginCliManaged: 'Managed by WorkWise',
-  pluginCliExternalApp: 'Companion app required'
+  pluginCliExternalApp: 'Companion app required',
+  pluginSkillScanOversized: 'Skipped Skill “{{skill}}”: {{file}} exceeds the {{limit}} discovery limit. Other Skills are unaffected.'
 }
 
 export function marketplaceText(
@@ -376,6 +377,26 @@ export function friendlyMarketplaceError(
     return marketplaceText(t, 'pluginErrorNetwork', 'The download source could not be reached.')
   }
   return normalized
+}
+
+export function skillValidationWarning(
+  root: string,
+  message: string,
+  t: (key: string) => string
+): string {
+  const normalizedRoot = root.replace(/\\/g, '/').replace(/\/+$/g, '')
+  const skill = normalizedRoot.split('/').pop() || root
+  const oversized = /file exceeds\s+([^:]+):\s*(.+?)\.?$/i.exec(message.trim())
+  if (!oversized) return friendlyMarketplaceError(message, t)
+  const template = marketplaceText(
+    t,
+    'pluginSkillScanOversized',
+    'Skipped Skill “{{skill}}”: {{file}} exceeds the {{limit}} discovery limit. Other Skills are unaffected.'
+  )
+  return template
+    .replaceAll('{{skill}}', skill)
+    .replaceAll('{{file}}', oversized[2] ?? '')
+    .replaceAll('{{limit}}', oversized[1] ?? '')
 }
 
 function itemTitle(item: MarketplaceItem, t: (key: string) => string): string {
@@ -1344,7 +1365,10 @@ export function PluginMarketplaceView(): ReactElement {
       }
       setDiscoveredSkills(result.skills)
       if (result.validationErrors.length > 0) {
-        setSkillListError(result.validationErrors[0]?.message ?? t('pluginSkillScanPartial'))
+        const firstError = result.validationErrors[0]
+        setSkillListError(firstError
+          ? skillValidationWarning(firstError.root, firstError.message, t)
+          : t('pluginSkillScanPartial'))
       } else if (syncError) {
         setNotice({ tone: 'info', message: t('pluginSkillSyncUnavailable') })
       }

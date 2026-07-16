@@ -13,6 +13,7 @@ type SseControllerState = {
   controller: AbortController
   stoppedByClient: boolean
   rendererId: number
+  threadId: string
   releaseCancellation: () => void
 }
 
@@ -55,9 +56,15 @@ function activeRendererStreams(rendererId: number): number {
   return count
 }
 
-function stopRendererSseControllers(rendererId: number, reason = 'renderer_stream_replaced'): void {
+function stopRendererThreadSseControllers(
+  rendererId: number,
+  threadId: string,
+  reason = 'renderer_thread_stream_replaced'
+): void {
   for (const [id, state] of [...sseControllers.entries()]) {
-    if (state.rendererId === rendererId) stopSseController(id, reason)
+    if (state.rendererId === rendererId && state.threadId === threadId) {
+      stopSseController(id, reason)
+    }
   }
 }
 
@@ -194,15 +201,26 @@ export function registerRuntimeSseIpc(options: {
     const requestedId = request.streamId?.trim() ?? ''
     const id = requestedId || randomUUID()
     stopSseController(id, 'stream_replaced')
-    // The renderer owns one active thread subscription. A route/thread switch
-    // can race with the old stop IPC, especially when a fetch is reconnecting.
-    // Retire every previous subscription for this window before reserving the
-    // replacement slot so stale streams cannot accumulate until the hard cap.
-    stopRendererSseControllers(event.sender.id)
+    // A route switch, turn recovery, or React remount can race with the old
+    // stop IPC and generate a new stream id for the same thread. Retire only
+    // that thread's previous subscription. Other thread subscriptions can be
+    // legitimate side conversations and must remain connected.
+    stopRendererThreadSseControllers(event.sender.id, request.threadId)
     if (sseControllers.size >= RUNTIME_RESOURCE_LIMITS_V1.sseApplication) {
+      logError('sse', 'Application SSE connection limit reached', {
+        activeStreams: sseControllers.size,
+        rendererId: event.sender.id,
+        threadId: request.threadId
+      })
       throw resourceLimitError('The application SSE connection limit has been reached.')
     }
-    if (activeRendererStreams(event.sender.id) >= RUNTIME_RESOURCE_LIMITS_V1.ssePerRenderer) {
+    const rendererStreams = activeRendererStreams(event.sender.id)
+    if (rendererStreams >= RUNTIME_RESOURCE_LIMITS_V1.ssePerRenderer) {
+      logError('sse', 'Window SSE connection limit reached', {
+        activeStreams: rendererStreams,
+        rendererId: event.sender.id,
+        threadId: request.threadId
+      })
       throw resourceLimitError('The window SSE connection limit has been reached.')
     }
     const ac = new AbortController()
@@ -225,6 +243,7 @@ export function registerRuntimeSseIpc(options: {
       controller: ac,
       stoppedByClient: false,
       rendererId: event.sender.id,
+      threadId: request.threadId,
       releaseCancellation: cancellation.release
     }
     stateRef.current = state

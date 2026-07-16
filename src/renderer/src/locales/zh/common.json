@@ -460,6 +460,7 @@
   "pluginErrorUnsafeSkillTooLarge": "这个技能包含过大的文件，已为安全起见停止安装。可移除大文件后重试。",
   "pluginErrorUnsafeSkill": "这个技能包未通过安全检查，请查看详情或更换来源。",
   "pluginErrorNetwork": "暂时无法连接下载源，请检查网络后重试。",
+  "pluginSkillScanOversized": "已跳过技能“{{skill}}”：文件 {{file}} 超过 {{limit}} 的发现限制，其他技能不受影响。",
   "pluginManage": "管理",
   "pluginCreate": "创建",
   "pluginMcpTitle": "把外部工具接入智能体",

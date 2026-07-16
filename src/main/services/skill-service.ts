@@ -16,7 +16,11 @@ import { systemFetch } from './system-network'
 import { expandHomePath, normalizeSkillFolderName } from './workspace-service'
 import { LEGACY_SKILL_SOURCE_METADATA_FILE } from '../compat/legacy-metadata'
 import { resolveContainedPath } from './canonical-containment'
-import { SKILL_PACKAGE_LIMITS, validateSkillPackage } from './skill-package-security'
+import {
+  SKILL_PACKAGE_LIMITS,
+  TRUSTED_SKILL_DISCOVERY_LIMITS,
+  validateSkillPackage
+} from './skill-package-security'
 
 export type GuiSkillScope = 'project' | 'global'
 export type GuiSkillSource = NonNullable<SkillListItem['source']>
@@ -39,6 +43,7 @@ export type GuiSkillListResult =
 export type GuiSkillRoot = {
   path: string
   scope: GuiSkillScope
+  validation: 'strict' | 'trusted-plugin'
 }
 
 type GithubSkillSourceMetadata = Extract<GuiSkillSource, { type: 'github' }> & {
@@ -96,9 +101,9 @@ export async function guiSkillRootsForRuntime(
     join(homedir(), '.codex', 'skills'),
     join(homedir(), '.agents', 'skills'),
     join(homedir(), '.workwise', 'skills'),
-    join(homedir(), '.kun', 'skills'),
-    ...await discoverCodexPluginSkillRoots()
+    join(homedir(), '.kun', 'skills')
   ]
+  const codexPluginRoots = await discoverCodexPluginSkillRoots()
   const configuredExtraRoots = [
     ...(settings?.claw.skills.extraDirs ?? []),
     ...(settings?.schedule.skills.extraDirs ?? [])
@@ -107,13 +112,20 @@ export async function guiSkillRootsForRuntime(
   return uniqueSkillRoots([
     ...projectRoots
       .filter((root) => existsSync(root))
-      .map((path) => ({ path, scope: 'project' as const })),
+      .map((path) => ({ path, scope: 'project' as const, validation: 'strict' as const })),
     ...globalRoots
       .filter((root) => existsSync(root))
-      .map((path) => ({ path, scope: 'global' as const })),
+      .map((path) => ({ path, scope: 'global' as const, validation: 'strict' as const })),
+    ...codexPluginRoots
+      .filter((root) => existsSync(root))
+      .map((path) => ({ path, scope: 'global' as const, validation: 'trusted-plugin' as const })),
     ...configuredExtraRoots
       .filter(Boolean)
-      .map((path) => ({ path, scope: scopeForConfiguredRoot(path, workspaceRoots) }))
+      .map((path) => ({
+        path,
+        scope: scopeForConfiguredRoot(path, workspaceRoots),
+        validation: 'strict' as const
+      }))
   ])
 }
 
@@ -131,7 +143,7 @@ export async function listGuiSkills(
         return []
       })
       for (const candidate of candidates) {
-        const loaded = await loadSkillSummary(candidate, root.scope).catch((error) => {
+        const loaded = await loadSkillSummary(candidate, root.scope, root.validation).catch((error) => {
           validationErrors.push({ root: candidate, message: errorMessage(error) })
           return null
         })
@@ -315,7 +327,8 @@ export async function syncGithubManagedSkills(
 
 async function discoverCodexPluginSkillRoots(): Promise<string[]> {
   const roots: string[] = []
-  await collectSkillRoots(join(homedir(), '.codex', 'plugins', 'cache'), roots, 0, 5)
+  const codexHome = normalizeSkillRootPath(process.env.CODEX_HOME || join(homedir(), '.codex'))
+  await collectSkillRoots(join(codexHome, 'plugins', 'cache'), roots, 0, 5)
   return roots
 }
 
@@ -359,8 +372,15 @@ async function packageCandidates(root: string): Promise<string[]> {
   return [...candidates]
 }
 
-async function loadSkillSummary(root: string, scope: GuiSkillScope): Promise<GuiSkillSummary | null> {
-  await validateSkillPackage(root)
+async function loadSkillSummary(
+  root: string,
+  scope: GuiSkillScope,
+  validation: GuiSkillRoot['validation']
+): Promise<GuiSkillSummary | null> {
+  await validateSkillPackage(
+    root,
+    validation === 'trusted-plugin' ? TRUSTED_SKILL_DISCOVERY_LIMITS : SKILL_PACKAGE_LIMITS
+  )
   const source = sourceForList(await readSkillSourceMetadata(root).catch(() => undefined))
   const manifestPath = join(root, 'skill.json')
   if (existsSync(manifestPath)) {
@@ -874,13 +894,20 @@ function scopeForConfiguredRoot(path: string, workspaceRoots: string[]): GuiSkil
 }
 
 function uniqueSkillRoots(roots: GuiSkillRoot[]): GuiSkillRoot[] {
-  const seen = new Set<string>()
+  const indexes = new Map<string, number>()
   const out: GuiSkillRoot[] = []
   for (const root of roots) {
     const key = comparablePath(root.path)
-    if (!key || seen.has(key)) continue
-    seen.add(key)
-    out.push(root)
+    if (!key) continue
+    const existingIndex = indexes.get(key)
+    if (existingIndex === undefined) {
+      indexes.set(key, out.length)
+      out.push(root)
+      continue
+    }
+    if (out[existingIndex]?.validation === 'trusted-plugin' && root.validation === 'strict') {
+      out[existingIndex] = root
+    }
   }
   return out
 }

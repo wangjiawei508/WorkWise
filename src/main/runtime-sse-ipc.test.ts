@@ -33,9 +33,9 @@ function createHarness() {
   const event = { sender } as unknown as IpcMainInvokeEvent
 
   return {
-    start: (streamId: string) =>
+    start: (streamId: string, threadId = 'thread-1') =>
       handlers.get('runtime:sse:start')?.(event, {
-        threadId: 'thread-1',
+        threadId,
         sinceSeq: 0,
         streamId
       }),
@@ -82,6 +82,26 @@ describe('runtime SSE IPC lifecycle', () => {
     await expect(harness.start('current-stream')).resolves.toEqual({ streamId: 'current-stream' })
     await expect(harness.stop('stale-stream')).resolves.toBe(false)
     await expect(harness.stop('current-stream')).resolves.toBe(true)
+  })
+
+  it('does not accumulate connection slots when one thread repeatedly resubscribes', async () => {
+    const harness = createHarness()
+
+    for (let index = 0; index < 12; index += 1) {
+      const streamId = `recovery-stream-${index}`
+      await expect(harness.start(streamId, 'recovering-thread')).resolves.toEqual({ streamId })
+    }
+    await expect(harness.stop('recovery-stream-0')).resolves.toBe(false)
+    await expect(harness.stop('recovery-stream-11')).resolves.toBe(true)
+  })
+
+  it('keeps distinct side conversation streams connected in the same window', async () => {
+    const harness = createHarness()
+
+    await expect(harness.start('main-stream', 'main-thread')).resolves.toEqual({ streamId: 'main-stream' })
+    await expect(harness.start('side-stream', 'side-thread')).resolves.toEqual({ streamId: 'side-stream' })
+    await expect(harness.stop('main-stream')).resolves.toBe(true)
+    await expect(harness.stop('side-stream')).resolves.toBe(true)
   })
 
   it('releases the stream slot when its renderer window is cancelled', async () => {

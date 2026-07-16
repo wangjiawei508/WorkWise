@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest'
 import {
   friendlyMarketplaceError,
   managedToolStatusIsInstalled,
-  marketplaceText
+  marketplaceText,
+  skillValidationWarning
 } from './PluginMarketplaceView'
 
 const missing = (key: string): string => key
@@ -35,5 +36,15 @@ describe('plugin marketplace localization fallbacks', () => {
     })).toBe(true)
     expect(managedToolStatusIsInstalled({ id: 'ego-browser', state: 'needs_external_app' })).toBe(false)
     expect(managedToolStatusIsInstalled({ id: 'officecli', state: 'not_installed' })).toBe(false)
+  })
+
+  it('identifies the exact skipped Skill and oversized file during discovery', () => {
+    expect(skillValidationWarning(
+      '/plugins/cache/openai/templates/skills/artifact-template-team-alignment',
+      'Unsafe Skill package: file exceeds 1 MiB: assets/reference.pptx.',
+      missing
+    )).toBe(
+      'Skipped Skill “artifact-template-team-alignment”: assets/reference.pptx exceeds the 1 MiB discovery limit. Other Skills are unaffected.'
+    )
   })
 })
