@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { applyDocumentLocale } from './apply-theme'
+import { applyDocumentLocale, applyUiFontScale } from './apply-theme'
 
 describe('applyDocumentLocale', () => {
   afterEach(() => {
@@ -37,5 +37,26 @@ describe('applyDocumentLocale', () => {
 
     applyDocumentLocale('en')
     expect(writes).toBe(0)
+  })
+})
+
+describe('applyUiFontScale', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it.each([
+    ['small', '0.9'],
+    ['medium', '1'],
+    ['large', '1.1']
+  ] as const)('maps %s to a meaningful UI scale', (scale, expected) => {
+    const setProperty = vi.fn()
+    vi.stubGlobal('document', {
+      documentElement: { style: { setProperty } }
+    })
+
+    applyUiFontScale(scale)
+
+    expect(setProperty).toHaveBeenCalledWith('--ds-ui-scale', expected)
   })
 })

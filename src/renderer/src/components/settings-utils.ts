@@ -17,11 +17,12 @@ import {
   normalizeScheduleSettings,
   normalizeWriteSettings,
   type AppSettingsPatch,
-  type AppSettingsV1
+  type AppSettingsV1,
+  type WorkWiseSettingsV2
 } from '@shared/app-settings'
 import type { GuiUpdateInfo } from '@shared/gui-update'
 
-type RendererSettingsShape = AppSettingsPatch
+type RendererSettingsShape = Partial<AppSettingsV1>
 type SettingsPatch = AppSettingsPatch
 
 export const DEFAULT_WORKSPACE_ROOT = '~/.workwise/default_workspace'
@@ -42,12 +43,15 @@ export function hasValidPort(settings: AppSettingsV1): boolean {
   return Number.isFinite(port) && port >= 1 && port <= 65535
 }
 
-export function mergeSettings(current: AppSettingsV1, patch: SettingsPatch): AppSettingsV1 {
+export function mergeSettings(current: AppSettingsV1, patch: SettingsPatch): WorkWiseSettingsV2 {
   const safeCurrent = coerceRendererSettings(current)
   const { agents: agentsPatch, provider: providerPatch, ...restPatch } = patch
   return {
     ...applyManagedRuntimePatch(safeCurrent, agentsPatch?.kun),
     ...restPatch,
+    schema: 'workwise.settings',
+    version: 2,
+    revision: safeCurrent.revision,
     provider: mergeModelProviderSettings(safeCurrent.provider, providerPatch),
     log: {
       ...safeCurrent.log,
@@ -77,7 +81,36 @@ export function mergeSettings(current: AppSettingsV1, patch: SettingsPatch): App
   }
 }
 
-export function coerceRendererSettings(settings: AppSettingsV1): AppSettingsV1 {
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function mergePatchValues(current: unknown, next: unknown): unknown {
+  if (!isPlainObject(current) || !isPlainObject(next)) return next
+  const merged: Record<string, unknown> = { ...current }
+  for (const [key, value] of Object.entries(next)) {
+    if (value === undefined) continue
+    merged[key] = mergePatchValues(merged[key], value)
+  }
+  return merged
+}
+
+/**
+ * Combines debounced settings edits using the same semantics as the settings
+ * store: nested objects merge, while arrays and scalar values replace.
+ */
+export function mergeSettingsPatches(
+  current: AppSettingsPatch,
+  next: AppSettingsPatch
+): AppSettingsPatch {
+  return mergePatchValues(current, next) as AppSettingsPatch
+}
+
+export function hasSettingsPatch(patch: AppSettingsPatch): boolean {
+  return Object.keys(patch).length > 0
+}
+
+export function coerceRendererSettings(settings: AppSettingsV1): WorkWiseSettingsV2 {
   const raw = settings as RendererSettingsShape
   const theme =
     raw.theme === 'system' || raw.theme === 'light' || raw.theme === 'dark'
@@ -88,7 +121,12 @@ export function coerceRendererSettings(settings: AppSettingsV1): AppSettingsV1 {
       ? raw.uiFontScale
       : 'medium'
   return {
-    version: 1,
+    schema: 'workwise.settings',
+    version: 2,
+    revision:
+      Number.isSafeInteger(raw.revision) && (raw.revision ?? -1) >= 0
+        ? raw.revision as number
+        : 0,
     locale: raw.locale === 'zh' ? 'zh' : 'en',
     theme,
     uiFontScale,

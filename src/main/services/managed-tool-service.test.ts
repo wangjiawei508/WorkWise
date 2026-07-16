@@ -42,6 +42,7 @@ type Fixture = {
 }
 
 let toolsRoot = ''
+let originalHome: string | undefined
 
 function response(body: string | Buffer, status = 200, headers: HeadersInit = {}): Response {
   return new Response(body as unknown as BodyInit, { status, headers })
@@ -112,6 +113,8 @@ function mockOfficialDownloads(fixtures: Record<'lark-cli' | 'officecli', Fixtur
 
 beforeEach(() => {
   toolsRoot = mkdtempSync(join(tmpdir(), 'workwise-managed-tools-'))
+  originalHome = process.env.HOME
+  process.env.HOME = toolsRoot
   process.env.WORKWISE_TOOLS_ROOT = toolsRoot
   _internals.clearReleaseCache()
   _internals.setTargetPlatformForTests({ platform: 'darwin', arch: 'arm64' })
@@ -127,6 +130,8 @@ afterEach(() => {
   _internals.setTargetPlatformForTests()
   _internals.clearReleaseCache()
   delete process.env.WORKWISE_TOOLS_ROOT
+  if (originalHome === undefined) delete process.env.HOME
+  else process.env.HOME = originalHome
   rmSync(toolsRoot, { recursive: true, force: true })
 })
 

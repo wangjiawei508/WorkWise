@@ -1,4 +1,4 @@
-import type { AppSettingsPatch, AppSettingsV1 } from '@shared/app-settings'
+import type { AppSettingsPatch, WorkWiseSettingsV2 } from '@shared/app-settings'
 import type {
   RuntimeRequestResult,
   SseEndPayload,
@@ -7,10 +7,11 @@ import type {
 } from '@shared/workwise-api'
 
 class RendererRuntimeClient {
-  private cachedSettings: AppSettingsV1 | null = null
-  private settingsPromise: Promise<AppSettingsV1> | null = null
+  private cachedSettings: WorkWiseSettingsV2 | null = null
+  private settingsPromise: Promise<WorkWiseSettingsV2> | null = null
+  private settingsWriteQueue: Promise<void> = Promise.resolve()
 
-  async getSettings(options?: { forceRefresh?: boolean }): Promise<AppSettingsV1> {
+  async getSettings(options?: { forceRefresh?: boolean }): Promise<WorkWiseSettingsV2> {
     if (options?.forceRefresh) {
       this.invalidateSettings()
     }
@@ -20,15 +21,24 @@ class RendererRuntimeClient {
       this.cachedSettings = settings
       return settings
     })
-    this.settingsPromise = task.finally(() => {
+    this.settingsPromise = task
+    void task.then(() => {
+      if (this.settingsPromise === task) this.settingsPromise = null
+    }, () => {
       if (this.settingsPromise === task) this.settingsPromise = null
     })
     return task
   }
 
-  async setSettings(partial: AppSettingsPatch): Promise<AppSettingsV1> {
+  async setSettings(partial: AppSettingsPatch): Promise<WorkWiseSettingsV2> {
+    const task = this.settingsWriteQueue.then(() => this.writeSettings(partial))
+    this.settingsWriteQueue = task.then(() => undefined, () => undefined)
+    return task
+  }
+
+  private async writeSettings(partial: AppSettingsPatch): Promise<WorkWiseSettingsV2> {
     const current = await this.getSettings()
-    let settings: AppSettingsV1
+    let settings: WorkWiseSettingsV2
     try {
       settings = await window.workwise.setSettings(partial, current.revision)
     } catch (error) {
