@@ -153,6 +153,21 @@ export type WriteKnowledgeBaseStatus = {
   referenceCount: number
   message?: string
 }
+export type WriteKnowledgeSnippet = {
+  title: string
+  url: string
+  text: string
+  score: number
+  source: 'railwise-api' | 'railwise-static'
+}
+export type WriteKnowledgeSearchResult = {
+  source: 'api' | 'static' | 'stale-cache' | 'unavailable'
+  keywords: string[]
+  snippets: WriteKnowledgeSnippet[]
+  totalEntries?: number
+  categories?: Array<{ name: string; count: number }>
+  refreshedAt?: string
+}
 export type SkillListItem = {
   id: string
   name: string
@@ -282,6 +297,7 @@ export type WorkWiseApi = {
   resolveWorkspaceFile: (options: WorkspaceFileTarget) => Promise<WorkspaceFileResolveResult>
   readWorkspaceFile: (options: WorkspaceFileTarget) => Promise<WorkspaceFileReadResult>
   readWorkspaceImage: (options: WorkspaceFileTarget) => Promise<WorkspaceImageReadResult>
+  revealWorkspaceFile: (options: WorkspaceFileTarget) => Promise<PathOpenResult>
   saveWorkspaceFileAs: (payload: WorkspaceFileSaveAsPayload) => Promise<WorkspaceFileSaveAsResult>
   writeWorkspaceFile: (payload: WorkspaceFileWritePayload) => Promise<WorkspaceFileWriteResult>
   createWorkspaceFile: (payload: WorkspaceFileCreatePayload) => Promise<WorkspaceFileCreateResult>
@@ -311,6 +327,7 @@ export type WorkWiseApi = {
   clearWriteInlineCompletionDebugEntries: () => Promise<boolean>
   getWriteKnowledgeBaseStatus: () => Promise<WriteKnowledgeBaseStatus>
   refreshWriteKnowledgeBase: () => Promise<WriteKnowledgeBaseStatus>
+  searchWriteKnowledge: (query: string) => Promise<WriteKnowledgeSearchResult>
   exportWriteDocument: (payload: WriteExportPayload) => Promise<WriteExportResult>
   copyWriteDocumentAsRichText: (
     payload: WriteRichClipboardPayload

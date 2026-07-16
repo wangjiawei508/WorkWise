@@ -5,6 +5,9 @@ import React from 'react'
 import ReactDOM from 'react-dom/client'
 import './index.css'
 import './styles/base-shell.css'
+// Keep the compact activity mark's rendering rules after the legacy shell
+// styles so the live logo is not clipped into jagged ghost strokes.
+import './styles/work-logo.css'
 import './styles/surfaces-write.css'
 import './styles/markdown-code.css'
 import './styles/write-editor.css'

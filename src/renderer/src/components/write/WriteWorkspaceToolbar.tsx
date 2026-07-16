@@ -32,6 +32,7 @@ type Props = {
   onExportFile: (format: WriteExportFormat) => void
   onGenerateImage: () => void
   onGeneratePresentation: () => void
+  onAskKnowledgeBase: () => void
   onPickWorkspace: () => void
   onSave: () => void
   onToggleLeftSidebar: () => void
@@ -65,6 +66,7 @@ export function WriteWorkspaceToolbar({
   onExportFile,
   onGenerateImage,
   onGeneratePresentation,
+  onAskKnowledgeBase,
   onPickWorkspace,
   onSave,
   onToggleLeftSidebar,
@@ -195,30 +197,31 @@ export function WriteWorkspaceToolbar({
             <button
               type="button"
               onClick={onGenerateImage}
-              disabled={!activeFilePath || !activeFileIsText || readOnly}
-              className={`${toolbarIconButtonClass()} disabled:cursor-not-allowed disabled:opacity-40`}
-              title={readOnly ? t('writeReadOnlySaveDisabled') : t('writeAgnesImageGenerate')}
-              aria-label={readOnly ? t('writeReadOnlySaveDisabled') : t('writeAgnesImageGenerate')}
+              className={toolbarIconButtonClass()}
+              title={t('writeAgnesImageGenerate')}
+              aria-label={t('writeAgnesImageGenerate')}
             >
               <ImagePlus className="h-4 w-4" strokeWidth={1.85} />
             </button>
             <button
               type="button"
               onClick={onGeneratePresentation}
-              disabled={!activeFilePath || !activeFileIsText}
-              className={`${toolbarIconButtonClass()} disabled:cursor-not-allowed disabled:opacity-40`}
+              className={toolbarIconButtonClass()}
               title={t('writeGeneratePpt')}
               aria-label={t('writeGeneratePpt')}
             >
               <Presentation className="h-4 w-4" strokeWidth={1.85} />
             </button>
-            <span
+            <button
+              type="button"
+              onClick={onAskKnowledgeBase}
               className={`hidden items-center gap-1 rounded-lg px-2 py-1 text-[11px] font-semibold xl:inline-flex ${knowledgeBaseEnabled ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300' : 'bg-ds-subtle text-ds-faint'}`}
               title={t(knowledgeBaseEnabled ? 'writeKnowledgeBaseConnected' : 'writeKnowledgeBaseDisabled')}
+              aria-label={t('writeKnowledgeBaseAskPrompt')}
             >
               <BookOpenCheck className="h-3.5 w-3.5" strokeWidth={1.9} />
               RailWise KB
-            </span>
+            </button>
             <div ref={exportMenuRef} className="relative">
               <button
                 type="button"

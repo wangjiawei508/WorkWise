@@ -81,6 +81,8 @@ const api = {
     ipcRenderer.invoke('file:read-workspace', options),
   readWorkspaceImage: (options) =>
     ipcRenderer.invoke('file:read-workspace-image', options),
+  revealWorkspaceFile: (options) =>
+    ipcRenderer.invoke('file:reveal-workspace', options),
   saveWorkspaceFileAs: (payload) =>
     ipcRenderer.invoke('file:save-as', payload),
   writeWorkspaceFile: (payload) =>
@@ -125,6 +127,7 @@ const api = {
     ipcRenderer.invoke('write:inline-completion-debug:clear'),
   getWriteKnowledgeBaseStatus: () => ipcRenderer.invoke('write:knowledge-base:status'),
   refreshWriteKnowledgeBase: () => ipcRenderer.invoke('write:knowledge-base:refresh'),
+  searchWriteKnowledge: (query) => ipcRenderer.invoke('write:knowledge-base:search', { query }),
   startSse: (threadId, sinceSeq, streamId) =>
     ipcRenderer.invoke('runtime:sse:start', { threadId, sinceSeq, streamId }),
   stopSse: (streamId) => ipcRenderer.invoke('runtime:sse:stop', streamId),

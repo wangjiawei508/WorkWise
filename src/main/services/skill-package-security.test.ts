@@ -2,7 +2,7 @@ import { mkdtemp, mkdir, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { validateSkillPackage } from './skill-package-security'
+import { TRUSTED_SKILL_DISCOVERY_LIMITS, validateSkillPackage } from './skill-package-security'
 
 const roots: string[] = []
 afterEach(async () => Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true }))))
@@ -44,5 +44,18 @@ describe('Skill package security', () => {
     const large = await root()
     await writeFile(join(large, 'SKILL.md'), Buffer.alloc(1024 * 1024 + 1))
     await expect(validateSkillPackage(large)).rejects.toThrow(/1 MiB/)
+  })
+
+  it('allows bounded reference assets only under the trusted discovery profile', async () => {
+    const dir = await root()
+    await writeFile(join(dir, 'SKILL.md'), '# Template')
+    await mkdir(join(dir, 'assets'))
+    await writeFile(join(dir, 'assets', 'reference.pptx'), Buffer.alloc(2 * 1024 * 1024))
+
+    await expect(validateSkillPackage(dir)).rejects.toThrow(/1 MiB/)
+    await expect(validateSkillPackage(dir, TRUSTED_SKILL_DISCOVERY_LIMITS)).resolves.toEqual({
+      files: 2,
+      totalBytes: 2 * 1024 * 1024 + 10
+    })
   })
 })

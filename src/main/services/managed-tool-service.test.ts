@@ -42,6 +42,7 @@ type Fixture = {
 }
 
 let toolsRoot = ''
+let originalHome: string | undefined
 
 function response(body: string | Buffer, status = 200, headers: HeadersInit = {}): Response {
   return new Response(body as unknown as BodyInit, { status, headers })
@@ -112,6 +113,8 @@ function mockOfficialDownloads(fixtures: Record<'lark-cli' | 'officecli', Fixtur
 
 beforeEach(() => {
   toolsRoot = mkdtempSync(join(tmpdir(), 'workwise-managed-tools-'))
+  originalHome = process.env.HOME
+  process.env.HOME = toolsRoot
   process.env.WORKWISE_TOOLS_ROOT = toolsRoot
   _internals.clearReleaseCache()
   _internals.setTargetPlatformForTests({ platform: 'darwin', arch: 'arm64' })
@@ -127,6 +130,8 @@ afterEach(() => {
   _internals.setTargetPlatformForTests()
   _internals.clearReleaseCache()
   delete process.env.WORKWISE_TOOLS_ROOT
+  if (originalHome === undefined) delete process.env.HOME
+  else process.env.HOME = originalHome
   rmSync(toolsRoot, { recursive: true, force: true })
 })
 
@@ -187,7 +192,14 @@ describe('managed-tool-service', () => {
     expect(existsSync(join(managedToolsSkillRoot(), 'lark-doc', 'SKILL.md'))).toBe(true)
     expect(existsSync(join(managedToolsSkillRoot(), 'officecli-pptx', 'SKILL.md'))).toBe(true)
 
-    await expect(listManagedTools()).resolves.toMatchObject({ ok: true })
+    await expect(listManagedTools()).resolves.toMatchObject({
+      ok: true,
+      tools: [
+        { id: 'lark-cli', state: 'needs_login', installedVersion: '1.2.3' },
+        { id: 'officecli', state: 'installed', installedVersion: '1.2.3' },
+        { id: 'ego-browser', state: 'needs_external_app' }
+      ]
+    })
     await expect(removeManagedTool('lark-cli')).resolves.toMatchObject({ status: { state: 'not_installed' } })
     await expect(removeManagedTool('officecli')).resolves.toMatchObject({ status: { state: 'not_installed' } })
     expect(existsSync(join(toolsRoot, 'manifest.json'))).toBe(true)

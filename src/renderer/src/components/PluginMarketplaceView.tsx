@@ -1,5 +1,5 @@
 import type { ReactElement } from 'react'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
   Check,
@@ -113,6 +113,21 @@ function loadActiveKind(): PluginKind {
 
 function storageKey(kind: PluginKind, id: string): string {
   return `${kind}:${id}`
+}
+
+export function managedToolStatusIsInstalled(status: ManagedToolStatus | undefined): boolean {
+  if (!status) return false
+  if (
+    status.state === 'installed' ||
+    status.state === 'needs_login' ||
+    status.state === 'update_available'
+  ) {
+    return true
+  }
+  // A failed health/auth check does not uninstall a binary. Keep the card in
+  // the installed list so the user can diagnose or update it instead of being
+  // shown another install button.
+  return status.state === 'error' && Boolean(status.executablePath)
 }
 
 function normalizePluginId(raw: string): string {
@@ -334,7 +349,8 @@ const MARKETPLACE_TEXT_FALLBACKS: Record<string, string> = {
   pluginCliEgoDesc: 'Run web tasks in a dedicated browser.',
   pluginCliEgoDetail: 'Open the official Ego Lite installer and detect the browser after setup.',
   pluginCliManaged: 'Managed by WorkWise',
-  pluginCliExternalApp: 'Companion app required'
+  pluginCliExternalApp: 'Companion app required',
+  pluginSkillScanOversized: 'Skipped Skill “{{skill}}”: {{file}} exceeds the {{limit}} discovery limit. Other Skills are unaffected.'
 }
 
 export function marketplaceText(
@@ -361,6 +377,26 @@ export function friendlyMarketplaceError(
     return marketplaceText(t, 'pluginErrorNetwork', 'The download source could not be reached.')
   }
   return normalized
+}
+
+export function skillValidationWarning(
+  root: string,
+  message: string,
+  t: (key: string) => string
+): string {
+  const normalizedRoot = root.replace(/\\/g, '/').replace(/\/+$/g, '')
+  const skill = normalizedRoot.split('/').pop() || root
+  const oversized = /file exceeds\s+([^:]+):\s*(.+?)\.?$/i.exec(message.trim())
+  if (!oversized) return friendlyMarketplaceError(message, t)
+  const template = marketplaceText(
+    t,
+    'pluginSkillScanOversized',
+    'Skipped Skill “{{skill}}”: {{file}} exceeds the {{limit}} discovery limit. Other Skills are unaffected.'
+  )
+  return template
+    .replaceAll('{{skill}}', skill)
+    .replaceAll('{{file}}', oversized[2] ?? '')
+    .replaceAll('{{limit}}', oversized[1] ?? '')
 }
 
 function itemTitle(item: MarketplaceItem, t: (key: string) => string): string {
@@ -1174,14 +1210,17 @@ export function PluginMarketplaceView(): ReactElement {
   const [skillListLoading, setSkillListLoading] = useState(false)
   const [skillListError, setSkillListError] = useState('')
   const [managedTools, setManagedTools] = useState<ManagedToolStatus[]>([])
+  const managedToolsGenerationRef = useRef(0)
 
   useEffect(() => {
     writeBrowserStorageItem(ACTIVE_KIND_STORAGE_KEY, activeKind)
   }, [activeKind])
 
   const refreshManagedTools = useCallback(async (): Promise<void> => {
-if (typeof window.workwise?.listManagedTools !== 'function') return
+    if (typeof window.workwise?.listManagedTools !== 'function') return
+    const generation = ++managedToolsGenerationRef.current
     const result = await window.workwise.listManagedTools()
+    if (generation !== managedToolsGenerationRef.current) return
     if (result.ok) setManagedTools(result.tools)
   }, [])
 
@@ -1326,7 +1365,10 @@ if (typeof window.workwise?.listManagedTools !== 'function') return
       }
       setDiscoveredSkills(result.skills)
       if (result.validationErrors.length > 0) {
-        setSkillListError(result.validationErrors[0]?.message ?? t('pluginSkillScanPartial'))
+        const firstError = result.validationErrors[0]
+        setSkillListError(firstError
+          ? skillValidationWarning(firstError.root, firstError.message, t)
+          : t('pluginSkillScanPartial'))
       } else if (syncError) {
         setNotice({ tone: 'info', message: t('pluginSkillSyncUnavailable') })
       }
@@ -1399,7 +1441,7 @@ if (typeof window.workwise?.listManagedTools !== 'function') return
     if (item.externalOnly) return false
     if (item.managedToolId) {
       const status = managedTools.find((tool) => tool.id === item.managedToolId)
-      return status?.state === 'installed' || status?.state === 'needs_login' || status?.state === 'update_available'
+      return managedToolStatusIsInstalled(status)
     }
     if (item.group === 'personal') return true
     const catalogItem = RECOMMENDED_ITEMS.find((candidate) => candidate.kind === item.kind && candidate.id === item.id)
@@ -1449,11 +1491,13 @@ if (typeof window.workwise?.listManagedTools !== 'function') return
   const builtInItems = visibleItems.filter((item) => item.systemManaged)
   const advancedItems = visibleItems.filter((item) => item.advanced && !isInstalled(item))
   const recommendedItems = visibleItems.filter((item) =>
-    !item.systemManaged && !item.advanced && !isInstalled(item)
+    !item.systemManaged && !item.advanced && (activeKind === 'cli' || !isInstalled(item))
   )
   const personalItems = visibleItems.filter((item) =>
-    item.group === 'personal' ||
-    (!item.systemManaged && isInstalled(item) && !discoveredSkillIds.has(item.id) && !discoveredMcpIds.has(item.id))
+    activeKind !== 'cli' && (
+      item.group === 'personal' ||
+      (!item.systemManaged && isInstalled(item) && !discoveredSkillIds.has(item.id) && !discoveredMcpIds.has(item.id))
+    )
   )
   const mcpRuntimeOverlay = useMemo(
     () => buildMcpMarketplaceOverlay({
@@ -1546,7 +1590,7 @@ if (typeof window.workwise?.listManagedTools !== 'function') return
           return
         }
         const current = managedTools.find((tool) => tool.id === item.managedToolId)
-        const useUpdate = current?.state === 'installed' || current?.state === 'needs_login' || current?.state === 'update_available'
+        const useUpdate = managedToolStatusIsInstalled(current)
         const result = useUpdate && typeof window.workwise.updateManagedTool === 'function'
           ? await window.workwise.updateManagedTool(item.managedToolId)
           : await window.workwise.installManagedTool(item.managedToolId)
@@ -1554,6 +1598,10 @@ if (typeof window.workwise?.listManagedTools !== 'function') return
           setNotice({ tone: 'error', message: friendlyMarketplaceError(result.message, t) })
           return
         }
+        setManagedTools((currentTools) => [
+          ...currentTools.filter((tool) => tool.id !== result.status.id),
+          result.status
+        ])
         await refreshManagedTools()
         if (result.status.externalUrl && result.status.state === 'needs_external_app') {
           await window.workwise.openExternal(result.status.externalUrl)
@@ -1930,16 +1978,18 @@ if (typeof window.workwise?.listManagedTools !== 'function') return
           />
         ) : null}
 
-        <PluginSection
-          title={t('pluginPersonal')}
-          emptyText={t('pluginPersonalEmpty')}
-          items={personalItems}
-          busyId={busyId}
-          isInstalled={isInstalled}
-          onAdd={addItem}
-          onDetails={setDetailItem}
-          t={t}
-        />
+        {activeKind !== 'cli' ? (
+          <PluginSection
+            title={t('pluginPersonal')}
+            emptyText={t('pluginPersonalEmpty')}
+            items={personalItems}
+            busyId={busyId}
+            isInstalled={isInstalled}
+            onAdd={addItem}
+            onDetails={setDetailItem}
+            t={t}
+          />
+        ) : null}
 
         {detailItem ? (
           <PluginDetailDialog
@@ -2230,6 +2280,11 @@ function PluginSection({
                         className={`shrink-0 rounded-md px-2 py-0.5 text-[11px] font-semibold ${marketplaceSourceTone(item.statusTone)}`}
                       >
                         {sourceLabel}
+                      </span>
+                    ) : null}
+                    {installed ? (
+                      <span className="shrink-0 rounded-md bg-emerald-50 px-2 py-0.5 text-[11px] font-semibold text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-200">
+                        {t('pluginAdded')}
                       </span>
                     ) : null}
                   </div>

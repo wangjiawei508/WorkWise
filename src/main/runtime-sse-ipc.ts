@@ -13,6 +13,7 @@ type SseControllerState = {
   controller: AbortController
   stoppedByClient: boolean
   rendererId: number
+  threadId: string
   releaseCancellation: () => void
 }
 
@@ -22,6 +23,22 @@ const SSE_START_TIMEOUT_MS = 15_000
 
 
 const sseControllers = new Map<string, SseControllerState>()
+
+function stopSseController(id: string, reason = 'operation_cancelled'): boolean {
+  const state = sseControllers.get(id)
+  if (!state) return false
+
+  state.stoppedByClient = true
+  // Remove the stream before aborting the pending fetch. A renderer can start
+  // its replacement subscription immediately, while the old fetch may take a
+  // later microtask (or an unresponsive network stack) to reach `finally`.
+  if (sseControllers.get(id) === state) {
+    sseControllers.delete(id)
+  }
+  state.controller.abort(reason)
+  state.releaseCancellation()
+  return true
+}
 
 function byteLength(value: string): number {
   return Buffer.byteLength(value, 'utf8')
@@ -39,11 +56,23 @@ function activeRendererStreams(rendererId: number): number {
   return count
 }
 
+function stopRendererThreadSseControllers(
+  rendererId: number,
+  threadId: string,
+  reason = 'renderer_thread_stream_replaced'
+): void {
+  for (const [id, state] of [...sseControllers.entries()]) {
+    if (state.rendererId === rendererId && state.threadId === threadId) {
+      stopSseController(id, reason)
+    }
+  }
+}
+
 export async function stopAllRuntimeSse(reason = 'application_exit'): Promise<void> {
+  const ids = [...sseControllers.keys()]
+  for (const id of ids) stopSseController(id, reason)
   await Promise.all(
-    [...sseControllers.keys()].map((id) =>
-      appCancellationRegistry.cancel({ scope: 'subtask', id: `sse:${id}` }, reason)
-    )
+    ids.map((id) => appCancellationRegistry.cancel({ scope: 'subtask', id: `sse:${id}` }, reason))
   )
 }
 
@@ -171,26 +200,42 @@ export function registerRuntimeSseIpc(options: {
     await ensureRuntime(s)
     const requestedId = request.streamId?.trim() ?? ''
     const id = requestedId || randomUUID()
-    const existing = sseControllers.get(id)
-    if (existing) {
-      existing.stoppedByClient = true
-      existing.controller.abort()
-      sseControllers.delete(id)
-      existing.releaseCancellation()
-    }
+    stopSseController(id, 'stream_replaced')
+    // A route switch, turn recovery, or React remount can race with the old
+    // stop IPC and generate a new stream id for the same thread. Retire only
+    // that thread's previous subscription. Other thread subscriptions can be
+    // legitimate side conversations and must remain connected.
+    stopRendererThreadSseControllers(event.sender.id, request.threadId)
     if (sseControllers.size >= RUNTIME_RESOURCE_LIMITS_V1.sseApplication) {
+      logError('sse', 'Application SSE connection limit reached', {
+        activeStreams: sseControllers.size,
+        rendererId: event.sender.id,
+        threadId: request.threadId
+      })
       throw resourceLimitError('The application SSE connection limit has been reached.')
     }
-    if (activeRendererStreams(event.sender.id) >= RUNTIME_RESOURCE_LIMITS_V1.ssePerRenderer) {
+    const rendererStreams = activeRendererStreams(event.sender.id)
+    if (rendererStreams >= RUNTIME_RESOURCE_LIMITS_V1.ssePerRenderer) {
+      logError('sse', 'Window SSE connection limit reached', {
+        activeStreams: rendererStreams,
+        rendererId: event.sender.id,
+        threadId: request.threadId
+      })
       throw resourceLimitError('The window SSE connection limit has been reached.')
     }
     const ac = new AbortController()
+    const stateRef: { current?: SseControllerState } = {}
     const cancellation = appCancellationRegistry.register(
       { scope: 'subtask', id: `sse:${id}` },
       {
         parent: { scope: 'window', id: String(event.sender.id) },
-        cleanup: () => {
-          ac.abort('operation_cancelled')
+        cleanup: (reason) => {
+          const current = stateRef.current
+          if (current && sseControllers.get(id) === current) {
+            current.stoppedByClient = true
+            sseControllers.delete(id)
+          }
+          ac.abort(reason)
         }
       }
     )
@@ -198,8 +243,10 @@ export function registerRuntimeSseIpc(options: {
       controller: ac,
       stoppedByClient: false,
       rendererId: event.sender.id,
+      threadId: request.threadId,
       releaseCancellation: cancellation.release
     }
+    stateRef.current = state
     sseControllers.set(id, state)
     const base = getRuntimeBaseUrlForSettings(s)
 
@@ -339,7 +386,8 @@ export function registerRuntimeSseIpc(options: {
         if (!state.stoppedByClient && !ac.signal.aborted) {
           if (!wc.isDestroyed()) wc.send('runtime:sse-end', { streamId: id })
         }
-        sseControllers.delete(id)
+        // An earlier stream with the same id must never delete its replacement.
+        if (sseControllers.get(id) === state) sseControllers.delete(id)
         state.releaseCancellation()
       }
     })()
@@ -349,11 +397,6 @@ export function registerRuntimeSseIpc(options: {
 
   ipcMain.handle('runtime:sse:stop', async (_, streamId: unknown) => {
     const normalizedStreamId = streamIdSchema.parse(streamId)
-    const state = sseControllers.get(normalizedStreamId)
-    if (state) {
-      state.stoppedByClient = true
-      state.controller.abort()
-    }
-    return true
+    return stopSseController(normalizedStreamId)
   })
 }

@@ -341,6 +341,48 @@ function normalizeGeneratedFileReference(entry: unknown): GeneratedFileReference
   return Object.keys(normalized).length > 0 ? normalized : null
 }
 
+const DELIVERABLE_FILE_EXTENSIONS = new Set([
+  'csv',
+  'doc',
+  'docx',
+  'htm',
+  'html',
+  'md',
+  'markdown',
+  'odt',
+  'pdf',
+  'ppt',
+  'pptx',
+  'rtf',
+  'txt',
+  'xls',
+  'xlsx'
+])
+
+function inferWrittenDeliverable(item: CoreTurnItemJson, payload: Record<string, unknown>): GeneratedFileReference | null {
+  if (item.kind !== 'tool_result' || item.isError) return null
+  const toolName = item.toolName?.trim().toLowerCase()
+  if (!toolName || !['write', 'write_file', 'create_file', 'edit', 'edit_file'].includes(toolName)) return null
+
+  const absolutePath = readGeneratedFileString(payload, 'absolutePath', 'absolute_path', 'path')
+  const relativePath = readGeneratedFileString(payload, 'relativePath', 'relative_path')
+  const displayPath = relativePath ?? absolutePath
+  if (!displayPath) return null
+  const fileName = displayPath.split(/[\\/]/).filter(Boolean).at(-1) ?? displayPath
+  const extension = fileName.includes('.') ? fileName.split('.').at(-1)?.toLowerCase() : undefined
+  if (!extension || !DELIVERABLE_FILE_EXTENSIONS.has(extension)) return null
+
+  const bytesWritten = payload.bytes_written
+  return {
+    name: fileName,
+    ...(relativePath ? { relativePath } : {}),
+    ...(absolutePath ? { absolutePath, path: absolutePath } : {}),
+    ...(typeof bytesWritten === 'number' && Number.isFinite(bytesWritten)
+      ? { byteSize: bytesWritten }
+      : {})
+  }
+}
+
 function extractToolGeneratedFiles(item: CoreTurnItemJson): GeneratedFileReference[] | undefined {
   if (item.kind !== 'tool_result') return undefined
   const payload = payloadFor(item)
@@ -363,6 +405,18 @@ function extractToolGeneratedFiles(item: CoreTurnItemJson): GeneratedFileReferen
     if (key && seen.has(key)) continue
     if (key) seen.add(key)
     generatedFiles.push(normalized)
+  }
+  const inferredDeliverable = inferWrittenDeliverable(item, payload)
+  if (inferredDeliverable) {
+    const inferredKey =
+      inferredDeliverable.absolutePath ??
+      inferredDeliverable.relativePath ??
+      inferredDeliverable.path ??
+      inferredDeliverable.name
+    if (!inferredKey || !seen.has(inferredKey)) {
+      if (inferredKey) seen.add(inferredKey)
+      generatedFiles.push(inferredDeliverable)
+    }
   }
   return generatedFiles.length > 0 ? generatedFiles : undefined
 }

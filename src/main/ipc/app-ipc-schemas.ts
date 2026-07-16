@@ -851,6 +851,12 @@ export const writeInlineCompletionPayloadSchema = z
   })
   .strict()
 
+export const writeKnowledgeSearchPayloadSchema = z
+  .object({
+    query: trimmedString(800)
+  })
+  .strict()
+
 export const writeInfographicPayloadSchema = z
   .object({
     text: trimmedString(WRITE_INFOGRAPHIC_MAX_TEXT_CHARS),

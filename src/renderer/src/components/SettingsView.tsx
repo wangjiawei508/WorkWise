@@ -14,6 +14,7 @@ import {
   resolveWriteInlineCompletionBaseUrl,
   resolveWriteInlineCompletionModel,
   type AppSettingsV1,
+  type WorkWiseSettingsV2,
 } from '@shared/app-settings'
 import { rendererRuntimeClient } from '../agent/runtime-client'
 import { getProvider } from '../agent/registry'
@@ -39,9 +40,11 @@ import { useSettingsGuiUpdate } from './use-settings-gui-update'
 import {
   DEFAULT_WORKSPACE_ROOT,
   coerceRendererSettings,
+  hasSettingsPatch,
   hasValidPort,
   listSettingsText,
   mergeSettings,
+  mergeSettingsPatches,
   splitSettingsList
 } from './settings-utils'
 import { loadRuntimeDiagnostics } from '../lib/load-runtime-diagnostics'
@@ -86,7 +89,7 @@ export function SettingsView(): ReactElement {
   const reloadUiSettings = useChatStore((s) => s.reloadUiSettings)
   const probeRuntime = useChatStore((s) => s.probeRuntime)
   const [category, setCategory] = useState<SettingsCategory>('general')
-  const [form, setForm] = useState<AppSettingsV1 | null>(null)
+  const [form, setForm] = useState<WorkWiseSettingsV2 | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [workspacePickerError, setWorkspacePickerError] = useState<string | null>(null)
   const [writeWorkspacePickerError, setWriteWorkspacePickerError] = useState<string | null>(null)
@@ -120,6 +123,9 @@ export function SettingsView(): ReactElement {
   const saveTimer = useRef<ReturnType<typeof window.setTimeout> | null>(null)
   const statusTimer = useRef<ReturnType<typeof window.setTimeout> | null>(null)
   const draftVersion = useRef(0)
+  const formRef = useRef<WorkWiseSettingsV2 | null>(null)
+  const pendingSettingsPatch = useRef<AppSettingsPatch>({})
+  const activeSettingsSave = useRef<Promise<boolean> | null>(null)
   const agentsSectionRef = useRef<HTMLDivElement | null>(null)
   const skillSectionRef = useRef<HTMLDivElement | null>(null)
   const mcpSectionRef = useRef<HTMLDivElement | null>(null)
@@ -158,7 +164,11 @@ export function SettingsView(): ReactElement {
     void rendererRuntimeClient
       .getSettings({ forceRefresh: true })
       .then((s) => {
-        if (!cancelled) setForm(coerceRendererSettings(s))
+        if (!cancelled) {
+          const next = coerceRendererSettings(s)
+          formRef.current = next
+          setForm(next)
+        }
       })
       .catch((e: unknown) => {
         if (!cancelled) setLoadError(e instanceof Error ? e.message : String(e))
@@ -471,21 +481,28 @@ export function SettingsView(): ReactElement {
     refs[target]?.scrollIntoView({ behavior: 'smooth', block: 'start' })
   }
 
-  const persistSettings = async (snapshot: AppSettingsV1, version: number): Promise<void> => {
-    if (!hasValidPort(snapshot)) return
+  const persistSettings = async (
+    snapshot: WorkWiseSettingsV2,
+    patch: AppSettingsPatch,
+    version: number
+  ): Promise<boolean> => {
+    if (!hasValidPort(snapshot)) return true
     setSaveStatus('saving')
     setSaveError(null)
 
     try {
-      const next = coerceRendererSettings(await rendererRuntimeClient.setSettings(snapshot))
-      if (version !== draftVersion.current) return
+      const next = coerceRendererSettings(await rendererRuntimeClient.setSettings(patch))
+      if (version !== draftVersion.current || hasSettingsPatch(pendingSettingsPatch.current)) {
+        return true
+      }
 
+      formRef.current = next
       setForm(next)
       emitRendererSettingsChanged(next)
       await applyI18n(next.locale)
       void reloadUiSettings()
       void probeRuntime('background')
-      if (version !== draftVersion.current) return
+      if (version !== draftVersion.current) return true
 
       setSaveStatus('saved')
       if (statusTimer.current) window.clearTimeout(statusTimer.current)
@@ -493,16 +510,43 @@ export function SettingsView(): ReactElement {
         if (version === draftVersion.current) setSaveStatus('idle')
         statusTimer.current = null
       }, 1500)
+      return true
     } catch (e) {
-      if (version !== draftVersion.current) return
+      // Keep failed edits dirty so a subsequent edit or Back action can retry
+      // them. Newer edits win when they touch the same nested field.
+      pendingSettingsPatch.current = mergeSettingsPatches(patch, pendingSettingsPatch.current)
       setSaveError(e instanceof Error ? e.message : String(e))
       setSaveStatus('error')
+      return false
     }
   }
 
-  const scheduleSave = (next: AppSettingsV1): void => {
-    draftVersion.current += 1
+  const startPendingSave = (): Promise<boolean> => {
+    if (activeSettingsSave.current) return activeSettingsSave.current
+    const snapshot = formRef.current
+    if (!snapshot || !hasValidPort(snapshot) || !hasSettingsPatch(pendingSettingsPatch.current)) {
+      return Promise.resolve(true)
+    }
+
+    const patch = pendingSettingsPatch.current
+    pendingSettingsPatch.current = {}
     const version = draftVersion.current
+    const task = persistSettings(snapshot, patch, version)
+    activeSettingsSave.current = task
+    void task.then((saved) => {
+      if (activeSettingsSave.current === task) activeSettingsSave.current = null
+      if (!saved || !hasSettingsPatch(pendingSettingsPatch.current) || saveTimer.current) return
+      saveTimer.current = window.setTimeout(() => {
+        saveTimer.current = null
+        void startPendingSave()
+      }, 0)
+    })
+    return task
+  }
+
+  const scheduleSave = (next: WorkWiseSettingsV2, patch: AppSettingsPatch): void => {
+    draftVersion.current += 1
+    pendingSettingsPatch.current = mergeSettingsPatches(pendingSettingsPatch.current, patch)
 
     if (saveTimer.current) window.clearTimeout(saveTimer.current)
     if (statusTimer.current) window.clearTimeout(statusTimer.current)
@@ -517,15 +561,13 @@ export function SettingsView(): ReactElement {
     setSaveStatus('saving')
     saveTimer.current = window.setTimeout(() => {
       saveTimer.current = null
-      void persistSettings(next, version)
+      void startPendingSave()
     }, 450)
   }
 
-  const flushPendingSave = async (): Promise<void> => {
-    if (!form || !hasValidPort(form)) return
-    draftVersion.current += 1
-    const version = draftVersion.current
-
+  const flushPendingSave = async (): Promise<boolean> => {
+    const snapshot = formRef.current
+    if (!snapshot || !hasValidPort(snapshot)) return true
     if (saveTimer.current) {
       window.clearTimeout(saveTimer.current)
       saveTimer.current = null
@@ -535,12 +577,15 @@ export function SettingsView(): ReactElement {
       statusTimer.current = null
     }
 
-    await persistSettings(form, version)
+    const active = activeSettingsSave.current
+    if (active && !(await active)) return false
+    if (!hasSettingsPatch(pendingSettingsPatch.current)) return true
+    return startPendingSave()
   }
 
   const goBack = (): void => {
     void (async () => {
-      await flushPendingSave()
+      if (!(await flushPendingSave())) return
       await reloadUiSettings()
       if (settingsReturnRoute === 'write') {
         await openWrite()
@@ -564,7 +609,7 @@ export function SettingsView(): ReactElement {
 
   const openOnboardingPreview = (): void => {
     void (async () => {
-      await flushPendingSave()
+      if (!(await flushPendingSave())) return
       openInitialSetup('preview')
     })()
   }
@@ -600,12 +645,13 @@ export function SettingsView(): ReactElement {
 
   const update = (partial: SettingsPatch): void => {
     const next = mergeSettings(form, partial)
+    formRef.current = next
     setForm(next)
     if (partial.locale) void applyI18n(partial.locale)
     if (partial.guiUpdate?.channel && partial.guiUpdate.channel !== form.guiUpdate.channel) {
       resetGuiUpdateState()
     }
-    scheduleSave(next)
+    scheduleSave(next, partial)
   }
 
   const sharedApiKey = provider.apiKey

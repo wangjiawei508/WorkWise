@@ -49,7 +49,7 @@ function ClawEmptyHero({
           <div className="mx-auto flex h-20 w-20 items-center justify-center rounded-[24px] border border-ds-border-muted bg-ds-main/55 text-accent">
             <AnimatedWorkLogo
               active
-              className="ds-claw-empty-kun-logo"
+              className="ds-claw-empty-work-logo"
               phase="lead"
               size="md"
             />

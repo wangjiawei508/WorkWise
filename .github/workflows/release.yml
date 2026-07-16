@@ -323,7 +323,10 @@ jobs:
       - name: Generate release notes
         run: |
           set -euo pipefail
-          if [[ -n "${PREVIOUS_TAG}" ]]; then
+          curated_notes="release/release-${TAG_NAME}.md"
+          if [[ -s "${curated_notes}" ]]; then
+            cp "${curated_notes}" release-notes.md
+          elif [[ -n "${PREVIOUS_TAG}" ]]; then
             node ./scripts/generate-release-notes.cjs "${PREVIOUS_TAG}" > release-notes.md
           else
             node ./scripts/generate-release-notes.cjs > release-notes.md
@@ -366,13 +369,40 @@ jobs:
               --verify-tag
           fi
 
-      - name: Upload GitHub Release assets and update metadata
+      - name: Keep GitHub Release limited to the three client installers
         run: |
           set -euo pipefail
-          mapfile -d '' assets < <(find website-release-assets -maxdepth 1 -type f -print0)
+          required=(
+            "WorkWise-${RELEASE_VERSION}-mac-Apple-Silicon.dmg"
+            "WorkWise-${RELEASE_VERSION}-mac-Intel.dmg"
+            "WorkWise-${RELEASE_VERSION}-win-x64.exe"
+          )
+
+          # GitHub Releases retain assets when a workflow is re-run. Remove
+          # old zips, blockmaps, checksums, and update metadata before adding
+          # the three user-facing installers. Update metadata remains in the
+          # internal website-channel artifact for a future external update feed.
+          # Draft releases are not returned by the REST `releases/tags/:tag`
+          # endpoint. Read the release through the gh CLI instead so the
+          # cleanup also works on the first publish attempt.
+          mapfile -t existing < <(gh release view "${TAG_NAME}" --json assets --jq '.assets[].name')
+          for asset in "${existing[@]}"; do
+            keep=false
+            for file in "${required[@]}"; do
+              [[ "${asset}" == "${file}" ]] && keep=true
+            done
+            if [[ "${keep}" != true ]]; then
+              gh release delete-asset "${TAG_NAME}" "${asset}" --yes
+            fi
+          done
+
+          assets=()
+          for file in "${required[@]}"; do
+            assets+=("public-release-assets/${file}")
+          done
 
           if [[ "${#assets[@]}" -eq 0 ]]; then
-            echo "::error::No release assets found"
+            echo "::error::No client installers found"
             exit 1
           fi
 
@@ -385,19 +415,11 @@ jobs:
           gh release download "${TAG_NAME}" \
             --dir downloaded-release \
             --pattern 'WorkWise-*' \
-            --pattern 'latest*.yml' \
-            --pattern 'SHA256SUMS.txt' \
             --clobber
           required=(
             "WorkWise-${RELEASE_VERSION}-mac-Apple-Silicon.dmg"
             "WorkWise-${RELEASE_VERSION}-mac-Intel.dmg"
-            "WorkWise-${RELEASE_VERSION}-mac-arm64.zip"
-            "WorkWise-${RELEASE_VERSION}-mac-x64.zip"
             "WorkWise-${RELEASE_VERSION}-win-x64.exe"
-            "WorkWise-${RELEASE_VERSION}-win-x64.exe.blockmap"
-            "latest-mac.yml"
-            "latest.yml"
-            "SHA256SUMS.txt"
           )
           for file in "${required[@]}"; do
             test -s "downloaded-release/${file}" || {
@@ -406,7 +428,7 @@ jobs:
               exit 1
             }
           done
-          node ./scripts/verify-release-assets.cjs downloaded-release --check-sha256 SHA256SUMS.txt
+          test "$(find downloaded-release -maxdepth 1 -type f -name 'WorkWise-*' | wc -l | tr -d ' ')" = 3
 
       - name: Publish GitHub Release
         run: gh release edit "${TAG_NAME}" --draft=false --prerelease=false --latest

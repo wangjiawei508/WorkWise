@@ -15,16 +15,20 @@ import {
 import { installBundledSkill, installGithubSkill, listGuiSkills } from './skill-service'
 
 const originalFetch = globalThis.fetch
+const originalCodexHome = process.env.CODEX_HOME
 
 describe('skill-service', () => {
   let tempRoot = ''
 
   beforeEach(async () => {
     tempRoot = await mkdtemp(join(tmpdir(), 'gui-skills-'))
+    process.env.CODEX_HOME = join(tempRoot, 'codex-home')
   })
 
   afterEach(async () => {
     globalThis.fetch = originalFetch
+    if (originalCodexHome === undefined) delete process.env.CODEX_HOME
+    else process.env.CODEX_HOME = originalCodexHome
     vi.restoreAllMocks()
     await rm(tempRoot, { recursive: true, force: true })
   })
@@ -51,6 +55,56 @@ describe('skill-service', () => {
       name: 'Openspec Apply Change',
       description: 'Implement tasks from an OpenSpec change.',
       scope: 'project'
+    }))
+  })
+
+  it('discovers trusted Codex template plugins with bounded reference presentations', async () => {
+    const workspaceRoot = join(tempRoot, 'workspace-plugin-template')
+    const pluginSkillRoot = join(
+      process.env.CODEX_HOME!,
+      'plugins',
+      'cache',
+      'openai-curated-remote',
+      'openai-templates',
+      '0.1.0',
+      'skills',
+      'artifact-template-team-alignment'
+    )
+    await mkdir(join(pluginSkillRoot, 'assets'), { recursive: true })
+    await writeFile(join(pluginSkillRoot, 'SKILL.md'), [
+      '---',
+      'name: artifact-template-team-alignment',
+      'description: Team alignment presentation template.',
+      '---'
+    ].join('\n'), 'utf8')
+    await writeFile(join(pluginSkillRoot, 'assets', 'reference.pptx'), Buffer.alloc(2 * 1024 * 1024))
+
+    const result = await listGuiSkills(createSettings(workspaceRoot), workspaceRoot)
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.skills).toContainEqual(expect.objectContaining({
+      id: 'artifact-template-team-alignment',
+      scope: 'global'
+    }))
+    expect(result.validationErrors).not.toContainEqual(expect.objectContaining({ root: pluginSkillRoot }))
+  })
+
+  it('keeps the strict 1 MiB limit for workspace Skills', async () => {
+    const workspaceRoot = join(tempRoot, 'workspace-oversized')
+    const skillRoot = join(workspaceRoot, '.agents', 'skills', 'oversized-workspace-skill')
+    await mkdir(join(skillRoot, 'assets'), { recursive: true })
+    await writeFile(join(skillRoot, 'SKILL.md'), '# Oversized workspace skill', 'utf8')
+    await writeFile(join(skillRoot, 'assets', 'reference.pptx'), Buffer.alloc(2 * 1024 * 1024))
+
+    const result = await listGuiSkills(createSettings(workspaceRoot), workspaceRoot)
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.skills).not.toContainEqual(expect.objectContaining({ id: 'oversized-workspace-skill' }))
+    expect(result.validationErrors).toContainEqual(expect.objectContaining({
+      root: skillRoot,
+      message: expect.stringContaining('file exceeds 1 MiB: assets/reference.pptx')
     }))
   })
 

@@ -76,10 +76,18 @@ import {
   formatWorkspaceInstructions,
   loadWorkspaceInstructions
 } from '../workspace/workspace-instructions.js'
+import {
+  hasSuccessfulFileDeliverable,
+  incompleteTurnContinuationInstruction,
+  latestTurnAssistantText,
+  looksLikeProgressOnlyReply,
+  promptRequiresFileDeliverable
+} from './turn-completion-guard.js'
 
 const PARALLEL_READ_ONLY_TOOL_NAMES = new Set(['read', 'grep', 'find', 'ls'])
 const MAX_PARALLEL_TOOL_CALLS = 3
 const MAX_TURN_MODEL_STEPS = 64
+const MAX_INCOMPLETE_COMPLETION_RECOVERIES = 2
 const DEFAULT_COMPACTION_SUMMARY_TIMEOUT_MS = 15_000
 const DEFAULT_COMPACTION_SUMMARY_MAX_TOKENS = 1_200
 const DEFAULT_COMPACTION_SUMMARY_INPUT_MAX_BYTES = 96 * 1024
@@ -396,6 +404,7 @@ export class AgentLoop {
   private readonly webToolFailureGuards = new Map<string, WebToolFailureGuard>()
   private readonly toolCatalogSnapshots = new Map<string, ToolCatalogSnapshot>()
   private readonly lastNoToolTextByTurn = new Map<string, string>()
+  private readonly incompleteCompletionRecoveriesByTurn = new Map<string, number>()
 
   constructor(opts: AgentLoopOptions) {
     this.opts = opts
@@ -464,6 +473,7 @@ export class AgentLoop {
       this.autoModelRoutes.delete(autoModelRouteKey(threadId, turnId))
       this.toolStormBreakers.delete(turnId)
       this.lastNoToolTextByTurn.delete(turnId)
+      this.incompleteCompletionRecoveriesByTurn.delete(turnId)
     }
   }
 
@@ -666,6 +676,16 @@ export class AgentLoop {
       workspace: thread?.workspace ?? ''
     })
     const planTurnActive = effectiveMode === 'plan' || Boolean(activePlanContext)
+    const turnPrompt = turn?.prompt || latestUserMessageText(healed.items, turnId)
+    const requiresFileDeliverable = !planTurnActive && promptRequiresFileDeliverable(turnPrompt)
+    const hasFileDeliverable = hasSuccessfulFileDeliverable(healed.items, turnId)
+    const completionRecoveryInstruction = stepIndex > 0
+      ? incompleteTurnContinuationInstruction({
+          requiresFileDeliverable,
+          hasFileDeliverable,
+          previousAssistantText: latestTurnAssistantText(healed.items, turnId)
+        })
+      : null
     const activeGoalInstruction = planTurnActive
       ? null
       : goalContinuationInstruction(thread?.goal)
@@ -769,6 +789,7 @@ export class AgentLoop {
       ...formatWorkspaceInstructions(workspaceInstructions),
       ...skillResolution.instructions,
       ...(userInputDisabled ? [userInputUnavailableInstruction()] : []),
+      ...(completionRecoveryInstruction ? [completionRecoveryInstruction] : []),
       ...(effectiveToolSpecs.some((tool) => tool.name === 'bash') ? [shellRuntimeInstruction()] : []),
       ...(toolCatalogDriftMessage ? [toolCatalogDriftMessage] : [])
     ]
@@ -1097,6 +1118,42 @@ export class AgentLoop {
         }
         this.lastNoToolTextByTurn.set(turnId, textAccumulator.value)
         return 'continue'
+      }
+      if (stopReason === 'stop' && !activeGoalInstruction) {
+        const incompleteDeliverable = requiresFileDeliverable && !hasFileDeliverable
+        const progressOnly = looksLikeProgressOnlyReply(textAccumulator.value)
+        if (incompleteDeliverable || progressOnly) {
+          const recoveryCount = this.incompleteCompletionRecoveriesByTurn.get(turnId) ?? 0
+          if (recoveryCount < MAX_INCOMPLETE_COMPLETION_RECOVERIES) {
+            this.incompleteCompletionRecoveriesByTurn.set(turnId, recoveryCount + 1)
+            return 'continue'
+          }
+
+          const message = incompleteDeliverable
+            ? 'Task stopped without producing the file deliverable requested by the user.'
+            : 'Task stopped after repeated progress announcements without a concrete result.'
+          const code = incompleteDeliverable ? 'incomplete_deliverable' : 'incomplete_task'
+          await this.opts.turns.applyItem(
+            threadId,
+            makeErrorItem({
+              id: this.opts.ids.next('item_error'),
+              turnId,
+              threadId,
+              message,
+              code,
+              severity: 'error'
+            })
+          )
+          await this.opts.events.record({
+            kind: 'error',
+            threadId,
+            turnId,
+            message,
+            code,
+            severity: 'error'
+          })
+          return 'failed'
+        }
       }
       return 'stop'
     }

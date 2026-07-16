@@ -1020,6 +1020,58 @@ describe('tool presentation inference', () => {
     })
   })
 
+  it('surfaces a successfully written document as a deliverable file', () => {
+    const block = chatBlockFromItem({
+      id: 'item_write_document',
+      turnId: 'turn_1',
+      threadId: 'thr_1',
+      role: 'tool',
+      status: 'completed',
+      createdAt: '2024-01-01T00:00:00.000Z',
+      kind: 'tool_result',
+      toolName: 'write',
+      callId: 'call_write_document',
+      output: {
+        path: '/tmp/宁波睿威产品介绍文档.md',
+        relative_path: '宁波睿威产品介绍文档.md',
+        bytes_written: 28_000
+      }
+    })
+
+    expect(block).toMatchObject({
+      kind: 'tool',
+      toolKind: 'file_change',
+      meta: {
+        generatedFiles: [
+          {
+            name: '宁波睿威产品介绍文档.md',
+            relativePath: '宁波睿威产品介绍文档.md',
+            absolutePath: '/tmp/宁波睿威产品介绍文档.md',
+            byteSize: 28_000
+          }
+        ]
+      }
+    })
+  })
+
+  it('does not present ordinary source-code edits as downloadable deliverables', () => {
+    const block = chatBlockFromItem({
+      id: 'item_write_source',
+      turnId: 'turn_1',
+      threadId: 'thr_1',
+      role: 'tool',
+      status: 'completed',
+      createdAt: '2024-01-01T00:00:00.000Z',
+      kind: 'tool_result',
+      toolName: 'write',
+      callId: 'call_write_source',
+      output: { path: '/tmp/app.ts', relative_path: 'app.ts', bytes_written: 120 }
+    })
+
+    expect(block).toMatchObject({ kind: 'tool', toolKind: 'file_change' })
+    if (block?.kind === 'tool') expect(block.meta?.generatedFiles).toBeUndefined()
+  })
+
   it('classifies built-in bash by name as command_execution when toolKind is omitted', () => {
     const block = chatBlockFromItem({
       id: 'item_bash_builtin',

@@ -3,7 +3,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { useTranslation } from 'react-i18next'
-import { Check, ChevronDown, ChevronRight, Copy, Download, File, FileEdit, ImageIcon, Loader2, MessageSquareQuote, PencilLine, Terminal, Video, Wrench } from 'lucide-react'
+import { Check, ChevronDown, ChevronRight, Copy, Download, File, FileEdit, FolderSearch, ImageIcon, Loader2, MessageSquareQuote, PencilLine, Terminal, Video, Wrench } from 'lucide-react'
 import type { AttachmentReference, ChatBlock, GeneratedFileReference, RuntimeDisclosureMetadata, ToolBlock, UserInputAnswer, UserInputQuestion } from '../../agent/types'
 import { extractUnifiedDiffText } from '../../lib/diff-stats'
 import { useChatStore } from '../../store/chat-store'
@@ -639,13 +639,26 @@ function MediaPreviewTile({
           {t('generatedFileDownload')}
         </button>
       {filePath ? (
-        <button
-          type="button"
-          onClick={() => void openWorkspacePathInEditor({ path: filePath }, workspaceRoot)}
-          className={saveButtonClass}
-        >
-          {t('filePreviewOpenEditor')}
-        </button>
+        <>
+          <button
+            type="button"
+            onClick={() => void openWorkspacePathInEditor({ path: filePath }, workspaceRoot)}
+            className={saveButtonClass}
+          >
+            {t('filePreviewOpenEditor')}
+          </button>
+          <button
+            type="button"
+            onClick={() => void window.workwise?.revealWorkspaceFile?.({
+              path: filePath,
+              ...(workspaceRoot ? { workspaceRoot } : {})
+            })}
+            className={saveButtonClass}
+          >
+            <FolderSearch className="mr-1.5 h-3.5 w-3.5" strokeWidth={1.9} />
+            {t('generatedFileReveal')}
+          </button>
+        </>
       ) : null}
       </div>
     </div>

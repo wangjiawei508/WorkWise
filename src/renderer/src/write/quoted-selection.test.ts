@@ -11,6 +11,7 @@ import {
   WRITE_QUOTE_ORIGINAL_START,
   composeWritePrompt,
   formatWriteQuotedSelectionForPrompt,
+  formatWriteKnowledgeForPrompt,
   parseWritePromptForDisplay,
   quotedSelectionFromEditor
 } from './quoted-selection'
@@ -101,6 +102,28 @@ describe('write quoted selections', () => {
       charCount: 31,
       text: "Hi, I'm zxy. Glad to meet you."
     })
+  })
+
+  it('injects RailWise results with source links and path suppression guidance', () => {
+    const prompt = composeWritePrompt('RailWise KB 中有哪些知识库？', [], {}, {
+      source: 'static',
+      keywords: ['railwise', '知识库'],
+      totalEntries: 2,
+      categories: [{ name: '工程监测', count: 2 }],
+      snippets: [{
+        title: '工程监测知识库',
+        url: 'https://kb.railwise.cn/monitoring',
+        text: '沉降、位移和预警处置。',
+        score: 1,
+        source: 'railwise-static'
+      }]
+    })
+
+    expect(prompt).toContain('[RailWise 知识库检索结果]')
+    expect(prompt).toContain('[工程监测知识库](https://kb.railwise.cn/monitoring)')
+    expect(prompt).toContain('不要复述 WorkWise 内部绝对路径')
+    expect(formatWriteKnowledgeForPrompt({ source: 'unavailable', keywords: [], snippets: [] }))
+      .toContain('检索暂时不可用')
   })
 })
 

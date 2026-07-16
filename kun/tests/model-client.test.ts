@@ -1529,6 +1529,41 @@ describe('DeepseekCompatModelClient', () => {
     expect(chunks.find((c) => c.kind === 'usage')).toBeDefined()
   })
 
+  it('normalizes cumulative text snapshots from compatible gateways', async () => {
+    const frames = [
+      'data: {"choices":[{"delta":{"content":"当前"}}]}\n\n',
+      'data: {"choices":[{"delta":{"content":"当前我的"}}]}\n\n',
+      'data: {"choices":[{"delta":{"content":"当前我的工作空间"}}]}\n\n',
+      'data: {"choices":[{"delta":{},"finish_reason":"stop"}]}\n\n',
+      'data: [DONE]\n\n'
+    ]
+    const encoder = new TextEncoder()
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        for (const frame of frames) controller.enqueue(encoder.encode(frame))
+        controller.close()
+      }
+    })
+    const fetchImpl: typeof fetch = async () =>
+      new Response(body, { status: 200, headers: { 'content-type': 'text/event-stream' } })
+    const client = new DeepseekCompatModelClient({
+      baseUrl: 'https://example.com/beta',
+      apiKey: 'k',
+      model: 'deepseek-chat',
+      fetchImpl
+    })
+
+    const chunks = []
+    for await (const chunk of client.stream(buildRequest(new AbortController().signal))) {
+      chunks.push(chunk)
+    }
+    const text = chunks
+      .filter((c) => c.kind === 'assistant_text_delta')
+      .map((c) => (c as { text: string }).text)
+      .join('')
+    expect(text).toBe('当前我的工作空间')
+  })
+
   it('keeps reading streamed usage sent after finish_reason', async () => {
     const frames = [
       'data: {"choices":[{"delta":{"content":"done"}}]}\n\n',
