@@ -228,7 +228,7 @@ export function createThreadActions(
       const ac = new AbortController()
       sseAbortRef.current = ac
       const sink = buildThreadEventSink(set, get, { threadId: activeThreadId, signal: ac.signal, sinceSeq: latestSeq })
-      void p.subscribeThreadEvents(activeThreadId, latestSeq, sink, ac.signal)
+      subscribeThreadEventsWithRecovery(p, activeThreadId, latestSeq, sink, ac.signal, get)
       if (busy) {
         armBusyWatchdog(set, get)
       } else {

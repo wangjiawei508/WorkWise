@@ -43,6 +43,104 @@ describe('AgentLoop', () => {
     expect(h.inflight.size()).toBe(0)
   })
 
+  it('continues a document task until the requested file is actually written', async () => {
+    let calls = 0
+    const observedInstructions: string[] = []
+    const writeTool = LocalToolHost.defineTool({
+      name: 'write',
+      description: 'Write a workspace file',
+      inputSchema: {
+        type: 'object',
+        properties: { path: { type: 'string' }, content: { type: 'string' } },
+        required: ['path', 'content'],
+        additionalProperties: false
+      },
+      policy: 'auto',
+      toolKind: 'file_change',
+      execute: async (args) => ({
+        output: {
+          path: `/tmp/${String(args.path)}`,
+          relative_path: String(args.path),
+          bytes_written: String(args.content).length
+        }
+      })
+    })
+    const h = makeHarness(
+      {
+        provider: 'deliverable-guard',
+        model: 'deliverable-guard',
+        async *stream(request: ModelRequest): AsyncIterable<ModelStreamChunk> {
+          calls += 1
+          observedInstructions.push(request.contextInstructions?.join('\n') ?? '')
+          if (calls === 1) {
+            yield { kind: 'assistant_text_delta', text: '资料已收集，现在开始撰写完整文档。' }
+            yield { kind: 'completed', stopReason: 'stop' }
+            return
+          }
+          if (calls === 2) {
+            yield {
+              kind: 'tool_call_complete',
+              callId: 'call_write_deliverable',
+              toolName: 'write',
+              arguments: {
+                path: '宁波睿威产品介绍文档.md',
+                content: '# 宁波睿威产品介绍文档\n\n完整内容。'
+              }
+            }
+            yield { kind: 'completed', stopReason: 'tool_calls' }
+            return
+          }
+          yield {
+            kind: 'assistant_text_delta',
+            text: '文档已完成并保存为 `宁波睿威产品介绍文档.md`。'
+          }
+          yield { kind: 'completed', stopReason: 'stop' }
+        }
+      },
+      { tools: [writeTool] }
+    )
+    await bootstrapThread(h, {
+      request: { prompt: '针对宁波睿威的产品情况，形成一份针对宁波睿威的产品介绍文档' }
+    })
+
+    const status = await h.loop.runTurn(h.threadId, h.turnId)
+    const items = await h.sessionStore.loadItems(h.threadId)
+
+    expect(status).toBe('completed')
+    expect(calls).toBe(3)
+    expect(observedInstructions[1]).toContain('has not produced one yet')
+    expect(items.some((item) =>
+      item.kind === 'tool_result' &&
+      item.toolName === 'write' &&
+      item.status === 'completed'
+    )).toBe(true)
+  })
+
+  it('continues after a progress-only reply instead of silently completing', async () => {
+    let calls = 0
+    const h = makeHarness({
+      provider: 'progress-guard',
+      model: 'progress-guard',
+      async *stream(request: ModelRequest): AsyncIterable<ModelStreamChunk> {
+        calls += 1
+        if (calls === 1) {
+          yield { kind: 'assistant_text_delta', text: '让我继续检查问题。' }
+          yield { kind: 'completed', stopReason: 'stop' }
+          return
+        }
+        expect(request.contextInstructions?.join('\n')).toContain('progress announcement')
+        yield { kind: 'assistant_text_delta', text: '问题原因是连接清理竞态，修复已明确。' }
+        yield { kind: 'completed', stopReason: 'stop' }
+      }
+    })
+    await bootstrapThread(h, { request: { prompt: '检查连接问题并给出结论' } })
+
+    const status = await h.loop.runTurn(h.threadId, h.turnId)
+
+    expect(status).toBe('completed')
+    expect(calls).toBe(2)
+  })
+
   it('injects the current shell runtime when bash is available', async () => {
     let observedRequest: ModelRequest | null = null
     const h = makeHarness({
@@ -1147,7 +1245,7 @@ describe('AgentLoop', () => {
             yield { kind: 'completed', stopReason: 'tool_calls' }
             return
           }
-          yield { kind: 'assistant_text_delta', text: 'I will continue without the plan tool.' }
+          yield { kind: 'assistant_text_delta', text: 'I continued without the plan tool and completed the request.' }
           yield { kind: 'completed', stopReason: 'stop' }
         }
       },

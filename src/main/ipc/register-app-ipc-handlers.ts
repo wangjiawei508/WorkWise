@@ -863,6 +863,25 @@ export function registerAppIpcHandlers(options: RegisterAppIpcHandlersOptions): 
       parseIpcPayload('file:read-workspace-image', workspaceFileTargetPayloadSchema, payload)
     )
   )
+  ipcMain.handle('file:reveal-workspace', async (_, payload: unknown) => {
+    const request = parseIpcPayload(
+      'file:reveal-workspace',
+      workspaceFileTargetPayloadSchema,
+      payload
+    )
+    try {
+      const target = await resolveOpenTargetPath(request.path, request.workspaceRoot, {
+        allowBasenameFallback: false
+      })
+      shell.showItemInFolder(target)
+      return { ok: true as const }
+    } catch (error) {
+      return {
+        ok: false as const,
+        message: error instanceof Error ? error.message : String(error)
+      }
+    }
+  })
   ipcMain.handle('file:save-as', async (_, payload: unknown) =>
     saveWorkspaceFileAs(payload, getMainWindow)
   )
