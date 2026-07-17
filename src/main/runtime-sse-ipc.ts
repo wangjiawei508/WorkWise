@@ -20,9 +20,31 @@ type SseControllerState = {
 const SSE_RECONNECT_BASE_MS = 750
 const SSE_RECONNECT_MAX_MS = 5_000
 const SSE_START_TIMEOUT_MS = 15_000
+const MAX_PRESTOPPED_STREAM_IDS = 256
 
 
 const sseControllers = new Map<string, SseControllerState>()
+// Renderer route switches can abort a subscription while the matching start
+// IPC is still awaiting settings/runtime startup. Remember those early stops
+// so the delayed start cannot register an orphaned stream after both renderer
+// cleanup calls have already returned.
+const preStoppedSseIds = new Set<string>()
+
+function rememberPreStoppedSse(id: string): void {
+  preStoppedSseIds.delete(id)
+  preStoppedSseIds.add(id)
+  while (preStoppedSseIds.size > MAX_PRESTOPPED_STREAM_IDS) {
+    const oldest = preStoppedSseIds.values().next().value
+    if (typeof oldest !== 'string') break
+    preStoppedSseIds.delete(oldest)
+  }
+}
+
+function consumePreStoppedSse(id: string): boolean {
+  if (!preStoppedSseIds.has(id)) return false
+  preStoppedSseIds.delete(id)
+  return true
+}
 
 function stopSseController(id: string, reason = 'operation_cancelled'): boolean {
   const state = sseControllers.get(id)
@@ -71,6 +93,7 @@ function stopRendererThreadSseControllers(
 export async function stopAllRuntimeSse(reason = 'application_exit'): Promise<void> {
   const ids = [...sseControllers.keys()]
   for (const id of ids) stopSseController(id, reason)
+  preStoppedSseIds.clear()
   await Promise.all(
     ids.map((id) => appCancellationRegistry.cancel({ scope: 'subtask', id: `sse:${id}` }, reason))
   )
@@ -200,6 +223,9 @@ export function registerRuntimeSseIpc(options: {
     await ensureRuntime(s)
     const requestedId = request.streamId?.trim() ?? ''
     const id = requestedId || randomUUID()
+    if (consumePreStoppedSse(id)) {
+      return { streamId: id }
+    }
     stopSseController(id, 'stream_replaced')
     // A route switch, turn recovery, or React remount can race with the old
     // stop IPC and generate a new stream id for the same thread. Retire only
@@ -397,6 +423,8 @@ export function registerRuntimeSseIpc(options: {
 
   ipcMain.handle('runtime:sse:stop', async (_, streamId: unknown) => {
     const normalizedStreamId = streamIdSchema.parse(streamId)
-    return stopSseController(normalizedStreamId)
+    const stopped = stopSseController(normalizedStreamId)
+    if (!stopped) rememberPreStoppedSse(normalizedStreamId)
+    return stopped
   })
 }

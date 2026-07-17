@@ -330,9 +330,25 @@ describe('create_plan tool mapping', () => {
       toolName: 'generate_image',
       callId: 'call_img_1',
       output: {
-        files: [{ relativePath: '.deepseekgui-images/img-1.png' }],
+        files: [{
+          relativePath: '.deepseekgui-images/img-1.png',
+          workspaceRoot: '/'
+        }],
         attachments: [
-          { id: 'att_abc', name: 'img-1.png', mimeType: 'image/png', width: 1024, height: 576 },
+          {
+            id: 'att_abc',
+            name: 'img-1.png',
+            mimeType: 'image/png',
+            width: 1024,
+            height: 576,
+            dataUrl: 'data:image/png;base64,aW1hZ2U='
+          },
+          {
+            id: 'att_html',
+            name: 'unsafe.html',
+            mimeType: 'text/html',
+            previewUrl: 'data:text/html;base64,PHNjcmlwdD4='
+          },
           { id: '   ' },
           'not-an-object',
           { name: 'missing-id.png' }
@@ -344,10 +360,20 @@ describe('create_plan tool mapping', () => {
     expect(block).not.toBeNull()
     if (block && block.kind === 'tool') {
       expect(block.meta?.attachments).toEqual([
-        { id: 'att_abc', name: 'img-1.png', mimeType: 'image/png', width: 1024, height: 576 }
+        {
+          id: 'att_abc',
+          name: 'img-1.png',
+          mimeType: 'image/png',
+          width: 1024,
+          height: 576,
+          previewUrl: 'data:image/png;base64,aW1hZ2U='
+        },
+        { id: 'att_html', name: 'unsafe.html', mimeType: 'text/html' }
       ])
       expect(block.meta?.generatedFiles).toEqual([
-        { relativePath: '.deepseekgui-images/img-1.png' }
+        {
+          relativePath: '.deepseekgui-images/img-1.png'
+        }
       ])
     } else {
       throw new Error('expected tool block')

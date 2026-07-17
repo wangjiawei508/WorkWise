@@ -742,15 +742,23 @@ export async function exportWriteDocument(
     if (payload.format === 'html' || payload.format === 'doc') {
       await durableWriteFile(targetPath, html)
     } else if (payload.format === 'docx') {
-      const docx = await htmlToDocx(html, null, {
-        title,
-        creator: 'WorkWise Runtime',
-        keywords: ['markdown', 'export'],
-        description: `Exported from ${basename(sourcePath)}`,
-        font: 'Arial',
-        fontSize: 24
-      })
-      await durableWriteFile(targetPath, await bufferFromDocxResult(docx))
+      if (isMarkdownFile(sourcePath)) {
+        await durableWriteFile(targetPath, await buildDocxFromMarkdown({
+          sourcePath,
+          content: payload.content,
+          title
+        }))
+      } else {
+        const docx = await htmlToDocx(html, null, {
+          title,
+          creator: 'WorkWise Runtime',
+          keywords: ['document', 'export'],
+          description: `Exported from ${basename(sourcePath)}`,
+          font: 'Arial',
+          fontSize: 24
+        })
+        await durableWriteFile(targetPath, await bufferFromDocxResult(docx))
+      }
     } else {
       await durableWriteFile(targetPath, await renderHtmlToPdf(html))
     }

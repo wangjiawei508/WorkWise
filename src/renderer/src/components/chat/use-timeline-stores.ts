@@ -24,6 +24,13 @@ export type TimelineStores = {
   activeThread: NormalizedThread | null
 }
 
+export function resolveTimelineWorkspaceRoot(
+  activeThread: Pick<NormalizedThread, 'workspace'> | null,
+  fallback: string
+): string {
+  return activeThread?.workspace?.trim() || fallback
+}
+
 export function useTimelineStores(activeThreadId: string | null): TimelineStores {
   const route = useChatStore((s) => s.route)
   const workspaceRoot = useChatStore((s) => s.workspaceRoot)

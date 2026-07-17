@@ -859,6 +859,7 @@ function titleFromSlug(value: string): string {
 
 function displaySkillName(frontmatterName: string | undefined, folderName: string): string {
   const value = frontmatterName?.trim() ?? ''
+  if ((value || folderName).toLowerCase() === 'ppt-master') return 'PPT Master 3.1.0+'
   if (!value) return titleFromSlug(folderName)
   return /^[a-z0-9][a-z0-9_-]*$/i.test(value) ? titleFromSlug(value) : value
 }

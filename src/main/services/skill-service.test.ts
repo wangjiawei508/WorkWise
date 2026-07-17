@@ -376,7 +376,7 @@ describe('skill-service', () => {
     if (!result.ok) return
     expect(result.skills).toContainEqual(expect.objectContaining({
       id: 'ppt-master',
-      name: 'Ppt Master',
+      name: 'PPT Master 3.1.0+',
       description: expect.stringContaining('生成和导出 PPT'),
       source: expect.objectContaining({
         type: 'github',

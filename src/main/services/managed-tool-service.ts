@@ -31,6 +31,8 @@ const MAX_DOWNLOAD_BYTES = 64 * 1024 * 1024
 const MAX_SKILL_BUNDLE_DOWNLOAD_BYTES = 96 * 1024 * 1024
 const EGO_URL = 'https://lite.ego.app/'
 const RELEASE_CACHE_TTL_MS = 30 * 60 * 1_000
+const DOWNLOAD_ATTEMPTS = 3
+const DOWNLOAD_TIMEOUT_MS = 60_000
 
 type ToolManifest = Record<string, {
   version: string
@@ -198,22 +200,46 @@ function releaseAssetUrl(repo: string, version: string, name: string): string {
   return `https://github.com/${repo}/releases/download/v${encodeURIComponent(version)}/${encodeURIComponent(name)}`
 }
 
-async function download(url: string, maxBytes = MAX_DOWNLOAD_BYTES): Promise<Buffer> {
-  let response: Response
-  try {
-    response = await systemFetch(url, {
-      headers: { 'User-Agent': 'WorkWise' },
-      signal: AbortSignal.timeout(180_000)
-    })
-  } catch (error) {
-    throw new Error(describeNetworkFailure(error, 'GitHub download'), { cause: error })
+function isTransientDownloadFailure(error: unknown): boolean {
+  const value = error as { message?: unknown; cause?: { code?: unknown; message?: unknown } }
+  const detail = [value?.message, value?.cause?.code, value?.cause?.message]
+    .filter((item): item is string => typeof item === 'string')
+    .join(' ')
+  return /ETIMEDOUT|ECONNRESET|ECONNREFUSED|EAI_AGAIN|ENETUNREACH|EHOSTUNREACH|fetch failed|network|socket|terminated|timeout/i.test(detail)
+}
+
+async function download(
+  url: string,
+  maxBytes = MAX_DOWNLOAD_BYTES,
+  retryDelayMs = 750
+): Promise<Buffer> {
+  let lastError: unknown
+  for (let attempt = 1; attempt <= DOWNLOAD_ATTEMPTS; attempt += 1) {
+    try {
+      const response = await systemFetch(url, {
+        headers: { 'User-Agent': 'WorkWise' },
+        signal: AbortSignal.timeout(DOWNLOAD_TIMEOUT_MS)
+      })
+      if (!response.ok) {
+        if ((response.status === 408 || response.status === 429 || response.status >= 500) && attempt < DOWNLOAD_ATTEMPTS) {
+          await new Promise((resolve) => setTimeout(resolve, retryDelayMs * attempt))
+          continue
+        }
+        throw new Error(`Download failed (${response.status}).`)
+      }
+      const declared = Number(response.headers.get('content-length') || 0)
+      if (declared > maxBytes) throw new Error('Download exceeds the managed tool size limit.')
+      const bytes = Buffer.from(await response.arrayBuffer())
+      if (bytes.length > maxBytes) throw new Error('Download exceeds the managed tool size limit.')
+      return bytes
+    } catch (error) {
+      if (error instanceof Error && /^(Download failed|Download exceeds)/.test(error.message)) throw error
+      lastError = error
+      if (!isTransientDownloadFailure(error) || attempt >= DOWNLOAD_ATTEMPTS) break
+      await new Promise((resolve) => setTimeout(resolve, retryDelayMs * attempt))
+    }
   }
-  if (!response.ok) throw new Error(`Download failed (${response.status}).`)
-  const declared = Number(response.headers.get('content-length') || 0)
-  if (declared > maxBytes) throw new Error('Download exceeds the managed tool size limit.')
-  const bytes = Buffer.from(await response.arrayBuffer())
-  if (bytes.length > maxBytes) throw new Error('Download exceeds the managed tool size limit.')
-  return bytes
+  throw new Error(describeNetworkFailure(lastError, 'GitHub download'), { cause: lastError })
 }
 
 function checksumFor(text: string, assetName: string): string {
@@ -622,6 +648,7 @@ export const _internals = {
   releaseVersionFromUrl,
   releaseVersionFromHtml,
   releaseAssetUrl,
+  download,
   larkSkills: LARK_SKILLS,
   officeSkills: OFFICE_SKILLS,
   clearReleaseCache: () => releaseVersionCache.clear(),

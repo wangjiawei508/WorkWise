@@ -27,10 +27,6 @@ export function isInternalTemporaryWorkspace(path?: string): boolean {
   const normalized = normalizePathForMatch(trimmed)
   return (
     /\/deepseek-tui-updates\/tmp(?:\/|$)/.test(normalized)
-    || normalized === '/tmp'
-    || normalized.startsWith('/tmp/')
-    || normalized === '/private/tmp'
-    || normalized.startsWith('/private/tmp/')
     || /^\/var\/folders\/[^/]+\/[^/]+\/t(?:\/|$)/.test(normalized)
     || /^\/private\/var\/folders\/[^/]+\/[^/]+\/t(?:\/|$)/.test(normalized)
     || /\/appdata\/local\/temp(?:\/|$)/.test(normalized)

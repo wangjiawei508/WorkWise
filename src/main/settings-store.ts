@@ -42,13 +42,22 @@ const DEFAULT_WRITE_WORKSPACE_ROOT_ABSOLUTE = expandHomePath(DEFAULT_WRITE_WORKS
 const SETTINGS_FILE_NAME = 'workwise-settings.json'
 const COMPATIBLE_SETTINGS_FILE_NAMES = ['workgpt-settings.json', 'kun-settings.json', 'deepseek-gui-settings.json'] as const
 const COMPATIBLE_USER_DATA_DIR_NAMES = ['workgpt', 'WORKGPT', 'Kun', 'deepseek-gui', 'DeepSeek GUI'] as const
-const WELCOME_MARKDOWN = `# Welcome to Write
+const WELCOME_MARKDOWN_EN = `# Welcome to Write
 
 This is your default writing workspace.
 
 - Create Markdown drafts from the sidebar.
 - Select text in the editor and ask the writing assistant about it.
 - Switch between source, live, split, and preview modes from the top bar.
+`
+const WELCOME_MARKDOWN_ZH = `# 欢迎使用 WorkWise 写作台
+
+这是你的默认写作空间。
+
+- 从左侧新建或打开 Markdown 草稿。
+- 选中文本后引用给写作助手，或直接向助手提问。
+- 使用顶部工具栏切换实时、源码、分屏和预览模式。
+- 本地编辑和导出不依赖 AI；配置模型后可使用知识库、配图和 PPT 等能力。
 `
 
 export function expandHomePath(raw: string | null | undefined): string {
@@ -173,10 +182,20 @@ async function ensureWriteWorkspaceRootsExist(settings: AppSettingsV1): Promise<
   }
 
   const welcomePath = join(settings.write.defaultWorkspaceRoot, 'welcome.md')
+  const welcomeMarkdown = settings.locale === 'zh' ? WELCOME_MARKDOWN_ZH : WELCOME_MARKDOWN_EN
   try {
-    await writeFile(welcomePath, WELCOME_MARKDOWN, { encoding: 'utf8', flag: 'wx' })
+    await writeFile(welcomePath, welcomeMarkdown, { encoding: 'utf8', flag: 'wx' })
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error
+
+    // A fresh profile is initially persisted with the neutral English default
+    // before the renderer applies the OS/onboarding locale. Translate only an
+    // untouched generated welcome file; never overwrite a user's edits.
+    const existingWelcome = await readFile(welcomePath, 'utf8')
+    const otherDefault = settings.locale === 'zh' ? WELCOME_MARKDOWN_EN : WELCOME_MARKDOWN_ZH
+    if (existingWelcome === otherDefault) {
+      await atomicWriteFile(welcomePath, welcomeMarkdown)
+    }
   }
 }
 

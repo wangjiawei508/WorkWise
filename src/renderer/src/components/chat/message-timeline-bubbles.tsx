@@ -11,6 +11,8 @@ import { getProvider } from '../../agent/registry'
 import { parseWritePromptForDisplay } from '../../write/quoted-selection'
 import { parseClawUserPromptForDisplay, type ClawUserPromptDisplay } from '@shared/app-settings'
 import { openWorkspacePathInEditor } from '../../lib/open-workspace-path'
+import { resolveGeneratedFileWorkspaceRoot } from '../../lib/generated-file-path'
+import { safeMediaPreviewUrl } from '../../lib/safe-media-preview-url'
 import { DiffView } from '../DiffView'
 import { AssistantMarkdown } from './AssistantMarkdown'
 import { ModelMetaTag, WritePromptMetaDisclosure } from './message-timeline-cards'
@@ -251,7 +253,7 @@ function metaAttachmentReferences(meta: RuntimeDisclosureMetadata | undefined): 
       const name = typeof raw.name === 'string' && raw.name.trim() ? raw.name.trim() : undefined
       const mimeType = typeof raw.mimeType === 'string' && raw.mimeType.trim() ? raw.mimeType.trim() : undefined
       const byteSize = typeof raw.byteSize === 'number' && Number.isFinite(raw.byteSize) ? raw.byteSize : undefined
-      const previewUrl = typeof raw.previewUrl === 'string' && raw.previewUrl.trim() ? raw.previewUrl.trim() : undefined
+      const previewUrl = safeMediaPreviewUrl(raw.previewUrl)
       const width = typeof raw.width === 'number' && Number.isFinite(raw.width) ? raw.width : undefined
       const height = typeof raw.height === 'number' && Number.isFinite(raw.height) ? raw.height : undefined
       return {
@@ -285,7 +287,7 @@ function normalizeGeneratedFileReference(entry: unknown): GeneratedFileReference
   const id = readMediaString(raw, 'id', 'attachmentId')
   const name = readMediaString(raw, 'name', 'fileName', 'filename')
   const mimeType = readMediaString(raw, 'mimeType', 'type', 'mediaType')
-  const previewUrl = readMediaString(raw, 'previewUrl', 'dataUrl', 'url')
+  const previewUrl = safeMediaPreviewUrl(readMediaString(raw, 'previewUrl', 'dataUrl', 'url'))
   const path = readMediaString(raw, 'path', 'file')
   const relativePath = readMediaString(raw, 'relativePath', 'relative_path')
   const absolutePath = readMediaString(raw, 'absolutePath', 'absolute_path')
@@ -325,6 +327,22 @@ function mediaKey(media: TimelineMediaReference): string {
     media.name ||
     'media'
   )
+}
+
+export function generatedFilePreviewCacheKey(
+  media: GeneratedFileReference,
+  workspaceRoot?: string,
+  activeThreadId?: string | null
+): string {
+  return [activeThreadId?.trim() ?? '', workspaceRoot?.trim() ?? '', mediaKey(media)].join('\u0000')
+}
+
+export function generatedFileActionFailureMessage(
+  result: { ok: boolean; message?: string } | null | undefined,
+  fallback: string
+): string | null {
+  if (result?.ok) return null
+  return result?.message?.trim() || fallback
 }
 
 function mediaName(media: TimelineMediaReference): string {
@@ -406,38 +424,51 @@ function mergeMediaReferences(
 
 type MediaPreviewRequest =
   | { key: string; id: string; mode: 'attachment' }
-  | { key: string; path: string; mode: 'workspace-image' }
+  | { key: string; path: string; workspaceRoot?: string; mode: 'workspace-image' }
 
 function isMediaPreviewRequest(entry: MediaPreviewRequest | null): entry is MediaPreviewRequest {
   return entry !== null
 }
 
-function useMediaPreviewUrls(media: TimelineMediaReference[]): Record<string, string> {
-  const activeThreadId = useChatStore((s) => s.activeThreadId)
-  const workspaceRoot = useChatStore((s) => s.workspaceRoot)
+function useMediaPreviewUrls(
+  media: TimelineMediaReference[],
+  workspaceRootOverride?: string,
+  activeThreadIdOverride?: string | null
+): Record<string, string> {
+  const globalActiveThreadId = useChatStore((s) => s.activeThreadId)
+  const activeThreadId = activeThreadIdOverride || globalActiveThreadId
+  const globalWorkspaceRoot = useChatStore((s) => s.workspaceRoot)
+  const artifactWorkspaceRoot = workspaceRootOverride?.trim() || globalWorkspaceRoot
   const [resolvedPreviewUrls, setResolvedPreviewUrls] = useState<Record<string, string>>({})
   const [failedPreviewIds, setFailedPreviewIds] = useState<Record<string, true>>({})
   const previewRequests = useMemo(
     () =>
       media
         .map((item) => {
-          const key = mediaKey(item)
+          const key = generatedFilePreviewCacheKey(item, artifactWorkspaceRoot, activeThreadId)
           if (item.previewUrl || resolvedPreviewUrls[key] || failedPreviewIds[key]) return null
           if (item.id && (mediaIsImage(item) || mediaIsVideo(item) || !item.mimeType)) {
             return { key, id: item.id, mode: 'attachment' } satisfies MediaPreviewRequest
           }
           const path = mediaIsImage(item) ? mediaPath(item) : undefined
-          if (path) return { key, path, mode: 'workspace-image' } satisfies MediaPreviewRequest
+          if (path && artifactWorkspaceRoot) {
+            return {
+              key,
+              path,
+              workspaceRoot: resolveGeneratedFileWorkspaceRoot(artifactWorkspaceRoot),
+              mode: 'workspace-image'
+            } satisfies MediaPreviewRequest
+          }
           return null
         })
         .filter(isMediaPreviewRequest),
-    [failedPreviewIds, media, resolvedPreviewUrls]
+    [activeThreadId, artifactWorkspaceRoot, failedPreviewIds, media, resolvedPreviewUrls]
   )
   const missingPreviewKey = previewRequests
     .map((request) =>
       request.mode === 'attachment'
-        ? `attachment:${request.id}`
-        : `workspace-image:${request.path}`
+        ? `attachment:${request.key}:${request.id}`
+        : `workspace-image:${request.key}:${request.path}`
     )
     .join('\n')
 
@@ -451,17 +482,19 @@ function useMediaPreviewUrls(media: TimelineMediaReference[]): Record<string, st
           if (request.mode === 'attachment' && request.id && typeof provider.getAttachmentContent === 'function') {
             const content = await provider.getAttachmentContent(request.id, {
               ...(activeThreadId ? { threadId: activeThreadId } : {}),
-              ...(workspaceRoot ? { workspace: workspaceRoot } : {})
+              ...(artifactWorkspaceRoot ? { workspace: artifactWorkspaceRoot } : {})
             })
-            return {
-              key: request.key,
-              previewUrl: `data:${content.attachment.mimeType};base64,${content.dataBase64}`
-            }
+            const previewUrl = safeMediaPreviewUrl(
+              `data:${content.attachment.mimeType};base64,${content.dataBase64}`
+            )
+            return previewUrl
+              ? { key: request.key, previewUrl }
+              : { key: request.key, failed: true as const }
           }
           if (request.mode === 'workspace-image' && request.path && typeof window.workwise?.readWorkspaceImage === 'function') {
             const result = await window.workwise.readWorkspaceImage({
               path: request.path,
-              ...(workspaceRoot ? { workspaceRoot } : {})
+              ...(request.workspaceRoot ? { workspaceRoot: request.workspaceRoot } : {})
             })
             if (result.ok) return { key: request.key, previewUrl: result.dataUrl }
           }
@@ -492,7 +525,7 @@ function useMediaPreviewUrls(media: TimelineMediaReference[]): Record<string, st
     return () => {
       cancelled = true
     }
-  }, [activeThreadId, missingPreviewKey, previewRequests, workspaceRoot])
+  }, [activeThreadId, artifactWorkspaceRoot, missingPreviewKey, previewRequests])
 
   return resolvedPreviewUrls
 }
@@ -500,19 +533,29 @@ function useMediaPreviewUrls(media: TimelineMediaReference[]): Record<string, st
 function MediaPreviewTile({
   media,
   previewUrl,
-  variant
+  variant,
+  workspaceRoot: workspaceRootOverride
 }: {
   media: TimelineMediaReference
   previewUrl?: string
   variant: 'user' | 'tool' | 'conversation'
+  workspaceRoot?: string
 }): ReactElement {
   const { t } = useTranslation('common')
-  const workspaceRoot = useChatStore((s) => s.workspaceRoot)
+  const globalWorkspaceRoot = useChatStore((s) => s.workspaceRoot)
   const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
+  const [actionError, setActionError] = useState<string | null>(null)
   const title = mediaName(media)
   const filePath = mediaPath(media)
+  const owningWorkspaceRoot = resolveGeneratedFileWorkspaceRoot(
+    workspaceRootOverride?.trim() || globalWorkspaceRoot
+  )
   const mimeType = media.mimeType || (mediaIsImage(media) ? 'image' : mediaIsVideo(media) ? 'video' : '')
   const byteSize = formatByteSize(media.byteSize)
+  const fileType = (() => {
+    const extension = title.match(/\.([a-z0-9]{1,8})$/i)?.[1]
+    return extension ? extension.toUpperCase() : mimeType
+  })()
   const hasRichPreview = !!previewUrl && (mediaIsImage(media) || mediaIsVideo(media))
   const tileClass =
     variant === 'conversation'
@@ -533,36 +576,79 @@ function MediaPreviewTile({
           ? t('generatedFileSaveFailed')
           : t('generatedFileDownload')
   const handleSaveAs = async (): Promise<void> => {
-    if (saveState === 'saving' || typeof window.workwise?.saveWorkspaceFileAs !== 'function') return
-    const data = dataUrlPayload(previewUrl)
-    if (!filePath && !data) {
-      setSaveState('error')
+    if (saveState === 'saving') return
+    if (typeof window.workwise?.saveWorkspaceFileAs !== 'function') {
+      setActionError(t('generatedFileBridgeUnavailable'))
       return
     }
+    const data = dataUrlPayload(previewUrl)
+    const canUsePath = Boolean(filePath && owningWorkspaceRoot)
+    if (!canUsePath && !data) {
+      setSaveState('error')
+      setActionError(filePath ? t('generatedFileWorkspaceUnavailable') : t('generatedFileNoData'))
+      return
+    }
+    setActionError(null)
     setSaveState('saving')
     try {
       const result = await window.workwise.saveWorkspaceFileAs({
         suggestedName: title,
-        ...(filePath ? { sourcePath: filePath } : {}),
-        ...(workspaceRoot ? { workspaceRoot } : {}),
+        ...(canUsePath && filePath ? { sourcePath: filePath } : {}),
+        ...(canUsePath && owningWorkspaceRoot ? { workspaceRoot: owningWorkspaceRoot } : {}),
         ...(media.mimeType || data?.mimeType ? { mimeType: media.mimeType ?? data?.mimeType } : {}),
-        ...(data && !filePath ? { dataBase64: data.dataBase64 } : {})
+        ...(data && !canUsePath ? { dataBase64: data.dataBase64 } : {})
       })
       if (result.ok) {
+        setActionError(null)
         setSaveState('saved')
         window.setTimeout(() => setSaveState('idle'), 1600)
       } else if (result.canceled) {
         setSaveState('idle')
       } else {
         setSaveState('error')
+        setActionError(result.message?.trim() || t('generatedFileSaveFailed'))
       }
     } catch (error) {
       setSaveState('error')
+      setActionError(error instanceof Error ? error.message : String(error))
       void window.workwise?.logError?.('file-save-as', 'Failed to save generated file', {
         message: error instanceof Error ? error.message : String(error),
         filePath,
         title
       }).catch(() => undefined)
+    }
+  }
+  const handleOpenInEditor = async (): Promise<void> => {
+    if (!filePath) return
+    if (!owningWorkspaceRoot) {
+      setActionError(t('generatedFileWorkspaceUnavailable'))
+      return
+    }
+    setActionError(null)
+    const result = await openWorkspacePathInEditor({ path: filePath }, owningWorkspaceRoot)
+    const message = generatedFileActionFailureMessage(result, t('generatedFileOpenFailed'))
+    if (message) setActionError(message)
+  }
+  const handleReveal = async (): Promise<void> => {
+    if (!filePath) return
+    if (!owningWorkspaceRoot) {
+      setActionError(t('generatedFileWorkspaceUnavailable'))
+      return
+    }
+    if (typeof window.workwise?.revealWorkspaceFile !== 'function') {
+      setActionError(t('generatedFileBridgeUnavailable'))
+      return
+    }
+    setActionError(null)
+    try {
+      const result = await window.workwise.revealWorkspaceFile({
+        path: filePath,
+        ...(owningWorkspaceRoot ? { workspaceRoot: owningWorkspaceRoot } : {})
+      })
+      const message = generatedFileActionFailureMessage(result, t('generatedFileRevealFailed'))
+      if (message) setActionError(message)
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : String(error))
     }
   }
   const saveButtonClass =
@@ -589,6 +675,11 @@ function MediaPreviewTile({
         >
           {saveIcon}
         </button>
+        {actionError ? (
+          <figcaption className="absolute inset-x-2 bottom-2 rounded-md bg-red-950/85 px-2 py-1 text-[11px] text-white" role="alert">
+            {t('generatedFileActionFailed', { message: actionError })}
+          </figcaption>
+        ) : null}
       </figure>
     )
   }
@@ -607,6 +698,11 @@ function MediaPreviewTile({
         >
           {saveIcon}
         </button>
+        {actionError ? (
+          <figcaption className="absolute inset-x-2 bottom-2 rounded-md bg-red-950/85 px-2 py-1 text-[11px] text-white" role="alert">
+            {t('generatedFileActionFailed', { message: actionError })}
+          </figcaption>
+        ) : null}
       </figure>
     )
   }
@@ -622,8 +718,8 @@ function MediaPreviewTile({
           <div className="line-clamp-2 break-words text-[12.5px] font-semibold leading-5 text-ds-ink">
             {title}
           </div>
-          <div className="mt-0.5 truncate text-[11px] text-ds-faint">
-            {[mimeType, byteSize].filter(Boolean).join(' · ') || t('generatedFilePreviewUnavailable')}
+          <div className="mt-0.5 break-words text-[11px] leading-4 text-ds-faint" title={mimeType || undefined}>
+            {[fileType, byteSize].filter(Boolean).join(' · ') || t('generatedFilePreviewUnavailable')}
           </div>
         </div>
       </div>
@@ -642,17 +738,14 @@ function MediaPreviewTile({
         <>
           <button
             type="button"
-            onClick={() => void openWorkspacePathInEditor({ path: filePath }, workspaceRoot)}
+            onClick={() => void handleOpenInEditor()}
             className={saveButtonClass}
           >
             {t('filePreviewOpenEditor')}
           </button>
           <button
             type="button"
-            onClick={() => void window.workwise?.revealWorkspaceFile?.({
-              path: filePath,
-              ...(workspaceRoot ? { workspaceRoot } : {})
-            })}
+            onClick={() => void handleReveal()}
             className={saveButtonClass}
           >
             <FolderSearch className="mr-1.5 h-3.5 w-3.5" strokeWidth={1.9} />
@@ -661,18 +754,31 @@ function MediaPreviewTile({
         </>
       ) : null}
       </div>
+      {actionError ? (
+        <div className="mt-2 break-words text-[11px] leading-4 text-red-600 dark:text-red-400" role="alert">
+          {t('generatedFileActionFailed', { message: actionError })}
+        </div>
+      ) : null}
     </div>
   )
 }
 
 function MediaAttachmentGallery({
   media,
-  variant
+  variant,
+  workspaceRoot,
+  activeThreadId
 }: {
   media: TimelineMediaReference[]
   variant: 'user' | 'tool' | 'conversation'
+  workspaceRoot?: string
+  activeThreadId?: string | null
 }): ReactElement | null {
-  const resolvedPreviewUrls = useMediaPreviewUrls(media)
+  const globalActiveThreadId = useChatStore((s) => s.activeThreadId)
+  const globalWorkspaceRoot = useChatStore((s) => s.workspaceRoot)
+  const resolvedThreadId = activeThreadId || globalActiveThreadId
+  const resolvedWorkspaceRoot = workspaceRoot?.trim() || globalWorkspaceRoot
+  const resolvedPreviewUrls = useMediaPreviewUrls(media, resolvedWorkspaceRoot, resolvedThreadId)
   if (media.length === 0) return null
   const wrapperClass =
     variant === 'conversation'
@@ -689,8 +795,11 @@ function MediaAttachmentGallery({
           <MediaPreviewTile
             key={key}
             media={item}
-            previewUrl={item.previewUrl ?? resolvedPreviewUrls[key]}
+            previewUrl={item.previewUrl ?? resolvedPreviewUrls[
+              generatedFilePreviewCacheKey(item, resolvedWorkspaceRoot, resolvedThreadId)
+            ]}
             variant={variant}
+            workspaceRoot={resolvedWorkspaceRoot}
           />
         )
       })}
@@ -698,7 +807,15 @@ function MediaAttachmentGallery({
   )
 }
 
-export function GeneratedFilesPanel({ blocks }: { blocks: ToolBlock[] }): ReactElement | null {
+export function GeneratedFilesPanel({
+  blocks,
+  workspaceRoot,
+  activeThreadId
+}: {
+  blocks: ToolBlock[]
+  workspaceRoot?: string
+  activeThreadId?: string | null
+}): ReactElement | null {
   const { t } = useTranslation('common')
   const media = useMemo(
     () =>
@@ -716,7 +833,12 @@ export function GeneratedFilesPanel({ blocks }: { blocks: ToolBlock[] }): ReactE
   return (
     <div className="flex min-w-0 flex-col gap-2">
       <div className="text-[12px] font-semibold text-ds-faint">{t('generatedFilesTitle')}</div>
-      <MediaAttachmentGallery media={media} variant="conversation" />
+      <MediaAttachmentGallery
+        media={media}
+        variant="conversation"
+        workspaceRoot={workspaceRoot}
+        activeThreadId={activeThreadId}
+      />
     </div>
   )
 }

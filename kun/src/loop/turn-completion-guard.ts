@@ -6,10 +6,15 @@ const DELIVERABLE_EXTENSIONS = new Set([
 ])
 
 const DELIVERY_ACTION_PATTERN =
-  /(?:形成|生成|创建|制作|编写|撰写|导出|保存|输出|交付).{0,40}(?:文档|文件|报告|方案|表格|演示|幻灯片|PPT|PDF|Word|Excel|Markdown)|(?:文档|文件|报告|方案|表格|演示|幻灯片|PPT|PDF|Word|Excel|Markdown).{0,40}(?:形成|生成|创建|制作|编写|撰写|导出|保存|输出|交付)|(?:create|write|draft|generate|export|save|deliver).{0,60}(?:document|report|spreadsheet|presentation|markdown|pdf|docx|xlsx|pptx|csv)/i
+  /(?:形成|生成|创建|制作|编写|撰写|导出|保存|输出|交付|转换).{0,40}(?:文档|文件|报告|方案|表格|演示|幻灯片|PPT|PDF|Word|Excel|Markdown)|(?:文档|文件|报告|方案|表格|演示|幻灯片|PPT|PDF|Word|Excel|Markdown).{0,40}(?:形成|生成|创建|制作|编写|撰写|导出|保存|输出|交付|转换)|(?:create|write|draft|generate|export|save|deliver|convert).{0,60}(?:document|report|spreadsheet|presentation|markdown|pdf|docx|xlsx|pptx|csv)/i
 
-const EXPLICIT_FILE_PATTERN =
-  /(?:^|[\s"'`/\\])[^\s"'`/\\]+\.(?:md|markdown|txt|docx?|odt|rtf|pdf|xlsx?|csv|pptx?|html?)(?:$|[\s"'`,，。；;:：)）])/i
+const WRITE_USER_REQUEST_HEADING = '[用户请求]'
+
+const EXPLICIT_FILE_ACTION_PATTERN =
+  /(?:形成|生成|创建|制作|编写|撰写|导出|保存|输出|交付|转换|create|write|draft|generate|export|save|deliver|convert).{0,80}(?:^|[\s"'`/\\])[^\s"'`/\\]+\.(?:md|markdown|txt|docx?|odt|rtf|pdf|xlsx?|csv|pptx?|html?)(?:$|[\s"'`,，。；;:：)）])|(?:^|[\s"'`/\\])[^\s"'`/\\]+\.(?:md|markdown|txt|docx?|odt|rtf|pdf|xlsx?|csv|pptx?|html?)(?:$|[\s"'`,，。；;:：)）]).{0,80}(?:形成|生成|创建|制作|编写|撰写|导出|保存|输出|交付|转换|create|write|draft|generate|export|save|deliver|convert)/i
+
+const NEGATED_FILE_DELIVERY_PATTERN =
+  /(?:不要|无需|不用|请勿|禁止|不需要|不必)[^，,；;。！？\n]{0,12}(?:形成|生成|创建|制作|编写|撰写|导出|保存|输出|交付|转换)[^，,；;。！？\n]{0,48}(?:文档|文件|报告|方案|表格|演示|幻灯片|PPT|PDF|Word|Excel|Markdown|CSV|DOCX?|XLSX?|PPTX?)|(?:do\s+not|don't|without|no\s+need\s+to)[^,;.!?\n]{0,12}(?:create|write|draft|generate|export|save|deliver|convert)[^,;.!?\n]{0,48}(?:document|file|report|spreadsheet|presentation|markdown|pdf|docx|xlsx|pptx|csv)/gi
 
 const PROGRESS_ONLY_PATTERN =
   /(?:我(?:先|会|将|来|再|现在|马上|继续)|让我|接下来|现在开始|继续)(?:.{0,80})(?:抓取|收集|查找|检索|查看|整理|梳理|撰写|生成|创建|处理|检查|执行|继续|补充|验证)|(?:i(?:'ll| will)|let me|next[, ]|i am going to|continuing to)(?:.{0,120})(?:fetch|collect|search|review|write|draft|generate|create|process|check|continue|verify)/is
@@ -56,17 +61,44 @@ function outputPaths(output: unknown): string[] {
 }
 
 export function promptRequiresFileDeliverable(prompt: string): boolean {
-  const normalized = prompt.trim()
+  const normalized = completionIntentText(prompt)
+    .replace(NEGATED_FILE_DELIVERY_PATTERN, ' ')
+    .trim()
   if (!normalized) return false
-  return DELIVERY_ACTION_PATTERN.test(normalized) || EXPLICIT_FILE_PATTERN.test(normalized)
+  return DELIVERY_ACTION_PATTERN.test(normalized) || EXPLICIT_FILE_ACTION_PATTERN.test(normalized)
 }
 
 export function requiredFileExtensionsForPrompt(prompt: string): readonly string[] | undefined {
-  if (HTML_DELIVERABLE_PATTERN.test(prompt) && !PPT_SPECIFIC_DELIVERABLE_PATTERN.test(prompt)) {
+  if (!promptRequiresFileDeliverable(prompt)) return undefined
+  const normalized = completionIntentText(prompt)
+    .replace(NEGATED_FILE_DELIVERY_PATTERN, ' ')
+    .trim()
+  if (HTML_DELIVERABLE_PATTERN.test(normalized) && !PPT_SPECIFIC_DELIVERABLE_PATTERN.test(normalized)) {
     return undefined
   }
-  if (PPT_DELIVERABLE_PATTERN.test(prompt)) return ['ppt', 'pptx']
+  if (PPT_DELIVERABLE_PATTERN.test(normalized)) return ['ppt', 'pptx']
   return undefined
+}
+
+export function completionIntentText(prompt: string): string {
+  const normalized = prompt.replace(/\r\n?/g, '\n')
+  if (!normalized.includes(WRITE_USER_REQUEST_HEADING)) return normalized.trim()
+
+  const requests: string[] = []
+  let cursor = 0
+  while (cursor < normalized.length) {
+    const markerIndex = normalized.indexOf(WRITE_USER_REQUEST_HEADING, cursor)
+    if (markerIndex < 0) break
+    const requestStart = markerIndex + WRITE_USER_REQUEST_HEADING.length
+    const nextContext = normalized.indexOf('\n[写作上下文]', requestStart)
+    const nextRequest = normalized.indexOf(`\n${WRITE_USER_REQUEST_HEADING}`, requestStart)
+    const candidates = [nextContext, nextRequest].filter((index) => index >= 0)
+    const requestEnd = candidates.length > 0 ? Math.min(...candidates) : normalized.length
+    const request = normalized.slice(requestStart, requestEnd).trim()
+    if (request) requests.push(request)
+    cursor = requestEnd > requestStart ? requestEnd : requestStart
+  }
+  return requests.join('\n\n').trim()
 }
 
 export function hasSuccessfulFileDeliverable(

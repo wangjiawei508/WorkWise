@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { makeToolResultItem } from '../domain/item.js'
 import {
   hasSuccessfulFileDeliverable,
+  completionIntentText,
   incompleteTurnContinuationInstruction,
   looksLikeProgressOnlyReply,
   promptRequiresFileDeliverable,
@@ -13,6 +14,52 @@ describe('turn completion guard', () => {
     expect(promptRequiresFileDeliverable('形成一份针对宁波睿威的产品介绍文档')).toBe(true)
     expect(promptRequiresFileDeliverable('Please create a DOCX report and save it.')).toBe(true)
     expect(promptRequiresFileDeliverable('解释一下这段代码')).toBe(false)
+  })
+
+  it('uses only marked user requests for file-delivery intent', () => {
+    const prompt = [
+      '[写作上下文]',
+      '当前文件: qa-ppt-source.md',
+      '',
+      '[RailWise 知识库检索结果]',
+      '[RailWise 1] AI监测报告生成工具',
+      '生成报告的参考资料。',
+      '',
+      '[用户请求]',
+      '基于知识库生成最多 6 项巡检清单。不要生成文件，不要调用工具。'
+    ].join('\n')
+
+    expect(completionIntentText(prompt)).toBe(
+      '基于知识库生成最多 6 项巡检清单。不要生成文件，不要调用工具。'
+    )
+    expect(promptRequiresFileDeliverable(prompt)).toBe(false)
+    expect(requiredFileExtensionsForPrompt(prompt)).toBeUndefined()
+  })
+
+  it('keeps positive delivery clauses that follow an unrelated or different negation', () => {
+    expect(promptRequiresFileDeliverable('不要调用工具，生成 PPT 文件。')).toBe(true)
+    expect(promptRequiresFileDeliverable('不要生成 HTML 文件；请生成 PPTX 文件。')).toBe(true)
+    expect(promptRequiresFileDeliverable('不要只输出文字，请生成 PPT 文件。')).toBe(true)
+    expect(promptRequiresFileDeliverable('Do not call tools; generate a PPTX file.')).toBe(true)
+    expect(promptRequiresFileDeliverable('Do not generate an HTML file; generate a PPTX file.')).toBe(true)
+  })
+
+  it('preserves prior marked delivery intent across a confirmation turn', () => {
+    const workflowPrompt = [
+      '[写作上下文]\n当前文件: source.md\n\n[用户请求]\n请生成一份 PPT 演示文稿。',
+      '[写作上下文]\n当前文件: source.md\n\n[用户请求]\n确认，开始执行。'
+    ].join('\n')
+
+    expect(completionIntentText(workflowPrompt)).toContain('请生成一份 PPT 演示文稿。')
+    expect(completionIntentText(workflowPrompt)).toContain('确认，开始执行。')
+    expect(promptRequiresFileDeliverable(workflowPrompt)).toBe(true)
+    expect(requiredFileExtensionsForPrompt(workflowPrompt)).toEqual(['ppt', 'pptx'])
+  })
+
+  it('does not treat a contextual file name as a delivery request', () => {
+    expect(promptRequiresFileDeliverable(
+      '[写作上下文]\n当前文件: current.md\n\n[用户请求]\n总结当前内容。'
+    )).toBe(false)
   })
 
   it('distinguishes a progress announcement from a delivered result', () => {

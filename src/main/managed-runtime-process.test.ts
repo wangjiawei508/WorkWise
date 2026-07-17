@@ -92,7 +92,7 @@ describe('startManagedRuntimeChild', () => {
       'ready-child.js',
       [
         "setTimeout(() => {",
-        "  process.stdout.write('KUN_READY ' + JSON.stringify({ service: 'kun', mode: 'serve', port: 8899 }) + '\\n')",
+        "  process.stdout.write('KUN_READY ' + JSON.stringify({ service: 'kun', mode: 'serve', port: 8899, message: 'kun runtime listening' }) + '\\n')",
         "}, 50)",
         "setInterval(() => {}, 1_000)"
       ].join('\n')
@@ -105,7 +105,11 @@ describe('startManagedRuntimeChild', () => {
     expect(module.isManagedRuntimeChildRunning()).toBe(true)
     await module.stopManagedRuntimeChildAndWait()
     const logText = await readRuntimeLog()
-    expect(logText).toContain('KUN_READY')
+    expect(logText).toContain('WORKWISE_RUNTIME_READY')
+    expect(logText).not.toContain('KUN_READY')
+    expect(logText).not.toContain('kun runtime')
+    expect(logText).toContain('WorkWise Runtime listening')
+    expect(logText).toContain('[runtime pid=')
     expect(logText).toContain('ready marker received on port 8899')
   })
 

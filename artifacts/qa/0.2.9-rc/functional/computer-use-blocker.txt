@@ -1,0 +1,19 @@
+WorkWise Functional QA - Computer Use blocker
+Date: 2026-07-17 (Asia/Shanghai)
+
+Candidate:
+- App: /tmp/workwise-qa/WorkWise-Functional-QA.app
+- Bundle ID: com.wangjiawei508.workwise.functional.qa
+- Profile: /tmp/workwise-qa/functional
+- Runtime: http://127.0.0.1:8911
+
+Computer Use attempts:
+1. Original candidate full path:
+   Sky Computer Use request timed out
+2. Original bundle ID:
+   Ambiguous app identifier 'com.wangjiawei508.workgpt'. Multiple apps share this bundle identifier.
+3. Independent QA bundle ID:
+   js execution timed out; kernel reset, rerun your request
+
+No UI action was performed after the candidate could not be identified safely.
+The installed /Applications/WorkWise.app was not operated.

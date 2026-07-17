@@ -25,6 +25,7 @@ const labels: Record<string, string> = {
   kunProviderSelectDesc: 'Provider select description',
   modelProviderPreset: 'Provider preset',
   modelProviderPresetDesc: 'Preset description',
+  modelProviderPresetPlaceholder: 'Choose a preset',
   modelProviderAddPreset: 'Add preset',
   modelProviderAdd: 'Add provider',
   modelProviderRemove: 'Remove provider',
@@ -436,7 +437,8 @@ describe('AgentsSettingsSection WorkWise Runtime diagnostics smoke', () => {
     expect(html).toContain('Endpoint format')
     expect(html).toContain('<option value="messages" selected="">/v1/messages</option>')
     expect(html).toContain('Provider preset')
-    expect(html).toContain('<option value="xiaomi" selected="">Xiaomi</option>')
+    expect(html).toContain('<option value="" selected="">Choose a preset</option>')
+    expect(html).toContain('<option value="xiaomi">Xiaomi</option>')
     expect(html).toContain('<option value="minimax">MiniMax</option>')
     expect(html).toContain('Add preset')
   })

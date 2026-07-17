@@ -5,6 +5,7 @@ export const WRITE_QUOTE_ORIGINAL_START = '[引用原文]'
 export const WRITE_QUOTE_ORIGINAL_END = '[/引用原文]'
 export const WRITE_CONTEXT_HEADING = '[写作上下文]'
 export const WRITE_QUOTE_HEADING = '[引用片段]'
+export const WRITE_USER_REQUEST_HEADING = '[用户请求]'
 
 const WRITE_ASSISTANT_INTERACTION_RULE =
   '交互限制: 当前 GUI 无法提交 request_user_input 的 HTTP 响应；需要更多信息时，直接用普通文本向用户提问，不要调用 request_user_input。'
@@ -154,7 +155,8 @@ export function composeWritePrompt(
     : ''
   const quoteText = selections.map(formatWriteQuotedSelectionForPrompt).join('\n\n')
   const knowledgeText = knowledge ? formatWriteKnowledgeForPrompt(knowledge) : ''
-  return [contextText, knowledgeText, quoteText, body].filter(Boolean).join('\n\n')
+  const requestText = body ? `${WRITE_USER_REQUEST_HEADING}\n${body}` : ''
+  return [contextText, knowledgeText, quoteText, requestText].filter(Boolean).join('\n\n')
 }
 
 function parseContextBlock(text: string): WritePromptDisplayContext {
@@ -265,8 +267,13 @@ export function parseWritePromptForDisplay(text: string): WritePromptDisplay | n
 
   if (!context && quotes.length === 0) return null
 
+  const requestIndex = rest.lastIndexOf(WRITE_USER_REQUEST_HEADING)
+  const userInput = requestIndex >= 0
+    ? rest.slice(requestIndex + WRITE_USER_REQUEST_HEADING.length).trim()
+    : rest.trim()
+
   return {
-    userInput: rest.trim(),
+    userInput,
     context,
     quotes
   }

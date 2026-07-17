@@ -119,8 +119,13 @@ function formatRuntimeLogLine(
   message: string
 ): string {
   const stamp = new Date().toISOString()
-  const pidLabel = typeof pid === 'number' ? `kun pid=${pid}` : 'kun'
-  return `[${stamp}] [${stream.toUpperCase()}] [${pidLabel}] ${message}\n`
+  const pidLabel = typeof pid === 'number' ? `runtime pid=${pid}` : 'runtime'
+  const publicMessage = message
+    .replace(/^KUN_READY\s+/, 'WORKWISE_RUNTIME_READY ')
+    .replace(/\[kun\]/gi, '[runtime]')
+    .replace(/("service"\s*:\s*)"kun"/gi, '$1"runtime"')
+    .replace(/\bkun runtime\b/gi, 'WorkWise Runtime')
+  return `[${stamp}] [${stream.toUpperCase()}] [${pidLabel}] ${publicMessage}\n`
 }
 
 function normalizeCapturedChunk(chunk: Buffer | string): string {
