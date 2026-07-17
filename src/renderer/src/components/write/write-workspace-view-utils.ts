@@ -21,7 +21,10 @@ export const INLINE_AGENT_MAX_WIDTH = 440
 export const INLINE_AGENT_FALLBACK_HEIGHT = 56
 export const WRITE_EXPORT_NOTICE_MS = 3_600
 export const INLINE_EDIT_RECENT_CONTEXT_CHARS = 180
-export const WRITE_EXPORT_FORMATS: WriteExportFormat[] = ['html', 'pdf', 'doc', 'docx']
+// Classic .doc export was Word-compatible HTML with a renamed extension.
+// WPS and modern Word only preserve a small subset of its styling, so the
+// product menu now offers the real OOXML Word format instead.
+export const WRITE_EXPORT_FORMATS: WriteExportFormat[] = ['html', 'pdf', 'docx']
 export const WRITE_RICH_CLIPBOARD_ACTION = 'clipboard'
 
 export type WriteNotice = {

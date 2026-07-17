@@ -81,7 +81,7 @@ export function ProvidersSettingsSection({ ctx }: { ctx: Record<string, any> }):
     kun.providerId?.trim() || modelProviders[0]?.id || DEFAULT_MODEL_PROVIDER_ID
   )
   const [selectedModelProviderPresetId, setSelectedModelProviderPresetId] = useState<string>(
-    MODEL_PROVIDER_PRESETS[0]?.id ?? ''
+    ''
   )
   const selectedModelProviderPreset = getModelProviderPreset(selectedModelProviderPresetId)
   const activeProvider =
@@ -204,14 +204,16 @@ export function ProvidersSettingsSection({ ctx }: { ctx: Record<string, any> }):
               value={selectedModelProviderPresetId}
               onChange={(e) => setSelectedModelProviderPresetId(e.target.value)}
             >
+              <option value="">{t('modelProviderPresetPlaceholder')}</option>
               {MODEL_PROVIDER_PRESETS.map((preset) => (
                 <option key={preset.id} value={preset.id}>{preset.name}</option>
               ))}
             </select>
             <button
               type="button"
+              disabled={!selectedModelProviderPreset}
               onClick={addPresetModelProvider}
-              className="inline-flex h-9 w-fit items-center gap-2 rounded-full border border-ds-border bg-ds-card px-3 text-[12.5px] font-medium text-ds-muted shadow-sm transition hover:bg-ds-hover hover:text-ds-ink"
+              className="inline-flex h-9 w-fit items-center gap-2 rounded-full border border-ds-border bg-ds-card px-3 text-[12.5px] font-medium text-ds-muted shadow-sm transition hover:bg-ds-hover hover:text-ds-ink disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:bg-ds-card disabled:hover:text-ds-muted"
             >
               <Plus className="h-3.5 w-3.5" strokeWidth={1.9} />
               {t('modelProviderAddPreset')}

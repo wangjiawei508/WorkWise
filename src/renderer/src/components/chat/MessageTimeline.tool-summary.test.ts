@@ -6,6 +6,7 @@ import { useChatStore } from '../../store/chat-store'
 import { MessageTimeline, summarizeToolBlock } from './MessageTimeline'
 import { MessageBubble } from './message-timeline-bubbles'
 import { ProcessSectionRow } from './message-timeline-process'
+import { resolveTimelineWorkspaceRoot } from './use-timeline-stores'
 
 const labels: Record<string, string> = {
   toolActionCommand: 'Ran command',
@@ -40,6 +41,13 @@ function toolBlock(overrides: Partial<ToolBlock>): ToolBlock {
 }
 
 describe('MessageTimeline tool summaries', () => {
+  it('uses the rendered thread workspace for artifact actions', () => {
+    expect(resolveTimelineWorkspaceRoot(
+      { workspace: '/tmp/write-workspace' },
+      '/tmp/code-workspace'
+    )).toBe('/tmp/write-workspace')
+  })
+
   it('summarizes built-in read/write/edit tools with their file path', () => {
     expect(
       summarizeToolBlock(

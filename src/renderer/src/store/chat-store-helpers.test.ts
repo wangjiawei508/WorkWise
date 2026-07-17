@@ -85,7 +85,7 @@ describe('chat-store Claw helpers', () => {
       compactCodeWorkspaceRoots([
         '/Users/zxy/project-a',
         '/Users/zxy/project-a/',
-        '/tmp/transient',
+        '/tmp/deepseek-tui-updates/tmp/transient',
         '/Users/zxy/.deepseekgui/claw/agent/conversations/chat',
         '/Users/zxy/.deepseekgui/default_workspace',
         '~/.deepseekgui/write_workspace',

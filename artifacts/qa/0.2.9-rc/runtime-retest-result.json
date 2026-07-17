@@ -1,0 +1,59 @@
+{
+  "checkedAt": "2026-07-16T23:38:49.259Z",
+  "profileRoot": "/tmp/workwise-qa/functional-v3b",
+  "promptBoundary": "[用户请求]",
+  "runs": [
+    {
+      "index": 1,
+      "threadId": "thr_5ta42doc",
+      "turnId": "turn_lz28xdes",
+      "status": "completed",
+      "itemTypes": [
+        "user_message",
+        "assistant_reasoning",
+        "assistant_text"
+      ],
+      "assistantCount": 1,
+      "toolCount": 0,
+      "errorCount": 0,
+      "responseChars": 353,
+      "hasCompletionMarker": true,
+      "passed": true
+    },
+    {
+      "index": 2,
+      "threadId": "thr_20o8u1qm",
+      "turnId": "turn_depjm092",
+      "status": "completed",
+      "itemTypes": [
+        "user_message",
+        "assistant_reasoning",
+        "assistant_text"
+      ],
+      "assistantCount": 1,
+      "toolCount": 0,
+      "errorCount": 0,
+      "responseChars": 344,
+      "hasCompletionMarker": true,
+      "passed": true
+    },
+    {
+      "index": 3,
+      "threadId": "thr_loaevfn3",
+      "turnId": "turn_toyo4s6g",
+      "status": "completed",
+      "itemTypes": [
+        "user_message",
+        "assistant_reasoning",
+        "assistant_text"
+      ],
+      "assistantCount": 1,
+      "toolCount": 0,
+      "errorCount": 0,
+      "responseChars": 355,
+      "hasCompletionMarker": true,
+      "passed": true
+    }
+  ],
+  "passed": true
+}

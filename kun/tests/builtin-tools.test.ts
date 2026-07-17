@@ -522,15 +522,15 @@ describe('Kun built-in tools', () => {
   it('finishes bash commands after the shell exits even when a background child keeps stdio open', async () => {
     const startedAt = Date.now()
     const output = await executeTool(host, workspace, 'bash', {
-      command: 'sleep 5 & echo done',
-      timeout: 2
+      command: 'sleep 8 & echo done',
+      timeout: 5
     })
 
     expect(output.exit_code).toBe(0)
     expect(String(output.output)).toContain('done')
-    // The background child lives for five seconds. Allow slower Windows CI
-    // process cleanup while still proving we do not wait for that child.
-    expect(Date.now() - startedAt).toBeLessThan(3000)
+    // The background child lives for eight seconds. Allow slower Windows CI
+    // process startup while still proving we do not wait for that child.
+    expect(Date.now() - startedAt).toBeLessThan(6000)
   })
 
   it('returns a pollable bash session for foreground long-running commands', async () => {

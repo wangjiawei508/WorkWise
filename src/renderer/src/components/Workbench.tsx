@@ -1676,10 +1676,10 @@ export function Workbench(): ReactElement {
         <div
           role="separator"
           aria-orientation="vertical"
-          className="ds-workbench-divider ds-no-drag relative z-20 shrink-0 cursor-col-resize"
+          className="ds-workbench-right-divider ds-workbench-divider ds-no-drag relative z-20 shrink-0 cursor-col-resize"
           onPointerDown={beginRightResize}
         />
-        <div className="h-full min-h-0 shrink-0" style={{ width: rightSidebarWidth }}>
+        <div className="ds-workbench-right-panel h-full min-h-0 shrink-0" style={{ width: rightSidebarWidth }}>
           <Suspense fallback={<div className="h-full w-full bg-ds-sidebar" />}>
             {route === 'write' && writeAssistantOpen ? (
               <WriteAssistantPanel
@@ -1789,11 +1789,11 @@ export function Workbench(): ReactElement {
   return (
     <div
       ref={shellRef}
-      className="ds-workbench-shell ds-drag flex h-full min-h-0 w-full min-w-0 bg-ds-main"
+      className="ds-workbench-shell ds-drag relative flex h-full min-h-0 w-full min-w-0 bg-ds-main"
     >
       {!leftSidebarCollapsed ? (
         <>
-          <div className="min-h-0 shrink-0" style={{ width: leftSidebarWidth }}>
+          <div className="ds-workbench-left-panel min-h-0 shrink-0" style={{ width: leftSidebarWidth }}>
             {route === 'write' ? (
               <WriteSidebar
                 activeView={sidebarView}
@@ -1841,7 +1841,7 @@ export function Workbench(): ReactElement {
           <div
             role="separator"
             aria-orientation="vertical"
-            className="ds-workbench-divider ds-no-drag relative z-20 shrink-0 cursor-col-resize"
+            className="ds-workbench-left-divider ds-workbench-divider ds-no-drag relative z-20 shrink-0 cursor-col-resize"
             onPointerDown={beginLeftResize}
           />
         </>

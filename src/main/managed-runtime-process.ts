@@ -43,7 +43,11 @@ import {
 import { defaultManagedRuntimeDataDir } from './runtime/managed-runtime-adapter'
 import { isRuntimeHealthResponseBody } from './runtime-health'
 import { appendManagedLogLine } from './logger'
-import { guiSkillRootsForRuntime, normalizeSkillRootPath } from './services/skill-service'
+import {
+  guiSkillRootsForRuntime,
+  normalizeSkillRootPath,
+  resolveBundledSkillDirectory
+} from './services/skill-service'
 import {
   installBundledAgentPack,
   METRO_MONITORING_AGENT_PACK_ID
@@ -115,8 +119,13 @@ function formatRuntimeLogLine(
   message: string
 ): string {
   const stamp = new Date().toISOString()
-  const pidLabel = typeof pid === 'number' ? `kun pid=${pid}` : 'kun'
-  return `[${stamp}] [${stream.toUpperCase()}] [${pidLabel}] ${message}\n`
+  const pidLabel = typeof pid === 'number' ? `runtime pid=${pid}` : 'runtime'
+  const publicMessage = message
+    .replace(/^KUN_READY\s+/, 'WORKWISE_RUNTIME_READY ')
+    .replace(/\[kun\]/gi, '[runtime]')
+    .replace(/("service"\s*:\s*)"kun"/gi, '$1"runtime"')
+    .replace(/\bkun runtime\b/gi, 'WorkWise Runtime')
+  return `[${stamp}] [${stream.toUpperCase()}] [${pidLabel}] ${publicMessage}\n`
 }
 
 function normalizeCapturedChunk(chunk: Buffer | string): string {
@@ -363,6 +372,7 @@ export async function startManagedRuntimeChild(
       [MCP_PATH_ENV_KEY]: resolveMcpToolPath(),
       ELECTRON_RUN_AS_NODE: '1',
       WORKWISE_RUNTIME_TOKEN: runtime.runtimeToken,
+      WORKWISE_PPT_MASTER_ROOT: resolveBundledSkillDirectory('ppt-master') || '',
       DEEPSEEK_API_KEY: runtime.apiKey || process.env.DEEPSEEK_API_KEY || ''
     },
     stdio: ['ignore', 'pipe', 'pipe'],

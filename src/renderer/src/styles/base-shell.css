@@ -2560,6 +2560,11 @@ pre {
   }
 }
 
+:where(button, [role='button'], a, input, select, textarea):focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--ds-accent) 88%, white);
+  outline-offset: 2px;
+}
+
 /* Work-process entry detail cards inside the lighter OpenBridge-style sections. */
 .ds-work-timeline-detail {
   margin-top: 0.35rem;

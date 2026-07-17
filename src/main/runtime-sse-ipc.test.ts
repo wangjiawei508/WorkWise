@@ -7,7 +7,7 @@ import { registerRuntimeSseIpc, stopAllRuntimeSse } from './runtime-sse-ipc'
 
 type InvokeHandler = (event: IpcMainInvokeEvent, ...args: unknown[]) => unknown
 
-function createHarness() {
+function createHarness(options: { ensureRuntime?: () => Promise<void> } = {}) {
   const handlers = new Map<string, InvokeHandler>()
   const ipcMain = {
     handle: vi.fn((channel: string, handler: InvokeHandler) => {
@@ -21,7 +21,7 @@ function createHarness() {
   registerRuntimeSseIpc({
     ipcMain,
     store: { load: vi.fn(async () => settings) } as never,
-    ensureRuntime: vi.fn(async () => undefined),
+    ensureRuntime: vi.fn(options.ensureRuntime ?? (async () => undefined)),
     logError: vi.fn()
   })
 
@@ -93,6 +93,26 @@ describe('runtime SSE IPC lifecycle', () => {
     }
     await expect(harness.stop('recovery-stream-0')).resolves.toBe(false)
     await expect(harness.stop('recovery-stream-11')).resolves.toBe(true)
+  })
+
+  it('does not register an orphaned stream when stop wins the start IPC race', async () => {
+    let releaseRuntime!: () => void
+    const runtimeReady = new Promise<void>((resolve) => {
+      releaseRuntime = resolve
+    })
+    const harness = createHarness({ ensureRuntime: () => runtimeReady })
+
+    const pendingStart = harness.start('early-stopped-stream', 'thread-race')
+    await expect(harness.stop('early-stopped-stream')).resolves.toBe(false)
+    releaseRuntime()
+    await expect(pendingStart).resolves.toEqual({ streamId: 'early-stopped-stream' })
+    await expect(harness.stop('early-stopped-stream')).resolves.toBe(false)
+
+    for (let index = 0; index < 12; index += 1) {
+      const streamId = `post-race-stream-${index}`
+      await expect(harness.start(streamId, `thread-${index}`)).resolves.toEqual({ streamId })
+      await expect(harness.stop(streamId)).resolves.toBe(true)
+    }
   })
 
   it('keeps distinct side conversation streams connected in the same window', async () => {

@@ -19,7 +19,7 @@ export function WriteWorkspaceStart({
   workspaceName: string
   workspacePathLabel: string
 }): ReactElement {
-  const { t } = useTranslation('common')
+  const { t, i18n } = useTranslation('common')
   return (
     <div className="write-start-shell relative h-full min-h-[420px] overflow-auto rounded-[28px] bg-[linear-gradient(180deg,rgba(255,255,255,0.82),rgba(247,250,255,0.62))] px-5 py-5 dark:bg-[linear-gradient(180deg,rgba(255,255,255,0.07),rgba(255,255,255,0.025))] sm:px-8 sm:py-8">
       <div className="write-start-grid mx-auto grid min-h-full w-full max-w-6xl gap-6">
@@ -58,7 +58,9 @@ export function WriteWorkspaceStart({
               className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-xl border border-ds-border bg-white/70 px-5 text-[14px] font-semibold text-ds-ink shadow-sm transition hover:bg-white dark:bg-white/[0.055] dark:hover:bg-white/[0.08]"
             >
               <Presentation className="h-4 w-4 text-violet-600 dark:text-violet-300" strokeWidth={1.9} />
-              {t('writeGeneratePpt')}
+              {t('writeGeneratePpt', {
+                defaultValue: i18n.language.startsWith('zh') ? '生成 PPT' : 'Generate PPT'
+              })}
             </button>
           </div>
 

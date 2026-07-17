@@ -19,6 +19,7 @@ import { buildMemoryToolProviders } from '../adapters/tool/memory-tool-provider.
 import { buildDelegationToolProviders } from '../adapters/tool/delegation-tool-provider.js'
 import { buildWebToolProviders } from '../adapters/tool/web-tool-provider.js'
 import { buildImageGenToolProviders } from '../adapters/tool/image-gen-tool-provider.js'
+import { buildPptMasterToolProviders } from '../adapters/tool/ppt-master-tool-provider.js'
 import { LocalWorkspaceInspector } from '../adapters/workspace/local-workspace-inspector.js'
 import { createImmutablePrefix } from '../cache/immutable-prefix.js'
 import {
@@ -186,6 +187,7 @@ export async function createKunServeRuntime(
     attachmentStore,
     nowIso
   })
+  const pptMasterProviders = buildPptMasterToolProviders()
   const baseToolProviders = [
     {
       id: 'builtin',
@@ -197,7 +199,8 @@ export async function createKunServeRuntime(
     ...mcpProviders.providers,
     ...webProviders.providers,
     ...buildMemoryToolProviders(memoryStore),
-    ...imageGenProviders.providers
+    ...imageGenProviders.providers,
+    ...pptMasterProviders.providers
   ]
   const childRegistry = new CapabilityRegistry(baseToolProviders)
   const childToolHost = new LocalToolHost({ registry: childRegistry, readTracker: true })

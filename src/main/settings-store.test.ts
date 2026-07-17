@@ -6,6 +6,31 @@ import { DEFAULT_APPROVAL_POLICY, defaultManagedRuntimeSettings, defaultModelPro
 import { DEFAULT_GUI_UPDATE_CHANNEL } from '../shared/gui-update'
 import { JsonSettingsStore, SettingsRevisionConflictError } from './settings-store'
 
+async function writeIsolatedSettings(userDataDir: string, locale: 'en' | 'zh' = 'en'): Promise<{
+  workwiseHome: string
+  writeRoot: string
+}> {
+  const workwiseHome = join(userDataDir, '.workwise')
+  const writeRoot = join(workwiseHome, 'write_workspace')
+  await writeFile(
+    join(userDataDir, 'workwise-settings.json'),
+    JSON.stringify({
+      schema: 'workwise.settings',
+      version: 2,
+      revision: 0,
+      locale,
+      workspaceRoot: join(workwiseHome, 'default_workspace'),
+      write: {
+        defaultWorkspaceRoot: writeRoot,
+        activeWorkspaceRoot: writeRoot,
+        workspaces: [writeRoot]
+      }
+    }),
+    'utf8'
+  )
+  return { workwiseHome, writeRoot }
+}
+
 describe('JsonSettingsStore', () => {
   it('writes new settings with the WorkWise V2 envelope', async () => {
     const userDataDir = await mkdtemp(join(tmpdir(), 'workwise-settings-v2-'))
@@ -73,8 +98,9 @@ describe('JsonSettingsStore', () => {
 
   it('creates a default write workspace with welcome.md', async () => {
     const userDataDir = await mkdtemp(join(tmpdir(), 'ds-gui-settings-'))
+    const { workwiseHome } = await writeIsolatedSettings(userDataDir)
 
-    const store = new JsonSettingsStore(userDataDir, { workwiseHome: join(userDataDir, '.workwise') })
+    const store = new JsonSettingsStore(userDataDir, { workwiseHome })
     const loaded = await store.load()
 
     expect(loaded.write.defaultWorkspaceRoot).toContain('.workwise')
@@ -89,6 +115,62 @@ describe('JsonSettingsStore', () => {
     expect(loaded.write.inlineCompletion.model).toBe('deepseek-v4-flash')
     expect(loaded.write.inlineCompletion.longMaxTokens).toBe(256)
     expect(await readFile(join(loaded.write.defaultWorkspaceRoot, 'welcome.md'), 'utf8')).toContain('Welcome to Write')
+  })
+
+  it('localizes the default welcome document for a Chinese first launch', async () => {
+    const userDataDir = await mkdtemp(join(tmpdir(), 'workwise-settings-zh-welcome-'))
+    const writeRoot = join(userDataDir, 'write')
+    await writeFile(
+      join(userDataDir, 'workwise-settings.json'),
+      JSON.stringify({
+        schema: 'workwise.settings',
+        version: 2,
+        revision: 0,
+        locale: 'zh',
+        write: {
+          defaultWorkspaceRoot: writeRoot,
+          activeWorkspaceRoot: writeRoot,
+          workspaces: [writeRoot]
+        }
+      }),
+      'utf8'
+    )
+
+    const store = new JsonSettingsStore(userDataDir, { workwiseHome: join(userDataDir, '.workwise') })
+    const loaded = await store.load()
+    const welcome = await readFile(join(loaded.write.defaultWorkspaceRoot, 'welcome.md'), 'utf8')
+
+    expect(welcome).toContain('欢迎使用 WorkWise 写作台')
+    expect(welcome).toContain('本地编辑和导出不依赖 AI')
+  })
+
+  it('translates an untouched welcome document when the first-run locale changes', async () => {
+    const userDataDir = await mkdtemp(join(tmpdir(), 'workwise-settings-welcome-transition-'))
+    const { workwiseHome } = await writeIsolatedSettings(userDataDir)
+    const store = new JsonSettingsStore(userDataDir, { workwiseHome })
+    const initial = await store.load()
+
+    expect(await readFile(join(initial.write.defaultWorkspaceRoot, 'welcome.md'), 'utf8'))
+      .toContain('Welcome to Write')
+
+    const localized = await store.patch({ locale: 'zh' }, initial.revision)
+    const welcome = await readFile(join(localized.write.defaultWorkspaceRoot, 'welcome.md'), 'utf8')
+
+    expect(welcome).toContain('欢迎使用 WorkWise 写作台')
+    expect(welcome).not.toContain('Welcome to Write')
+  })
+
+  it('preserves a customized welcome document when the locale changes', async () => {
+    const userDataDir = await mkdtemp(join(tmpdir(), 'workwise-settings-custom-welcome-'))
+    const { workwiseHome } = await writeIsolatedSettings(userDataDir)
+    const store = new JsonSettingsStore(userDataDir, { workwiseHome })
+    const initial = await store.load()
+    const welcomePath = join(initial.write.defaultWorkspaceRoot, 'welcome.md')
+    await writeFile(welcomePath, '# 我的工作说明\n', 'utf8')
+
+    await store.patch({ locale: 'zh' }, initial.revision)
+
+    expect(await readFile(welcomePath, 'utf8')).toBe('# 我的工作说明\n')
   })
 
   it('preserves the pro write completion model', async () => {

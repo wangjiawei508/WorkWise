@@ -20,6 +20,7 @@ import type {
   ToolEventPayload,
   UserInputQuestion
 } from './types'
+import { safeMediaPreviewUrl } from '../lib/safe-media-preview-url'
 import { redactSecrets, redactSecretText } from '@shared/secret-redaction'
 import type {
   CoreChildRuntimeMetadataJson,
@@ -290,6 +291,7 @@ function extractToolAttachments(item: CoreTurnItemJson): ToolAttachmentReference
       const raw = entry as Record<string, unknown>
       const id = typeof raw.id === 'string' && raw.id.trim() ? raw.id.trim() : ''
       if (!id) return null
+      const previewUrl = safeMediaPreviewUrl(raw.dataUrl) ?? safeMediaPreviewUrl(raw.previewUrl)
       return {
         id,
         ...(typeof raw.name === 'string' && raw.name.trim() ? { name: raw.name.trim() } : {}),
@@ -297,8 +299,7 @@ function extractToolAttachments(item: CoreTurnItemJson): ToolAttachmentReference
         ...(typeof raw.byteSize === 'number' && Number.isFinite(raw.byteSize) ? { byteSize: raw.byteSize } : {}),
         ...(typeof raw.width === 'number' && Number.isFinite(raw.width) ? { width: raw.width } : {}),
         ...(typeof raw.height === 'number' && Number.isFinite(raw.height) ? { height: raw.height } : {}),
-        ...(typeof raw.previewUrl === 'string' && raw.previewUrl.trim() ? { previewUrl: raw.previewUrl.trim() } : {}),
-        ...(typeof raw.dataUrl === 'string' && raw.dataUrl.trim() ? { previewUrl: raw.dataUrl.trim() } : {})
+        ...(previewUrl ? { previewUrl } : {})
       }
     })
     .filter((entry): entry is ToolAttachmentReference => entry !== null)
@@ -319,7 +320,7 @@ function normalizeGeneratedFileReference(entry: unknown): GeneratedFileReference
   const id = readGeneratedFileString(raw, 'id', 'attachmentId')
   const name = readGeneratedFileString(raw, 'name', 'fileName', 'filename')
   const mimeType = readGeneratedFileString(raw, 'mimeType', 'type', 'mediaType')
-  const previewUrl = readGeneratedFileString(raw, 'previewUrl', 'dataUrl', 'url')
+  const previewUrl = safeMediaPreviewUrl(readGeneratedFileString(raw, 'previewUrl', 'dataUrl', 'url'))
   const path = readGeneratedFileString(raw, 'path', 'file')
   const relativePath = readGeneratedFileString(raw, 'relativePath', 'relative_path')
   const absolutePath = readGeneratedFileString(raw, 'absolutePath', 'absolute_path')

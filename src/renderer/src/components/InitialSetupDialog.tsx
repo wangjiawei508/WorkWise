@@ -30,6 +30,7 @@ export function InitialSetupDialog(): ReactElement {
   const applyI18n = useChatStore((s) => s.applyI18nFromSettings)
   const reloadUiSettings = useChatStore((s) => s.reloadUiSettings)
   const probeRuntime = useChatStore((s) => s.probeRuntime)
+  const openWrite = useChatStore((s) => s.openWrite)
 
   const [form, setForm] = useState<AppSettingsV1 | null>(null)
   const [showApiKey, setShowApiKey] = useState(false)
@@ -81,10 +82,30 @@ export function InitialSetupDialog(): ReactElement {
     applyTheme(theme)
   }
 
-  const handleClose = () => {
+  const handleClose = async () => {
+    const current = formRef.current ?? form
+    const shouldOpenOfflineWrite = !isPreview && Boolean(current && !getActiveAgentApiKey(current).trim())
     setError(null)
-    closeInitialSetup()
-    void reloadUiSettings()
+    if (isPreview || !current) {
+      closeInitialSetup()
+      void reloadUiSettings()
+      return
+    }
+
+    setSaving(true)
+    try {
+      const next = await rendererRuntimeClient.setSettings(initialSetupSettingsPatch(current))
+      setCurrentForm(next)
+      await applyI18n(next.locale)
+      closeInitialSetup()
+      void reloadUiSettings()
+      void probeRuntime('background')
+      if (shouldOpenOfflineWrite) void openWrite()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setSaving(false)
+    }
   }
 
   const handleOpenOfficialApiPage = () => {
@@ -153,7 +174,7 @@ export function InitialSetupDialog(): ReactElement {
             </div>
             <button
               type="button"
-              onClick={handleClose}
+              onClick={() => { void handleClose() }}
               aria-label={t('firstRunClose')}
               title={t('firstRunClose')}
               className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-slate-300/80 bg-white/72 text-slate-500 transition hover:border-slate-400 hover:text-slate-700 dark:border-white/10 dark:bg-white/[0.04] dark:text-slate-400 dark:hover:border-white/18 dark:hover:text-slate-200"
@@ -279,10 +300,11 @@ export function InitialSetupDialog(): ReactElement {
           <div className="flex flex-col-reverse gap-3 sm:grid sm:grid-cols-[0.85fr_1fr]">
             <button
               type="button"
-              onClick={handleClose}
+              disabled={saving}
+              onClick={() => { void handleClose() }}
               className="min-h-11 rounded-xl border border-slate-300/80 bg-white/75 px-4 py-2 text-[15px] font-semibold text-slate-700 transition hover:border-slate-400 hover:bg-white dark:border-white/10 dark:bg-white/[0.04] dark:text-slate-200 dark:hover:border-white/16 dark:hover:bg-white/[0.06]"
             >
-              {t('firstRunClose')}
+              {t(isPreview ? 'firstRunClose' : 'firstRunOffline')}
             </button>
             <button
               type="button"

@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { mkdir, mkdtemp, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -23,10 +23,11 @@ import {
   buildWriteExportFileName,
   buildWriteExportHtmlDocument,
   copyWriteDocumentAsRichText,
+  exportWriteDocument,
   resolveBundledMarkdownConverter
 } from './write-export-service'
 import { buildDocxFromMarkdown } from './write-docx-service'
-import { clipboard } from 'electron'
+import { clipboard, dialog } from 'electron'
 
 const TINY_PNG = Buffer.from(
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAFgwJ/lJYfWQAAAABJRU5ErkJggg==',
@@ -153,6 +154,49 @@ describe('write-export-service helpers', () => {
     expect(documentXml).toContain('true')
     expect(documentXml).toContain('<w:tbl>')
     expect(Object.keys(zip.files).some((name) => name.startsWith('word/media/'))).toBe(true)
+  })
+
+  it('exports Markdown through the structured DOCX generator', async () => {
+    const sourcePath = join(workspaceRoot, 'quality-report.md')
+    const targetPath = join(workspaceRoot, 'quality-report.docx')
+    const content = [
+      '# 质量复测报告',
+      '',
+      '这是一个 **真正的 Word 文档**。',
+      '',
+      '- 成果可下载',
+      '- 标题与列表可编辑',
+      '',
+      '| 项目 | 状态 |',
+      '| --- | --- |',
+      '| DOCX | 通过 |'
+    ].join('\n')
+    await writeFile(sourcePath, content, 'utf8')
+    vi.mocked(dialog.showSaveDialog).mockResolvedValueOnce({
+      canceled: false,
+      filePath: targetPath
+    })
+
+    const result = await exportWriteDocument({
+      path: sourcePath,
+      workspaceRoot,
+      format: 'docx',
+      content
+    })
+
+    expect(result).toEqual(expect.objectContaining({
+      ok: true,
+      path: targetPath,
+      format: 'docx'
+    }))
+    const bytes = await readFile(targetPath)
+    expect(bytes.subarray(0, 2).toString('ascii')).toBe('PK')
+    const zip = await JSZip.loadAsync(bytes)
+    const documentXml = await zip.file('word/document.xml')?.async('string')
+    expect(documentXml).toContain('质量复测报告')
+    expect(documentXml).toContain('真正的 Word 文档')
+    expect(documentXml).toContain('<w:numPr>')
+    expect(documentXml).toContain('<w:tbl>')
   })
 
   it('discovers bundled platform converters from WORKWISE_CONVERTER_ROOT', async () => {

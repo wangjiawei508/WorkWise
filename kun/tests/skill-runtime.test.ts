@@ -105,6 +105,40 @@ describe('SkillRuntime', () => {
     expect(resolution.instructions.join('\n')).toContain('地保监测综合 Skill')
   })
 
+  it('treats a natural PPT Master name as explicit and carries it into a confirmation turn', async () => {
+    await writeLegacySkill('ppt-master', [
+      '---',
+      'name: ppt-master',
+      'description: "生成和导出 PPT 的专业工作流 Skill。"',
+      '---',
+      '',
+      '# PPT Master',
+      '',
+      '最终必须调用受控工具导出 PPTX。'
+    ].join('\n'))
+    const runtime = await createRuntime()
+
+    const first = runtime.resolveTurn({
+      prompt: '请使用 PPT Master，基于当前文档生成一份演示文稿。',
+      workspace: root
+    })
+    const continued = runtime.resolveTurn({
+      prompt: '确认可以，开始执行。',
+      workspace: root,
+      preferredSkillIds: first.activeSkillIds
+    })
+
+    expect(first.activations[0]).toMatchObject({
+      skillId: 'ppt-master',
+      reason: 'explicit:natural-name'
+    })
+    expect(first.instructions[0]).toContain(`Skill root: ${join(root, 'ppt-master')}`)
+    expect(continued.activations[0]).toMatchObject({
+      skillId: 'ppt-master',
+      reason: 'continuation:previous-turn'
+    })
+  })
+
   it('injects a budgeted excerpt when a matched Skill is larger than the instruction budget', async () => {
     await writeLegacySkill('di-bao-monitoring', [
       '---',
@@ -246,6 +280,38 @@ describe('SkillRuntime', () => {
     expect(runtime.resolveTurn({ prompt: '/new run', workspace: root }).activeSkillIds).toEqual(['new'])
   })
 
+  it('discovers a newly installed workspace Skill and prefers it over a global duplicate', async () => {
+    await writeLegacySkill('ppt-master', [
+      '---',
+      'name: ppt-master',
+      'description: "global copy"',
+      '---',
+      '',
+      'GLOBAL PPT MASTER'
+    ].join('\n'))
+    const runtime = await createRuntime()
+    const workspace = join(root, 'workspace')
+    const localSkillRoot = join(workspace, '.agents', 'skills', 'ppt-master')
+    await mkdir(localSkillRoot, { recursive: true })
+    await writeFile(join(localSkillRoot, 'SKILL.md'), [
+      '---',
+      'name: ppt-master',
+      'description: "workspace copy"',
+      '---',
+      '',
+      'WORKSPACE PPT MASTER'
+    ].join('\n'), 'utf8')
+
+    await runtime.refresh(workspace)
+    const resolution = runtime.resolveTurn({
+      prompt: '请使用 PPT Master。',
+      workspace
+    })
+
+    expect(resolution.instructions.join('\n')).toContain('WORKSPACE PPT MASTER')
+    expect(resolution.instructions.join('\n')).not.toContain('GLOBAL PPT MASTER')
+  })
+
   it('injects active Skills into AgentLoop context and turn metadata', async () => {
     await writeSkill('review', {
       id: 'review',
@@ -291,6 +357,47 @@ describe('SkillRuntime', () => {
     const turn = await h.turns.getTurn(h.threadId, h.turnId)
     expect(turn?.activeSkillIds).toEqual(['review'])
     expect(turn?.skillInjectionBytes).toBeGreaterThan(0)
+  })
+
+  it('keeps the previous turn Skills active for a short confirmation turn', async () => {
+    await writeLegacySkill('ppt-master', [
+      '---',
+      'name: ppt-master',
+      'description: "生成和导出 PPT 的专业工作流 Skill。"',
+      '---',
+      '',
+      '# PPT Master',
+      '',
+      '最终成果必须是 PPTX。'
+    ].join('\n'))
+    const skillRuntime = await createRuntime()
+    const requests: ModelRequest[] = []
+    const model: ModelClient = {
+      provider: 'fake',
+      model: 'fake',
+      async *stream(request) {
+        requests.push(request)
+        yield { kind: 'completed', stopReason: 'stop' }
+      }
+    }
+    const h = makeHarness(model, { skillRuntime })
+    await bootstrapThread(h, {
+      workspace: root,
+      request: { prompt: '请使用 PPT Master，先给我页数和风格建议，等我确认。' }
+    })
+    await h.loop.runTurn(h.threadId, h.turnId)
+
+    const second = await h.turns.startTurn({
+      threadId: h.threadId,
+      request: { prompt: '确认可以，开始执行。' }
+    })
+    h.turnId = second.turnId
+    await h.loop.runTurn(h.threadId, h.turnId)
+
+    expect(requests).toHaveLength(2)
+    expect(requests[1]?.contextInstructions?.join('\n')).toContain('Active Skill: ppt-master (ppt-master)')
+    const secondTurn = await h.turns.getTurn(h.threadId, h.turnId)
+    expect(secondTurn?.activeSkillIds).toContain('ppt-master')
   })
 
   async function createRuntime(options: Parameters<typeof SkillRuntime.create>[1] = {}) {

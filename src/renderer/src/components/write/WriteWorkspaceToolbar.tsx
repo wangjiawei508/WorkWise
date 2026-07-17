@@ -80,7 +80,10 @@ export function WriteWorkspaceToolbar({
   setModeMenuOpen,
   setPreviewMode
 }: Props): ReactElement {
-  const { t } = useTranslation('common')
+  const { t, i18n } = useTranslation('common')
+  const generatePptLabel = t('writeGeneratePpt', {
+    defaultValue: i18n.language.startsWith('zh') ? '生成 PPT' : 'Generate PPT'
+  })
   return (
     <div className="ds-stage-inset -mx-3 shrink-0 sm:-mx-4 md:-mx-6 lg:-mx-8">
       <header className="ds-topbar-surface relative z-10 mt-3 flex min-h-[56px] w-full items-stretch overflow-visible rounded-[18px]">
@@ -207,8 +210,8 @@ export function WriteWorkspaceToolbar({
               type="button"
               onClick={onGeneratePresentation}
               className={toolbarIconButtonClass()}
-              title={t('writeGeneratePpt')}
-              aria-label={t('writeGeneratePpt')}
+              title={generatePptLabel}
+              aria-label={generatePptLabel}
             >
               <Presentation className="h-4 w-4" strokeWidth={1.85} />
             </button>

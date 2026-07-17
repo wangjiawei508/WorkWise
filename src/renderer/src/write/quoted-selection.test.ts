@@ -9,6 +9,7 @@ import {
 import {
   WRITE_QUOTE_ORIGINAL_END,
   WRITE_QUOTE_ORIGINAL_START,
+  WRITE_USER_REQUEST_HEADING,
   composeWritePrompt,
   formatWriteQuotedSelectionForPrompt,
   formatWriteKnowledgeForPrompt,
@@ -63,6 +64,7 @@ describe('write quoted selections', () => {
     const prompt = composeWritePrompt('Please revise it.', quote ? [quote] : [])
     expect(prompt.startsWith('[写作上下文]')).toBe(true)
     expect(prompt).toContain('不要调用 request_user_input')
+    expect(prompt).toContain(`${WRITE_USER_REQUEST_HEADING}\nPlease revise it.`)
     expect(prompt.indexOf('[引用片段] a.md')).toBeGreaterThan(prompt.indexOf('[写作上下文]'))
     expect(prompt.endsWith('Please revise it.')).toBe(true)
     vi.restoreAllMocks()
@@ -102,6 +104,31 @@ describe('write quoted selections', () => {
       charCount: 31,
       text: "Hi, I'm zxy. Glad to meet you."
     })
+  })
+
+  it('keeps injected knowledge and file context out of the displayed user request', () => {
+    const prompt = composeWritePrompt(
+      '不要生成文件，只在对话中给出清单。',
+      [],
+      {
+        workspaceRoot: '/tmp/workspace',
+        activeFilePath: '/tmp/workspace/current.md'
+      },
+      {
+        source: 'static',
+        keywords: ['报告'],
+        snippets: [{
+          title: 'AI 监测报告生成工具',
+          url: 'https://kb.railwise.cn/ai/tool-report-generator/',
+          text: '生成报告的参考资料。',
+          score: 1,
+          source: 'railwise-static'
+        }]
+      }
+    )
+
+    expect(parseWritePromptForDisplay(prompt)?.userInput)
+      .toBe('不要生成文件，只在对话中给出清单。')
   })
 
   it('injects RailWise results with source links and path suppression guidance', () => {

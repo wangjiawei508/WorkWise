@@ -157,6 +157,20 @@ describe('managed-tool-service', () => {
     expect(() => _internals.checksumFor(`${other}  other.zip`, 'wanted.zip')).toThrow('Checksum is missing')
   })
 
+  it('retries transient GitHub download failures before succeeding', async () => {
+    const timeoutError = Object.assign(new Error('fetch failed'), {
+      cause: { code: 'ETIMEDOUT', message: 'read ETIMEDOUT' }
+    })
+    systemFetchMock
+      .mockRejectedValueOnce(timeoutError)
+      .mockRejectedValueOnce(timeoutError)
+      .mockResolvedValueOnce(response('downloaded'))
+
+    await expect(_internals.download('https://github.com/example/tool', 1024, 0))
+      .resolves.toEqual(Buffer.from('downloaded'))
+    expect(systemFetchMock).toHaveBeenCalledTimes(3)
+  })
+
   it('resolves official release versions and download URLs without the GitHub API', () => {
     expect(_internals.releaseVersionFromUrl('https://github.com/larksuite/cli/releases/tag/v1.0.68')).toBe('1.0.68')
     expect(_internals.releaseVersionFromHtml('<a href="/larksuite/cli/releases/tag/v1.0.68">latest</a>')).toBe('1.0.68')

@@ -140,9 +140,23 @@ export class SkillRuntime {
     return new SkillRuntime(normalized, resolvedOptions, loaded)
   }
 
-  async refresh(): Promise<void> {
-    const loaded = this.config.enabled
-      ? await discoverSkills(this.config)
+  async refresh(workspace?: string): Promise<void> {
+    const dynamicRootCandidates = workspace?.trim()
+      ? [
+          join(resolve(workspace), '.agents', 'skills'),
+          join(resolve(workspace), '.codex', 'skills'),
+          join(resolve(workspace), 'skills')
+        ]
+      : []
+    const dynamicRoots: string[] = []
+    for (const root of dynamicRootCandidates) {
+      if (await exists(root)) dynamicRoots.push(root)
+    }
+    const refreshedConfig = dynamicRoots.length > 0
+      ? { ...this.config, roots: [...dynamicRoots, ...this.config.roots] }
+      : this.config
+    const loaded = refreshedConfig.enabled
+      ? await discoverSkills(refreshedConfig)
       : { skills: [], validationErrors: [] }
     this.skills = loaded.skills
     this.validationErrors = loaded.validationErrors
@@ -152,6 +166,7 @@ export class SkillRuntime {
     prompt: string
     workspace: string
     filePaths?: readonly string[]
+    preferredSkillIds?: readonly string[]
   }): SkillTurnResolution {
     if (!this.config.enabled) return emptyResolution()
     const matches = this.matchSkills(input)
@@ -206,10 +221,12 @@ export class SkillRuntime {
     prompt: string
     workspace: string
     filePaths?: readonly string[]
+    preferredSkillIds?: readonly string[]
   }): Array<SkillActivation & { skill: LoadedSkill }> {
     const prompt = input.prompt
     const lowerPrompt = prompt.toLowerCase()
     const fileTypes = fileTypesFrom(input.filePaths ?? [], prompt)
+    const preferredSkillIds = new Set(input.preferredSkillIds ?? [])
     const matches: Array<SkillActivation & { skill: LoadedSkill }> = []
     for (const skill of this.skills) {
       const explicit = explicitSkillMention(skill, prompt)
@@ -220,6 +237,15 @@ export class SkillRuntime {
       const command = skill.triggers.commands.find((candidate) => lowerPrompt.startsWith(candidate.toLowerCase()))
       if (command) {
         matches.push({ skill, skillId: skill.id, reason: `command:${command}`, score: 900 + skill.priority })
+        continue
+      }
+      if (preferredSkillIds.has(skill.id)) {
+        matches.push({
+          skill,
+          skillId: skill.id,
+          reason: 'continuation:previous-turn',
+          score: 800 + skill.priority
+        })
         continue
       }
       const pattern = skill.triggers.promptPatterns.find((candidate) => safePatternMatches(candidate, prompt))
@@ -373,12 +399,12 @@ function buildSkillInstruction(
 ): { text: string; bytes: number } | null {
   if (remainingBudgetBytes < MIN_BUDGETED_SKILL_BYTES) return null
   const skill = match.skill
-  const fullHeader = skillInstructionHeader(match, false)
+  const fullHeader = skillInstructionHeader(match)
   const fullText = [fullHeader, skill.entry].join('\n\n')
   const fullBytes = Buffer.byteLength(fullText, 'utf8')
   if (fullBytes <= remainingBudgetBytes) return { text: fullText, bytes: fullBytes }
 
-  const budgetedHeader = skillInstructionHeader(match, true)
+  const budgetedHeader = skillInstructionHeader(match)
   const notice = [
     'Skill entry is larger than the per-turn injection budget.',
     'Use this excerpt first. If more detail is needed, read referenced files from the Skill root instead of asking the user to restate them.'
@@ -400,17 +426,14 @@ function buildSkillInstruction(
   return null
 }
 
-function skillInstructionHeader(
-  match: SkillActivation & { skill: LoadedSkill },
-  includePaths: boolean
-): string {
+function skillInstructionHeader(match: SkillActivation & { skill: LoadedSkill }): string {
   const skill = match.skill
   return [
     `Active Skill: ${skill.name} (${skill.id})`,
     `Activation: ${match.reason}`,
     skill.description ? `Description: ${skill.description}` : '',
-    includePaths ? `Skill root: ${skill.root}` : '',
-    includePaths ? `Skill entry: ${skill.entryPath}` : '',
+    `Skill root: ${skill.root}`,
+    `Skill entry: ${skill.entryPath}`,
     skill.allowedTools.length ? `Allowed tools: ${skill.allowedTools.join(', ')}` : '',
     skill.assets.length ? `Assets:\n${skill.assets.map((asset) => `- ${asset}`).join('\n')}` : ''
   ].filter(Boolean).join('\n\n')
@@ -448,7 +471,27 @@ function explicitSkillMention(skill: LoadedSkill, prompt: string): string | unde
   const name = skill.name.toLowerCase()
   if (lower.includes(`$${id}`) || lower.includes(`@${id}`) || lower.includes(`/skill:${id}`)) return 'explicit:id'
   if (name && (lower.includes(`$${name}`) || lower.includes(`@${name}`))) return 'explicit:name'
+  const naturalPrompt = normalizeNaturalSkillMention(prompt)
+  for (const [candidate, reason] of [
+    [skill.name, 'explicit:natural-name'],
+    [skill.id, 'explicit:natural-id']
+  ] as const) {
+    const naturalCandidate = normalizeNaturalSkillMention(candidate)
+    const distinctiveLength = naturalCandidate.replace(/\s/g, '').length
+    if (distinctiveLength >= 6 && naturalPrompt.includes(naturalCandidate)) {
+      return reason
+    }
+  }
   return undefined
+}
+
+function normalizeNaturalSkillMention(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/[-_]+/g, ' ')
+    .replace(/[^\p{L}\p{N}\s]+/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
 }
 
 function safePatternMatches(pattern: string, prompt: string): boolean {

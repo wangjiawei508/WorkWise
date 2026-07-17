@@ -5,7 +5,7 @@ description: 生成和导出 PPT 的专业工作流 Skill。适用于把 Markdow
 
 # PPT Master for WorkWise
 
-这是 WorkWise 内置的 PPT Master 瘦身版，用于把资料、提纲、报告或 Markdown 内容转成结构化演示文稿。它保留核心工作流、脚本、参考规范、通用图表模板、常用布局、localhost 确认页和两个轻量顶级咨询风 examples；不内置全量官方示例、用户 projects、导出结果、备份目录、大体积 icon 库或私有 PPT 文件。
+这是 WorkWise 内置的 PPT Master 3.1.0+ 瘦身版，以官方 v3.1.0 为基线并包含其后的已审计更新，用于把资料、提纲、报告或 Markdown 内容转成结构化演示文稿。它保留核心工作流、脚本、参考规范、通用图表模板、常用布局、localhost 确认页和两个轻量顶级咨询风 examples；不内置全量官方示例、用户 projects、导出结果、备份目录、大体积 icon 库或私有 PPT 文件。
 
 ## 适用场景
 
@@ -15,6 +15,9 @@ description: 生成和导出 PPT 的专业工作流 Skill。适用于把 Markdow
 
 ## WorkWise 约束
 
+- 用户要求 PPT、PowerPoint、演示文稿或幻灯片时，最终成果必须是 `.pptx` 文件。HTML、SVG、图片、Markdown 大纲和预览页只能作为中间产物，不能冒充 PPT 交付。
+- SVG 页面完成后，使用 WorkWise 提供的 `ppt_master_export` 工具导出真正的 PPTX。该工具只接受当前工作区内的 PPT Master 项目目录，不需要也不得通过通用 Shell 执行导出脚本。
+- 如果 `ppt_master_export` 不可用或导出失败，应明确报告具体阻断原因并保留项目文件，不能静默改交 HTML；只有用户明确要求网页演示时才可交付 HTML。
 - 不使用 Pandoc。文档转换优先使用 Python 原生路径；不支持的旧格式应请用户转为 Markdown、DOCX、PDF、HTML、XLSX 或 PPTX 后再处理。
 - 不读取或打包用户本地 `projects/`、全量官方 `examples/`、`exports/`、`backup/` 等目录；内置 `examples/` 只作为少量风格参考，内置 `projects/` 只是空占位目录。
 - 不默认使用大体积 `templates/icons/` 图标库。需要图标时优先使用当前项目已有素材、简洁 SVG 形状或用户明确提供的图标资源。
@@ -30,7 +33,7 @@ description: 生成和导出 PPT 的专业工作流 Skill。适用于把 Markdow
 5. 策略规划：读取 `references/strategist.md` 和 `templates/design_spec_reference.md`，结合 `confirm_ui/result.json` 输出设计规范、内容大纲和执行锁定文件。
 6. 页面生成：启动 `scripts/svg_editor/server.py` 作为 localhost 实时预览，然后按页生成 SVG 页面；每页遵守 `spec_lock.md`，需要图表时参考 `templates/charts/charts_index.json`。
 7. 质量检查：运行 SVG 检查、修复尺寸和资源引用，必要时逐页修正。
-8. 导出 PPTX：用 `scripts/svg_to_pptx.py` 导出为 PowerPoint 文件。
+8. 导出 PPTX：调用 `ppt_master_export`，传入工作区内的项目目录和 `.pptx` 输出路径；导出成功后验证成果文件存在，再向用户交付。
 
 ## 常用脚本
 
@@ -40,6 +43,17 @@ description: 生成和导出 PPT 的专业工作流 Skill。适用于把 Markdow
 | `scripts/confirm_ui/server.py` | Step 4 本地确认页，用于选择风格、字体、受众、页数、配色、图片策略等 |
 | `scripts/svg_editor/server.py` | Step 6 本地 SVG 实时预览页 |
 | `scripts/svg_to_pptx.py` | 将 SVG 页面导出为 PPTX |
+
+WorkWise 中不要直接执行上表脚本；这些脚本由受控工具封装。PPT 导出统一调用：
+
+```json
+{
+  "project_path": "presentation-project",
+  "output_path": "AI-Agent-编程入门指南.pptx",
+  "source": "output",
+  "format": "ppt169"
+}
+```
 | `scripts/finalize_svg.py` | SVG 后处理 |
 | `scripts/svg_quality_checker.py` | SVG 质量检查 |
 | `scripts/update_spec.py` | 批量更新设计规范相关字段 |

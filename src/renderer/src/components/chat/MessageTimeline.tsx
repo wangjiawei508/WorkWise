@@ -3,7 +3,7 @@ import { Fragment, memo, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { ChatBlock, RuntimeConnectionStatus } from '../../agent/types'
 import { useChatStore } from '../../store/chat-store'
-import { useTimelineStores } from './use-timeline-stores'
+import { resolveTimelineWorkspaceRoot, useTimelineStores } from './use-timeline-stores'
 import { useTimelineScroll } from './use-timeline-scroll'
 import { deriveTurnSections } from './derive-turn-sections'
 import { MessageTimelineEmptyHero, ThreadForkBanner, ThreadForkPoint } from './message-timeline-empty'
@@ -136,6 +136,7 @@ export function MessageTimeline({
     [hiddenTurnCount, turns]
   )
   const forkedFromTitle = activeThread?.forkedFromTitle?.trim() ?? ''
+  const timelineWorkspaceRoot = resolveTimelineWorkspaceRoot(activeThread, workspaceRoot)
   const forkBoundaryTurnCount =
     typeof activeThread?.forkedFromTurnCount === 'number'
       ? Math.max(0, activeThread.forkedFromTurnCount)
@@ -220,6 +221,8 @@ export function MessageTimeline({
                 onBuildPlan={onBuildPlan}
                 onOpenPlan={onOpenPlan}
                 viewportRef={containerRef}
+                workspaceRoot={timelineWorkspaceRoot}
+                activeThreadId={activeThreadId}
               />
             </Fragment>
           )
@@ -253,6 +256,8 @@ export function MessageTimeline({
             live={live}
             devPreviewCard={devPreviewCard}
             viewportRef={containerRef}
+            workspaceRoot={timelineWorkspaceRoot}
+            activeThreadId={activeThreadId}
             durationMs={
               currentTurnUserId && typeof turnStartedAtByUserId[currentTurnUserId] === 'number'
                 ? Math.max(0, tickNow - turnStartedAtByUserId[currentTurnUserId])
@@ -284,7 +289,9 @@ function MessageTurn({
   planActionsBusy,
   onBuildPlan,
   onOpenPlan,
-  viewportRef
+  viewportRef,
+  workspaceRoot,
+  activeThreadId
 }: {
   turn: Turn
   isProcessing: boolean
@@ -297,8 +304,9 @@ function MessageTurn({
   onBuildPlan?: () => void
   onOpenPlan?: () => void
   viewportRef: RefObject<HTMLDivElement | null>
+  workspaceRoot: string
+  activeThreadId: string | null
 }): ReactElement {
-  const workspaceRoot = useChatStore((s) => s.workspaceRoot)
   // Inline Review Plan card: surfaced under a turn that produced a
   // successful `create_plan` result so the user can open/build the plan
   // without leaving the conversation.
@@ -387,7 +395,11 @@ function MessageTurn({
         <MessageBubble block={{ kind: 'assistant', id: 'live-assistant', text: liveContent }} />
       ) : null}
 
-      <GeneratedFilesPanel blocks={generatedFileBlocks} />
+      <GeneratedFilesPanel
+        blocks={generatedFileBlocks}
+        workspaceRoot={workspaceRoot}
+        activeThreadId={activeThreadId}
+      />
 
       {reviewBlocks.map((review) => (
         <ReviewSummaryCard key={review.id} review={review} />
@@ -438,5 +450,7 @@ const MemoMessageTurn = memo(MessageTurn, (prev, next) => (
   prev.planActionsBusy === next.planActionsBusy &&
   prev.onBuildPlan === next.onBuildPlan &&
   prev.onOpenPlan === next.onOpenPlan &&
-  prev.viewportRef === next.viewportRef
+  prev.viewportRef === next.viewportRef &&
+  prev.workspaceRoot === next.workspaceRoot &&
+  prev.activeThreadId === next.activeThreadId
 ))
