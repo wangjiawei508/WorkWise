@@ -5,12 +5,12 @@
   "description": "AI workbench for engineering, infrastructure, and operations workflows",
   "license": "MIT",
   "engines": {
-    "node": ">=22.12.0"
+    "node": ">=22.22.0"
   },
   "main": "./out/main/index.js",
   "type": "module",
   "scripts": {
-    "dev": "npm run build:runtime && electron-vite dev",
+    "dev": "npm run prepare:electron && npm run build:runtime && electron-vite dev",
     "build": "npm run build:runtime && electron-vite build",
     "build:runtime": "node ./scripts/ensure-runtime-install.cjs && npm --prefix kun run build",
     "build:markitdown-sidecar": "node ./scripts/build-markitdown-sidecar.mjs",
@@ -39,16 +39,17 @@
     "release:mac": "bash ./scripts/release-mac.sh",
     "release:win": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/release-win.ps1",
     "prepare:converters": "node ./scripts/prepare-markdown-converters.cjs",
+    "prepare:electron": "node ./scripts/ensure-electron-install.cjs",
     "r2:upload": "node ./scripts/publish-r2.mjs upload",
     "r2:promote": "node ./scripts/publish-r2.mjs promote",
     "postinstall": "node ./scripts/postinstall.cjs",
     "verify:apple": "node ./scripts/verify-apple-signing.cjs",
     "verify:release-assets": "node ./scripts/verify-release-assets.cjs",
     "verify:packaged-asar": "node ./scripts/verify-packaged-asar.cjs",
-    "preview": "electron-vite preview",
+    "preview": "npm run prepare:electron && electron-vite preview",
     "typecheck": "tsc --noEmit -p tsconfig.web.json && tsc --noEmit -p tsconfig.node.json",
     "mac:unquarantine": "bash ./scripts/mac-unquarantine.sh",
-    "generate:icons": "electron ./scripts/generate-icons.mjs"
+    "generate:icons": "npm run prepare:electron && electron ./scripts/generate-icons.mjs"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1049.0",
