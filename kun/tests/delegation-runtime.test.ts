@@ -274,13 +274,15 @@ describe('DelegationRuntime', () => {
       executor: async ({ prompt }) => ({ summary: prompt.includes('Resume this interrupted') ? 'recovered' : 'wrong' })
     })
 
-    await runtime.recoverInterrupted()
-    await new Promise((resolve) => setTimeout(resolve, 20))
-    expect((await store.get('child_recover'))).toMatchObject({
+    const recovered = await runtime.recoverInterrupted()
+    expect(recovered).toHaveLength(1)
+    expect(recovered[0]).toMatchObject({ id: 'child_recover', status: 'queued', attempt: 1 })
+    await expect(runtime.waitForChild('child_recover')).resolves.toMatchObject({
       status: 'completed',
       summary: 'recovered',
       attempt: 2
     })
+    expect(await store.get('child_recover')).toMatchObject({ status: 'completed' })
   })
 
   function createRuntime(options: {

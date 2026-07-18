@@ -244,6 +244,17 @@ export class DelegationRuntime {
     return recovered
   }
 
+  /**
+   * Wait for a specific child when a caller needs a durable completion point.
+   * Detached recovery itself remains non-blocking so application startup is
+   * never held open by a long child task.
+   */
+  async waitForChild(childId: string): Promise<ChildRunRecord | null> {
+    const active = this.activeChildren.get(childId)
+    if (active) return active.promise
+    return this.options.store.get(childId)
+  }
+
   abortAll(reason = 'application_exit'): void {
     for (const active of this.activeChildren.values()) active.controller.abort(new Error(reason))
   }
