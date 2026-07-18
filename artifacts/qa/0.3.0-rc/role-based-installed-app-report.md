@@ -47,11 +47,12 @@
 - 打包原生运行时：`WORKWISE_PACKAGED_SQLITE_OK ABI=148`。
 - ASAR 完整性：19,641 个文件、450 个编译文件，通过。
 
-## 尚未完成的发布门禁
+## 发布门禁结论
 
-角色化安装测试已经通过，但 OpenSpec 8.4 仍保持未完成。必须在当前候选提交上继续通过：
+角色化安装测试和全部持续运行门禁均已通过，OpenSpec 8.4 可以完成：
 
-1. 2 小时发布候选连续任务测试。
-2. 8 小时夜间稳定性测试。
+1. [三平台快速打包验证](https://github.com/wangjiawei508/WorkWise/actions/runs/29644854236)：通过。
+2. [2 小时发布候选连续任务测试](https://github.com/wangjiawei508/WorkWise/actions/runs/29644855860)：通过。
+3. [8 小时夜间稳定性测试](https://github.com/wangjiawei508/WorkWise/actions/runs/29644857119)：通过；上海时间 2026-07-19 04:45 完成。
 
-在两项稳定性门禁完成前，不创建 `v0.3.0` 标签，不发布正式安装包。
+三项门禁均基于提交 `45797d3304a878b37af4755633cd161fc9a80ed2`，候选版已达到创建 `v0.3.0` 标签的条件。
