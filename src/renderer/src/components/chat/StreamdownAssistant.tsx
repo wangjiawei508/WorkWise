@@ -3,7 +3,11 @@ import { Streamdown, type AnimateOptions, type StreamdownProps } from 'streamdow
 import remarkGfm from 'remark-gfm'
 import { harden } from 'rehype-harden'
 import 'streamdown/styles.css'
-import { parseFileReferenceHref, rehypeFileReferences } from '../../lib/file-references'
+import {
+  FILE_REFERENCE_PROTOCOL,
+  parseFileReferenceHref,
+  rehypeFileReferences
+} from '../../lib/file-references'
 import { useValidatedFileReference } from '../../lib/file-reference-validation'
 import { openWorkspacePathInEditor } from '../../lib/open-workspace-path'
 import { previewWorkspaceFile } from '../../lib/workspace-file-preview'
@@ -29,7 +33,12 @@ const rehypePlugins = [
   [
     harden,
     {
-      allowedLinkPrefixes: ['*']
+      allowedLinkPrefixes: ['*'],
+      // Only WorkWise-generated workspace references use this protocol. The
+      // click handler still canonicalizes and contains the path before opening
+      // it; dangerous protocols such as file:, data:, and javascript: remain
+      // blocked by rehype-harden.
+      allowedProtocols: [FILE_REFERENCE_PROTOCOL]
     }
   ]
 ] satisfies StreamdownProps['rehypePlugins']

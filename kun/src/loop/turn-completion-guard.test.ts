@@ -14,6 +14,9 @@ describe('turn completion guard', () => {
     expect(promptRequiresFileDeliverable('形成一份针对宁波睿威的产品介绍文档')).toBe(true)
     expect(promptRequiresFileDeliverable('Please create a DOCX report and save it.')).toBe(true)
     expect(promptRequiresFileDeliverable('解释一下这段代码')).toBe(false)
+    expect(promptRequiresFileDeliverable('请只输出四个普通相对路径，不要使用 Markdown 链接。')).toBe(false)
+    expect(promptRequiresFileDeliverable('请输出文件名和下载链接')).toBe(false)
+    expect(promptRequiresFileDeliverable('Please output the relative paths as Markdown links.')).toBe(false)
   })
 
   it('uses only marked user requests for file-delivery intent', () => {

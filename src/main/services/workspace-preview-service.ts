@@ -12,6 +12,7 @@ import { inspectOfficeArchive } from './office-archive-security'
 const MAX_PREVIEW_BYTES = 200 * 1024 * 1024
 const MAX_INLINE_BYTES = 20 * 1024 * 1024
 const MAX_MARKDOWN_BYTES = 8 * 1024 * 1024
+const MAX_SPREADSHEET_PREVIEW_ROWS = 100
 const IMAGE_TYPES: Record<string, string> = {
   '.png': 'image/png',
   '.jpg': 'image/jpeg',
@@ -92,18 +93,136 @@ export class WorkspacePreviewService {
         mode: request.parsingMode ?? 'fast',
         idempotencyKey: request.idempotencyKey
       })
+      const spreadsheetPreview = extension === '.xlsx'
+        ? normalizeSpreadsheetPreviewMarkdown(parsed.markdown)
+        : null
       return {
         kind: 'office',
         format: extension.slice(1) as 'docx' | 'pptx' | 'xlsx',
-        markdown: parsed.markdown,
+        markdown: spreadsheetPreview?.markdown ?? parsed.markdown,
         ...(structure.pageCount !== undefined ? { pageCount: structure.pageCount } : {}),
         ...(structure.sheetNames ? { sheetNames: structure.sheetNames } : {}),
-        warnings: parsed.warnings,
+        warnings: [
+          ...parsed.warnings,
+          ...(spreadsheetPreview?.compacted
+            ? ['已隐藏空单元格，并将稀疏工作表压缩为便于阅读的内容行。']
+            : []),
+          ...(spreadsheetPreview?.truncated
+            ? [`预览最多显示 ${MAX_SPREADSHEET_PREVIEW_ROWS} 行；完整内容仍保留在原工作簿中。`]
+            : [])
+        ],
         sizeBytes: info.size
       }
     }
     return metadata(path, info.size, undefined, 'Preview is unavailable for this file type; open it in the system application.')
   }
+}
+
+type SpreadsheetPreviewNormalization = {
+  markdown: string
+  compacted: boolean
+  truncated: boolean
+}
+
+function splitMarkdownRow(line: string): string[] {
+  const source = line.trim().replace(/^\|/, '').replace(/\|$/, '')
+  const cells: string[] = []
+  let cell = ''
+  let escaped = false
+  for (const character of source) {
+    if (escaped) {
+      cell += character
+      escaped = false
+    } else if (character === '\\') {
+      cell += character
+      escaped = true
+    } else if (character === '|') {
+      cells.push(cell.trim())
+      cell = ''
+    } else {
+      cell += character
+    }
+  }
+  cells.push(cell.trim())
+  return cells
+}
+
+function isMarkdownSeparator(cells: string[]): boolean {
+  return cells.length > 0 && cells.every((cell) => /^:?-{3,}:?$/.test(cell))
+}
+
+function isEmptySpreadsheetCell(cell: string, header: boolean): boolean {
+  const normalized = cell.trim()
+  return !normalized || /^nan$/i.test(normalized) || (header && /^unnamed:\s*\d+$/i.test(normalized))
+}
+
+function escapeMarkdownCell(cell: string): string {
+  return cell.replace(/\|/g, '\\|').replace(/\r?\n/g, '<br>')
+}
+
+function normalizeTableBlock(lines: string[]): SpreadsheetPreviewNormalization {
+  const rows = lines.map(splitMarkdownRow)
+  const contentRows = rows.filter((cells) => !isMarkdownSeparator(cells))
+  const width = Math.max(0, ...contentRows.map((cells) => cells.length))
+  const totalCells = Math.max(1, contentRows.length * Math.max(1, width))
+  const emptyCells = contentRows.reduce(
+    (sum, cells, rowIndex) => sum + Array.from({ length: width }, (_, index) =>
+      isEmptySpreadsheetCell(cells[index] ?? '', rowIndex === 0) ? 1 : 0
+    ).reduce<number>((rowSum, value) => rowSum + value, 0),
+    0
+  )
+  const compacted = width > 12 || emptyCells / totalCells > 0.45
+
+  if (!compacted) {
+    const cleaned = rows.map((cells, rowIndex) => {
+      if (isMarkdownSeparator(cells)) return `| ${cells.join(' | ')} |`
+      return `| ${cells.map((cell) => isEmptySpreadsheetCell(cell, rowIndex === 0) ? '' : cell).join(' | ')} |`
+    })
+    return { markdown: cleaned.join('\n'), compacted: false, truncated: false }
+  }
+
+  const meaningful = contentRows
+    .map((cells, rowIndex) => cells.filter((cell) => !isEmptySpreadsheetCell(cell, rowIndex === 0)))
+    .filter((cells) => cells.length > 0)
+  const truncated = meaningful.length > MAX_SPREADSHEET_PREVIEW_ROWS
+  const visible = meaningful.slice(0, MAX_SPREADSHEET_PREVIEW_ROWS)
+  return {
+    markdown: [
+      '| 行 | 内容 |',
+      '| --- | --- |',
+      ...visible.map((cells, index) =>
+        `| ${index + 1} | ${escapeMarkdownCell(cells.join(' · '))} |`
+      )
+    ].join('\n'),
+    compacted: true,
+    truncated
+  }
+}
+
+export function normalizeSpreadsheetPreviewMarkdown(markdown: string): SpreadsheetPreviewNormalization {
+  const lines = markdown.split(/\r?\n/)
+  const output: string[] = []
+  let compacted = false
+  let truncated = false
+
+  for (let index = 0; index < lines.length;) {
+    if (!/^\s*\|.*\|\s*$/.test(lines[index])) {
+      output.push(lines[index])
+      index += 1
+      continue
+    }
+    const block: string[] = []
+    while (index < lines.length && /^\s*\|.*\|\s*$/.test(lines[index])) {
+      block.push(lines[index])
+      index += 1
+    }
+    const normalized = normalizeTableBlock(block)
+    output.push(normalized.markdown)
+    compacted ||= normalized.compacted
+    truncated ||= normalized.truncated
+  }
+
+  return { markdown: output.join('\n'), compacted, truncated }
 }
 
 function metadata(path: string, sizeBytes: number, mediaType: string | undefined, message: string): WorkspacePreviewResultV1 {

@@ -46,6 +46,7 @@
     "verify:apple": "node ./scripts/verify-apple-signing.cjs",
     "verify:release-assets": "node ./scripts/verify-release-assets.cjs",
     "verify:packaged-asar": "node ./scripts/verify-packaged-asar.cjs",
+    "verify:packaged-runtime-native": "node ./scripts/verify-packaged-runtime-native.cjs",
     "preview": "npm run prepare:electron && electron-vite preview",
     "typecheck": "tsc --noEmit -p tsconfig.web.json && tsc --noEmit -p tsconfig.node.json",
     "mac:unquarantine": "bash ./scripts/mac-unquarantine.sh",
@@ -92,6 +93,7 @@
   },
   "devDependencies": {
     "@electron/asar": "^4.2.0",
+    "@electron/rebuild": "4.0.3",
     "@eslint/js": "^10.0.1",
     "@fission-ai/openspec": "1.6.0",
     "@types/better-sqlite3": "^7.6.13",

@@ -19,7 +19,7 @@ type HastNode = {
   children?: HastNode[]
 }
 
-const FILE_REFERENCE_SCHEME = 'deepseek-file:'
+export const FILE_REFERENCE_PROTOCOL = 'deepseek-file:'
 const PATH_PREFIX_BOUNDARY = String.raw`(?<![\w@.~\/\\-])`
 
 const EXTENSIONS = [
@@ -32,8 +32,10 @@ const EXTENSIONS = [
   'cs',
   'css',
   'dart',
+  'docx',
   'env',
   'fish',
+  'gif',
   'go',
   'h',
   'hpp',
@@ -42,12 +44,17 @@ const EXTENSIONS = [
   'java',
   'jsx?',
   'json',
+  'jpe?g',
   'kt',
   'less',
   'lock',
   'mdx?',
+  'markdown',
   'mjs',
   'php',
+  'pdf',
+  'png',
+  'pptx',
   'py',
   'rb',
   'rs',
@@ -61,15 +68,18 @@ const EXTENSIONS = [
   'tsx?',
   'txt',
   'vue',
+  'webp',
+  'xlsx',
   'ya?ml',
   'xml',
+  'svg',
   'zsh'
 ].join('|')
 
-const PATH_CHARS = String.raw`[\w@.()+=[\]{} $,;!%#~\/\\-]`
+const PATH_CHARS = String.raw`[\p{L}\p{N}\p{M}_@.()+=[\]{} $,;!%#~\/\\-]`
 const PATH_END = String.raw`(?=$|[\s(),.;:!?\]\u3001\u3002\uff0c\uff1b\uff08\uff09]|#L)`
 const PATH_WITH_SEPARATOR = new RegExp(
-  String.raw`${PATH_PREFIX_BOUNDARY}(?:~|\/|\.{1,2}\/|[A-Za-z]:[\\/]|[\w@.-]+[\\/])${PATH_CHARS}*?\.(?:${EXTENSIONS})${PATH_END}`,
+  String.raw`${PATH_PREFIX_BOUNDARY}(?:~|\/|\.{1,2}\/|[A-Za-z]:[\\/]|[\p{L}\p{N}\p{M}_@.-]+[\\/])${PATH_CHARS}*?\.(?:${EXTENSIONS})${PATH_END}`,
   'giu'
 )
 const LINE_SUFFIX = /(?::(\d+)(?::(\d+))?|#L(\d+)(?:-L\d+)?|\s*[（(](?:line|lines)\s+(\d+)[）)]|\s*[（(]第\s*(\d+)\s*行[）)]|\s+line\s+(\d+)|\s+第\s*(\d+)\s*行)/iy
@@ -101,6 +111,7 @@ function tokenBefore(text: string, index: number): string {
 }
 
 function isProbablyUrl(text: string, index: number): boolean {
+  if (text.slice(index, index + 2) === '//') return true
   return tokenBefore(text, index).includes('://')
 }
 
@@ -160,11 +171,11 @@ export function createFileReferenceHref(target: FileReferenceTarget): string {
   const params = new URLSearchParams({ path: target.path })
   if (target.line) params.set('line', String(target.line))
   if (target.column) params.set('column', String(target.column))
-  return `${FILE_REFERENCE_SCHEME}//open?${params.toString()}`
+  return `${FILE_REFERENCE_PROTOCOL}//open?${params.toString()}`
 }
 
 export function parseFileReferenceHref(href: string | undefined): FileReferenceTarget | null {
-  if (!href?.startsWith(FILE_REFERENCE_SCHEME)) return null
+  if (!href?.startsWith(FILE_REFERENCE_PROTOCOL)) return null
   try {
     const url = new URL(href)
     const path = url.searchParams.get('path')?.trim()
@@ -212,7 +223,43 @@ function linkifyTextNode(node: HastNode): HastNode[] {
   return next
 }
 
+function fileTargetFromMarkdownHref(href: unknown): FileReferenceTarget | null {
+  if (typeof href !== 'string' || !href.trim()) return null
+  let decoded = href.trim()
+  try {
+    decoded = decodeURIComponent(decoded)
+  } catch {
+    return null
+  }
+
+  const matches = findFileReferences(decoded)
+  const match = matches.length === 1 ? matches[0] : null
+  return match && match.start === 0 && match.end === decoded.length ? match.target : null
+}
+
+function addFileReferenceClass(properties: Record<string, unknown>): void {
+  const className = properties.className
+  if (Array.isArray(className)) {
+    if (!className.includes('ds-file-reference-link')) className.push('ds-file-reference-link')
+    return
+  }
+  if (typeof className === 'string' && className.trim()) {
+    properties.className = [...new Set([...className.split(/\s+/), 'ds-file-reference-link'])]
+    return
+  }
+  properties.className = ['ds-file-reference-link']
+}
+
 function visit(node: HastNode, blocked: boolean): void {
+  if (node.tagName === 'a' && node.properties) {
+    const target = fileTargetFromMarkdownHref(node.properties.href)
+    if (target) {
+      node.properties.href = createFileReferenceHref(target)
+      node.properties.title = target.line ? `${target.path}:${target.line}` : target.path
+      addFileReferenceClass(node.properties)
+    }
+  }
+
   const children = node.children
   if (!children?.length) return
 

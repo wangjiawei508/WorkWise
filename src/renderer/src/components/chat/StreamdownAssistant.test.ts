@@ -1,5 +1,11 @@
+import { createElement } from 'react'
+import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
+import { useChatStore } from '../../store/chat-store'
+import { createFileReferenceHref } from '../../lib/file-references'
+import { clearFileReferenceValidationCache } from '../../lib/file-reference-validation'
 import { shouldAnimateStreamingText } from './StreamdownAssistant'
+import { StreamdownAssistant } from './StreamdownAssistant'
 
 describe('shouldAnimateStreamingText', () => {
   it('keeps the lightweight reveal for short single-line text', () => {
@@ -15,5 +21,50 @@ describe('shouldAnimateStreamingText', () => {
   it('does not animate structured markdown while it is still streaming', () => {
     expect(shouldAnimateStreamingText('- one\n- two')).toBe(false)
     expect(shouldAnimateStreamingText('Use `npm test` next.')).toBe(false)
+  })
+
+  it('keeps the validated WorkWise file protocol available to the link component', () => {
+    clearFileReferenceValidationCache()
+    useChatStore.setState({ workspaceRoot: '/tmp/workspace' })
+    const href = createFileReferenceHref({ path: 'qa-documents/report.pdf' })
+    const html = renderToStaticMarkup(
+      createElement(StreamdownAssistant, {
+        text: '成果：qa-documents/report.pdf',
+        streaming: false
+      })
+    )
+
+    expect(html).not.toContain('[blocked]')
+    expect(html).not.toContain('Blocked URL')
+    // Server rendering has no preload bridge, so validation intentionally
+    // degrades to plain text after the protocol has passed hardening.
+    expect(href).toContain('deepseek-file://open?')
+    expect(html).toContain('qa-documents/report.pdf')
+  })
+
+  it('converts Markdown workspace links before URL hardening', () => {
+    clearFileReferenceValidationCache()
+    useChatStore.setState({ workspaceRoot: '/tmp/workspace' })
+    const html = renderToStaticMarkup(
+      createElement(StreamdownAssistant, {
+        text: '[打开演示文稿](qa-documents/产品介绍.pptx)',
+        streaming: false
+      })
+    )
+
+    expect(html).not.toContain('[blocked]')
+    expect(html).not.toContain('Blocked URL')
+    expect(html).toContain('打开演示文稿')
+  })
+
+  it('continues to block dangerous Markdown protocols', () => {
+    const html = renderToStaticMarkup(
+      createElement(StreamdownAssistant, {
+        text: '[不要执行](javascript:alert(1))',
+        streaming: false
+      })
+    )
+
+    expect(html).not.toContain('href="javascript:')
   })
 })

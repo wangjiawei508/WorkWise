@@ -145,6 +145,11 @@ module.exports = {
     '**/node_modules/bindings/**/*',
     '**/node_modules/file-uri-to-path/**/*'
   ],
+  beforePack: './scripts/before-pack.cjs',
+  // WorkWise Runtime is executed with ELECTRON_RUN_AS_NODE, so native modules
+  // must match the Node ABI embedded in the packaged Electron binary. A host
+  // Node prebuild can have a different ABI even when both report Node 24/26.
+  buildDependenciesFromSource: true,
   npmRebuild: true,
   directories: {
     output: process.env.WORKWISE_DIST_DIR || 'dist'

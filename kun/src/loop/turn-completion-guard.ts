@@ -6,7 +6,7 @@ const DELIVERABLE_EXTENSIONS = new Set([
 ])
 
 const DELIVERY_ACTION_PATTERN =
-  /(?:形成|生成|创建|制作|编写|撰写|导出|保存|输出|交付|转换).{0,40}(?:文档|文件|报告|方案|表格|演示|幻灯片|PPT|PDF|Word|Excel|Markdown)|(?:文档|文件|报告|方案|表格|演示|幻灯片|PPT|PDF|Word|Excel|Markdown).{0,40}(?:形成|生成|创建|制作|编写|撰写|导出|保存|输出|交付|转换)|(?:create|write|draft|generate|export|save|deliver|convert).{0,60}(?:document|report|spreadsheet|presentation|markdown|pdf|docx|xlsx|pptx|csv)/i
+  /(?:形成|生成|创建|制作|编写|撰写|导出|保存|交付|转换).{0,40}(?:文档|文件|报告|方案|表格|演示|幻灯片|PPT|PDF|Word|Excel|Markdown)|(?:文档|文件|报告|方案|表格|演示|幻灯片|PPT|PDF|Word|Excel|Markdown).{0,40}(?:形成|生成|创建|制作|编写|撰写|导出|保存|交付|转换)|(?:create|write|draft|generate|export|save|deliver|convert).{0,60}(?:document|report|spreadsheet|presentation|markdown|pdf|docx|xlsx|pptx|csv)/i
 
 const WRITE_USER_REQUEST_HEADING = '[用户请求]'
 

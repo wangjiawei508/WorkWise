@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 
 const require = createRequire(import.meta.url)
 const builderConfig = require('../../electron-builder.cjs')
+const beforePack = require('../../scripts/before-pack.cjs')
 const afterPack = require('../../scripts/after-pack.cjs')
 const packagedAsar = require('../../scripts/verify-packaged-asar.cjs')
 const asar = require('@electron/asar')
@@ -79,6 +80,9 @@ afterEach(() => {
 
 describe('electron-builder WorkWise packaging', () => {
   it('includes WorkWise Runtime runtime dependencies in the packaged app', () => {
+    expect(builderConfig.beforePack).toBe('./scripts/before-pack.cjs')
+    expect(builderConfig.buildDependenciesFromSource).toBe(true)
+    expect(builderConfig.npmRebuild).toBe(true)
     expect(builderConfig.asarUnpack).toEqual(expect.arrayContaining([
       'src/asset/skills/**/*'
     ]))
@@ -129,6 +133,16 @@ describe('electron-builder WorkWise packaging', () => {
         filter: ['**/*']
       }
     ]))
+  })
+
+  it('normalizes native rebuild target architectures', () => {
+    expect(beforePack._internals.normalizeArch('arm64')).toBe('arm64')
+    expect(beforePack._internals.normalizeArch(3)).toBe('arm64')
+    expect(beforePack._internals.normalizeArch('x64')).toBe('x64')
+    expect(beforePack._internals.normalizeArch(0)).toBe('x64')
+    expect(() => beforePack._internals.normalizeArch('ia32')).toThrow(
+      'Unsupported target architecture'
+    )
   })
 
   it('uses the Windows ICO asset for NSIS installers', () => {

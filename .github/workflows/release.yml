@@ -256,6 +256,9 @@ jobs:
       - name: Verify MarkItDown is packaged in both macOS applications
         run: node scripts/verify-packaged-markitdown.cjs dist mac
 
+      - name: Verify packaged macOS Runtime native dependency
+        run: node scripts/verify-packaged-runtime-native.cjs dist mac
+
       - name: Generate macOS update metadata
         run: node ./scripts/generate-mac-latest.cjs dist
 
@@ -319,6 +322,9 @@ jobs:
 
       - name: Verify MarkItDown is packaged in the Windows application
         run: node scripts/verify-packaged-markitdown.cjs dist win
+
+      - name: Verify packaged Windows Runtime native dependency
+        run: node scripts/verify-packaged-runtime-native.cjs dist win
 
       - name: Upload Windows installer
         uses: actions/upload-artifact@v4

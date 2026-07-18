@@ -4,7 +4,11 @@ import { join, relative } from 'node:path'
 import JSZip from 'jszip'
 import { afterEach, describe, expect, it } from 'vitest'
 import { DocumentEngineService } from './document-engine-service'
-import { sanitizeSvg, WorkspacePreviewService } from './workspace-preview-service'
+import {
+  normalizeSpreadsheetPreviewMarkdown,
+  sanitizeSvg,
+  WorkspacePreviewService
+} from './workspace-preview-service'
 
 const roots: string[] = []
 afterEach(async () => Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true }))))
@@ -19,6 +23,35 @@ describe('WorkspacePreviewService', () => {
   it('sanitizes active SVG content', () => {
     const sanitized = sanitizeSvg('<svg onload="x"><script>x()</script><a href="https://bad">ok</a><rect /></svg>')
     expect(sanitized).not.toMatch(/script|onload|https:/)
+  })
+
+  it('compacts sparse spreadsheet Markdown and removes parser NaN placeholders', () => {
+    const source = [
+      '## Sheet 1',
+      '| 项目 | Unnamed: 1 | Unnamed: 2 | 状态 |',
+      '| --- | --- | --- | --- |',
+      '| 任务引擎 | NaN | NaN | 通过 |',
+      '| NaN | NaN | NaN | NaN |'
+    ].join('\n')
+
+    const result = normalizeSpreadsheetPreviewMarkdown(source)
+
+    expect(result.compacted).toBe(true)
+    expect(result.markdown).toContain('任务引擎 · 通过')
+    expect(result.markdown).not.toMatch(/NaN|Unnamed:/)
+  })
+
+  it('keeps compact regular spreadsheet tables as tables', () => {
+    const source = [
+      '| 项目 | 状态 |',
+      '| --- | --- |',
+      '| PPTX | 通过 |'
+    ].join('\n')
+
+    const result = normalizeSpreadsheetPreviewMarkdown(source)
+
+    expect(result.compacted).toBe(false)
+    expect(result.markdown).toBe(source)
   })
 
   it('returns bounded image and PDF descriptors', async () => {
