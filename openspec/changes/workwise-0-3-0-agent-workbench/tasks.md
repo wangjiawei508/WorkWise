@@ -60,5 +60,5 @@
 
 - [x] 8.1 Update package and runtime version to 0.3.0, notices, Chinese-first documentation, migration notes, and release notes
 - [x] 8.2 Pass OpenSpec strict validation, brand boundary, lint, typecheck, unit/integration, Electron smoke, production build, and production audit
-- [x] 8.3 Build and verify macOS arm64, macOS x64, and Windows x64 packages including MarkItDown helper and update metadata
+- [ ] 8.3 Build and verify macOS arm64, macOS x64, and Windows x64 packages including MarkItDown helper and update metadata
 - [ ] 8.4 Complete role-based installed-app scenarios plus two-hour release and eight-hour nightly stability gates before tagging

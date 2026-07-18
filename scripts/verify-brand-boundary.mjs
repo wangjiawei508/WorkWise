@@ -16,6 +16,14 @@ const forbidden = [
   { name: 'old product name', pattern: /WorkGPT/gi },
   { name: 'old environment variable', pattern: /\b(?:KUN_(?:STARTUP_TRACE|RUNTIME_TOKEN)|DEEPSEEK_GUI_[A-Z0-9_]+|WORKGPT_[A-Z0-9_]+)\b/g }
 ]
+const forbiddenPaths = [
+  { name: 'deprecated renderer API path', pattern: /kunGui/ },
+  { name: 'old log or package path', pattern: /kun-gui/i },
+  { name: 'old home path', pattern: /(?:^|\/)\.kun(?:\/|$)/ },
+  { name: 'old SDD path', pattern: /\.kunsdd(?:\/|$)/ },
+  { name: 'old product path', pattern: /deepseek-gui/i },
+  { name: 'old product path', pattern: /workgpt/i }
+]
 
 const allowedFiles = [
   /^FORK_NOTICE\.md$/,
@@ -41,11 +49,14 @@ function portable(path) {
   return path.split(sep).join('/')
 }
 
+const scannedPaths = []
+
 function collect(dir, output) {
   for (const name of readdirSync(dir)) {
     const absolute = join(dir, name)
     const rel = portable(relative(root, absolute))
     if (rel === 'kun' || rel.startsWith('kun/') || rel.includes('/node_modules/') || rel.includes('/dist/') || rel.includes('/out/')) continue
+    scannedPaths.push(rel)
     const stat = statSync(absolute)
     if (stat.isDirectory()) collect(absolute, output)
     else if (textExtensions.has(extname(name))) output.push(absolute)
@@ -53,9 +64,17 @@ function collect(dir, output) {
 }
 
 const files = scanFiles.map((file) => join(root, file))
+scannedPaths.push(...scanFiles)
 for (const scanRoot of scanRoots) collect(join(root, scanRoot), files)
 
 const violations = []
+for (const rel of scannedPaths) {
+  if (allowedFiles.some((pattern) => pattern.test(rel))) continue
+  for (const rule of forbiddenPaths) {
+    rule.pattern.lastIndex = 0
+    if (rule.pattern.test(rel)) violations.push(`${rel}: ${rule.name}`)
+  }
+}
 for (const absolute of files) {
   const rel = portable(relative(root, absolute))
   if (allowedFiles.some((pattern) => pattern.test(rel))) continue

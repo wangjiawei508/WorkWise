@@ -347,6 +347,7 @@ describe('skill-service', () => {
     const source = JSON.parse(
       await readFile(join(installedRoot, '.workwise-skill-source.json'), 'utf8')
     ) as Record<string, unknown>
+    expect(existsSync(join(installedRoot, '.workgpt-skill-source.json'))).toBe(false)
     expect(source).toMatchObject({
       type: 'github',
       owner: 'hugohe3',
