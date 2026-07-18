@@ -18,6 +18,7 @@ describe('document helper packaging policy', () => {
     expect(workflow).toContain('verify-packaged-markitdown.cjs dist win')
     expect(workflow).toContain('verify-packaged-runtime-native.cjs dist mac')
     expect(workflow).toContain('verify-packaged-runtime-native.cjs dist win')
+    expect(workflow).toMatch(/build-windows:[\s\S]*?runs-on: windows-2022/)
   })
 
   it('keeps the bridge local-only and excludes OCR/PyMuPDF', async () => {

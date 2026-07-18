@@ -276,7 +276,10 @@ jobs:
   build-windows:
     name: Build Windows
     if: ${{ always() && needs.build-document-sidecars.result == 'success' && (needs.stability.result == 'success' || (github.event_name == 'workflow_dispatch' && inputs.skip_stability == true)) }}
-    runs-on: windows-latest
+    # node-gyp 11.x supports the VS 2022 toolchain used to rebuild
+    # better-sqlite3 for Electron ABI 148. Pin the release image so a
+    # windows-latest Visual Studio upgrade cannot break installer builds.
+    runs-on: windows-2022
     needs: [prepare, stability, build-document-sidecars]
     env:
       WORKWISE_APP_VERSION: ${{ needs.prepare.outputs.version }}
