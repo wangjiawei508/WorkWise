@@ -36,6 +36,13 @@ export type PptMasterToolProviderOptions = {
   skillRoot?: string
   pythonCommand?: string
   runner?: PptMasterExportRunner
+  beforeMutation?: (input: {
+    absolutePath: string
+    relativePath: string
+    workspaceRoot: string
+    threadId: string
+    turnId: string
+  }) => Promise<void> | void
 }
 
 export type PptMasterToolProviderBuildResult = {
@@ -62,7 +69,8 @@ export function buildPptMasterToolProviders(
     tools: [createPptMasterExportTool({
       scriptPath,
       pythonCommand: options.pythonCommand ?? defaultPythonCommand(),
-      runner: options.runner ?? runPptMasterExport
+      runner: options.runner ?? runPptMasterExport,
+      beforeMutation: options.beforeMutation
     })]
   }
   return {
@@ -76,11 +84,12 @@ function createPptMasterExportTool(input: {
   scriptPath: string
   pythonCommand: string
   runner: PptMasterExportRunner
+  beforeMutation?: PptMasterToolProviderOptions['beforeMutation']
 }) {
   return LocalToolHost.defineTool({
     name: 'ppt_master_export',
     description: 'Export a PPT Master project containing svg_output/ or svg_final/ into a real PowerPoint .pptx file. HTML is not a valid substitute.',
-    toolKind: 'tool_call',
+    toolKind: 'file_change',
     inputSchema: {
       type: 'object',
       properties: {
@@ -131,6 +140,13 @@ function createPptMasterExportTool(input: {
         throw new Error('invalid_output: output_path must end in .pptx')
       }
       const output = await resolveWorkspacePath(rawOutputPath, context)
+      await input.beforeMutation?.({
+        absolutePath: output.absolutePath,
+        relativePath: output.relativePath,
+        workspaceRoot: context.workspace,
+        threadId: context.threadId,
+        turnId: context.turnId
+      })
       await mkdir(dirname(output.absolutePath), { recursive: true })
       await resolveWorkspacePath(output.absolutePath, context)
 

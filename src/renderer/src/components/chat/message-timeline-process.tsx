@@ -45,23 +45,12 @@ export function groupProcessSections(blocks: ChatBlock[]): ProcessSection[] {
   return sections
 }
 
-function getReasoningSectionText(section: ProcessSection): string {
-  if (section.kind !== 'reasoning') return ''
-  return section.blocks
-    .filter(
-      (block): block is Extract<ChatBlock, { kind: 'reasoning' }> => block.kind === 'reasoning'
-    )
-    .map((block) => block.text.trim())
-    .filter(Boolean)
-    .join('\n\n')
-}
-
 function sectionHasDetails(
   section: ProcessSection,
   t: (key: string, opts?: Record<string, unknown>) => string
 ): boolean {
   if (section.kind === 'reasoning') {
-    return getReasoningSectionText(section).length > 0
+    return false
   }
   if (section.kind === 'output') {
     return section.blocks.some(
@@ -139,7 +128,6 @@ export function ProcessSectionRow({
   const defaultExpanded =
     hasError ||
     sectionHasPendingApproval(section) ||
-    (active && section.kind === 'reasoning') ||
     (processing && section.kind === 'execution' && sectionHasRequestUserInput(section))
   const forceExpanded = sectionHasPendingApproval(section)
   const expanded = hasDetails && (forceExpanded || (userExpanded ?? defaultExpanded))
@@ -148,7 +136,6 @@ export function ProcessSectionRow({
     reasoningDurationMs,
     singleReasoningSection
   })
-  const reasoningText = section.kind === 'reasoning' ? getReasoningSectionText(section) : ''
   const canToggleSection = hasDetails && !forceExpanded
   const showActiveError = active && hasError
   const { ref: deferredDetailRef, shouldRender: shouldRenderDetail } = useDeferredRender<HTMLDivElement>({
@@ -227,11 +214,7 @@ export function ProcessSectionRow({
           style={{ contentVisibility: 'auto', containIntrinsicSize: 'auto 220px' }}
         >
           {shouldRenderDetail ? (
-            section.kind === 'reasoning' ? (
-            <div className="ds-markdown text-[13.5px] leading-6 text-ds-muted">
-              <AssistantMarkdown text={reasoningText} streaming={active && processing} />
-            </div>
-          ) : (
+            section.kind === 'reasoning' ? null : (
             <ProcessStackRows blocks={section.blocks} processing={processing} />
           )
           ) : null}
@@ -895,12 +878,7 @@ function ProcessEntryDetail({
   processing: boolean
 }): ReactElement | null {
   if (detail.kind === 'reasoning') {
-    const streamReason = block.id === 'live-reasoning' && processing
-    return (
-      <div className="ds-markdown text-[13.5px] leading-6 text-ds-muted">
-        <AssistantMarkdown text={detail.text} streaming={streamReason} />
-      </div>
-    )
+    return null
   }
   if (detail.kind === 'assistant') {
     return (

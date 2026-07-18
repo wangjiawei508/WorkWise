@@ -27,6 +27,8 @@ import type {
 import type { WorkspaceFileSaveAsResult } from '../../shared/workspace-file'
 import type { GuiUpdateDownloadResult, GuiUpdateInfo, GuiUpdateInstallResult, GuiUpdateState } from '../../shared/gui-update'
 import {
+  agentProfileListPayloadSchema,
+  agentProfileSavePayloadSchema,
   clawMirrorPayloadSchema,
   clawImInstallPollPayloadSchema,
   confirmDialogPayloadSchema,
@@ -36,16 +38,29 @@ import {
   bundledSkillInstallPayloadSchema,
   runtimeConfigContentSchema,
   desktopCommandSchema,
+  documentEngineIdSchema,
+  diagnosticsExportPayloadSchema,
+  documentParsePayloadSchema,
   defaultPathSchema,
   gitBranchPayloadSchema,
+  gitCheckpointCreatePayloadSchema,
+  gitRollbackApplyPayloadSchema,
+  gitRollbackPreviewPayloadSchema,
   githubSkillInstallPayloadSchema,
   githubSkillSyncPayloadSchema,
   guiUpdateChannelSchema,
   logErrorPayloadSchema,
+  lspRequestPayloadSchema,
   managedToolIdSchema,
+  mcpServerActionPayloadSchema,
+  mcpServerAuthorizePayloadSchema,
+  mcpServerListPayloadSchema,
+  mcpServerSavePayloadSchema,
   notificationPayloadSchema,
   openEditorPathPayloadSchema,
   rootPathSchema,
+  repoMapBuildPayloadSchema,
+  repoMapQueryPayloadSchema,
   runtimeRequestPayloadSchema,
   scheduleTaskFromTextPayloadSchema,
   shellOpenExternalUrlSchema,
@@ -63,6 +78,9 @@ import {
   workspaceFileTargetPayloadSchema,
   workspaceFileWatchPayloadSchema,
   workspaceFileWritePayloadSchema,
+  workspacePreviewPayloadSchema,
+  workspaceTrustGetPayloadSchema,
+  workspaceTrustSetPayloadSchema,
   writeAgnesImageGenerationPayloadSchema,
   writeExportPayloadSchema,
   writeRichClipboardPayloadSchema,
@@ -120,6 +138,13 @@ import {
 import { appCancellationRegistry } from '../cancellation-registry'
 import { runtimeThreadInterruptPath } from '../../shared/runtime-endpoints'
 import { atomicWriteFile as durableWriteFile } from '../services/durable-file'
+import { AgentProfileService } from '../services/agent-profile-service'
+import { WorkspaceTrustService } from '../services/workspace-trust-service'
+import { DocumentEngineService } from '../services/document-engine-service'
+import { WorkspacePreviewService } from '../services/workspace-preview-service'
+import { GitCheckpointService } from '../services/git-checkpoint-service'
+import { RepoMapService } from '../services/repo-map-service'
+import { McpConfigService } from '../services/mcp-config-service'
 
 type GuiUpdaterModule = typeof import('../gui-updater')
 
@@ -331,6 +356,16 @@ export function registerAppIpcHandlers(options: RegisterAppIpcHandlersOptions): 
     logError
   } = options
   const workspaceFileWatchers = new Map<string, WorkspaceFileWatchRecord>()
+  const agentProfileService = new AgentProfileService()
+  const workspaceTrustService = new WorkspaceTrustService()
+  const documentEngineService = new DocumentEngineService({
+    resourcesPath: process.resourcesPath,
+    developmentRoot: process.cwd()
+  })
+  const workspacePreviewService = new WorkspacePreviewService(documentEngineService)
+  const gitCheckpointService = new GitCheckpointService()
+  const repoMapService = new RepoMapService()
+  const mcpConfigService = new McpConfigService()
   let skillCatalogGeneration = 1
 
   const notifySkillsChanged = (): number => {
@@ -483,6 +518,31 @@ export function registerAppIpcHandlers(options: RegisterAppIpcHandlersOptions): 
     }
     return result
   })
+  ipcMain.handle('diagnostics:export-task', async (_, payload: unknown) => {
+    const request = parseIpcPayload('diagnostics:export-task', diagnosticsExportPayloadSchema, payload)
+    const response = await runtimeRequest(`/v1/tasks/${encodeURIComponent(request.taskId)}/diagnostics`, 'GET')
+    if (!response.ok) {
+      return { ok: false, message: `Unable to collect diagnostics (${response.status}).` }
+    }
+    let normalized: string
+    try {
+      normalized = `${JSON.stringify(JSON.parse(response.body), null, 2)}\n`
+    } catch {
+      return { ok: false, message: 'The runtime returned an invalid diagnostics response.' }
+    }
+    const options: Electron.SaveDialogOptions = {
+      title: '导出 WorkWise 任务诊断包',
+      defaultPath: `WorkWise-task-diagnostics-${request.taskId}.json`,
+      filters: [{ name: 'JSON', extensions: ['json'] }]
+    }
+    const mainWindow = getMainWindow()
+    const result = mainWindow
+      ? await dialog.showSaveDialog(mainWindow, options)
+      : await dialog.showSaveDialog(options)
+    if (result.canceled || !result.filePath) return { ok: false, canceled: true }
+    await durableWriteFile(result.filePath, normalized)
+    return { ok: true, path: result.filePath }
+  })
   ipcMain.handle('operation:cancel', async (_, payload: unknown) => {
     const request = parseIpcPayload('operation:cancel', cancelOperationPayloadSchema, payload)
     const cancelled = await appCancellationRegistry.cancel(
@@ -490,6 +550,88 @@ export function registerAppIpcHandlers(options: RegisterAppIpcHandlersOptions): 
       request.reason
     )
     return { ok: true as const, cancelled }
+  })
+
+  ipcMain.handle('agent-profile:list', async (_, payload: unknown) => {
+    const request = parseIpcPayload('agent-profile:list', agentProfileListPayloadSchema, payload)
+    return agentProfileService.list(request.workspaceRoot)
+  })
+  ipcMain.handle('agent-profile:save', async (_, payload: unknown) => {
+    const request = parseIpcPayload('agent-profile:save', agentProfileSavePayloadSchema, payload)
+    return agentProfileService.save({
+      scope: request.scope,
+      workspaceRoot: request.workspaceRoot,
+      profile: request.profile,
+      expectedRevision: request.expectedRevision,
+      idempotencyKey: request.idempotencyKey
+    })
+  })
+  ipcMain.handle('workspace-trust:get', async (_, payload: unknown) => {
+    const request = parseIpcPayload('workspace-trust:get', workspaceTrustGetPayloadSchema, payload)
+    return workspaceTrustService.get(request.workspaceRoot)
+  })
+  ipcMain.handle('workspace-trust:set', async (_, payload: unknown) => {
+    const request = parseIpcPayload('workspace-trust:set', workspaceTrustSetPayloadSchema, payload)
+    return workspaceTrustService.set({
+      workspaceRoot: request.workspaceRoot,
+      level: request.level,
+      expectedRevision: request.expectedRevision,
+      confirmed: request.confirmed,
+      idempotencyKey: request.idempotencyKey
+    })
+  })
+  ipcMain.handle('mcp-server:list', async (_, payload: unknown) => {
+    const request = parseIpcPayload('mcp-server:list', mcpServerListPayloadSchema, payload)
+    return mcpConfigService.list(request.workspaceRoot)
+  })
+  ipcMain.handle('mcp-server:save', async (_, payload: unknown) => {
+    const request = parseIpcPayload('mcp-server:save', mcpServerSavePayloadSchema, payload)
+    return mcpConfigService.save(request)
+  })
+  ipcMain.handle('mcp-server:test', async (_, payload: unknown) => {
+    const request = parseIpcPayload('mcp-server:test', mcpServerActionPayloadSchema, payload)
+    return mcpConfigService.test(request.serverId, request.workspaceRoot)
+  })
+  ipcMain.handle('mcp-server:authorize', async (_, payload: unknown) => {
+    const request = parseIpcPayload('mcp-server:authorize', mcpServerAuthorizePayloadSchema, payload)
+    return mcpConfigService.authorize(request)
+  })
+  ipcMain.handle('document-engine:list', async () => {
+    const settings = await store.load()
+    return documentEngineService.listEngines(settings.documents.privateMineruServerUrl)
+  })
+  ipcMain.handle('document-engine:diagnose', async (_, payload: unknown) => {
+    const id = parseIpcPayload('document-engine:diagnose', documentEngineIdSchema, payload)
+    const settings = await store.load()
+    const status = await documentEngineService.listEngines(settings.documents.privateMineruServerUrl)
+    return status.find((entry) => entry.id === id)!
+  })
+  ipcMain.handle('document-engine:install', async (_, payload: unknown) => {
+    const id = parseIpcPayload('document-engine:install', documentEngineIdSchema, payload)
+    const settings = await store.load()
+    const status = await documentEngineService.listEngines(settings.documents.privateMineruServerUrl)
+    const current = status.find((entry) => entry.id === id)!
+    if (id === 'mineru-local' && current.state === 'not_installed') {
+      return documentEngineService.installMineru()
+    }
+    return current
+  })
+  ipcMain.handle('document-engine:parse', async (_, payload: unknown) => {
+    const request = parseIpcPayload('document-engine:parse', documentParsePayloadSchema, payload)
+    const settings = await store.load()
+    const allowed = settings.documents.allowPrivateServerUploadByWorkspace[request.workspaceRoot] === true
+    return documentEngineService.parse({
+      ...request,
+      allowPrivateServerUpload: request.allowPrivateServerUpload === true && allowed
+    })
+  })
+  ipcMain.handle('document-engine:cancel', async (_, payload: unknown) => {
+    const parseId = parseIpcPayload('document-engine:cancel', streamIdSchema, payload)
+    return documentEngineService.cancel(parseId)
+  })
+  ipcMain.handle('file:preview-workspace', async (_, payload: unknown) => {
+    const request = parseIpcPayload('file:preview-workspace', workspacePreviewPayloadSchema, payload)
+    return workspacePreviewService.preview(request)
   })
 
   ipcMain.handle('upstream:models', async () => fetchUpstreamModels())
@@ -837,6 +979,30 @@ export function registerAppIpcHandlers(options: RegisterAppIpcHandlersOptions): 
       return createAndSwitchGitBranch(request.workspaceRoot, request.branch)
     }
   )
+  ipcMain.handle('git:checkpoint:create', async (_, payload: unknown) => {
+    const request = parseIpcPayload('git:checkpoint:create', gitCheckpointCreatePayloadSchema, payload)
+    return gitCheckpointService.create(request)
+  })
+  ipcMain.handle('git:rollback:preview', async (_, payload: unknown) => {
+    const request = parseIpcPayload('git:rollback:preview', gitRollbackPreviewPayloadSchema, payload)
+    return gitCheckpointService.preview(request)
+  })
+  ipcMain.handle('git:rollback:apply', async (_, payload: unknown) => {
+    const request = parseIpcPayload('git:rollback:apply', gitRollbackApplyPayloadSchema, payload)
+    return gitCheckpointService.apply(request)
+  })
+  ipcMain.handle('repo-map:build', async (_, payload: unknown) => {
+    const request = parseIpcPayload('repo-map:build', repoMapBuildPayloadSchema, payload)
+    return repoMapService.build(request)
+  })
+  ipcMain.handle('repo-map:query', async (_, payload: unknown) => {
+    const request = parseIpcPayload('repo-map:query', repoMapQueryPayloadSchema, payload)
+    return repoMapService.query(request)
+  })
+  ipcMain.handle('lsp:request', async (_, payload: unknown) => {
+    const request = parseIpcPayload('lsp:request', lspRequestPayloadSchema, payload)
+    return repoMapService.lsp(request)
+  })
 
   ipcMain.handle('editor:list', async () => listEditorsResult())
   ipcMain.handle('editor:open-path', async (_, payload: unknown) =>
@@ -863,6 +1029,24 @@ export function registerAppIpcHandlers(options: RegisterAppIpcHandlersOptions): 
       parseIpcPayload('file:read-workspace-image', workspaceFileTargetPayloadSchema, payload)
     )
   )
+  ipcMain.handle('file:open-workspace', async (_, payload: unknown) => {
+    const request = parseIpcPayload(
+      'file:open-workspace',
+      workspaceFileTargetPayloadSchema,
+      payload
+    )
+    try {
+      const target = await resolveOpenTargetPath(request.path, request.workspaceRoot, {
+        allowBasenameFallback: false
+      })
+      return openPathWithShell(target)
+    } catch (error) {
+      return {
+        ok: false as const,
+        message: error instanceof Error ? error.message : String(error)
+      }
+    }
+  })
   ipcMain.handle('file:reveal-workspace', async (_, payload: unknown) => {
     const request = parseIpcPayload(
       'file:reveal-workspace',

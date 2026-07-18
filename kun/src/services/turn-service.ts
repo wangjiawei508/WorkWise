@@ -4,6 +4,8 @@ import type { TurnItem } from '../contracts/items.js'
 import type { SessionStore } from '../ports/session-store.js'
 import type { ThreadStore } from '../ports/thread-store.js'
 import type { IdGenerator } from '../ports/id-generator.js'
+import type { ApprovalGate } from '../ports/approval-gate.js'
+import type { UserInputGate } from '../ports/user-input-gate.js'
 import type { InflightTracker } from '../loop/inflight-tracker.js'
 import type { SteeringQueue } from '../loop/steering-queue.js'
 import { ContextCompactor } from '../loop/context-compactor.js'
@@ -11,6 +13,7 @@ import { makeUserItem, makeErrorItem } from '../domain/item.js'
 import { appendTurnItem, createTurnRecord, finishTurn, replaceTurnItem, startTurn as startTurnRecord } from '../domain/turn.js'
 import { touchThread } from '../domain/thread.js'
 import type { RuntimeEventRecorder } from './runtime-event-recorder.js'
+import type { TaskController } from './task-controller.js'
 
 export type TurnServiceDeps = {
   threadStore: ThreadStore
@@ -21,6 +24,9 @@ export type TurnServiceDeps = {
   compactor: ContextCompactor
   ids: IdGenerator
   nowIso: () => string
+  tasks?: TaskController
+  approvalGate?: ApprovalGate
+  userInputGate?: UserInputGate
 }
 
 /**
@@ -109,6 +115,7 @@ export class TurnService {
       turnId
     })
     this.deps.steering.setTurn(turnId)
+    this.deps.tasks?.ensureTask({ thread, turnId, request: input.request })
     return { threadId: input.threadId, turnId, userMessageItemId: userItem.id }
   }
 
@@ -126,34 +133,41 @@ export class TurnService {
     if (this.terminalTurns.has(input.turnId)) return { status: 'aborted' }
     this.terminalTurns.add(input.turnId)
     try {
-    const controller = this.inflightTurns.get(input.turnId)
-    if (controller) controller.abort()
-    this.deps.steering.clear()
-    this.inflightTurns.delete(input.turnId)
-    this.deps.inflight.end(input.turnId)
-    await this.deps.events.record({
-      kind: 'turn_aborted',
-      threadId: input.threadId,
-      turnId: input.turnId
-    })
-    if (input.discard) {
-      await this.discardTurnItems(input.threadId, input.turnId)
-    } else {
-      await this.finalizePersistedOpenItems(input.threadId, input.turnId, 'aborted')
-    }
-    await this.upsertThread(input.threadId, (current) => {
-      const turn = current.turns.find((t) => t.id === input.turnId)
-      if (!turn) return current
-      const next = current.turns.map((t) =>
-        t.id === input.turnId
-          ? this.finalizeOpenItems(
-              finishTurn(input.discard ? { ...t, items: this.keepUserItems(t.items) } : t, 'aborted'),
-              'aborted'
-            )
-          : t
-      )
-      return { ...touchThread(current, this.deps.nowIso()), turns: next, status: 'idle' }
-    })
+      const controller = this.inflightTurns.get(input.turnId)
+      if (controller) controller.abort('operation_cancelled')
+      this.deps.approvalGate?.expireTurn(input.turnId, 'operation_cancelled')
+      for (const pending of this.deps.userInputGate?.pending(input.threadId) ?? []) {
+        if (pending.turnId === input.turnId) {
+          this.deps.userInputGate?.resolve(pending.id, { status: 'cancelled' })
+        }
+      }
+      this.deps.steering.clear()
+      this.inflightTurns.delete(input.turnId)
+      this.deps.inflight.end(input.turnId)
+      this.deps.tasks?.cancel(input.threadId, '用户取消了任务。')
+      await this.deps.events.record({
+        kind: 'turn_aborted',
+        threadId: input.threadId,
+        turnId: input.turnId
+      })
+      if (input.discard) {
+        await this.discardTurnItems(input.threadId, input.turnId)
+      } else {
+        await this.finalizePersistedOpenItems(input.threadId, input.turnId, 'aborted')
+      }
+      await this.upsertThread(input.threadId, (current) => {
+        const turn = current.turns.find((t) => t.id === input.turnId)
+        if (!turn) return current
+        const next = current.turns.map((t) =>
+          t.id === input.turnId
+            ? this.finalizeOpenItems(
+                finishTurn(input.discard ? { ...t, items: this.keepUserItems(t.items) } : t, 'aborted'),
+                'aborted'
+              )
+            : t
+        )
+        return { ...touchThread(current, this.deps.nowIso()), turns: next, status: 'idle' }
+      })
       return { status: 'aborted' }
     } catch (error) {
       this.terminalTurns.delete(input.turnId)

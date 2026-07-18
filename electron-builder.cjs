@@ -49,6 +49,24 @@ function managedRuntimeProductionPackageRoots() {
 loadLocalReleaseEnv()
 
 const managedRuntimeProductionRoots = managedRuntimeProductionPackageRoots()
+const sidecarArch = process.env.WORKWISE_SIDECAR_ARCH || process.arch
+const markitdownSidecarRoot = join(
+  __dirname,
+  'build',
+  'sidecars',
+  `markitdown-${process.platform}-${sidecarArch}`,
+  'workwise-markitdown'
+)
+const markitdownExtraResources = existsSync(markitdownSidecarRoot)
+  ? [{
+      from: markitdownSidecarRoot,
+      to: 'app.asar.unpacked/sidecars/markitdown',
+      filter: ['**/*']
+    }]
+  : []
+if (process.env.WORKWISE_REQUIRE_DOCUMENT_SIDECAR === '1' && markitdownExtraResources.length === 0) {
+  throw new Error(`Required MarkItDown sidecar is missing for ${process.platform}-${sidecarArch}: ${markitdownSidecarRoot}`)
+}
 
 const hasExplicitMacSigningIdentity = Boolean(
   process.env.CSC_LINK ||
@@ -146,6 +164,7 @@ module.exports = {
     // runtime to send media, and that chain resolves openclaw/plugin-sdk/*.
   ],
   extraResources: [
+    ...markitdownExtraResources,
     {
       from: 'kun',
       to: 'app.asar.unpacked/kun',

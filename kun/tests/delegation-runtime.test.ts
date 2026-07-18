@@ -10,6 +10,8 @@ import { LocalToolHost } from '../src/adapters/tool/local-tool-host.js'
 import { KunCapabilitiesConfig } from '../src/contracts/capabilities.js'
 import { DelegationRuntime, FileDelegationStore } from '../src/delegation/delegation-runtime.js'
 import { RuntimeEventRecorder } from '../src/services/runtime-event-recorder.js'
+import { TaskRunRepository } from '../src/services/task-run-repository.js'
+import type { TaskRun } from '../src/contracts/tasks.js'
 
 describe('DelegationRuntime', () => {
   let dir = ''
@@ -80,6 +82,7 @@ describe('DelegationRuntime', () => {
       threadId: 'thr_1',
       turnId: 'turn_1',
       workspace: '/tmp/ws',
+      delegationPolicy: { enabled: true, maxParallel: 1, maxChildRuns: 3 },
       approvalPolicy: 'auto',
       abortSignal: new AbortController().signal,
       awaitApproval: async () => 'allow'
@@ -104,6 +107,7 @@ describe('DelegationRuntime', () => {
       threadId: 'thr_1',
       turnId: 'turn_1',
       workspace: '/tmp/ws',
+      delegationPolicy: { enabled: true, maxParallel: 1, maxChildRuns: 3 },
       approvalPolicy: 'auto' as const,
       abortSignal: new AbortController().signal,
       awaitApproval: async () => 'allow' as const
@@ -121,6 +125,37 @@ describe('DelegationRuntime', () => {
 
     expect(second.item.kind === 'tool_result' ? second.item.output : {}).toMatchObject({
       warning: expect.stringContaining('spawn #2')
+    })
+  })
+
+  it('rejects child model overrides outside the effective Agent policy', async () => {
+    const runtime = createRuntime()
+    const host = new LocalToolHost({
+      registry: new CapabilityRegistry(buildDelegationToolProviders(runtime))
+    })
+    const result = await host.execute({
+      callId: 'call_model_policy',
+      toolName: 'delegate_task',
+      arguments: { prompt: 'research', model: 'unapproved-model' }
+    }, {
+      threadId: 'thr_1',
+      turnId: 'turn_1',
+      workspace: '/tmp/ws',
+      model: {
+        id: 'parent-model',
+        inputModalities: ['text'],
+        outputModalities: ['text'],
+        supportsToolCalling: true,
+        messageParts: ['text']
+      },
+      delegationPolicy: { enabled: true, allowedModels: [] },
+      approvalPolicy: 'auto',
+      abortSignal: new AbortController().signal,
+      awaitApproval: async () => 'allow'
+    })
+
+    expect(result.item.kind === 'tool_result' ? result.item.output : {}).toMatchObject({
+      error: expect.stringContaining('outside the effective Agent policy')
     })
   })
 
@@ -182,12 +217,79 @@ describe('DelegationRuntime', () => {
     })).resolves.toMatchObject({ status: 'aborted' })
   })
 
+  it('links detached child tasks, enforces budgets, and terminates them durably', async () => {
+    const taskRepository = new TaskRunRepository(join(dir, 'tasks.sqlite3'))
+    taskRepository.create(parentTask())
+    const runtime = createRuntime({
+      taskRepository,
+      executor: ({ signal }) => new Promise((resolve, reject) => {
+        if (signal.aborted) {
+          reject(new Error('terminated'))
+          return
+        }
+        signal.addEventListener('abort', () => reject(new Error('terminated')), { once: true })
+      })
+    })
+    const child = await runtime.startChild({
+      parentThreadId: 'thr_1',
+      parentTurnId: 'turn_1',
+      prompt: 'long child task',
+      workspace: '/tmp/ws',
+      executionMode: 'detached'
+    })
+
+    expect(child.executionMode).toBe('detached')
+    expect(child.taskId).toBeTruthy()
+    expect(taskRepository.get('task_parent')?.childTaskIds).toContain(child.taskId)
+    expect(taskRepository.get(child.taskId!)?.parentTaskId).toBe('task_parent')
+
+    const terminated = await runtime.terminateChild(child.id)
+    expect(terminated?.status).toBe('aborted')
+    expect(taskRepository.get(child.taskId!)?.status).toBe('cancelled')
+    taskRepository.close()
+  })
+
+  it('recovers an interrupted detached child without losing its durable record', async () => {
+    const store = new FileDelegationStore(join(dir, 'children-recovery'))
+    await store.upsert({
+      id: 'child_recover',
+      parentThreadId: 'thr_1',
+      parentTurnId: 'turn_1',
+      prompt: 'resume research',
+      status: 'running',
+      executionMode: 'detached',
+      attempt: 1,
+      maxDurationMs: 60_000,
+      usage: { promptTokens: 0, completionTokens: 0, totalTokens: 0 },
+      createdAt: '2026-06-03T00:00:00.000Z',
+      updatedAt: '2026-06-03T00:00:00.000Z',
+      revision: 1
+    })
+    const config = KunCapabilitiesConfig.parse({
+      subagents: { enabled: true, maxParallel: 1, maxChildRuns: 3 }
+    }).subagents
+    const runtime = new DelegationRuntime({
+      config,
+      store,
+      executor: async ({ prompt }) => ({ summary: prompt.includes('Resume this interrupted') ? 'recovered' : 'wrong' })
+    })
+
+    await runtime.recoverInterrupted()
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    expect((await store.get('child_recover'))).toMatchObject({
+      status: 'completed',
+      summary: 'recovered',
+      attempt: 2
+    })
+  })
+
   function createRuntime(options: {
     enabled?: boolean
     maxChildRuns?: number
     sessionStore?: InMemorySessionStore
     executor?: ConstructorParameters<typeof DelegationRuntime>[0]['executor']
     recordExternalUsage?: ConstructorParameters<typeof DelegationRuntime>[0]['recordExternalUsage']
+    taskRepository?: TaskRunRepository
   } = {}) {
     const sessionStore = options.sessionStore ?? new InMemorySessionStore()
     const bus = new InMemoryEventBus()
@@ -211,6 +313,7 @@ describe('DelegationRuntime', () => {
       nowIso: () => '2026-06-03T00:00:00.000Z',
       idGenerator: () => `child_${Math.random().toString(36).slice(2, 8)}`,
       recordExternalUsage: options.recordExternalUsage,
+      taskRepository: options.taskRepository,
       executor: options.executor ?? (async ({ prompt }) => ({
         summary: `done: ${prompt}`,
         usage: { promptTokens: 1, completionTokens: 2, totalTokens: 3 }
@@ -218,3 +321,43 @@ describe('DelegationRuntime', () => {
     })
   }
 })
+
+function parentTask(): TaskRun {
+  return {
+    id: 'task_parent',
+    threadId: 'thr_1',
+    activeTurnId: 'turn_1',
+    childTaskIds: [],
+    workspaceRoot: '/tmp/ws',
+    goal: 'parent task',
+    status: 'running',
+    acceptance: {
+      kind: 'answer',
+      requiredNodeKinds: ['deliver'],
+      requireFinalResponse: true,
+      requireActionableArtifactCard: false
+    },
+    agentId: 'general',
+    budget: { maxAttempts: 8, maxDurationMs: 60_000 },
+    attempts: 1,
+    replans: 0,
+    noProgressCount: 0,
+    nodes: [{
+      id: 'parent_deliver',
+      taskId: 'task_parent',
+      kind: 'deliver',
+      title: 'deliver',
+      status: 'running',
+      dependsOn: [],
+      attempt: 1,
+      maxAttempts: 8,
+      idempotencyKey: 'task_parent:deliver',
+      evidence: [],
+      revision: 0
+    }],
+    artifacts: [],
+    createdAt: '2026-06-03T00:00:00.000Z',
+    updatedAt: '2026-06-03T00:00:00.000Z',
+    revision: 0
+  }
+}

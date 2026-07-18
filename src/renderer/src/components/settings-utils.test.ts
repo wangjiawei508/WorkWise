@@ -43,7 +43,9 @@ describe('settings utils', () => {
     expect(coerceRendererSettings(settings)).toMatchObject({
       schema: 'workwise.settings',
       version: 2,
-      revision: 17
+      revision: 17,
+      conversation: { viewMode: 'concise' },
+      documents: { parsingMode: 'auto' }
     })
   })
 

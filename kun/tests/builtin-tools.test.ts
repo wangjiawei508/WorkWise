@@ -519,6 +519,41 @@ describe('Kun built-in tools', () => {
     expect(output.truncation).toBe(null)
   })
 
+  it('persists managed shell output and reports lifecycle transitions', async () => {
+    const outputRoot = join(workspace, '.workwise-shell-output')
+    const started: Array<{ sessionId: string; outputPath: string }> = []
+    const finished: Array<{ sessionId: string; status: string; outputBytes: number }> = []
+    const managedHost = new LocalToolHost({
+      tools: [createBashLocalTool({
+        sessionOutputRoot: outputRoot,
+        sessionLifecycle: {
+          onStarted(input) {
+            started.push({ sessionId: input.sessionId, outputPath: input.outputPath })
+          },
+          onFinished(input) {
+            finished.push({
+              sessionId: input.sessionId,
+              status: input.status,
+              outputBytes: input.outputBytes
+            })
+          }
+        }
+      })]
+    })
+
+    const output = await executeTool(managedHost, workspace, 'bash', {
+      command: 'printf managed-output'
+    })
+    expect(output.status).toBe('completed')
+    expect(started).toHaveLength(1)
+    expect(finished).toEqual([expect.objectContaining({
+      sessionId: started[0]?.sessionId,
+      status: 'completed',
+      outputBytes: 14
+    })])
+    expect(await readFile(started[0]!.outputPath, 'utf8')).toBe('managed-output')
+  })
+
   it('finishes bash commands after the shell exits even when a background child keeps stdio open', async () => {
     const startedAt = Date.now()
     const output = await executeTool(host, workspace, 'bash', {

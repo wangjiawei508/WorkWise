@@ -16,6 +16,9 @@ import { ContextCompactor } from './context-compactor.js'
 import { SequentialIdGenerator } from '../ports/id-generator.js'
 import { createImmutablePrefix } from '../cache/immutable-prefix.js'
 import { createThreadRecord } from '../domain/thread.js'
+import { makeToolResultItem } from '../domain/item.js'
+import type { TaskController } from '../services/task-controller.js'
+import type { RuntimeSpanService } from '../services/runtime-span-service.js'
 
 function spec(name: string): ModelToolSpec {
   return {
@@ -143,6 +146,172 @@ describe('resolvePlanModeToolSpecs', () => {
 })
 
 describe('AgentLoop completion guard', () => {
+  it('records redacted model and MCP spans around the actual stream and tool execution', async () => {
+    const threadId = 'thread_runtime_spans'
+    const nowIso = () => '2026-07-18T00:00:00.000Z'
+    const threadStore = new InMemoryThreadStore()
+    const sessionStore = new InMemorySessionStore()
+    const eventBus = new InMemoryEventBus()
+    const ids = new SequentialIdGenerator()
+    const inflight = new InflightTracker()
+    const steering = new SteeringQueue()
+    const compactor = new ContextCompactor()
+    const approvalGate = new InMemoryApprovalGate()
+    const userInputGate = new InMemoryUserInputGate()
+    const events = new RuntimeEventRecorder({
+      eventBus, sessionStore, allocateSeq: (id) => eventBus.allocateSeq(id), nowIso
+    })
+    const activeTask = { id: 'task_runtime_spans', attempts: 1 }
+    const starts: Array<Record<string, unknown>> = []
+    const finishes: Array<{ id: string; input: Record<string, unknown> }> = []
+    const spanService = {
+      start(input: Record<string, unknown>) { starts.push(input); return input },
+      finish(id: string, input: Record<string, unknown>) { finishes.push({ id, input }); return null }
+    } as unknown as RuntimeSpanService
+    const tasks = {
+      activeTask: () => activeTask,
+      beginAttempt: () => activeTask,
+      assessCandidate: async () => ({ kind: 'completed', task: activeTask })
+    } as unknown as TaskController
+    const turns = new TurnService({
+      threadStore, sessionStore, events, inflight, steering, compactor, ids, nowIso
+    })
+    let modelStep = 0
+    const model: ModelClient = {
+      provider: 'test',
+      model: 'fixture-model',
+      async *stream() {
+        modelStep += 1
+        if (modelStep === 1) {
+          yield { kind: 'tool_call_complete', callId: 'call_1', toolName: 'knowledge_search', arguments: { token: 'secret' } }
+          yield {
+            kind: 'usage',
+            usage: { promptTokens: 12, completionTokens: 3, totalTokens: 15, cachedTokens: 4, cacheHitRate: 1 / 3, turns: 1 }
+          }
+          yield { kind: 'completed', stopReason: 'tool_calls' }
+          return
+        }
+        yield { kind: 'assistant_text_delta', text: '检索完成并给出最终答复。' }
+        yield { kind: 'completed', stopReason: 'stop' }
+      }
+    }
+    const toolHost: ToolHost = {
+      id: 'span-host',
+      async listTools() {
+        return [{ ...spec('knowledge_search'), providerId: 'mcp:knowledge', providerKind: 'mcp' }]
+      },
+      async execute(call) {
+        return {
+          item: makeToolResultItem({
+            id: `item_${call.callId}`,
+            threadId,
+            turnId: 'turn_runtime_spans',
+            callId: call.callId,
+            toolName: call.toolName,
+            output: { matches: 2 }
+          }),
+          approved: true
+        }
+      }
+    }
+    await threadStore.upsert(createThreadRecord({
+      id: threadId,
+      title: 'runtime spans',
+      workspace: '',
+      model: model.model,
+      createdAt: nowIso()
+    }))
+    const started = await turns.startTurn({ threadId, request: { prompt: '检索并回答。' } })
+    const loop = new AgentLoop({
+      threadStore, sessionStore, approvalGate, userInputGate, model, toolHost,
+      usage: new UsageService(), events, turns, inflight, steering, compactor,
+      prefix: createImmutablePrefix(), ids, nowIso, tasks, spanService
+    })
+
+    await expect(loop.runTurn(threadId, started.turnId)).resolves.toBe('completed')
+    expect(starts.map((span) => span.kind)).toEqual(['model', 'mcp', 'model'])
+    expect(JSON.stringify(starts)).not.toContain('secret')
+    expect(finishes.find((entry) => entry.id.includes('span_model'))?.input).toMatchObject({
+      status: 'ok', inputTokens: 12, outputTokens: 3, cacheHit: true
+    })
+    expect(finishes.find((entry) => entry.id.includes('span_tool'))?.input).toMatchObject({
+      status: 'ok', attributes: { approved: true, isError: false }
+    })
+  })
+
+  it('applies the selected Agent model, prompt, tool/MCP allowlists, and trust cap', async () => {
+    const threadId = 'thread_agent_policy'
+    const nowIso = () => '2026-07-18T00:00:00.000Z'
+    const threadStore = new InMemoryThreadStore()
+    const sessionStore = new InMemorySessionStore()
+    const eventBus = new InMemoryEventBus()
+    const ids = new SequentialIdGenerator()
+    const inflight = new InflightTracker()
+    const steering = new SteeringQueue()
+    const compactor = new ContextCompactor()
+    const approvalGate = new InMemoryApprovalGate()
+    const userInputGate = new InMemoryUserInputGate()
+    const events = new RuntimeEventRecorder({
+      eventBus, sessionStore, allocateSeq: (id) => eventBus.allocateSeq(id), nowIso
+    })
+    const turns = new TurnService({
+      threadStore, sessionStore, events, inflight, steering, compactor, ids, nowIso
+    })
+    let requestModel = ''
+    let requestInstructions: readonly string[] = []
+    let requestTools: string[] = []
+    const model: ModelClient = {
+      provider: 'test',
+      model: 'fallback-model',
+      async *stream(request) {
+        requestModel = request.model
+        requestInstructions = request.contextInstructions ?? []
+        requestTools = request.tools.map((tool) => tool.name)
+        yield { kind: 'assistant_text_delta', text: '审查完成：未发现阻断项。' }
+        yield { kind: 'completed', stopReason: 'stop' }
+      }
+    }
+    let capturedContext: Parameters<ToolHost['listTools']>[0]
+    const toolHost: ToolHost = {
+      id: 'agent-policy-host',
+      async listTools(context) {
+        capturedContext = context
+        return [spec('read'), spec('write')]
+          .filter((tool) => !context?.allowedToolNames || context.allowedToolNames.includes(tool.name))
+      },
+      async execute() { throw new Error('no tool should be called') }
+    }
+    await threadStore.upsert(createThreadRecord({
+      id: threadId,
+      title: 'Agent policy',
+      workspace: '',
+      model: 'thread-model',
+      sandboxMode: 'danger-full-access',
+      agentId: 'review',
+      agentRevision: 1,
+      agentProfile: {
+        id: 'review', name: 'Review', role: '审查', color: '#f59e0b',
+        systemPrompt: '只读审查并给出证据。', model: 'review-model',
+        toolAllowlist: ['read'], mcpAllowlist: [], trustLevel: 'read-only',
+        budget: { maxAttempts: 3, maxDurationMs: 60_000 }, revision: 1
+      },
+      createdAt: nowIso()
+    }))
+    const started = await turns.startTurn({ threadId, request: { prompt: '审查实现。' } })
+    const loop = new AgentLoop({
+      threadStore, sessionStore, approvalGate, userInputGate, model, toolHost,
+      usage: new UsageService(), events, turns, inflight, steering, compactor,
+      prefix: createImmutablePrefix(), ids, nowIso
+    })
+
+    await expect(loop.runTurn(threadId, started.turnId)).resolves.toBe('completed')
+    expect(requestModel).toBe('review-model')
+    expect(requestInstructions.join('\n')).toContain('只读审查并给出证据。')
+    expect(requestTools).toEqual(['read'])
+    expect(capturedContext?.sandboxMode).toBe('read-only')
+    expect(capturedContext?.allowedMcpProviderIds).toEqual([])
+  })
+
   it('completes a marked Write knowledge reply with one model step and one assistant message', async () => {
     const threadId = 'thread_write_kb'
     const nowIso = () => '2026-07-17T00:00:00.000Z'

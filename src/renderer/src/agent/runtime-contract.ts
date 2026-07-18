@@ -22,6 +22,9 @@ export type CoreThreadSummaryJson = {
   status: CoreThreadStatus
   approvalPolicy?: string
   sandboxMode?: string
+  agentId?: string
+  agentRevision?: number
+  agentProfile?: CoreThreadAgentProfileJson
   relation?: 'primary' | 'fork' | 'side'
   parentThreadId?: string
   forkedFromThreadId?: string
@@ -33,6 +36,20 @@ export type CoreThreadSummaryJson = {
   todos?: CoreThreadTodoListJson | null
   createdAt: string
   updatedAt: string
+}
+
+export type CoreThreadAgentProfileJson = {
+  id: string
+  name: string
+  role: string
+  color: string
+  systemPrompt: string
+  model?: string
+  toolAllowlist: string[]
+  mcpAllowlist: string[]
+  trustLevel: 'read-only' | 'workspace-write' | 'trusted' | 'full-access'
+  budget: { maxAttempts: number; maxDurationMs: number; maxCostUsd?: number }
+  revision: number
 }
 
 export type CoreThreadJson = CoreThreadSummaryJson & {
@@ -294,7 +311,7 @@ export type CoreChildRuntimeMetadataJson = {
   parentTurnId: string
   childId: string
   childLabel?: string
-  childStatus: 'queued' | 'running' | 'completed' | 'failed' | 'aborted'
+  childStatus: 'queued' | 'running' | 'completed' | 'failed' | 'aborted' | 'interrupted'
   childSeq: number
 }
 

@@ -112,13 +112,47 @@ export type ReadLocalToolOptions = {
 export type BashLocalToolOptions = {
   defaultTimeoutSeconds?: number
   operations?: BashLocalToolOperations
+  sessionOutputRoot?: string
+  sessionLifecycle?: BashSessionLifecycle
+}
+
+export type BashSessionLifecycle = {
+  onStarted?: (input: {
+    sessionId: string
+    threadId: string
+    turnId: string
+    workspaceRoot: string
+    cwd: string
+    commandSummary: string
+    outputPath: string
+    startedAt: string
+  }) => Promise<void> | void
+  onFinished?: (input: {
+    sessionId: string
+    status: 'completed' | 'failed' | 'terminated'
+    exitCode?: number
+    outputBytes: number
+    finishedAt: string
+  }) => Promise<void> | void
 }
 
 export type WriteLocalToolOptions = {
   operations?: WriteLocalToolOperations
+  mutationLifecycle?: FileMutationLifecycle
 }
 export type EditLocalToolOptions = {
   operations?: EditLocalToolOperations
+  mutationLifecycle?: FileMutationLifecycle
+}
+
+export type FileMutationLifecycle = {
+  beforeMutation?: (input: {
+    absolutePath: string
+    relativePath: string
+    workspaceRoot: string
+    threadId: string
+    turnId: string
+  }) => Promise<void> | void
 }
 
 export type GrepLocalToolOptions = {

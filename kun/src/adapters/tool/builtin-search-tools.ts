@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises'
 import { relative, resolve } from 'node:path'
-import { LocalToolHost, type LocalTool } from './local-tool-host.js'
+import type { LocalTool } from './local-tool-host.js'
+import { defineLocalTool } from './local-tool-definition.js'
 import type { FindLocalToolOptions, GrepLocalToolOptions, GrepMatch, LsLocalToolOptions } from './builtin-tool-types.js'
 import {
   DEFAULT_FIND_LIMIT,
@@ -27,7 +28,7 @@ import {
 export function createLsLocalTool(options: LsLocalToolOptions = {}): LocalTool {
   const statOp = options.operations?.stat ?? defaultLsLocalToolOperations.stat!
   const readdirOp = options.operations?.readdir ?? defaultLsLocalToolOperations.readdir!
-  return LocalToolHost.defineTool({
+  return defineLocalTool({
     name: 'ls',
     description: 'List directory contents. Returns entries sorted alphabetically and marks directories.',
     inputSchema: {
@@ -76,7 +77,7 @@ export const createLsTool = createLsLocalTool
 export const createLsToolDefinition = createLsLocalTool
 
 export function createFindLocalTool(options: FindLocalToolOptions = {}): LocalTool {
-  return LocalToolHost.defineTool({
+  return defineLocalTool({
     name: 'find',
     description: 'Find workspace files by glob pattern, similar to pi find.',
     inputSchema: {
@@ -179,7 +180,7 @@ export const createFindTool = createFindLocalTool
 export const createFindToolDefinition = createFindLocalTool
 
 export function createGrepLocalTool(options: GrepLocalToolOptions = {}): LocalTool {
-  return LocalToolHost.defineTool({
+  return defineLocalTool({
     name: 'grep',
     description: 'Search file contents for a pattern and return matching lines with paths and line numbers.',
     inputSchema: {

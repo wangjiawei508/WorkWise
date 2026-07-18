@@ -1,10 +1,17 @@
 import { randomUUID } from 'node:crypto'
 import type { ChildProcessWithoutNullStreams } from 'node:child_process'
-import { rm } from 'node:fs/promises'
-import { LocalToolHost, type LocalTool } from './local-tool-host.js'
+import { mkdir, rm } from 'node:fs/promises'
+import { join } from 'node:path'
+import type { LocalTool } from './local-tool-host.js'
+import { defineLocalTool } from './local-tool-definition.js'
 import { OutputAccumulator } from './output-accumulator.js'
 import { DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES, formatSize } from './truncate.js'
-import type { BashLocalToolOptions, TextSlice, TruncateMode } from './builtin-tool-types.js'
+import type {
+  BashLocalToolOptions,
+  BashSessionLifecycle,
+  TextSlice,
+  TruncateMode
+} from './builtin-tool-types.js'
 import { DEFAULT_BASH_TIMEOUT_SECONDS } from './builtin-tool-types.js'
 import {
   describeKind,
@@ -43,6 +50,8 @@ type BashSession = {
   finalized: boolean
   rawOutputBytes: number
   exitWaiters: Set<() => void>
+  persistentOutput: boolean
+  lifecycle?: BashSessionLifecycle
 }
 
 type BashPayload = {
@@ -78,7 +87,7 @@ async function disposeSession(session: BashSession): Promise<void> {
   session.rawOutputBytes = 0
   await session.output.closeTempFile().catch(() => undefined)
   const path = session.output.snapshot().fullOutputPath
-  if (path) await rm(path, { force: true }).catch(() => undefined)
+  if (path && !session.persistentOutput) await rm(path, { force: true }).catch(() => undefined)
   bashSessions.delete(session.id)
 }
 
@@ -94,6 +103,17 @@ export async function stopAllBashSessions(reason = 'application_exit'): Promise<
   }
   await Promise.all([...bashSessions.values()].map(disposeSession))
   return running.length
+}
+
+export async function stopBashSession(sessionId: string): Promise<boolean> {
+  const session = bashSessions.get(sessionId)
+  if (!session) return false
+  if (session.status === 'running') {
+    stopSession(session)
+    await waitForSessionExitOrDelay(session, STOP_GRACE_MS)
+    if (session.status === 'running') settleSession(session, 'stopped', null, 'terminated by user')
+  }
+  return true
 }
 
 async function bashExecute(
@@ -277,11 +297,12 @@ async function bashExecute(
   }
 }
 
-function createOutputAccumulator(): OutputAccumulator {
+function createOutputAccumulator(outputFilePath?: string): OutputAccumulator {
   return new OutputAccumulator({
     maxLines: DEFAULT_MAX_LINES,
     maxBytes: DEFAULT_MAX_BYTES,
-    tempFilePrefix: 'workwise-shell'
+    tempFilePrefix: 'workwise-shell',
+    ...(outputFilePath ? { outputFilePath } : {})
   })
 }
 
@@ -394,6 +415,13 @@ function settleSession(
   session.exitCode = exitCode
   session.finishedAt = new Date().toISOString()
   if (error) session.error = error
+  void session.lifecycle?.onFinished?.({
+    sessionId: session.id,
+    status: status === 'stopped' ? 'terminated' : status,
+    ...(exitCode !== null ? { exitCode } : {}),
+    outputBytes: session.rawOutputBytes,
+    finishedAt: session.finishedAt
+  })
   for (const waiter of session.exitWaiters) waiter()
   session.exitWaiters.clear()
   scheduleSessionCleanup(session)
@@ -437,6 +465,11 @@ async function startBashSession(
     signal: AbortSignal
     timeoutSeconds: number
     yieldSeconds: number
+    threadId: string
+    turnId: string
+    workspaceRoot: string
+    sessionOutputRoot?: string
+    lifecycle?: BashSessionLifecycle
   },
   onUpdate?: (update: { output: unknown; isError?: boolean }) => Promise<void> | void
 ): Promise<{ payload: BashPayload; isError?: boolean }> {
@@ -457,6 +490,11 @@ async function startBashSession(
     })
   }
   const shellRuntime = shellRuntimeInfo()
+  const sessionId = nextSessionId()
+  const outputFilePath = input.sessionOutputRoot
+    ? join(input.sessionOutputRoot, `${sessionId}.log`)
+    : undefined
+  if (input.sessionOutputRoot) await mkdir(input.sessionOutputRoot, { recursive: true })
   const child = await safeSpawn(shellRuntime.shell, shellCommandArgs(shellRuntime, input.command), {
     cwd: input.cwd,
     workspace: input.cwd,
@@ -465,21 +503,41 @@ async function startBashSession(
     windowsHide: true
   })
   const session: BashSession = {
-    id: nextSessionId(),
+    id: sessionId,
     command: input.command,
     cwd: input.cwd,
     shell: shellRuntime.name,
     child,
-    output: createOutputAccumulator(),
+    output: createOutputAccumulator(outputFilePath),
     startedAt: new Date().toISOString(),
     exitCode: null,
     status: 'running',
     stopRequested: false,
     finalized: false,
     rawOutputBytes: 0,
-    exitWaiters: new Set()
+    exitWaiters: new Set(),
+    persistentOutput: Boolean(outputFilePath),
+    ...(input.lifecycle ? { lifecycle: input.lifecycle } : {})
   }
   bashSessions.set(session.id, session)
+  if (outputFilePath) {
+    try {
+      await input.lifecycle?.onStarted?.({
+        sessionId,
+        threadId: input.threadId,
+        turnId: input.turnId,
+        workspaceRoot: input.workspaceRoot,
+        cwd: input.cwd,
+        commandSummary: input.command.replace(/\s+/g, ' ').trim().slice(0, 240),
+        outputPath: outputFilePath,
+        startedAt: session.startedAt
+      })
+    } catch (error) {
+      stopSession(session)
+      await waitForSessionExitOrDelay(session, STOP_GRACE_MS)
+      throw error
+    }
+  }
 
   let updateDirty = false
   let updateTimer: NodeJS.Timeout | undefined
@@ -575,7 +633,7 @@ function appendTruncationNotice(text: string, truncated: TextSlice, mode: Trunca
 export function createBashLocalTool(options: BashLocalToolOptions = {}): LocalTool {
   const bashOps = options.operations
   const shellRuntime = shellRuntimeInfo()
-  return LocalToolHost.defineTool({
+  return defineLocalTool({
     name: 'bash',
     description: `Execute a shell command in the workspace using the host platform shell. Current shell: ${shellRuntime.name}. Use ${shellRuntime.syntax} syntax. Return combined stdout and stderr. Long-running commands return a session_id; use action="poll" to block up to yield_seconds (default ${DEFAULT_BASH_YIELD_SECONDS}s, max ${MAX_BASH_YIELD_SECONDS}s) waiting for more output or process exit, action="write" with input to send stdin, or action="stop" to terminate the session.`,
     inputSchema: {
@@ -642,7 +700,12 @@ export function createBashLocalTool(options: BashLocalToolOptions = {}): LocalTo
               cwd,
               signal: context.abortSignal,
               timeoutSeconds: timeout,
-              yieldSeconds
+              yieldSeconds,
+              threadId: context.threadId,
+              turnId: context.turnId,
+              workspaceRoot: context.workspace,
+              ...(options.sessionOutputRoot ? { sessionOutputRoot: options.sessionOutputRoot } : {}),
+              ...(options.sessionLifecycle ? { lifecycle: options.sessionLifecycle } : {})
             },
             onUpdate
           )

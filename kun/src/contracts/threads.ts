@@ -13,6 +13,33 @@ export type ThreadStatus = z.infer<typeof ThreadStatus>
 export const ThreadMode = z.enum(['agent', 'plan'])
 export type ThreadMode = z.infer<typeof ThreadMode>
 
+export const ThreadAgentTrustLevelSchema = z.enum([
+  'read-only',
+  'workspace-write',
+  'trusted',
+  'full-access'
+])
+export type ThreadAgentTrustLevel = z.infer<typeof ThreadAgentTrustLevelSchema>
+
+export const ThreadAgentProfileSchema = z.object({
+  id: z.string().min(1).max(64),
+  name: z.string().min(1).max(160),
+  role: z.string().min(1).max(500),
+  color: z.string().min(1).max(64),
+  systemPrompt: z.string().min(1).max(256 * 1024),
+  model: z.string().min(1).max(256).optional(),
+  toolAllowlist: z.array(z.string().min(1).max(256)).max(512),
+  mcpAllowlist: z.array(z.string().min(1).max(256)).max(512),
+  trustLevel: ThreadAgentTrustLevelSchema,
+  budget: z.object({
+    maxAttempts: z.number().int().positive().max(128),
+    maxDurationMs: z.number().int().positive().max(24 * 60 * 60 * 1000),
+    maxCostUsd: z.number().positive().optional()
+  }),
+  revision: z.number().int().positive()
+})
+export type ThreadAgentProfile = z.infer<typeof ThreadAgentProfileSchema>
+
 /**
  * Discriminator describing how a thread relates to its origin.
  *
@@ -99,6 +126,10 @@ export const ThreadSchema = z.object({
   status: ThreadStatus,
   approvalPolicy: ApprovalPolicySchema.default(DEFAULT_APPROVAL_POLICY),
   sandboxMode: SandboxModeSchema.default(DEFAULT_SANDBOX_MODE),
+  agentId: z.string().min(1).max(64).default('general'),
+  agentRevision: z.number().int().nonnegative().default(0),
+  agentProfile: ThreadAgentProfileSchema.optional(),
+  lastAgentIdempotencyKey: z.string().min(1).max(256).optional(),
   costBudgetUsd: z.number().positive().optional(),
   costBudgetWarningSent: z.boolean().optional(),
   relation: ThreadRelation.default('primary'),
@@ -125,6 +156,9 @@ export const ThreadSummarySchema = ThreadSchema.pick({
   status: true,
   approvalPolicy: true,
   sandboxMode: true,
+  agentId: true,
+  agentRevision: true,
+  agentProfile: true,
   costBudgetUsd: true,
   costBudgetWarningSent: true,
   relation: true,
@@ -151,6 +185,22 @@ export const CreateThreadRequest = z.object({
   costBudgetUsd: z.number().positive().optional()
 })
 export type CreateThreadRequest = z.infer<typeof CreateThreadRequest>
+
+export const SetThreadAgentRequest = z.object({
+  agentId: z.string().min(1).max(64),
+  profile: ThreadAgentProfileSchema,
+  expectedRevision: z.number().int().nonnegative(),
+  idempotencyKey: z.string().min(1).max(256)
+}).superRefine((value, ctx) => {
+  if (value.agentId !== value.profile.id) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['profile', 'id'],
+      message: 'profile id must match agentId'
+    })
+  }
+})
+export type SetThreadAgentRequest = z.infer<typeof SetThreadAgentRequest>
 
 /**
  * Optional body for `POST /v1/threads/{id}/fork`.

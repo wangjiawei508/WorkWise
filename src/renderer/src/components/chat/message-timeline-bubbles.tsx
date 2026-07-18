@@ -10,7 +10,11 @@ import { useChatStore } from '../../store/chat-store'
 import { getProvider } from '../../agent/registry'
 import { parseWritePromptForDisplay } from '../../write/quoted-selection'
 import { parseClawUserPromptForDisplay, type ClawUserPromptDisplay } from '@shared/app-settings'
-import { openWorkspacePathInEditor } from '../../lib/open-workspace-path'
+import {
+  openGeneratedWorkspaceFile,
+  revealGeneratedWorkspaceFile,
+  saveGeneratedWorkspaceFileAs
+} from '../../lib/generated-file-actions'
 import { resolveGeneratedFileWorkspaceRoot } from '../../lib/generated-file-path'
 import { safeMediaPreviewUrl } from '../../lib/safe-media-preview-url'
 import { DiffView } from '../DiffView'
@@ -591,7 +595,7 @@ function MediaPreviewTile({
     setActionError(null)
     setSaveState('saving')
     try {
-      const result = await window.workwise.saveWorkspaceFileAs({
+      const result = await saveGeneratedWorkspaceFileAs({
         suggestedName: title,
         ...(canUsePath && filePath ? { sourcePath: filePath } : {}),
         ...(canUsePath && owningWorkspaceRoot ? { workspaceRoot: owningWorkspaceRoot } : {}),
@@ -625,7 +629,10 @@ function MediaPreviewTile({
       return
     }
     setActionError(null)
-    const result = await openWorkspacePathInEditor({ path: filePath }, owningWorkspaceRoot)
+    const result = await openGeneratedWorkspaceFile({
+      path: filePath,
+      workspaceRoot: owningWorkspaceRoot
+    })
     const message = generatedFileActionFailureMessage(result, t('generatedFileOpenFailed'))
     if (message) setActionError(message)
   }
@@ -635,21 +642,13 @@ function MediaPreviewTile({
       setActionError(t('generatedFileWorkspaceUnavailable'))
       return
     }
-    if (typeof window.workwise?.revealWorkspaceFile !== 'function') {
-      setActionError(t('generatedFileBridgeUnavailable'))
-      return
-    }
     setActionError(null)
-    try {
-      const result = await window.workwise.revealWorkspaceFile({
-        path: filePath,
-        ...(owningWorkspaceRoot ? { workspaceRoot: owningWorkspaceRoot } : {})
-      })
-      const message = generatedFileActionFailureMessage(result, t('generatedFileRevealFailed'))
-      if (message) setActionError(message)
-    } catch (error) {
-      setActionError(error instanceof Error ? error.message : String(error))
-    }
+    const result = await revealGeneratedWorkspaceFile({
+      path: filePath,
+      workspaceRoot: owningWorkspaceRoot
+    })
+    const message = generatedFileActionFailureMessage(result, t('generatedFileRevealFailed'))
+    if (message) setActionError(message)
   }
   const saveButtonClass =
     'inline-flex h-7 items-center justify-center rounded-md border border-ds-border-muted bg-ds-card/90 px-2 text-[11.5px] font-medium text-ds-muted shadow-sm transition hover:bg-ds-hover hover:text-ds-ink disabled:cursor-not-allowed disabled:opacity-50'
@@ -741,7 +740,7 @@ function MediaPreviewTile({
             onClick={() => void handleOpenInEditor()}
             className={saveButtonClass}
           >
-            {t('filePreviewOpenEditor')}
+            {t('generatedFileOpen')}
           </button>
           <button
             type="button"

@@ -1,4 +1,5 @@
-import { LocalToolHost, type LocalTool } from './local-tool-host.js'
+import type { LocalTool } from './local-tool-host.js'
+import { defineLocalTool } from './local-tool-definition.js'
 import { DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES, formatSize, truncateHead } from './truncate.js'
 import type { ReadLocalToolOptions, TextSlice } from './builtin-tool-types.js'
 import { defaultReadLocalToolOperations } from './builtin-tool-operations.js'
@@ -18,7 +19,7 @@ export function createReadLocalTool(options: ReadLocalToolOptions = {}): LocalTo
     options.operations?.detectImageMimeType ?? defaultReadLocalToolOperations.detectImageMimeType!
   const resizeImageOp = options.operations?.resizeImage
   const autoResizeImages = options.autoResizeImages ?? true
-  return LocalToolHost.defineTool({
+  return defineLocalTool({
     name: 'read',
     description: 'Read a file from the workspace. Supports optional line offset and limit for large files.',
     inputSchema: {

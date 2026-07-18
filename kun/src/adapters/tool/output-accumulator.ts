@@ -17,6 +17,7 @@ export type OutputAccumulatorOptions = {
   maxLines: number
   maxBytes: number
   tempFilePrefix: string
+  outputFilePath?: string
 }
 
 type OutputTextEncoding = 'utf-8' | 'utf-16le'
@@ -159,6 +160,10 @@ export class OutputAccumulator {
     this.maxBytes = options.maxBytes
     this.maxRollingBytes = Math.max(this.maxBytes * 2, 1)
     this.tempFilePrefix = options.tempFilePrefix
+    if (options.outputFilePath) {
+      this.tempFilePath = options.outputFilePath
+      this.tempFileStream = createWriteStream(options.outputFilePath)
+    }
   }
 
   append(data: Buffer): void {

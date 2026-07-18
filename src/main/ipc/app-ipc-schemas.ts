@@ -13,8 +13,17 @@ import {
   RUNTIME_TOOLS_TEMPLATE,
   RUNTIME_SESSION_RESUME_TEMPLATE,
   RUNTIME_SKILLS_TEMPLATE,
+  RUNTIME_TASKS_TEMPLATE,
+  RUNTIME_TASK_TEMPLATE,
+  RUNTIME_TASK_RESUME_TEMPLATE,
+  RUNTIME_TASK_RETRY_TEMPLATE,
+  RUNTIME_TASK_CANCEL_TEMPLATE,
+  RUNTIME_TASK_DIAGNOSTICS_TEMPLATE,
+  RUNTIME_SHELL_SESSIONS_TEMPLATE,
+  RUNTIME_SHELL_SESSION_TERMINATE_TEMPLATE,
   RUNTIME_THREADS_TEMPLATE,
   RUNTIME_THREAD_COMPACT_TEMPLATE,
+  RUNTIME_THREAD_AGENT_TEMPLATE,
   RUNTIME_THREAD_FORK_TEMPLATE,
   RUNTIME_THREAD_GOAL_TEMPLATE,
   RUNTIME_THREAD_REVIEW_TEMPLATE,
@@ -79,6 +88,9 @@ export function isSafeOpenExternalUrl(value: string): boolean {
 }
 
 export const defaultPathSchema = optionalTrimmedString(MAX_PATH_LENGTH)
+export const diagnosticsExportPayloadSchema = z.object({
+  taskId: trimmedString(MAX_ID_LENGTH)
+}).strict()
 
 export const confirmDialogPayloadSchema = z
   .object({
@@ -116,6 +128,14 @@ const ENDPOINTS: readonly EndpointTemplate[] = [
   compileEndpoint(RUNTIME_INFO_TEMPLATE, ['GET']),
   compileEndpoint(RUNTIME_TOOLS_TEMPLATE, ['GET']),
   compileEndpoint(RUNTIME_SKILLS_TEMPLATE, ['GET']),
+  compileEndpoint(RUNTIME_TASKS_TEMPLATE, ['GET']),
+  compileEndpoint(RUNTIME_TASK_TEMPLATE, ['GET']),
+  compileEndpoint(RUNTIME_TASK_RESUME_TEMPLATE, ['POST']),
+  compileEndpoint(RUNTIME_TASK_RETRY_TEMPLATE, ['POST']),
+  compileEndpoint(RUNTIME_TASK_CANCEL_TEMPLATE, ['POST']),
+  compileEndpoint(RUNTIME_TASK_DIAGNOSTICS_TEMPLATE, ['GET']),
+  compileEndpoint(RUNTIME_SHELL_SESSIONS_TEMPLATE, ['GET']),
+  compileEndpoint(RUNTIME_SHELL_SESSION_TERMINATE_TEMPLATE, ['POST']),
   compileEndpoint(RUNTIME_ATTACHMENTS_TEMPLATE, ['POST']),
   compileEndpoint(RUNTIME_ATTACHMENT_DIAGNOSTICS_TEMPLATE, ['GET']),
   compileEndpoint(RUNTIME_ATTACHMENT_TEMPLATE, ['GET']),
@@ -126,6 +146,7 @@ const ENDPOINTS: readonly EndpointTemplate[] = [
   compileEndpoint(RUNTIME_THREADS_TEMPLATE, ['GET', 'POST']),
   compileEndpoint(RUNTIME_THREAD_TEMPLATE, ['GET', 'PATCH', 'DELETE']),
   compileEndpoint(RUNTIME_THREAD_FORK_TEMPLATE, ['POST']),
+  compileEndpoint(RUNTIME_THREAD_AGENT_TEMPLATE, ['POST']),
   compileEndpoint(RUNTIME_THREAD_GOAL_TEMPLATE, ['GET', 'POST', 'DELETE']),
   compileEndpoint(RUNTIME_THREAD_TODOS_TEMPLATE, ['GET', 'POST', 'DELETE']),
   compileEndpoint(RUNTIME_THREAD_COMPACT_TEMPLATE, ['POST']),
@@ -543,7 +564,9 @@ function stripLegacySettingsPatchKeys(payload: unknown): unknown {
 }
 
 const settingsPatchObjectSchema = z.object({
-  version: z.literal(1).optional(),
+  schema: z.literal('workwise.settings').optional(),
+  version: z.union([z.literal(1), z.literal(2)]).optional(),
+  revision: z.number().int().nonnegative().optional(),
   locale: localeSchema.optional(),
   theme: themeSchema.optional(),
   uiFontScale: uiFontScaleSchema.optional(),
@@ -561,6 +584,14 @@ const settingsPatchObjectSchema = z.object({
   schedule: scheduleSettingsPatchSchema.optional(),
   guiUpdate: z.object({
     channel: z.enum(GUI_UPDATE_CHANNELS).optional()
+  }).strict().optional(),
+  conversation: z.object({
+    viewMode: z.enum(['concise', 'standard', 'developer']).optional()
+  }).strict().optional(),
+  documents: z.object({
+    parsingMode: z.enum(['auto', 'fast', 'accurate']).optional(),
+    privateMineruServerUrl: z.string().trim().max(MAX_URL_LENGTH).optional(),
+    allowPrivateServerUploadByWorkspace: z.record(z.string().trim().min(1).max(MAX_PATH_LENGTH), z.boolean()).optional()
   }).strict().optional(),
   codePromptPrefix: z.string().max(MAX_CHANNEL_TEXT_LENGTH).optional()
 }).strict()
@@ -636,6 +667,48 @@ export const gitBranchPayloadSchema = z
     branch: trimmedString(MAX_BRANCH_LENGTH)
   })
   .strict()
+
+export const gitCheckpointCreatePayloadSchema = z.object({
+  taskId: trimmedString(MAX_ID_LENGTH),
+  workspaceRoot: workspaceRootSchema,
+  repositoryRoot: defaultPathSchema,
+  relatedPaths: z.array(trimmedString(MAX_PATH_LENGTH)).max(512).optional(),
+  idempotencyKey: trimmedString(MAX_ID_LENGTH)
+}).strict()
+
+export const gitRollbackPreviewPayloadSchema = z.object({
+  checkpointId: trimmedString(MAX_ID_LENGTH),
+  relatedPaths: z.array(trimmedString(MAX_PATH_LENGTH)).max(512).optional()
+}).strict()
+
+export const gitRollbackApplyPayloadSchema = gitRollbackPreviewPayloadSchema.extend({
+  expectedRevision: z.number().int().min(0),
+  idempotencyKey: trimmedString(MAX_ID_LENGTH)
+}).strict()
+
+export const repoMapBuildPayloadSchema = z.object({
+  workspaceRoot: workspaceRootSchema,
+  repositoryRoot: workspaceRootSchema,
+  maxFiles: z.number().int().min(1).max(4_000).optional(),
+  maxBytes: z.number().int().min(1).max(20 * 1024 * 1024).optional(),
+  maxDurationMs: z.number().int().min(250).max(5_000).optional(),
+  idempotencyKey: trimmedString(MAX_ID_LENGTH)
+}).strict()
+
+export const repoMapQueryPayloadSchema = z.object({
+  repositoryRoot: workspaceRootSchema,
+  query: z.string().trim().max(1_000),
+  limit: z.number().int().min(1).max(500).optional()
+}).strict()
+
+export const lspRequestPayloadSchema = z.object({
+  workspaceRoot: workspaceRootSchema,
+  repositoryRoot: workspaceRootSchema,
+  relativePath: trimmedString(MAX_PATH_LENGTH),
+  line: z.number().int().min(1).max(1_000_000),
+  column: z.number().int().min(1).max(1_000_000),
+  kind: z.enum(['definition', 'references', 'symbols', 'diagnostics', 'hover'])
+}).strict()
 
 export const openEditorPathPayloadSchema = z
   .object({
@@ -938,4 +1011,115 @@ export const cancelOperationPayloadSchema = z.object({
   scope: z.enum(CANCELLATION_SCOPES),
   id: trimmedString(MAX_ID_LENGTH),
   reason: optionalTrimmedString(512)
+}).strict()
+
+export const agentProfileListPayloadSchema = z.object({
+  workspaceRoot: defaultPathSchema
+}).strict()
+
+const trustLevelSchema = z.enum(['read-only', 'workspace-write', 'trusted', 'full-access'])
+const agentProfileSchema = z.object({
+  id: trimmedString(64),
+  name: trimmedString(128),
+  role: trimmedString(256),
+  color: trimmedString(32),
+  systemPrompt: z.string().trim().min(1).max(256 * 1024),
+  model: optionalTrimmedString(128),
+  toolAllowlist: z.array(trimmedString(256)).max(512),
+  mcpAllowlist: z.array(trimmedString(256)).max(512),
+  trustLevel: trustLevelSchema,
+  budget: z.object({
+    maxAttempts: z.number().int().min(1).max(128),
+    maxDurationMs: z.number().int().min(1_000).max(24 * 60 * 60 * 1_000),
+    maxCostUsd: z.number().positive().max(10_000).optional()
+  }).strict(),
+  revision: z.number().int().min(0).optional()
+}).strict()
+
+export const agentProfileSavePayloadSchema = z.object({
+  scope: z.enum(['global', 'workspace']),
+  workspaceRoot: defaultPathSchema,
+  profile: agentProfileSchema,
+  expectedRevision: z.number().int().min(0),
+  idempotencyKey: trimmedString(MAX_ID_LENGTH)
+}).strict()
+
+export const workspaceTrustGetPayloadSchema = z.object({
+  workspaceRoot: trimmedString(MAX_PATH_LENGTH)
+}).strict()
+
+export const workspaceTrustSetPayloadSchema = z.object({
+  workspaceRoot: trimmedString(MAX_PATH_LENGTH),
+  level: trustLevelSchema,
+  expectedRevision: z.number().int().min(0),
+  confirmed: z.boolean(),
+  idempotencyKey: trimmedString(MAX_ID_LENGTH)
+}).strict()
+
+export const mcpServerListPayloadSchema = z.object({
+  workspaceRoot: defaultPathSchema
+}).strict()
+
+const mcpServerConfigV2Schema = z.object({
+  id: trimmedString(128),
+  name: trimmedString(256),
+  scope: z.enum(['global', 'workspace']),
+  workspaceRoot: defaultPathSchema,
+  transport: z.enum(['stdio', 'http']),
+  command: optionalTrimmedString(MAX_PATH_LENGTH),
+  args: z.array(z.string().max(8_192)).max(256).optional(),
+  cwd: defaultPathSchema,
+  url: optionalTrimmedString(MAX_URL_LENGTH),
+  timeoutMs: z.number().int().min(1_000).max(120_000),
+  source: z.enum(['user', 'skill', 'managed-tool', 'migration']),
+  credentialRef: z.object({
+    id: trimmedString(256),
+    storage: z.enum(['keychain', 'dpapi', 'safe-storage', 'session'])
+  }).strict().optional(),
+  oauth: z.object({
+    authorizationUrl: trimmedString(MAX_URL_LENGTH),
+    tokenUrl: trimmedString(MAX_URL_LENGTH),
+    clientId: trimmedString(512),
+    redirectUri: trimmedString(MAX_URL_LENGTH),
+    scopes: z.array(trimmedString(512)).max(128)
+  }).strict().optional(),
+  toolPolicy: z.record(trimmedString(512), z.enum(['allow', 'ask', 'deny'])),
+  enabled: z.boolean(),
+  revision: z.number().int().min(0).optional()
+}).strict()
+
+export const mcpServerSavePayloadSchema = z.object({
+  config: mcpServerConfigV2Schema,
+  expectedRevision: z.number().int().min(0),
+  idempotencyKey: trimmedString(MAX_ID_LENGTH)
+}).strict()
+
+export const mcpServerActionPayloadSchema = z.object({
+  serverId: trimmedString(128),
+  workspaceRoot: defaultPathSchema
+}).strict()
+
+export const mcpServerAuthorizePayloadSchema = mcpServerActionPayloadSchema.extend({
+  state: optionalTrimmedString(512),
+  authorizationCode: optionalTrimmedString(8_192)
+}).strict()
+
+export const documentEngineIdSchema = z.enum(['markitdown', 'mineru-local', 'mineru-private'])
+
+export const documentParsePayloadSchema = z.object({
+  parseId: optionalTrimmedString(MAX_ID_LENGTH),
+  workspaceRoot: trimmedString(MAX_PATH_LENGTH),
+  relativePath: trimmedString(MAX_PATH_LENGTH),
+  outputDirectory: optionalTrimmedString(MAX_PATH_LENGTH),
+  mode: z.enum(['auto', 'fast', 'accurate']),
+  preferredEngine: documentEngineIdSchema.optional(),
+  allowPrivateServerUpload: z.boolean().optional(),
+  idempotencyKey: trimmedString(MAX_ID_LENGTH)
+}).strict()
+
+export const workspacePreviewPayloadSchema = z.object({
+  workspaceRoot: trimmedString(MAX_PATH_LENGTH),
+  relativePath: trimmedString(MAX_PATH_LENGTH),
+  parsingMode: z.enum(['auto', 'fast', 'accurate']).optional(),
+  idempotencyKey: trimmedString(MAX_ID_LENGTH)
 }).strict()

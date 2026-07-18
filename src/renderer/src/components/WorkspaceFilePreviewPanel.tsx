@@ -1,4 +1,5 @@
 import type { WorkspaceFileReadResult, WorkspaceFileTarget } from '@shared/workspace-file'
+import type { WorkspacePreviewResultV1 } from '@shared/agent-workbench'
 import {
   Check,
   ChevronRight,
@@ -24,6 +25,7 @@ import {
   languageFromFilePath,
   renderFallbackCodeHtml
 } from '../lib/code-highlighting'
+import { WorkspaceRichPreview } from './WorkspaceRichPreview'
 
 type Props = {
   target: WorkspaceFileTarget | null
@@ -72,6 +74,7 @@ export function WorkspaceFilePreviewPanel({
 }: Props): ReactElement {
   const { t } = useTranslation('common')
   const [result, setResult] = useState<WorkspaceFileReadResult | null>(null)
+  const [richResult, setRichResult] = useState<WorkspacePreviewResultV1 | null>(null)
   const [loading, setLoading] = useState(false)
   const [copied, setCopied] = useState(false)
   const [highlightHtml, setHighlightHtml] = useState(() => renderFallbackCodeHtml(''))
@@ -81,6 +84,7 @@ export function WorkspaceFilePreviewPanel({
   useEffect(() => {
     if (!target) {
       setResult(null)
+      setRichResult(null)
       setLoading(false)
       return
     }
@@ -88,14 +92,25 @@ export function WorkspaceFilePreviewPanel({
     let cancelled = false
     setLoading(true)
     setResult(null)
+    setRichResult(null)
 
-    void window.workwise
-      .readWorkspaceFile({
-        ...target,
-        workspaceRoot: target.workspaceRoot ?? workspaceRoot
-      })
+    const extension = target.path.split('.').at(-1)?.toLowerCase() ?? ''
+    const rich = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'md', 'markdown', 'txt', 'pdf', 'docx', 'pptx', 'xlsx'].includes(extension)
+    const workspace = target.workspaceRoot ?? workspaceRoot
+    const pending = rich
+      ? window.workwise.previewWorkspaceFile({
+          workspaceRoot: workspace,
+          relativePath: target.path,
+          parsingMode: 'fast',
+          idempotencyKey: `preview:${workspace}:${target.path}`
+        })
+      : window.workwise.readWorkspaceFile({ ...target, workspaceRoot: workspace })
+
+    void pending
       .then((next) => {
-        if (!cancelled) setResult(next)
+        if (cancelled) return
+        if (rich) setRichResult(next as WorkspacePreviewResultV1)
+        else setResult(next as WorkspaceFileReadResult)
       })
       .catch((error) => {
         if (!cancelled) {
@@ -282,9 +297,9 @@ export function WorkspaceFilePreviewPanel({
             <span className="truncate text-ds-muted">{t('filePreviewEmpty')}</span>
           )}
         </div>
-        {result?.ok ? (
+        {result?.ok || richResult ? (
           <span className="shrink-0 font-mono text-[10px] text-ds-faint">
-            {formatBytes(result.size)}
+            {formatBytes(result?.ok ? result.size : richResult?.sizeBytes ?? 0)}
             {language ? ` · ${language}` : ''}
           </span>
         ) : null}
@@ -305,6 +320,8 @@ export function WorkspaceFilePreviewPanel({
             <Loader2 className="h-4 w-4 animate-spin" strokeWidth={1.8} />
             {t('filePreviewLoading')}
           </div>
+        ) : richResult ? (
+          <WorkspaceRichPreview result={richResult} />
         ) : result?.ok ? (
           <div className="relative flex min-h-0 flex-1 flex-col">
             {result.truncated ? (

@@ -2,7 +2,7 @@ import type { ReactElement } from 'react'
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useShallow } from 'zustand/react/shallow'
-import type { ApprovalPolicy, SandboxMode } from '@shared/app-settings'
+import type { ApprovalPolicy, ConversationViewMode, SandboxMode } from '@shared/app-settings'
 import { parseClawCommand } from '@shared/claw-commands'
 import { DEFAULT_COMPOSER_MODEL_IDS } from '@shared/default-composer-models'
 import { buildGuiPlanId, buildPlanRelativePath } from '@shared/gui-plan'
@@ -30,6 +30,7 @@ import {
 import { Sidebar } from './chat/Sidebar'
 import { WorkbenchTopBar, type RightPanelMode } from './chat/WorkbenchTopBar'
 import { MessageTimeline } from './chat/MessageTimeline'
+import { TaskRunStatusBar } from './chat/TaskRunStatusBar'
 import {
   FloatingComposer,
   type ComposerExecutionSettings,
@@ -363,6 +364,10 @@ export function Workbench(): ReactElement {
   const [composerExecutionSettings, setComposerExecutionSettings] =
     useState<ComposerExecutionSettings | null>(null)
   const [composerExecutionApplying, setComposerExecutionApplying] = useState(false)
+  const [conversationViewMode, setConversationViewMode] =
+    useState<ConversationViewMode>('concise')
+  const [taskConversationViewMode, setTaskConversationViewMode] =
+    useState<ConversationViewMode | null>(null)
   const [attachmentUploadBusy, setAttachmentUploadBusy] = useState(false)
   const [attachmentUploadError, setAttachmentUploadError] = useState<string | null>(null)
   const [connectPhoneSidebarOpen, setConnectPhoneSidebarOpen] = useState(false)
@@ -672,6 +677,7 @@ export function Workbench(): ReactElement {
           approvalPolicy: settings.agents.kun.approvalPolicy,
           sandboxMode: settings.agents.kun.sandboxMode
         })
+        setConversationViewMode(settings.conversation.viewMode)
       })
       .catch(() => undefined)
     return () => {
@@ -1940,7 +1946,14 @@ export function Workbench(): ReactElement {
                 </div>
               </div>
             </header>
+            <TaskRunStatusBar
+              threadId={activeThreadId}
+              runtimeReady={runtimeConnection === 'ready'}
+              globalViewMode={conversationViewMode}
+              onViewModeOverride={setTaskConversationViewMode}
+            />
             <MessageTimeline
+              viewMode={taskConversationViewMode ?? conversationViewMode}
               blocks={timelineBlocks}
               liveReasoning={timelineLiveReasoning}
               live={timelineLiveAssistant}

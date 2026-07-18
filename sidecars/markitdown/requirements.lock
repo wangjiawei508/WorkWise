@@ -1,0 +1,4 @@
+# Audited upstream snapshot: microsoft/markitdown v0.1.4
+# https://github.com/microsoft/markitdown/commit/932084c88679aeda901c2903a151f3ed82f86081
+markitdown[pdf,docx,pptx,xlsx] @ git+https://github.com/microsoft/markitdown.git@932084c88679aeda901c2903a151f3ed82f86081#subdirectory=packages/markitdown
+pyinstaller==6.14.2

@@ -1,5 +1,6 @@
 import { dirname } from 'node:path'
-import { LocalToolHost, type LocalTool } from './local-tool-host.js'
+import type { LocalTool } from './local-tool-host.js'
+import { defineLocalTool } from './local-tool-definition.js'
 import {
   applyEditsToNormalizedContent,
   detectLineEnding,
@@ -20,7 +21,7 @@ import { atomicWriteFile } from '../file/atomic-write.js'
 export function createWriteLocalTool(_options: WriteLocalToolOptions = {}): LocalTool {
   const mkdirOp = _options.operations?.mkdir ?? defaultWriteLocalToolOperations.mkdir!
   const writeFileOp = _options.operations?.writeFile
-  return LocalToolHost.defineTool({
+  return defineLocalTool({
     name: 'write',
     description: 'Create or overwrite a workspace file with the provided content.',
     inputSchema: {
@@ -44,6 +45,13 @@ export function createWriteLocalTool(_options: WriteLocalToolOptions = {}): Loca
       assertCanWritePath(absolutePath, context)
       return withFileMutationQueue(absolutePath, async () => {
         await resolveWorkspacePath(rawPath, context)
+        await _options.mutationLifecycle?.beforeMutation?.({
+          absolutePath,
+          relativePath,
+          workspaceRoot: context.workspace,
+          threadId: context.threadId,
+          turnId: context.turnId
+        })
         await mkdirOp(dirname(absolutePath))
         if (writeFileOp) {
           await writeFileOp(absolutePath, content)
@@ -72,7 +80,7 @@ export const createWriteToolDefinition = createWriteLocalTool
 export function createEditLocalTool(_options: EditLocalToolOptions = {}): LocalTool {
   const readFileOp = _options.operations?.readFile ?? defaultEditLocalToolOperations.readFile!
   const writeFileOp = _options.operations?.writeFile
-  return LocalToolHost.defineTool({
+  return defineLocalTool({
     name: 'edit',
     description: 'Edit a workspace file using exact text replacement. Supports multiple disjoint edits in one call.',
     inputSchema: {
@@ -109,6 +117,13 @@ export function createEditLocalTool(_options: EditLocalToolOptions = {}): LocalT
       assertCanWritePath(absolutePath, context)
       return withFileMutationQueue(absolutePath, async () => {
         await resolveWorkspacePath(rawPath, context)
+        await _options.mutationLifecycle?.beforeMutation?.({
+          absolutePath,
+          relativePath,
+          workspaceRoot: context.workspace,
+          threadId: context.threadId,
+          turnId: context.turnId
+        })
         const rawSource = await readFileOp(absolutePath)
         const { bom, text: source } = stripBom(rawSource)
         const lineEnding = detectLineEnding(source)

@@ -79,6 +79,32 @@ export function normalizeAppSettings(settings: AppSettingsV1): AppSettingsV1 {
         maybeSettings.guiUpdate?.channel ?? DEFAULT_GUI_UPDATE_CHANNEL
       )
     },
+    conversation: {
+      viewMode:
+        maybeSettings.conversation?.viewMode === 'standard' ||
+        maybeSettings.conversation?.viewMode === 'developer'
+          ? maybeSettings.conversation.viewMode
+          : 'concise'
+    },
+    documents: {
+      parsingMode:
+        maybeSettings.documents?.parsingMode === 'fast' ||
+        maybeSettings.documents?.parsingMode === 'accurate'
+          ? maybeSettings.documents.parsingMode
+          : 'auto',
+      privateMineruServerUrl:
+        typeof maybeSettings.documents?.privateMineruServerUrl === 'string'
+          ? maybeSettings.documents.privateMineruServerUrl.trim()
+          : '',
+      allowPrivateServerUploadByWorkspace:
+        maybeSettings.documents?.allowPrivateServerUploadByWorkspace &&
+        typeof maybeSettings.documents.allowPrivateServerUploadByWorkspace === 'object'
+          ? Object.fromEntries(
+              Object.entries(maybeSettings.documents.allowPrivateServerUploadByWorkspace)
+                .filter(([root, allowed]) => root.trim().length > 0 && allowed === true)
+            )
+          : {}
+    },
     codePromptPrefix: typeof maybeSettings.codePromptPrefix === 'string' ? maybeSettings.codePromptPrefix : ''
   }
 }

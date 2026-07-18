@@ -52,6 +52,10 @@ import { KUN_SYSTEM_PROMPT } from '../prompt/kun-system-prompt.js'
 import { RuntimeEventRecorder } from '../services/runtime-event-recorder.js'
 import { ThreadService } from '../services/thread-service.js'
 import { TurnService } from '../services/turn-service.js'
+import { TaskController } from '../services/task-controller.js'
+import { TaskRunRepository } from '../services/task-run-repository.js'
+import { RuntimeSpanService } from '../services/runtime-span-service.js'
+import { GitCheckpointCoordinator } from '../services/git-checkpoint-coordinator.js'
 import { ReviewService } from '../services/review-service.js'
 import { UsageService } from '../services/usage-service.js'
 import type { UsageEvent } from '../contracts/events.js'
@@ -124,6 +128,87 @@ export async function createKunServeRuntime(
   const nowIso = () => new Date().toISOString()
   const allocateSeq = (threadId: string) => eventBus.allocateSeq(threadId)
   const events = new RuntimeEventRecorder({ eventBus, sessionStore, allocateSeq, nowIso })
+  const taskRepository = new TaskRunRepository(join(options.dataDir, 'tasks.sqlite3'))
+  const spanService = new RuntimeSpanService(taskRepository, nowIso)
+  spanService.prune()
+  const taskController = new TaskController({
+    repository: taskRepository,
+    threadStore,
+    sessionStore,
+    nowIso,
+    spans: spanService
+  })
+  const recoveredTasks = taskController.reconcileStartup()
+  taskRepository.reconcileShellSessionsStartup(nowIso())
+  const gitCheckpointCoordinator = new GitCheckpointCoordinator(taskRepository)
+  const mutationLifecycle = {
+    beforeMutation(input: {
+      absolutePath: string
+      relativePath: string
+      workspaceRoot: string
+      threadId: string
+    }) {
+      return gitCheckpointCoordinator.beforeMutation(input)
+    }
+  }
+  const shellTools = buildDefaultLocalTools({
+    beforeMutation: (input) => gitCheckpointCoordinator.beforeMutation(input)
+  }, {
+    bash: {
+      sessionOutputRoot: join(options.dataDir, 'shell-output'),
+      sessionLifecycle: {
+        onStarted(input) {
+          const task = taskRepository.findActiveByThread(input.threadId)
+          if (!task) return
+          const node = task.nodes.find((candidate) => candidate.status === 'running')
+            ?? task.nodes.find((candidate) => candidate.kind === 'execute')
+            ?? task.nodes[0]
+          if (!node) return
+          taskRepository.createShellSession({
+            id: input.sessionId,
+            taskId: task.id,
+            nodeId: node.id,
+            workspaceRoot: input.workspaceRoot,
+            commandSummary: input.commandSummary,
+            cwd: input.cwd,
+            status: 'running',
+            outputPath: input.outputPath,
+            outputBytes: 0,
+            createdAt: input.startedAt,
+            startedAt: input.startedAt,
+            revision: 0
+          })
+          spanService.start({
+            id: `span_shell_${input.sessionId}`,
+            taskId: task.id,
+            turnId: input.turnId,
+            kind: 'shell',
+            name: 'background-shell',
+            retryCount: 0,
+            attributes: { cwd: input.cwd, command: input.commandSummary }
+          })
+        },
+        onFinished(input) {
+          const current = taskRepository.getShellSession(input.sessionId)
+          if (!current || current.status === 'interrupted') return
+          taskRepository.updateShellSession(current.id, current.revision, (session) => ({
+            ...session,
+            status: input.status,
+            ...(input.exitCode !== undefined ? { exitCode: input.exitCode } : {}),
+            outputBytes: input.outputBytes,
+            finishedAt: input.finishedAt
+          }))
+          spanService.finish(`span_shell_${input.sessionId}`, {
+            status: input.status === 'completed' ? 'ok' : input.status === 'terminated' ? 'cancelled' : 'error',
+            ...(input.status === 'failed' ? { errorCode: 'shell_failed' } : {}),
+            attributes: { outputBytes: input.outputBytes, exitCode: input.exitCode ?? -1 }
+          })
+        }
+      }
+    },
+    write: { mutationLifecycle },
+    edit: { mutationLifecycle }
+  })
   const prefix = createImmutablePrefix({
     systemPrompt: KUN_SYSTEM_PROMPT,
     pinnedConstraints: [
@@ -140,7 +225,10 @@ export async function createKunServeRuntime(
     steering,
     compactor,
     ids,
-    nowIso
+    nowIso,
+    tasks: taskController,
+    approvalGate,
+    userInputGate
   })
   const threadService = new ThreadService({ threadStore, sessionStore, events, ids, nowIso })
   await seedUsageCarryover({ threadStore, sessionStore, usageService })
@@ -187,14 +275,16 @@ export async function createKunServeRuntime(
     attachmentStore,
     nowIso
   })
-  const pptMasterProviders = buildPptMasterToolProviders()
+  const pptMasterProviders = buildPptMasterToolProviders({
+    beforeMutation: (input) => gitCheckpointCoordinator.beforeMutation(input)
+  })
   const baseToolProviders = [
     {
       id: 'builtin',
       kind: 'built-in' as const,
       enabled: true,
       available: true,
-      tools: buildDefaultLocalTools()
+      tools: shellTools
     },
     ...mcpProviders.providers,
     ...webProviders.providers,
@@ -228,7 +318,9 @@ export async function createKunServeRuntime(
         }),
         recordExternalUsage: (threadId, usage) => {
           usageService.record(threadId, usage)
-        }
+        },
+        taskRepository,
+        spanService
       })
     : undefined
   const capabilities = buildRuntimeCapabilityManifest({
@@ -305,6 +397,13 @@ export async function createKunServeRuntime(
     prefix,
     ids,
     nowIso,
+    delegationPolicy: options.capabilities?.subagents
+      ? {
+          enabled: options.capabilities.subagents.enabled,
+          maxParallel: options.capabilities.subagents.maxParallel,
+          maxChildRuns: options.capabilities.subagents.maxChildRuns
+        }
+      : { enabled: false },
     modelCapabilities: (model) => modelCapabilitiesForModel(model, modelProfiles),
     skillRuntime,
     tokenEconomy,
@@ -320,12 +419,17 @@ export async function createKunServeRuntime(
         markdown,
         preserveCompleted: true
       })
-    }
+    },
+    tasks: taskController,
+    spanService
   })
   const startedAt = options.startedAt ?? nowIso()
-  return {
+  const runtime: ServerRuntime = {
     threadService,
     turnService,
+    taskController,
+    taskRepository,
+    spanService,
     reviewService,
     usageService,
     eventBus,
@@ -339,6 +443,9 @@ export async function createKunServeRuntime(
     ...(memoryStore ? { memoryStore } : {}),
     runTurn(threadId, turnId) {
       return loop.runTurn(threadId, turnId)
+    },
+    cancelChildRuns(parentThreadId, reason) {
+      return delegationRuntime?.abortParent(parentThreadId, reason) ?? 0
     },
     runReview(input) {
       return reviewService.runReview(input)
@@ -383,14 +490,80 @@ export async function createKunServeRuntime(
     },
     shutdown: async () => {
       turnService.abortAll('application_exit')
+      delegationRuntime?.abortAll('application_exit')
       approvalGate.expireAll('application_exit')
       userInputGate.reset()
       await stopAllBashSessions('application_exit')
       try {
         await mcpProviders.close()
       } finally {
-        await stores.shutdown?.()
+        try {
+          taskRepository.close()
+        } finally {
+          await stores.shutdown?.()
+        }
       }
+    }
+  }
+  if (recoveredTasks.length > 0) {
+    setImmediate(() => {
+      void resumeRecoveredTasks({ recoveredTasks, taskRepository, turnService, loop })
+    })
+  }
+  if (delegationRuntime) {
+    setImmediate(() => {
+      void delegationRuntime.recoverInterrupted()
+    })
+  }
+  return runtime
+}
+
+async function resumeRecoveredTasks(input: {
+  recoveredTasks: ReturnType<TaskController['reconcileStartup']>
+  taskRepository: TaskRunRepository
+  turnService: TurnService
+  loop: AgentLoop
+}): Promise<void> {
+  for (const recovered of input.recoveredTasks) {
+    if (recovered.parentTaskId) continue
+    try {
+      if (recovered.activeTurnId) {
+        await input.turnService.finishTurn({
+          threadId: recovered.threadId,
+          turnId: recovered.activeTurnId,
+          status: 'aborted'
+        })
+      }
+      const checkpoint = input.taskRepository.latestCheckpoint(recovered.id)
+      const started = await input.turnService.startTurn({
+        threadId: recovered.threadId,
+        request: {
+          prompt: [
+            'Continue the persisted task automatically after an application restart.',
+            `Goal: ${recovered.goal}`,
+            checkpoint?.resumeSummary ? `Checkpoint: ${checkpoint.resumeSummary}` : '',
+            'Do not repeat completed external side effects. Verify the acceptance contract before stopping.'
+          ].filter(Boolean).join('\n'),
+          displayText: '正在自动恢复未完成任务',
+          model: recovered.model,
+          mode: 'agent'
+        }
+      })
+      void input.loop.runTurn(started.threadId, started.turnId)
+    } catch (error) {
+      const current = input.taskRepository.get(recovered.id)
+      if (!current || ['completed', 'failed', 'cancelled', 'stalled'].includes(current.status)) continue
+      input.taskRepository.update(current.id, current.revision, (task) => ({
+        ...task,
+        status: 'stalled',
+        stalledReason: `自动恢复失败：${error instanceof Error ? error.message : String(error)}`,
+        waitingReason: undefined,
+        updatedAt: new Date().toISOString()
+      }), {
+        key: `startup-auto-recovery-failed:${current.revision}`,
+        kind: 'task_stalled',
+        payload: { code: 'startup_recovery_failed' }
+      })
     }
   }
 }

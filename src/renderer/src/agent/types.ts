@@ -40,7 +40,7 @@ export type RuntimeChildMetadata = {
   parentTurnId: string
   childId: string
   childLabel?: string
-  childStatus: 'queued' | 'running' | 'completed' | 'failed' | 'aborted'
+  childStatus: 'queued' | 'running' | 'completed' | 'failed' | 'aborted' | 'interrupted'
   childSeq: number
 }
 
@@ -91,6 +91,8 @@ export type NormalizedThread = {
   status?: string
   approvalPolicy?: ApprovalPolicy
   sandboxMode?: SandboxMode
+  agentId?: string
+  agentRevision?: number
   archived?: boolean
   preview?: string
   latestTurnId?: string

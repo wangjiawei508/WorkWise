@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
@@ -36,7 +36,10 @@ vi.mock('electron', () => ({
     quit: vi.fn()
   },
   dialog: {},
-  shell: {},
+  shell: {
+    openPath: vi.fn(async () => ''),
+    showItemInFolder: vi.fn()
+  },
   ipcMain: {
     handle: vi.fn((channel: string, handler: (event: unknown, payload?: unknown) => Promise<unknown>) => {
       handlers.set(channel, handler)
@@ -187,6 +190,32 @@ describe('registerAppIpcHandlers', () => {
         mimeType: 'image/png'
       })).resolves.toEqual({ ok: true, path: target })
       expect(readFileSync(target, 'utf8')).toBe('generated-image')
+    } finally {
+      rmSync(temp, { recursive: true, force: true })
+    }
+  })
+
+  it('opens and reveals verified workspace artifacts', async () => {
+    const { shell } = await import('electron')
+    const { registerAppIpcHandlers } = await import('./register-app-ipc-handlers')
+    const temp = mkdtempSync(join(tmpdir(), 'workwise-artifact-actions-'))
+    const source = join(temp, 'deck.pptx')
+    writeFileSync(source, 'fixture')
+
+    try {
+      registerAppIpcHandlers(registerOptions())
+
+      await expect(handlers.get('file:open-workspace')?.({}, {
+        path: 'deck.pptx',
+        workspaceRoot: temp
+      })).resolves.toEqual({ ok: true })
+      await expect(handlers.get('file:reveal-workspace')?.({}, {
+        path: 'deck.pptx',
+        workspaceRoot: temp
+      })).resolves.toEqual({ ok: true })
+      const canonicalSource = realpathSync(source)
+      expect(shell.openPath).toHaveBeenCalledWith(canonicalSource)
+      expect(shell.showItemInFolder).toHaveBeenCalledWith(canonicalSource)
     } finally {
       rmSync(temp, { recursive: true, force: true })
     }

@@ -1,5 +1,10 @@
 import type { ReactElement } from 'react'
-import type { ApprovalPolicy, AppSettingsV1, SandboxMode } from '@shared/app-settings'
+import type {
+  ApprovalPolicy,
+  AppSettingsV1,
+  ConversationViewMode,
+  SandboxMode
+} from '@shared/app-settings'
 import {
   DEFAULT_WRITE_INLINE_COMPLETION_BASE_URL,
   DEFAULT_WRITE_INLINE_COMPLETION_MAX_TOKENS,
@@ -13,6 +18,7 @@ import type { GuiUpdateChannel } from '@shared/gui-update'
 import type { SkillRootId } from '../lib/skill-root-preference'
 import { FolderOpen, Loader2, PencilLine, RefreshCw, Settings } from 'lucide-react'
 import { GuiUpdateControl } from './settings-gui-update'
+import { DocumentEngineSettingsCard } from './document-engine-settings-card'
 import {
   InlineNoticeView,
   SectionJumpButton,
@@ -157,6 +163,27 @@ export function GeneralSettingsSection({ ctx }: { ctx: Record<string, any> }): R
                   }
                 />
                 <SettingRow
+                  title={t('conversationViewMode')}
+                  description={t('conversationViewModeDesc')}
+                  control={
+                    <select
+                      className={selectControlClass}
+                      value={form.conversation.viewMode}
+                      onChange={(e) =>
+                        update({
+                          conversation: {
+                            viewMode: e.target.value as ConversationViewMode
+                          }
+                        })
+                      }
+                    >
+                      <option value="concise">{t('conversationViewModeConcise')}</option>
+                      <option value="standard">{t('conversationViewModeStandard')}</option>
+                      <option value="developer">{t('conversationViewModeDeveloper')}</option>
+                    </select>
+                  }
+                />
+                <SettingRow
                   title={t('turnCompleteNotification')}
                   description={t('turnCompleteNotificationDesc')}
                   control={
@@ -252,6 +279,14 @@ export function GeneralSettingsSection({ ctx }: { ctx: Record<string, any> }): R
                   }
                 />
               </SettingsCard>
+
+              <DocumentEngineSettingsCard
+                documents={form.documents}
+                workspaceRoot={form.workspaceRoot}
+                selectControlClass={selectControlClass}
+                update={update}
+                t={t}
+              />
 
               <SettingsCard title={t('guiUpdate')} className="mt-6">
                 <SettingRow

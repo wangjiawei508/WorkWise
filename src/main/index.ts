@@ -161,7 +161,7 @@ function runtimeJsonError(code: string, message: string): Error {
 traceStartup('main module evaluated')
 
 if (runningClawScheduleMcpServer && process.platform === 'darwin') {
-  app.dock.hide()
+  app.dock?.hide()
 }
 
 // 在最早的阶段把 app 名称、AppUserModelId 都设好。
@@ -963,7 +963,7 @@ app.whenReady().then(async () => {
 
   if (process.platform === 'darwin') {
     const dockSource = dockIcon.isEmpty() ? appIcon : dockIcon
-    if (!dockSource.isEmpty()) app.dock.setIcon(dockSource)
+    if (!dockSource.isEmpty()) app.dock?.setIcon(dockSource)
   }
 
   store = new JsonSettingsStore(app.getPath('userData'))
@@ -1016,7 +1016,13 @@ app.whenReady().then(async () => {
     expectedRevision?: number
   ): Promise<AppSettingsV1> => {
     const prev = await store.load()
-    const { agents: agentsPatch, provider: providerPatch, ...restPatch } = partial
+    const {
+      agents: agentsPatch,
+      provider: providerPatch,
+      conversation: conversationPatch,
+      documents: documentsPatch,
+      ...restPatch
+    } = partial
     const next = normalizeAppSettings({
       ...applyManagedRuntimePatch(prev, agentsPatch?.kun),
       ...restPatch,
@@ -1036,7 +1042,16 @@ app.whenReady().then(async () => {
       write: mergeWriteSettings(prev.write, partial.write),
       claw: mergeClawSettings(prev.claw, partial.claw),
       schedule: mergeScheduleSettings(prev.schedule, partial.schedule),
-      guiUpdate: { ...prev.guiUpdate, ...(partial.guiUpdate ?? {}) }
+      guiUpdate: { ...prev.guiUpdate, ...(partial.guiUpdate ?? {}) },
+      conversation: { ...prev.conversation, ...(conversationPatch ?? {}) },
+      documents: {
+        ...prev.documents,
+        ...(documentsPatch ?? {}),
+        allowPrivateServerUploadByWorkspace: {
+          ...prev.documents.allowPrivateServerUploadByWorkspace,
+          ...(documentsPatch?.allowPrivateServerUploadByWorkspace ?? {})
+        }
+      }
     })
     if (prev.log.enabled !== next.log.enabled || prev.log.retentionDays !== next.log.retentionDays) {
       configureLogger({ enabled: next.log.enabled, retentionDays: next.log.retentionDays })

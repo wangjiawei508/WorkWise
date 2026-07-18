@@ -152,6 +152,13 @@ export type CreatePlanAdapterOptions = {
     target: { workspaceRoot: string; relativePath: string; absolutePath: string; markdown: string },
     signal: AbortSignal
   ) => Promise<{ path: string; savedAt: string }>
+  beforeMutation?: (input: {
+    absolutePath: string
+    relativePath: string
+    workspaceRoot: string
+    threadId: string
+    turnId: string
+  }) => Promise<void> | void
 }
 
 /**
@@ -304,6 +311,13 @@ export async function executeCreatePlanTool(
   if (context.abortSignal.aborted) {
     return { output: { error: 'plan write aborted' }, isError: true }
   }
+  await options.beforeMutation?.({
+    absolutePath,
+    relativePath: resolved.relativePath,
+    workspaceRoot: resolvedWorkspace,
+    threadId: context.threadId,
+    turnId: context.turnId
+  })
   const writer = options.writePlan ?? defaultWritePlan
   const fingerprint = computeContentFingerprint(input.markdown)
   const written = await writer(

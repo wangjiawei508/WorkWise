@@ -20,6 +20,9 @@ import type { AttachmentStore } from '../../attachments/attachment-store.js'
 import type { MemoryDiagnostics } from '../../contracts/memory.js'
 import type { MemoryStore } from '../../memory/memory-store.js'
 import type { ReviewTarget } from '../../contracts/review.js'
+import type { TaskController } from '../../services/task-controller.js'
+import type { TaskRunRepository } from '../../services/task-run-repository.js'
+import type { RuntimeSpanService } from '../../services/runtime-span-service.js'
 
 export type RuntimeToolDiagnostics = {
   providers: ToolProviderPolicy[]
@@ -40,6 +43,9 @@ export type RuntimeToolDiagnostics = {
 export type ServerRuntime = {
   threadService: ThreadService
   turnService: TurnService
+  taskController?: TaskController
+  taskRepository?: TaskRunRepository
+  spanService?: RuntimeSpanService
   usageService: UsageService
   reviewService?: ReviewService
   eventBus: EventBus
@@ -52,6 +58,7 @@ export type ServerRuntime = {
   attachmentStore?: AttachmentStore
   memoryStore?: MemoryStore
   runTurn(threadId: string, turnId: string): Promise<'completed' | 'failed' | 'aborted'> | void
+  cancelChildRuns?(parentThreadId: string, reason?: string): number
   runReview?(input: {
     threadId: string
     turnId: string

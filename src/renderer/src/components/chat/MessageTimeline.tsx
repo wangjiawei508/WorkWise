@@ -2,6 +2,7 @@ import type { ReactElement, RefObject } from 'react'
 import { Fragment, memo, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { ChatBlock, RuntimeConnectionStatus } from '../../agent/types'
+import type { ConversationViewMode } from '@shared/app-settings'
 import { useChatStore } from '../../store/chat-store'
 import { resolveTimelineWorkspaceRoot, useTimelineStores } from './use-timeline-stores'
 import { useTimelineScroll } from './use-timeline-scroll'
@@ -21,6 +22,11 @@ import {
 } from './message-timeline-turns'
 import { extractPlanMetadataFromBlock } from '../../plan/plan-tool'
 import { planDisplayNameFromRelativePath } from '../../plan/plan-path'
+import {
+  isCriticalProcessBlock,
+  deriveSemanticProgress,
+  visibleProcessBlocksForMode
+} from './conversation-visibility'
 
 export { summarizeToolBlock } from './message-timeline-process'
 
@@ -41,6 +47,7 @@ type Props = {
   onBuildPlan?: () => void
   /** Opens/focuses the Plan panel (Open button on the inline card). */
   onOpenPlan?: () => void
+  viewMode?: ConversationViewMode
 }
 
 const TURN_PAGE_SIZE = 18
@@ -80,7 +87,8 @@ export function MessageTimeline({
   devPreviewCard,
   planActionsBusy,
   onBuildPlan,
-  onOpenPlan
+  onOpenPlan,
+  viewMode = 'concise'
 }: Props): ReactElement {
   const { t } = useTranslation('common')
   const {
@@ -223,6 +231,7 @@ export function MessageTimeline({
                 viewportRef={containerRef}
                 workspaceRoot={timelineWorkspaceRoot}
                 activeThreadId={activeThreadId}
+                viewMode={viewMode}
               />
             </Fragment>
           )
@@ -258,6 +267,7 @@ export function MessageTimeline({
             viewportRef={containerRef}
             workspaceRoot={timelineWorkspaceRoot}
             activeThreadId={activeThreadId}
+            viewMode={viewMode}
             durationMs={
               currentTurnUserId && typeof turnStartedAtByUserId[currentTurnUserId] === 'number'
                 ? Math.max(0, tickNow - turnStartedAtByUserId[currentTurnUserId])
@@ -291,7 +301,8 @@ function MessageTurn({
   onOpenPlan,
   viewportRef,
   workspaceRoot,
-  activeThreadId
+  activeThreadId,
+  viewMode
 }: {
   turn: Turn
   isProcessing: boolean
@@ -306,6 +317,7 @@ function MessageTurn({
   viewportRef: RefObject<HTMLDivElement | null>
   workspaceRoot: string
   activeThreadId: string | null
+  viewMode: ConversationViewMode
 }): ReactElement {
   // Inline Review Plan card: surfaced under a turn that produced a
   // successful `create_plan` result so the user can open/build the plan
@@ -323,7 +335,6 @@ function MessageTurn({
   const { think: liveThink, content: liveContent } = splitThink(live)
   const liveProcessText = [liveReasoning, liveThink].filter(Boolean).join('\n\n')
   const [workExpandedOverride, setWorkExpandedOverride] = useState<boolean | null>(null)
-  const workExpanded = workExpandedOverride ?? isProcessing
 
   const { processBlocks, assistantContentBlocks, generatedFileBlocks, turnFileChanges } = useMemo(
     () =>
@@ -341,20 +352,26 @@ function MessageTurn({
     [turn.blocks]
   )
 
+  const visibleProcessBlocks = useMemo(
+    () => visibleProcessBlocksForMode(processBlocks, viewMode),
+    [processBlocks, viewMode]
+  )
+  const semanticProgress = useMemo(
+    () => deriveSemanticProgress(processBlocks, isProcessing),
+    [processBlocks, isProcessing]
+  )
+  const criticalProcessVisible = visibleProcessBlocks.some(isCriticalProcessBlock)
+  const workExpanded = criticalProcessVisible || (workExpandedOverride ?? false)
+
   const processSections = useMemo(
-    () => (workExpanded ? groupProcessSections(processBlocks) : []),
-    [processBlocks, workExpanded]
+    () => (workExpanded ? groupProcessSections(visibleProcessBlocks) : []),
+    [visibleProcessBlocks, workExpanded]
   )
   const reasoningSectionCount = useMemo(
     () => processSections.filter((section) => section.kind === 'reasoning').length,
     [processSections]
   )
-  const showLiveAssistant = !isProcessing && !!liveContent.trim()
-
-  // Keep completed reasoning/tool work tucked away, but make the active turn's
-  // work visible unless the user explicitly collapses it.
-
-  const hasProcess = isProcessing || processBlocks.length > 0
+  const hasProcess = isProcessing || visibleProcessBlocks.length > 0
 
   return (
     <div className="flex min-w-0 flex-col gap-4">
@@ -364,11 +381,11 @@ function MessageTurn({
         <div className="flex flex-col gap-1 pb-2">
           <WorkMetaRow
             processing={isProcessing}
-            stepCount={processBlocks.length}
+            stepCount={visibleProcessBlocks.length}
             durationMs={durationMs}
             reasoningDurationMs={reasoningDurationMs}
             expanded={workExpanded}
-            onToggle={() => setWorkExpandedOverride((value) => !(value ?? isProcessing))}
+            onToggle={() => setWorkExpandedOverride((value) => !(value ?? false))}
           />
           {workExpanded && processSections.length > 0 ? (
             <div className="flex flex-col gap-1">
@@ -391,10 +408,6 @@ function MessageTurn({
         <MessageBubble key={block.id} block={block} />
       ))}
 
-      {showLiveAssistant ? (
-        <MessageBubble block={{ kind: 'assistant', id: 'live-assistant', text: liveContent }} />
-      ) : null}
-
       <GeneratedFilesPanel
         blocks={generatedFileBlocks}
         workspaceRoot={workspaceRoot}
@@ -405,7 +418,7 @@ function MessageTurn({
         <ReviewSummaryCard key={review.id} review={review} />
       ))}
 
-      {isProcessing ? <LiveTurnProgressRow /> : null}
+      {isProcessing ? <LiveTurnProgressRow progress={semanticProgress} /> : null}
 
       {!isProcessing && devPreviewCard ? devPreviewCard : null}
 
@@ -426,7 +439,7 @@ function MessageTurn({
   )
 }
 
-function LiveTurnProgressRow(): ReactElement {
+function LiveTurnProgressRow({ progress }: { progress: ReturnType<typeof deriveSemanticProgress> }): ReactElement {
   const { t } = useTranslation('common')
 
   return (
@@ -434,7 +447,9 @@ function LiveTurnProgressRow(): ReactElement {
       <span className="ds-work-logo-slot ds-work-logo-slot-sm mr-0.5">
         <AnimatedWorkLogo active phase="trail" size="sm" />
       </span>
-      <span className="ds-shiny-text">{t('working')}</span>
+      <span className="ds-shiny-text">
+        {t(`semanticProgress_${progress.phase}`, { count: progress.operationCount })}
+      </span>
     </div>
   )
 }
@@ -452,5 +467,6 @@ const MemoMessageTurn = memo(MessageTurn, (prev, next) => (
   prev.onOpenPlan === next.onOpenPlan &&
   prev.viewportRef === next.viewportRef &&
   prev.workspaceRoot === next.workspaceRoot &&
-  prev.activeThreadId === next.activeThreadId
+  prev.activeThreadId === next.activeThreadId &&
+  prev.viewMode === next.viewMode
 ))

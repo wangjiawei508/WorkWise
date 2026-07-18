@@ -74,7 +74,8 @@ function hasGeneratedFiles(block: ToolBlock): boolean {
 /**
  * Pure derivation of a turn's three view slices:
  *  - `processBlocks`: chronological reasoning/tool/compaction/approval
- *    trace, including in-flight assistant output while a turn is processing.
+ *    trace. Private reasoning stays in this internal slice and is filtered
+ *    before rendering; assistant text always belongs to the conversation.
  *  - `assistantContentBlocks`: assistant content that should render as the
  *    visible message body once it is no longer part of the active work timeline.
  *  - `turnFileChanges`: successful file_change tool blocks whose detail
@@ -103,11 +104,7 @@ export function deriveTurnSections({
       if (split.content.trim()) {
         const contentBlock: TurnAssistantBlock = { ...block, text: split.content }
         latestAssistantContentBlock = contentBlock
-        if (isProcessing) {
-          processBlocks.push(contentBlock)
-        } else {
-          assistantContentBlocks.push(contentBlock)
-        }
+        assistantContentBlocks.push(contentBlock)
       }
       continue
     }
@@ -127,7 +124,7 @@ export function deriveTurnSections({
     const liveText = liveContent.trim()
     const latestText = latestAssistantContentBlock?.text.trim() ?? ''
     if (liveText !== latestText) {
-      processBlocks.push({
+      assistantContentBlocks.push({
         kind: 'assistant',
         id: 'live-assistant',
         text: liveContent

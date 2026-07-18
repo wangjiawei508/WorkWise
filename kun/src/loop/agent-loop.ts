@@ -47,6 +47,9 @@ import type { TurnItem } from '../contracts/items.js'
 import type { ThreadGoal, ThreadTodoList } from '../contracts/threads.js'
 import { modelCapabilitiesForModel, type ContextCompactionConfig } from './model-context-profile.js'
 import type { SkillRuntime } from '../skills/skill-runtime.js'
+import type { TaskController } from '../services/task-controller.js'
+import type { RuntimeSpanService } from '../services/runtime-span-service.js'
+import type { TaskAttemptOutcome } from '../contracts/tasks.js'
 import type { AttachmentContent, AttachmentStore } from '../attachments/attachment-store.js'
 import type { ModelInputAttachment, ModelTextAttachmentFallback } from '../ports/model-client.js'
 import type { MemoryStore } from '../memory/memory-store.js'
@@ -354,6 +357,7 @@ export type AgentLoopOptions = {
   ids: IdGenerator
   nowIso: () => string
   nowMs?: () => number
+  delegationPolicy?: ToolHostContext['delegationPolicy']
   modelCapabilities?: (model: string) => ModelCapabilityMetadata
   skillRuntime?: SkillRuntime
   attachmentStore?: AttachmentStore
@@ -383,6 +387,8 @@ export type AgentLoopOptions = {
     relativePath: string
     markdown: string
   }) => Promise<void>
+  tasks?: TaskController
+  spanService?: RuntimeSpanService
 }
 
 /**
@@ -441,9 +447,94 @@ export class AgentLoop {
       await this.recordPipelineStage(threadId, turnId, 'pre_start')
       await this.drainSteering(threadId, turnId, signal)
       await this.recordPipelineStage(threadId, turnId, 'post_start')
-      const status = await this.loop(threadId, turnId, signal)
-      await this.opts.turns.finishTurn({ threadId, turnId, status })
-      return status
+      for (;;) {
+        this.opts.tasks?.beginAttempt(threadId, turnId)
+        let outcome: TaskAttemptOutcome
+        try {
+          outcome = await this.loop(threadId, turnId, signal)
+        } catch (error) {
+          if (!this.opts.tasks) throw error
+          const message = error instanceof Error ? error.message : String(error)
+          await this.opts.events.record({
+            kind: 'error',
+            threadId,
+            turnId,
+            message: '本次模型或工具尝试异常，任务将从检查点自动继续。',
+            code: 'turn_attempt_exception',
+            severity: 'warning'
+          })
+          outcome = {
+            kind: 'retryable',
+            code: 'turn_attempt_exception',
+            message: message.trim() || '本次模型或工具尝试异常。'
+          }
+        }
+        if (outcome.kind === 'candidate' && this.opts.tasks) {
+          const decision = await this.opts.tasks.assessCandidate(threadId, turnId)
+          if (decision.kind === 'continue') {
+            await this.opts.events.record({
+              kind: 'error',
+              threadId,
+              turnId,
+              message: decision.reason,
+              code: 'task_acceptance_retry',
+              severity: 'warning'
+            })
+            continue
+          }
+          if (decision.kind !== 'completed') {
+            await this.opts.turns.finishTurn({
+              threadId,
+              turnId,
+              status: 'failed',
+              error: decision.reason
+            })
+            return 'failed'
+          }
+        } else if (outcome.kind === 'retryable' && this.opts.tasks) {
+          const decision = this.opts.tasks.recordAttemptFailure(
+            threadId,
+            turnId,
+            outcome.code,
+            outcome.message
+          )
+          if (decision?.kind === 'continue') continue
+          if (decision && decision.kind !== 'completed') {
+            await this.opts.turns.finishTurn({
+              threadId,
+              turnId,
+              status: 'failed',
+              error: decision.reason
+            })
+            return 'failed'
+          }
+        } else if (outcome.kind === 'cancelled' && this.opts.tasks) {
+          const reason = typeof signal.reason === 'string' ? signal.reason : outcome.reason
+          if (reason === 'turn_total_timeout') {
+            this.opts.tasks.recordAttemptFailure(
+              threadId,
+              turnId,
+              'turn_total_timeout',
+              '任务已达到总时长上限。'
+            )
+          } else {
+            this.opts.tasks.cancel(threadId, reason)
+          }
+        }
+        const timedOut = outcome.kind === 'cancelled' && signal.reason === 'turn_total_timeout'
+        const status = outcome.kind === 'candidate'
+          ? 'completed'
+          : outcome.kind === 'cancelled'
+            ? timedOut ? 'failed' : 'aborted'
+            : 'failed'
+        await this.opts.turns.finishTurn({
+          threadId,
+          turnId,
+          status,
+          ...(outcome.kind === 'retryable' ? { error: outcome.message } : {})
+        })
+        return status
+      }
     } catch (error) {
       const raw = error instanceof Error ? error.message : String(error)
       // Best-effort enrichment so the renderer can show "what failed where"
@@ -551,9 +642,9 @@ export class AgentLoop {
     threadId: string,
     turnId: string,
     signal: AbortSignal
-  ): Promise<'completed' | 'failed' | 'aborted'> {
+  ): Promise<TaskAttemptOutcome> {
     for (let step = 0; ; step += 1) {
-      if (signal.aborted) return 'aborted'
+      if (signal.aborted) return { kind: 'cancelled', reason: 'operation_cancelled' }
       if (step >= MAX_TURN_MODEL_STEPS) {
         const message =
           `Turn stopped after ${MAX_TURN_MODEL_STEPS} model steps without reaching a final response.`
@@ -576,13 +667,23 @@ export class AgentLoop {
             severity: 'error'
           })
         )
-        return 'failed'
+        return {
+          kind: 'retryable',
+          code: 'turn_step_limit_exceeded',
+          message
+        }
       }
       await this.drainSteering(threadId, turnId, signal)
       const stepResult = await this.modelStep(threadId, turnId, signal, step)
-      if (stepResult === 'stop') return 'completed'
-      if (stepResult === 'failed') return 'failed'
-      if (stepResult === 'aborted') return 'aborted'
+      if (stepResult === 'stop') return { kind: 'candidate' }
+      if (stepResult === 'failed') {
+        return {
+          kind: 'retryable',
+          code: 'turn_attempt_failed',
+          message: '本次模型或工具尝试失败，任务将从检查点继续。'
+        }
+      }
+      if (stepResult === 'aborted') return { kind: 'cancelled', reason: 'operation_cancelled' }
     }
   }
 
@@ -632,7 +733,10 @@ export class AgentLoop {
       effectiveHistoryAfterLatestCompaction(healed.items)
     )
     const approvalPolicy = normalizeApprovalPolicy(thread?.approvalPolicy)
-    const sandboxMode = normalizeSandboxMode(thread?.sandboxMode)
+    const sandboxMode = effectiveAgentSandboxMode(
+      normalizeSandboxMode(thread?.sandboxMode),
+      thread?.agentProfile?.trustLevel
+    )
     // Per-turn mode overrides the thread mode so the GUI can toggle
     // Plan/agent (and run Build as agent) without recreating the thread.
     const effectiveMode = turn?.mode ?? thread?.mode
@@ -643,7 +747,7 @@ export class AgentLoop {
       items,
       signal,
       reasoningEffort: turn?.reasoningEffort,
-      candidates: [turn?.model, thread?.model, this.opts.model.model]
+      candidates: [turn?.model, thread?.agentProfile?.model, thread?.model, this.opts.model.model]
     })
     await this.recordPipelineStage(threadId, turnId, 'input_routed', {
       model: modelRoute.model,
@@ -704,10 +808,15 @@ export class AgentLoop {
     const activeTodoInstruction = planTurnActive
       ? null
       : todoContinuationInstruction(thread?.todos)
-    const allowedToolNames = allowedToolNamesWithGuiStateTools(
+    const skillAllowedToolNames = allowedToolNamesWithGuiStateTools(
       skillResolution.allowedToolNames,
       activeGoalInstruction !== null
     )
+    const allowedToolNames = intersectAgentToolAllowlist(
+      skillAllowedToolNames,
+      thread?.agentProfile?.toolAllowlist
+    )
+    const allowedMcpProviderIds = normalizeAgentAllowlist(thread?.agentProfile?.mcpAllowlist)
     // IM/headless turns run without the user-input gate; the tools key
     // their advertisement off `awaitUserInput`, so omitting it hides
     // `user_input`/`request_user_input` and rejects stray calls.
@@ -721,8 +830,9 @@ export class AgentLoop {
       model: modelCapabilities,
       activeSkillIds: skillResolution.activeSkillIds,
       memoryPolicy: { enabled: Boolean(this.opts.memoryStore) },
-      delegationPolicy: { enabled: false },
+      delegationPolicy: this.opts.delegationPolicy ?? { enabled: false },
       ...(allowedToolNames ? { allowedToolNames } : {}),
+      ...(allowedMcpProviderIds ? { allowedMcpProviderIds } : {}),
       approvalPolicy,
       sandboxMode,
       abortSignal: signal,
@@ -795,6 +905,7 @@ export class AgentLoop {
       historyItems: history.length
     })
     const contextInstructions = [
+      ...(thread?.agentProfile ? [agentProfileInstruction(thread.agentProfile)] : []),
       ...(activeGoalInstruction ? [activeGoalInstruction] : []),
       ...(activeTodoInstruction ? [activeTodoInstruction] : []),
       ...memoryInstructions(memories),
@@ -849,6 +960,10 @@ export class AgentLoop {
     let reasoningItemId = ''
     const completedToolCalls: ToolCallLike[] = []
     let stopReason: 'stop' | 'tool_calls' | 'length' | 'error' = 'stop'
+    let modelErrorCode: string | undefined
+    let inputTokens: number | undefined
+    let outputTokens: number | undefined
+    let cacheHit: boolean | undefined
     await this.recordPipelineStage(threadId, turnId, 'pre_send', {
       model: request.model,
       historyItems: request.history.length,
@@ -864,9 +979,27 @@ export class AgentLoop {
     await this.recordPipelineStage(threadId, turnId, 'post_send', {
       model: request.model
     })
-    for await (const chunk of this.opts.model.stream(request)) {
-      if (signal.aborted) return 'aborted'
-      switch (chunk.kind) {
+    const activeTask = this.opts.tasks?.activeTask(threadId)
+    const modelSpanId = activeTask ? `span_model_${turnId}_${stepIndex}` : undefined
+    if (activeTask && modelSpanId) {
+      this.opts.spanService?.start({
+        id: modelSpanId,
+        taskId: activeTask.id,
+        turnId,
+        kind: 'model',
+        name: 'model-stream',
+        retryCount: Math.max(0, activeTask.attempts - 1),
+        model: request.model,
+        attributes: { stepIndex, toolCount: request.tools.length }
+      })
+    }
+    try {
+      for await (const chunk of this.opts.model.stream(request)) {
+        if (signal.aborted) {
+          if (modelSpanId) this.opts.spanService?.finish(modelSpanId, { status: 'cancelled' })
+          return 'aborted'
+        }
+        switch (chunk.kind) {
         case 'assistant_text_delta':
           textItemId ||= this.opts.ids.next('item_text')
           textAccumulator.value += chunk.text
@@ -948,6 +1081,10 @@ export class AgentLoop {
           break
         }
         case 'usage': {
+          inputTokens = chunk.usage.promptTokens
+          outputTokens = chunk.usage.completionTokens
+          cacheHit = (chunk.usage.cachedTokens ?? chunk.usage.cacheHitTokens ?? 0) > 0 ||
+            (chunk.usage.cacheHitRate ?? 0) > 0
           this.recordPromptPressure(threadId, request.model, chunk.usage.promptTokens)
           const usage = this.opts.usage.record(threadId, chunk.usage)
           await this.opts.events.record({
@@ -970,9 +1107,32 @@ export class AgentLoop {
             message: chunk.message,
             code: chunk.code
           })
+          modelErrorCode = chunk.code ?? 'model_stream_error'
           stopReason = 'error'
           break
+        }
       }
+    } catch (error) {
+      if (modelSpanId) {
+        this.opts.spanService?.finish(modelSpanId, {
+          status: signal.aborted ? 'cancelled' : 'error',
+          ...(!signal.aborted ? { errorCode: runtimeErrorCode(error, 'model_stream_failed') } : {}),
+          ...(inputTokens !== undefined ? { inputTokens } : {}),
+          ...(outputTokens !== undefined ? { outputTokens } : {}),
+          ...(cacheHit !== undefined ? { cacheHit } : {})
+        })
+      }
+      throw error
+    }
+    if (modelSpanId) {
+      this.opts.spanService?.finish(modelSpanId, {
+        status: stopReason === 'error' ? 'error' : 'ok',
+        ...(stopReason === 'error' ? { errorCode: modelErrorCode ?? 'model_stream_error' } : {}),
+        ...(inputTokens !== undefined ? { inputTokens } : {}),
+        ...(outputTokens !== undefined ? { outputTokens } : {}),
+        ...(cacheHit !== undefined ? { cacheHit } : {}),
+        attributes: { stopReason, toolCallCount: completedToolCalls.length }
+      })
     }
     await this.recordPipelineStage(threadId, turnId, 'response_received', {
       stopReason,
@@ -1342,7 +1502,7 @@ export class AgentLoop {
       model: input.modelCapabilities,
       activeSkillIds: input.activeSkillIds,
       memoryPolicy: { enabled: Boolean(this.opts.memoryStore) },
-      delegationPolicy: { enabled: false },
+      delegationPolicy: this.opts.delegationPolicy ?? { enabled: false },
       ...(input.allowedToolNames ? { allowedToolNames: input.allowedToolNames } : {}),
       approvalPolicy: input.approvalPolicy,
       sandboxMode: input.sandboxMode,
@@ -1385,8 +1545,25 @@ export class AgentLoop {
         callId: input.call.callId
       },
       async () => {
+        const activeTask = this.opts.tasks?.activeTask(input.threadId)
+        const spanId = activeTask ? `span_tool_${input.turnId}_${input.call.callId}` : undefined
+        const spanKind = input.call.providerId?.startsWith('mcp:') ? 'mcp' : 'tool'
+        if (activeTask && spanId) {
+          this.opts.spanService?.start({
+            id: spanId,
+            taskId: activeTask.id,
+            turnId: input.turnId,
+            kind: spanKind,
+            name: input.call.toolName,
+            retryCount: Math.max(0, activeTask.attempts - 1),
+            attributes: {
+              toolKind: input.call.toolKind ?? 'tool_call',
+              provider: input.call.providerId ?? 'built-in'
+            }
+          })
+        }
         try {
-          return await this.opts.toolHost.execute(input.call, input.context, async (item) => {
+          const result = await this.opts.toolHost.execute(input.call, input.context, async (item) => {
             const existing = await this.opts.turns.updateItem(input.threadId, item.id, {
               output: item.kind === 'tool_result' ? item.output : undefined,
               isError: item.kind === 'tool_result' ? item.isError : undefined,
@@ -1395,8 +1572,25 @@ export class AgentLoop {
             if (existing) return
             await this.opts.turns.applyItem(input.threadId, item)
           })
+          const isError = result.item.kind === 'tool_result' && result.item.isError === true
+          if (spanId) {
+            this.opts.spanService?.finish(spanId, {
+              status: isError ? 'error' : 'ok',
+              ...(isError ? { errorCode: toolResultErrorCode(result) } : {}),
+              attributes: { approved: result.approved, isError }
+            })
+          }
+          return result
         } catch (error) {
           if (input.context.abortSignal.aborted || !this.isRecoverableToolDispatchError(error)) {
+            if (spanId) {
+              this.opts.spanService?.finish(spanId, {
+                status: input.context.abortSignal.aborted ? 'cancelled' : 'error',
+                ...(!input.context.abortSignal.aborted
+                  ? { errorCode: runtimeErrorCode(error, 'tool_execution_failed') }
+                  : {})
+              })
+            }
             throw error
           }
           const message = error instanceof Error ? error.message : String(error)
@@ -1408,7 +1602,7 @@ export class AgentLoop {
             code: 'tool_dispatch_rejected',
             severity: 'warning'
           })
-          return {
+          const result: ToolHostResult = {
             item: makeToolResultItem({
               id: `item_${input.call.callId}`,
               turnId: input.turnId,
@@ -1425,6 +1619,14 @@ export class AgentLoop {
             }),
             approved: false
           }
+          if (spanId) {
+            this.opts.spanService?.finish(spanId, {
+              status: 'error',
+              errorCode: 'tool_dispatch_rejected',
+              attributes: { approved: false, isError: true }
+            })
+          }
+          return result
         }
       }
     )
@@ -1934,7 +2136,9 @@ export class AgentLoop {
     turnId: string
   ): Promise<'allow' | 'blocked'> {
     if (!thread) return 'allow'
-    const budget = thread.costBudgetUsd
+    const budgetCandidates = [thread.costBudgetUsd, thread.agentProfile?.budget.maxCostUsd]
+      .filter((value): value is number => typeof value === 'number' && Number.isFinite(value) && value > 0)
+    const budget = budgetCandidates.length ? Math.min(...budgetCandidates) : undefined
     if (typeof budget !== 'number' || !Number.isFinite(budget) || budget <= 0) return 'allow'
     const spent = this.opts.usage.forThread(threadId).costUsd ?? 0
     if (spent >= budget) {
@@ -2199,6 +2403,50 @@ function normalizeSandboxMode(
   }
 }
 
+function effectiveAgentSandboxMode(
+  workspaceMode: NonNullable<ToolHostContext['sandboxMode']>,
+  agentTrust: 'read-only' | 'workspace-write' | 'trusted' | 'full-access' | undefined
+): NonNullable<ToolHostContext['sandboxMode']> {
+  if (!agentTrust || agentTrust === 'full-access') return workspaceMode
+  if (agentTrust === 'read-only') return 'read-only'
+  if (workspaceMode === 'read-only') return 'read-only'
+  // The runtime sandbox has no separate `trusted` tier. Both trusted and
+  // workspace-write remain contained to the workspace; only full-access may
+  // retain danger-full-access from the workspace policy.
+  return workspaceMode === 'external-sandbox' ? 'external-sandbox' : 'workspace-write'
+}
+
+function normalizeAgentAllowlist(
+  allowlist: readonly string[] | undefined
+): readonly string[] | undefined {
+  if (!allowlist || allowlist.includes('*')) return undefined
+  return [...new Set(allowlist)]
+}
+
+function intersectAgentToolAllowlist(
+  skillAllowlist: readonly string[] | undefined,
+  agentAllowlist: readonly string[] | undefined
+): readonly string[] | undefined {
+  const normalizedAgent = normalizeAgentAllowlist(agentAllowlist)
+  if (!normalizedAgent) return skillAllowlist
+  if (!skillAllowlist) return normalizedAgent
+  const permitted = new Set(normalizedAgent)
+  return skillAllowlist.filter((toolName) => permitted.has(toolName))
+}
+
+function agentProfileInstruction(profile: {
+  id: string
+  name: string
+  role: string
+  systemPrompt: string
+}): string {
+  return [
+    `[WorkWise Agent profile: ${profile.id}]`,
+    `Name: ${profile.name}. Role: ${profile.role}.`,
+    profile.systemPrompt
+  ].join('\n')
+}
+
 function previousWorkflowTurn(
   turns: ReadonlyArray<{ id: string; prompt: string; activeSkillIds: readonly string[] }>,
   currentTurnId: string,
@@ -2322,6 +2570,24 @@ function clipForPrompt(text: string, maxChars: number): string {
   const compact = text.replace(/\s+/g, ' ').trim()
   if (compact.length <= maxChars) return compact
   return `${compact.slice(0, Math.max(0, maxChars - 3)).trim()}...`
+}
+
+function runtimeErrorCode(error: unknown, fallback: string): string {
+  if (error && typeof error === 'object' && 'code' in error) {
+    const code = String((error as { code?: unknown }).code ?? '').trim()
+    if (code) return code.slice(0, 256)
+  }
+  return fallback
+}
+
+function toolResultErrorCode(result: ToolHostResult): string {
+  if (result.item.kind !== 'tool_result' || !result.item.isError) return 'tool_execution_failed'
+  const output = result.item.output
+  if (output && typeof output === 'object' && 'code' in output) {
+    const code = String((output as { code?: unknown }).code ?? '').trim()
+    if (code) return code.slice(0, 256)
+  }
+  return 'tool_execution_failed'
 }
 
 function fitTextToBytes(text: string, maxBytes: number): string {

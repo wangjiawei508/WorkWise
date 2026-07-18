@@ -75,9 +75,12 @@ export type ToolHostContext = {
     enabled: boolean
     maxParallel?: number
     maxChildRuns?: number
+    allowedModels?: readonly string[]
   }
   /** Optional provider allow-list. When set, other providers are not advertised or executed. */
   allowedProviderIds?: readonly string[]
+  /** Optional MCP-only provider allow-list. Built-in providers remain governed by tool policy. */
+  allowedMcpProviderIds?: readonly string[]
   /** Optional tool-name allow-list. When set, other tools are not advertised or executed. */
   allowedToolNames?: readonly string[]
   approvalPolicy: ApprovalPolicy

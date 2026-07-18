@@ -12,6 +12,7 @@ import {
   getThread,
   listThreads,
   setThreadGoal,
+  setThreadAgent,
   setThreadTodos,
   updateThread
 } from './threads.js'
@@ -46,6 +47,8 @@ import {
 import { isAuthorized, bearerToken } from '../auth.js'
 import { ERRORS } from './runtime-error.js'
 import type { ServerRuntime } from './server-runtime.js'
+import { cancelTask, getTask, getTaskDiagnostics, listTasks, resumeTask, retryTask } from './tasks.js'
+import { listShellSessions, terminateShellSession } from './shell-sessions.js'
 
 /**
  * Build the full router used by the HTTP server. The router exposes:
@@ -61,6 +64,7 @@ import type { ServerRuntime } from './server-runtime.js'
  * - `GET/POST /v1/threads` (auth)
  * - `GET/PATCH/DELETE /v1/threads/{id}` (auth)
  * - `POST /v1/threads/{id}/fork` (auth)
+ * - `POST /v1/threads/{id}/agent` (auth)
  * - `GET/POST/DELETE /v1/threads/{id}/goal` (auth)
  * - `GET/POST/DELETE /v1/threads/{id}/todos` (auth)
  * - `POST /v1/threads/{id}/turns` (auth)
@@ -136,6 +140,38 @@ export function buildRouter(runtime: ServerRuntime): Router {
     if (!authorize(request, runtime)) return ERRORS.unauthorized()
     return listThreads(runtime.threadService, request)
   })
+  router.add('GET', '/v1/tasks', async (request) => {
+    if (!authorize(request, runtime)) return ERRORS.unauthorized()
+    return listTasks(runtime, request)
+  })
+  router.add('GET', '/v1/tasks/:id', async (request, ctx) => {
+    if (!authorize(request, runtime)) return ERRORS.unauthorized()
+    return getTask(runtime, ctx.params.id)
+  })
+  router.add('GET', '/v1/tasks/:id/diagnostics', async (request, ctx) => {
+    if (!authorize(request, runtime)) return ERRORS.unauthorized()
+    return getTaskDiagnostics(runtime, ctx.params.id)
+  })
+  router.add('POST', '/v1/tasks/:id/resume', async (request, ctx) => {
+    if (!authorize(request, runtime)) return ERRORS.unauthorized()
+    return resumeTask(runtime, ctx.params.id, request)
+  })
+  router.add('POST', '/v1/tasks/:id/retry', async (request, ctx) => {
+    if (!authorize(request, runtime)) return ERRORS.unauthorized()
+    return retryTask(runtime, ctx.params.id, request)
+  })
+  router.add('POST', '/v1/tasks/:id/cancel', async (request, ctx) => {
+    if (!authorize(request, runtime)) return ERRORS.unauthorized()
+    return cancelTask(runtime, ctx.params.id, request)
+  })
+  router.add('GET', '/v1/shell-sessions', async (request) => {
+    if (!authorize(request, runtime)) return ERRORS.unauthorized()
+    return listShellSessions(runtime, request)
+  })
+  router.add('POST', '/v1/shell-sessions/:id/terminate', async (request, ctx) => {
+    if (!authorize(request, runtime)) return ERRORS.unauthorized()
+    return terminateShellSession(runtime, ctx.params.id, request)
+  })
   router.add('POST', '/v1/threads', async (request) => {
     if (!authorize(request, runtime)) return ERRORS.unauthorized()
     return createThread(runtime.threadService, request)
@@ -155,6 +191,10 @@ export function buildRouter(runtime: ServerRuntime): Router {
   router.add('POST', '/v1/threads/:id/fork', async (request, ctx) => {
     if (!authorize(request, runtime)) return ERRORS.unauthorized()
     return forkThread(runtime.threadService, ctx.params.id, request)
+  })
+  router.add('POST', '/v1/threads/:id/agent', async (request, ctx) => {
+    if (!authorize(request, runtime)) return ERRORS.unauthorized()
+    return setThreadAgent(runtime.threadService, ctx.params.id, request)
   })
   router.add('GET', '/v1/threads/:id/goal', async (request, ctx) => {
     if (!authorize(request, runtime)) return ERRORS.unauthorized()

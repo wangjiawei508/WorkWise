@@ -41,6 +41,9 @@ type ThreadRow = {
   status: ThreadStatus
   approval_policy: ApprovalPolicy
   sandbox_mode: SandboxMode
+  agent_id: string
+  agent_revision: number
+  agent_profile_json: string | null
   cost_budget_usd: number | null
   cost_budget_warning_sent: number | null
   relation: ThreadRelation
@@ -337,6 +340,9 @@ export class HybridThreadStore implements ThreadStore {
         status TEXT NOT NULL,
         approval_policy TEXT NOT NULL,
         sandbox_mode TEXT NOT NULL,
+        agent_id TEXT NOT NULL DEFAULT 'general',
+        agent_revision INTEGER NOT NULL DEFAULT 0,
+        agent_profile_json TEXT,
         cost_budget_usd REAL,
         cost_budget_warning_sent INTEGER,
         relation TEXT NOT NULL,
@@ -383,6 +389,9 @@ export class HybridThreadStore implements ThreadStore {
         ON usage_events(timestamp);
     `)
     addColumnIfMissing(this.db, 'threads', 'todos_json TEXT')
+    addColumnIfMissing(this.db, 'threads', "agent_id TEXT NOT NULL DEFAULT 'general'")
+    addColumnIfMissing(this.db, 'threads', 'agent_revision INTEGER NOT NULL DEFAULT 0')
+    addColumnIfMissing(this.db, 'threads', 'agent_profile_json TEXT')
     addColumnIfMissing(this.db, 'threads', 'usage_backfilled INTEGER NOT NULL DEFAULT 0')
   }
 
@@ -555,6 +564,7 @@ export class HybridThreadStore implements ThreadStore {
         .prepare(`
           INSERT INTO threads (
             id, title, workspace, model, mode, status, approval_policy, sandbox_mode,
+            agent_id, agent_revision, agent_profile_json,
             cost_budget_usd, cost_budget_warning_sent, relation, parent_thread_id,
             forked_from_thread_id, forked_from_title, forked_at, forked_from_message_count,
             forked_from_turn_count, goal_json, todos_json, created_at, updated_at, created_at_ms,
@@ -563,6 +573,7 @@ export class HybridThreadStore implements ThreadStore {
           )
           VALUES (
             @id, @title, @workspace, @model, @mode, @status, @approval_policy, @sandbox_mode,
+            @agent_id, @agent_revision, @agent_profile_json,
             @cost_budget_usd, @cost_budget_warning_sent, @relation, @parent_thread_id,
             @forked_from_thread_id, @forked_from_title, @forked_at, @forked_from_message_count,
             @forked_from_turn_count, @goal_json, @todos_json, @created_at, @updated_at, @created_at_ms,
@@ -577,6 +588,9 @@ export class HybridThreadStore implements ThreadStore {
             status = excluded.status,
             approval_policy = excluded.approval_policy,
             sandbox_mode = excluded.sandbox_mode,
+            agent_id = excluded.agent_id,
+            agent_revision = excluded.agent_revision,
+            agent_profile_json = excluded.agent_profile_json,
             cost_budget_usd = excluded.cost_budget_usd,
             cost_budget_warning_sent = excluded.cost_budget_warning_sent,
             relation = excluded.relation,
@@ -1016,6 +1030,9 @@ function rowFromIndexRecord(
     status: thread.status,
     approval_policy: thread.approvalPolicy,
     sandbox_mode: thread.sandboxMode,
+    agent_id: thread.agentId,
+    agent_revision: thread.agentRevision,
+    agent_profile_json: thread.agentProfile ? JSON.stringify(thread.agentProfile) : null,
     cost_budget_usd: thread.costBudgetUsd ?? null,
     cost_budget_warning_sent: thread.costBudgetWarningSent === undefined
       ? null
@@ -1048,6 +1065,7 @@ function rowFromIndexRecord(
 function summaryFromRow(row: ThreadRow): ThreadSummary {
   const goal = parseGoal(row.goal_json)
   const todos = parseTodos(row.todos_json)
+  const agentProfile = parseAgentProfile(row.agent_profile_json)
   return {
     id: row.id,
     title: row.title,
@@ -1057,6 +1075,9 @@ function summaryFromRow(row: ThreadRow): ThreadSummary {
     status: row.status,
     approvalPolicy: row.approval_policy,
     sandboxMode: row.sandbox_mode,
+    agentId: row.agent_id || 'general',
+    agentRevision: row.agent_revision ?? 0,
+    ...(agentProfile ? { agentProfile } : {}),
     ...(row.cost_budget_usd !== null ? { costBudgetUsd: row.cost_budget_usd } : {}),
     ...(row.cost_budget_warning_sent !== null ? { costBudgetWarningSent: Boolean(row.cost_budget_warning_sent) } : {}),
     relation: row.relation,
@@ -1070,6 +1091,16 @@ function summaryFromRow(row: ThreadRow): ThreadSummary {
     ...(todos ? { todos } : {}),
     createdAt: row.created_at,
     updatedAt: row.updated_at
+  }
+}
+
+function parseAgentProfile(raw: string | null): ThreadRecord['agentProfile'] | null {
+  if (!raw) return null
+  try {
+    const parsed = ThreadSchema.shape.agentProfile.safeParse(JSON.parse(raw))
+    return parsed.success ? parsed.data : null
+  } catch {
+    return null
   }
 }
 

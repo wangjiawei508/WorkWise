@@ -71,7 +71,7 @@ const RuntimeEventBase = z.object({
     parentTurnId: z.string().min(1),
     childId: z.string().min(1),
     childLabel: z.string().optional(),
-    childStatus: z.enum(['queued', 'running', 'completed', 'failed', 'aborted']),
+    childStatus: z.enum(['queued', 'running', 'completed', 'failed', 'aborted', 'interrupted']),
     childSeq: z.number().int().nonnegative()
   }).optional()
 })

@@ -5,6 +5,7 @@ import type { SessionStore } from '../ports/session-store.js'
 import type { IdGenerator } from '../ports/id-generator.js'
 import type {
   CreateThreadRequest,
+  SetThreadAgentRequest,
   SetThreadGoalRequest,
   SetThreadTodosRequest,
   ThreadGoal,
@@ -164,6 +165,38 @@ export class ThreadService {
       delete (merged as { parentThreadId?: string }).parentThreadId
     }
     const updated = touchThread(merged, this.nowIso())
+    await this.threadStore.upsert(updated)
+    await this.events.record({
+      kind: 'thread_updated',
+      threadId,
+      title: updated.title,
+      status: updated.status
+    })
+    return updated
+  }
+
+  async setAgent(threadId: string, request: SetThreadAgentRequest): Promise<ThreadRecord> {
+    const current = await this.threadStore.get(threadId)
+    if (!current) throw new Error(`thread not found: ${threadId}`)
+    if (current.lastAgentIdempotencyKey === request.idempotencyKey) {
+      if (current.agentId !== request.agentId) {
+        throw Object.assign(new Error('Agent idempotency key was already used for another selection.'), {
+          code: 'idempotency_conflict'
+        })
+      }
+      return current
+    }
+    if (current.agentRevision !== request.expectedRevision) {
+      throw Object.assign(new Error('Thread Agent revision conflict.'), { code: 'stale_request' })
+    }
+    const now = this.nowIso()
+    const updated = touchThread({
+      ...current,
+      agentId: request.agentId,
+      agentProfile: request.profile,
+      agentRevision: current.agentRevision + 1,
+      lastAgentIdempotencyKey: request.idempotencyKey
+    }, now)
     await this.threadStore.upsert(updated)
     await this.events.record({
       kind: 'thread_updated',
@@ -383,6 +416,9 @@ export class ThreadService {
       status: 'idle',
       approvalPolicy: current.approvalPolicy,
       sandboxMode: current.sandboxMode,
+      agentId: current.agentId,
+      agentRevision: current.agentRevision,
+      ...(current.agentProfile ? { agentProfile: current.agentProfile } : {}),
       relation,
       parentThreadId: current.id,
       forkedFromThreadId: current.id,
@@ -448,6 +484,9 @@ export class ThreadService {
       status: 'idle',
       approvalPolicy: sourceThread?.approvalPolicy,
       sandboxMode: sourceThread?.sandboxMode,
+      agentId: sourceThread?.agentId,
+      agentRevision: sourceThread?.agentRevision,
+      ...(sourceThread?.agentProfile ? { agentProfile: sourceThread.agentProfile } : {}),
       forkedFromThreadId: sourceThread?.id,
       forkedFromTitle: sourceThread?.title,
       forkedAt: now,

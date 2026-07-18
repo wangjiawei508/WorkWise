@@ -2,6 +2,7 @@ import type {
   ThreadMode,
   ThreadRecord,
   ThreadGoal,
+  ThreadAgentProfile,
   ThreadTodoList,
   ThreadRelation,
   ThreadStatus
@@ -29,6 +30,9 @@ export function createThreadRecord(input: {
   status?: ThreadStatus
   approvalPolicy?: ApprovalPolicy
   sandboxMode?: SandboxMode
+  agentId?: string
+  agentRevision?: number
+  agentProfile?: ThreadAgentProfile
   costBudgetUsd?: number
   costBudgetWarningSent?: boolean
   relation?: ThreadRelation
@@ -52,6 +56,9 @@ export function createThreadRecord(input: {
     status: input.status ?? 'idle',
     approvalPolicy: input.approvalPolicy ?? DEFAULT_APPROVAL_POLICY,
     sandboxMode: input.sandboxMode ?? DEFAULT_SANDBOX_MODE,
+    agentId: input.agentId ?? 'general',
+    agentRevision: input.agentRevision ?? 0,
+    ...(input.agentProfile ? { agentProfile: input.agentProfile } : {}),
     ...(input.costBudgetUsd !== undefined ? { costBudgetUsd: input.costBudgetUsd } : {}),
     ...(input.costBudgetWarningSent !== undefined ? { costBudgetWarningSent: input.costBudgetWarningSent } : {}),
     relation: input.relation ?? 'primary',
@@ -77,7 +84,7 @@ export function toThreadSummary(
   thread: ThreadEntity
 ): Pick<
   ThreadEntity,
-  'id' | 'title' | 'workspace' | 'model' | 'mode' | 'status' | 'approvalPolicy' | 'sandboxMode' | 'createdAt' | 'updatedAt'
+  'id' | 'title' | 'workspace' | 'model' | 'mode' | 'status' | 'approvalPolicy' | 'sandboxMode' | 'agentId' | 'agentRevision' | 'agentProfile' | 'createdAt' | 'updatedAt'
   | 'costBudgetUsd' | 'costBudgetWarningSent'
   | 'relation' | 'parentThreadId'
   | 'forkedFromThreadId' | 'forkedFromTitle' | 'forkedAt' | 'forkedFromMessageCount' | 'forkedFromTurnCount'
@@ -92,6 +99,9 @@ export function toThreadSummary(
     status: thread.status,
     approvalPolicy: thread.approvalPolicy,
     sandboxMode: thread.sandboxMode,
+    agentId: thread.agentId,
+    agentRevision: thread.agentRevision,
+    ...(thread.agentProfile ? { agentProfile: thread.agentProfile } : {}),
     ...(thread.costBudgetUsd !== undefined ? { costBudgetUsd: thread.costBudgetUsd } : {}),
     ...(thread.costBudgetWarningSent !== undefined ? { costBudgetWarningSent: thread.costBudgetWarningSent } : {}),
     relation: thread.relation ?? 'primary',

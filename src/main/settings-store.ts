@@ -144,6 +144,12 @@ function normalizeStoredSettings(settings: AppSettingsV1): WorkWiseSettingsV2 {
       ? normalized.revision as number
       : 0,
     workspaceRoot: normalizeWorkspaceRoot(normalized.workspaceRoot),
+    conversation: normalized.conversation ?? { viewMode: 'concise' },
+    documents: normalized.documents ?? {
+      parsingMode: 'auto',
+      privateMineruServerUrl: '',
+      allowPrivateServerUploadByWorkspace: {}
+    },
     write: {
       defaultWorkspaceRoot: writeDefaultRoot,
       activeWorkspaceRoot: writeWorkspaces.includes(writeActiveRoot) ? writeActiveRoot : writeDefaultRoot,
@@ -236,6 +242,14 @@ const defaultSettings = (): WorkWiseSettingsV2 => ({
   guiUpdate: {
     channel: DEFAULT_GUI_UPDATE_CHANNEL
   },
+  conversation: {
+    viewMode: 'concise'
+  },
+  documents: {
+    parsingMode: 'auto',
+    privateMineruServerUrl: '',
+    allowPrivateServerUploadByWorkspace: {}
+  },
   codePromptPrefix: '',
   write: defaultWriteSettings(),
   claw: defaultClawSettings(),
@@ -263,6 +277,15 @@ function buildMergedSettings(parsed: Partial<AppSettingsV1>): WorkWiseSettingsV2
     claw: mergeClawSettings(defaults.claw, migrated.claw),
     schedule: mergeScheduleSettings(defaults.schedule, migrated.schedule),
     guiUpdate: { ...defaults.guiUpdate, ...migrated.guiUpdate },
+    conversation: { ...defaults.conversation, ...migrated.conversation },
+    documents: {
+      ...defaults.documents,
+      ...migrated.documents,
+      allowPrivateServerUploadByWorkspace: {
+        ...defaults.documents.allowPrivateServerUploadByWorkspace,
+        ...migrated.documents?.allowPrivateServerUploadByWorkspace
+      }
+    },
     codePromptPrefix: typeof migrated.codePromptPrefix === 'string' ? migrated.codePromptPrefix : ''
   } as AppSettingsV1)
 }
@@ -487,7 +510,13 @@ export class JsonSettingsStore {
       if (expectedRevision !== undefined && expectedRevision !== cur.revision) {
         throw new SettingsRevisionConflictError(expectedRevision, cur.revision)
       }
-      const { agents: agentsPatch, provider: providerPatch, ...restPatch } = partial
+      const {
+        agents: agentsPatch,
+        provider: providerPatch,
+        conversation: conversationPatch,
+        documents: documentsPatch,
+        ...restPatch
+      } = partial
       const next = normalizeStoredSettings({
         ...applyManagedRuntimePatch(cur, agentsPatch?.kun),
         ...restPatch,
@@ -510,7 +539,16 @@ export class JsonSettingsStore {
         write: mergeWriteSettings(cur.write, partial.write),
         claw: mergeClawSettings(cur.claw, partial.claw),
         schedule: mergeScheduleSettings(cur.schedule, partial.schedule),
-        guiUpdate: { ...cur.guiUpdate, ...(partial.guiUpdate ?? {}) }
+        guiUpdate: { ...cur.guiUpdate, ...(partial.guiUpdate ?? {}) },
+        conversation: { ...cur.conversation, ...(conversationPatch ?? {}) },
+        documents: {
+          ...cur.documents,
+          ...(documentsPatch ?? {}),
+          allowPrivateServerUploadByWorkspace: {
+            ...cur.documents.allowPrivateServerUploadByWorkspace,
+            ...(documentsPatch?.allowPrivateServerUploadByWorkspace ?? {})
+          }
+        }
       })
       return this.save(next)
     })

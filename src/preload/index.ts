@@ -1,5 +1,38 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import type { WorkWiseApi } from '../shared/workwise-api'
+import {
+  RUNTIME_TASKS_PATH,
+  RUNTIME_SHELL_SESSIONS_PATH,
+  runtimeShellSessionTerminatePath,
+  runtimeTaskCancelPath,
+  runtimeTaskPath,
+  runtimeTaskResumePath,
+  runtimeTaskRetryPath,
+  runtimeTaskDiagnosticsPath,
+  runtimeThreadAgentPath,
+  runtimeThreadPath
+} from '../shared/runtime-endpoints'
+
+async function runtimeJson<T>(path: string, method = 'GET', body?: unknown): Promise<T> {
+  const result = await ipcRenderer.invoke('runtime:request', {
+    path,
+    method,
+    ...(body === undefined ? {} : { body: JSON.stringify(body) })
+  }) as { ok: boolean; status: number; body: string }
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(result.body)
+  } catch {
+    parsed = null
+  }
+  if (!result.ok) {
+    const message = parsed && typeof parsed === 'object' && 'message' in parsed
+      ? String(parsed.message)
+      : `Runtime request failed (${result.status}).`
+    throw new Error(message)
+  }
+  return parsed as T
+}
 
 const api = {
   platform: process.platform,
@@ -17,6 +50,25 @@ const api = {
   runtimeRequest: (path, method, body) =>
     ipcRenderer.invoke('runtime:request', { path, method, body }),
   cancelOperation: (request) => ipcRenderer.invoke('operation:cancel', request),
+  getTaskRun: (taskId) => runtimeJson(runtimeTaskPath(taskId)),
+  listTaskRuns: (query) => {
+    const params = new URLSearchParams()
+    if (query?.threadId) params.set('threadId', query.threadId)
+    if (query?.status) params.set('status', query.status)
+    if (query?.limit) params.set('limit', String(query.limit))
+    return runtimeJson(`${RUNTIME_TASKS_PATH}${params.size ? `?${params}` : ''}`)
+  },
+  resumeTask: (taskId, request) => runtimeJson(runtimeTaskResumePath(taskId), 'POST', request),
+  retryTask: (taskId, request) => runtimeJson(runtimeTaskRetryPath(taskId), 'POST', request),
+  cancelTask: (taskId, request) => runtimeJson(runtimeTaskCancelPath(taskId), 'POST', request),
+  getTaskDiagnostics: (taskId) => runtimeJson(runtimeTaskDiagnosticsPath(taskId)),
+  exportTaskDiagnostics: (taskId) => ipcRenderer.invoke('diagnostics:export-task', { taskId }),
+  listShellSessions: (taskId) => {
+    const query = taskId ? `?taskId=${encodeURIComponent(taskId)}` : ''
+    return runtimeJson(`${RUNTIME_SHELL_SESSIONS_PATH}${query}`)
+  },
+  terminateShellSession: (sessionId, request) =>
+    runtimeJson(runtimeShellSessionTerminatePath(sessionId), 'POST', request),
   fetchUpstreamModels: () => ipcRenderer.invoke('upstream:models'),
   getClawStatus: () => ipcRenderer.invoke('claw:status'),
   runClawTask: (taskId) =>
@@ -56,6 +108,35 @@ const api = {
   updateManagedTool: (id) => ipcRenderer.invoke('tool:update-managed', id),
   diagnoseManagedTool: (id) => ipcRenderer.invoke('tool:diagnose-managed', id),
   removeManagedTool: (id) => ipcRenderer.invoke('tool:remove-managed', id),
+  listAgentProfiles: (workspaceRoot) => ipcRenderer.invoke('agent-profile:list', { workspaceRoot }),
+  saveAgentProfile: (request) => ipcRenderer.invoke('agent-profile:save', request),
+  setThreadAgent: async (threadId, request) => {
+    const thread = await runtimeJson<{ workspace: string }>(runtimeThreadPath(threadId))
+    const snapshot = await ipcRenderer.invoke('agent-profile:list', {
+      workspaceRoot: thread.workspace
+    }) as Awaited<ReturnType<WorkWiseApi['listAgentProfiles']>>
+    const selected = snapshot.profiles.find((profile) => profile.id === request.agentId)
+    if (!selected) throw new Error(`Agent profile not found: ${request.agentId}`)
+    const { builtIn: _builtIn, source: _source, path: _path, ...profile } = selected
+    return runtimeJson<Awaited<ReturnType<WorkWiseApi['setThreadAgent']>>>(runtimeThreadAgentPath(threadId), 'POST', {
+      agentId: request.agentId,
+      profile,
+      expectedRevision: request.expectedRevision,
+      idempotencyKey: request.idempotencyKey
+    })
+  },
+  getWorkspaceTrust: (workspaceRoot) => ipcRenderer.invoke('workspace-trust:get', { workspaceRoot }),
+  setWorkspaceTrust: (request) => ipcRenderer.invoke('workspace-trust:set', request),
+  listMcpServers: (workspaceRoot) => ipcRenderer.invoke('mcp-server:list', { workspaceRoot }),
+  saveMcpServer: (request) => ipcRenderer.invoke('mcp-server:save', request),
+  testMcpServer: (serverId, workspaceRoot) => ipcRenderer.invoke('mcp-server:test', { serverId, workspaceRoot }),
+  authorizeMcpServer: (request) => ipcRenderer.invoke('mcp-server:authorize', request),
+  listDocumentEngines: () => ipcRenderer.invoke('document-engine:list'),
+  installDocumentEngine: (id) => ipcRenderer.invoke('document-engine:install', id),
+  diagnoseDocumentEngine: (id) => ipcRenderer.invoke('document-engine:diagnose', id),
+  parseDocument: (request) => ipcRenderer.invoke('document-engine:parse', request),
+  cancelDocumentParse: (parseId) => ipcRenderer.invoke('document-engine:cancel', parseId),
+  previewWorkspaceFile: (request) => ipcRenderer.invoke('file:preview-workspace', request),
   openSkillRoot: (rootPath) =>
     ipcRenderer.invoke('skill:open-root', rootPath),
   getRuntimeConfigFile: () =>
@@ -70,6 +151,12 @@ const api = {
     ipcRenderer.invoke('git:switch-branch', { workspaceRoot, branch }),
   createAndSwitchGitBranch: (workspaceRoot, branch) =>
     ipcRenderer.invoke('git:create-and-switch-branch', { workspaceRoot, branch }),
+  createGitCheckpoint: (request) => ipcRenderer.invoke('git:checkpoint:create', request),
+  previewGitRollback: (request) => ipcRenderer.invoke('git:rollback:preview', request),
+  applyGitRollback: (request) => ipcRenderer.invoke('git:rollback:apply', request),
+  buildRepoMap: (request) => ipcRenderer.invoke('repo-map:build', request),
+  queryRepoMap: (request) => ipcRenderer.invoke('repo-map:query', request),
+  lspRequest: (request) => ipcRenderer.invoke('lsp:request', request),
   listEditors: () => ipcRenderer.invoke('editor:list'),
   openEditorPath: (options) =>
     ipcRenderer.invoke('editor:open-path', options),
@@ -81,6 +168,8 @@ const api = {
     ipcRenderer.invoke('file:read-workspace', options),
   readWorkspaceImage: (options) =>
     ipcRenderer.invoke('file:read-workspace-image', options),
+  openWorkspaceFile: (options) =>
+    ipcRenderer.invoke('file:open-workspace', options),
   revealWorkspaceFile: (options) =>
     ipcRenderer.invoke('file:reveal-workspace', options),
   saveWorkspaceFileAs: (payload) =>

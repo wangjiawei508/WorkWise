@@ -20,7 +20,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  NODE_VERSION: '22'
+  NODE_VERSION: '22.12.0'
   RELEASE_CHANNEL: stable
   WORKWISE_DOWNLOAD_URL: https://www.railwise.cn/products/workwise/
   WORKWISE_UPDATE_PROVIDER: github
@@ -69,14 +69,74 @@ jobs:
           WORKWISE_STABILITY_MINUTES: '120'
           WORKWISE_STABILITY_INTERVAL_MINUTES: '10'
 
+  build-document-sidecars:
+    name: MarkItDown ${{ matrix.platform }} ${{ matrix.arch }}
+    if: ${{ always() && needs.prepare.result == 'success' && (needs.stability.result == 'success' || (github.event_name == 'workflow_dispatch' && inputs.skip_stability == true)) }}
+    needs: [prepare, stability]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15
+            platform: darwin
+            arch: arm64
+            artifact: markitdown-darwin-arm64
+          - runner: macos-15-intel
+            platform: darwin
+            arch: x64
+            artifact: markitdown-darwin-x64
+          - runner: windows-latest
+            platform: win32
+            arch: x64
+            artifact: markitdown-win32-x64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - name: Check out tag
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.ref }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          architecture: ${{ matrix.arch }}
+          cache: pip
+          cache-dependency-path: sidecars/markitdown/requirements.lock
+      - name: Install audited sidecar dependencies
+        run: python -m pip install --disable-pip-version-check --requirement sidecars/markitdown/requirements.lock
+      - name: Build native onedir sidecar
+        run: npm run build:markitdown-sidecar
+        env:
+          WORKWISE_PYTHON: python
+          WORKWISE_SIDECAR_ARCH: ${{ matrix.arch }}
+      - name: Generate and verify dependency SBOM
+        run: |
+          python sidecars/markitdown/generate_sbom.py build/sidecars/${{ matrix.artifact }}/SBOM-python.json
+          node scripts/verify-document-dependencies.mjs --python-sbom build/sidecars/${{ matrix.artifact }}/SBOM-python.json
+          node scripts/build-markitdown-sidecar.mjs --verify-only
+        env:
+          WORKWISE_SIDECAR_ARCH: ${{ matrix.arch }}
+      - name: Upload native sidecar
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          if-no-files-found: error
+          retention-days: 7
+          path: build/sidecars/${{ matrix.artifact }}/
+
   build-macos:
     name: Build macOS
-    if: ${{ always() && (needs.stability.result == 'success' || (github.event_name == 'workflow_dispatch' && inputs.skip_stability == true)) }}
+    if: ${{ always() && needs.build-document-sidecars.result == 'success' && (needs.stability.result == 'success' || (github.event_name == 'workflow_dispatch' && inputs.skip_stability == true)) }}
     runs-on: macos-latest
-    needs: [prepare, stability]
+    needs: [prepare, stability, build-document-sidecars]
     env:
       WORKWISE_APP_VERSION: ${{ needs.prepare.outputs.version }}
       WORKWISE_UPDATE_CHANNEL: stable
+      WORKWISE_REQUIRE_DOCUMENT_SIDECAR: '1'
       RELEASE_CHANNEL: stable
       # Mapped to env so steps can branch on presence (secrets are not allowed
       # in step-level `if:` conditions). When the signing secrets are absent the
@@ -101,6 +161,23 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
+
+      - name: Download Apple Silicon MarkItDown sidecar
+        uses: actions/download-artifact@v4
+        with:
+          name: markitdown-darwin-arm64
+          path: build/sidecars/markitdown-darwin-arm64
+
+      - name: Download Intel MarkItDown sidecar
+        uses: actions/download-artifact@v4
+        with:
+          name: markitdown-darwin-x64
+          path: build/sidecars/markitdown-darwin-x64
+
+      - name: Verify both macOS sidecars
+        run: |
+          WORKWISE_SIDECAR_ARCH=arm64 node scripts/build-markitdown-sidecar.mjs --verify-only
+          WORKWISE_SIDECAR_ARCH=x64 node scripts/build-markitdown-sidecar.mjs --verify-only
 
       - name: Verify managed CLI upstreams on macOS
         run: npm run test:managed-tools:live
@@ -160,6 +237,9 @@ jobs:
         if: steps.signing.outputs.enabled != 'true'
         run: npm run dist:mac
 
+      - name: Verify MarkItDown is packaged in both macOS applications
+        run: node scripts/verify-packaged-markitdown.cjs dist mac
+
       - name: Generate macOS update metadata
         run: node ./scripts/generate-mac-latest.cjs dist
 
@@ -176,12 +256,13 @@ jobs:
 
   build-windows:
     name: Build Windows
-    if: ${{ always() && (needs.stability.result == 'success' || (github.event_name == 'workflow_dispatch' && inputs.skip_stability == true)) }}
+    if: ${{ always() && needs.build-document-sidecars.result == 'success' && (needs.stability.result == 'success' || (github.event_name == 'workflow_dispatch' && inputs.skip_stability == true)) }}
     runs-on: windows-latest
-    needs: [prepare, stability]
+    needs: [prepare, stability, build-document-sidecars]
     env:
       WORKWISE_APP_VERSION: ${{ needs.prepare.outputs.version }}
       WORKWISE_UPDATE_CHANNEL: stable
+      WORKWISE_REQUIRE_DOCUMENT_SIDECAR: '1'
       RELEASE_CHANNEL: stable
       CSC_IDENTITY_AUTO_DISCOVERY: 'false'
     steps:
@@ -200,11 +281,25 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Download Windows MarkItDown sidecar
+        uses: actions/download-artifact@v4
+        with:
+          name: markitdown-win32-x64
+          path: build/sidecars/markitdown-win32-x64
+
+      - name: Verify Windows sidecar
+        run: node scripts/build-markitdown-sidecar.mjs --verify-only
+        env:
+          WORKWISE_SIDECAR_ARCH: x64
+
       - name: Verify managed CLI upstreams on Windows
         run: npm run test:managed-tools:live
 
       - name: Build Windows installer
         run: npm run dist:win
+
+      - name: Verify MarkItDown is packaged in the Windows application
+        run: node scripts/verify-packaged-markitdown.cjs dist win
 
       - name: Upload Windows installer
         uses: actions/upload-artifact@v4
@@ -219,11 +314,12 @@ jobs:
 
   publish:
     name: Publish GitHub Release
-    if: ${{ always() && needs.prepare.result == 'success' && needs.build-macos.result == 'success' && needs.build-windows.result == 'success' && (needs.stability.result == 'success' || (github.event_name == 'workflow_dispatch' && inputs.skip_stability == true)) }}
+    if: ${{ always() && needs.prepare.result == 'success' && needs.build-document-sidecars.result == 'success' && needs.build-macos.result == 'success' && needs.build-windows.result == 'success' && (needs.stability.result == 'success' || (github.event_name == 'workflow_dispatch' && inputs.skip_stability == true)) }}
     runs-on: ubuntu-latest
     needs:
       - prepare
       - stability
+      - build-document-sidecars
       - build-macos
       - build-windows
     env:

@@ -41,6 +41,12 @@ describe('JsonSettingsStore', () => {
 
     expect(loaded).toMatchObject({ schema: 'workwise.settings', version: 2, revision: 0 })
     expect(persisted).toMatchObject({ schema: 'workwise.settings', version: 2, revision: 0 })
+    expect(loaded.conversation).toEqual({ viewMode: 'concise' })
+    expect(loaded.documents).toEqual({
+      parsingMode: 'auto',
+      privateMineruServerUrl: '',
+      allowPrivateServerUploadByWorkspace: {}
+    })
   })
 
   it('serializes concurrent patches and rejects stale revisions without changing state', async () => {
@@ -79,6 +85,31 @@ describe('JsonSettingsStore', () => {
       targetPath: join(userDataDir, 'workwise-settings.json')
     })
     expect(await readFile(legacyPath, 'utf8')).toBe(legacyRaw)
+  })
+
+  it('persists revision-safe conversation and document preferences', async () => {
+    const userDataDir = await mkdtemp(join(tmpdir(), 'workwise-settings-workbench-'))
+    const store = new JsonSettingsStore(userDataDir, { workwiseHome: join(userDataDir, '.workwise') })
+    const initial = await store.load()
+
+    const updated = await store.patch({
+      conversation: { viewMode: 'developer' },
+      documents: {
+        parsingMode: 'accurate',
+        privateMineruServerUrl: 'https://mineru.example.test',
+        allowPrivateServerUploadByWorkspace: { '/tmp/workspace': true }
+      }
+    }, initial.revision)
+
+    expect(updated.revision).toBe(initial.revision + 1)
+    expect(updated.conversation.viewMode).toBe('developer')
+    expect(updated.documents).toMatchObject({
+      parsingMode: 'accurate',
+      privateMineruServerUrl: 'https://mineru.example.test',
+      allowPrivateServerUploadByWorkspace: { '/tmp/workspace': true }
+    })
+    await expect(store.patch({ conversation: { viewMode: 'standard' } }, initial.revision))
+      .rejects.toBeInstanceOf(SettingsRevisionConflictError)
   })
 
   it('defaults GUI updates to the stable channel for new settings', async () => {

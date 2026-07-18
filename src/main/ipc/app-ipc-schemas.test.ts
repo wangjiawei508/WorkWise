@@ -99,6 +99,14 @@ describe('app-ipc-schemas', () => {
     }).path).toBe('/v1/threads/thr_1/goal')
   })
 
+  it('accepts the revision-safe thread Agent selection endpoint', () => {
+    expect(runtimeRequestPayloadSchema.parse({
+      path: '/v1/threads/thr_1/agent',
+      method: 'POST',
+      body: '{}'
+    }).path).toBe('/v1/threads/thr_1/agent')
+  })
+
   it('accepts the WorkWise Runtime thread review endpoint', () => {
     expect(runtimeRequestPayloadSchema.parse({
       path: '/v1/threads/thr_1/review',

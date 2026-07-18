@@ -77,6 +77,18 @@ export function mergeSettings(current: AppSettingsV1, patch: SettingsPatch): Wor
     guiUpdate: {
       ...safeCurrent.guiUpdate,
       ...(patch.guiUpdate ?? {})
+    },
+    conversation: {
+      ...safeCurrent.conversation,
+      ...(patch.conversation ?? {})
+    },
+    documents: {
+      ...safeCurrent.documents,
+      ...(patch.documents ?? {}),
+      allowPrivateServerUploadByWorkspace: {
+        ...safeCurrent.documents.allowPrivateServerUploadByWorkspace,
+        ...(patch.documents?.allowPrivateServerUploadByWorkspace ?? {})
+      }
     }
   }
 }
@@ -147,6 +159,24 @@ export function coerceRendererSettings(settings: AppSettingsV1): WorkWiseSetting
     schedule: normalizeScheduleSettings(raw.schedule),
     guiUpdate: {
       channel: normalizeGuiUpdateChannel(raw.guiUpdate?.channel ?? DEFAULT_GUI_UPDATE_CHANNEL)
+    },
+    conversation: {
+      viewMode:
+        raw.conversation?.viewMode === 'standard' || raw.conversation?.viewMode === 'developer'
+          ? raw.conversation.viewMode
+          : 'concise'
+    },
+    documents: {
+      parsingMode:
+        raw.documents?.parsingMode === 'fast' || raw.documents?.parsingMode === 'accurate'
+          ? raw.documents.parsingMode
+          : 'auto',
+      privateMineruServerUrl:
+        typeof raw.documents?.privateMineruServerUrl === 'string'
+          ? raw.documents.privateMineruServerUrl.trim()
+          : '',
+      allowPrivateServerUploadByWorkspace:
+        raw.documents?.allowPrivateServerUploadByWorkspace ?? {}
     },
     codePromptPrefix: typeof raw.codePromptPrefix === 'string' ? raw.codePromptPrefix : ''
   }

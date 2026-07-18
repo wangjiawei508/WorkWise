@@ -45,6 +45,36 @@ export function runtimeMemoryRecordPath(memoryId: string): string {
 export const RUNTIME_THREADS_PATH = '/v1/threads'
 export const RUNTIME_THREADS_TEMPLATE = '/v1/threads'
 
+export const RUNTIME_TASKS_PATH = '/v1/tasks'
+export const RUNTIME_TASKS_TEMPLATE = '/v1/tasks'
+export const RUNTIME_TASK_TEMPLATE = '/v1/tasks/{id}'
+export const RUNTIME_TASK_RESUME_TEMPLATE = '/v1/tasks/{id}/resume'
+export const RUNTIME_TASK_RETRY_TEMPLATE = '/v1/tasks/{id}/retry'
+export const RUNTIME_TASK_CANCEL_TEMPLATE = '/v1/tasks/{id}/cancel'
+export const RUNTIME_TASK_DIAGNOSTICS_TEMPLATE = '/v1/tasks/{id}/diagnostics'
+export function runtimeTaskPath(taskId: string): string {
+  return `/v1/tasks/${encodeURIComponent(taskId)}`
+}
+export function runtimeTaskResumePath(taskId: string): string {
+  return `${runtimeTaskPath(taskId)}/resume`
+}
+export function runtimeTaskRetryPath(taskId: string): string {
+  return `${runtimeTaskPath(taskId)}/retry`
+}
+export function runtimeTaskCancelPath(taskId: string): string {
+  return `${runtimeTaskPath(taskId)}/cancel`
+}
+export function runtimeTaskDiagnosticsPath(taskId: string): string {
+  return `${runtimeTaskPath(taskId)}/diagnostics`
+}
+
+export const RUNTIME_SHELL_SESSIONS_PATH = '/v1/shell-sessions'
+export const RUNTIME_SHELL_SESSIONS_TEMPLATE = '/v1/shell-sessions'
+export const RUNTIME_SHELL_SESSION_TERMINATE_TEMPLATE = '/v1/shell-sessions/{id}/terminate'
+export function runtimeShellSessionTerminatePath(sessionId: string): string {
+  return `/v1/shell-sessions/${encodeURIComponent(sessionId)}/terminate`
+}
+
 export const RUNTIME_THREAD_TEMPLATE = '/v1/threads/{id}'
 export function runtimeThreadPath(threadId: string): string {
   return `/v1/threads/${encodeURIComponent(threadId)}`
@@ -53,6 +83,11 @@ export function runtimeThreadPath(threadId: string): string {
 export const RUNTIME_THREAD_FORK_TEMPLATE = '/v1/threads/{id}/fork'
 export function runtimeThreadForkPath(threadId: string): string {
   return `${runtimeThreadPath(threadId)}/fork`
+}
+
+export const RUNTIME_THREAD_AGENT_TEMPLATE = '/v1/threads/{id}/agent'
+export function runtimeThreadAgentPath(threadId: string): string {
+  return `${runtimeThreadPath(threadId)}/agent`
 }
 
 export const RUNTIME_THREAD_GOAL_TEMPLATE = '/v1/threads/{id}/goal'

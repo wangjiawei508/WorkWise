@@ -23,11 +23,12 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          node-version: '22.12.0'
           cache: npm
       - run: npm ci
       - run: npm run openspec:validate
       - run: npm run verify:brand-boundary
+      - run: npm run verify:document-licenses
       - run: npm run lint
       - run: npm run typecheck
       - run: npm test
@@ -42,12 +43,12 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          node-version: '22.12.0'
           cache: npm
       - run: npm ci
       - run: npm run typecheck
-      - run: npm test -- --run src/main/services/canonical-containment.test.ts src/main/services/safe-spawn.test.ts src/main/services/durable-file.test.ts src/main/services/git-service.test.ts
-      - run: npm --prefix kun test -- --run tests/atomic-write.test.ts tests/builtin-tools.test.ts
+      - run: npm test -- --run src/main/services/canonical-containment.test.ts src/main/services/safe-spawn.test.ts src/main/services/durable-file.test.ts src/main/services/git-service.test.ts src/main/services/workspace-trust-service.test.ts src/main/services/mcp-config-service.test.ts src/main/services/git-checkpoint-service.test.ts src/main/services/repo-map-service.test.ts src/main/services/mineru-installer-service.test.ts src/main/services/document-engine-service.test.ts src/main/services/pdf-document-service.test.ts src/main/services/office-archive-security.test.ts src/main/services/workspace-preview-service.test.ts src/main/ipc/agent-workbench-api-contract.test.ts
+      - run: npm --prefix kun test -- --run tests/atomic-write.test.ts tests/builtin-tools.test.ts src/services/task-run-repository.test.ts src/services/task-controller.test.ts src/services/runtime-span-service.test.ts src/loop/task-run-recovery.test.ts
 
   electron-smoke:
     name: Electron production smoke
@@ -56,7 +57,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          node-version: '22.12.0'
           cache: npm
       - run: npm ci
       - run: npm run build

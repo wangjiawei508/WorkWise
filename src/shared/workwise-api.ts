@@ -63,6 +63,32 @@ import type {
   AgnesImageGenerationResult
 } from './agnes-image'
 import type { CancelOperationRequest, CancelOperationResult } from './cancellation'
+import type {
+  AgentProfileSnapshotV1,
+  AgentProfileV1,
+  ThreadAgentSelectionV1,
+  DocumentEngineId,
+  DocumentEngineStatusV1,
+  DocumentParseRequestV1,
+  DocumentParseResultV1,
+  DocumentParsingMode,
+  WorkspaceTrustLevel,
+  WorkspaceTrustV1
+} from './agent-workbench'
+import type {
+  GitCheckpointV1,
+  GitRollbackPreviewV1,
+  LspRequestV1,
+  LspResponseV1,
+  McpServerConfigV2,
+  McpServerStatusV1,
+  RepoMapResultV1,
+  ShellSessionV1,
+  RuntimeSpanV1,
+  TaskRunListQuery,
+  TaskRunV1,
+  WorkspacePreviewResultV1
+} from './agent-workbench'
 
 export type RuntimeRequestResult = { ok: boolean; status: number; body: string }
 export type WorkspacePickResult = { canceled: boolean; path: string | null }
@@ -256,6 +282,27 @@ export type WorkWiseApi = {
   setSettings: (partial: AppSettingsPatch, expectedRevision?: number) => Promise<WorkWiseSettingsV2>
   runtimeRequest: (path: string, method?: string, body?: string) => Promise<RuntimeRequestResult>
   cancelOperation: (request: CancelOperationRequest) => Promise<CancelOperationResult>
+  getTaskRun: (taskId: string) => Promise<TaskRunV1 | null>
+  listTaskRuns: (query?: TaskRunListQuery) => Promise<TaskRunV1[]>
+  resumeTask: (taskId: string, request: RevisionTaskAction) => Promise<{ task: TaskRunV1; turn: unknown }>
+  retryTask: (taskId: string, request: RevisionTaskAction) => Promise<{ task: TaskRunV1; turn: unknown }>
+  cancelTask: (taskId: string, request: RevisionTaskAction) => Promise<TaskRunV1>
+  getTaskDiagnostics: (taskId: string) => Promise<{
+    schema: 'workwise.task-diagnostics'
+    version: 1
+    generatedAt: string
+    taskId: string
+    summary: { total: number; running: number; errors: number; retries: number; durationMs: number }
+    spans: RuntimeSpanV1[]
+  }>
+  exportTaskDiagnostics: (taskId: string) => Promise<{
+    ok: boolean
+    canceled?: boolean
+    path?: string
+    message?: string
+  }>
+  listShellSessions: (taskId?: string) => Promise<ShellSessionV1[]>
+  terminateShellSession: (sessionId: string, request: RevisionTaskAction) => Promise<ShellSessionV1>
   fetchUpstreamModels: () => Promise<UpstreamModelsResult>
   getClawStatus: () => Promise<ClawRuntimeStatus>
   runClawTask: (taskId: string) => Promise<ClawRunResult>
@@ -284,6 +331,51 @@ export type WorkWiseApi = {
   updateManagedTool: (id: ManagedToolId) => Promise<ManagedToolResult>
   diagnoseManagedTool: (id: ManagedToolId) => Promise<ManagedToolResult>
   removeManagedTool: (id: ManagedToolId) => Promise<ManagedToolResult>
+  listAgentProfiles: (workspaceRoot?: string) => Promise<AgentProfileSnapshotV1>
+  saveAgentProfile: (request: {
+    scope: 'global' | 'workspace'
+    workspaceRoot?: string
+    profile: Omit<AgentProfileV1, 'builtIn' | 'source' | 'path' | 'revision'> & { revision?: number }
+    expectedRevision: number
+    idempotencyKey: string
+  }) => Promise<AgentProfileV1>
+  setThreadAgent: (threadId: string, request: {
+    agentId: string
+    expectedRevision: number
+    idempotencyKey: string
+  }) => Promise<ThreadAgentSelectionV1>
+  getWorkspaceTrust: (workspaceRoot: string) => Promise<WorkspaceTrustV1>
+  setWorkspaceTrust: (request: {
+    workspaceRoot: string
+    level: WorkspaceTrustLevel
+    expectedRevision: number
+    confirmed: boolean
+    idempotencyKey: string
+  }) => Promise<WorkspaceTrustV1>
+  listMcpServers: (workspaceRoot?: string) => Promise<McpServerConfigV2[]>
+  saveMcpServer: (request: {
+    config: Omit<McpServerConfigV2, 'revision'> & { revision?: number }
+    expectedRevision: number
+    idempotencyKey: string
+  }) => Promise<McpServerConfigV2>
+  testMcpServer: (serverId: string, workspaceRoot?: string) => Promise<McpServerStatusV1>
+  authorizeMcpServer: (request: {
+    serverId: string
+    workspaceRoot?: string
+    state?: string
+    authorizationCode?: string
+  }) => Promise<McpServerStatusV1>
+  listDocumentEngines: () => Promise<DocumentEngineStatusV1[]>
+  installDocumentEngine: (id: DocumentEngineId) => Promise<DocumentEngineStatusV1>
+  diagnoseDocumentEngine: (id: DocumentEngineId) => Promise<DocumentEngineStatusV1>
+  parseDocument: (request: DocumentParseRequestV1) => Promise<DocumentParseResultV1>
+  cancelDocumentParse: (parseId: string) => Promise<boolean>
+  previewWorkspaceFile: (request: {
+    workspaceRoot: string
+    relativePath: string
+    parsingMode?: DocumentParsingMode
+    idempotencyKey: string
+  }) => Promise<WorkspacePreviewResultV1>
   openSkillRoot: (rootPath: string) => Promise<PathOpenResult>
   getRuntimeConfigFile: () => Promise<RuntimeConfigFileResult>
   setRuntimeConfigFile: (content: string) => Promise<RuntimeConfigSaveResult>
@@ -291,12 +383,44 @@ export type WorkWiseApi = {
   getGitBranches: (workspaceRoot: string) => Promise<GitBranchesResult>
   switchGitBranch: (workspaceRoot: string, branch: string) => Promise<GitBranchesResult>
   createAndSwitchGitBranch: (workspaceRoot: string, branch: string) => Promise<GitBranchesResult>
+  createGitCheckpoint: (request: {
+    taskId: string
+    workspaceRoot: string
+    repositoryRoot?: string
+    relatedPaths?: string[]
+    idempotencyKey: string
+  }) => Promise<GitCheckpointV1>
+  previewGitRollback: (request: {
+    checkpointId: string
+    relatedPaths?: string[]
+  }) => Promise<GitRollbackPreviewV1>
+  applyGitRollback: (request: {
+    checkpointId: string
+    relatedPaths?: string[]
+    expectedRevision: number
+    idempotencyKey: string
+  }) => Promise<GitRollbackPreviewV1>
+  buildRepoMap: (request: {
+    workspaceRoot: string
+    repositoryRoot: string
+    maxFiles?: number
+    maxBytes?: number
+    maxDurationMs?: number
+    idempotencyKey: string
+  }) => Promise<RepoMapResultV1>
+  queryRepoMap: (request: {
+    repositoryRoot: string
+    query: string
+    limit?: number
+  }) => Promise<RepoMapResultV1>
+  lspRequest: (request: LspRequestV1) => Promise<LspResponseV1>
   listEditors: () => Promise<EditorListResult>
   openEditorPath: (options: OpenEditorPathOptions) => Promise<EditorOpenResult>
   listWorkspaceDirectory: (options: WorkspaceDirectoryTarget) => Promise<WorkspaceDirectoryListResult>
   resolveWorkspaceFile: (options: WorkspaceFileTarget) => Promise<WorkspaceFileResolveResult>
   readWorkspaceFile: (options: WorkspaceFileTarget) => Promise<WorkspaceFileReadResult>
   readWorkspaceImage: (options: WorkspaceFileTarget) => Promise<WorkspaceImageReadResult>
+  openWorkspaceFile: (options: WorkspaceFileTarget) => Promise<PathOpenResult>
   revealWorkspaceFile: (options: WorkspaceFileTarget) => Promise<PathOpenResult>
   saveWorkspaceFileAs: (payload: WorkspaceFileSaveAsPayload) => Promise<WorkspaceFileSaveAsResult>
   writeWorkspaceFile: (payload: WorkspaceFileWritePayload) => Promise<WorkspaceFileWriteResult>
@@ -374,4 +498,11 @@ export type WorkWiseApi = {
   getLogPath: () => Promise<string>
   openLogDir: () => Promise<{ ok: boolean; message?: string }>
   getPathForFile: (file: File) => string
+}
+
+export type RevisionTaskAction = {
+  expectedRevision: number
+  idempotencyKey: string
+  model?: string
+  reason?: string
 }

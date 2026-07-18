@@ -10,6 +10,7 @@ import { createApprovalRequest } from '../../domain/approval.js'
 import type { TurnItem } from '../../contracts/items.js'
 import { makeToolResultItem, makeApprovalItem } from '../../domain/item.js'
 import { buildBuiltinLocalTools } from './builtin-tools.js'
+import type { BuiltinLocalToolsOptions } from './builtin-tool-types.js'
 import { CapabilityRegistry } from './capability-registry.js'
 import {
   applyPostToolHookResults,
@@ -26,6 +27,7 @@ import {
   type ReadTrackerOptions
 } from './read-tracker.js'
 import { sandboxBlockForTool, type SandboxBlock } from './sandbox-policy.js'
+import { defineLocalTool } from './local-tool-definition.js'
 
 /**
  * A single registered tool. Tools are pure functions that observe the
@@ -335,15 +337,7 @@ export class LocalToolHost implements ToolHost {
       toolKind?: LocalTool['toolKind']
     }
   ): LocalTool {
-    return {
-      policy: tool.policy ?? 'on-request',
-      name: tool.name,
-      description: tool.description,
-      inputSchema: tool.inputSchema,
-      toolKind: tool.toolKind ?? 'tool_call',
-      execute: tool.execute,
-      ...(tool.shouldAdvertise ? { shouldAdvertise: tool.shouldAdvertise } : {})
-    }
+    return defineLocalTool(tool)
   }
 }
 
@@ -553,6 +547,15 @@ import { createCreatePlanTool, type CreatePlanAdapterOptions } from './create-pl
  * `shouldAdvertise` predicate, so it is safe to ship with the
  * default set: non-plan turns never see it in the model tool list.
  */
-export function buildDefaultLocalTools(planOptions: CreatePlanAdapterOptions = {}): LocalTool[] {
-  return [...defaultLocalTools, createCreatePlanTool(planOptions)]
+export function buildDefaultLocalTools(
+  planOptions: CreatePlanAdapterOptions = {},
+  builtinOptions: BuiltinLocalToolsOptions = {}
+): LocalTool[] {
+  return [
+    ...buildBuiltinLocalTools(builtinOptions),
+    echoTool,
+    userInputTool,
+    requestUserInputTool,
+    createCreatePlanTool(planOptions)
+  ]
 }

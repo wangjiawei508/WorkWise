@@ -34,6 +34,8 @@ function settings(apiKey: string, revision = 0): WorkWiseSettingsV2 {
     claw: defaultClawSettings(),
     schedule: defaultScheduleSettings(),
     guiUpdate: { channel: 'stable' },
+    conversation: { viewMode: 'concise' },
+    documents: { parsingMode: 'auto', privateMineruServerUrl: '', allowPrivateServerUploadByWorkspace: {} },
     codePromptPrefix: ''
   }
 }

@@ -20,6 +20,7 @@ import type { GuiUpdateChannel } from '@shared/gui-update'
 import type { SkillRootId } from '../lib/skill-root-preference'
 import { Ban, ChevronDown, FolderOpen, Loader2, RefreshCw, Settings, Trash2 } from 'lucide-react'
 import { GuiUpdateControl } from './settings-gui-update'
+import { AgentProfileCenter } from './agent-profile-center'
 import {
   InlineNoticeView,
   SecretInput,
@@ -402,6 +403,11 @@ export function AgentsSettingsSection({ ctx }: { ctx: Record<string, any> }): Re
 
   return (
             <>
+              <AgentProfileCenter
+                workspaceRoot={form.workspaceRoot}
+                selectControlClass={selectControlClass}
+                t={t}
+              />
               <div className="mb-6 flex flex-wrap gap-2">
                 <SectionJumpButton label={t('agentsQuickBase')} onClick={() => scrollToAgentSection('agents')} />
                 <SectionJumpButton label={t('agentsQuickSkill')} onClick={() => scrollToAgentSection('skill')} />

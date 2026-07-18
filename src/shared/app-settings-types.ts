@@ -520,6 +520,16 @@ export type GuiUpdateConfigV1 = {
   channel: GuiUpdateChannel
 }
 
+export type ConversationSettingsV1 = {
+  viewMode: import('./agent-workbench').ConversationViewMode
+}
+
+export type DocumentSettingsV1 = {
+  parsingMode: import('./agent-workbench').DocumentParsingMode
+  privateMineruServerUrl: string
+  allowPrivateServerUploadByWorkspace: Record<string, boolean>
+}
+
 export type AppSettingsV1 = {
   /** Present on WorkWise V2 settings; absent on legacy V1 input. */
   schema?: 'workwise.settings'
@@ -541,17 +551,23 @@ export type AppSettingsV1 = {
   claw: ClawSettingsV1
   schedule: ScheduleSettingsV1
   guiUpdate: GuiUpdateConfigV1
+  /** Optional on legacy V1 input; normalized and required on WorkWise V2 output. */
+  conversation?: ConversationSettingsV1
+  /** Optional on legacy V1 input; normalized and required on WorkWise V2 output. */
+  documents?: DocumentSettingsV1
   codePromptPrefix: string
 }
 
-export type WorkWiseSettingsV2 = Omit<AppSettingsV1, 'schema' | 'version' | 'revision'> & {
+export type WorkWiseSettingsV2 = Omit<AppSettingsV1, 'schema' | 'version' | 'revision' | 'conversation' | 'documents'> & {
   schema: 'workwise.settings'
   version: 2
   revision: number
+  conversation: ConversationSettingsV1
+  documents: DocumentSettingsV1
 }
 
 export type AppSettingsPatch = Partial<
-  Omit<AppSettingsV1, 'schema' | 'version' | 'revision' | 'provider' | 'agents' | 'log' | 'notifications' | 'appBehavior' | 'keyboardShortcuts' | 'write' | 'claw' | 'schedule' | 'guiUpdate'>
+  Omit<AppSettingsV1, 'schema' | 'version' | 'revision' | 'provider' | 'agents' | 'log' | 'notifications' | 'appBehavior' | 'keyboardShortcuts' | 'write' | 'claw' | 'schedule' | 'guiUpdate' | 'conversation' | 'documents'>
 > & {
   provider?: ModelProviderSettingsPatchV1
   agents?: KunSettingsEnvelopePatchV1
@@ -563,4 +579,6 @@ export type AppSettingsPatch = Partial<
   claw?: ClawSettingsPatchV1
   schedule?: ScheduleSettingsPatchV1
   guiUpdate?: Partial<GuiUpdateConfigV1>
+  conversation?: Partial<ConversationSettingsV1>
+  documents?: Partial<DocumentSettingsV1>
 }

@@ -21,7 +21,7 @@ export type EventSourcedChildRunProjection = {
   parentThreadId: string
   parentTurnId: string
   label?: string
-  status: 'queued' | 'running' | 'completed' | 'failed' | 'aborted'
+  status: 'queued' | 'running' | 'completed' | 'failed' | 'aborted' | 'interrupted'
   seq: number
   updatedAt: string
   text?: string

@@ -221,16 +221,17 @@ describe('deriveTurnSections', () => {
     expect(result.turnFileChanges[0]?.detail).toContain('+new detail')
   })
 
-  it('renders live assistant output inside the active process timeline', () => {
+  it('renders live assistant output as conversation content, not technical work', () => {
     const result = processingSections({
       liveProcessText: 'private reasoning',
       liveContent: '这里是正在生成的回答。'
     })
 
-    expect(result.assistantContentBlocks).toEqual([])
-    expect(result.processBlocks).toEqual([
-      { kind: 'reasoning', id: 'live-reasoning', text: 'private reasoning' },
+    expect(result.assistantContentBlocks).toEqual([
       { kind: 'assistant', id: 'live-assistant', text: '这里是正在生成的回答。' }
+    ])
+    expect(result.processBlocks).toEqual([
+      { kind: 'reasoning', id: 'live-reasoning', text: 'private reasoning' }
     ])
   })
 
@@ -248,9 +249,10 @@ describe('deriveTurnSections', () => {
       ]
     })
 
-    expect(result.assistantContentBlocks).toEqual([])
+    expect(result.assistantContentBlocks).toEqual([
+      { kind: 'assistant', id: 'answer', text: '先给你一部分结果。' }
+    ])
     expect(result.processBlocks).toEqual([
-      { kind: 'assistant', id: 'answer', text: '先给你一部分结果。' },
       {
         kind: 'tool',
         id: 'tool_1',
@@ -261,7 +263,7 @@ describe('deriveTurnSections', () => {
     ])
   })
 
-  it('places assistant output between process steps while processing', () => {
+  it('keeps assistant output in the conversation while process steps continue', () => {
     const result = processingSections({
       blocks: [
         {
@@ -282,7 +284,9 @@ describe('deriveTurnSections', () => {
       ]
     })
 
-    expect(result.assistantContentBlocks).toEqual([])
-    expect(result.processBlocks.map((block) => block.id)).toEqual(['tool_1', 'answer', 'tool_2'])
+    expect(result.assistantContentBlocks).toEqual([
+      { kind: 'assistant', id: 'answer', text: '读完了，下一步继续查。' }
+    ])
+    expect(result.processBlocks.map((block) => block.id)).toEqual(['tool_1', 'tool_2'])
   })
 })

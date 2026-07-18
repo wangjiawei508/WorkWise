@@ -56,6 +56,8 @@ export function threadFromCore(thread: CoreThreadSummaryJson): NormalizedThread 
     status: thread.status,
     approvalPolicy: normalizeApprovalPolicy(thread.approvalPolicy),
     sandboxMode: normalizeSandboxMode(thread.sandboxMode),
+    agentId: thread.agentId ?? 'general',
+    agentRevision: thread.agentRevision ?? 0,
     archived: thread.status === 'archived',
     relation: thread.relation,
     parentThreadId: thread.parentThreadId,

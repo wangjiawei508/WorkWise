@@ -118,6 +118,8 @@ export class CapabilityRegistry {
     if (!provider.enabled || !provider.available) return false
     const allowed = context?.allowedProviderIds
     if (allowed && !allowed.includes(provider.id)) return false
+    const allowedMcp = context?.allowedMcpProviderIds
+    if (provider.kind === 'mcp' && allowedMcp && !allowedMcp.includes(provider.id)) return false
     return true
   }
 

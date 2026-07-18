@@ -6,6 +6,7 @@ import {
   DeleteThreadResponse,
   ForkThreadRequest,
   ListThreadsResponse,
+  SetThreadAgentRequest,
   SetThreadGoalRequest,
   SetThreadTodosRequest,
   ThreadGoalResponse,
@@ -199,6 +200,33 @@ export async function updateThread(
         { code: 'not_found', message: error.message },
         404
       )
+    }
+    throw error
+  }
+}
+
+export async function setThreadAgent(
+  service: ThreadService,
+  threadId: string,
+  request: Request
+): Promise<JsonResponse | Response> {
+  const body = await readJsonBody(request)
+  if (!body.ok) return body.response
+  const parsed = SetThreadAgentRequest.safeParse(body.value)
+  if (!parsed.success) {
+    return validationError('invalid thread Agent body', parsed.error.issues)
+  }
+  try {
+    return jsonResponse(ThreadSchema.parse(await service.setAgent(threadId, parsed.data)))
+  } catch (error) {
+    if (error instanceof Error && /not found/i.test(error.message)) {
+      return jsonResponse({ code: 'not_found', message: error.message }, 404)
+    }
+    const code = error && typeof error === 'object' && 'code' in error
+      ? String(error.code)
+      : ''
+    if (code === 'stale_request' || code === 'idempotency_conflict') {
+      return jsonResponse({ code, message: error instanceof Error ? error.message : code }, 409)
     }
     throw error
   }

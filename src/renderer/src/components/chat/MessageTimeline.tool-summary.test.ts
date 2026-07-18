@@ -296,7 +296,7 @@ describe('MessageTimeline WorkWise Runtime runtime metadata smoke', () => {
     expect(html).toContain('ds-process-file-reference')
   })
 
-  it('expands active reasoning so the current process is visible', () => {
+  it('keeps private active reasoning out of concise progress', () => {
     const block: ChatBlock = {
       kind: 'reasoning',
       id: 'live-reasoning',
@@ -314,7 +314,8 @@ describe('MessageTimeline WorkWise Runtime runtime metadata smoke', () => {
 
     expect(html).toContain('ds-shiny-text')
     expect(html).not.toContain('ds-work-logo')
-    expect(html).toContain('current reasoning summary')
+    expect(html).toContain('Thinking')
+    expect(html).not.toContain('current reasoning summary')
   })
 
   it('keeps same-batch tool calls collapsed by default', () => {
@@ -457,7 +458,7 @@ describe('MessageTimeline WorkWise Runtime runtime metadata smoke', () => {
     expect(html).not.toContain('其他')
   })
 
-  it('expands the live work timeline by default while keeping tool details collapsed', () => {
+  it('keeps the live technical timeline collapsed in the default concise view', () => {
     const blocks: ChatBlock[] = [
       {
         kind: 'user',
@@ -490,9 +491,9 @@ describe('MessageTimeline WorkWise Runtime runtime metadata smoke', () => {
       })
     )
 
-    expect(html).toContain('aria-expanded="true"')
-    expect(html).toContain('Read')
-    expect(html).toContain('/tmp/project/src/app.ts')
+    expect(html).toContain('aria-expanded="false"')
+    expect(html).not.toContain('Read')
+    expect(html).not.toContain('/tmp/project/src/app.ts')
     expect(html).not.toContain('running timeline detail should stay collapsed')
   })
 })
