@@ -6,6 +6,11 @@ on:
       - 'v*'
   workflow_dispatch:
     inputs:
+      candidate_only:
+        description: 'Build and verify all three clients without creating or updating a GitHub Release.'
+        required: false
+        type: boolean
+        default: true
       skip_stability:
         description: 'Emergency release: skip the two-hour pre-release stability gate after quality checks have passed.'
         required: false
@@ -45,7 +50,15 @@ jobs:
 
       - name: Compute release version from tag
         id: version
-        run: node ./scripts/compute-ci-release-version.cjs --no-fetch
+        env:
+          CANDIDATE_ONLY: ${{ github.event_name == 'workflow_dispatch' && inputs.candidate_only == true }}
+        run: |
+          set -euo pipefail
+          if [[ "${CANDIDATE_ONLY}" == "true" ]]; then
+            node ./scripts/compute-ci-release-version.cjs --no-fetch --candidate
+          else
+            node ./scripts/compute-ci-release-version.cjs --no-fetch
+          fi
 
   stability:
     name: Two-hour pre-release stability
@@ -320,7 +333,7 @@ jobs:
 
   publish:
     name: Publish GitHub Release
-    if: ${{ always() && needs.prepare.result == 'success' && needs.build-document-sidecars.result == 'success' && needs.build-macos.result == 'success' && needs.build-windows.result == 'success' && (needs.stability.result == 'success' || (github.event_name == 'workflow_dispatch' && inputs.skip_stability == true)) }}
+    if: ${{ always() && github.ref_type == 'tag' && !(github.event_name == 'workflow_dispatch' && inputs.candidate_only == true) && needs.prepare.result == 'success' && needs.build-document-sidecars.result == 'success' && needs.build-macos.result == 'success' && needs.build-windows.result == 'success' && (needs.stability.result == 'success' || (github.event_name == 'workflow_dispatch' && inputs.skip_stability == true)) }}
     runs-on: ubuntu-latest
     needs:
       - prepare
@@ -534,3 +547,63 @@ jobs:
 
       - name: Publish GitHub Release
         run: gh release edit "${TAG_NAME}" --draft=false --prerelease=false --latest
+
+  verify-candidate:
+    name: Verify three-client candidate
+    if: ${{ always() && github.event_name == 'workflow_dispatch' && inputs.candidate_only == true && needs.prepare.result == 'success' && needs.build-document-sidecars.result == 'success' && needs.build-macos.result == 'success' && needs.build-windows.result == 'success' && (needs.stability.result == 'success' || inputs.skip_stability == true) }}
+    runs-on: ubuntu-latest
+    needs:
+      - prepare
+      - stability
+      - build-document-sidecars
+      - build-macos
+      - build-windows
+    env:
+      RELEASE_VERSION: ${{ needs.prepare.outputs.version }}
+    steps:
+      - name: Check out candidate
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          ref: ${{ github.ref }}
+
+      - name: Download candidate artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: release-*
+          path: candidate-artifacts
+          merge-multiple: true
+
+      - name: Verify update metadata and select three clients
+        run: |
+          set -euo pipefail
+          node ./scripts/verify-release-assets.cjs candidate-artifacts
+          rm -rf candidate-installers
+          mkdir -p candidate-installers
+
+          copy_one() {
+            local pattern="$1"
+            local target="$2"
+            mapfile -t matches < <(compgen -G "candidate-artifacts/${pattern}" || true)
+            if [[ "${#matches[@]}" -ne 1 ]]; then
+              echo "::error::Expected exactly one artifact matching ${pattern}, found ${#matches[@]}"
+              find candidate-artifacts -maxdepth 2 -type f -print | sort
+              exit 1
+            fi
+            cp "${matches[0]}" "candidate-installers/${target}"
+          }
+
+          copy_one "WorkWise-*-mac-arm64.dmg" "WorkWise-${RELEASE_VERSION}-mac-Apple-Silicon.dmg"
+          copy_one "WorkWise-*-mac-x64.dmg" "WorkWise-${RELEASE_VERSION}-mac-Intel.dmg"
+          copy_one "WorkWise-*-win-x64.exe" "WorkWise-${RELEASE_VERSION}-win-x64.exe"
+
+          (cd candidate-installers && sha256sum WorkWise-* > SHA256SUMS.txt)
+          test "$(find candidate-installers -maxdepth 1 -type f -name 'WorkWise-*' | wc -l | tr -d ' ')" = "3"
+
+      - name: Upload verified three-client candidate
+        uses: actions/upload-artifact@v4
+        with:
+          name: candidate-installers-${{ needs.prepare.outputs.version }}-${{ github.run_number }}
+          if-no-files-found: error
+          retention-days: 7
+          path: candidate-installers/*

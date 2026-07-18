@@ -12,6 +12,10 @@ type ReleaseVersionResult = {
 }
 
 type ReleaseVersionModule = {
+  computeCandidateVersion(input: {
+    allTags?: string[]
+    packageVersion: string
+  }): ReleaseVersionResult
   computeReleaseVersion(input: {
     allTags?: string[]
     headTags?: string[]
@@ -23,6 +27,21 @@ type ReleaseVersionModule = {
 const releaseVersion = require('../../scripts/compute-ci-release-version.cjs') as ReleaseVersionModule
 
 describe('CI release version computation', () => {
+  it('uses package.json exactly for a non-publishing candidate build', () => {
+    expect(
+      releaseVersion.computeCandidateVersion({
+        allTags: ['v0.2.8', 'v0.2.9'],
+        packageVersion: '0.3.0'
+      })
+    ).toEqual({
+      version: '0.3.0',
+      tag: 'v0.3.0',
+      releaseName: 'WorkWise 0.3.0 Candidate',
+      previousTag: 'v0.2.9',
+      existingTag: false
+    })
+  })
+
   it('bumps package.json patch version when no release tags exist', () => {
     expect(
       releaseVersion.computeReleaseVersion({
