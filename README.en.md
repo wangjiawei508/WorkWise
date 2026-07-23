@@ -4,22 +4,22 @@
 
 > Put AI into real workflows.
 
-WorkWise is a local-first desktop AI workbench. It brings **Code**, **Write**, reusable **Skills**, **MCP extensions**, local workspaces, and document delivery into one application for work that needs durable context, iteration, and a reviewable result.
+WorkWise is a local-first desktop AI workbench. It brings **Code**, **Write**, structured **Design**, reusable **Skills**, **MCP extensions**, local workspaces, and document delivery into one application for work that needs durable context, iteration, and a reviewable result.
 
 - Product page: [www.railwise.cn/products/workwise](https://www.railwise.cn/products/workwise/)
 - Direct mirror downloads: [Download and installation](https://www.railwise.cn/products/workwise/#download)
 - Documentation: [kb.railwise.cn/products/workwise](https://kb.railwise.cn/products/workwise/)
-- Public release: [v0.2.5](https://github.com/wangjiawei508/WorkWise/releases/tag/v0.2.5)
+- Public releases: [GitHub Releases](https://github.com/wangjiawei508/WorkWise/releases)
 
 ## Current release
 
-The current stable release is **v0.2.5**. It has three user-facing installers:
+The current stable release is **v0.3.0**. The 0.3.1 Design and Write changes on this branch are a release candidate, not a published release. Public releases have three user-facing installers:
 
 | Platform | Installer | Download |
 | --- | --- | --- |
-| macOS Apple Silicon | `WorkWise-0.2.5-mac-Apple-Silicon.dmg` | [GitHub download](https://github.com/wangjiawei508/WorkWise/releases/download/v0.2.5/WorkWise-0.2.5-mac-Apple-Silicon.dmg) |
-| macOS Intel | `WorkWise-0.2.5-mac-Intel.dmg` | [GitHub download](https://github.com/wangjiawei508/WorkWise/releases/download/v0.2.5/WorkWise-0.2.5-mac-Intel.dmg) |
-| Windows x64 | `WorkWise-0.2.5-win-x64.exe` | [GitHub download](https://github.com/wangjiawei508/WorkWise/releases/download/v0.2.5/WorkWise-0.2.5-win-x64.exe) |
+| macOS Apple Silicon | `WorkWise-<version>-mac-Apple-Silicon.dmg` | [Release assets](https://github.com/wangjiawei508/WorkWise/releases) |
+| macOS Intel | `WorkWise-<version>-mac-Intel.dmg` | [Release assets](https://github.com/wangjiawei508/WorkWise/releases) |
+| Windows x64 | `WorkWise-<version>-win-x64.exe` | [Release assets](https://github.com/wangjiawei508/WorkWise/releases) |
 
 GitHub Releases is the production source for installers and automatic-update metadata, with no separate object-storage credentials required. The product website may continue to act as the download navigator. There is currently no Linux client, portable edition, or activation-code flow.
 
@@ -49,6 +49,13 @@ Use a complete document workflow for Markdown and text work:
 
 Read more: [Write and document export](https://kb.railwise.cn/products/workwise/write-export/).
 
+### Design workbench (0.3.1 release candidate)
+
+Create multi-page structured canvases with text, shapes, images, layers, groups, undo/redo,
+and revision-safe Agent canvas commands. Export the active design directly to PNG or SVG,
+insert it into a Write document, or deliver a validated editable PPTX through the audited
+PPT Master workflow. HTML and image previews never satisfy a PowerPoint request.
+
 ### Skills and MCP
 
 Skills are WorkWise reusable assets for high-frequency methods, writing rules, templates, and domain processes. The MCP and plugin market provides source, purpose, and installation-state context before additional tools are connected.
@@ -65,7 +72,8 @@ Read more: [Local data and security](https://kb.railwise.cn/products/workwise/se
 
 | Status | Scope |
 | --- | --- |
-| Available now | Code, Write, model configuration, workspace sessions, bundled Skills, download entry, GUI update checks |
+| Available now | Code, Write, reliable task runs, model configuration, workspace sessions, bundled Skills, document parsing, download entry, GUI update checks |
+| Release candidate | Design canvas, Agent canvas commands, PNG/SVG/PPTX export, Design-to-Write insertion, template-driven DOCX export |
 | Preview | Advanced MCP marketplace, optional online Skill updates, complex Markdown / DOCX export, mobile connection, scheduled tasks |
 | Direction | Enterprise knowledge base, bidding support, operations analysis, and more industry agent packs |
 
@@ -113,10 +121,12 @@ The local agent is provided by WorkWise Agent Runtime through a stable HTTP/SSE 
 
 ## Release policy
 
-- Public releases retain the macOS Apple Silicon, macOS Intel, and Windows x64 user installers, plus the ZIP, blockmap, YAML metadata, and checksum files required for automatic updates.
+- Public GitHub Releases expose only the macOS Apple Silicon DMG, macOS Intel DMG,
+  and Windows x64 EXE. ZIP, blockmap, update metadata, and checksums stay in the
+  internal website/update-channel artifact.
 - Intermediate build artifacts are not published, and unverified roadmap items are not presented as released capabilities.
 - [GitHub Releases](https://github.com/wangjiawei508/WorkWise/releases) is the public release log; the website and knowledge base synchronize version and platform information from it.
-- The 0.2.5 public behavior baseline is tracked in the [public behavior gap table](docs/PUBLIC_BEHAVIOR_GAP_0.2.5.zh-CN.md).
+- The historical 0.2.5 public behavior baseline is tracked in the [public behavior gap table](docs/PUBLIC_BEHAVIOR_GAP_0.2.5.zh-CN.md).
 
 ## Feedback
 

@@ -126,7 +126,9 @@ kept removed:
 - Settings provider selector: `Settings -> Agents` directly edits WorkWise Agent Runtime config including:
   `binaryPath`, `port`, `autoStart`, `apiKey`, `baseUrl`, `runtimeToken`, `dataDir`,
   `model`, `approvalPolicy`, `sandboxMode`, `insecure`.
-- Painting/Design starter card is removed; only Code, Write, and Connect phone remain.
+- Code, Write, and Design are first-class workspaces. Design must reuse the same
+  WorkWise Agent Runtime, approval, task, and diagnostics boundaries; it must not
+  introduce another provider or model channel.
 
 ## Main / preload responsibilities to remove
 
@@ -183,13 +185,18 @@ migration from old settings:
 - Legacy Connect phone fields (internally still named Claw) `agentThreadIds.codewhale` and `agentThreadIds.reasonix` are collapsed
   to `agentThreadIds.kun`; per-provider maps are not retained.
 
-## Code / Write / Connect phone flows under WorkWise Agent Runtime
+## Code / Write / Design / Connect phone flows under WorkWise Agent Runtime
 
 - Code: `KunRuntimeProvider` handles list/create thread, send turn,
   steer, interrupt, compact, approval, and SSE mapping.
   Chat UI does not directly know about old providers.
 - Write: writing assistant and inline completion share the same WorkWise Agent Runtime API key/base URL.
   Write thread registry identifies write threads as WorkWise Agent Runtime threads only, with no Reasonix distinction.
+- Design: validated `design_apply_canvas_commands` results target the active canonical
+  workspace, document, page, revision, and idempotency key. The renderer applies those
+  commands through the same document store used by direct editing, then persists and
+  acknowledges the result. Runtime tools must not write a disconnected SVG file and
+  claim that the active canvas changed.
 - Connect phone: scheduled tasks, Feishu/Lark/WeChat, and IM webhooks create or reuse WorkWise Agent Runtime threads.
   The codebase still uses the internal `claw` route, settings key, and runtime file names for legacy-name compatibility.
   `threadId` / `localThreadId` remain only for legacy settings compatibility;
@@ -246,7 +253,7 @@ Legacy UI entrypoints should not reappear:
 - `RuntimeDiagnosticsDialog`
 - `RuntimeInsightsPanel`
 - `ReasonixInsightsPanel`
-- Design/Painting starter card
+- A legacy Painting card or any Design entrypoint that bypasses WorkWise Agent Runtime
 
 ## Design constraints
 

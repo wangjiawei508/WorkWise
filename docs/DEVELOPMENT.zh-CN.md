@@ -145,9 +145,9 @@ PR 描述建议至少包含：
 
 - 校验所推送的三段式 semver 标签与发布版本
 - 打包前执行两小时稳定性任务
-- 构建 macOS arm64/x64 DMG 安装包和自动更新 ZIP，以及 Windows x64 安装器
-- 将用户安装包、更新元数据、blockmap 和校验清单直接上传到 GitHub Releases
-- Release 公开前重新下载全部资产，校验元数据和 SHA-256
+- 构建 macOS arm64/x64 DMG、自动更新 ZIP 和 Windows x64 安装器
+- 公开 GitHub Release 只上传两个 DMG 和一个 EXE；ZIP、更新元数据、blockmap 和校验清单保留在内部 `release-website` artifact
+- Release 公开前重新下载三个客户端安装包，核对资产数量、文件名和非空状态；内部更新通道另行校验元数据和 SHA-256
 
 GitHub Releases 直接使用工作流自带的 `GITHUB_TOKEN`，不需要对象存储、FTP 或 SSH 凭据。如需签名并公证 macOS 安装包，可配置 `MAC_CODESIGN_P12_BASE64`、`CSC_KEY_PASSWORD`、`APPLE_API_KEY_BASE64`、`APPLE_API_KEY_ID` 和 `APPLE_API_ISSUER`。Apple 凭据不完整时，工作流会明确发布未签名 macOS 版本，且 macOS 自动安装保持禁用。
 

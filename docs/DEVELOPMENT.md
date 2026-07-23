@@ -146,8 +146,8 @@ The release workflow:
 - validates the release version from the pushed three-part semver tag
 - runs the two-hour pre-release stability job before packaging
 - builds macOS arm64/x64 DMG installers and updater ZIPs plus a Windows x64 installer
-- uploads the user installers, updater metadata, blockmap, and checksum manifest directly to GitHub Releases
-- downloads the published assets again and verifies their metadata and SHA-256 values before making the release public
+- uploads only the two DMGs and the Windows EXE to the public GitHub Release; ZIPs, update metadata, blockmaps, and checksums stay in the internal `release-website` artifact
+- downloads the three public installers again and verifies their exact names, count, and non-empty contents before publication; the internal update channel is verified separately
 
 GitHub Releases uses the workflow-provided `GITHUB_TOKEN`; no object-storage, FTP, or SSH credentials are required. For signed and notarized macOS builds, repository maintainers may configure `MAC_CODESIGN_P12_BASE64`, `CSC_KEY_PASSWORD`, `APPLE_API_KEY_BASE64`, `APPLE_API_KEY_ID`, and `APPLE_API_ISSUER`. Without the complete Apple secret set, the workflow publishes an explicitly marked unsigned macOS build and automatic installation remains disabled on macOS.
 
