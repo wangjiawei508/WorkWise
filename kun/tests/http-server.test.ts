@@ -7,6 +7,7 @@ import { createApprovalRequest } from '../src/domain/approval.js'
 import { makeAssistantTextItem, makeToolCallItem, makeToolResultItem } from '../src/domain/item.js'
 import { encodeSseEvent } from '../src/server/sse.js'
 import { buildHarness, readJson, readSseEvents, usageSnapshot } from './http-server-test-harness.js'
+import { WORKWISE_RUNTIME_PROTOCOL_VERSION } from '../src/contracts/runtime-protocol.js'
 import type { TurnItem } from '../src/contracts/items.js'
 
 describe('HTTP server', () => {
@@ -23,7 +24,12 @@ describe('HTTP server', () => {
     const response = await dispatchRequest(h.router, new Request('http://localhost/health'))
     expect(response.status).toBe(200)
     const body = await readJson(response)
-    expect(body).toEqual({ status: 'ok', service: 'kun', mode: 'serve' })
+    expect(body).toEqual({
+      status: 'ok',
+      service: 'kun',
+      mode: 'serve',
+      protocolVersion: WORKWISE_RUNTIME_PROTOCOL_VERSION
+    })
   })
 
   it('returns runtime info with disabled capability defaults', async () => {

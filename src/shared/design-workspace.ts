@@ -30,6 +30,27 @@ export type DesignDocumentLoadResult = {
   message?: string
 }
 
+export type DesignDocumentSummaryV1 = {
+  id: string
+  name: string
+  revision: number
+  pageCount: number
+  updatedAt: number
+}
+
+export type DesignDocumentListPayload = {
+  workspaceRoot: string
+}
+
+export type DesignDocumentListResult = {
+  ok: boolean
+  documents: DesignDocumentSummaryV1[]
+  activeDocumentId?: string
+  corruptDocumentIds?: string[]
+  code?: 'unsafe_path' | 'read_failed'
+  message?: string
+}
+
 export type DesignDocumentSavePayload = {
   workspaceRoot: string
   document: DesignDocumentV1

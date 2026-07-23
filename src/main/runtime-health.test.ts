@@ -6,7 +6,8 @@ describe('isRuntimeHealthResponseBody', () => {
     expect(isRuntimeHealthResponseBody(JSON.stringify({
       status: 'ok',
       service: 'kun',
-      mode: 'serve'
+      mode: 'serve',
+      protocolVersion: 1
     }))).toBe(true)
   })
 
@@ -15,6 +16,12 @@ describe('isRuntimeHealthResponseBody', () => {
     expect(isRuntimeHealthResponseBody(JSON.stringify({
       status: 'ok',
       service: 'codewhale',
+      mode: 'serve',
+      protocolVersion: 1
+    }))).toBe(false)
+    expect(isRuntimeHealthResponseBody(JSON.stringify({
+      status: 'ok',
+      service: 'kun',
       mode: 'serve'
     }))).toBe(false)
   })

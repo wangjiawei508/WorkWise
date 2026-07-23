@@ -86,7 +86,11 @@ export function DesignCanvas(): ReactElement | null {
   const sortedElements = [...page.elements].sort((a, b) => a.zIndex - b.zIndex)
   const selectedIdSet = new Set(selectedElementIds)
 
-  const handleBackgroundClick = (): void => {
+  const handleBackgroundClick = (event: React.MouseEvent<SVGSVGElement>): void => {
+    // A click that starts on an element also bubbles to the root SVG. Treat
+    // only the SVG's own empty area as background; otherwise the selection
+    // made during the element's mousedown would be cleared immediately.
+    if (event.target !== event.currentTarget) return
     clearSelection()
   }
 

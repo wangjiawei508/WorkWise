@@ -1,6 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { NormalizedThread } from '../agent/types'
-import type { ChatState, ChatStoreGet, ChatStoreSet, GuiPlanMessageContext } from './chat-store-types'
+import type {
+  ChatState,
+  ChatStoreGet,
+  ChatStoreSet,
+  GuiDesignMessageContext,
+  GuiPlanMessageContext
+} from './chat-store-types'
 
 const registryMock = vi.hoisted(() => ({
   getProvider: vi.fn()
@@ -76,6 +82,24 @@ describe('chat-store-thread-actions queued messages', () => {
     await expect(actions.sendMessage('prompt one', 'plan', {
       displayText: 'Generate implementation plan',
       guiPlan
+    })).resolves.toBe(false)
+
+    expect(state.queuedMessages).toHaveLength(0)
+    expect(state.error).toBeTruthy()
+  })
+
+  it('does not queue stale GUI Design messages while another turn is active', async () => {
+    const { actions, state } = buildHarness()
+    const guiDesign: GuiDesignMessageContext = {
+      workspaceRoot: '/workspace/workwise',
+      documentId: 'design-1',
+      pageId: 'page-1',
+      expectedRevision: 3
+    }
+
+    await expect(actions.sendMessage('internal canvas prompt', 'agent', {
+      displayText: '把标题改成绿色',
+      guiDesign
     })).resolves.toBe(false)
 
     expect(state.queuedMessages).toHaveLength(0)

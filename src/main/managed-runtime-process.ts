@@ -54,6 +54,7 @@ import {
 } from './services/agent-pack-service'
 import { safeSpawn } from './services/safe-spawn'
 import { atomicWriteFile as durableWriteFile } from './services/durable-file'
+import { resolvePptMasterSidecarExecutable } from './services/ppt-master-sidecar'
 
 let child: ChildProcess | null = null
 let childLogCapture: RuntimeLogCapture | null = null
@@ -366,6 +367,7 @@ export async function startManagedRuntimeChild(
     tokenEconomyMode: runtime.tokenEconomyMode,
     insecure: isManagedRuntimeInsecure(runtime)
   })
+  const pptMasterSidecarExecutable = resolvePptMasterSidecarExecutable()
   child = await safeSpawn(resolution.command, args, {
     env: {
       ...process.env,
@@ -373,6 +375,11 @@ export async function startManagedRuntimeChild(
       ELECTRON_RUN_AS_NODE: '1',
       WORKWISE_RUNTIME_TOKEN: runtime.runtimeToken,
       WORKWISE_PPT_MASTER_ROOT: resolveBundledSkillDirectory('ppt-master') || '',
+      // Packaged clients require the frozen sidecar. Development builds may
+      // intentionally omit it and must retain the audited Python fallback.
+      WORKWISE_PPT_MASTER_SIDECAR: existsSync(pptMasterSidecarExecutable)
+        ? pptMasterSidecarExecutable
+        : '',
       DEEPSEEK_API_KEY: runtime.apiKey || process.env.DEEPSEEK_API_KEY || ''
     },
     stdio: ['ignore', 'pipe', 'pipe'],

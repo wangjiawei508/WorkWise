@@ -57,6 +57,7 @@ import { WRITE_INFOGRAPHIC_MAX_TEXT_CHARS } from '../../shared/write-infographic
 import { AGNES_IMAGE_SIZES } from '../../shared/agnes-image'
 import { CANCELLATION_SCOPES } from '../../shared/cancellation'
 import { RUNTIME_RESOURCE_LIMITS_V1 } from '../../shared/runtime-resource-limits'
+import { validateDesignDocumentResourceLimits } from '../../shared/design-document'
 
 const MAX_BODY_BYTES = RUNTIME_RESOURCE_LIMITS_V1.jsonRequestBodyBytes
 const MAX_PATH_LENGTH = 4_096
@@ -897,11 +898,23 @@ export const writeRichClipboardPayloadSchema = z
   })
   .strict()
 
+const boundedDesignDocumentSchema = z
+  .record(z.string(), z.unknown())
+  .superRefine((document, context) => {
+    const result = validateDesignDocumentResourceLimits(document)
+    if (!result.ok) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: result.message
+      })
+    }
+  })
+
 export const designExportPayloadSchema = z
   .object({
     name: z.string().max(256).optional(),
     workspaceRoot: optionalTrimmedString(MAX_PATH_LENGTH),
-    document: z.record(z.string(), z.unknown())
+    document: boundedDesignDocumentSchema
   })
   .strict()
 
@@ -923,10 +936,16 @@ export const designDocumentLoadPayloadSchema = z
   })
   .strict()
 
+export const designDocumentListPayloadSchema = z
+  .object({
+    workspaceRoot: trimmedString(MAX_PATH_LENGTH)
+  })
+  .strict()
+
 export const designDocumentSavePayloadSchema = z
   .object({
     workspaceRoot: trimmedString(MAX_PATH_LENGTH),
-    document: z.record(z.string(), z.unknown()),
+    document: boundedDesignDocumentSchema,
     activePageId: z.string().trim().min(1).max(160),
     expectedRevision: z.number().int().min(0).nullable()
   })

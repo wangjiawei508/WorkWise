@@ -60,6 +60,13 @@ export type GuiPlanMessageContext = {
   title?: string
 }
 
+export type GuiDesignMessageContext = {
+  workspaceRoot: string
+  documentId: string
+  pageId: string
+  expectedRevision: number
+}
+
 export type SendMessageOverrides = {
   queued?: QueuedUserMessage
   model?: string
@@ -67,6 +74,7 @@ export type SendMessageOverrides = {
   reasoningEffort?: string
   displayText?: string
   guiPlan?: GuiPlanMessageContext
+  guiDesign?: GuiDesignMessageContext
   attachmentIds?: string[]
   attachments?: AttachmentReference[]
 }

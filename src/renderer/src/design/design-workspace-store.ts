@@ -404,7 +404,7 @@ export const useDesignWorkspaceStore = create<DesignWorkspaceState>((set, get) =
         saveState: 'idle',
         saveError: null,
         assetDataUrls: {},
-        appliedCommandIds: []
+        appliedCommandIds: document.appliedCommands.map((record) => record.idempotencyKey)
       })
     },
 
@@ -437,7 +437,7 @@ export const useDesignWorkspaceStore = create<DesignWorkspaceState>((set, get) =
         saveState: options?.persistedRevision === null ? 'idle' : 'saved',
         saveError: null,
         assetDataUrls: {},
-        appliedCommandIds: []
+        appliedCommandIds: document.appliedCommands.map((record) => record.idempotencyKey)
       })
     },
 
@@ -676,15 +676,25 @@ export const useDesignWorkspaceStore = create<DesignWorkspaceState>((set, get) =
         revision: document?.revision ?? 0,
         appliedOperations: 0
       }
-      if (appliedCommandIds.includes(command.idempotencyKey)) {
-        return { ...base, ok: true, revision: document?.revision ?? 0 }
-      }
       if (
         !document ||
         document.id !== command.documentId ||
-        activePageId !== command.pageId ||
         command.workspaceRoot !== workspaceRoot
       ) {
+        return { ...base, ok: false, code: 'document_unavailable', message: 'Active Design document changed.' }
+      }
+      const prior = document?.appliedCommands.find(
+        (record) => record.idempotencyKey === command.idempotencyKey
+      )
+      if (prior || appliedCommandIds.includes(command.idempotencyKey)) {
+        return {
+          ...base,
+          ok: true,
+          revision: prior?.revision ?? document?.revision ?? 0,
+          appliedOperations: prior?.appliedOperations ?? 0
+        }
+      }
+      if (activePageId !== command.pageId) {
         return { ...base, ok: false, code: 'document_unavailable', message: 'Active Design document changed.' }
       }
       if (command.expectedRevision !== document.revision) {
@@ -698,10 +708,23 @@ export const useDesignWorkspaceStore = create<DesignWorkspaceState>((set, get) =
       if (!applied) {
         return { ...base, ok: false, code: 'operation_failed', message: 'A Design operation could not be applied.' }
       }
-      const candidate = touchDocument(
+      const changedDocument = touchDocument(
         document,
         document.pages.map((item) => item.id === page.id ? applied.page : item)
       )
+      const candidate = {
+        ...changedDocument,
+        appliedCommands: [
+          ...document.appliedCommands.filter(
+            (record) => record.idempotencyKey !== command.idempotencyKey
+          ),
+          {
+            idempotencyKey: command.idempotencyKey,
+            revision: changedDocument.revision,
+            appliedOperations: command.operations.length
+          }
+        ].slice(-200)
+      }
       if (!validateDesignDocumentStructure(candidate)) {
         return { ...base, ok: false, code: 'invalid_command', message: 'Design command produced an invalid document.' }
       }
@@ -752,6 +775,7 @@ export const useDesignWorkspaceStore = create<DesignWorkspaceState>((set, get) =
         document: {
           ...result.restoredDoc,
           revision: document.revision + 1,
+          appliedCommands: document.appliedCommands,
           updatedAt: Date.now()
         },
         history: endTransientChange(result.history),
@@ -769,6 +793,7 @@ export const useDesignWorkspaceStore = create<DesignWorkspaceState>((set, get) =
         document: {
           ...result.restoredDoc,
           revision: document.revision + 1,
+          appliedCommands: document.appliedCommands,
           updatedAt: Date.now()
         },
         history: endTransientChange(result.history),

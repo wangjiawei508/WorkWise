@@ -74,6 +74,46 @@ export const DESIGN_CANVAS_PRESETS: ReadonlyArray<{
 export const DEFAULT_DESIGN_CANVAS_FORMAT: DesignCanvasFormat = 'ppt169'
 
 /**
+ * Design 文档硬上限。
+ *
+ * 这些值同时供 renderer、IPC 与 main 持久化层使用。文档文件本身最多
+ * 8 MiB；保存层仍会对最终 pretty-printed JSON（包含结尾换行）做一次
+ * 精确校验，确保“保存成功”的文件一定能被读取层重新打开。
+ */
+export const DESIGN_DOCUMENT_LIMITS = Object.freeze({
+  fileBytes: 8 * 1024 * 1024,
+  pages: 256,
+  elementsPerPage: 5_000,
+  elementsTotal: 20_000,
+  assets: 1_024,
+  genericArrayItems: 20_000,
+  genericObjectKeys: 128,
+  genericContainers: 100_000,
+  nestingDepth: 12,
+  genericStringChars: 256 * 1024,
+  idChars: 160,
+  nameChars: 512,
+  textChars: 256 * 1024,
+  pathDataChars: 100_000,
+  presetPathsPerElement: 256,
+  childIdsPerGroup: 5_000,
+  tokenValues: 1_024,
+  fontFamilyChars: 512,
+  fontWeightChars: 64,
+  presetNameChars: 128
+})
+
+export type DesignDocumentLimitResult =
+  | { ok: true; serializedBytes: number }
+  | { ok: false; message: string }
+
+export type DesignAppliedCommandRecord = {
+  idempotencyKey: string
+  revision: number
+  appliedOperations: number
+}
+
+/**
  * 根据格式 key 获取预设尺寸。custom 格式返回 null（由调用方提供尺寸）。
  */
 export function canvasSizeForFormat(
@@ -278,6 +318,11 @@ export type DesignDocumentV1 = {
   pages: DesignPage[]
   /** 资源列表 */
   assets: DesignAsset[]
+  /**
+   * 最近成功应用的 Agent 画板命令。它随文档持久化且不受 undo/redo 回滚，
+   * 使运行时重放同一命令时可以返回原始确认而不会再次修改画板。
+   */
+  appliedCommands: DesignAppliedCommandRecord[]
   /** 可选设计 Token（颜色、字体和间距规范） */
   designTokens?: {
     colors?: string[]
@@ -427,6 +472,7 @@ export function createDesignDocument(options?: {
     format,
     pages: [createDesignPage({ format, customSize: options?.customSize })],
     assets: [],
+    appliedCommands: [],
     createdAt: now,
     updatedAt: now
   }
@@ -443,13 +489,264 @@ export function isValidDesignColor(value: unknown): value is string {
   return typeof value === 'string' && /^[0-9A-Fa-f]{6}$/.test(value)
 }
 
+function jsonStringUtf8Bytes(value: string): number {
+  let bytes = 2 // surrounding quotes
+  for (let index = 0; index < value.length; index += 1) {
+    const code = value.charCodeAt(index)
+    if (code === 0x22 || code === 0x5c) {
+      bytes += 2
+    } else if (code === 0x08 || code === 0x09 || code === 0x0a || code === 0x0c || code === 0x0d) {
+      bytes += 2
+    } else if (code <= 0x1f) {
+      bytes += 6
+    } else if (code >= 0xd800 && code <= 0xdbff) {
+      const low = value.charCodeAt(index + 1)
+      if (low >= 0xdc00 && low <= 0xdfff) {
+        bytes += 4
+        index += 1
+      } else {
+        bytes += 6
+      }
+    } else if (code >= 0xdc00 && code <= 0xdfff) {
+      bytes += 6
+    } else if (code <= 0x7f) {
+      bytes += 1
+    } else if (code <= 0x7ff) {
+      bytes += 2
+    } else {
+      bytes += 3
+    }
+  }
+  return bytes
+}
+
+function exceedsStringLimit(value: unknown, maxChars: number): boolean {
+  return typeof value === 'string' && value.length > maxChars
+}
+
+/**
+ * 在任何归一化或 JSON.stringify 之前检查原始 IPC/磁盘对象。
+ * 除字段级限制外，还遍历未知字段，阻止利用深层/宽对象绕过 schema。
+ */
+export function validateDesignDocumentResourceLimits(input: unknown): DesignDocumentLimitResult {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) {
+    return { ok: false, message: 'Design document must be a JSON object.' }
+  }
+
+  const seen = new WeakSet<object>()
+  const stack: Array<{ value: unknown; depth: number }> = [{ value: input, depth: 0 }]
+  let containers = 0
+  let estimatedBytes = 2
+  // The traversal estimate intentionally over-counts numbers and punctuation.
+  // Use it only as an early-abort guard; the exact compact JSON byte count below
+  // remains the authoritative 8 MiB decision.
+  const earlyAbortBytes = DESIGN_DOCUMENT_LIMITS.fileBytes * 2
+
+  while (stack.length > 0) {
+    const current = stack.pop()!
+    const value = current.value
+    if (value === null || value === undefined) {
+      estimatedBytes += 4
+      continue
+    }
+    if (typeof value === 'string') {
+      if (value.length > DESIGN_DOCUMENT_LIMITS.genericStringChars) {
+        return { ok: false, message: 'Design document contains a string that exceeds 256 Ki characters.' }
+      }
+      estimatedBytes += jsonStringUtf8Bytes(value)
+      if (estimatedBytes > earlyAbortBytes) {
+        return { ok: false, message: 'Design document exceeds the 8 MiB serialized limit.' }
+      }
+      continue
+    }
+    if (typeof value === 'number') {
+      estimatedBytes += 32
+      continue
+    }
+    if (typeof value === 'boolean') {
+      estimatedBytes += 5
+      continue
+    }
+    if (typeof value !== 'object') {
+      return { ok: false, message: 'Design document contains a non-JSON value.' }
+    }
+    if (current.depth > DESIGN_DOCUMENT_LIMITS.nestingDepth) {
+      return { ok: false, message: `Design document nesting exceeds ${DESIGN_DOCUMENT_LIMITS.nestingDepth}.` }
+    }
+    if (seen.has(value)) {
+      return { ok: false, message: 'Design document contains a cyclic reference.' }
+    }
+    seen.add(value)
+    containers += 1
+    if (containers > DESIGN_DOCUMENT_LIMITS.genericContainers) {
+      return { ok: false, message: 'Design document contains too many nested containers.' }
+    }
+
+    if (Array.isArray(value)) {
+      if (value.length > DESIGN_DOCUMENT_LIMITS.genericArrayItems) {
+        return { ok: false, message: 'Design document contains an oversized array.' }
+      }
+      estimatedBytes += value.length + 2
+      for (const item of value) stack.push({ value: item, depth: current.depth + 1 })
+    } else {
+      const keys = Object.keys(value)
+      if (keys.length > DESIGN_DOCUMENT_LIMITS.genericObjectKeys) {
+        return { ok: false, message: 'Design document contains an object with too many fields.' }
+      }
+      estimatedBytes += keys.length + 2
+      for (const key of keys) {
+        estimatedBytes += jsonStringUtf8Bytes(key) + 1
+        stack.push({
+          value: (value as Record<string, unknown>)[key],
+          depth: current.depth + 1
+        })
+      }
+    }
+
+    if (estimatedBytes > earlyAbortBytes) {
+      return { ok: false, message: 'Design document exceeds the 8 MiB serialized limit.' }
+    }
+  }
+
+  const raw = input as Record<string, unknown>
+  if (
+    exceedsStringLimit(raw.id, DESIGN_DOCUMENT_LIMITS.idChars) ||
+    exceedsStringLimit(raw.name, DESIGN_DOCUMENT_LIMITS.nameChars)
+  ) {
+    return { ok: false, message: 'Design document id or name exceeds its limit.' }
+  }
+  if (Array.isArray(raw.pages)) {
+    if (raw.pages.length > DESIGN_DOCUMENT_LIMITS.pages) {
+      return { ok: false, message: `Design document exceeds ${DESIGN_DOCUMENT_LIMITS.pages} pages.` }
+    }
+    let totalElements = 0
+    for (const pageValue of raw.pages) {
+      if (!pageValue || typeof pageValue !== 'object' || Array.isArray(pageValue)) continue
+      const page = pageValue as Record<string, unknown>
+      if (
+        exceedsStringLimit(page.id, DESIGN_DOCUMENT_LIMITS.idChars) ||
+        exceedsStringLimit(page.name, DESIGN_DOCUMENT_LIMITS.nameChars)
+      ) {
+        return { ok: false, message: 'Design page id or name exceeds its limit.' }
+      }
+      if (!Array.isArray(page.elements)) continue
+      if (page.elements.length > DESIGN_DOCUMENT_LIMITS.elementsPerPage) {
+        return {
+          ok: false,
+          message: `A Design page exceeds ${DESIGN_DOCUMENT_LIMITS.elementsPerPage} elements.`
+        }
+      }
+      totalElements += page.elements.length
+      if (totalElements > DESIGN_DOCUMENT_LIMITS.elementsTotal) {
+        return {
+          ok: false,
+          message: `Design document exceeds ${DESIGN_DOCUMENT_LIMITS.elementsTotal} elements.`
+        }
+      }
+      for (const elementValue of page.elements) {
+        if (!elementValue || typeof elementValue !== 'object' || Array.isArray(elementValue)) continue
+        const element = elementValue as Record<string, unknown>
+        if (
+          exceedsStringLimit(element.id, DESIGN_DOCUMENT_LIMITS.idChars) ||
+          exceedsStringLimit(element.name, DESIGN_DOCUMENT_LIMITS.nameChars) ||
+          exceedsStringLimit(element.text, DESIGN_DOCUMENT_LIMITS.textChars) ||
+          exceedsStringLimit(element.pathData, DESIGN_DOCUMENT_LIMITS.pathDataChars) ||
+          exceedsStringLimit(element.fontFamily, DESIGN_DOCUMENT_LIMITS.fontFamilyChars) ||
+          exceedsStringLimit(element.fontWeight, DESIGN_DOCUMENT_LIMITS.fontWeightChars) ||
+          exceedsStringLimit(element.presetName, DESIGN_DOCUMENT_LIMITS.presetNameChars) ||
+          exceedsStringLimit(element.imageAssetId, DESIGN_DOCUMENT_LIMITS.idChars)
+        ) {
+          return { ok: false, message: 'Design element contains an oversized string field.' }
+        }
+        if (
+          Array.isArray(element.presetPaths) &&
+          element.presetPaths.length > DESIGN_DOCUMENT_LIMITS.presetPathsPerElement
+        ) {
+          return { ok: false, message: 'Design element contains too many preset paths.' }
+        }
+        if (Array.isArray(element.presetPaths)) {
+          for (const pathValue of element.presetPaths) {
+            if (
+              pathValue &&
+              typeof pathValue === 'object' &&
+              exceedsStringLimit(
+                (pathValue as Record<string, unknown>).d,
+                DESIGN_DOCUMENT_LIMITS.pathDataChars
+              )
+            ) {
+              return { ok: false, message: 'Design preset path exceeds its string limit.' }
+            }
+          }
+        }
+        if (
+          Array.isArray(element.childIds) &&
+          element.childIds.length > DESIGN_DOCUMENT_LIMITS.childIdsPerGroup
+        ) {
+          return { ok: false, message: 'Design group contains too many child references.' }
+        }
+      }
+    }
+  }
+  if (Array.isArray(raw.assets) && raw.assets.length > DESIGN_DOCUMENT_LIMITS.assets) {
+    return { ok: false, message: `Design document exceeds ${DESIGN_DOCUMENT_LIMITS.assets} assets.` }
+  }
+  if (Array.isArray(raw.assets)) {
+    for (const assetValue of raw.assets) {
+      if (!assetValue || typeof assetValue !== 'object' || Array.isArray(assetValue)) continue
+      const asset = assetValue as Record<string, unknown>
+      if (
+        exceedsStringLimit(asset.id, 128) ||
+        exceedsStringLimit(asset.filename, 255) ||
+        exceedsStringLimit(asset.mimeType, 64)
+      ) {
+        return { ok: false, message: 'Design asset contains an oversized string field.' }
+      }
+    }
+  }
+  if (raw.designTokens && typeof raw.designTokens === 'object' && !Array.isArray(raw.designTokens)) {
+    const tokens = raw.designTokens as Record<string, unknown>
+    for (const value of [tokens.colors, tokens.fonts, tokens.spacing]) {
+      if (Array.isArray(value) && value.length > DESIGN_DOCUMENT_LIMITS.tokenValues) {
+        return { ok: false, message: 'Design tokens contain too many values.' }
+      }
+    }
+  }
+
+  let serialized: string
+  try {
+    serialized = JSON.stringify(input)
+  } catch {
+    return { ok: false, message: 'Design document cannot be serialized safely.' }
+  }
+  const serializedBytes = new TextEncoder().encode(serialized).byteLength
+  if (serializedBytes > DESIGN_DOCUMENT_LIMITS.fileBytes) {
+    return { ok: false, message: 'Design document exceeds the 8 MiB serialized limit.' }
+  }
+  return { ok: true, serializedBytes }
+}
+
 /**
  * 归一化一个元素（从存盘 JSON 读取时，补全/修正字段）。
  * 用于防御损坏或部分缺失的数据。
  */
 export function normalizeDesignElement(input: Partial<DesignElement> | null | undefined): DesignElement | null {
   if (!input || typeof input !== 'object') return null
-  if (!input.id || typeof input.id !== 'string') return null
+  if (
+    !input.id ||
+    typeof input.id !== 'string' ||
+    input.id.length > DESIGN_DOCUMENT_LIMITS.idChars ||
+    exceedsStringLimit(input.name, DESIGN_DOCUMENT_LIMITS.nameChars) ||
+    exceedsStringLimit(input.text, DESIGN_DOCUMENT_LIMITS.textChars) ||
+    exceedsStringLimit(input.pathData, DESIGN_DOCUMENT_LIMITS.pathDataChars) ||
+    exceedsStringLimit(input.fontFamily, DESIGN_DOCUMENT_LIMITS.fontFamilyChars) ||
+    exceedsStringLimit(input.fontWeight, DESIGN_DOCUMENT_LIMITS.fontWeightChars) ||
+    exceedsStringLimit(input.presetName, DESIGN_DOCUMENT_LIMITS.presetNameChars) ||
+    exceedsStringLimit(input.imageAssetId, DESIGN_DOCUMENT_LIMITS.idChars) ||
+    (Array.isArray(input.presetPaths) &&
+      input.presetPaths.length > DESIGN_DOCUMENT_LIMITS.presetPathsPerElement) ||
+    (Array.isArray(input.childIds) &&
+      input.childIds.length > DESIGN_DOCUMENT_LIMITS.childIdsPerGroup)
+  ) return null
   if (!input.type || !DESIGN_ELEMENT_TYPES.includes(input.type as DesignElementType)) return null
 
   const element: DesignElement = {
@@ -513,6 +810,7 @@ export function normalizeDesignElement(input: Partial<DesignElement> | null | un
  */
 export function normalizeDesignDocument(input: Partial<DesignDocumentV1> | null | undefined): DesignDocumentV1 | null {
   if (!input || typeof input !== 'object') return null
+  if (!validateDesignDocumentResourceLimits(input).ok) return null
 
   const pages: DesignPage[] = []
   if (Array.isArray(input.pages)) {
@@ -542,6 +840,9 @@ export function normalizeDesignDocument(input: Partial<DesignDocumentV1> | null 
   if (pages.length === 0) return null
 
   const now = Date.now()
+  const designTokens = normalizeDesignTokens(input.designTokens)
+  const appliedCommands = normalizeAppliedCommands(input.appliedCommands)
+  if (appliedCommands === null) return null
   const normalized: DesignDocumentV1 = {
     schemaVersion: 'v1',
     id: typeof input.id === 'string' && input.id.trim() ? input.id.trim() : generateDesignDocumentId(),
@@ -557,11 +858,44 @@ export function normalizeDesignDocument(input: Partial<DesignDocumentV1> | null 
       : DEFAULT_DESIGN_CANVAS_FORMAT,
     pages,
     assets: normalizeDesignAssets(input.assets),
-    ...(input.designTokens && typeof input.designTokens === 'object' ? { designTokens: input.designTokens } : {}),
+    appliedCommands,
+    ...(designTokens ? { designTokens } : {}),
     createdAt: typeof input.createdAt === 'number' ? input.createdAt : now,
     updatedAt: typeof input.updatedAt === 'number' ? input.updatedAt : now
   }
   return validateDesignDocumentStructure(normalized) ? normalized : null
+}
+
+const SAFE_COMMAND_IDEMPOTENCY_KEY = /^[A-Za-z0-9._:-]{1,160}$/
+
+function normalizeAppliedCommands(input: unknown): DesignAppliedCommandRecord[] | null {
+  if (input === undefined) return []
+  if (!Array.isArray(input) || input.length > 200) return null
+  const seen = new Set<string>()
+  const records: DesignAppliedCommandRecord[] = []
+  for (const candidate of input) {
+    if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) return null
+    const raw = candidate as Partial<DesignAppliedCommandRecord>
+    if (
+      typeof raw.idempotencyKey !== 'string' ||
+      !SAFE_COMMAND_IDEMPOTENCY_KEY.test(raw.idempotencyKey) ||
+      seen.has(raw.idempotencyKey) ||
+      !Number.isSafeInteger(raw.revision) ||
+      (raw.revision ?? -1) < 0 ||
+      !Number.isSafeInteger(raw.appliedOperations) ||
+      (raw.appliedOperations ?? -1) < 0 ||
+      (raw.appliedOperations ?? 65) > 64
+    ) {
+      return null
+    }
+    seen.add(raw.idempotencyKey)
+    records.push({
+      idempotencyKey: raw.idempotencyKey,
+      revision: raw.revision!,
+      appliedOperations: raw.appliedOperations!
+    })
+  }
+  return records
 }
 
 const SAFE_ASSET_FILENAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,254}$/
@@ -607,12 +941,58 @@ function normalizeDesignAssets(input: unknown): DesignAsset[] {
   return assets
 }
 
+function normalizeDesignTokens(input: unknown): DesignDocumentV1['designTokens'] | null {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) return null
+  const raw = input as NonNullable<DesignDocumentV1['designTokens']>
+  const colors = Array.isArray(raw.colors)
+    ? raw.colors
+      .filter(isValidDesignColor)
+      .slice(0, DESIGN_DOCUMENT_LIMITS.tokenValues)
+    : undefined
+  const fonts = Array.isArray(raw.fonts)
+    ? raw.fonts
+      .filter((font): font is string =>
+        typeof font === 'string' && font.length <= DESIGN_DOCUMENT_LIMITS.fontFamilyChars
+      )
+      .slice(0, DESIGN_DOCUMENT_LIMITS.tokenValues)
+    : undefined
+  const spacing = Array.isArray(raw.spacing)
+    ? raw.spacing
+      .filter((value): value is number => typeof value === 'number' && Number.isFinite(value))
+      .slice(0, DESIGN_DOCUMENT_LIMITS.tokenValues)
+    : undefined
+  if (!colors && !fonts && !spacing) return null
+  return {
+    ...(colors ? { colors } : {}),
+    ...(fonts ? { fonts } : {}),
+    ...(spacing ? { spacing } : {})
+  }
+}
+
 /**
  * 校验文档的引用结构。归一化只修复缺省字段；重复 id、孤立资源引用和
  * group 循环属于数据损坏，必须拒绝而不能静默丢内容。
  */
 export function validateDesignDocumentStructure(document: DesignDocumentV1): boolean {
+  if (!validateDesignDocumentResourceLimits(document).ok) return false
   if (!Number.isSafeInteger(document.revision) || document.revision < 0) return false
+  if (
+    !Array.isArray(document.appliedCommands) ||
+    document.appliedCommands.length > 200 ||
+    document.appliedCommands.some((record) =>
+      !SAFE_COMMAND_IDEMPOTENCY_KEY.test(record.idempotencyKey) ||
+      !Number.isSafeInteger(record.revision) ||
+      record.revision < 0 ||
+      record.revision > document.revision ||
+      !Number.isSafeInteger(record.appliedOperations) ||
+      record.appliedOperations < 0 ||
+      record.appliedOperations > 64
+    ) ||
+    new Set(document.appliedCommands.map((record) => record.idempotencyKey)).size !==
+      document.appliedCommands.length
+  ) {
+    return false
+  }
   const pageIds = new Set<string>()
   const assetIds = new Set(document.assets.map((asset) => asset.id))
 

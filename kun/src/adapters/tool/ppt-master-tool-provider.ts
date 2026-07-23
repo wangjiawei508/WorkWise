@@ -7,6 +7,10 @@ import type { ToolHostContext } from '../../ports/tool-host.js'
 import type { CapabilityToolProvider } from './capability-registry.js'
 import { resolveWorkspacePath, withToolBoundary } from './builtin-tool-utils.js'
 import { LocalToolHost } from './local-tool-host.js'
+import {
+  runRuntimePptMasterSidecar,
+  runtimePptMasterSidecarAvailable
+} from './ppt-master-sidecar-runner.js'
 
 const PPTX_MIME_TYPE = 'application/vnd.openxmlformats-officedocument.presentationml.presentation'
 const MAX_SVG_FILES = 200
@@ -21,6 +25,7 @@ type CanvasFormat = typeof CANVAS_FORMATS[number]
 type SourceDirectory = typeof SOURCE_DIRECTORIES[number]
 
 export type PptMasterExportRunnerInput = {
+  workspaceRoot: string
   pythonCommand: string
   scriptPath: string
   projectPath: string
@@ -151,6 +156,7 @@ function createPptMasterExportTool(input: {
       await resolveWorkspacePath(output.absolutePath, context)
 
       await input.runner({
+        workspaceRoot: context.workspace,
         pythonCommand: input.pythonCommand,
         scriptPath: canonicalScriptPath,
         projectPath: project.absolutePath,
@@ -224,6 +230,28 @@ async function validateSvgReferences(
 }
 
 async function runPptMasterExport(input: PptMasterExportRunnerInput): Promise<void> {
+  if (runtimePptMasterSidecarAvailable()) {
+    try {
+      await runRuntimePptMasterSidecar({
+        operation: 'ppt-master-export-pptx',
+        workspaceRoot: input.workspaceRoot,
+        projectPath: input.projectPath,
+        outputPath: input.outputPath,
+        source: input.source,
+        format: input.format
+      }, {
+        timeoutMs: EXPORT_TIMEOUT_MS,
+        signal: input.signal
+      })
+      return
+    } catch (sidecarError) {
+      if (input.signal.aborted) throw new Error('operation_cancelled: PPT export was cancelled')
+      // Development builds may not have a frozen sidecar yet. Keep the
+      // audited Python and portable fallbacks for contributors, but packaged
+      // clients always receive WORKWISE_PPT_MASTER_SIDECAR.
+      if (process.env.WORKWISE_PPT_MASTER_SIDECAR?.trim()) throw sidecarError
+    }
+  }
   try {
     await runPythonPptMasterExport(input)
     return
@@ -248,8 +276,6 @@ async function runPythonPptMasterExport(input: PptMasterExportRunnerInput): Prom
     '--output', input.outputPath,
     '--source', input.source,
     '--format', input.format,
-    '--only', 'native',
-    '--no-compat',
     '--quiet'
   ]
   await new Promise<void>((resolvePromise, reject) => {

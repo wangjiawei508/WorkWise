@@ -86,6 +86,7 @@ import {
   writeExportPayloadSchema,
   writeRichClipboardPayloadSchema,
   designExportPayloadSchema,
+  designDocumentListPayloadSchema,
   designDocumentLoadPayloadSchema,
   designDocumentSavePayloadSchema,
   designImageImportPayloadSchema,
@@ -134,6 +135,7 @@ import { importPptxToDesign } from '../services/design-import-service'
 import { renderPresetShape, listPresetShapes } from '../services/design-preset-service'
 import { saveDesignAssetToWrite } from '../services/design-write-service'
 import {
+  listDesignDocuments,
   loadDesignDocument,
   readDesignAsset,
   readSafeDesignImageSource,
@@ -1225,6 +1227,10 @@ export function registerAppIpcHandlers(options: RegisterAppIpcHandlersOptions): 
   ipcMain.handle('design:document:load', async (_, payload: unknown) => {
     const parsed = parseIpcPayload('design:document:load', designDocumentLoadPayloadSchema, payload)
     return loadDesignDocument(parsed.workspaceRoot, parsed.documentId)
+  })
+  ipcMain.handle('design:document:list', async (_, payload: unknown) => {
+    const parsed = parseIpcPayload('design:document:list', designDocumentListPayloadSchema, payload)
+    return listDesignDocuments(parsed.workspaceRoot)
   })
   ipcMain.handle('design:document:save', async (_, payload: unknown) => {
     const parsed = parseIpcPayload('design:document:save', designDocumentSavePayloadSchema, payload)

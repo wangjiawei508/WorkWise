@@ -147,6 +147,7 @@ export function parseSvgStringsToDocument(
     format: 'ppt169',
     pages,
     assets: [],
+    appliedCommands: [],
     createdAt: now,
     updatedAt: now
   }

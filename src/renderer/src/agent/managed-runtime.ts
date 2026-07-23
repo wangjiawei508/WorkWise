@@ -240,6 +240,12 @@ export class WorkWiseRuntimeProvider implements AgentProvider {
         sourceRequest?: string
         title?: string
       }
+      guiDesign?: {
+        workspaceRoot: string
+        documentId: string
+        pageId: string
+        expectedRevision: number
+      }
       attachmentIds?: string[]
     }
   ): Promise<{ turnId: string; threadId: string; userMessageItemId?: string }> {
@@ -269,6 +275,14 @@ export class WorkWiseRuntimeProvider implements AgentProvider {
         planId: options.guiPlan.planId,
         sourceRequest: options.guiPlan.sourceRequest,
         title: options.guiPlan.title
+      }
+    }
+    if (options?.guiDesign) {
+      body.guiDesign = {
+        workspaceRoot: options.guiDesign.workspaceRoot,
+        documentId: options.guiDesign.documentId,
+        pageId: options.guiDesign.pageId,
+        expectedRevision: options.guiDesign.expectedRevision
       }
     }
     if (options?.attachmentIds?.length) {

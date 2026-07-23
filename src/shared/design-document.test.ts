@@ -3,6 +3,7 @@ import {
   DEFAULT_DESIGN_CANVAS_FORMAT,
   DESIGN_CANVAS_FORMATS,
   DESIGN_CANVAS_PRESETS,
+  DESIGN_DOCUMENT_LIMITS,
   DESIGN_ELEMENT_TYPES,
   canvasSizeForFormat,
   createDesignDocument,
@@ -15,6 +16,7 @@ import {
   nextZIndex,
   normalizeDesignDocument,
   normalizeDesignElement,
+  validateDesignDocumentResourceLimits,
   type DesignDocumentV1,
   type DesignElement
 } from './design-document'
@@ -182,6 +184,7 @@ describe('createDesignDocument 工厂', () => {
     expect(doc.pages[0].elements).toEqual([])
     expect(doc.format).toBe(DEFAULT_DESIGN_CANVAS_FORMAT)
     expect(doc.assets).toEqual([])
+    expect(doc.appliedCommands).toEqual([])
     expect(doc.createdAt).toBeGreaterThan(0)
     expect(doc.updatedAt).toBeGreaterThan(0)
   })
@@ -300,11 +303,31 @@ describe('normalizeDesignDocument - 防御性归一化', () => {
   it('完整文档原样保留核心结构', () => {
     const doc = createDesignDocument({ name: '测试文档' })
     doc.pages[0].elements.push(createDesignElement('rect'))
+    doc.revision = 3
+    doc.appliedCommands = [{
+      idempotencyKey: 'turn-1-command-1',
+      revision: 3,
+      appliedOperations: 1
+    }]
     const result = normalizeDesignDocument(doc)
     expect(result).not.toBeNull()
     expect(result?.name).toBe('测试文档')
     expect(result?.pages).toHaveLength(1)
     expect(result?.pages[0].elements).toHaveLength(1)
+    expect(result?.appliedCommands).toEqual(doc.appliedCommands)
+  })
+
+  it('旧文档缺少命令记录时安全迁移，损坏或重复的记录会拒绝', () => {
+    const legacy = createDesignDocument()
+    delete (legacy as Partial<DesignDocumentV1>).appliedCommands
+    expect(normalizeDesignDocument(legacy)?.appliedCommands).toEqual([])
+
+    const invalid = createDesignDocument()
+    invalid.appliedCommands = [
+      { idempotencyKey: 'same', revision: 0, appliedOperations: 1 },
+      { idempotencyKey: 'same', revision: 0, appliedOperations: 1 }
+    ]
+    expect(normalizeDesignDocument(invalid)).toBeNull()
   })
 
   it('null/undefined 返回 null', () => {
@@ -505,5 +528,90 @@ describe('formatSvgColor - SVG 颜色格式化', () => {
   it('大小写保留（内部存储的原始大小写）', () => {
     expect(formatSvgColor('abcdef')).toBe('#abcdef')
     expect(formatSvgColor('ABCDEF')).toBe('#ABCDEF')
+  })
+})
+
+describe('Design document resource limits', () => {
+  it('accepts the page-count boundary and rejects one page above it', () => {
+    const document = createDesignDocument()
+    document.pages = Array.from({ length: DESIGN_DOCUMENT_LIMITS.pages }, (_, index) => ({
+      id: `page_${index}`,
+      name: `Page ${index + 1}`,
+      width: 1280,
+      height: 720,
+      elements: []
+    }))
+    expect(validateDesignDocumentResourceLimits(document).ok).toBe(true)
+
+    document.pages.push({
+      id: 'page_over',
+      name: 'Over',
+      width: 1280,
+      height: 720,
+      elements: []
+    })
+    expect(validateDesignDocumentResourceLimits(document)).toMatchObject({
+      ok: false,
+      message: expect.stringContaining(String(DESIGN_DOCUMENT_LIMITS.pages))
+    })
+  })
+
+  it('accepts the per-page element boundary and rejects one element above it', () => {
+    const document = createDesignDocument()
+    document.pages[0].elements = Array.from(
+      { length: DESIGN_DOCUMENT_LIMITS.elementsPerPage },
+      (_, index) => createDesignElement('rect', { id: `el_${index}` })
+    )
+    expect(validateDesignDocumentResourceLimits(document).ok).toBe(true)
+
+    document.pages[0].elements.push(
+      createDesignElement('rect', { id: 'el_over' })
+    )
+    expect(validateDesignDocumentResourceLimits(document)).toMatchObject({
+      ok: false,
+      message: expect.stringContaining(String(DESIGN_DOCUMENT_LIMITS.elementsPerPage))
+    })
+  })
+
+  it('rejects oversized element strings and deeply nested unknown fields', () => {
+    const document = createDesignDocument()
+    document.pages[0].elements.push(
+      createDesignElement('text', {
+        text: 'x'.repeat(DESIGN_DOCUMENT_LIMITS.textChars + 1)
+      })
+    )
+    expect(validateDesignDocumentResourceLimits(document)).toMatchObject({
+      ok: false,
+      message: expect.stringContaining('256 Ki')
+    })
+
+    let nested: Record<string, unknown> = {}
+    const root = nested
+    for (let depth = 0; depth <= DESIGN_DOCUMENT_LIMITS.nestingDepth; depth += 1) {
+      const next: Record<string, unknown> = {}
+      nested.child = next
+      nested = next
+    }
+    expect(validateDesignDocumentResourceLimits({
+      ...createDesignDocument(),
+      metadata: root
+    })).toMatchObject({
+      ok: false,
+      message: expect.stringContaining('nesting')
+    })
+  })
+
+  it('rejects a compact serialized document one byte over the 8 MiB budget', () => {
+    const document = {
+      ...createDesignDocument(),
+      metadata: Array.from(
+        { length: 33 },
+        () => 'x'.repeat(DESIGN_DOCUMENT_LIMITS.genericStringChars)
+      )
+    }
+    expect(validateDesignDocumentResourceLimits(document)).toMatchObject({
+      ok: false,
+      message: expect.stringContaining('8 MiB')
+    })
   })
 })

@@ -206,6 +206,8 @@ const api = {
     ipcRenderer.invoke('write:copy-rich-text', payload),
   exportDesignToPptx: (payload) =>
     ipcRenderer.invoke('design:export-pptx', payload),
+  listDesignDocuments: (payload) =>
+    ipcRenderer.invoke('design:document:list', payload),
   loadDesignDocument: (payload) =>
     ipcRenderer.invoke('design:document:load', payload),
   saveDesignDocument: (payload) =>

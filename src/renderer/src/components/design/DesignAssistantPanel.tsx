@@ -9,6 +9,7 @@ import { useChatStore } from '../../store/chat-store'
 type Props = {
   document: DesignDocumentV1
   page: DesignPage
+  workspaceRoot: string
   selectedElementIds: string[]
   commandNotice: { tone: 'success' | 'error'; message: string } | null
 }
@@ -63,6 +64,7 @@ export function buildDesignPrompt(
 export function DesignAssistantPanel({
   document,
   page,
+  workspaceRoot,
   selectedElementIds,
   commandNotice
 }: Props): ReactElement {
@@ -116,7 +118,15 @@ export function DesignAssistantPanel({
     const started = await sendMessage(
       buildDesignPrompt(request, document, page, selectedElementIds),
       'agent',
-      { displayText: request }
+      {
+        displayText: request,
+        guiDesign: {
+          workspaceRoot,
+          documentId: document.id,
+          pageId: page.id,
+          expectedRevision: document.revision
+        }
+      }
     )
     if (!started) setPrompt(request)
   }

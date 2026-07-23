@@ -7,7 +7,7 @@
  * - design.list_presets：列出可用预设形状
  *
  * 模式抄自 ppt-master-tool-provider（✅ 已核实其 provider/tool/host 结构）。
- * shouldAdvertise 基于 activeSkillIds['design']，只在 design skill 激活时暴露。
+ * shouldAdvertise 基于 renderer 持久化的 guiDesign Turn 上下文，只对当前画板暴露。
  * 输出用 generatedFiles 格式（让 task 系统自动收 artifact）。
  */
 
@@ -20,6 +20,9 @@ import {
   resolveWorkspacePath,
   withToolBoundary
 } from './builtin-tool-utils.js'
+import { guiPlanWorkspaceMatches } from '../../shared/gui-plan.js'
+
+export const DESIGN_APPLY_CANVAS_COMMANDS_TOOL_NAME = 'design_apply_canvas_commands'
 
 export type DesignToolProviderOptions = {
   /** git checkpoint 前置钩子（与 ppt-master 同款） */
@@ -55,7 +58,7 @@ export function buildDesignToolProviders(
 
 function createDesignApplyCanvasCommandsTool(): LocalTool {
   return LocalToolHost.defineTool({
-    name: 'design_apply_canvas_commands',
+    name: DESIGN_APPLY_CANVAS_COMMANDS_TOOL_NAME,
     description:
       'Apply one atomic batch of structured operations to the currently open WorkWise Design canvas. ' +
       'Use this instead of writing SVG or HTML files. The renderer validates the active document, page, ' +
@@ -123,23 +126,37 @@ function createDesignApplyCanvasCommandsTool(): LocalTool {
       additionalProperties: false
     },
     policy: 'auto',
-    // The tool remains harmless outside Design because the renderer rejects a
-    // command unless its active document/page/workspace/revision all match.
-    // Keeping it advertised avoids a skill-selection race in the Design rail.
-    shouldAdvertise: () => true,
-    execute: async (args: Record<string, unknown>, context: Record<string, unknown>) => withToolBoundary(async () => {
+    // The renderer grants this capability through persisted per-turn metadata.
+    // Skill activation alone must never expose a live canvas mutation tool.
+    shouldAdvertise: (context) => Boolean(context.guiDesign),
+    execute: async (args, context) => withToolBoundary(async () => {
       const documentId = requiredIdentifier(args.document_id, 'document_id')
       const pageId = requiredIdentifier(args.page_id, 'page_id')
       const expectedRevision = boundedInteger(args.expected_revision, 'expected_revision', 0, 1_000_000_000)
       const idempotencyKey = requiredIdentifier(args.idempotency_key, 'idempotency_key', 160)
       const operations = normalizeCanvasOperations(args.operations)
+      const activeDesign = context.guiDesign
+      if (!activeDesign) {
+        throw new Error('invalid_context: active Design canvas permission is unavailable')
+      }
+      if (
+        activeDesign.documentId !== documentId ||
+        activeDesign.pageId !== pageId ||
+        activeDesign.expectedRevision !== expectedRevision
+      ) {
+        throw new Error('stale_request: Design canvas context no longer matches the active document')
+      }
       const workspaceRoot = typeof context.workspace === 'string' ? context.workspace : ''
       if (!workspaceRoot) throw new Error('invalid_context: active workspace is unavailable')
+      if (!guiPlanWorkspaceMatches(workspaceRoot, activeDesign.workspaceRoot)) {
+        throw new Error('unsafe_path: Design canvas workspace does not match the active thread')
+      }
 
       return {
         output: {
           ok: true,
-          message: `Prepared ${operations.length} Design canvas operation(s).`,
+          status: 'pending_canvas_apply',
+          message: `Queued ${operations.length} Design canvas operation(s) for the active desktop canvas.`,
           designCanvasCommand: {
             schema: 'workwise.design.command',
             version: 1,
@@ -210,7 +227,7 @@ function createDesignExportTool(options: DesignToolProviderOptions): LocalTool {
       // 这里复用 main 进程的 design-export-service 逻辑
       // 但 kun 在自己的进程里，需要独立调用
       const { exportDesignSvgToPptx } = await import('./design-export-runner.js')
-      await exportDesignSvgToPptx(sourcePath, outputPath)
+      await exportDesignSvgToPptx(sourcePath, outputPath, outputResolved.workspaceRoot)
 
       const { stat } = await import('node:fs/promises')
       const statResult = await stat(outputPath)

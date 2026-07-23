@@ -6,7 +6,12 @@
  */
 import { execFile } from 'node:child_process'
 import { existsSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
+import {
+  runRuntimePptMasterSidecar,
+  runtimePptMasterSidecarAvailable
+} from './ppt-master-sidecar-runner.js'
 
 const TIMEOUT_MS = 15 * 1000
 const MAX_OUTPUT_BYTES = 256 * 1024
@@ -32,6 +37,15 @@ function resolvePythonCommand(): string {
 export function listPresetShapes(): Promise<string[]> {
   const scriptPath = resolveScriptPath()
   if (!scriptPath) return Promise.resolve([])
+
+  if (runtimePptMasterSidecarAvailable()) {
+    return runRuntimePptMasterSidecar({
+      operation: 'ppt-master-list-presets',
+      workspaceRoot: tmpdir()
+    }, { timeoutMs: TIMEOUT_MS })
+      .then((response) => (response.stdout ?? '').split('\n').filter(Boolean))
+      .catch(() => [])
+  }
 
   const pythonCmd = resolvePythonCommand()
   return new Promise((resolvePromise) => {

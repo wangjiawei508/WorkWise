@@ -18,6 +18,12 @@ if (process.argv.includes('--verify-only')) {
   if (!existsSync(join(outputRoot, 'workwise-markitdown', '_internal', 'magika', 'models', 'standard_v3_3', 'model.onnx'))) {
     throw new Error(`MarkItDown Magika model is missing: ${outputRoot}`)
   }
+  if (!existsSync(join(outputRoot, 'workwise-markitdown', '_internal', 'ppt-master', 'scripts', 'svg_to_pptx.py'))) {
+    throw new Error(`Bundled PPT Master exporter is missing: ${outputRoot}`)
+  }
+  if (!existsSync(join(outputRoot, 'workwise-markitdown', '_internal', 'ppt-master', 'scripts', 'pptx_to_svg.py'))) {
+    throw new Error(`Bundled PPT Master importer is missing: ${outputRoot}`)
+  }
   process.exit(0)
 }
 

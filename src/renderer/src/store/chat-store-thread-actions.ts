@@ -365,7 +365,7 @@ export function createThreadActions(
     }
     const hasPendingActiveTurn = get().blocks.some(hasPendingRuntimeWork)
     if (get().busy || hasPendingActiveTurn) {
-      if (overrides?.guiPlan) {
+      if (overrides?.guiPlan || overrides?.guiDesign) {
         set({ error: i18n.t('common:composerQueuePlaceholder') })
         return false
       }
@@ -581,6 +581,7 @@ export function createThreadActions(
         ...(reasoningEffort ? { reasoningEffort } : {}),
         ...(runtimeDisplayText ? { displayText: runtimeDisplayText } : {}),
         ...((queued?.guiPlan ?? overrides?.guiPlan) ? { guiPlan: queued?.guiPlan ?? overrides?.guiPlan } : {}),
+        ...(overrides?.guiDesign ? { guiDesign: overrides.guiDesign } : {}),
         ...(attachmentIds.length ? { attachmentIds } : {})
       })
       // Mirror the composer model selection against the runtime's stable

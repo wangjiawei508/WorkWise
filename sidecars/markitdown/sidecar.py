@@ -4,11 +4,15 @@
 from __future__ import annotations
 
 import hashlib
+import importlib.util
+import io
 import json
+import math
 import os
 import re
 import sys
 import time
+from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 from typing import Any
 
@@ -18,6 +22,7 @@ from markitdown import MarkItDown
 ENGINE_VERSION = "markitdown-v0.1.4-workwise-1"
 ALLOWED_EXTENSIONS = {".pdf", ".docx", ".pptx", ".xlsx"}
 MAX_INPUT_BYTES = 200 * 1024 * 1024
+PPT_MASTER_MAX_REQUEST_PATH = 4096
 
 
 def contained(root: Path, target: Path) -> bool:
@@ -32,6 +37,216 @@ def safe_path(raw: Any, field: str) -> Path:
     if not isinstance(raw, str) or not raw.strip() or "\x00" in raw:
         raise ValueError(f"{field} is required")
     return Path(raw).expanduser().resolve(strict=False)
+
+
+def ppt_master_root() -> Path:
+    """Return the audited PPT Master snapshot bundled into the frozen sidecar."""
+    frozen_root = getattr(sys, "_MEIPASS", "")
+    candidates = [
+        Path(frozen_root) / "ppt-master" if frozen_root else None,
+        Path(os.environ["WORKWISE_PPT_MASTER_ROOT"]).expanduser()
+        if os.environ.get("WORKWISE_PPT_MASTER_ROOT")
+        else None,
+        Path(__file__).resolve().parents[2] / "src" / "asset" / "skills" / "ppt-master",
+    ]
+    for candidate in candidates:
+        if candidate and (candidate / "scripts" / "svg_to_pptx.py").is_file():
+            return candidate.resolve(strict=True)
+    raise ValueError("bundled PPT Master runtime is unavailable")
+
+
+def bounded_ppt_path(root: Path, raw: Any, field: str, must_exist: bool) -> Path:
+    if not isinstance(raw, str) or len(raw) > PPT_MASTER_MAX_REQUEST_PATH:
+        raise ValueError(f"{field} is invalid")
+    value = safe_path(raw, field)
+    if not contained(root, value):
+        raise ValueError(f"{field} must stay within workspaceRoot")
+    if must_exist and not value.exists():
+        raise ValueError(f"{field} does not exist")
+    return value
+
+
+def load_script_module(name: str, path: Path) -> Any:
+    spec = importlib.util.spec_from_file_location(name, path)
+    if spec is None or spec.loader is None:
+        raise ValueError(f"unable to load PPT Master module: {path.name}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def call_ppt_master(operation: str, request: dict[str, Any]) -> dict[str, Any]:
+    root = safe_path(request.get("workspaceRoot"), "workspaceRoot").resolve(strict=True)
+    if not root.is_dir():
+        raise ValueError("workspaceRoot must be a directory")
+    skill_root = ppt_master_root()
+    scripts_root = skill_root / "scripts"
+    sys.path.insert(0, str(scripts_root))
+    stdout = io.StringIO()
+    stderr = io.StringIO()
+    started = time.monotonic()
+    exit_code = 0
+
+    try:
+        try:
+            with redirect_stdout(stdout), redirect_stderr(stderr):
+                if operation == "ppt-master-list-presets":
+                    module = load_script_module(
+                        "workwise_preset_shape_svg", scripts_root / "preset_shape_svg.py"
+                    )
+                    exit_code = int(module.main(["list"]) or 0)
+                elif operation == "ppt-master-render-preset":
+                    preset = request.get("presetName")
+                    frame = request.get("frame")
+                    fill = request.get("fill", "#1E3A5F")
+                    if not isinstance(preset, str) or not re.fullmatch(
+                        r"[A-Za-z0-9_]{1,80}", preset
+                    ):
+                        raise ValueError("presetName is invalid")
+                    if (
+                        not isinstance(frame, list)
+                        or len(frame) != 4
+                        or any(
+                            not isinstance(value, (int, float))
+                            or not math.isfinite(float(value))
+                            or abs(float(value)) > 100_000
+                            for value in frame
+                        )
+                    ):
+                        raise ValueError("frame is invalid")
+                    if not isinstance(fill, str) or not re.fullmatch(
+                        r"#[0-9A-Fa-f]{6}", fill
+                    ):
+                        raise ValueError("fill is invalid")
+                    module = load_script_module(
+                        "workwise_preset_shape_svg", scripts_root / "preset_shape_svg.py"
+                    )
+                    exit_code = int(
+                        module.main(
+                            [
+                                "render",
+                                preset,
+                                "--id",
+                                f"preset-{int(time.time() * 1000)}",
+                                "--frame",
+                                *(str(float(value)) for value in frame),
+                                "--fill",
+                                fill,
+                            ]
+                        )
+                        or 0
+                    )
+                elif operation == "ppt-master-import-pptx":
+                    source = bounded_ppt_path(
+                        root, request.get("inputPath"), "inputPath", True
+                    )
+                    output = bounded_ppt_path(
+                        root,
+                        request.get("outputDirectory"),
+                        "outputDirectory",
+                        False,
+                    )
+                    if (
+                        source.suffix.lower() != ".pptx"
+                        or source.stat().st_size > MAX_INPUT_BYTES
+                    ):
+                        raise ValueError(
+                            "inputPath must be a PPTX no larger than 200 MiB"
+                        )
+                    output.mkdir(parents=True, exist_ok=True)
+                    module = load_script_module(
+                        "workwise_pptx_to_svg_cli", scripts_root / "pptx_to_svg.py"
+                    )
+                    previous_argv = sys.argv
+                    try:
+                        sys.argv = [
+                            str(scripts_root / "pptx_to_svg.py"),
+                            str(source),
+                            "--output",
+                            str(output),
+                            "--inheritance-mode",
+                            "flat",
+                        ]
+                        exit_code = int(module.main() or 0)
+                    finally:
+                        sys.argv = previous_argv
+                elif operation == "ppt-master-export-pptx":
+                    project = bounded_ppt_path(
+                        root, request.get("projectPath"), "projectPath", True
+                    )
+                    output = bounded_ppt_path(
+                        root, request.get("outputPath"), "outputPath", False
+                    )
+                    source = request.get("source", "output")
+                    canvas_format = request.get("format", "ppt169")
+                    if not project.is_dir():
+                        raise ValueError("projectPath must be a directory")
+                    if output.suffix.lower() != ".pptx":
+                        raise ValueError("outputPath must end in .pptx")
+                    if source not in {"output", "final"} or canvas_format not in {
+                        "ppt169",
+                        "ppt43",
+                    }:
+                        raise ValueError("PPT export options are invalid")
+                    output.parent.mkdir(parents=True, exist_ok=True)
+                    from svg_to_pptx import main as svg_to_pptx_main
+
+                    exit_code = int(
+                        svg_to_pptx_main(
+                            [
+                                str(project),
+                                "--output",
+                                str(output),
+                                "--source",
+                                source,
+                                "--format",
+                                canvas_format,
+                                "--quiet",
+                            ]
+                        )
+                        or 0
+                    )
+                else:
+                    raise ValueError("unsupported PPT Master operation")
+        except SystemExit as error:
+            raw_code = error.code
+            exit_code = raw_code if isinstance(raw_code, int) else 1
+    finally:
+        try:
+            sys.path.remove(str(scripts_root))
+        except ValueError:
+            pass
+
+    if exit_code != 0:
+        raise ValueError(
+            (stderr.getvalue().strip() or stdout.getvalue().strip() or "PPT Master failed")[
+                :1000
+            ]
+        )
+    payload: dict[str, Any] = {
+        "ok": True,
+        "operation": operation,
+        "stdout": stdout.getvalue().strip(),
+        "warnings": [
+            line.strip()
+            for line in stderr.getvalue().splitlines()
+            if line.strip()
+        ][:50],
+        "durationMs": int((time.monotonic() - started) * 1000),
+    }
+    if operation == "ppt-master-import-pptx":
+        payload["outputDirectory"] = str(
+            bounded_ppt_path(
+                root, request.get("outputDirectory"), "outputDirectory", True
+            ).relative_to(root)
+        )
+    elif operation == "ppt-master-export-pptx":
+        payload["outputPath"] = str(
+            bounded_ppt_path(root, request.get("outputPath"), "outputPath", True).relative_to(
+                root
+            )
+        )
+    return payload
 
 
 def headings(markdown: str) -> list[dict[str, Any]]:
@@ -63,6 +278,12 @@ def tables(markdown: str) -> list[dict[str, str]]:
 
 
 def run(request: dict[str, Any]) -> dict[str, Any]:
+    operation = request.get("operation", "parse-document")
+    if operation != "parse-document":
+        if not isinstance(operation, str):
+            raise ValueError("operation must be a string")
+        return call_ppt_master(operation, request)
+
     started = time.monotonic()
     workspace = safe_path(request.get("workspaceRoot"), "workspaceRoot").resolve(strict=True)
     source = safe_path(request.get("inputPath"), "inputPath").resolve(strict=True)

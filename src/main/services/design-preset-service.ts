@@ -1,5 +1,10 @@
 import { execFile } from 'node:child_process'
+import { tmpdir } from 'node:os'
 import { resolvePptMasterScript } from './design-ppt-master-paths'
+import {
+  isPptMasterSidecarAvailable,
+  runPptMasterSidecar
+} from './ppt-master-sidecar'
 
 /**
  * Design 预设形状服务（main 进程）。
@@ -80,6 +85,26 @@ export function renderPresetShape(
   ]
 
   return enqueuePresetPython(async () => {
+    if (isPptMasterSidecarAvailable()) {
+      try {
+        const response = await runPptMasterSidecar({
+          operation: 'ppt-master-render-preset',
+          workspaceRoot: tmpdir(),
+          presetName,
+          frame: [frame.x, frame.y, frame.w, frame.h],
+          fill
+        }, { timeoutMs: RENDER_TIMEOUT_MS })
+        if (!response.stdout) {
+          return { ok: false, message: 'PPT Master returned an empty preset shape.' }
+        }
+        return { ok: true, svg: response.stdout }
+      } catch (error) {
+        return {
+          ok: false,
+          message: error instanceof Error ? error.message : String(error)
+        }
+      }
+    }
     const result = await executePython(pythonCmd, args)
     return result.ok
       ? { ok: true, svg: result.stdout }
@@ -98,6 +123,18 @@ export function listPresetShapes(): Promise<string[]> {
   const pythonCmd = resolvePythonCommand()
   return enqueuePresetPython(async () => {
     if (cachedPresetShapes) return [...cachedPresetShapes]
+    if (isPptMasterSidecarAvailable()) {
+      try {
+        const response = await runPptMasterSidecar({
+          operation: 'ppt-master-list-presets',
+          workspaceRoot: tmpdir()
+        }, { timeoutMs: RENDER_TIMEOUT_MS })
+        cachedPresetShapes = (response.stdout ?? '').split('\n').filter(Boolean)
+        return [...cachedPresetShapes]
+      } catch {
+        return []
+      }
+    }
     const result = await executePython(pythonCmd, [scriptPath, 'list'])
     if (!result.ok) return []
     cachedPresetShapes = result.stdout.split('\n').filter(Boolean)

@@ -3,7 +3,7 @@ import type { ToolHostContext } from '../../ports/tool-host.js'
 import { CapabilityRegistry } from './capability-registry.js'
 import { buildDesignToolProviders } from './design-tool-provider.js'
 
-function context(): ToolHostContext {
+function context(withDesign = true): ToolHostContext {
   return {
     threadId: 'thread',
     turnId: 'turn',
@@ -11,15 +11,32 @@ function context(): ToolHostContext {
     threadMode: 'agent',
     approvalPolicy: 'auto',
     sandboxMode: 'workspace-write',
+    ...(withDesign
+      ? {
+          guiDesign: {
+            workspaceRoot: '/tmp/workwise-design',
+            documentId: 'design_1',
+            pageId: 'page_1',
+            expectedRevision: 7
+          }
+        }
+      : {}),
     abortSignal: new AbortController().signal,
     awaitApproval: async () => 'allow'
   }
 }
 
 describe('Design canvas tool provider', () => {
-  it('advertises the safe canvas command bridge without requiring skill-selection timing', () => {
+  it('advertises the safe canvas command bridge for an explicit Design turn', () => {
     const registry = new CapabilityRegistry(buildDesignToolProviders().providers)
     expect(registry.listTools(context()).map((tool) => tool.name)).toContain(
+      'design_apply_canvas_commands'
+    )
+  })
+
+  it('does not advertise the canvas command bridge to an ordinary agent turn', () => {
+    const registry = new CapabilityRegistry(buildDesignToolProviders().providers)
+    expect(registry.listTools(context(false)).map((tool) => tool.name)).not.toContain(
       'design_apply_canvas_commands'
     )
   })
@@ -55,6 +72,8 @@ describe('Design canvas tool provider', () => {
     expect(result.isError).not.toBe(true)
     expect(result.output).toMatchObject({
       ok: true,
+      status: 'pending_canvas_apply',
+      message: expect.stringContaining('Queued 1 Design canvas operation'),
       designCanvasCommand: {
         schema: 'workwise.design.command',
         version: 1,
@@ -77,6 +96,27 @@ describe('Design canvas tool provider', () => {
             }
           }
         ]
+      }
+    })
+  })
+
+  it('rejects canvas arguments that no longer match the granted Design context', async () => {
+    const registry = new CapabilityRegistry(buildDesignToolProviders().providers)
+    const { tool } = registry.resolveTool('design_apply_canvas_commands', context(), 'design')
+    const result = await tool.execute(
+      {
+        document_id: 'other_design',
+        page_id: 'page_1',
+        expected_revision: 7,
+        idempotency_key: 'turn-1-command-stale',
+        operations: [{ kind: 'remove', element_ids: ['element_1'] }]
+      },
+      context()
+    )
+    expect(result).toMatchObject({
+      isError: true,
+      output: {
+        error: expect.stringContaining('stale_request')
       }
     })
   })

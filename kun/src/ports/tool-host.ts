@@ -49,6 +49,14 @@ export type GuiPlanContext = {
   turnId?: string
 }
 
+export type GuiDesignContext = {
+  workspaceRoot: string
+  documentId: string
+  pageId: string
+  expectedRevision: number
+  turnId?: string
+}
+
 export type ToolHostContext = {
   threadId: string
   turnId: string
@@ -61,6 +69,8 @@ export type ToolHostContext = {
   threadMode?: 'agent' | 'plan'
   /** Optional GUI plan context (see above). */
   guiPlan?: GuiPlanContext
+  /** Exact active Design canvas that granted this turn canvas mutation access. */
+  guiDesign?: GuiDesignContext
   /** Active model capability metadata used by capability-aware providers. */
   model?: ModelCapabilityMetadata
   /** Skill ids activated for this turn, if the Skill runtime is enabled. */

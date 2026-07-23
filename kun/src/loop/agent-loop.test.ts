@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { AgentLoop, resolvePlanModeToolSpecs } from './agent-loop.js'
+import {
+  AgentLoop,
+  allowedToolNamesWithGuiStateTools,
+  resolvePlanModeToolSpecs
+} from './agent-loop.js'
 import type { ModelClient, ModelToolSpec } from '../ports/model-client.js'
 import type { ToolHost } from '../ports/tool-host.js'
 import { InMemoryThreadStore } from '../adapters/in-memory-thread-store.js'
@@ -142,6 +146,21 @@ describe('resolvePlanModeToolSpecs', () => {
     expect(names).toContain('custom-plan')
     expect(names).not.toContain('write')
     expect(names).not.toContain('bash')
+  })
+})
+
+describe('allowedToolNamesWithGuiStateTools', () => {
+  it('adds the Design canvas bridge only for an explicit Design turn', () => {
+    expect(allowedToolNamesWithGuiStateTools(['read'], false, true)).toContain(
+      'design_apply_canvas_commands'
+    )
+    expect(allowedToolNamesWithGuiStateTools(['read'], false, false)).not.toContain(
+      'design_apply_canvas_commands'
+    )
+  })
+
+  it('preserves an unrestricted tool catalog', () => {
+    expect(allowedToolNamesWithGuiStateTools(undefined, false, true)).toBeUndefined()
   })
 })
 

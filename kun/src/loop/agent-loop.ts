@@ -4,6 +4,7 @@ import type {
   ToolCallLike,
   ToolHostContext,
   ToolHostResult,
+  GuiDesignContext,
   GuiPlanContext,
   ToolProviderKind
 } from '../ports/tool-host.js'
@@ -73,6 +74,7 @@ import { repairDispatchToolArguments } from './tool-call-repair.js'
 import { CREATE_PLAN_TOOL_NAME } from '../adapters/tool/create-plan-tool.js'
 import { GET_GOAL_TOOL_NAME, UPDATE_GOAL_TOOL_NAME } from '../adapters/tool/goal-tools.js'
 import { TODO_LIST_TOOL_NAME, TODO_WRITE_TOOL_NAME } from '../adapters/tool/todo-tools.js'
+import { DESIGN_APPLY_CANVAS_COMMANDS_TOOL_NAME } from '../adapters/tool/design-tool-provider.js'
 import { shellRuntimeInstruction } from '../adapters/tool/builtin-tool-utils.js'
 import { RUNTIME_RESOURCE_LIMITS_V1 } from '../contracts/resource-limits.js'
 import {
@@ -325,9 +327,10 @@ function userInputUnavailableInstruction(): string {
   ].join(' ')
 }
 
-function allowedToolNamesWithGuiStateTools(
+export function allowedToolNamesWithGuiStateTools(
   allowedToolNames: readonly string[] | undefined,
-  activeGoal: boolean
+  activeGoal: boolean,
+  activeDesign: boolean
 ): readonly string[] | undefined {
   if (!allowedToolNames) return allowedToolNames
   const next = new Set(allowedToolNames)
@@ -337,6 +340,7 @@ function allowedToolNamesWithGuiStateTools(
   }
   next.add(TODO_LIST_TOOL_NAME)
   next.add(TODO_WRITE_TOOL_NAME)
+  if (activeDesign) next.add(DESIGN_APPLY_CANVAS_COMMANDS_TOOL_NAME)
   return [...next]
 }
 
@@ -704,6 +708,9 @@ export class AgentLoop {
     const activePlanContext = turn?.guiPlan
       ? { ...turn.guiPlan, turnId }
       : this.opts.activePlanContext
+    const activeDesignContext = turn?.guiDesign
+      ? { ...turn.guiDesign, turnId }
+      : undefined
     const budgetGate = await this.checkBudgetGate(thread, threadId, turnId)
     if (budgetGate === 'blocked') return 'stop'
     const loadedItems = await this.opts.sessionStore.loadItems(threadId)
@@ -810,7 +817,8 @@ export class AgentLoop {
       : todoContinuationInstruction(thread?.todos)
     const skillAllowedToolNames = allowedToolNamesWithGuiStateTools(
       skillResolution.allowedToolNames,
-      activeGoalInstruction !== null
+      activeGoalInstruction !== null,
+      activeDesignContext !== undefined
     )
     const allowedToolNames = intersectAgentToolAllowlist(
       skillAllowedToolNames,
@@ -827,6 +835,7 @@ export class AgentLoop {
       workspace: thread?.workspace ?? '',
       threadMode: effectiveMode,
       ...(activePlanContext ? { guiPlan: activePlanContext } : {}),
+      ...(activeDesignContext ? { guiDesign: activeDesignContext } : {}),
       model: modelCapabilities,
       activeSkillIds: skillResolution.activeSkillIds,
       memoryPolicy: { enabled: Boolean(this.opts.memoryStore) },
@@ -1339,6 +1348,7 @@ export class AgentLoop {
       workspace: thread?.workspace ?? '',
       threadMode: effectiveMode,
       activePlanContext,
+      activeDesignContext,
       modelCapabilities,
       activeSkillIds: skillResolution.activeSkillIds,
       allowedToolNames,
@@ -1360,6 +1370,7 @@ export class AgentLoop {
     workspace: string
     threadMode?: 'agent' | 'plan'
     activePlanContext?: GuiPlanContext
+    activeDesignContext?: GuiDesignContext
     modelCapabilities: ModelCapabilityMetadata
     activeSkillIds: readonly string[]
     allowedToolNames?: readonly string[]
@@ -1485,6 +1496,7 @@ export class AgentLoop {
     workspace: string
     threadMode?: 'agent' | 'plan'
     activePlanContext?: GuiPlanContext
+    activeDesignContext?: GuiDesignContext
     modelCapabilities: ModelCapabilityMetadata
     activeSkillIds: readonly string[]
     allowedToolNames?: readonly string[]
@@ -1499,6 +1511,7 @@ export class AgentLoop {
       workspace: input.workspace,
       threadMode: input.threadMode,
       ...(input.activePlanContext ? { guiPlan: input.activePlanContext } : {}),
+      ...(input.activeDesignContext ? { guiDesign: input.activeDesignContext } : {}),
       model: input.modelCapabilities,
       activeSkillIds: input.activeSkillIds,
       memoryPolicy: { enabled: Boolean(this.opts.memoryStore) },

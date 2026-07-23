@@ -5,6 +5,8 @@ import {
   Circle,
   Download,
   Copy,
+  ExternalLink,
+  FolderOpen,
   Group,
   ImagePlus,
   Loader2,
@@ -41,8 +43,17 @@ import { DesignNewDocumentDialog } from './DesignNewDocumentDialog'
 import { DesignPropertiesPanel } from './DesignPropertiesPanel'
 import { DesignShapeLibraryPanel } from './DesignShapeLibraryPanel'
 import type { DesignCanvasFormat } from '@shared/design-document'
-import type { DesignCanvasCommandV1 } from '@shared/design-workspace'
+import type {
+  DesignCanvasCommandV1,
+  DesignDocumentLoadResult,
+  DesignDocumentSummaryV1
+} from '@shared/design-workspace'
 import { useChatStore } from '../../store/chat-store'
+import {
+  openGeneratedWorkspaceFile,
+  revealGeneratedWorkspaceFile,
+  saveGeneratedWorkspaceFileAs
+} from '../../lib/generated-file-actions'
 
 type Props = {
   leftSidebarCollapsed: boolean
@@ -58,6 +69,20 @@ const TOOL_BUTTONS: ReadonlyArray<{ tool: DesignTool; icon: typeof Square; label
   { tool: 'line', icon: Minus, labelKey: 'designToolLine' },
   { tool: 'text', icon: Type, labelKey: 'designToolText' }
 ]
+
+type DesignExportArtifact = {
+  path: string
+  name: string
+  mimeType: string
+}
+
+function designArtifactActionFailureMessage(
+  result: { ok: boolean; canceled?: boolean; message?: string },
+  fallback: string
+): string | null {
+  if (result.ok || result.canceled) return null
+  return result.message?.trim() || fallback
+}
 
 function canvasCommandFromMeta(meta: Record<string, unknown> | undefined): DesignCanvasCommandV1 | null {
   const candidate = meta?.designCanvasCommand
@@ -103,8 +128,7 @@ export function DesignWorkspaceView({
     activePageId,
     addPage,
     removePage,
-    setActivePage
-    ,
+    setActivePage,
     persistedRevision,
     saveState,
     saveError,
@@ -136,8 +160,7 @@ export function DesignWorkspaceView({
       activePageId: s.activePageId,
       addPage: s.addPage,
       removePage: s.removePage,
-      setActivePage: s.setActivePage
-      ,
+      setActivePage: s.setActivePage,
       persistedRevision: s.persistedRevision,
       saveState: s.saveState,
       saveError: s.saveError,
@@ -172,6 +195,7 @@ export function DesignWorkspaceView({
   const [importing, setImporting] = useState(false)
   const [importingImage, setImportingImage] = useState(false)
   const [restoring, setRestoring] = useState(false)
+  const [savedDocuments, setSavedDocuments] = useState<DesignDocumentSummaryV1[]>([])
   const [presetShapes, setPresetShapes] = useState<string[]>([])
   const [presetPanelOpen, setPresetPanelOpen] = useState(false)
   const [presetSearch, setPresetSearch] = useState('')
@@ -180,14 +204,39 @@ export function DesignWorkspaceView({
     tone: 'success' | 'warning' | 'error'
     message: string
   } | null>(null)
+  const [exportArtifact, setExportArtifact] = useState<DesignExportArtifact | null>(null)
+  const [artifactAction, setArtifactAction] = useState<'open' | 'save' | 'reveal' | null>(null)
+  const [artifactActionError, setArtifactActionError] = useState<string | null>(null)
   const saveQueueRef = useRef<Promise<boolean>>(Promise.resolve(true))
   const restoreGenerationRef = useRef(0)
   const processedCanvasCommandsRef = useRef(new Set<string>())
-  const canvasCommandBridgeInitializedRef = useRef(false)
+  const enqueuedCanvasCommandsRef = useRef(new Set<string>())
+  const canvasCommandScopeRef = useRef(0)
+  const canvasCommandSaveRetriesRef = useRef(new Map<string, number>())
+  const canvasCommandQueueRef = useRef<Promise<void>>(Promise.resolve())
+  const [canvasCommandRetryGeneration, setCanvasCommandRetryGeneration] = useState(0)
   const [assistantCommandNotice, setAssistantCommandNotice] = useState<{
     tone: 'success' | 'error'
     message: string
   } | null>(null)
+
+  const refreshSavedDocuments = useCallback(async (): Promise<void> => {
+    if (!workspaceRoot || typeof window.workwise?.listDesignDocuments !== 'function') {
+      setSavedDocuments([])
+      return
+    }
+    const result = await window.workwise.listDesignDocuments({ workspaceRoot })
+    if (!result.ok) {
+      throw new Error(result.message || t('designDocumentListFailed'))
+    }
+    setSavedDocuments(result.documents)
+    if (result.corruptDocumentIds?.length) {
+      setOperationNotice({
+        tone: 'warning',
+        message: t('designCorruptDocuments', { count: result.corruptDocumentIds.length })
+      })
+    }
+  }, [t, workspaceRoot])
 
   const flushDesignSave = useCallback((): Promise<boolean> => {
     const operation = saveQueueRef.current
@@ -219,19 +268,34 @@ export function DesignWorkspaceView({
           return false
         }
         state.markSaved(result.document)
+        setSavedDocuments((current) => {
+          const summary: DesignDocumentSummaryV1 = {
+            id: result.document!.id,
+            name: result.document!.name,
+            revision: result.document!.revision,
+            pageCount: result.document!.pages.length,
+            updatedAt: result.document!.updatedAt
+          }
+          return [
+            summary,
+            ...current.filter((item) => item.id !== summary.id)
+          ].sort((left, right) => right.updatedAt - left.updatedAt)
+        })
         return true
       })
     saveQueueRef.current = operation
     return operation
   }, [t, workspaceRoot])
 
-  useEffect(() => {
+  const restoreDesignDocument = useCallback(async (
+    documentId?: string
+  ): Promise<DesignDocumentLoadResult | null> => {
+    if (!workspaceRoot || typeof window.workwise?.loadDesignDocument !== 'function') return null
     const generation = ++restoreGenerationRef.current
-    closeDocument()
-    if (!workspaceRoot || typeof window.workwise?.loadDesignDocument !== 'function') return
     setRestoring(true)
-    void window.workwise.loadDesignDocument({ workspaceRoot }).then(async (result) => {
-      if (generation !== restoreGenerationRef.current) return
+    try {
+      const result = await window.workwise.loadDesignDocument({ workspaceRoot, documentId })
+      if (generation !== restoreGenerationRef.current) return null
       if (result.ok && result.document) {
         loadDocument(result.document, {
           activePageId: result.activePageId,
@@ -257,20 +321,39 @@ export function DesignWorkspaceView({
           message: result.message || t('designRestoreFailed')
         })
       }
-    }).catch((error) => {
+      return result
+    } catch (error) {
       if (generation === restoreGenerationRef.current) {
         setOperationNotice({
           tone: 'error',
           message: error instanceof Error ? error.message : String(error)
         })
       }
-    }).finally(() => {
+      return null
+    } finally {
       if (generation === restoreGenerationRef.current) setRestoring(false)
+    }
+  }, [loadDocument, setAssetDataUrl, t, workspaceRoot])
+
+  useEffect(() => {
+    canvasCommandScopeRef.current += 1
+    closeDocument()
+    setSavedDocuments([])
+    processedCanvasCommandsRef.current.clear()
+    enqueuedCanvasCommandsRef.current.clear()
+    canvasCommandSaveRetriesRef.current.clear()
+    if (!workspaceRoot) return
+    void refreshSavedDocuments().catch((error) => {
+      setOperationNotice({
+        tone: 'error',
+        message: error instanceof Error ? error.message : String(error)
+      })
     })
+    void restoreDesignDocument()
     return () => {
       restoreGenerationRef.current += 1
     }
-  }, [closeDocument, loadDocument, setAssetDataUrl, t, workspaceRoot])
+  }, [closeDocument, refreshSavedDocuments, restoreDesignDocument, workspaceRoot])
 
   useEffect(() => {
     if (
@@ -296,33 +379,83 @@ export function DesignWorkspaceView({
       .filter((block) => block.kind === 'tool')
       .map((block) => canvasCommandFromMeta(block.meta))
       .filter((command): command is DesignCanvasCommandV1 => command !== null)
-
-    if (!canvasCommandBridgeInitializedRef.current) {
-      for (const command of commands) {
-        processedCanvasCommandsRef.current.add(command.idempotencyKey)
-      }
-      canvasCommandBridgeInitializedRef.current = true
-      return
-    }
+      .slice(-64)
 
     for (const command of commands) {
-      if (processedCanvasCommandsRef.current.has(command.idempotencyKey)) continue
-      processedCanvasCommandsRef.current.add(command.idempotencyKey)
-      const ack = applyCanvasCommand(command, workspaceRoot)
-      if (ack.ok) {
-        setAssistantCommandNotice({
-          tone: 'success',
-          message: t('designAssistantApplied', { count: ack.appliedOperations })
-        })
-        void flushDesignSave()
-      } else {
-        setAssistantCommandNotice({
-          tone: 'error',
-          message: ack.message || t('designAssistantApplyFailed')
-        })
+      if (
+        processedCanvasCommandsRef.current.has(command.idempotencyKey) ||
+        enqueuedCanvasCommandsRef.current.has(command.idempotencyKey)
+      ) {
+        continue
       }
+      enqueuedCanvasCommandsRef.current.add(command.idempotencyKey)
+      const commandScope = canvasCommandScopeRef.current
+      let markProcessed = false
+      const queued = canvasCommandQueueRef.current
+        .catch(() => undefined)
+        .then(async () => {
+          if (commandScope !== canvasCommandScopeRef.current) return
+          const ack = applyCanvasCommand(command, workspaceRoot)
+          if (!ack.ok) {
+            markProcessed = true
+            setAssistantCommandNotice({
+              tone: 'error',
+              message: ack.message || t('designAssistantApplyFailed')
+            })
+            return
+          }
+          const saved = await flushDesignSave()
+          if (commandScope !== canvasCommandScopeRef.current) return
+          if (saved) {
+            markProcessed = true
+            canvasCommandSaveRetriesRef.current.delete(command.idempotencyKey)
+          } else {
+            const retryCount =
+              (canvasCommandSaveRetriesRef.current.get(command.idempotencyKey) ?? 0) + 1
+            canvasCommandSaveRetriesRef.current.set(command.idempotencyKey, retryCount)
+            if (retryCount < 3) {
+              window.setTimeout(() => {
+                if (commandScope === canvasCommandScopeRef.current) {
+                  setCanvasCommandRetryGeneration((value) => value + 1)
+                }
+              }, retryCount * 750)
+            }
+          }
+          setAssistantCommandNotice(saved
+            ? {
+                tone: 'success',
+                message: t('designAssistantApplied', { count: ack.appliedOperations })
+              }
+            : {
+                tone: 'error',
+                message: t('designAssistantSaveFailed')
+              })
+        })
+        .finally(() => {
+          if (markProcessed && commandScope === canvasCommandScopeRef.current) {
+            processedCanvasCommandsRef.current.add(command.idempotencyKey)
+          }
+          enqueuedCanvasCommandsRef.current.delete(command.idempotencyKey)
+        })
+      canvasCommandQueueRef.current = queued
     }
-  }, [applyCanvasCommand, flushDesignSave, runtimeBlocks, t, workspaceRoot])
+  }, [
+    applyCanvasCommand,
+    canvasCommandRetryGeneration,
+    flushDesignSave,
+    runtimeBlocks,
+    t,
+    workspaceRoot
+  ])
+
+  const handleOpenSavedDocument = async (documentId: string): Promise<void> => {
+    if (!documentId || documentId === document?.id || restoring) return
+    if (!(await flushDesignSave())) {
+      setOperationNotice({ tone: 'error', message: t('designSaveFailed') })
+      return
+    }
+    await restoreDesignDocument(documentId)
+  }
 
   const handleImportImage = async (): Promise<void> => {
     const currentDocument = useDesignWorkspaceStore.getState().document
@@ -423,6 +556,13 @@ export function DesignWorkspaceView({
     if (typeof window.workwise?.importPptxToDesign !== 'function') return
     setImporting(true)
     try {
+      if (!(await flushDesignSave())) {
+        setOperationNotice({
+          tone: 'error',
+          message: t('designSaveFailed')
+        })
+        return
+      }
       const result = await window.workwise.importPptxToDesign({ workspaceRoot })
       if (result.ok && result.document) {
         loadDocument(result.document, {
@@ -483,8 +623,17 @@ export function DesignWorkspaceView({
             message: result.message || t('designExportFailed')
           })
         }
-      } else {
+      } else if (result.path) {
+        const path = result.path
+        setExportArtifact({
+          path,
+          name: path.split(/[\\/]/).pop() || `${designExportFileStem(document.name)}.pptx`,
+          mimeType: 'application/vnd.openxmlformats-officedocument.presentationml.presentation'
+        })
+        setArtifactActionError(null)
         setOperationNotice({ tone: 'success', message: t('designExportPptxSuccess') })
+      } else {
+        setOperationNotice({ tone: 'error', message: t('designExportFailed') })
       }
     } catch (error) {
       setOperationNotice({
@@ -514,6 +663,13 @@ export function DesignWorkspaceView({
         mimeType: format === 'svg' ? 'image/svg+xml' : 'image/png'
       })
       if (result.ok) {
+        const path = result.path
+        setExportArtifact({
+          path,
+          name: path.split(/[\\/]/).pop() || suggestedName,
+          mimeType: format === 'svg' ? 'image/svg+xml' : 'image/png'
+        })
+        setArtifactActionError(null)
         setOperationNotice({
           tone: 'success',
           message: t('designExportImageSuccess', { format: format.toUpperCase() })
@@ -528,6 +684,37 @@ export function DesignWorkspaceView({
       })
     } finally {
       setExporting(null)
+    }
+  }
+
+  const handleArtifactAction = async (
+    action: 'open' | 'save' | 'reveal'
+  ): Promise<void> => {
+    const artifact = exportArtifact
+    if (!artifact || artifactAction) return
+    setArtifactAction(action)
+    setArtifactActionError(null)
+    try {
+      const result = action === 'open'
+        ? await openGeneratedWorkspaceFile({ path: artifact.path })
+        : action === 'reveal'
+          ? await revealGeneratedWorkspaceFile({ path: artifact.path })
+          : await saveGeneratedWorkspaceFileAs({
+              sourcePath: artifact.path,
+              suggestedName: artifact.name,
+              mimeType: artifact.mimeType
+            })
+      const fallback = action === 'open'
+        ? t('generatedFileOpenFailed')
+        : action === 'reveal'
+          ? t('generatedFileRevealFailed')
+          : t('generatedFileSaveFailed')
+      const message = designArtifactActionFailureMessage(result, fallback)
+      if (message) setArtifactActionError(message)
+    } catch (error) {
+      setArtifactActionError(error instanceof Error ? error.message : String(error))
+    } finally {
+      setArtifactAction(null)
     }
   }
 
@@ -697,6 +884,7 @@ export function DesignWorkspaceView({
                 <DesignAssistantPanel
                   document={document}
                   page={useDesignWorkspaceStore.getState().getActivePage()!}
+                  workspaceRoot={workspaceRoot}
                   selectedElementIds={selectedElementIds}
                   commandNotice={assistantCommandNotice}
                 />
@@ -775,6 +963,25 @@ export function DesignWorkspaceView({
         <span className="truncate text-[15px] font-semibold text-ds-ink">{t('design')}</span>
         {document ? (
           <span className="ml-2 truncate text-[13px] text-ds-faint">{document.name}</span>
+        ) : null}
+        {document && (savedDocuments.length > 0) ? (
+          <select
+            value={document.id}
+            onChange={(event) => void handleOpenSavedDocument(event.target.value)}
+            disabled={restoring || saveState === 'saving'}
+            aria-label={t('designOpenDocument')}
+            title={t('designOpenDocument')}
+            className="ml-1 max-w-56 rounded-md border border-ds-border bg-ds-card px-2 py-1 text-[11px] text-ds-faint outline-none focus:border-accent disabled:opacity-50"
+          >
+            {!savedDocuments.some((item) => item.id === document.id) ? (
+              <option value={document.id}>{document.name}</option>
+            ) : null}
+            {savedDocuments.map((item) => (
+              <option key={item.id} value={item.id}>
+                {item.name} · {t('designPageCount', { count: item.pageCount })}
+              </option>
+            ))}
+          </select>
         ) : null}
         <span
           className={`ml-auto text-[11px] ${
@@ -1011,6 +1218,50 @@ export function DesignWorkspaceView({
               </button>
             </div>
           ) : null}
+          {exportArtifact ? (
+            <div className="flex min-h-11 shrink-0 items-center gap-3 border-b border-ds-border-muted bg-ds-card px-3 py-2">
+              <div className="min-w-0 flex-1">
+                <div className="text-[10.5px] text-ds-faint">{t('generatedFilesTitle')}</div>
+                <div className="truncate text-[12px] font-medium text-ds-ink">
+                  {exportArtifact.name}
+                </div>
+                {artifactActionError ? (
+                  <div role="alert" className="mt-1 text-[11px] text-red-600">
+                    {artifactActionError}
+                  </div>
+                ) : null}
+              </div>
+              <button
+                type="button"
+                onClick={() => void handleArtifactAction('open')}
+                disabled={artifactAction !== null}
+                className="flex h-7 items-center gap-1 rounded-lg px-2 text-[11.5px] text-ds-faint transition hover:bg-ds-hover/60 hover:text-ds-ink disabled:opacity-40"
+              >
+                <ExternalLink className="h-3.5 w-3.5" strokeWidth={1.8} />
+                {t('generatedFileOpen')}
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleArtifactAction('save')}
+                disabled={artifactAction !== null}
+                className="flex h-7 items-center gap-1 rounded-lg px-2 text-[11.5px] text-ds-faint transition hover:bg-ds-hover/60 hover:text-ds-ink disabled:opacity-40"
+              >
+                {artifactAction === 'save'
+                  ? <Loader2 className="h-3.5 w-3.5 animate-spin" strokeWidth={1.8} />
+                  : <Download className="h-3.5 w-3.5" strokeWidth={1.8} />}
+                {t('generatedFileDownload')}
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleArtifactAction('reveal')}
+                disabled={artifactAction !== null}
+                className="flex h-7 items-center gap-1 rounded-lg px-2 text-[11.5px] text-ds-faint transition hover:bg-ds-hover/60 hover:text-ds-ink disabled:opacity-40"
+              >
+                <FolderOpen className="h-3.5 w-3.5" strokeWidth={1.8} />
+                {t('generatedFileReveal')}
+              </button>
+            </div>
+          ) : null}
           {/* 预设形状面板（可折叠） */}
           {presetPanelOpen ? (
             <div className="flex max-h-48 shrink-0 flex-col border-b border-ds-border-muted bg-ds-card/95">
@@ -1059,12 +1310,21 @@ export function DesignWorkspaceView({
         open={newDocDialogOpen}
         onClose={() => setNewDocDialogOpen(false)}
         onCreate={(options) => {
-          createNewDocument({
-            name: options.name,
-            format: options.format as DesignCanvasFormat,
-            customSize: options.customSize
-          })
-          setNewDocDialogOpen(false)
+          void (async () => {
+            if (!(await flushDesignSave())) {
+              setOperationNotice({
+                tone: 'error',
+                message: t('designSaveFailed')
+              })
+              return
+            }
+            createNewDocument({
+              name: options.name,
+              format: options.format as DesignCanvasFormat,
+              customSize: options.customSize
+            })
+            setNewDocDialogOpen(false)
+          })()
         }}
       />
     </div>

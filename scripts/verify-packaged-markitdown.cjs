@@ -22,6 +22,12 @@ walk(root, (path) => {
   if (!existsSync(magikaModel) || statSync(magikaModel).size === 0) {
     throw new Error(`Packaged MarkItDown Magika model is missing: ${magikaModel}`)
   }
+  for (const script of ['svg_to_pptx.py', 'pptx_to_svg.py', 'preset_shape_svg.py']) {
+    const scriptPath = join(sidecarRoot, '_internal', 'ppt-master', 'scripts', script)
+    if (!existsSync(scriptPath) || statSync(scriptPath).size === 0) {
+      throw new Error(`Packaged PPT Master runtime script is missing: ${scriptPath}`)
+    }
+  }
   matches.push(path)
 })
 

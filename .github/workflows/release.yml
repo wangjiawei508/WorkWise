@@ -133,6 +133,11 @@ jobs:
           node scripts/build-markitdown-sidecar.mjs --verify-only
         env:
           WORKWISE_SIDECAR_ARCH: ${{ matrix.arch }}
+      - name: Verify native PPT Master export/import roundtrip
+        run: npm run verify:ppt-master-sidecar
+        env:
+          WORKWISE_SIDECAR_ARCH: ${{ matrix.arch }}
+          WORKWISE_SIDECAR_PLATFORM: ${{ matrix.platform }}
       - name: Upload native sidecar
         uses: actions/upload-artifact@v4
         with:
@@ -358,7 +363,7 @@ jobs:
       PREVIOUS_TAG: ${{ needs.prepare.outputs.previous_tag }}
       RELEASE_CHANNEL: stable
       WORKWISE_UPDATE_CHANNEL: stable
-      MAC_SIGNED: ${{ secrets.MAC_CODESIGN_P12_BASE64 != '' && secrets.APPLE_API_KEY_BASE64 != '' }}
+      MAC_SIGNED: ${{ secrets.MAC_CODESIGN_P12_BASE64 != '' && secrets.CSC_KEY_PASSWORD != '' && secrets.APPLE_API_KEY_BASE64 != '' && secrets.APPLE_API_KEY_ID != '' && secrets.APPLE_API_ISSUER != '' }}
     steps:
       - name: Check out tag
         uses: actions/checkout@v7

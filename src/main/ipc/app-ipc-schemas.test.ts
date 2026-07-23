@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import {
   clawImInstallPollPayloadSchema,
+  designDocumentSavePayloadSchema,
+  designExportPayloadSchema,
   isSafeOpenExternalUrl,
   runtimeRequestPayloadSchema,
   scheduleTaskFromTextPayloadSchema,
@@ -16,8 +18,37 @@ import {
   writeRichClipboardPayloadSchema,
   writeInlineCompletionPayloadSchema
 } from './app-ipc-schemas'
+import {
+  DESIGN_DOCUMENT_LIMITS,
+  createDesignDocument
+} from '../../shared/design-document'
 
 describe('app-ipc-schemas', () => {
+  it('rejects oversized Design documents at both save and export IPC boundaries', () => {
+    const document = createDesignDocument()
+    document.pages = Array.from(
+      { length: DESIGN_DOCUMENT_LIMITS.pages + 1 },
+      (_, index) => ({
+        id: `page_${index}`,
+        name: `Page ${index}`,
+        width: 1280,
+        height: 720,
+        elements: []
+      })
+    )
+
+    expect(() => designDocumentSavePayloadSchema.parse({
+      workspaceRoot: '/tmp/workspace',
+      document,
+      activePageId: document.pages[0].id,
+      expectedRevision: null
+    })).toThrow(/256 pages/)
+    expect(() => designExportPayloadSchema.parse({
+      workspaceRoot: '/tmp/workspace',
+      document
+    })).toThrow(/256 pages/)
+  })
+
   it('normalizes runtime request paths', () => {
     const payload = runtimeRequestPayloadSchema.parse({
       path: 'v1/threads?limit=1',

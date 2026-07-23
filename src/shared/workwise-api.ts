@@ -62,6 +62,8 @@ import type { DesignWriteAssetPayload, DesignWriteAssetResult } from './design-w
 import type {
   DesignAssetReadPayload,
   DesignAssetReadResult,
+  DesignDocumentListPayload,
+  DesignDocumentListResult,
   DesignDocumentLoadPayload,
   DesignDocumentLoadResult,
   DesignDocumentSavePayload,
@@ -472,6 +474,7 @@ export type WorkWiseApi = {
   exportDesignToPptx: (
     payload: { name?: string; workspaceRoot?: string; document: Record<string, unknown> }
   ) => Promise<{ ok: boolean; path?: string; message?: string }>
+  listDesignDocuments: (payload: DesignDocumentListPayload) => Promise<DesignDocumentListResult>
   loadDesignDocument: (payload: DesignDocumentLoadPayload) => Promise<DesignDocumentLoadResult>
   saveDesignDocument: (payload: DesignDocumentSavePayload) => Promise<DesignDocumentSaveResult>
   importDesignImageAsset: (payload: DesignImageImportPayload) => Promise<DesignImageImportResult>

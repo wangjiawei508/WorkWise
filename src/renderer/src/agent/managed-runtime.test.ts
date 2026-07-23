@@ -326,6 +326,43 @@ describe('WorkWiseRuntimeProvider', () => {
     )
   })
 
+  it('posts the exact GUI Design context with canvas assistant turns', async () => {
+    const runtimeRequest = vi.fn(async () => ({
+      ok: true,
+      status: 202,
+      body: JSON.stringify({ threadId: 'thr_1', turnId: 'turn_design', userMessageItemId: 'item_user_design' })
+    }))
+    installDsGui({ runtimeRequest })
+    const provider = new WorkWiseRuntimeProvider()
+
+    await provider.sendUserMessage('thr_1', 'internal canvas prompt', {
+      displayText: '把标题改成绿色',
+      guiDesign: {
+        workspaceRoot: '/workspace/workwise',
+        documentId: 'design_1',
+        pageId: 'page_1',
+        expectedRevision: 7
+      }
+    })
+
+    expect(runtimeRequest).toHaveBeenCalledWith(
+      '/v1/threads/thr_1/turns',
+      'POST',
+      JSON.stringify({
+        prompt: 'internal canvas prompt',
+        approvalPolicy: 'auto',
+        sandboxMode: 'danger-full-access',
+        displayText: '把标题改成绿色',
+        guiDesign: {
+          workspaceRoot: '/workspace/workwise',
+          documentId: 'design_1',
+          pageId: 'page_1',
+          expectedRevision: 7
+        }
+      })
+    )
+  })
+
   it('posts interrupt requests with the discard option when requested', async () => {
     const runtimeRequest = vi.fn(async () => ({
       ok: true,

@@ -2,8 +2,14 @@ import { mkdtemp, mkdir, readFile, rm, symlink, writeFile } from 'node:fs/promis
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { createDesignDocument, createDesignElement } from '../../shared/design-document'
 import {
+  DESIGN_DOCUMENT_LIMITS,
+  createDesignDocument,
+  createDesignElement,
+  validateDesignDocumentResourceLimits
+} from '../../shared/design-document'
+import {
+  listDesignDocuments,
   loadDesignDocument,
   readDesignAsset,
   readSafeDesignImageSource,
@@ -32,6 +38,11 @@ describe('Design document persistence', () => {
     const root = await temporaryWorkspace()
     const document = createDesignDocument({ name: 'Report canvas' })
     document.pages[0].elements.push(createDesignElement('rect'))
+    document.appliedCommands = [{
+      idempotencyKey: 'turn-1-command-1',
+      revision: 0,
+      appliedOperations: 1
+    }]
 
     const saved = await saveDesignDocument({
       workspaceRoot: root,
@@ -46,7 +57,112 @@ describe('Design document persistence', () => {
     expect(loaded.ok).toBe(true)
     expect(loaded.document?.name).toBe('Report canvas')
     expect(loaded.document?.pages[0].elements).toHaveLength(1)
+    expect(loaded.document?.appliedCommands).toEqual(document.appliedCommands)
     expect(loaded.activePageId).toBe(document.pages[0].id)
+  })
+
+  it('lists and reopens previously saved Design documents without relying on the active index', async () => {
+    const root = await temporaryWorkspace()
+    const first = createDesignDocument({ name: 'First board' })
+    const second = createDesignDocument({ name: 'Second board' })
+    expect((await saveDesignDocument({
+      workspaceRoot: root,
+      document: first,
+      activePageId: first.pages[0].id,
+      expectedRevision: null
+    })).ok).toBe(true)
+    expect((await saveDesignDocument({
+      workspaceRoot: root,
+      document: second,
+      activePageId: second.pages[0].id,
+      expectedRevision: null
+    })).ok).toBe(true)
+    await writeFile(
+      join(root, '.workwise', 'design', 'doc_corrupt.workwise-design.json'),
+      '{not-json'
+    )
+
+    const listed = await listDesignDocuments(root)
+    expect(listed).toMatchObject({
+      ok: true,
+      activeDocumentId: second.id,
+      corruptDocumentIds: ['doc_corrupt']
+    })
+    expect(listed.documents.map((document) => document.id)).toEqual(
+      expect.arrayContaining([first.id, second.id])
+    )
+    const reopened = await loadDesignDocument(root, first.id)
+    expect(reopened).toMatchObject({
+      ok: true,
+      document: { id: first.id, name: 'First board' }
+    })
+  })
+
+  it('reloads a multi-megabyte document after a successful bounded save', async () => {
+    const root = await temporaryWorkspace()
+    const document = createDesignDocument({ name: 'Large but safe' })
+    document.pages[0].elements = Array.from({ length: 20 }, (_, index) =>
+      createDesignElement('text', {
+        id: `el_large_${index}`,
+        text: '文'.repeat(60_000),
+        zIndex: index
+      })
+    )
+
+    const saved = await saveDesignDocument({
+      workspaceRoot: root,
+      document,
+      activePageId: document.pages[0].id,
+      expectedRevision: null
+    })
+    expect(saved.ok).toBe(true)
+
+    const loaded = await loadDesignDocument(root, document.id)
+    expect(loaded.ok).toBe(true)
+    expect(loaded.document?.pages[0].elements).toHaveLength(20)
+    expect(loaded.document?.pages[0].elements[19].text).toHaveLength(60_000)
+  })
+
+  it('rejects a document when pretty-printed persistence would exceed 8 MiB', async () => {
+    const root = await temporaryWorkspace()
+    const document = createDesignDocument({ name: 'Pretty overflow' })
+    document.pages[0].elements = Array.from(
+      { length: DESIGN_DOCUMENT_LIMITS.elementsPerPage },
+      (_, index) =>
+        createDesignElement('text', {
+          id: `el_${index}`,
+          text: '',
+          zIndex: index
+        })
+    )
+
+    let textLength = 1_000
+    for (;;) {
+      const text = 'x'.repeat(textLength)
+      for (const element of document.pages[0].elements) element.text = text
+      const compact = Buffer.byteLength(JSON.stringify(document), 'utf8')
+      const pretty = Buffer.byteLength(`${JSON.stringify(document, null, 2)}\n`, 'utf8')
+      if (compact <= DESIGN_DOCUMENT_LIMITS.fileBytes && pretty > DESIGN_DOCUMENT_LIMITS.fileBytes) {
+        break
+      }
+      textLength += 25
+      if (compact > DESIGN_DOCUMENT_LIMITS.fileBytes) {
+        throw new Error('The test fixture could not straddle compact and persisted size limits.')
+      }
+    }
+    expect(validateDesignDocumentResourceLimits(document).ok).toBe(true)
+
+    const result = await saveDesignDocument({
+      workspaceRoot: root,
+      document,
+      activePageId: document.pages[0].id,
+      expectedRevision: null
+    })
+    expect(result).toMatchObject({
+      ok: false,
+      code: 'invalid_document',
+      message: expect.stringContaining('8 MiB')
+    })
   })
 
   it('rejects a stale renderer instead of overwriting newer data', async () => {

@@ -119,9 +119,28 @@ describe('Design active-canvas commands', () => {
     expect(useDesignWorkspaceStore.getState().history.undoStack).toHaveLength(1)
 
     const second = useDesignWorkspaceStore.getState().applyCanvasCommand(command, '/workspace')
-    expect(second.ok).toBe(true)
+    expect(second).toMatchObject({
+      ok: true,
+      revision: first.revision,
+      appliedOperations: first.appliedOperations
+    })
     expect(elements().filter((item) => item.id === element.id)).toHaveLength(1)
     expect(useDesignWorkspaceStore.getState().history.undoStack).toHaveLength(1)
+
+    const persisted = structuredClone(useDesignWorkspaceStore.getState().document!)
+    useDesignWorkspaceStore.getState().loadDocument(persisted, {
+      activePageId: page.id,
+      persistedRevision: persisted.revision
+    })
+    const replayedAfterReload = useDesignWorkspaceStore
+      .getState()
+      .applyCanvasCommand(command, '/workspace')
+    expect(replayedAfterReload).toMatchObject({
+      ok: true,
+      revision: first.revision,
+      appliedOperations: first.appliedOperations
+    })
+    expect(elements().filter((item) => item.id === element.id)).toHaveLength(1)
   })
 
   it('rejects stale commands without mutating the canvas', () => {
@@ -140,5 +159,33 @@ describe('Design active-canvas commands', () => {
     }, '/workspace')
     expect(result).toMatchObject({ ok: false, code: 'stale_request' })
     expect(elements()).toHaveLength(0)
+  })
+
+  it('does not acknowledge an idempotency key from a different document', () => {
+    const store = useDesignWorkspaceStore.getState()
+    const document = store.document!
+    const page = store.getActivePage()!
+    const command: DesignCanvasCommandV1 = {
+      schema: 'workwise.design.command',
+      version: 1,
+      idempotencyKey: 'cross-document-key',
+      workspaceRoot: '/workspace',
+      documentId: document.id,
+      pageId: page.id,
+      expectedRevision: document.revision,
+      operations: [{
+        kind: 'add',
+        element: createDesignElement('rect', { id: 'agent-cross-document' })
+      }]
+    }
+    expect(store.applyCanvasCommand(command, '/workspace').ok).toBe(true)
+
+    expect(useDesignWorkspaceStore.getState().applyCanvasCommand({
+      ...command,
+      documentId: 'doc_different'
+    }, '/workspace')).toMatchObject({
+      ok: false,
+      code: 'document_unavailable'
+    })
   })
 })

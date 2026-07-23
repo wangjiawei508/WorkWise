@@ -916,6 +916,7 @@ type RecoveredTurnMetadata = {
   model?: string
   mode?: Turn['mode']
   guiPlan?: Turn['guiPlan']
+  guiDesign?: Turn['guiDesign']
 }
 
 function collectTurnMetadata(entries: ThreadMetadataLine[], threadId: string): Map<string, RecoveredTurnMetadata> {
@@ -930,7 +931,12 @@ function collectTurnMetadata(entries: ThreadMetadataLine[], threadId: string): M
         attachmentIds: mergeStringArrays(current.attachmentIds, turn.attachmentIds),
         ...(turn.model ? { model: turn.model } : current.model ? { model: current.model } : {}),
         ...(turn.mode ? { mode: turn.mode } : current.mode ? { mode: current.mode } : {}),
-        ...(turn.guiPlan ? { guiPlan: turn.guiPlan } : current.guiPlan ? { guiPlan: current.guiPlan } : {})
+        ...(turn.guiPlan ? { guiPlan: turn.guiPlan } : current.guiPlan ? { guiPlan: current.guiPlan } : {}),
+        ...(turn.guiDesign
+          ? { guiDesign: turn.guiDesign }
+          : current.guiDesign
+            ? { guiDesign: current.guiDesign }
+            : {})
       })
     }
   }
@@ -957,7 +963,8 @@ function applyRecoveredTurnMetadata(turn: Turn, recovered: RecoveredTurnMetadata
     attachmentIds,
     ...(turn.model || !recovered.model ? {} : { model: recovered.model }),
     ...(turn.mode || !recovered.mode ? {} : { mode: recovered.mode }),
-    ...(turn.guiPlan || !recovered.guiPlan ? {} : { guiPlan: recovered.guiPlan })
+    ...(turn.guiPlan || !recovered.guiPlan ? {} : { guiPlan: recovered.guiPlan }),
+    ...(turn.guiDesign || !recovered.guiDesign ? {} : { guiDesign: recovered.guiDesign })
   }
 }
 

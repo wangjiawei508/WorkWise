@@ -1,13 +1,16 @@
 import { randomUUID } from 'node:crypto'
-import { lstat, readFile, realpath, stat } from 'node:fs/promises'
+import type { Dirent } from 'node:fs'
+import { lstat, readFile, readdir, realpath, stat } from 'node:fs/promises'
 import { extname, join } from 'node:path'
 import {
+  DESIGN_DOCUMENT_LIMITS,
   normalizeDesignDocument,
   type DesignAsset,
   type DesignDocumentV1
 } from '../../shared/design-document'
 import type {
   DesignAssetReadResult,
+  DesignDocumentListResult,
   DesignDocumentLoadResult,
   DesignDocumentSavePayload,
   DesignDocumentSaveResult
@@ -22,8 +25,9 @@ import { atomicWriteFile, readRecoveredFile, runSerialized } from './durable-fil
 
 const DESIGN_DIRECTORY = '.workwise/design'
 const DESIGN_INDEX_FILE = 'index.json'
-const MAX_DOCUMENT_BYTES = 8 * 1024 * 1024
+const MAX_DOCUMENT_BYTES = DESIGN_DOCUMENT_LIMITS.fileBytes
 const MAX_IMAGE_BYTES = 12 * 1024 * 1024
+const MAX_SAVED_DESIGN_DOCUMENTS = 256
 const SAFE_DOCUMENT_ID = /^doc_[A-Za-z0-9_-]{1,120}$/
 const SAFE_ASSET_ID = /^asset_[A-Za-z0-9_-]{1,120}$/
 const SAFE_ASSET_FILENAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,254}$/
@@ -120,6 +124,94 @@ async function readIndex(workspaceRoot: string): Promise<DesignIndexV1 | null> {
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null
     throw error
+  }
+}
+
+export async function listDesignDocuments(
+  workspaceRootInput: string
+): Promise<DesignDocumentListResult> {
+  try {
+    const workspaceRoot = await canonicalizeContainmentRoot(workspaceRootInput)
+    const designDirectory = await resolveContainedPath({
+      root: workspaceRoot,
+      target: DESIGN_DIRECTORY,
+      mustExist: false,
+      expect: 'directory',
+      rejectFinalLink: true
+    })
+    let entries: Dirent[]
+    try {
+      entries = await readdir(designDirectory, { withFileTypes: true })
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+        return { ok: true, documents: [] }
+      }
+      throw error
+    }
+    const candidates = entries
+      .filter((entry) => entry.name.endsWith('.workwise-design.json'))
+      .slice(0, MAX_SAVED_DESIGN_DOCUMENTS + 1)
+    if (candidates.length > MAX_SAVED_DESIGN_DOCUMENTS) {
+      return {
+        ok: false,
+        documents: [],
+        code: 'read_failed',
+        message: `Design workspace contains more than ${MAX_SAVED_DESIGN_DOCUMENTS} documents.`
+      }
+    }
+
+    const documents: DesignDocumentListResult['documents'] = []
+    const corruptDocumentIds: string[] = []
+    for (const entry of candidates) {
+      const documentId = entry.name.slice(0, -'.workwise-design.json'.length)
+      if (!SAFE_DOCUMENT_ID.test(documentId)) continue
+      if (!entry.isFile() || entry.isSymbolicLink()) {
+        corruptDocumentIds.push(documentId)
+        continue
+      }
+      try {
+        const documentPath = await resolveContainedPath({
+          root: workspaceRoot,
+          target: documentRelativePath(documentId),
+          mustExist: true,
+          expect: 'file',
+          rejectFinalLink: true
+        })
+        const document = normalizeDesignDocument(
+          await readBoundedJson(documentPath) as Partial<DesignDocumentV1>
+        )
+        if (!document || document.id !== documentId) {
+          corruptDocumentIds.push(documentId)
+          continue
+        }
+        documents.push({
+          id: document.id,
+          name: document.name,
+          revision: document.revision,
+          pageCount: document.pages.length,
+          updatedAt: document.updatedAt
+        })
+      } catch {
+        corruptDocumentIds.push(documentId)
+      }
+    }
+    documents.sort((left, right) =>
+      right.updatedAt - left.updatedAt || left.name.localeCompare(right.name)
+    )
+    const index = await readIndex(workspaceRoot).catch(() => null)
+    return {
+      ok: true,
+      documents,
+      ...(index?.activeDocumentId ? { activeDocumentId: index.activeDocumentId } : {}),
+      ...(corruptDocumentIds.length > 0 ? { corruptDocumentIds } : {})
+    }
+  } catch (error) {
+    return {
+      ok: false,
+      documents: [],
+      code: error instanceof UnsafePathError ? 'unsafe_path' : 'read_failed',
+      message: error instanceof Error ? error.message : String(error)
+    }
   }
 }
 
@@ -254,6 +346,14 @@ export async function saveDesignDocument(
         revision: nextRevision,
         updatedAt: Date.now()
       }
+      const serializedDocument = `${JSON.stringify(savedDocument, null, 2)}\n`
+      if (Buffer.byteLength(serializedDocument, 'utf8') > MAX_DOCUMENT_BYTES) {
+        return {
+          ok: false,
+          code: 'invalid_document',
+          message: 'Design document exceeds the 8 MiB persisted file limit.'
+        }
+      }
       const index: DesignIndexV1 = {
         schema: 'workwise.design.index',
         version: 1,
@@ -264,7 +364,7 @@ export async function saveDesignDocument(
         },
         updatedAt: Date.now()
       }
-      await atomicWriteFile(documentPath, `${JSON.stringify(savedDocument, null, 2)}\n`, {
+      await atomicWriteFile(documentPath, serializedDocument, {
         beforeReplace: () => recheckContainedParent(workspaceRoot, documentPath)
       })
       const indexPath = await resolveContainedPath({

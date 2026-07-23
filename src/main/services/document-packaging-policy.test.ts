@@ -29,6 +29,9 @@ describe('document helper packaging policy', () => {
     expect(sidecar).not.toMatch(/convert_uri|requests\.|urllib\./)
     expect(spec).toMatch(/"pymupdf".*"fitz"/)
     expect(spec).toContain('collect_all("magika")')
+    expect(spec).toContain('"ppt-master"')
+    expect(sidecar).toContain('ppt-master-export-pptx')
+    expect(sidecar).toContain('ppt-master-import-pptx')
     expect(requirements).not.toMatch(/markitdown-ocr|pymupdf|\bfitz\b/i)
   })
 
@@ -37,5 +40,7 @@ describe('document helper packaging policy', () => {
     const packageVerifier = await readFile(resolve(root, 'scripts/verify-packaged-markitdown.cjs'), 'utf8')
     expect(buildScript).toContain("'magika', 'models', 'standard_v3_3', 'model.onnx'")
     expect(packageVerifier).toContain("'magika', 'models', 'standard_v3_3', 'model.onnx'")
+    expect(buildScript).toContain("'ppt-master', 'scripts', 'svg_to_pptx.py'")
+    expect(packageVerifier).toContain("'ppt-master', 'scripts'")
   })
 })

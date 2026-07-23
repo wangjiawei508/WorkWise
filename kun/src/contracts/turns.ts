@@ -47,6 +47,19 @@ export const GuiPlanContextSchema = z.object({
 })
 export type GuiPlanContextJson = z.infer<typeof GuiPlanContextSchema>
 
+/**
+ * Design canvas context attached by the renderer for an assistant turn.
+ * This is a capability boundary, not model-authored data: the runtime uses
+ * it to expose the canvas command tool only for the exact active document.
+ */
+export const GuiDesignContextSchema = z.object({
+  workspaceRoot: z.string().min(1),
+  documentId: z.string().min(1).max(160),
+  pageId: z.string().min(1).max(160),
+  expectedRevision: z.number().int().nonnegative()
+})
+export type GuiDesignContextJson = z.infer<typeof GuiDesignContextSchema>
+
 export const TurnStatus = z.enum([
   'queued',
   'running',
@@ -77,6 +90,7 @@ export const TurnSchema = z.object({
   toolCatalogToolCount: z.number().int().nonnegative().optional(),
   toolCatalogDrift: z.boolean().optional(),
   guiPlan: GuiPlanContextSchema.optional(),
+  guiDesign: GuiDesignContextSchema.optional(),
   /**
    * Optional per-turn mode override. When set, it takes precedence over
    * the thread mode for this turn (e.g. a Plan-mode turn inside an
@@ -113,6 +127,7 @@ export const StartTurnRequest = z.object({
    * path advertised in the context.
    */
   guiPlan: GuiPlanContextSchema.optional(),
+  guiDesign: GuiDesignContextSchema.optional(),
   /**
    * True when the caller cannot relay structured input prompts to a
    * user (IM bridges such as WeChat/Feishu, headless runs). The turn

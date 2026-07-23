@@ -446,6 +446,12 @@ export interface AgentProvider {
         sourceRequest?: string
         title?: string
       }
+      guiDesign?: {
+        workspaceRoot: string
+        documentId: string
+        pageId: string
+        expectedRevision: number
+      }
       attachmentIds?: string[]
     }
   ): Promise<{ turnId: string; threadId: string; userMessageItemId?: string }>
