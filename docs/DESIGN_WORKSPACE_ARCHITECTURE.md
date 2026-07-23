@@ -104,7 +104,7 @@ Runtime 工具位于 `kun/src/adapters/tool/design-tool-provider.ts`，正式工
 2. runtime mapper 将命令作为结构化结果交给 renderer。
 3. renderer 校验当前工作区、文档、页面、revision 和幂等键。
 4. store 原子应用整批操作，写入一个 undo 历史步骤。
-5. `flushSave()` 成功后记录 acknowledgement；冲突或保存失败会显示明确状态。
+5. 命令记录随 Design 文档原子保存；只有 `flushSave()` 成功后才显示完成状态。保存失败会自动限次重试并显示错误，同一幂等键重放时返回原确认而不重复修改画板。
 
 Design 助手复用 WorkWise 的会话、模型、审批、任务状态和诊断。界面只显示简洁进度和结果，不显示私有思维链。
 
@@ -127,6 +127,8 @@ src/asset/skills/ppt-master/.workwise-skill-source.json
 ```
 
 `scripts/prompt_audit_manifest.json` 是 WorkWise 瘦身包适配层；它不参与 runtime prompt，只用于验证路径、引用、注册表和 Token 预算。审计不得出现缺失路径或错误。
+
+正式客户端把 MarkItDown 与上述 PPT Master 4.0.0 导入、导出和 preset 脚本一起冻结为按平台/架构构建的本地 sidecar。打包后的核心路径不依赖系统 Python；每个平台的 GitHub Actions 构建都会用该冻结程序执行一次 SVG → PPTX → SVG 往返验证。开发模式可以回退到审计快照中的 Python 脚本，但不得使用已经从 4.0.0 CLI 删除的旧参数。
 
 ## 7. PPTX 导入
 
@@ -169,6 +171,8 @@ Renderer 使用当前 SVG 和真实资源渲染 PNG。导出限制为最长边 8
 
 服务把每页写入临时 `svg_output`，调用固定快照中的 PPT Master 转换器，并验证结果是可解包且结构完整的 PPTX。失败时返回错误，不用 HTML 兜底冒充。
 
+PPT Master 4.0.0 要求明确的发布契约，因此 WorkWise 会在受限临时项目中生成 `spec_lock.md`，声明画布、主题字体、主题颜色和 `pptx_structure.mode: flat`。候选 PPTX 通过页数、关系、媒体和 OOXML 检查后才原子替换用户目标文件。
+
 ### Write 联动
 
 Design 页面可以作为 PNG 或 SVG 保存到当前 Write 工作区并插入 Markdown。步骤为：
@@ -184,14 +188,15 @@ Design 页面可以作为 PNG 或 SVG 保存到当前 Write 工作区并插入 M
 公开接口通过 `window.workwise` 暴露：
 
 - `loadDesignDocument`
+- `listDesignDocuments`
 - `saveDesignDocument`
 - `importDesignImageAsset`
 - `readDesignAsset`
-- `importDesignFromPptx`
+- `importPptxToDesign`
 - `exportDesignToPptx`
 - `saveDesignAssetToWrite`
-- `listDesignPresetShapes`
-- `renderDesignPresetShape`
+- `listPresetShapes`
+- `renderPresetShape`
 
 所有 payload 由 IPC schema 校验。renderer 业务代码不直接访问内部 Runtime 路径或任意主机文件。
 

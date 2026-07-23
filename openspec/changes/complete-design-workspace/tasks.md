@@ -32,6 +32,6 @@
 
 - [x] 6.1 Correct Design architecture and user documentation so completion claims match tested behavior
 - [x] 6.2 Remove generated/cache files and ensure the audited PPT Master provenance and packaged asset allowlist are deterministic
-- [x] 6.3 Pass OpenSpec strict validation, brand boundary, ESLint, TypeScript, full Vitest, production build, and platform packaging checks
+- [ ] 6.3 Pass OpenSpec strict validation, brand boundary, ESLint, TypeScript, full Vitest, production build, and platform packaging checks
 - [x] 6.4 Perform real installed-app Design/Write/PPT smoke testing or record a concrete environment blocker with a reproducible fallback test
-- [x] 6.5 Commit the corrected implementation in reviewable commits and push the current feature branch without adding `.codex/config.toml` or ZCode session state
+- [ ] 6.5 Commit the corrected implementation in reviewable commits and push the current feature branch without adding `.codex/config.toml` or ZCode session state

@@ -168,7 +168,7 @@ Skill 应覆盖以下路径：
 - 一键安装后，目标 Skill 目录中包含瘦身核心文件、`confirm_ui`、`svg_editor` 静态页、通用 layouts、两个轻量示例和空 `projects` 占位；不包含全量 examples、真实 projects、exports、backup、svg_output 或用户私有资料。
 - Skill 能被 WorkWise 发现，并能通过斜杠命令或自然语言触发。
 - Step 4 默认能启动 localhost 确认页，支持风格、字体、受众、页数等选择；启动失败时有聊天确认 fallback。
-- 使用本地已有 SVG 示例或最小测试项目可执行 `svg_to_pptx.py --no-compat --only native` 并导出 `.pptx`。
+- 使用带当前 `spec_lock.md` 平面结构契约的最小 SVG 项目执行 `svg_to_pptx.py <project> --source output --format ppt169 --quiet`，可导出原生可编辑 `.pptx`；正式客户端还必须用冻结 sidecar 完成 SVG → PPTX → SVG 往返验证。
 - 文档说明“PPT Master 内置的是能力，不是打包用户样例或官方全仓库”。
 - 自动同步只同步白名单路径；若受文件数/体积限制，应失败可读，不破坏已安装版本。
 

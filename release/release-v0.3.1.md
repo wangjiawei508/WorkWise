@@ -1,6 +1,6 @@
 # WorkWise 0.3.1
 
-0.3.1 候选版完成 Design 设计工作台、Write/PPT 联动与直接 PNG/SVG 交付，同时把 Write 的 Word 导出升级为模板驱动。这个版本尚未创建标签或正式 Release；只有完成真实签名安装包验收后才进入发布流程。
+0.3.1 候选版完成 Design 设计工作台、Write/PPT 联动与直接 PNG/SVG 交付，同时把 Write 的 Word 导出升级为模板驱动。这个版本尚未创建标签或正式 Release；发布沿用 WorkWise 0.2.5–0.3.0 的历史标准：macOS 安装包可以未签名、未公证，但必须完成源码、三平台打包、两小时稳定性和可执行候选验收，并在发布页明确安装提示。
 
 ## Design 设计工作台
 
@@ -61,8 +61,10 @@
 ## 验证
 
 - WorkWise 与 Runtime TypeScript 检查、ESLint、生产构建、品牌边界、文档依赖许可证和 OpenSpec strict 均通过。
-- 全量 Vitest：202 个测试文件通过、1 个跳过；1,431 项测试通过、1 项跳过，没有失败项。
+- WorkWise 全量 Vitest：204 个测试文件通过、1 个跳过；1,457 项测试通过、1 项跳过；Runtime 65 个测试文件、580 项测试全部通过。
 - Design 专项覆盖文档/资源安全、结构化 group、Agent 命令、SVG/PPTX 导入导出、PNG/SVG、Write 回滚、preset 和打包路径。
 - PPT Master prompt/path/provenance 审计通过：161 个语料文件、0 个错误。
-- macOS Apple Silicon 候选包构建和 ASAR 完整性检查通过。当前测试机升级到 macOS 26.5.2 后，会以系统策略拒绝新生成的本地临时签名应用及 Codex Computer Use Node；该环境阻断已记录，不能替代后续 Developer ID 正式签名安装包的真实界面验收。
-- 三平台候选运行 `30015706434` 已在目标提交 `37089736ac889c8414cc6b9a03da23fc5fa0013a` 上通过安装包、更新元数据、MarkItDown、ASAR 和原生依赖校验；但仓库未配置 Apple 签名与公证凭据，两个 macOS 包仍是未签名候选，因此尚未满足正式发布门禁。
+- macOS Apple Silicon 候选包构建、ASAR、Electron 原生依赖、MarkItDown 和 PPT Master sidecar 往返检查通过；真实候选应用已完成 Design 助手、撤销/重做、退出清理和重启恢复回归。
+- 真实回归发现并修复旧测试 Runtime 占用端口后被新 UI 误连接的问题；客户端和 Runtime 现在通过固定协议版本握手，不再把缺少协议字段的旧服务静默视为兼容。
+- 生产依赖安全审计在高危阈值下通过；已应用兼容的 `body-parser` 与 `fast-uri` 修复。仍有 2 项来自 MCP SDK 间接依赖的中危 Windows `serve-static` 报告，但 WorkWise 未使用该静态文件中间件，避免为消除不可达路径报告而强制降级 MCP SDK。
+- 历史三平台候选运行 `30015706434` 已在目标提交 `37089736ac889c8414cc6b9a03da23fc5fa0013a` 上通过安装包、更新元数据、MarkItDown、ASAR 和原生依赖校验。两个 macOS 包与 0.2.5–0.3.0 一样未签名、未公证；正式发布页必须提示首次启动前执行 `xattr -dr com.apple.quarantine /Applications/WorkWise.app`。该候选已落后于后续修复，所以不能直接发布，必须基于最终提交重跑完整候选门禁。
