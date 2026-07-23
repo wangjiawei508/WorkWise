@@ -65,3 +65,4 @@
 - Design 专项覆盖文档/资源安全、结构化 group、Agent 命令、SVG/PPTX 导入导出、PNG/SVG、Write 回滚、preset 和打包路径。
 - PPT Master prompt/path/provenance 审计通过：161 个语料文件、0 个错误。
 - macOS Apple Silicon 候选包构建和 ASAR 完整性检查通过。当前测试机升级到 macOS 26.5.2 后，会以系统策略拒绝新生成的本地临时签名应用及 Codex Computer Use Node；该环境阻断已记录，不能替代后续 Developer ID 正式签名安装包的真实界面验收。
+- 三平台候选运行 `30015706434` 已在目标提交 `37089736ac889c8414cc6b9a03da23fc5fa0013a` 上通过安装包、更新元数据、MarkItDown、ASAR 和原生依赖校验；但仓库未配置 Apple 签名与公证凭据，两个 macOS 包仍是未签名候选，因此尚未满足正式发布门禁。
