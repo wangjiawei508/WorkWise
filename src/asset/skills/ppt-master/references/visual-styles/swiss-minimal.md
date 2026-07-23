@@ -7,6 +7,7 @@ Strict Swiss-grid discipline. Modular grid, sharp geometry, aggressive whitespac
 ## 1. Shape & decoration
 
 - Shape language: sharp rectangles, true circles, single-weight rules. Corner radius `rx="0"` by default; if rounding at all, ≤4.
+- Composition geometry: one oversized geometric plane — a full-height color column, a giant disc, a heavy bar — zoning the page; an asymmetric split with content flush to one axis; a hero numeral at architectural scale; a single diagonal rule or type line as the deliberate grid break. Few, large, exact — geometry at poster scale is Swiss, clutter is not.
 - Decoration: none. No gradient fills, no decorative blocks, no badges — structure carries the page.
 - Whitespace: vast and deliberate; negative space carries as much weight as content. Wide margins, generous gutters.
 - Layout snaps to a visible or implied modular grid; rigorous column / row alignment.
@@ -32,3 +33,7 @@ Strict Swiss-grid discipline. Modular grid, sharp geometry, aggressive whitespac
 ## 5. Paired image-rendering
 
 `minimalist-swiss` — lock it for AI images so illustrations share the grid-austere aesthetic.
+
+## 6. Illustration propensity
+
+**sparse** — the whitespace and grid *are* the design; decorative spots compete with that restraint, so with no user steer, default to none. If the user explicitly asks, use them — but stay austere: very few, very light, never crowding the negative space. `image_usage: none` writes no illustration rows.

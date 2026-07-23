@@ -204,6 +204,24 @@ const api = {
     ipcRenderer.invoke('write:export', payload),
   copyWriteDocumentAsRichText: (payload) =>
     ipcRenderer.invoke('write:copy-rich-text', payload),
+  exportDesignToPptx: (payload) =>
+    ipcRenderer.invoke('design:export-pptx', payload),
+  loadDesignDocument: (payload) =>
+    ipcRenderer.invoke('design:document:load', payload),
+  saveDesignDocument: (payload) =>
+    ipcRenderer.invoke('design:document:save', payload),
+  importDesignImageAsset: (payload) =>
+    ipcRenderer.invoke('design:asset:import-image', payload),
+  readDesignAsset: (payload) =>
+    ipcRenderer.invoke('design:asset:read', payload),
+  importPptxToDesign: (payload) =>
+    ipcRenderer.invoke('design:import-pptx', payload),
+  saveDesignAssetToWrite: (payload) =>
+    ipcRenderer.invoke('design:save-to-write', payload),
+  renderPresetShape: (payload) =>
+    ipcRenderer.invoke('design:render-preset', payload),
+  listPresetShapes: () =>
+    ipcRenderer.invoke('design:list-presets'),
   generateAgnesImage: (payload) =>
     ipcRenderer.invoke('write:agnes-image-generate', payload),
   requestWriteInlineCompletion: (payload) =>

@@ -8,8 +8,17 @@ import {
 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import type { WriteExportFormat } from '@shared/write-export'
+import {
+  BUILTIN_TEMPLATE_IDS,
+  mergeBuiltinAndUserTemplates,
+  normalizeExportTemplate,
+  type ExportElementType,
+  type ExportElementStyle,
+  type ExportStyleTemplate
+} from '@shared/write-export-templates'
 import { WRITE_INFOGRAPHIC_MAX_TEXT_CHARS } from '@shared/write-infographic'
 import { useChatStore } from '../../store/chat-store'
+import { rendererRuntimeClient } from '../../agent/runtime-client'
 import { formatWorkspacePickerError } from '../../lib/format-workspace-picker-error'
 import {
   useWriteWorkspaceStore,
@@ -31,6 +40,7 @@ import { startWriteWorkspaceFileWatch } from '../../write/write-file-watch'
 import type { WriteRichEditorHandle } from '../../write/tiptap/WriteRichEditor'
 import { useWriteSplitScrollSync } from './use-write-split-scroll-sync'
 import { WriteAgnesImageDialog } from './WriteAgnesImageDialog'
+import { WriteExportDialog } from './WriteExportDialog'
 import { WriteWorkspaceEmptyState } from './WriteWorkspaceEmptyState'
 import { WriteWorkspaceToolbar } from './WriteWorkspaceToolbar'
 import { WriteInlineAgent } from './WriteInlineAgent'
@@ -156,6 +166,10 @@ export function WriteWorkspaceView({
   const [modeMenuOpen, setModeMenuOpen] = useState(false)
   const [exportMenuOpen, setExportMenuOpen] = useState(false)
   const [exportingFormat, setExportingFormat] = useState<WriteExportFormat | typeof WRITE_RICH_CLIPBOARD_ACTION | null>(null)
+  const [exportDialogOpen, setExportDialogOpen] = useState(false)
+  /** 合并后的全部模板（内置 + 用户自定义） */
+  const [exportTemplates, setExportTemplates] = useState<ExportStyleTemplate[]>([])
+  const [defaultExportTemplateId, setDefaultExportTemplateId] = useState('')
   const [exportNotice, setExportNotice] = useState<WriteNotice | null>(null)
   const [agnesImageDialogOpen, setAgnesImageDialogOpen] = useState(false)
   const [agnesImageGenerating, setAgnesImageGenerating] = useState(false)
@@ -478,7 +492,90 @@ export function WriteWorkspaceView({
     }
   }
 
-  const exportCurrentFile = async (format: WriteExportFormat): Promise<void> => {
+  // 加载导出模板列表（合并内置 + 用户自定义）
+  const loadExportTemplates = async (): Promise<void> => {
+    try {
+      const settings = await rendererRuntimeClient.getSettings({ forceRefresh: true })
+      const merged = mergeBuiltinAndUserTemplates(
+        settings.write.exportTemplates,
+        settings.write.defaultExportTemplateId
+      )
+      setExportTemplates(merged)
+      setDefaultExportTemplateId(
+        settings.write.defaultExportTemplateId ||
+          merged.find((tpl) => tpl.isDefault)?.id ||
+          ''
+      )
+    } catch {
+      // 加载失败时静默回退到内置模板
+      setExportTemplates(mergeBuiltinAndUserTemplates([]))
+    }
+  }
+
+  // 打开导出对话框（仅 docx）
+  const openExportDialog = async (): Promise<void> => {
+    await loadExportTemplates()
+    setExportDialogOpen(true)
+  }
+
+  // 保存用户模板（新增或更新）
+  const handleSaveExportTemplate = async (template: ExportStyleTemplate): Promise<void> => {
+    const settings = await rendererRuntimeClient.getSettings({ forceRefresh: true })
+    const normalizedTemplate = normalizeExportTemplate({
+      ...template,
+      builtin: false,
+      isDefault: false,
+      updatedAt: Date.now()
+    })
+    const existing = settings.write.exportTemplates
+    const idx = existing.findIndex((tpl) => tpl.id === normalizedTemplate.id)
+    const nextList = idx >= 0
+      ? existing.map((tpl) => (tpl.id === normalizedTemplate.id ? normalizedTemplate : tpl))
+      : [...existing, normalizedTemplate]
+    await rendererRuntimeClient.setSettings({
+      write: { exportTemplates: nextList }
+    })
+    await loadExportTemplates()
+  }
+
+  // 删除用户模板（内置不可删）
+  const handleDeleteExportTemplate = async (templateId: string): Promise<void> => {
+    if (BUILTIN_TEMPLATE_IDS.has(templateId)) return
+    const settings = await rendererRuntimeClient.getSettings({ forceRefresh: true })
+    const nextList = settings.write.exportTemplates.filter((tpl) => tpl.id !== templateId)
+    const nextDefault = settings.write.defaultExportTemplateId === templateId
+      ? ''
+      : settings.write.defaultExportTemplateId
+    await rendererRuntimeClient.setSettings({
+      write: { exportTemplates: nextList, defaultExportTemplateId: nextDefault }
+    })
+    await loadExportTemplates()
+  }
+
+  // 设为默认模板
+  const handleSetDefaultExportTemplate = async (templateId: string): Promise<void> => {
+    await rendererRuntimeClient.setSettings({
+      write: { defaultExportTemplateId: templateId }
+    })
+    await loadExportTemplates()
+  }
+
+  // 从对话框执行导出
+  const exportFromDialog = async (payload: {
+    templateId: string
+    styleOverride?: Partial<Record<ExportElementType, Partial<ExportElementStyle>>>
+  }): Promise<void> => {
+    setExportDialogOpen(false)
+    await exportCurrentFile('docx', payload)
+  }
+
+  const exportCurrentFile = async (
+    format: WriteExportFormat,
+    options?: {
+      templateId?: string
+      styleOverride?: Partial<Record<ExportElementType, Partial<ExportElementStyle>>>
+    }
+  ): Promise<void> => {
     if (!activeFilePath) return
     if (!activeFileIsText) return
     if (typeof window.workwise?.exportWriteDocument !== 'function') {
@@ -493,7 +590,9 @@ export function WriteWorkspaceView({
         path: activeFilePath,
         workspaceRoot,
         format,
-        content: fileContent
+        content: fileContent,
+        templateId: options?.templateId,
+        styleOverride: options?.styleOverride
       })
       if (!result.ok) {
         if (!result.canceled) {
@@ -846,7 +945,14 @@ export function WriteWorkspaceView({
         setModeMenuOpen={setModeMenuOpen}
         setPreviewMode={setPreviewMode}
         onCopyRichText={() => void copyCurrentFileAsRichText()}
-        onExportFile={(format) => void exportCurrentFile(format)}
+        onExportFile={(format) => {
+          // docx 走导出对话框（模板选择）；pdf/html/doc 保持原直接导出
+          if (format === 'docx') {
+            void openExportDialog()
+          } else {
+            void exportCurrentFile(format)
+          }
+        }}
         onGenerateImage={() => void openAgnesImageGenerator()}
         onGeneratePresentation={() => void preparePptMaster()}
         onAskKnowledgeBase={() => setAssistantPrompt(t('writeKnowledgeBaseAskPrompt'))}
@@ -935,6 +1041,18 @@ export function WriteWorkspaceView({
         generating={agnesImageGenerating}
         onClose={() => setAgnesImageDialogOpen(false)}
         onGenerate={(payload) => void generateAgnesImage(payload)}
+      />
+
+      <WriteExportDialog
+        open={exportDialogOpen}
+        exporting={exportingFormat === 'docx'}
+        templates={exportTemplates}
+        defaultTemplateId={defaultExportTemplateId}
+        onClose={() => setExportDialogOpen(false)}
+        onExport={(payload) => void exportFromDialog(payload)}
+        onSaveTemplate={(template) => handleSaveExportTemplate(template)}
+        onDeleteTemplate={(templateId) => handleDeleteExportTemplate(templateId)}
+        onSetDefaultTemplate={(templateId) => handleSetDefaultExportTemplate(templateId)}
       />
 
       {fileError ? (

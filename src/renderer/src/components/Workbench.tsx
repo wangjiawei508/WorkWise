@@ -113,6 +113,9 @@ const TodoPanel = lazy(() =>
 const ScheduleTasksView = lazy(() =>
   import('./schedule/ScheduleTasksView').then((module) => ({ default: module.ScheduleTasksView }))
 )
+const DesignWorkspaceView = lazy(() =>
+  import('./design/DesignWorkspaceView').then((module) => ({ default: module.DesignWorkspaceView }))
+)
 
 type PendingSddPlanTarget = {
   planId: string
@@ -265,6 +268,7 @@ export function Workbench(): ReactElement {
     openPlugins,
     openClaw,
     openSchedule,
+    openDesign,
     chooseWorkspace,
     clawChannels,
     activeClawChannelId,
@@ -321,6 +325,7 @@ export function Workbench(): ReactElement {
       openPlugins: s.openPlugins,
       openClaw: s.openClaw,
       openSchedule: s.openSchedule,
+      openDesign: s.openDesign,
       chooseWorkspace: s.chooseWorkspace,
       clawChannels: s.clawChannels,
       activeClawChannelId: s.activeClawChannelId,
@@ -1613,6 +1618,11 @@ export function Workbench(): ReactElement {
     openSchedule()
   }
 
+  const openDesignView = (): void => {
+    setConnectPhoneSidebarOpen(false)
+    openDesign()
+  }
+
   const toggleFocusMode = (): void => {
     setFocusModeEnabled((enabled) => {
       const next = !enabled
@@ -1627,13 +1637,15 @@ export function Workbench(): ReactElement {
     setConnectPhoneSidebarOpen((open) => !open)
   }
 
-  const sidebarView: 'chat' | 'write' | 'claw' | 'schedule' =
+  const sidebarView: 'chat' | 'write' | 'claw' | 'schedule' | 'design' =
     route === 'claw' || (route === 'plugins' && pluginHostRoute === 'claw')
       ? 'claw'
       : route === 'schedule'
         ? 'schedule'
       : route === 'write'
         ? 'write'
+      : route === 'design'
+        ? 'design'
         : 'chat'
 
   const closeRightPanel = (): void => {
@@ -1840,6 +1852,7 @@ export function Workbench(): ReactElement {
               onWriteOpen={openWriteMode}
               onToggleFocusMode={toggleFocusMode}
               onScheduleOpen={openScheduleView}
+              onDesignOpen={openDesignView}
               onToggleSidebar={toggleLeftSidebar}
             />
             )}
@@ -1877,6 +1890,15 @@ export function Workbench(): ReactElement {
               leftSidebarCollapsed={leftSidebarCollapsed}
               onToggleLeftSidebar={toggleLeftSidebar}
               onOpenThread={openThread}
+            />
+          </Suspense>
+        ) : route === 'design' ? (
+          <Suspense fallback={<div className="h-full bg-ds-main" />}>
+            <DesignWorkspaceView
+              leftSidebarCollapsed={leftSidebarCollapsed}
+              onToggleLeftSidebar={toggleLeftSidebar}
+              onOpenWrite={openWriteMode}
+              workspaceRoot={workspaceRoot}
             />
           </Suspense>
         ) : route === 'write' ? (

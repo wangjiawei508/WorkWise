@@ -2,14 +2,22 @@
 """PPT Master project management helpers.
 
 Usage:
-    python3 scripts/project_manager.py init <project_name> [--format ppt169] [--dir projects]
+    python3 scripts/project_manager.py init <project_name> [--format ppt169] [--dir <path>]
     python3 scripts/project_manager.py import-sources <project_path> <source1> [<source2> ...] [--move | --copy]
+    python3 scripts/project_manager.py scaffold-spec <project_path>
+    python3 scripts/project_manager.py scaffold-lock <project_path>
     python3 scripts/project_manager.py validate <project_path>
     python3 scripts/project_manager.py info <project_path>
+    python3 scripts/project_manager.py page-context <project_path> P07 [--record-usage]
+    python3 scripts/project_manager.py page-context-report <project_path>
 """
 
 from __future__ import annotations
 
+import argparse
+import filecmp
+import json
+import os
 import re
 import shutil
 import subprocess
@@ -17,6 +25,15 @@ import sys
 from datetime import datetime
 from pathlib import Path
 from urllib.parse import urlparse
+
+from console_encoding import configure_utf8_stdio
+from page_context import (
+    build_page_context,
+    page_context_usage_report,
+    record_page_context_usage,
+    render_page_context,
+)
+from project_specs import scaffold_project_artifact, validate_project_artifacts
 
 try:
     from project_utils import (
@@ -41,30 +58,29 @@ except ImportError:
 TOOLS_DIR = Path(__file__).resolve().parent
 SKILL_DIR = TOOLS_DIR.parent
 REPO_ROOT = SKILL_DIR.parent.parent
+SOURCE_TO_MD_TOOLS_DIR = TOOLS_DIR / "source_to_md"
+if str(SOURCE_TO_MD_TOOLS_DIR) not in sys.path:
+    sys.path.insert(0, str(SOURCE_TO_MD_TOOLS_DIR))
+
+from _dispatcher import (  # noqa: E402
+    DOC_SUFFIXES,
+    EXCEL_SUFFIXES,
+    LEGACY_EXCEL_SUFFIXES,
+    PDF_SUFFIXES,
+    PRESENTATION_SUFFIXES,
+    build_conversion_command,
+)
+
 SOURCE_DIRNAME = "sources"
 TEXT_SOURCE_SUFFIXES = {".md", ".markdown", ".txt"}
 TABLE_TEXT_SUFFIXES = {".csv", ".tsv"}
-PDF_SUFFIXES = {".pdf"}
-PRESENTATION_SUFFIXES = {".pptx", ".pptm", ".ppsx", ".ppsm", ".potx", ".potm"}
-EXCEL_SUFFIXES = {".xlsx", ".xlsm"}
-LEGACY_EXCEL_SUFFIXES = {".xls"}
-DOC_SUFFIXES = {
-    ".docx", ".doc", ".odt", ".rtf",          # Office documents
-    ".epub",                                    # eBooks
-    ".html", ".htm",                            # Web pages
-    ".tex", ".latex", ".rst", ".org",           # Academic / technical
-    ".ipynb", ".typ",                           # Notebooks / Typst
+IMAGE_ASSET_SUFFIXES = {
+    ".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".tiff", ".tif",
+    ".emf", ".wmf", ".svg",
 }
-WECHAT_HOST_KEYWORDS = ("mp.weixin.qq.com", "weixin.qq.com")
 
 
-def _curl_cffi_available() -> bool:
-    """Return whether curl_cffi is importable (enables Python TLS impersonation)."""
-    try:
-        import curl_cffi  # noqa: F401
-        return True
-    except ImportError:
-        return False
+configure_utf8_stdio()
 
 
 def is_url(value: str) -> bool:
@@ -107,8 +123,12 @@ class ProjectManager:
 
     CANVAS_FORMATS = CANVAS_FORMATS
 
-    def __init__(self, base_dir: str = "projects") -> None:
-        self.base_dir = Path(base_dir)
+    def __init__(self, base_dir: str | Path | None = None) -> None:
+        self.base_dir = Path(base_dir) if base_dir is not None else Path.cwd() / "projects"
+
+    def scaffold_artifact(self, project_path: str, artifact: str) -> str:
+        """Delegate deterministic Markdown scaffold rendering."""
+        return scaffold_project_artifact(Path(project_path), artifact)
 
     def init_project(
         self,
@@ -127,7 +147,13 @@ class ProjectManager:
             )
 
         date_str = datetime.now().strftime("%Y%m%d")
-        project_dir_name = f"{project_name}_{normalized_format}_{date_str}"
+        # A name already carrying a `_<format>_<YYYYMMDD>` suffix (e.g. a full
+        # project dir name pasted back into init) is used as-is — re-appending
+        # would produce `name_ppt169_20260101_ppt169_20260102`.
+        if re.search(rf"_{re.escape(normalized_format)}_\d{{8}}$", project_name):
+            project_dir_name = project_name
+        else:
+            project_dir_name = f"{project_name}_{normalized_format}_{date_str}"
         project_path = base_path / project_dir_name
 
         if project_path.exists():
@@ -137,9 +163,13 @@ class ProjectManager:
             "svg_output",
             "svg_final",
             "images",
+            "icons",
             "notes",
             "templates",
+            "live_preview",
             SOURCE_DIRNAME,
+            "analysis",
+            "validation",
             "exports",
         ):
             (project_path / rel_path).mkdir(parents=True, exist_ok=True)
@@ -153,13 +183,17 @@ class ProjectManager:
                 f"- Created: {date_str}\n\n"
                 "## Directories\n\n"
                 "- `svg_output/`: raw SVG output\n"
-                "- `svg_final/`: finalized SVG output\n"
-                "- `images/`: presentation assets\n"
+                "- `svg_final/`: self-contained SVG visual preview; may be inserted manually as an SVG image, but PowerPoint Convert to Shape is unsupported\n"
+                "- `images/`: runtime image pool; converter assets keep their original short filenames when possible\n"
+                "- `icons/`: project icon set — selected library icons copied in (via icon_sync.py) plus any custom icons you add; embedded from here at export\n"
                 "- `notes/`: speaker notes\n"
                 "- `templates/`: project templates\n"
+                "- `live_preview/`: browser preview runtime files and history (lock.json, server.log, edits.jsonl, annotations.jsonl)\n"
                 "- `sources/`: source materials and normalized markdown\n"
-                "- `exports/`: main native pptx (timestamped)\n"
-                "- `backup/<timestamp>/`: SVG snapshot pptx + svg_output/ archive (auto-created on export; safe to delete old timestamps)\n"
+                "- `analysis/`: machine-extracted intermediate analysis (PPTX intake, image_analysis.csv) — the pipeline's canonical must-read source/asset facts\n"
+                "- `validation/`: SVG quality reports and PPTX postflight audit reports\n"
+                "- `exports/`: final native DrawingML pptx deliverables only (timestamped); `_native_charts_tables.pptx` name with `--native-charts-and-tables`, `_narrated.pptx` name when narration audio is embedded\n"
+                "- `backup/<timestamp>/`: svg_output/ archive (always written in default-flow mode; safe to delete old timestamps)\n"
             ),
             encoding="utf-8",
         )
@@ -172,6 +206,11 @@ class ProjectManager:
         sources_dir = project_path / SOURCE_DIRNAME
         sources_dir.mkdir(parents=True, exist_ok=True)
         return sources_dir
+
+    def _analysis_dir(self, project_path: Path) -> Path:
+        analysis_dir = project_path / "analysis"
+        analysis_dir.mkdir(parents=True, exist_ok=True)
+        return analysis_dir
 
     def _ensure_unique_path(self, path: Path) -> Path:
         if not path.exists():
@@ -215,6 +254,9 @@ class ProjectManager:
         return destination
 
     def _run_tool(self, args: list[str]) -> None:
+        child_env = os.environ.copy()
+        child_env["PYTHONUTF8"] = "1"
+        child_env["PYTHONIOENCODING"] = "utf-8:replace"
         try:
             result = subprocess.run(
                 args,
@@ -224,6 +266,7 @@ class ProjectManager:
                 text=True,
                 encoding="utf-8",
                 errors="replace",
+                env=child_env,
             )
         except FileNotFoundError as exc:
             raise RuntimeError(f"Missing executable: {args[0]}") from exc
@@ -235,69 +278,69 @@ class ProjectManager:
             print(result.stdout.strip())
 
     def _import_pdf(self, pdf_path: Path, markdown_path: Path) -> None:
-        self._run_tool(
-            [
-                sys.executable,
-                str(TOOLS_DIR / "source_to_md" / "pdf_to_md.py"),
-                str(pdf_path),
-                "-o",
-                str(markdown_path),
-            ]
+        route = build_conversion_command(
+            str(pdf_path),
+            markdown_path,
+            forced_type="pdf",
         )
+        self._run_tool(route.command)
 
     def _import_doc(self, doc_path: Path, markdown_path: Path) -> None:
-        self._run_tool(
-            [
-                sys.executable,
-                str(TOOLS_DIR / "source_to_md" / "doc_to_md.py"),
-                str(doc_path),
-                "-o",
-                str(markdown_path),
-            ]
+        route = build_conversion_command(
+            str(doc_path),
+            markdown_path,
+            forced_type="doc",
         )
+        self._run_tool(route.command)
 
     def _import_presentation(self, presentation_path: Path, markdown_path: Path) -> None:
+        route = build_conversion_command(
+            str(presentation_path),
+            markdown_path,
+            forced_type="pptx",
+        )
+        self._run_tool(route.command)
+
+    def _import_pptx_intake(self, presentation_path: Path, project_dir: Path) -> Path:
+        # Multi-deck intake: each PPTX writes its own `<stem>.identity.json` /
+        # `<stem>.slide_library.json` and is merged into the single multi-deck
+        # index `analysis/source_profile.json` (one entry per source deck).
+        analysis_dir = self._analysis_dir(project_dir)
         self._run_tool(
             [
                 sys.executable,
-                str(TOOLS_DIR / "source_to_md" / "ppt_to_md.py"),
+                str(TOOLS_DIR / "pptx_intake.py"),
                 str(presentation_path),
                 "-o",
-                str(markdown_path),
+                str(analysis_dir),
             ]
         )
+        return analysis_dir
 
     def _import_excel(self, excel_path: Path, markdown_path: Path) -> None:
-        self._run_tool(
-            [
-                sys.executable,
-                str(TOOLS_DIR / "source_to_md" / "excel_to_md.py"),
-                str(excel_path),
-                "-o",
-                str(markdown_path),
-            ]
+        route = build_conversion_command(
+            str(excel_path),
+            markdown_path,
+            forced_type="excel",
         )
+        self._run_tool(route.command)
 
     def _import_url(self, url: str, markdown_path: Path) -> None:
-        # Prefer web_to_md.py: it uses curl_cffi internally when available,
-        # which handles WeChat and other TLS-fingerprint-blocked sites.
-        # Fall back to the Node.js version only when the URL is known to
-        # require TLS impersonation AND curl_cffi isn't installed.
-        host = urlparse(url).netloc.lower()
-        is_tls_sensitive = any(keyword in host for keyword in WECHAT_HOST_KEYWORDS)
+        route = build_conversion_command(
+            url,
+            markdown_path,
+            forced_type="web",
+        )
+        self._run_tool(route.command)
 
-        if is_tls_sensitive and not _curl_cffi_available() and shutil.which("node"):
-            command = ["node", str(TOOLS_DIR / "source_to_md" / "web_to_md.cjs"),
-                       url, "-o", str(markdown_path)]
-        else:
-            command = [
-                sys.executable,
-                str(TOOLS_DIR / "source_to_md" / "web_to_md.py"),
-                url,
-                "-o",
-                str(markdown_path),
-            ]
-        self._run_tool(command)
+    def _is_valid_imported_url_markdown(self, markdown_path: Path) -> bool:
+        """Return whether web_to_md produced a usable Markdown source."""
+        if not markdown_path.is_file():
+            return False
+        content = markdown_path.read_text(encoding="utf-8", errors="replace")
+        if "[Failed URLs]:" in content:
+            return False
+        return bool(content.strip())
 
     def _archive_url_record(self, sources_dir: Path, url: str) -> Path:
         file_path = self._ensure_unique_path(sources_dir / f"{derive_url_basename(url)}.url.txt")
@@ -359,6 +402,180 @@ class ProjectManager:
         if updated != content:
             markdown_path.write_text(updated, encoding="utf-8")
 
+    def _merge_image_manifest(self, source_items: list[dict], destination_manifest: Path) -> None:
+        """Merge per-source manifest items into the project-level manifest, keyed by filename."""
+        existing_data: list[object] = []
+        if destination_manifest.is_file():
+            try:
+                loaded = json.loads(destination_manifest.read_text(encoding="utf-8"))
+                if isinstance(loaded, list):
+                    existing_data = loaded
+                else:
+                    print(f"[WARN] Replacing non-list image manifest: {destination_manifest}")
+            except (OSError, json.JSONDecodeError) as exc:
+                print(f"[WARN] Replacing unreadable image manifest {destination_manifest}: {exc}")
+
+        new_by_filename: dict[str, dict] = {}
+        new_order: list[str] = []
+        for item in source_items:
+            filename = item.get("filename")
+            if not isinstance(filename, str):
+                continue
+            if filename not in new_by_filename:
+                new_order.append(filename)
+            new_by_filename[filename] = item
+
+        merged: list[dict] = []
+        seen: set[str] = set()
+        for item in existing_data:
+            if not isinstance(item, dict):
+                continue
+            filename = item.get("filename")
+            if not isinstance(filename, str):
+                continue
+            if filename in new_by_filename:
+                merged.append(new_by_filename[filename])
+            else:
+                merged.append(item)
+            seen.add(filename)
+
+        for filename in new_order:
+            if filename not in seen:
+                merged.append(new_by_filename[filename])
+
+        destination_manifest.write_text(
+            json.dumps(merged, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
+
+    @staticmethod
+    def _namespace_from_asset_dir(asset_dir: Path) -> str:
+        """Derive a per-source namespace from a `<stem>_files` companion directory name."""
+        name = asset_dir.name
+        suffix = "_files"
+        return name[:-len(suffix)] if name.endswith(suffix) else name
+
+    def _image_destination_name(
+        self,
+        images_dir: Path,
+        source_file: Path,
+        namespace: str,
+        existing_manifest: dict[str, dict],
+    ) -> str:
+        """Return a short unique image filename for the runtime image pool."""
+        candidate = images_dir / source_file.name
+        if not candidate.exists():
+            return source_file.name
+        try:
+            meta = existing_manifest.get(candidate.name, {})
+            if (
+                meta.get("source_namespace") == namespace
+                and candidate.is_file()
+                and filecmp.cmp(source_file, candidate, shallow=False)
+            ):
+                return candidate.name
+        except OSError:
+            pass
+
+        stem = source_file.stem
+        suffix = source_file.suffix
+        counter = 2
+        while True:
+            candidate = images_dir / f"{stem}_{counter}{suffix}"
+            if not candidate.exists():
+                return candidate.name
+            try:
+                meta = existing_manifest.get(candidate.name, {})
+                if (
+                    meta.get("source_namespace") == namespace
+                    and candidate.is_file()
+                    and filecmp.cmp(source_file, candidate, shallow=False)
+                ):
+                    return candidate.name
+            except OSError:
+                pass
+            counter += 1
+
+    def _propagate_image_assets(self, asset_dir: Path, project_dir: Path) -> None:
+        """Copy converter-generated image assets and manifest into project images/.
+
+        Filenames are preserved when possible because source Markdown commonly
+        uses short names that are meaningful in context. Only real collisions
+        receive a compact numeric suffix.
+        """
+        manifest_path = asset_dir / "image_manifest.json"
+        if not manifest_path.is_file():
+            return
+
+        try:
+            source_data = json.loads(manifest_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            print(f"[WARN] Cannot read image manifest {manifest_path}: {exc}")
+            return
+        if not isinstance(source_data, list):
+            print(f"[WARN] Ignoring non-list image manifest: {manifest_path}")
+            return
+
+        images_dir = project_dir / "images"
+        images_dir.mkdir(parents=True, exist_ok=True)
+
+        namespace = self._namespace_from_asset_dir(asset_dir)
+        existing_manifest: dict[str, dict] = {}
+        destination_manifest = images_dir / "image_manifest.json"
+        if destination_manifest.is_file():
+            try:
+                data = json.loads(destination_manifest.read_text(encoding="utf-8"))
+                if isinstance(data, list):
+                    existing_manifest = {
+                        item["filename"]: item
+                        for item in data
+                        if isinstance(item, dict) and isinstance(item.get("filename"), str)
+                    }
+            except (OSError, json.JSONDecodeError):
+                existing_manifest = {}
+        rename_map: dict[str, str] = {}
+
+        copied_count = 0
+        for source_file in sorted(asset_dir.iterdir()):
+            if not source_file.is_file():
+                continue
+            if source_file.suffix.lower() not in IMAGE_ASSET_SUFFIXES:
+                continue
+            new_name = self._image_destination_name(
+                images_dir,
+                source_file,
+                namespace,
+                existing_manifest,
+            )
+            destination = images_dir / new_name
+            if source_file.resolve() != destination.resolve():
+                shutil.copy2(source_file, destination)
+            rename_map[source_file.name] = new_name
+            copied_count += 1
+
+        rebased_items: list[dict] = []
+        for item in source_data:
+            if not isinstance(item, dict):
+                continue
+            original = item.get("filename")
+            if not isinstance(original, str):
+                continue
+            new_item = dict(item)
+            new_item["filename"] = rename_map.get(original, original)
+            new_item["source_namespace"] = namespace
+            rebased_items.append(new_item)
+
+        self._merge_image_manifest(rebased_items, images_dir / "image_manifest.json")
+        print(
+            f"Propagated {copied_count} image asset(s) + manifest "
+            f"from {asset_dir} → images/ (namespace: {namespace})"
+        )
+
+    def _propagate_companion_image_assets(self, markdown_path: Path, project_dir: Path) -> None:
+        asset_dir = markdown_path.with_name(f"{markdown_path.stem}_files")
+        if asset_dir.is_dir():
+            self._propagate_image_assets(asset_dir, project_dir)
+
     def _import_markdown_with_assets(
         self,
         source_path: Path,
@@ -370,6 +587,14 @@ class ProjectManager:
             sources_dir / source_path.name,
             move=move,
         )
+
+        profile_src = source_path.with_name(f"{source_path.stem}.conversion_profile.json")
+        if profile_src.is_file():
+            self._copy_or_move_file(
+                profile_src,
+                sources_dir / f"{archived_markdown.stem}.conversion_profile.json",
+                move=move,
+            )
 
         asset_dir = self._companion_asset_dir(source_path)
         if asset_dir is None:
@@ -414,32 +639,64 @@ class ProjectManager:
             "archived": [],
             "markdown": [],
             "assets": [],
+            "analysis": [],
             "notes": [],
             "skipped": [],
         }
+
+        expanded_items: list[str] = []
+        supplied_dirs: list[Path] = []
+        for item in source_items:
+            if is_url(item):
+                expanded_items.append(item)
+                continue
+            item_path = Path(item)
+            if item_path.is_dir():
+                supplied_dirs.append(item_path)
+                directory_files = sorted(
+                    path for path in item_path.iterdir() if path.is_file()
+                )
+                if directory_files:
+                    expanded_items.extend(str(path) for path in directory_files)
+                    summary["notes"].append(
+                        f"{item}: expanded directory into {len(directory_files)} file(s)"
+                    )
+                else:
+                    summary["skipped"].append(f"{item}: directory contains no files")
+                continue
+            expanded_items.append(item)
+
         explicit_markdown_stems = {
             Path(item).stem
-            for item in source_items
+            for item in expanded_items
             if not is_url(item)
             and Path(item).exists()
             and Path(item).is_file()
             and Path(item).suffix.lower() in {".md", ".markdown"}
         }
 
-        for item in source_items:
+        for item in expanded_items:
             if is_url(item):
-                archived = self._archive_url_record(sources_dir, item)
                 markdown_path = self._ensure_unique_path(
                     sources_dir / f"{derive_url_basename(item)}.md"
                 )
                 try:
                     self._import_url(item, markdown_path)
                 except Exception as exc:  # pragma: no cover - summary path
+                    archived = self._archive_url_record(sources_dir, item)
+                    summary["archived"].append(str(archived))
                     summary["skipped"].append(f"{item}: {exc}")
                     continue
 
-                summary["archived"].append(str(archived))
+                if not self._is_valid_imported_url_markdown(markdown_path):
+                    markdown_path.unlink(missing_ok=True)
+                    archived = self._archive_url_record(sources_dir, item)
+                    summary["archived"].append(str(archived))
+                    summary["skipped"].append(f"{item}: URL conversion produced no usable Markdown")
+                    continue
+
                 summary["markdown"].append(str(markdown_path))
+                self._propagate_companion_image_assets(markdown_path, project_dir)
                 continue
 
             source_path = Path(item)
@@ -469,6 +726,7 @@ class ProjectManager:
                 duplicate_markdown = self._find_equivalent_markdown(source_path, sources_dir)
                 if duplicate_markdown is not None:
                     summary["markdown"].append(str(duplicate_markdown))
+                    self._propagate_companion_image_assets(duplicate_markdown, project_dir)
                     summary["notes"].append(
                         f"{item}: skipped duplicate markdown import because equivalent content already exists as {duplicate_markdown.name}"
                     )
@@ -483,6 +741,7 @@ class ProjectManager:
                 summary["markdown"].append(str(archived_markdown))
                 if asset_dir is not None:
                     summary["assets"].append(str(asset_dir))
+                    self._propagate_image_assets(asset_dir, project_dir)
                 if note:
                     summary["notes"].append(note)
                 continue
@@ -503,6 +762,7 @@ class ProjectManager:
                     continue
                 if canonical_markdown_path.exists():
                     summary["markdown"].append(str(canonical_markdown_path))
+                    self._propagate_companion_image_assets(canonical_markdown_path, project_dir)
                     summary["notes"].append(
                         f"{item}: skipped PDF auto-conversion because {canonical_markdown_path.name} already exists"
                     )
@@ -511,10 +771,18 @@ class ProjectManager:
                 try:
                     self._import_pdf(archived_path, markdown_path)
                     summary["markdown"].append(str(markdown_path))
+                    self._propagate_companion_image_assets(markdown_path, project_dir)
                 except Exception as exc:  # pragma: no cover - summary path
                     summary["skipped"].append(f"{item}: PDF conversion failed ({exc})")
             elif suffix in PRESENTATION_SUFFIXES:
                 canonical_markdown_path = sources_dir / f"{archived_path.stem}.md"
+                try:
+                    intake_dir = self._import_pptx_intake(archived_path, project_dir)
+                    intake_str = str(intake_dir)
+                    if intake_str not in summary["analysis"]:
+                        summary["analysis"].append(intake_str)
+                except Exception as exc:  # pragma: no cover - summary path
+                    summary["notes"].append(f"{item}: PPTX intake analysis failed ({exc})")
                 if archived_path.stem in explicit_markdown_stems:
                     summary["notes"].append(
                         f"{item}: skipped presentation auto-conversion because a same-stem Markdown source was provided"
@@ -522,6 +790,7 @@ class ProjectManager:
                     continue
                 if canonical_markdown_path.exists():
                     summary["markdown"].append(str(canonical_markdown_path))
+                    self._propagate_companion_image_assets(canonical_markdown_path, project_dir)
                     summary["notes"].append(
                         f"{item}: skipped presentation auto-conversion because {canonical_markdown_path.name} already exists"
                     )
@@ -530,6 +799,7 @@ class ProjectManager:
                 try:
                     self._import_presentation(archived_path, markdown_path)
                     summary["markdown"].append(str(markdown_path))
+                    self._propagate_companion_image_assets(markdown_path, project_dir)
                 except Exception as exc:  # pragma: no cover - summary path
                     summary["skipped"].append(f"{item}: presentation conversion failed ({exc})")
             elif suffix in EXCEL_SUFFIXES:
@@ -541,6 +811,7 @@ class ProjectManager:
                     continue
                 if canonical_markdown_path.exists():
                     summary["markdown"].append(str(canonical_markdown_path))
+                    self._propagate_companion_image_assets(canonical_markdown_path, project_dir)
                     summary["notes"].append(
                         f"{item}: skipped Excel auto-conversion because {canonical_markdown_path.name} already exists"
                     )
@@ -549,6 +820,7 @@ class ProjectManager:
                 try:
                     self._import_excel(archived_path, markdown_path)
                     summary["markdown"].append(str(markdown_path))
+                    self._propagate_companion_image_assets(markdown_path, project_dir)
                 except Exception as exc:  # pragma: no cover - summary path
                     summary["skipped"].append(f"{item}: Excel conversion failed ({exc})")
             elif suffix in LEGACY_EXCEL_SUFFIXES:
@@ -569,6 +841,7 @@ class ProjectManager:
                     continue
                 if canonical_markdown_path.exists():
                     summary["markdown"].append(str(canonical_markdown_path))
+                    self._propagate_companion_image_assets(canonical_markdown_path, project_dir)
                     summary["notes"].append(
                         f"{item}: skipped document auto-conversion because {canonical_markdown_path.name} already exists"
                     )
@@ -577,6 +850,7 @@ class ProjectManager:
                 try:
                     self._import_doc(archived_path, markdown_path)
                     summary["markdown"].append(str(markdown_path))
+                    self._propagate_companion_image_assets(markdown_path, project_dir)
                 except Exception as exc:  # pragma: no cover - summary path
                     summary["skipped"].append(f"{item}: document conversion failed ({exc})")
             elif suffix == ".txt":
@@ -585,11 +859,39 @@ class ProjectManager:
             else:
                 summary["notes"].append(f"{item}: archived only, no automatic conversion")
 
+        # Cleanup: a supplied source directory that ends up empty (moved out or
+        # empty from the start) is removed so no husk is left behind. Only under
+        # move semantics — explicit --copy, or default copy outside the repo,
+        # must not delete a user directory.
+        for directory in supplied_dirs:
+            if copy or not (move or is_within_path(directory, REPO_ROOT)):
+                continue
+            if directory.is_dir() and not any(directory.iterdir()):
+                try:
+                    directory.rmdir()
+                except OSError:
+                    continue
+                summary["notes"].append(
+                    f"{directory}: removed empty source directory after import"
+                )
+
         return summary
 
     def validate_project(self, project_path: str) -> tuple[bool, list[str], list[str]]:
         project_path_obj = Path(project_path)
-        is_valid, errors, warnings = validate_project_structure(str(project_path_obj))
+        _, errors, warnings = validate_project_structure(
+            str(project_path_obj),
+            validate_communication=False,
+        )
+
+        if project_path_obj.exists() and project_path_obj.is_dir():
+            project_info = get_project_info_common(str(project_path_obj))
+            artifact_errors, artifact_warnings = validate_project_artifacts(
+                project_path_obj,
+                project_info,
+            )
+            errors.extend(artifact_errors)
+            warnings.extend(artifact_warnings)
 
         if project_path_obj.exists() and project_path_obj.is_dir():
             info = get_project_info_common(str(project_path_obj))
@@ -600,7 +902,7 @@ class ProjectManager:
                     expected_format = None
                 warnings.extend(validate_svg_viewbox(svg_files, expected_format))
 
-        return is_valid, errors, warnings
+        return not errors, list(dict.fromkeys(errors)), warnings
 
     def get_project_info(self, project_path: str) -> dict[str, object]:
         shared = get_project_info_common(project_path)
@@ -617,86 +919,115 @@ class ProjectManager:
         }
 
 
-def print_usage() -> None:
-    """Print CLI usage information from the module docstring."""
-    print(__doc__)
+def build_parser() -> argparse.ArgumentParser:
+    """Build the command-line parser."""
+    parser = argparse.ArgumentParser(
+        description="PPT Master project management helpers.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""Examples:
+  python3 scripts/project_manager.py init demo --format ppt169
+  python3 scripts/project_manager.py import-sources projects/demo file.md --move
+  python3 scripts/project_manager.py scaffold-spec projects/demo_ppt169_20260718
+  python3 scripts/project_manager.py scaffold-lock projects/demo_ppt169_20260718
+  python3 scripts/project_manager.py validate projects/demo
+  python3 scripts/project_manager.py info projects/demo
+  python3 scripts/project_manager.py page-context projects/demo P07 --record-usage
+  python3 scripts/project_manager.py page-context-report projects/demo
+""",
+    )
+    subparsers = parser.add_subparsers(dest="command", required=True)
+
+    init = subparsers.add_parser("init", help="Create a project directory")
+    init.add_argument("project_name", help="Project name")
+    init.add_argument("--format", default="ppt169", help="Canvas format (default: ppt169)")
+    init.add_argument("--dir", default=None, help="Base directory for the project")
+
+    import_sources = subparsers.add_parser(
+        "import-sources",
+        help="Import source files or URLs into a project",
+    )
+    import_sources.add_argument("project_path", help="Project directory")
+    import_sources.add_argument("sources", nargs="+", help="Source files, directories, or URLs")
+    mode = import_sources.add_mutually_exclusive_group()
+    mode.add_argument("--move", action="store_true", help="Move local source files")
+    mode.add_argument("--copy", action="store_true", help="Copy local source files")
+
+    scaffold_spec = subparsers.add_parser(
+        "scaffold-spec",
+        help="Create design_spec.md from the versioned scaffold",
+    )
+    scaffold_spec.add_argument("project_path", help="Project directory")
+
+    scaffold_lock = subparsers.add_parser(
+        "scaffold-lock",
+        help="Create spec_lock.md from the versioned scaffold",
+    )
+    scaffold_lock.add_argument("project_path", help="Project directory")
+
+    validate = subparsers.add_parser("validate", help="Validate a project directory")
+    validate.add_argument("project_path", help="Project directory")
+
+    info = subparsers.add_parser("info", help="Print project metadata")
+    info.add_argument("project_path", help="Project directory")
+
+    page_context = subparsers.add_parser(
+        "page-context",
+        help="Print one deterministic per-page execution view",
+    )
+    page_context.add_argument("project_path", help="Project directory")
+    page_context.add_argument("page", help="Positive page key such as P07")
+    page_context.add_argument(
+        "--bundle",
+        action="store_true",
+        help="Deprecated compatibility flag; output remains compact",
+    )
+    page_context.add_argument(
+        "--pretty",
+        action="store_true",
+        help="Pretty-print the page-context JSON payload",
+    )
+    page_context.add_argument(
+        "--record-usage",
+        action="store_true",
+        help="Write compact-output token telemetry under analysis/page-context/",
+    )
+
+    page_context_report = subparsers.add_parser(
+        "page-context-report",
+        help="Summarize fresh per-page context telemetry",
+    )
+    page_context_report.add_argument("project_path", help="Project directory")
+    return parser
 
 
-def parse_init_args(argv: list[str]) -> tuple[str, str, str]:
-    """Parse arguments for the `init` subcommand."""
-    if len(argv) < 3:
-        raise ValueError("Project name is required")
-
-    project_name = argv[2]
-    canvas_format = "ppt169"
-    base_dir = "projects"
-
-    i = 3
-    while i < len(argv):
-        if argv[i] == "--format" and i + 1 < len(argv):
-            canvas_format = argv[i + 1]
-            i += 2
-        elif argv[i] == "--dir" and i + 1 < len(argv):
-            base_dir = argv[i + 1]
-            i += 2
-        else:
-            i += 1
-
-    return project_name, canvas_format, base_dir
-
-
-def parse_import_args(argv: list[str]) -> tuple[str, list[str], bool, bool]:
-    """Parse arguments for the `import-sources` subcommand."""
-    if len(argv) < 4:
-        raise ValueError("Project path and at least one source are required")
-
-    project_path = argv[2]
-    move = False
-    copy = False
-    sources: list[str] = []
-
-    for arg in argv[3:]:
-        if arg == "--move":
-            move = True
-        elif arg == "--copy":
-            copy = True
-        else:
-            sources.append(arg)
-
-    if move and copy:
-        raise ValueError("--move and --copy are mutually exclusive")
-
-    return project_path, sources, move, copy
-
-
-def main() -> None:
+def main(argv: list[str] | None = None) -> int:
     """Run the CLI entry point."""
-    if len(sys.argv) < 2:
-        print_usage()
-        sys.exit(1)
-
-    command = sys.argv[1]
-    if command in {"-h", "--help", "help"}:
-        print_usage()
-        sys.exit(0)
-
+    parser = build_parser()
+    args = parser.parse_args(argv)
     manager = ProjectManager()
 
     try:
-        if command == "init":
-            project_name, canvas_format, base_dir = parse_init_args(sys.argv)
-            project_path = manager.init_project(project_name, canvas_format, base_dir=base_dir)
+        if args.command == "init":
+            project_path = manager.init_project(
+                args.project_name,
+                args.format,
+                base_dir=args.dir,
+            )
             print(f"[OK] Project initialized: {project_path}")
             print("Next:")
             print("1. Put source files into sources/ (or use import-sources)")
             print("2. Save your design spec to the project root")
             print("3. Generate SVG files into svg_output/")
-            return
+            return 0
 
-        if command == "import-sources":
-            project_path, sources, move, copy = parse_import_args(sys.argv)
-            summary = manager.import_sources(project_path, sources, move=move, copy=copy)
-            print(f"[OK] Imported sources into: {project_path}")
+        if args.command == "import-sources":
+            summary = manager.import_sources(
+                args.project_path,
+                args.sources,
+                move=args.move,
+                copy=args.copy,
+            )
+            print(f"[OK] Imported sources into: {args.project_path}")
             if summary["archived"]:
                 print("\nArchived originals / URL records:")
                 for item in summary["archived"]:
@@ -709,6 +1040,10 @@ def main() -> None:
                 print("\nImported asset directories:")
                 for item in summary["assets"]:
                     print(f"  - {item}")
+            if summary["analysis"]:
+                print("\nAnalysis artifacts:")
+                for item in summary["analysis"]:
+                    print(f"  - {item}")
             if summary["notes"]:
                 print("\nNotes:")
                 for item in summary["notes"]:
@@ -717,13 +1052,20 @@ def main() -> None:
                 print("\nSkipped:")
                 for item in summary["skipped"]:
                     print(f"  - {item}")
-            return
+            return 0
 
-        if command == "validate":
-            if len(sys.argv) < 3:
-                raise ValueError("Project path is required")
+        if args.command == "scaffold-spec":
+            artifact_path = manager.scaffold_artifact(args.project_path, "design_spec")
+            print(f"[OK] Design spec scaffold created: {artifact_path}")
+            return 0
 
-            project_path = sys.argv[2]
+        if args.command == "scaffold-lock":
+            artifact_path = manager.scaffold_artifact(args.project_path, "spec_lock")
+            print(f"[OK] Execution lock scaffold created: {artifact_path}")
+            return 0
+
+        if args.command == "validate":
+            project_path = args.project_path
             is_valid, errors, warnings = manager.validate_project(project_path)
 
             print(f"\nProject validation: {project_path}")
@@ -745,14 +1087,11 @@ def main() -> None:
                 print("\n[OK] Project structure is valid, with warnings.")
             else:
                 print("\n[ERROR] Project structure is invalid.")
-                sys.exit(1)
-            return
+                return 1
+            return 0
 
-        if command == "info":
-            if len(sys.argv) < 3:
-                raise ValueError("Project path is required")
-
-            project_path = sys.argv[2]
+        if args.command == "info":
+            project_path = args.project_path
             info = manager.get_project_info(project_path)
 
             print(f"\nProject info: {info['name']}")
@@ -765,14 +1104,40 @@ def main() -> None:
             print(f"Source count: {info['source_count']}")
             print(f"Canvas format: {info['canvas_format']}")
             print(f"Created: {info['create_date']}")
-            return
+            return 0
 
-        raise ValueError(f"Unknown command: {command}")
+        if args.command == "page-context":
+            result = build_page_context(args.project_path, args.page)
+            output, measured_reads = render_page_context(
+                result,
+                bundle=args.bundle,
+                pretty=args.pretty,
+            )
+            if args.record_usage:
+                _usage_path, token_status = record_page_context_usage(
+                    result,
+                    output,
+                    measured_reads,
+                )
+                if token_status != "exact":
+                    print(
+                        "[WARN] tiktoken/o200k_base unavailable; recorded bytes "
+                        "and hashes without token counts",
+                        file=sys.stderr,
+                    )
+            print(output, end="")
+            return 0
+
+        if args.command == "page-context-report":
+            report = page_context_usage_report(args.project_path)
+            print(json.dumps(report, ensure_ascii=False, indent=2))
+            return 0
+
+        parser.error(f"Unknown command: {args.command}")
     except Exception as exc:
         print(f"[ERROR] {exc}")
-        print_usage()
-        sys.exit(1)
+        return 1
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

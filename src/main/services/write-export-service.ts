@@ -19,8 +19,10 @@ import type {
   WriteRichClipboardResult
 } from '../../shared/write-export'
 import { resolveWriteMarkdownResource } from '../../shared/write-markdown-resource'
+import type { ExportStyleTemplate } from '../../shared/write-export-templates'
 import { resolveWorkspaceFile } from './workspace-service'
 import { buildDocxFromMarkdown } from './write-docx-service'
+import { resolveExportTemplate } from './write-docx-styles'
 import {
   legacyConverterRoot,
   legacyMarkdownConverterPath,
@@ -706,7 +708,13 @@ async function showExportSaveDialog(
 
 export async function exportWriteDocument(
   payload: WriteExportPayload,
-  options?: { parentWindow?: BrowserWindow | null }
+  options?: {
+    parentWindow?: BrowserWindow | null
+    /** 用户自定义导出模板列表（来自设置），用于 docx 导出解析模板 */
+    userExportTemplates?: ExportStyleTemplate[]
+    /** 默认导出模板 id（来自设置） */
+    defaultExportTemplateId?: string
+  }
 ): Promise<WriteExportResult> {
   try {
     const resolved = await resolveWorkspaceFile({
@@ -743,10 +751,19 @@ export async function exportWriteDocument(
       await durableWriteFile(targetPath, html)
     } else if (payload.format === 'docx') {
       if (isMarkdownFile(sourcePath)) {
+        // 解析导出模板：合并内置模板 + 用户模板 + 本次 styleOverride
+        // defaultExportTemplateId 为空时 resolveExportTemplate 会用内置默认
+        const effectiveTemplateId = payload.templateId ?? options?.defaultExportTemplateId
+        const template = resolveExportTemplate(
+          effectiveTemplateId,
+          options?.userExportTemplates,
+          payload.styleOverride
+        )
         await durableWriteFile(targetPath, await buildDocxFromMarkdown({
           sourcePath,
           content: payload.content,
-          title
+          title,
+          template
         }))
       } else {
         const docx = await htmlToDocx(html, null, {

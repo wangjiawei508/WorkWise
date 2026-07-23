@@ -58,6 +58,19 @@ import type {
   WriteRichClipboardPayload,
   WriteRichClipboardResult
 } from './write-export'
+import type { DesignWriteAssetPayload, DesignWriteAssetResult } from './design-write'
+import type {
+  DesignAssetReadPayload,
+  DesignAssetReadResult,
+  DesignDocumentLoadPayload,
+  DesignDocumentLoadResult,
+  DesignDocumentSavePayload,
+  DesignDocumentSaveResult,
+  DesignImageImportPayload,
+  DesignImageImportResult,
+  DesignPptxImportPayload,
+  DesignPptxImportResult
+} from './design-workspace'
 import type {
   AgnesImageGenerationPayload,
   AgnesImageGenerationResult
@@ -456,6 +469,21 @@ export type WorkWiseApi = {
   copyWriteDocumentAsRichText: (
     payload: WriteRichClipboardPayload
   ) => Promise<WriteRichClipboardResult>
+  exportDesignToPptx: (
+    payload: { name?: string; workspaceRoot?: string; document: Record<string, unknown> }
+  ) => Promise<{ ok: boolean; path?: string; message?: string }>
+  loadDesignDocument: (payload: DesignDocumentLoadPayload) => Promise<DesignDocumentLoadResult>
+  saveDesignDocument: (payload: DesignDocumentSavePayload) => Promise<DesignDocumentSaveResult>
+  importDesignImageAsset: (payload: DesignImageImportPayload) => Promise<DesignImageImportResult>
+  readDesignAsset: (payload: DesignAssetReadPayload) => Promise<DesignAssetReadResult>
+  importPptxToDesign: (payload: DesignPptxImportPayload) => Promise<DesignPptxImportResult>
+  saveDesignAssetToWrite: (
+    payload: DesignWriteAssetPayload
+  ) => Promise<DesignWriteAssetResult>
+  renderPresetShape: (
+    payload: { presetName: string; x: number; y: number; w: number; h: number; fill?: string }
+  ) => Promise<{ ok: boolean; svg?: string; message?: string }>
+  listPresetShapes: () => Promise<string[]>
   generateAgnesImage: (
     payload: AgnesImageGenerationPayload
   ) => Promise<AgnesImageGenerationResult>

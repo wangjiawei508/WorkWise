@@ -19,12 +19,24 @@ import {
 } from 'docx'
 import MarkdownIt from 'markdown-it'
 import hljs from 'highlight.js'
+import { AsyncLocalStorage } from 'node:async_hooks'
 import { existsSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
 import { basename, dirname, extname, isAbsolute, join, normalize } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { imageSize } from 'image-size'
 import { resolveWriteMarkdownResource } from '../../shared/write-markdown-resource'
+import {
+  type ExportElementStyle,
+  type ExportElementType,
+  type ExportStyleTemplate
+} from '../../shared/write-export-templates'
+import {
+  elementStyleToParagraphOptions,
+  elementStyleToRunOptions,
+  pageLayoutToSectionMargin,
+  resolveExportTemplate
+} from './write-docx-styles'
 
 type InlineToken = {
   type: string
@@ -96,24 +108,68 @@ function isCjk(char: string): boolean {
   return /[\u4e00-\u9fff\u3040-\u30ff\uac00-\ud7af]/.test(char)
 }
 
-function textRun(text: string, options: Partial<IRunOptions> = {}): TextRun {
+type WriteDocxRenderContext = {
+  template: ExportStyleTemplate
+  inlineElementType: ExportElementType
+}
+
+/**
+ * 每次导出都有独立的异步上下文。这样多个窗口或任务并发导出不同模板时，
+ * 深层的 Markdown/图片异步解析不会读到另一份模板。
+ */
+const writeDocxRenderContext = new AsyncLocalStorage<WriteDocxRenderContext>()
+
+function templateStyle(elementType: ExportElementType): ExportElementStyle | undefined {
+  return writeDocxRenderContext.getStore()?.template.styles[elementType]
+}
+
+function currentInlineElementType(): ExportElementType {
+  return writeDocxRenderContext.getStore()?.inlineElementType ?? 'p'
+}
+
+/**
+ * 构造一个 TextRun。若提供了 elementType 且模板上下文存在，
+ * 字体/字号/颜色从模板读取；否则回退到 0.3.0 硬编码默认值。
+ * options 中的同名字段会覆盖模板值（用于行内代码、链接等特殊着色）。
+ */
+function textRun(
+  text: string,
+  options: Partial<IRunOptions> = {},
+  elementType?: ExportElementType
+): TextRun {
+  const style = elementType ? templateStyle(elementType) : undefined
+  const templateRunOpts = style ? elementStyleToRunOptions(style) : undefined
   return new TextRun({
     text,
-    font: {
+    font: templateRunOpts?.font ?? {
       ascii: 'Calibri',
       hAnsi: 'Calibri',
       eastAsia: 'Microsoft YaHei',
       hint: 'eastAsia'
     },
-    size: 22,
-    color: '111827',
+    size: templateRunOpts?.size ?? 22,
+    color: templateRunOpts?.color ?? '111827',
+    bold: templateRunOpts?.bold,
+    italics: templateRunOpts?.italics,
     ...options
   })
 }
 
-function paragraph(children: any[], options: Record<string, unknown> = {}): Paragraph {
+/**
+ * 构造一个 Paragraph。若提供了 elementType 且模板上下文存在，
+ * spacing/alignment/indent 从模板读取；否则回退到 0.3.0 硬编码默认值。
+ */
+function paragraph(
+  children: any[],
+  options: Record<string, unknown> = {},
+  elementType?: ExportElementType
+): Paragraph {
+  const style = elementType ? templateStyle(elementType) : undefined
+  const templateParaOpts = style ? elementStyleToParagraphOptions(style) : undefined
   return new Paragraph({
-    spacing: { before: 80, after: 160, line: 360, lineRule: 'auto' },
+    spacing: templateParaOpts?.spacing ?? { before: 80, after: 160, line: 360, lineRule: 'auto' },
+    alignment: templateParaOpts?.alignment,
+    indent: templateParaOpts?.indent,
     children: children.length > 0 ? children : [textRun('')],
     ...options
   })
@@ -218,6 +274,9 @@ async function parseInlineTokens(tokens: InlineToken[], sourcePath: string): Pro
 
   const flush = (): void => {
     if (!buffer) return
+    // 普通文本：用当前 inline 元素上下文（正文='p'，表格内='table'）读取字体/字号/颜色。
+    // 注意：非链接时不传 color 字段（而非传 undefined），否则 ...options 展开时
+    // undefined 会覆盖 textRun 里从模板读取的 color 值。
     push(textRun(buffer, {
       bold: state.bold,
       italics: state.italics,
@@ -227,8 +286,9 @@ async function parseInlineTokens(tokens: InlineToken[], sourcePath: string): Pro
         : state.link
           ? { type: UnderlineType.SINGLE, color: '0F62FE' }
           : undefined,
-      color: state.link ? '0F62FE' : '111827'
-    }))
+      // 链接强制蓝色；非链接不传 color，让模板颜色生效
+      ...(state.link ? { color: '0F62FE' } : {})
+    }, currentInlineElementType()))
     buffer = ''
   }
 
@@ -265,15 +325,18 @@ async function parseInlineTokens(tokens: InlineToken[], sourcePath: string): Pro
       }
     } else if (token.type === 'code_inline') {
       flush()
+      // 行内代码：从模板的 code 元素读取字体，保留灰底着色
+      const codeStyle = templateStyle('code')
+      const codeRunOpts = codeStyle ? elementStyleToRunOptions(codeStyle) : undefined
       push(textRun(token.content, {
-        font: {
+        font: codeRunOpts?.font ?? {
           ascii: 'Consolas',
           hAnsi: 'Consolas',
           eastAsia: 'Microsoft YaHei',
           hint: 'eastAsia'
         },
-        size: 20,
-        color: '111827',
+        size: codeRunOpts?.size ?? 20,
+        color: codeRunOpts?.color ?? '111827',
         shading: { type: ShadingType.CLEAR, fill: 'EEF2F7', color: 'auto' }
       }))
     } else if (token.type === 'link_open') {
@@ -352,6 +415,12 @@ function highlightedCodeRuns(code: string, language: string): TextRun[] {
     html = code
   }
 
+  // 代码块字体从模板 code 元素读取（颜色保留语法高亮色表，与模板正交）
+  const codeStyle = templateStyle('code')
+  const codeRunOpts = codeStyle ? elementStyleToRunOptions(codeStyle) : undefined
+  const codeFont = codeRunOpts?.font ?? { ascii: 'Consolas', hAnsi: 'Consolas', eastAsia: 'Microsoft YaHei', hint: 'eastAsia' as const }
+  const codeSize = codeRunOpts?.size ?? 19
+
   const runs: TextRun[] = []
   const pattern = /<span class="([^"]+)">([\s\S]*?)<\/span>|([^<]+)/g
   for (const match of html.matchAll(pattern)) {
@@ -361,8 +430,8 @@ function highlightedCodeRuns(code: string, language: string): TextRun[] {
     lines.forEach((line, index) => {
       if (line) {
         runs.push(textRun(line, {
-          font: { ascii: 'Consolas', hAnsi: 'Consolas', eastAsia: 'Microsoft YaHei', hint: 'eastAsia' },
-          size: 19,
+          font: codeFont,
+          size: codeSize,
           color,
           shading: { type: ShadingType.CLEAR, fill: 'F3F4F6', color: 'auto' }
         }))
@@ -373,10 +442,22 @@ function highlightedCodeRuns(code: string, language: string): TextRun[] {
     })
   }
 
-  return runs.length > 0 ? runs : [textRun(code, { font: { ascii: 'Consolas', hAnsi: 'Consolas' }, size: 19 })]
+  return runs.length > 0 ? runs : [textRun(code, { font: codeFont, size: codeSize })]
 }
 
 async function parseTable(tokens: MarkdownToken[], startIndex: number, sourcePath: string): Promise<{
+  table: Table
+  nextIndex: number
+}> {
+  const context = writeDocxRenderContext.getStore()
+  if (!context) return parseTableInner(tokens, startIndex, sourcePath)
+  return writeDocxRenderContext.run(
+    { ...context, inlineElementType: 'table' },
+    () => parseTableInner(tokens, startIndex, sourcePath)
+  )
+}
+
+async function parseTableInner(tokens: MarkdownToken[], startIndex: number, sourcePath: string): Promise<{
   table: Table
   nextIndex: number
 }> {
@@ -421,6 +502,10 @@ async function parseTable(tokens: MarkdownToken[], startIndex: number, sourcePat
   }
 
   const cellWidth = 100 / Math.max(1, maxCellCount)
+  const tableStyle = templateStyle('table')
+  const tableParagraphOptions = tableStyle
+    ? elementStyleToParagraphOptions(tableStyle)
+    : undefined
   rowCells.forEach((cells) => {
     rows.push(
       new TableRow({
@@ -430,10 +515,15 @@ async function parseTable(tokens: MarkdownToken[], startIndex: number, sourcePat
             shading: cell.header ? { type: ShadingType.CLEAR, fill: 'F3F6FA', color: 'auto' } : undefined,
             margins: { top: 90, bottom: 90, left: 120, right: 120 },
             children: [
+              // 表格单元格：从模板 table 元素读取字体/字号/行距
               paragraph(cell.children, {
-                alignment: cell.header ? AlignmentType.CENTER : AlignmentType.LEFT,
-                spacing: { before: 0, after: 0, line: 300, lineRule: 'auto' }
-              })
+                alignment: cell.header
+                  ? AlignmentType.CENTER
+                  : (tableParagraphOptions?.alignment ?? AlignmentType.LEFT),
+                spacing: tableParagraphOptions?.spacing ??
+                  { before: 0, after: 0, line: 300, lineRule: 'auto' },
+                indent: tableParagraphOptions?.indent
+              }, 'table')
             ]
           })
         ))
@@ -467,6 +557,16 @@ function headingLevel(tag = 'h1'): (typeof HeadingLevel)[keyof typeof HeadingLev
   return HeadingLevel.HEADING_1
 }
 
+/**
+ * 把 heading tag 映射到模板元素类型。h4-h6 回退到 h3 的样式
+ * （模板只配置 H1/H2/H3 三级标题样式）。
+ */
+function headingElementType(tag = 'h1'): ExportElementType {
+  if (tag === 'h1') return 'h1'
+  if (tag === 'h2') return 'h2'
+  return 'h3'
+}
+
 function headingSize(tag = 'h1'): number {
   if (tag === 'h1') return 34
   if (tag === 'h2') return 29
@@ -496,6 +596,25 @@ export async function buildDocxFromMarkdown(options: {
   sourcePath: string
   content: string
   title?: string
+  /**
+   * 导出模板。若提供，标题/正文/表格/代码块的字体、字号、颜色、行距、缩进、
+   * 对齐和页边距均由模板驱动；缺省时回退到 0.3.0 硬编码默认值（向后兼容）。
+   */
+  template?: ExportStyleTemplate
+}): Promise<Buffer> {
+  return writeDocxRenderContext.run(
+    {
+      template: options.template ?? resolveExportTemplate(undefined),
+      inlineElementType: 'p'
+    },
+    () => buildDocxFromMarkdownInner(options)
+  )
+}
+
+async function buildDocxFromMarkdownInner(options: {
+  sourcePath: string
+  content: string
+  title?: string
 }): Promise<Buffer> {
   const tokens = md.parse(preprocessMarkdown(options.content), {}) as MarkdownToken[]
   const children: Array<Paragraph | Table> = []
@@ -506,15 +625,22 @@ export async function buildDocxFromMarkdown(options: {
     const token = tokens[i]
     if (token.type === 'heading_open') {
       const inlineToken = tokens[i + 1]
+      const headingType = headingElementType(token.tag)
+      const headingStyle = templateStyle(headingType)
+      const headingRunOpts = headingStyle ? elementStyleToRunOptions(headingStyle) : undefined
+      const headingParaOpts = headingStyle ? elementStyleToParagraphOptions(headingStyle) : undefined
       children.push(
         paragraph([textRun(inlinePlainText(inlineToken), {
-          size: headingSize(token.tag),
-          bold: true,
-          color: '0F172A'
-        })], {
+          size: headingRunOpts?.size ?? headingSize(token.tag),
+          bold: headingRunOpts?.bold ?? true,
+          color: headingRunOpts?.color ?? '0F172A',
+          font: headingRunOpts?.font
+        }, headingType)], {
           heading: headingLevel(token.tag),
-          spacing: { before: token.tag === 'h1' ? 200 : 160, after: 120, line: 300, lineRule: 'auto' },
-        })
+          spacing: headingParaOpts?.spacing ?? { before: token.tag === 'h1' ? 200 : 160, after: 120, line: 300, lineRule: 'auto' },
+          alignment: headingParaOpts?.alignment,
+          indent: headingParaOpts?.indent
+        }, headingType)
       )
       i += 2
       continue
@@ -544,8 +670,13 @@ export async function buildDocxFromMarkdown(options: {
       const inlineToken = tokens[i + 1]
       const runs = inlineToken?.children
         ? await parseInlineTokens(inlineToken.children, options.sourcePath)
-        : [textRun(inlineToken?.content ?? '')]
+        : [textRun(inlineToken?.content ?? '', {}, 'p')]
       const currentList = listStack[listStack.length - 1]
+      // 正文段落：字体/字号/颜色由模板 p 元素驱动（通过 paragraph 工厂的 elementType 参数）。
+      // 列表项和引用块保留各自的紧凑 spacing / 缩进 / 边框，覆盖模板的段落属性。
+      const paraStyle = templateStyle('p')
+      const paraOpts = paraStyle ? elementStyleToParagraphOptions(paraStyle) : undefined
+      const inListOrQuote = Boolean(currentList) || blockquoteDepth > 0
       children.push(
         paragraph(runs, {
           numbering: currentList
@@ -554,7 +685,9 @@ export async function buildDocxFromMarkdown(options: {
                 level: currentList.level
               }
             : undefined,
-          indent: blockquoteDepth > 0 ? { left: 360 * blockquoteDepth } : undefined,
+          indent: blockquoteDepth > 0
+            ? { left: 360 * blockquoteDepth }
+            : (inListOrQuote ? undefined : paraOpts?.indent),
           border:
             blockquoteDepth > 0
               ? { left: { style: BorderStyle.SINGLE, size: 8, color: 'C7D2FE', space: 8 } }
@@ -563,10 +696,13 @@ export async function buildDocxFromMarkdown(options: {
             blockquoteDepth > 0
               ? { type: ShadingType.CLEAR, fill: 'F8FAFC', color: 'auto' }
               : undefined,
+          alignment: inListOrQuote ? undefined : paraOpts?.alignment,
           spacing: currentList
             ? { before: 0, after: 80, line: 330, lineRule: 'auto' }
-            : { before: 60, after: 140, line: 360, lineRule: 'auto' }
-        })
+            : (blockquoteDepth > 0
+                ? { before: 60, after: 140, line: 360, lineRule: 'auto' }
+                : (paraOpts?.spacing ?? { before: 60, after: 140, line: 360, lineRule: 'auto' }))
+        }, 'p')
       )
       i += 2
       continue
@@ -574,6 +710,10 @@ export async function buildDocxFromMarkdown(options: {
 
     if (token.type === 'fence' || token.type === 'code_block') {
       const language = (token.info ?? '').trim().split(/\s+/)[0] ?? ''
+      // 代码块：字体由模板 code 元素驱动（在 highlightedCodeRuns 内部已处理），
+      // 段落 spacing/indent 也从 code 元素读取，保留灰底和边框装饰。
+      const codeParaStyle = templateStyle('code')
+      const codeParaOpts = codeParaStyle ? elementStyleToParagraphOptions(codeParaStyle) : undefined
       children.push(
         paragraph(highlightedCodeRuns(token.content.replace(/\n$/, ''), language), {
           border: {
@@ -583,8 +723,10 @@ export async function buildDocxFromMarkdown(options: {
             right: { style: BorderStyle.SINGLE, size: 2, color: 'E5E7EB' }
           },
           shading: { type: ShadingType.CLEAR, fill: 'F3F4F6', color: 'auto' },
-          spacing: { before: 140, after: 180, line: 280, lineRule: 'auto' }
-        })
+          spacing: codeParaOpts?.spacing ?? { before: 140, after: 180, line: 280, lineRule: 'auto' },
+          indent: codeParaOpts?.indent,
+          alignment: codeParaOpts?.alignment
+        }, 'code')
       )
       continue
     }
@@ -633,15 +775,13 @@ export async function buildDocxFromMarkdown(options: {
       {
         properties: {
           page: {
-            margin: {
-              top: 1440,
-              right: 1440,
-              bottom: 1440,
-              left: 1440
-            }
+            // 页边距从模板 pageLayout 读取（缺省 1440 twip = 1 inch，向后兼容）
+            margin: pageLayoutToSectionMargin(
+              (writeDocxRenderContext.getStore()?.template ?? resolveExportTemplate(undefined)).pageLayout
+            )
           }
         },
-        children: children.length > 0 ? children : [paragraph([textRun('')])]
+        children: children.length > 0 ? children : [paragraph([textRun('', {}, 'p')], {}, 'p')]
       }
     ]
   })

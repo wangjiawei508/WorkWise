@@ -462,6 +462,10 @@ export type WriteSettingsV1 = {
   workspaces: string[]
   inlineCompletion: WriteInlineCompletionSettingsV1
   knowledgeBase: WriteKnowledgeBaseSettingsV1
+  /** 用户自定义的导出模板（内置模板不存储于此，运行时合并） */
+  exportTemplates: import('./write-export-templates').ExportStyleTemplate[]
+  /** 默认导出模板 id（缺省时用内置默认） */
+  defaultExportTemplateId: string
 }
 
 export type ClawSettingsPatchV1 = Partial<Omit<ClawSettingsV1, 'skills' | 'im' | 'channels' | 'tasks'>> & {

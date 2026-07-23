@@ -7,6 +7,7 @@ Approachable and modern. Rounded cards, gentle elevation, friendly rhythm. For p
 ## 1. Shape & decoration
 
 - Shape language: rounded rectangles (`rx` 12-16), pill tags, soft containers. Consistent radius deck-wide.
+- Composition geometry: a large soft disc or blob bleeding off one edge as the color field; a pill chain or arc path replacing the boxed step row; one hero panel overlapping a full-width tinted band; an oversized rounded numeral behind the point. Cards are the container language, not the composition — vary the stage they sit on.
 - Decoration: cards as the primary container; icon accents; numbered circles; gentle dividers. Moderate, in service of clarity.
 - Whitespace: comfortable padding inside cards; even gutters; balanced rather than austere.
 
@@ -26,8 +27,12 @@ Approachable and modern. Rounded cards, gentle elevation, friendly rhythm. For p
 
 ## 4. Texture / elevation
 
-- Gentle elevation: soft shadows on floating cards (resting tier), subtle tints, optional same-hue gradients. Two-tier elevation max; keep peer-grid cards flat. (Full shadow rules: [`shared-standards.md §6`](../shared-standards.md).)
+- Gentle elevation: soft shadows on floating cards (resting tier), subtle tints, optional same-hue gradients. Two-tier elevation max; keep peer-grid cards flat.
 
 ## 5. Paired image-rendering
 
 `flat` — clean modern blocks for AI images. (For frosted-glass depth, see the dedicated [`glassmorphism`](./glassmorphism.md) style.)
+
+## 6. Illustration propensity
+
+**supportive** — friendly rounded spots suit this approachable style; use them where they lift rhythm or section warmth, kept restrained. With no user steer this is the default lean; an explicit user request wins either way, and `image_usage: none` writes no illustration rows.

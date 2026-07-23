@@ -2,50 +2,65 @@
 """
 PPT Master - SVG Post-processing Tool (Unified Entry Point)
 
-Processes SVG files from svg_output/ and outputs them to svg_final/.
-By default, all processing steps are executed. You can also specify
-individual steps via arguments.
+Processes SVG files from svg_output/ and produces the visual preview in
+svg_final/, embedding supported raster/SVG assets. Native PPTX export continues
+to read svg_output/ by default; svg_final/ may be opened directly or inserted
+as an SVG image. EMF/WMF assets retain their external-reference exception.
+By default, all processing steps are executed. You can also specify individual
+steps via arguments.
 
 Architecture note: this module's outputs feed svg_final/ on disk AND its
 sub-modules (svg_finalize.embed_icons, svg_finalize.flatten_tspan, ...)
 are memory-reused by svg_to_pptx during native conversion. Deleting any
 step here may also break native pptx output, not just svg_final/.
-See docs/technical-design.md "Post-Processing Pipeline" before modifying.
+See scripts/docs/svg-pipeline.md before modifying the shared pipeline.
 
 Usage:
     # Execute all processing steps (recommended)
     python3 scripts/finalize_svg.py <project_directory>
 
     # Execute only specific steps
-    python3 scripts/finalize_svg.py <project_directory> --only embed-icons fix-rounded
+    python3 scripts/finalize_svg.py <project_directory> --only embed-icons align-images
 
 Examples:
     python3 scripts/finalize_svg.py projects/my_project
     python3 scripts/finalize_svg.py examples/ppt169_demo --only embed-icons
 
 Processing options:
-    embed-icons   - Replace <use data-icon="..."/> with actual icon SVG
+    embed-icons   - Expand project icons and static same-document <use>
     align-images  - Align (slice/meet) and Base64-embed all <image> in one pass.
                     Replaces the former crop-images + fix-aspect + embed-images
                     trio. The old names remain accepted as aliases for the
                     merged step, so existing --only invocations keep working.
     flatten-text  - Convert <tspan> to independent <text> (for special renderers)
-    fix-rounded   - Convert <rect rx="..."/> to <path> (for PPT shape conversion)
 """
 
-import os
 import sys
 import shutil
 import argparse
 from pathlib import Path
+from xml.etree import ElementTree as ET
+
+from console_encoding import configure_utf8_stdio
+
+configure_utf8_stdio()
 
 # Import finalize helpers from the internal package.
 sys.path.insert(0, str(Path(__file__).parent))
+from resource_paths import icon_search_dirs_for_project  # noqa: E402
 from svg_finalize.align_embed_images import (
     align_and_embed_images_in_svg,
     count_office_vector_refs_in_svg,
 )
 from svg_finalize.embed_icons import process_svg_file as embed_icons_in_file
+from svg_to_pptx.geometry_properties import (
+    GeometryStyleError,
+    materialize_inline_geometry_in_file,
+)
+from svg_to_pptx.use_expander import (
+    UseExpansionError,
+    expand_local_use_references_in_file,
+)
 
 
 def safe_print(text: str) -> None:
@@ -87,35 +102,14 @@ def process_flatten_text(svg_file: Path, verbose: bool = False) -> bool:
         return False
 
 
-def process_rounded_rect(svg_file: Path, verbose: bool = False) -> int:
-    """Convert rounded rectangles in a single SVG file (in-place modification)"""
-    try:
-        from svg_finalize.svg_rect_to_path import process_svg
-
-        with open(svg_file, 'r', encoding='utf-8') as f:
-            content = f.read()
-
-        processed, count = process_svg(content, verbose=False)
-
-        if count > 0:
-            with open(svg_file, 'w', encoding='utf-8') as f:
-                f.write(processed)
-            if verbose:
-                safe_print(f"   [OK] {svg_file.name}: {count} rounded rectangle(s)")
-        return count
-    except Exception as e:
-        if verbose:
-            safe_print(f"   [ERROR] {svg_file.name}: {e}")
-        return 0
-
-
 def finalize_project(
     project_dir: Path,
     options: dict[str, bool],
     dry_run: bool = False,
     quiet: bool = False,
-    compress: bool = False,
-    max_dimension: int | None = None,
+    compress: bool = True,
+    max_dimension: int | None = 2560,
+    image_scale: float = 2.0,
 ) -> bool:
     """
     Finalize SVG files in the project
@@ -127,10 +121,11 @@ def finalize_project(
         quiet: Quiet mode, reduce output
         compress: Compress images before embedding
         max_dimension: Downscale images exceeding this dimension
+        image_scale: Target image pixels per SVG display pixel
     """
     svg_output = project_dir / 'svg_output'
     svg_final = project_dir / 'svg_final'
-    icons_dir = Path(__file__).parent.parent / 'templates' / 'icons'
+    icons_dir, icons_fallback_dir = icon_search_dirs_for_project(project_dir)
 
     # Check if svg_output exists
     if not svg_output.exists():
@@ -160,19 +155,62 @@ def finalize_project(
     if not quiet:
         print()
 
-    # Step 2: Embed icons
+    # Core normalization: downstream image/rect processors read XML geometry.
+    geometry_count = 0
+    for svg_file in svg_final.glob('*.svg'):
+        try:
+            geometry_count += materialize_inline_geometry_in_file(svg_file)
+        except (OSError, ET.ParseError, GeometryStyleError) as exc:
+            safe_print(
+                f"[ERROR] {svg_file.name}: inline geometry materialization failed: {exc}"
+            )
+            return False
+    # Step 2: Expand project icons, then standard same-document use references.
     if options.get('embed_icons'):
         if not quiet:
-            safe_print("[1/4] Embedding icons...")
+            safe_print("[1/3] Expanding icons + local use references...")
         icons_count = 0
         for svg_file in svg_final.glob('*.svg'):
-            count = embed_icons_in_file(svg_file, icons_dir, dry_run=False, verbose=False)
+            count = embed_icons_in_file(
+                svg_file,
+                icons_dir,
+                dry_run=False,
+                verbose=False,
+                fallback_dir=icons_fallback_dir,
+            )
             icons_count += count
+        for svg_file in svg_final.glob('*.svg'):
+            try:
+                geometry_count += materialize_inline_geometry_in_file(svg_file)
+            except (OSError, ET.ParseError, GeometryStyleError) as exc:
+                safe_print(
+                    f"[ERROR] {svg_file.name}: expanded icon geometry "
+                    f"materialization failed: {exc}"
+                )
+                return False
+        local_use_count = 0
+        for svg_file in svg_final.glob('*.svg'):
+            try:
+                local_use_count += expand_local_use_references_in_file(svg_file)
+            except (OSError, ET.ParseError, UseExpansionError) as exc:
+                safe_print(
+                    f"[ERROR] {svg_file.name}: local <use> expansion failed: {exc}"
+                )
+                return False
         if not quiet:
             if icons_count > 0:
                 safe_print(f"      {icons_count} icon(s) embedded")
             else:
                 safe_print("      No icons")
+            if local_use_count > 0:
+                safe_print(f"      {local_use_count} local use reference(s) expanded")
+            else:
+                safe_print("      No local use references")
+
+    if not quiet and geometry_count:
+        safe_print(
+            f"[PREP] {geometry_count} inline geometry declaration(s) materialized"
+        )
 
     # Step 3: Align (slice/meet) and Base64-embed all <image> in one pass.
     # Replaces the former crop-images / fix-aspect / embed-images trio: the
@@ -182,7 +220,7 @@ def finalize_project(
     # from disk once.
     if options.get('align_images'):
         if not quiet:
-            safe_print("[2/4] Aligning + embedding images...")
+            safe_print("[2/3] Aligning + embedding images...")
         img_count = 0
         img_errors = 0
         office_vector_count = 0
@@ -194,6 +232,7 @@ def finalize_project(
                 verbose=False,
                 compress=compress,
                 max_dimension=max_dimension,
+                image_scale=image_scale,
             )
             img_count += count
             img_errors += errs
@@ -219,7 +258,7 @@ def finalize_project(
     # Step 4: Flatten text
     if options.get('flatten_text'):
         if not quiet:
-            safe_print("[3/4] Flattening text...")
+            safe_print("[3/3] Flattening text...")
         flatten_count = 0
         for svg_file in svg_final.glob('*.svg'):
             if process_flatten_text(svg_file, verbose=False):
@@ -229,20 +268,6 @@ def finalize_project(
                 safe_print(f"      {flatten_count} file(s) processed")
             else:
                 safe_print("      No processing needed")
-
-    # Step 5: Convert rounded rects to Path
-    if options.get('fix_rounded'):
-        if not quiet:
-            safe_print("[4/4] Converting rounded rects to Path...")
-        rounded_count = 0
-        for svg_file in svg_final.glob('*.svg'):
-            count = process_rounded_rect(svg_file, verbose=False)
-            rounded_count += count
-        if not quiet:
-            if rounded_count > 0:
-                safe_print(f"      {rounded_count} rounded rectangle(s) converted")
-            else:
-                safe_print("      No rounded rectangles")
 
     # Done
     if not quiet:
@@ -263,14 +288,13 @@ def main() -> None:
         epilog='''
 Examples:
   %(prog)s projects/my_project           # Execute all processing (default)
-  %(prog)s projects/my_project --only embed-icons fix-rounded
+  %(prog)s projects/my_project --only embed-icons align-images
   %(prog)s projects/my_project -q        # Quiet mode
 
 Processing options (for --only):
-  embed-icons   Embed icons
+  embed-icons   Expand project icons and static same-document <use>
   align-images  Align (slice/meet) + Base64-embed all <image> (single pass)
   flatten-text  Flatten text
-  fix-rounded   Convert rounded rects to Path
 
 Aliases (still accepted):
   crop-images, fix-aspect, embed-images  → all map to align-images
@@ -285,7 +309,7 @@ Aliases (still accepted):
             'align-images',
             # Backwards-compatible aliases — all three map to align-images now.
             'crop-images', 'fix-aspect', 'embed-images',
-            'flatten-text', 'fix-rounded',
+            'flatten-text',
         ],
         help=('Execute only specified processing steps (default: all). '
               'crop-images / fix-aspect / embed-images are accepted as '
@@ -295,10 +319,14 @@ Aliases (still accepted):
                         help='Preview only, do not execute')
     parser.add_argument('--quiet', '-q', action='store_true',
                         help='Quiet mode, reduce output')
-    parser.add_argument('--compress', action='store_true',
-                        help='Compress images before embedding (JPEG quality=85, PNG optimize)')
-    parser.add_argument('--max-dimension', type=int, default=None,
-                        help='Downscale images exceeding this dimension on either axis (e.g., 2560)')
+    parser.add_argument('--compress', dest='compress', action='store_true', default=True,
+                        help='Compress images before embedding (default)')
+    parser.add_argument('--no-compress', dest='compress', action='store_false',
+                        help='Disable image compression before embedding')
+    parser.add_argument('--max-dimension', type=int, default=2560,
+                        help='Downscale images exceeding this dimension on either axis (default: 2560)')
+    parser.add_argument('--image-scale', type=float, default=2.0,
+                        help='Target image pixels per SVG display pixel (default: 2.0)')
 
     args = parser.parse_args()
 
@@ -317,7 +345,6 @@ Aliases (still accepted):
             'embed_icons': 'embed-icons' in only,
             'align_images': bool(only & _ALIGN_ALIASES),
             'flatten_text': 'flatten-text' in only,
-            'fix_rounded': 'fix-rounded' in only,
         }
     else:
         # Execute all by default
@@ -325,12 +352,19 @@ Aliases (still accepted):
             'embed_icons': True,
             'align_images': True,
             'flatten_text': True,
-            'fix_rounded': True,
         }
+
+    if args.max_dimension < 1:
+        safe_print("[ERROR] --max-dimension must be >= 1")
+        sys.exit(1)
+    if args.image_scale < 1:
+        safe_print("[ERROR] --image-scale must be >= 1")
+        sys.exit(1)
 
     success = finalize_project(args.project_dir, options, args.dry_run, args.quiet,
                                compress=args.compress,
-                               max_dimension=args.max_dimension)
+                               max_dimension=args.max_dimension,
+                               image_scale=args.image_scale)
     sys.exit(0 if success else 1)
 
 

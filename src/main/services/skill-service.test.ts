@@ -312,18 +312,20 @@ describe('skill-service', () => {
     if (!installed.ok) return
     const installedRoot = join(skillInstallRoot, 'ppt-master')
     expect(await readFile(join(installedRoot, 'SKILL.md'), 'utf8'))
-      .toContain('PPT Master for WorkWise')
+      .toContain('PPT Master')
     expect(await readFile(join(installedRoot, 'requirements.txt'), 'utf8'))
-      .not.toContain('pandoc')
-    expect(await readFile(join(installedRoot, 'scripts', 'source_to_md', 'doc_to_md.py'), 'utf8'))
-      .not.toMatch(/pandoc/i)
+      .not.toMatch(/^pandoc\b|^\s*pandoc[>=]/im)
+    // doc_to_md.py may mention pandoc as an optional fallback for legacy formats,
+    // but WorkWise does not install or require it.
     expect(existsSync(join(installedRoot, 'scripts', 'confirm_ui', 'server.py'))).toBe(true)
     expect(existsSync(join(installedRoot, 'scripts', 'confirm_ui', 'static', 'index.html'))).toBe(true)
     expect(existsSync(join(installedRoot, 'scripts', 'docs', 'confirm_ui.md'))).toBe(true)
     expect(existsSync(join(installedRoot, 'scripts', 'svg_editor', 'static', 'index.html'))).toBe(true)
+    // 保持 v4.0 官方目录结构；图标大包不分发，只保留说明。
     expect(existsSync(join(installedRoot, 'templates', 'charts', 'charts_index.json'))).toBe(true)
     expect(existsSync(join(installedRoot, 'templates', 'layouts', 'layouts_index.json'))).toBe(true)
-    expect(existsSync(join(installedRoot, 'templates', 'icons'))).toBe(false)
+    expect(existsSync(join(installedRoot, 'templates', 'icons', 'README.md'))).toBe(true)
+    expect(existsSync(join(installedRoot, 'templates', 'icons', 'app-window.svg'))).toBe(false)
     expect(existsSync(join(installedRoot, 'projects', 'README.md'))).toBe(true)
     expect(existsSync(join(installedRoot, 'examples', 'README.md'))).toBe(true)
     expect(existsSync(join(
@@ -348,28 +350,15 @@ describe('skill-service', () => {
       await readFile(join(installedRoot, '.workwise-skill-source.json'), 'utf8')
     ) as Record<string, unknown>
     expect(existsSync(join(installedRoot, '.workgpt-skill-source.json'))).toBe(false)
+    // v4.0 curated slim bundle: autoUpdate disabled, overlay preserved
     expect(source).toMatchObject({
       type: 'github',
       owner: 'hugohe3',
       repo: 'ppt-master',
       path: 'skills/ppt-master',
-      autoUpdate: true,
-      overlaySkillId: 'ppt-master',
-      installedSha: '3ba0fca6741adef2998ceca7e38989f822023f2d',
-      includePaths: expect.arrayContaining([
-        'SKILL.md',
-        'references/shared-standards.md',
-        'workflows',
-        'scripts',
-        'templates/design_spec_reference.md',
-        'templates/spec_lock_reference.md',
-        'templates/charts',
-        'templates/layouts'
-      ])
+      autoUpdate: false,
+      overlaySkillId: 'ppt-master'
     })
-    expect(source.includePaths).not.toContain('references/ai-image-comparison')
-    expect(source.includePaths).not.toContain('examples')
-    expect(source.includePaths).not.toContain('projects')
 
     const result = await listGuiSkills(createSettings(workspaceRoot), workspaceRoot)
 
@@ -377,14 +366,16 @@ describe('skill-service', () => {
     if (!result.ok) return
     expect(result.skills).toContainEqual(expect.objectContaining({
       id: 'ppt-master',
-      name: 'PPT Master 3.1.0+',
-      description: expect.stringContaining('生成和导出 PPT'),
+      name: 'PPT Master 4.0.0',
+      description: expect.stringContaining('presentation workflow'),
       source: expect.objectContaining({
         type: 'github',
         owner: 'hugohe3',
         repo: 'ppt-master',
         path: 'skills/ppt-master',
-        autoUpdate: true,
+        ref: 'v4.0.0',
+        installedSha: '6636fb141077d73c43385fd8e88cb32309237300',
+        autoUpdate: false,
         overlaySkillId: 'ppt-master'
       })
     }))

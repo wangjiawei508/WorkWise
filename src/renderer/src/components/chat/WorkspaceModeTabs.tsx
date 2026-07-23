@@ -3,7 +3,7 @@ import { Code2, Dribbble, PencilLine } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 
 type Props = {
-  activeView: 'chat' | 'write' | 'claw' | 'schedule'
+  activeView: 'chat' | 'write' | 'claw' | 'schedule' | 'design'
   focusModeEnabled?: boolean
   onCodeOpen: () => void
   onToggleFocusMode?: () => void

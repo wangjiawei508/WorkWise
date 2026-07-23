@@ -1,4 +1,4 @@
-import { app, dialog, ipcMain, shell, type BrowserWindow, type WebContents } from 'electron'
+import { app, dialog, ipcMain, nativeImage, shell, type BrowserWindow, type WebContents } from 'electron'
 import { watch, type FSWatcher } from 'node:fs'
 import { randomUUID } from 'node:crypto'
 import { basename, dirname, extname, join, resolve } from 'node:path'
@@ -26,6 +26,7 @@ import type {
 } from '../../shared/workwise-api'
 import type { WorkspaceFileSaveAsResult } from '../../shared/workspace-file'
 import type { GuiUpdateDownloadResult, GuiUpdateInfo, GuiUpdateInstallResult, GuiUpdateState } from '../../shared/gui-update'
+import type { DesignAsset } from '../../shared/design-document'
 import {
   agentProfileListPayloadSchema,
   agentProfileSavePayloadSchema,
@@ -84,6 +85,14 @@ import {
   writeAgnesImageGenerationPayloadSchema,
   writeExportPayloadSchema,
   writeRichClipboardPayloadSchema,
+  designExportPayloadSchema,
+  designDocumentLoadPayloadSchema,
+  designDocumentSavePayloadSchema,
+  designImageImportPayloadSchema,
+  designAssetReadPayloadSchema,
+  designPptxImportPayloadSchema,
+  designPresetRenderSchema,
+  designWriteAssetPayloadSchema,
   writeInfographicPayloadSchema,
   writeInlineCompletionPayloadSchema,
   writeKnowledgeSearchPayloadSchema,
@@ -120,6 +129,18 @@ import {
 import { requestWriteInfographic } from '../services/write-infographic-service'
 import { refreshWriteKnowledgeBase, searchWriteKnowledge } from '../services/write-knowledge-service'
 import { copyWriteDocumentAsRichText, exportWriteDocument } from '../services/write-export-service'
+import { exportDesignToPptx } from '../services/design-export-service'
+import { importPptxToDesign } from '../services/design-import-service'
+import { renderPresetShape, listPresetShapes } from '../services/design-preset-service'
+import { saveDesignAssetToWrite } from '../services/design-write-service'
+import {
+  loadDesignDocument,
+  readDesignAsset,
+  readSafeDesignImageSource,
+  saveDesignDocument,
+  storeDesignImageAsset
+} from '../services/design-document-service'
+import { normalizeDesignDocument } from '../../shared/design-document'
 import { generateAgnesImage } from '../services/write-agnes-image-service'
 import {
   installBundledSkill,
@@ -1157,17 +1178,192 @@ export function registerAppIpcHandlers(options: RegisterAppIpcHandlersOptions): 
   ipcMain.handle('file:unwatch-workspace', async (_, watchId: unknown) =>
     disposeWorkspaceFileWatch(parseIpcPayload('file:unwatch-workspace', streamIdSchema, watchId))
   )
-  ipcMain.handle('write:export', async (_, payload: unknown) =>
-    exportWriteDocument(
+  ipcMain.handle('write:export', async (_, payload: unknown) => {
+    // 读取一次设置，把用户自定义模板和默认模板 id 传给导出服务
+    const settings = await store.load()
+    return exportWriteDocument(
       parseIpcPayload('write:export', writeExportPayloadSchema, payload),
-      { parentWindow: getMainWindow() }
+      {
+        parentWindow: getMainWindow(),
+        userExportTemplates: settings.write.exportTemplates,
+        defaultExportTemplateId: settings.write.defaultExportTemplateId
+      }
     )
-  )
+  })
   ipcMain.handle('write:copy-rich-text', async (_, payload: unknown) =>
     copyWriteDocumentAsRichText(
       parseIpcPayload('write:copy-rich-text', writeRichClipboardPayloadSchema, payload)
     )
   )
+  ipcMain.handle('design:export-pptx', async (_, payload: unknown) => {
+    const parsed = parseIpcPayload('design:export-pptx', designExportPayloadSchema, payload)
+    const mainWindow = getMainWindow()
+    const dialogOptions: Electron.SaveDialogOptions = {
+      title: 'Export PPTX',
+      defaultPath: `${parsed.name || 'design'}.pptx`,
+      filters: [{ name: 'PowerPoint', extensions: ['pptx'] }]
+    }
+    const result = mainWindow
+      ? await dialog.showSaveDialog(mainWindow, dialogOptions)
+      : await dialog.showSaveDialog(dialogOptions)
+    if (result.canceled || !result.filePath) {
+      return { ok: false, message: 'Export canceled.' }
+    }
+    const normalizedDoc = normalizeDesignDocument(parsed.document as Record<string, unknown>)
+    if (!normalizedDoc) {
+      return { ok: false, message: 'Invalid design document.' }
+    }
+    const assetDataUrls: Record<string, string> = {}
+    if (parsed.workspaceRoot) {
+      for (const asset of normalizedDoc.assets) {
+        const assetResult = await readDesignAsset(parsed.workspaceRoot, normalizedDoc.id, asset)
+        if (assetResult.ok && assetResult.dataUrl) assetDataUrls[asset.id] = assetResult.dataUrl
+      }
+    }
+    return exportDesignToPptx(normalizedDoc, result.filePath, assetDataUrls)
+  })
+  ipcMain.handle('design:document:load', async (_, payload: unknown) => {
+    const parsed = parseIpcPayload('design:document:load', designDocumentLoadPayloadSchema, payload)
+    return loadDesignDocument(parsed.workspaceRoot, parsed.documentId)
+  })
+  ipcMain.handle('design:document:save', async (_, payload: unknown) => {
+    const parsed = parseIpcPayload('design:document:save', designDocumentSavePayloadSchema, payload)
+    const normalized = normalizeDesignDocument(parsed.document as Record<string, unknown>)
+    if (!normalized) {
+      return { ok: false, code: 'invalid_document' as const, message: 'Invalid Design document.' }
+    }
+    return saveDesignDocument({
+      workspaceRoot: parsed.workspaceRoot,
+      document: normalized,
+      activePageId: parsed.activePageId,
+      expectedRevision: parsed.expectedRevision
+    })
+  })
+  ipcMain.handle('design:asset:import-image', async (_, payload: unknown) => {
+    const parsed = parseIpcPayload('design:asset:import-image', designImageImportPayloadSchema, payload)
+    const mainWindow = getMainWindow()
+    const options: Electron.OpenDialogOptions = {
+      title: 'Import image',
+      filters: [{ name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'webp', 'gif'] }],
+      properties: ['openFile']
+    }
+    const result = mainWindow
+      ? await dialog.showOpenDialog(mainWindow, options)
+      : await dialog.showOpenDialog(options)
+    if (result.canceled || result.filePaths.length === 0) return { ok: false, canceled: true }
+    try {
+      const sourcePath = result.filePaths[0]
+      const bytes = await readSafeDesignImageSource(sourcePath)
+      const image = nativeImage.createFromBuffer(Buffer.from(bytes))
+      if (image.isEmpty()) throw new Error('Selected image could not be decoded.')
+      const size = image.getSize()
+      const mimeType = (() => {
+        const extension = extname(sourcePath).toLowerCase()
+        if (extension === '.png') return 'image/png'
+        if (extension === '.jpg' || extension === '.jpeg') return 'image/jpeg'
+        if (extension === '.webp') return 'image/webp'
+        if (extension === '.gif') return 'image/gif'
+        return ''
+      })()
+      const stored = await storeDesignImageAsset({
+        workspaceRoot: parsed.workspaceRoot,
+        documentId: parsed.documentId,
+        originalFilename: basename(sourcePath),
+        mimeType,
+        width: size.width,
+        height: size.height,
+        bytes
+      })
+      return { ok: true, ...stored }
+    } catch (error) {
+      return { ok: false, message: error instanceof Error ? error.message : String(error) }
+    }
+  })
+  ipcMain.handle('design:asset:read', async (_, payload: unknown) => {
+    const parsed = parseIpcPayload('design:asset:read', designAssetReadPayloadSchema, payload)
+    return readDesignAsset(parsed.workspaceRoot, parsed.documentId, parsed.asset)
+  })
+  ipcMain.handle('design:import-pptx', async (_, payload: unknown) => {
+    const parsed = parseIpcPayload('design:import-pptx', designPptxImportPayloadSchema, payload)
+    const mainWindow = getMainWindow()
+    const dialogOptions: Electron.OpenDialogOptions = {
+      title: 'Import PPTX',
+      filters: [{ name: 'PowerPoint', extensions: ['pptx'] }],
+      properties: ['openFile']
+    }
+    const result = mainWindow
+      ? await dialog.showOpenDialog(mainWindow, dialogOptions)
+      : await dialog.showOpenDialog(dialogOptions)
+    if (result.canceled || result.filePaths.length === 0) {
+      return { ok: false, canceled: true, message: 'Import canceled.' }
+    }
+    const imported = await importPptxToDesign(result.filePaths[0])
+    if (!imported.ok) return imported
+    try {
+      const idMap = new Map<string, string>()
+      const assets: DesignAsset[] = []
+      for (const image of imported.images) {
+        const native = nativeImage.createFromBuffer(Buffer.from(image.bytes))
+        if (native.isEmpty()) throw new Error(`Imported image ${image.filename} could not be decoded.`)
+        const size = native.getSize()
+        const stored = await storeDesignImageAsset({
+          workspaceRoot: parsed.workspaceRoot,
+          documentId: imported.document.id,
+          originalFilename: image.filename,
+          mimeType: image.mimeType,
+          width: size.width,
+          height: size.height,
+          bytes: image.bytes
+        })
+        idMap.set(image.provisionalId, stored.asset.id)
+        assets.push(stored.asset)
+      }
+      const document = {
+        ...imported.document,
+        assets,
+        pages: imported.document.pages.map((page) => ({
+          ...page,
+          elements: page.elements
+            .map((element) =>
+              element.type === 'image' && element.imageAssetId
+                ? {
+                    ...element,
+                    imageAssetId: idMap.get(element.imageAssetId) ?? element.imageAssetId
+                  }
+                : element
+            )
+            .filter((element) =>
+              element.type !== 'image' ||
+              !element.imageAssetId ||
+              assets.some((asset) => asset.id === element.imageAssetId)
+            )
+        }))
+      }
+      return {
+        ok: true,
+        document,
+        activePageId: document.pages[0]?.id,
+        warnings: imported.warnings
+      }
+    } catch (error) {
+      return {
+        ok: false,
+        message: error instanceof Error ? error.message : String(error)
+      }
+    }
+  })
+  ipcMain.handle('design:save-to-write', async (_, payload: unknown) =>
+    saveDesignAssetToWrite(
+      parseIpcPayload('design:save-to-write', designWriteAssetPayloadSchema, payload)
+    )
+  )
+  ipcMain.handle('design:render-preset', async (_, payload: unknown) => {
+    const parsed = parseIpcPayload('design:render-preset', designPresetRenderSchema, payload)
+    return renderPresetShape(parsed.presetName, {
+      x: parsed.x, y: parsed.y, w: parsed.w, h: parsed.h
+    }, parsed.fill ?? '#1E3A5F')
+  })
+  ipcMain.handle('design:list-presets', async () => listPresetShapes())
   ipcMain.handle('write:agnes-image-generate', async (_, payload: unknown) =>
     generateAgnesImage(
       await store.load(),

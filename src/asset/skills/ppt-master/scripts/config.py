@@ -14,10 +14,15 @@ Usage:
     colors = Config.get_color_scheme('consulting')
 """
 
-from pathlib import Path
-from typing import Dict, List, Optional, Any
+import argparse
 import json
 import os
+from pathlib import Path
+from typing import Dict, List, Optional, Any
+
+from console_encoding import configure_utf8_stdio
+
+configure_utf8_stdio()
 
 
 # ============================================================
@@ -54,6 +59,7 @@ def get_env_candidates() -> list[Path]:
     """Return the supported .env lookup order."""
     return [
         Path.cwd() / '.env',
+        PROJECT_ROOT / '.env',
         REPO_ROOT / '.env',
         USER_ENV_FILE,
     ]
@@ -480,64 +486,22 @@ LAYOUT_MARGINS = {
 
 
 # ============================================================
-# SVG Technical Specifications
+# SVG Policy Reference
 # ============================================================
 
+# Do not mirror element/attribute rules here. The router selects the mandatory
+# core and feature-triggered interfaces; the quality checker enforces them.
+# Keep the exported authority key as the compatibility router for existing
+# config consumers.
 SVG_CONSTRAINTS = {
-    # Forbidden elements - PPT incompatible
-    'forbidden_elements': [
-        # Clipping / Masking
-        # Note: `clipPath` on <image> elements is conditionally allowed — the
-        # converter maps qualifying clip shapes to DrawingML picture geometry.
-        # See references/shared-standards.md §1.2. It is NOT listed here
-        # because this flat list has no per-parent-element semantics; the
-        # actual validation is in svg_quality_checker._check_forbidden_elements.
-        'mask',
-        # Style system
-        'style',
-        # Structure / Nesting
-        'foreignObject',
-        # Text / Fonts
-        'textPath',
-        # Animation / Interaction
-        'animate',
-        'animateMotion',
-        'animateTransform',
-        'animateColor',
-        'set',
-        'script',
-        # Others
-        'iframe',
-    ],
-    # Forbidden attributes
-    # Note: marker-start / marker-end are NOT banned — they are conditionally
-    # allowed (see references/shared-standards.md §1.1). The svg_to_pptx
-    # converter maps qualifying <marker> defs to native DrawingML
-    # <a:headEnd>/<a:tailEnd>.
-    'forbidden_attributes': [
-        'class',
-        'id',
-        'onclick', 'onload', 'onmouseover', 'onmouseout',
-        'onfocus', 'onblur', 'onchange',
-    ],
-    # Forbidden patterns (regex matching)
-    'forbidden_patterns': [
-        r'@font-face',  # Web fonts
-        r'rgba\s*\(',   # rgba colors (PPT incompatible)
-        r'<\?xml-stylesheet\b',  # External CSS
-        r'<link[^>]*rel\s*=\s*["\']stylesheet["\']',
-        r'@import\s+',  # External CSS
-        r'<g[^>]*\sopacity\s*=',  # Group opacity
-        r'<image[^>]*\sopacity\s*=',  # Image opacity
-        r'\bon\w+\s*=',  # Event attributes
-        r'(?s)(?=.*<symbol)(?=.*<use\b)',  # <symbol> + <use> complex usage (order-independent)
-    ],
-    'recommended_fonts': [
-        'system-ui',
-        '-apple-system',
-        'BlinkMacSystemFont',
-        'Segoe UI'
-    ]
+    'authority': 'skills/ppt-master/references/shared-standards.md',
+    'core_authority': 'skills/ppt-master/references/shared-standards-core.md',
+    'conditional_authorities': {
+        'effects': 'skills/ppt-master/references/svg-effects.md',
+        'native_data': 'skills/ppt-master/references/native-data-interface.md',
+        'pptx_structure': 'skills/ppt-master/references/pptx-structure-interface.md',
+    },
+    'validator': 'skills/ppt-master/scripts/svg_quality_checker.py',
 }
 
 
@@ -637,19 +601,6 @@ class Config:
         return FONT_SIZES.get(size_name, FONT_SIZES['body'])
 
     @staticmethod
-    def validate_svg_element(element_name: str) -> bool:
-        """
-        Validate whether an SVG element is allowed.
-
-        Args:
-            element_name: Element name
-
-        Returns:
-            Whether the element is allowed
-        """
-        return element_name.lower() not in [e.lower() for e in SVG_CONSTRAINTS['forbidden_elements']]
-
-    @staticmethod
     def get_project_path(subdir: str = '') -> Path:
         """
         Get project path.
@@ -691,65 +642,66 @@ class Config:
 # Command Line Interface
 # ============================================================
 
-def print_usage() -> None:
-    """Print CLI usage information."""
-    print("PPT Master - Configuration Management Tool\n")
-    print("Usage:")
-    print("  python3 scripts/config.py list-formats     # List all canvas formats")
-    print("  python3 scripts/config.py list-colors      # List all color schemes")
-    print("  python3 scripts/config.py list-industries  # List all industry colors")
-    print("  python3 scripts/config.py export           # Export configuration to JSON")
-    print("  python3 scripts/config.py format <key>     # View a specific canvas format")
+def build_parser() -> argparse.ArgumentParser:
+    """Build the command-line parser."""
+    parser = argparse.ArgumentParser(
+        description="PPT Master configuration management tool.",
+    )
+    subparsers = parser.add_subparsers(dest="command", required=True)
+    subparsers.add_parser("list-formats", help="List all canvas formats")
+    subparsers.add_parser("list-colors", help="List all color schemes")
+    subparsers.add_parser("list-industries", help="List all industry colors")
+
+    export = subparsers.add_parser("export", help="Export configuration to JSON")
+    export.add_argument(
+        "output_path",
+        nargs="?",
+        help="Output JSON path (backward-compatible positional form)",
+    )
+    export.add_argument(
+        "-o",
+        "--output",
+        default=None,
+        help="Output JSON path (default: config_export.json)",
+    )
+
+    format_parser = subparsers.add_parser("format", help="View a specific canvas format")
+    format_parser.add_argument("key", choices=sorted(CANVAS_FORMATS), help="Canvas format key")
+    return parser
 
 
-def main() -> None:
+def main(argv: list[str] | None = None) -> int:
     """Command line entry point."""
-    import sys
+    parser = build_parser()
+    args = parser.parse_args(argv)
 
-    if len(sys.argv) < 2:
-        print_usage()
-        return
-
-    command = sys.argv[1]
-    if command in {"-h", "--help", "help"}:
-        print_usage()
-        return
-
-    if command == 'list-formats':
+    if args.command == 'list-formats':
         print("\nCanvas Format List:\n")
         for key, info in CANVAS_FORMATS.items():
             print(
                 f"  {key:15} | {info['name']:15} | {info['dimensions']:12} | {info['use_case']}")
 
-    elif command == 'list-colors':
+    elif args.command == 'list-colors':
         print("\nColor Scheme List:\n")
         for key, info in DESIGN_COLORS.items():
             print(f"  {key:12} | {info['name']:15} | Primary: {info['primary']}")
 
-    elif command == 'list-industries':
+    elif args.command == 'list-industries':
         print("\nIndustry Color List:\n")
         for key, info in INDUSTRY_COLORS.items():
             print(f"  {key:15} | {info['name']:15} | Primary: {info['primary']}")
 
-    elif command == 'export':
-        output_file = sys.argv[2] if len(
-            sys.argv) > 2 else 'config_export.json'
-        Config.export_config(output_file)
+    elif args.command == 'export':
+        Config.export_config(args.output or args.output_path or "config_export.json")
 
-    elif command == 'format' and len(sys.argv) > 2:
-        format_key = sys.argv[2]
-        info = Config.get_canvas_format(format_key)
-        if info:
-            print(f"\nCanvas Format: {format_key}\n")
-            for key, value in info.items():
-                print(f"  {key}: {value}")
-        else:
-            print(f"[ERROR] Format not found: {format_key}")
-            print(f"   Available formats: {', '.join(CANVAS_FORMATS.keys())}")
+    elif args.command == 'format':
+        info = Config.get_canvas_format(args.key)
+        print(f"\nCanvas Format: {args.key}\n")
+        for key, value in info.items():
+            print(f"  {key}: {value}")
 
-    else:
-        print(f"[ERROR] Unknown command: {command}")
+    return 0
 
 
 if __name__ == '__main__':
-    main()
+    raise SystemExit(main())

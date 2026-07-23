@@ -47,6 +47,12 @@ import { DESKTOP_COMMANDS } from '../../shared/workwise-api'
 import { GUI_UPDATE_CHANNELS } from '../../shared/gui-update'
 import { KEYBOARD_SHORTCUT_COMMANDS } from '../../shared/keyboard-shortcuts'
 import { WRITE_EXPORT_FORMATS } from '../../shared/write-export'
+import {
+  EXPORT_ELEMENT_TYPES,
+  EXPORT_INDENTATION_TYPES,
+  EXPORT_LINE_SPACING_TYPES,
+  EXPORT_TEXT_ALIGNMENTS
+} from '../../shared/write-export-templates'
 import { WRITE_INFOGRAPHIC_MAX_TEXT_CHARS } from '../../shared/write-infographic'
 import { AGNES_IMAGE_SIZES } from '../../shared/agnes-image'
 import { CANCELLATION_SCOPES } from '../../shared/cancellation'
@@ -363,6 +369,52 @@ const writeInlineCompletionPatchSchema = z.object({
   longMaxTokens: z.number().int().min(64).max(1_024).optional()
 }).strict()
 
+/**
+ * 导出元素样式 schema（用于 settings:set 的 write.exportTemplates 校验）。
+ * 与 ExportElementStyle 类型对应，字段可放宽（normalizeWriteSettings 会补全）。
+ */
+const exportElementStyleSchema = z.object({
+  fontFamilyAscii: z.string().max(64),
+  fontFamilyEastAsia: z.string().max(64),
+  fontSize: z.number().min(4).max(200),
+  color: z.string().regex(/^[0-9A-Fa-f]{6}$/),
+  bold: z.boolean(),
+  italic: z.boolean(),
+  spacingBefore: z.number().min(0).max(20),
+  spacingAfter: z.number().min(0).max(20),
+  lineSpacingType: z.enum(EXPORT_LINE_SPACING_TYPES),
+  lineSpacingValue: z.number().min(0).max(200),
+  alignment: z.enum(EXPORT_TEXT_ALIGNMENTS),
+  indentationType: z.enum(EXPORT_INDENTATION_TYPES),
+  indentationValue: z.number().min(0).max(40)
+})
+
+const exportPageLayoutSchema = z.object({
+  marginTop: z.number().min(0).max(14_400),
+  marginBottom: z.number().min(0).max(14_400),
+  marginLeft: z.number().min(0).max(14_400),
+  marginRight: z.number().min(0).max(14_400)
+})
+
+const exportStyleTemplateSchema = z.object({
+  id: z.string().min(1).max(128),
+  name: z.string().min(1).max(128),
+  nameEn: z.string().max(128).optional(),
+  builtin: z.boolean(),
+  isDefault: z.boolean(),
+  pageLayout: exportPageLayoutSchema,
+  styles: z.object({
+    h1: exportElementStyleSchema,
+    h2: exportElementStyleSchema,
+    h3: exportElementStyleSchema,
+    p: exportElementStyleSchema,
+    table: exportElementStyleSchema,
+    code: exportElementStyleSchema
+  }),
+  createdAt: z.number(),
+  updatedAt: z.number()
+})
+
 const writeSettingsPatchSchema = z.object({
   defaultWorkspaceRoot: defaultPathSchema,
   activeWorkspaceRoot: defaultPathSchema,
@@ -373,7 +425,9 @@ const writeSettingsPatchSchema = z.object({
     mode: z.literal('hybrid').optional(),
     apiBaseUrl: z.string().trim().max(MAX_URL_LENGTH).optional(),
     publicBaseUrl: z.string().trim().max(MAX_URL_LENGTH).optional()
-  }).strict().optional()
+  }).strict().optional(),
+  exportTemplates: z.array(exportStyleTemplateSchema).max(32).optional(),
+  defaultExportTemplateId: z.string().max(128).optional()
 }).strict()
 
 const clawSkillPatchSchema = z.object({
@@ -802,12 +856,36 @@ export const workspaceFileWatchPayloadSchema = z
   })
   .strict()
 
+/**
+ * 单元素样式覆盖的 schema。所有字段可选（只覆盖指定的字段）。
+ * 用于 write:export 的 styleOverride：renderer 传本次导出的临时样式调整。
+ */
+const exportElementStyleOverrideSchema = z.object({
+  fontFamilyAscii: z.string().max(64).optional(),
+  fontFamilyEastAsia: z.string().max(64).optional(),
+  fontSize: z.number().min(4).max(200).optional(),
+  color: z.string().regex(/^[0-9A-Fa-f]{6}$/).optional(),
+  bold: z.boolean().optional(),
+  italic: z.boolean().optional(),
+  spacingBefore: z.number().min(0).max(20).optional(),
+  spacingAfter: z.number().min(0).max(20).optional(),
+  lineSpacingType: z.enum(EXPORT_LINE_SPACING_TYPES).optional(),
+  lineSpacingValue: z.number().min(0).max(200).optional(),
+  alignment: z.enum(EXPORT_TEXT_ALIGNMENTS).optional(),
+  indentationType: z.enum(EXPORT_INDENTATION_TYPES).optional(),
+  indentationValue: z.number().min(0).max(40).optional()
+})
+
 export const writeExportPayloadSchema = z
   .object({
     path: trimmedString(MAX_PATH_LENGTH),
     workspaceRoot: optionalTrimmedString(MAX_PATH_LENGTH),
     format: z.enum(WRITE_EXPORT_FORMATS),
-    content: z.string().max(MAX_BODY_BYTES)
+    content: z.string().max(MAX_BODY_BYTES),
+    templateId: z.string().max(128).optional(),
+    styleOverride: z
+      .record(z.enum(EXPORT_ELEMENT_TYPES), exportElementStyleOverrideSchema)
+      .optional()
   })
   .strict()
 
@@ -816,6 +894,82 @@ export const writeRichClipboardPayloadSchema = z
     path: trimmedString(MAX_PATH_LENGTH),
     workspaceRoot: optionalTrimmedString(MAX_PATH_LENGTH),
     content: z.string().max(MAX_BODY_BYTES)
+  })
+  .strict()
+
+export const designExportPayloadSchema = z
+  .object({
+    name: z.string().max(256).optional(),
+    workspaceRoot: optionalTrimmedString(MAX_PATH_LENGTH),
+    document: z.record(z.string(), z.unknown())
+  })
+  .strict()
+
+const designAssetSchema = z
+  .object({
+    id: z.string().min(1).max(128),
+    filename: z.string().min(1).max(255),
+    mimeType: z.enum(['image/png', 'image/jpeg', 'image/webp', 'image/gif']),
+    width: z.number().int().positive().max(32_768),
+    height: z.number().int().positive().max(32_768),
+    byteSize: z.number().int().positive().max(12 * 1024 * 1024)
+  })
+  .strict()
+
+export const designDocumentLoadPayloadSchema = z
+  .object({
+    workspaceRoot: trimmedString(MAX_PATH_LENGTH),
+    documentId: z.string().trim().min(1).max(128).optional()
+  })
+  .strict()
+
+export const designDocumentSavePayloadSchema = z
+  .object({
+    workspaceRoot: trimmedString(MAX_PATH_LENGTH),
+    document: z.record(z.string(), z.unknown()),
+    activePageId: z.string().trim().min(1).max(160),
+    expectedRevision: z.number().int().min(0).nullable()
+  })
+  .strict()
+
+export const designImageImportPayloadSchema = z
+  .object({
+    workspaceRoot: trimmedString(MAX_PATH_LENGTH),
+    documentId: z.string().trim().min(1).max(128)
+  })
+  .strict()
+
+export const designAssetReadPayloadSchema = z
+  .object({
+    workspaceRoot: trimmedString(MAX_PATH_LENGTH),
+    documentId: z.string().trim().min(1).max(128),
+    asset: designAssetSchema
+  })
+  .strict()
+
+export const designPptxImportPayloadSchema = z
+  .object({
+    workspaceRoot: trimmedString(MAX_PATH_LENGTH)
+  })
+  .strict()
+
+export const designPresetRenderSchema = z
+  .object({
+    presetName: z.string().min(1).max(128),
+    x: z.number().min(-10000).max(10000),
+    y: z.number().min(-10000).max(10000),
+    w: z.number().min(1).max(10000),
+    h: z.number().min(1).max(10000),
+    fill: z.string().max(16).optional()
+  })
+  .strict()
+
+export const designWriteAssetPayloadSchema = z
+  .object({
+    workspaceRoot: trimmedString(MAX_PATH_LENGTH),
+    currentFilePath: trimmedString(MAX_PATH_LENGTH),
+    fileName: trimmedString(255),
+    dataBase64: z.string().min(1).max(16 * 1024 * 1024)
   })
   .strict()
 

@@ -5,6 +5,7 @@ import {
   Clock3,
   FileQuestion,
   LayoutGrid,
+  Palette,
   Plus,
   Settings,
   Smartphone
@@ -30,7 +31,7 @@ import {
 type Props = {
   threads: NormalizedThread[]
   activeThreadId: string | null
-  activeView: 'chat' | 'write' | 'claw' | 'schedule'
+  activeView: 'chat' | 'write' | 'claw' | 'schedule' | 'design'
   connectPhoneSidebarOpen: boolean
   focusModeEnabled: boolean
   pluginsActive: boolean
@@ -54,6 +55,7 @@ type Props = {
   onToggleFocusMode: () => void
   onWriteOpen: () => void
   onScheduleOpen: () => void
+  onDesignOpen: () => void
   onToggleSidebar: () => void
 }
 
@@ -84,6 +86,7 @@ export function Sidebar({
   onToggleFocusMode,
   onWriteOpen,
   onScheduleOpen,
+  onDesignOpen,
   onToggleSidebar
 }: Props): ReactElement {
   const { t, i18n } = useTranslation('common')
@@ -171,6 +174,12 @@ export function Sidebar({
           label={t('schedule')}
           onClick={onScheduleOpen}
           active={activeView === 'schedule'}
+        />
+        <SidebarCommandRow
+          icon={<Palette className="h-4 w-4" strokeWidth={1.75} />}
+          label={t('design')}
+          onClick={onDesignOpen}
+          active={activeView === 'design'}
         />
       </div>
 

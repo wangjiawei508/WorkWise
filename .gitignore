@@ -6,6 +6,8 @@ dist/
 .deepseek/
 *.log
 .DS_Store
+__pycache__/
+*.py[cod]
 
 ### Local 0.3.0 document-engine builds and private QA fixtures
 build/markitdown-venv/

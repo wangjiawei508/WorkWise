@@ -8,7 +8,7 @@ Shared baseline for both acquisition paths. Path-specific behavior lives in the 
 
 ## 1. Trigger Condition
 
-Active when at least one resource list row has `Acquire Via: ai` or `Acquire Via: web`. Rows with `user` / `placeholder` are skipped.
+Active when at least one resource list row has `Acquire Via: ai` / `web` / `slice`. Rows with `user` / `formula` / `placeholder` are skipped.
 
 | Mode | Trigger |
 |---|---|
@@ -25,8 +25,10 @@ Defined in `design_spec.md §VIII`. Status enum: see [`svg-image-embedding.md`](
 |---|---|---|---|---|---|---|
 | cover.png | 1280x720 | Cover background | Background | `ai` | Pending | Modern tech abstract, deep blue gradient #0A2540 |
 | team.jpg | 800x600 | Team photo | Photography | `web` | Pending | Diverse engineering team in modern office |
+| formula_001.png | 736x168 | Block equation on P03 | Latex Formula | `formula` | Rendered | `E = mc^2` |
+| spot_team.png | TBD after slicing | Team spot illustration | Illustration | `slice` | Pending | From `spot_sheet.png` cell 1,1 |
 
-**Required per non-skipped row**: `Acquire Via`, `Status`, `Reference`.
+**Required per non-skipped row**: `Acquire Via` and `Status`. `Reference` is required for every `web` / `slice` row and every newly authored `ai` row. An existing `ai` row whose `Reference` is omitted or blank may continue only through the declared inference in [`image-generator.md`](./image-generator.md) §8; no other path may infer it.
 
 ---
 
@@ -38,7 +40,9 @@ For each row with `Status: Pending`:
 |---|---|---|---|
 | `ai` | [`image-generator.md`](./image-generator.md) | `image_gen.py` | `Generated` |
 | `web` | [`image-searcher.md`](./image-searcher.md) | `image_search.py` | `Sourced` |
+| `slice` | [`image-generator.md`](./image-generator.md) §4.3 | `slice_images.py` after parent AI sheet is `Generated` | `Generated` |
 | `user` | — | — | (already `Existing`) |
+| `formula` | — | — | (already `Rendered`) |
 | `placeholder` | — | — | (already `Placeholder`) |
 
 > Lazy load: an all-`web` deck never reads `image-generator.md`, and vice versa.
@@ -60,11 +64,12 @@ Before processing any row:
 After all rows reach terminal status:
 
 - Every non-skipped row has a file at `project/images/<filename>`, or is marked `Needs-Manual`
-- No `Pending` rows remain
-- `image_prompts.md` exists when ≥1 ai row processed
-- `image_sources.json` exists when ≥1 web row processed; every entry has `license_tier ∈ {no-attribution, attribution-required}`
+- Every `slice` row has a generated element file, or is marked `Needs-Manual` because its parent sheet is not available
+- No `Pending` or `Failed` rows remain
+- `image_prompts.json` exists when ≥1 ai row processed; every entry has `status ∈ {Generated, Needs-Manual}` (no `Pending` or `Failed` remaining)
+- `image_sources.json` exists when ≥1 web row processed; every entry has `license_tier ∈ {no-attribution, attribution-required, manual}` (`manual` = a user-supplied `--from-url` replacement)
 
-> `Needs-Manual` is a legitimate terminal state for ai rows — Step 7 entry waits for the user to place the file. See [`image-generator.md`](./image-generator.md) §3.2 Offline Manual Mode.
+> `Needs-Manual` is a legitimate terminal state for ai rows — Step 7 entry waits for the user to place the file. See [`image-generator.md`](./image-generator.md) §7 Offline Manual Mode.
 
 ---
 
@@ -75,9 +80,9 @@ After all rows reach terminal status:
 1. Try once
 2. On recoverable failure (network, no candidates, license rejection, rate limit), retry once with broadened parameters
 3. On second failure, set `Status: Needs-Manual`, log the reason in conversation, continue
-4. After the phase completes, summarize all `Needs-Manual` rows for the user — list filenames, where prompts live (`images/image_prompts.md` for ai rows), and where to place generated files (`project/images/<filename>`)
+4. After the phase completes, summarize all `Needs-Manual` rows for the user — list filenames, where prompts live (`images/image_prompts.md` paste-ready blocks for ai rows; refresh via `image_gen.py --render-md` if stale), and where to place generated files (`project/images/<filename>`). For `slice` rows, list the parent sheet filename and target element names; the user places the sheet, then the agent reruns `slice_images.py`.
 
-`Needs-Manual` is also the entry status for **Offline Manual Mode** (no `IMAGE_BACKEND` configured, no host-native image tool in use). Affected ai rows are marked `Needs-Manual` from the start without a failed attempt — see [`image-generator.md`](./image-generator.md) §3.2.
+`Needs-Manual` is also the entry status for **Offline Manual Mode** (no `IMAGE_BACKEND` configured, no host-native image tool in use). Affected ai rows are marked `Needs-Manual` from the start without a failed attempt — see [`image-generator.md`](./image-generator.md) §7 Offline Manual Mode.
 
 Path-specific retry policies (provider chain, backend chain) live in the path's own reference.
 
@@ -94,7 +99,7 @@ License / attribution data lives **only** in `project/images/image_sources.json`
 - SVG `<title>` / `<desc>` (stripped by `svg_to_pptx.py`)
 - A separate "Image Credits" appendix slide (lost on single-page sharing)
 
-Executor reads the manifest per slide and renders inline credits when needed — see [`executor-base.md`](./executor-base.md) §6.1 and [`image-searcher.md`](./image-searcher.md) §7.
+Executor reads the manifest per slide and renders inline credits when needed — see [`executor-web-image.md`](./executor-web-image.md) §1 and [`image-searcher.md`](./image-searcher.md) §7.
 
 ---
 
@@ -118,7 +123,7 @@ Executor consumes the resource list plus:
 | Image files | `project/images/*.{jpg,png,webp}` | `<image>` references |
 | Manifest | `project/images/image_sources.json` | `license_tier` per Sourced image |
 
-Executor does NOT invoke `image_gen.py` / `image_search.py`.
+Executor does NOT invoke `image_gen.py` / `image_search.py` / `slice_images.py`.
 
 ---
 
@@ -126,8 +131,8 @@ Executor does NOT invoke `image_gen.py` / `image_search.py`.
 
 ```markdown
 ## ✅ Image Acquisition Phase Complete
-- [x] {N} rows processed (`ai`: {a} / `web`: {b})
-- [x] {a} `Generated`, {b} `Sourced`, {c} `Needs-Manual`
-- [x] image_prompts.md / image_sources.json written
+- [x] {N} rows processed (`ai`: {a} / `web`: {b} / `slice`: {s})
+- [x] {a} `Generated`, {b} `Sourced`, {s} sliced `Generated`, {c} `Needs-Manual`
+- [x] image_prompts.json / image_sources.json written
 - [ ] **Next**: Auto-proceed to Executor phase
 ```

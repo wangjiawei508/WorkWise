@@ -791,6 +791,58 @@ describe('WorkWise Runtime extension metadata mapping', () => {
     })
   })
 
+  it('maps a validated Design canvas command without exposing it as assistant text', () => {
+    const block = chatBlockFromItem({
+      id: 'item_design_command',
+      turnId: 'turn_1',
+      threadId: 'thr_1',
+      role: 'tool',
+      status: 'completed',
+      createdAt: '2024-01-01T00:00:00.000Z',
+      kind: 'tool_result',
+      toolName: 'design_apply_canvas_commands',
+      toolKind: 'tool_call',
+      callId: 'call_design',
+      output: {
+        ok: true,
+        designCanvasCommand: {
+          schema: 'workwise.design.command',
+          version: 1,
+          idempotencyKey: 'turn-1-command-1',
+          workspaceRoot: '/tmp/workwise-design',
+          documentId: 'design_1',
+          pageId: 'page_1',
+          expectedRevision: 3,
+          operations: [
+            {
+              kind: 'add',
+              element: {
+                id: 'el_agent_1',
+                type: 'rect',
+                x: 20,
+                y: 20,
+                w: 100,
+                h: 80,
+                rotation: 0,
+                zIndex: 0
+              }
+            }
+          ]
+        }
+      }
+    })
+    expect(block).toMatchObject({
+      kind: 'tool',
+      meta: {
+        designCanvasCommand: {
+          schema: 'workwise.design.command',
+          idempotencyKey: 'turn-1-command-1',
+          expectedRevision: 3
+        }
+      }
+    })
+  })
+
   it('surfaces web citations and child metadata through tool events', async () => {
     let captured: unknown = null
     const sink: ThreadEventSink = {

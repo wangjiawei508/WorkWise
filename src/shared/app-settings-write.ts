@@ -23,6 +23,12 @@ import {
 import { getActiveAgentApiKey, getManagedRuntimeSettings } from './app-settings-runtime'
 import { getModelProviderProfile, resolveModelProviderBaseUrl } from './app-settings-provider'
 import { compactStrings } from './app-settings-normalizers'
+import {
+  BUILTIN_TEMPLATE_IDS,
+  MAX_USER_EXPORT_TEMPLATES,
+  normalizeExportTemplate,
+  type ExportStyleTemplate
+} from './write-export-templates'
 
 export function defaultWriteSettings(): WriteSettingsV1 {
   return {
@@ -51,8 +57,35 @@ export function defaultWriteSettings(): WriteSettingsV1 {
       mode: 'hybrid',
       apiBaseUrl: DEFAULT_WRITE_KNOWLEDGE_API_BASE_URL,
       publicBaseUrl: DEFAULT_WRITE_KNOWLEDGE_PUBLIC_BASE_URL
-    }
+    },
+    // 用户自定义导出模板：默认为空（内置 4 个模板运行时合并）
+    exportTemplates: [],
+    defaultExportTemplateId: ''
   }
+}
+
+/**
+ * 归一化用户自定义导出模板列表。
+ * - 过滤掉非法/空模板
+ * - 排除内置 id（内置模板运行时合并，不存于用户列表）
+ * - 每个模板用 normalizeExportTemplate 补全字段
+ */
+function normalizeExportTemplates(input: unknown): ExportStyleTemplate[] {
+  if (!Array.isArray(input)) return []
+  const result: ExportStyleTemplate[] = []
+  const seenIds = new Set<string>()
+  for (const raw of input.slice(0, MAX_USER_EXPORT_TEMPLATES)) {
+    if (!raw || typeof raw !== 'object') continue
+    const normalized = normalizeExportTemplate(raw as Partial<ExportStyleTemplate>)
+    // 内置模板不存入用户列表（运行时合并）
+    if (BUILTIN_TEMPLATE_IDS.has(normalized.id)) continue
+    if (seenIds.has(normalized.id)) continue
+    // 用户自定义模板强制 builtin = false
+    normalized.builtin = false
+    seenIds.add(normalized.id)
+    result.push(normalized)
+  }
+  return result
 }
 
 function normalizeWriteKnowledgeBaseSettings(
@@ -220,7 +253,12 @@ export function normalizeWriteSettings(input: WriteSettingsPatchV1 | undefined):
     activeWorkspaceRoot,
     workspaces: workspaces.length > 0 ? workspaces : [defaultWorkspaceRoot],
     inlineCompletion: normalizeWriteInlineCompletionSettings(source.inlineCompletion),
-    knowledgeBase: normalizeWriteKnowledgeBaseSettings(source.knowledgeBase)
+    knowledgeBase: normalizeWriteKnowledgeBaseSettings(source.knowledgeBase),
+    exportTemplates: normalizeExportTemplates(source.exportTemplates),
+    defaultExportTemplateId:
+      typeof source.defaultExportTemplateId === 'string' && source.defaultExportTemplateId.trim()
+        ? source.defaultExportTemplateId.trim()
+        : ''
   }
 }
 

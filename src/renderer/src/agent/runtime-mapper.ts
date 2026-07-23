@@ -22,6 +22,7 @@ import type {
 } from './types'
 import { safeMediaPreviewUrl } from '../lib/safe-media-preview-url'
 import { redactSecrets, redactSecretText } from '@shared/secret-redaction'
+import type { DesignCanvasCommandV1 } from '@shared/design-workspace'
 import type {
   CoreChildRuntimeMetadataJson,
   CoreRuntimeEventJson,
@@ -424,6 +425,40 @@ function extractToolGeneratedFiles(item: CoreTurnItemJson): GeneratedFileReferen
   return generatedFiles.length > 0 ? generatedFiles : undefined
 }
 
+function extractDesignCanvasCommand(item: CoreTurnItemJson): DesignCanvasCommandV1 | undefined {
+  if (item.kind !== 'tool_result' || item.isError) return undefined
+  const candidate = payloadFor(item).designCanvasCommand
+  if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) return undefined
+  const command = candidate as Record<string, unknown>
+  if (
+    command.schema !== 'workwise.design.command' ||
+    command.version !== 1 ||
+    typeof command.idempotencyKey !== 'string' ||
+    !command.idempotencyKey.trim() ||
+    command.idempotencyKey.length > 160 ||
+    typeof command.workspaceRoot !== 'string' ||
+    !command.workspaceRoot ||
+    typeof command.documentId !== 'string' ||
+    !command.documentId ||
+    typeof command.pageId !== 'string' ||
+    !command.pageId ||
+    !Number.isInteger(command.expectedRevision) ||
+    Number(command.expectedRevision) < 0 ||
+    !Array.isArray(command.operations) ||
+    command.operations.length === 0 ||
+    command.operations.length > 64 ||
+    command.operations.some((operation) => {
+      if (!operation || typeof operation !== 'object' || Array.isArray(operation)) return true
+      return !['add', 'update', 'remove', 'group', 'ungroup'].includes(
+        String((operation as Record<string, unknown>).kind)
+      )
+    })
+  ) {
+    return undefined
+  }
+  return command as unknown as DesignCanvasCommandV1
+}
+
 function applyCommandResultMeta(meta: Record<string, unknown>, item: CoreTurnItemJson): void {
   const payload = payloadFor(item)
   for (const key of COMMAND_RESULT_META_KEYS) {
@@ -537,6 +572,8 @@ function toolBlockFromItem(item: CoreTurnItemJson, child?: CoreChildRuntimeMetad
   if (attachments) meta.attachments = attachments
   const generatedFiles = extractToolGeneratedFiles(item)
   if (generatedFiles) meta.generatedFiles = generatedFiles
+  const designCanvasCommand = extractDesignCanvasCommand(item)
+  if (designCanvasCommand) meta.designCanvasCommand = designCanvasCommand
   const presentation = inferToolPresentation(item)
   if (presentation.command) meta.command = presentation.command
   if (presentation.toolKind === 'command_execution') applyCommandResultMeta(meta, item)

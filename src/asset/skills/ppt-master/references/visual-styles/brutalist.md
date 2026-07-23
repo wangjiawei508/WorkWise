@@ -7,6 +7,7 @@ Brutalist editorial newspaper. Wall-to-wall small type, irregular column widths,
 ## 1. Shape & decoration
 
 - Shape language: hard rectangles and ruled boxes; thick black borders / cell frames; visible column dividers. Corner radius `rx="0"` — never rounded.
+- Composition geometry: a masthead numeral or headline set so large it crosses column rules; one grid cell inverted to solid ink (light type on dark) as the focal cell; full-bleed rule bars slicing sections; a single rotated stamp-box breaking the grid at one deliberate point.
 - Decoration: the grid itself is the decoration — masthead bars, rule lines, boxed pull-quotes, halftone fills. No gradients, no soft cards, no shadows.
 - Whitespace: tight and deliberate — narrow margins, dense columns, a newspaper's packed rhythm. Density is the point; one or two breathing zones per page keep it readable, not airy.
 - Irregular multi-column layout (mixed column widths) over a uniform grid; asymmetry is intentional.
@@ -32,3 +33,7 @@ Brutalist editorial newspaper. Wall-to-wall small type, irregular column widths,
 ## 5. Paired image-rendering
 
 `screen-print` or `editorial` — halftone monochrome imagery that sits inside the newsprint aesthetic.
+
+## 6. Illustration propensity
+
+**supportive** — raw halftone cuts fit the newsprint density, but structure leads; use them sparingly, only where a page needs a visual jolt. With no user steer this is the default lean; an explicit user request wins either way, and `image_usage: none` writes no illustration rows.

@@ -17,6 +17,7 @@ import { expandHomePath, normalizeSkillFolderName } from './workspace-service'
 import { LEGACY_SKILL_SOURCE_METADATA_FILE } from '../compat/legacy-metadata'
 import { resolveContainedPath } from './canonical-containment'
 import {
+  BUNDLED_SKILL_LIMITS,
   SKILL_PACKAGE_LIMITS,
   TRUSTED_SKILL_DISCOVERY_LIMITS,
   validateSkillPackage
@@ -252,17 +253,25 @@ export async function installBundledSkill(
       autoUpdate: false
     }
     await assertCanInstallIntoTarget(targetDir, requestedSource)
-    await validateSkillPackage(sourceDir)
+    await validateSkillPackage(sourceDir, BUNDLED_SKILL_LIMITS)
 
     await mkdir(root, { recursive: true })
     const tempDir = await mkdtemp(join(root, `.workwise-install-${skillName}-`))
     try {
-      await cp(sourceDir, tempDir, { recursive: true, force: true })
+      await cp(sourceDir, tempDir, {
+        recursive: true,
+        force: true,
+        filter: (sourcePath) => {
+          const normalized = sourcePath.replaceAll('\\', '/')
+          return !normalized.split('/').includes('__pycache__') &&
+            !/\.(?:pyc|pyo)$/i.test(normalized)
+        }
+      })
       await writeSkillSourceMetadata(tempDir, {
         ...requestedSource,
         installedAt: new Date().toISOString()
       })
-      await validateSkillPackage(tempDir)
+      await validateSkillPackage(tempDir, BUNDLED_SKILL_LIMITS)
       await replaceSkillDirectory(targetDir, tempDir)
     } catch (error) {
       await rm(tempDir, { recursive: true, force: true }).catch(() => undefined)
@@ -377,11 +386,18 @@ async function loadSkillSummary(
   scope: GuiSkillScope,
   validation: GuiSkillRoot['validation']
 ): Promise<GuiSkillSummary | null> {
+  const storedSource = await readSkillSourceMetadata(root).catch(() => undefined)
+  const usesAuditedBundleLimits = validation === 'strict' &&
+    await matchesAuditedBundledSource(storedSource)
   await validateSkillPackage(
     root,
-    validation === 'trusted-plugin' ? TRUSTED_SKILL_DISCOVERY_LIMITS : SKILL_PACKAGE_LIMITS
+    validation === 'trusted-plugin'
+      ? TRUSTED_SKILL_DISCOVERY_LIMITS
+      : usesAuditedBundleLimits
+        ? BUNDLED_SKILL_LIMITS
+        : SKILL_PACKAGE_LIMITS
   )
-  const source = sourceForList(await readSkillSourceMetadata(root).catch(() => undefined))
+  const source = sourceForList(storedSource)
   const manifestPath = join(root, 'skill.json')
   if (existsSync(manifestPath)) {
     const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as Record<string, unknown>
@@ -419,6 +435,26 @@ async function loadSkillSummary(
     legacy: true,
     ...(source ? { source } : {})
   }
+}
+
+async function matchesAuditedBundledSource(
+  source: SkillSourceMetadata | undefined
+): Promise<boolean> {
+  if (!source) return false
+  const bundleId = source.type === 'bundled' ? source.id : source.overlaySkillId
+  if (!bundleId || source.autoUpdate !== false) return false
+  const bundleRoot = resolveBundledSkillDirectory(bundleId)
+  if (!bundleRoot) return false
+  const auditedSource = await readSkillSourceMetadata(bundleRoot).catch(() => undefined)
+  if (!auditedSource || !skillSourceMatches(source, auditedSource)) return false
+  if (source.type === 'github' && auditedSource.type === 'github') {
+    return Boolean(
+      source.installedSha &&
+      auditedSource.installedSha &&
+      source.installedSha === auditedSource.installedSha
+    )
+  }
+  return source.type === 'bundled' && auditedSource.type === 'bundled'
 }
 
 async function assertCanInstallIntoTarget(targetDir: string, source: SkillSourceMetadata): Promise<void> {
@@ -806,8 +842,28 @@ function readFrontmatter(content: string): { id?: string; name?: string; descrip
 }
 
 function frontmatterString(yaml: string, key: string): string | undefined {
-  const match = new RegExp(`^${key}:\\s*(.+?)\\s*$`, 'm').exec(yaml)
-  return match ? stripQuotes(match[1] ?? '').trim() || undefined : undefined
+  const match = new RegExp(`^${key}:\\s*(.*?)\\s*$`, 'm').exec(yaml)
+  if (!match) return undefined
+  const scalar = (match[1] ?? '').trim()
+  if (scalar !== '>' && scalar !== '|') {
+    return stripQuotes(scalar).trim() || undefined
+  }
+
+  const start = (match.index ?? 0) + match[0].length
+  const lines = yaml.slice(start).replace(/^\r?\n/, '').split(/\r?\n/)
+  const block: string[] = []
+  for (const line of lines) {
+    if (!line.trim()) {
+      if (block.length > 0) block.push('')
+      continue
+    }
+    if (!/^\s+/.test(line)) break
+    block.push(line.trim())
+  }
+  const value = scalar === '|'
+    ? block.join('\n').trim()
+    : block.join(' ').replace(/\s+/g, ' ').trim()
+  return value || undefined
 }
 
 function firstMarkdownParagraph(markdown: string): string | undefined {
@@ -859,7 +915,7 @@ function titleFromSlug(value: string): string {
 
 function displaySkillName(frontmatterName: string | undefined, folderName: string): string {
   const value = frontmatterName?.trim() ?? ''
-  if ((value || folderName).toLowerCase() === 'ppt-master') return 'PPT Master 3.1.0+'
+  if ((value || folderName).toLowerCase() === 'ppt-master') return 'PPT Master 4.0.0'
   if (!value) return titleFromSlug(folderName)
   return /^[a-z0-9][a-z0-9_-]*$/i.test(value) ? titleFromSlug(value) : value
 }

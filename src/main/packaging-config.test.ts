@@ -28,7 +28,13 @@ function touch(path: string): void {
 function loadBuilderConfigWithEnv(env: Record<string, string | undefined>): typeof builderConfig {
   const configPath = require.resolve('../../electron-builder.cjs')
   const previous = new Map<string, string | undefined>()
-  for (const [key, value] of Object.entries(env)) {
+  const isolatedReleaseEnv = join(tempRoot(), 'release.local.env')
+  writeFileSync(isolatedReleaseEnv, '# isolated packaging test\n', 'utf8')
+  const isolatedEnv = {
+    WORKWISE_RELEASE_ENV: isolatedReleaseEnv,
+    ...env
+  }
+  for (const [key, value] of Object.entries(isolatedEnv)) {
     previous.set(key, process.env[key])
     if (value === undefined) {
       delete process.env[key]

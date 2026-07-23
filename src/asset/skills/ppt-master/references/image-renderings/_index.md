@@ -2,7 +2,9 @@
 
 A **rendering** is a visual style family: line quality, texture, depth, material, mood. Lock one rendering per deck — every AI image in the deck shares it.
 
-> **HEX values are not in renderings**. The deck's HEX triplet comes from `design_spec.colors`. Rendering describes *how* the image is drawn; palette describes *how* the HEX values are distributed. See [`image-generator.md`](../image-generator.md) §2.
+> **HEX values are not in renderings.** Rendering describes how the image is drawn. The new flow reads exact deck color roles directly from `spec_lock.md colors`; it does not ask for or author a separate image palette. See [`image-generator.md`](../image-generator.md) §2.
+
+> **Deck HEX has hard precedence.** Any color name or sample HEX inside an individual rendering file is illustrative legacy prose and MUST be replaced by the current deck-role values when assembling a prompt. A rendering may change texture, lighting, opacity, and role proportions, but it may not tint, warm-grade, cool-grade, replace, or invent HEX. If its material language requires colors the selected deck roles cannot support, do not offer that rendering in Stage 2.
 
 ---
 
@@ -52,15 +54,7 @@ Each rendering has its own file with: style paragraph, line / texture / depth no
 
 ### 1.5 Escape hatch — `custom`
 
-When no preset carries the deck's temperament, set `image_rendering: custom` and supply a one-paragraph `image_rendering_behavior`.
-
-**Trigger** — all of:
-
-| Condition | Check against |
-|---|---|
-| No preset style fits | `design_spec.d Style` |
-| Brand / template / chat names no preset | truth-precedence inputs |
-| Not expressible as "preset X + small adjustment" | Strategist confirmation chat |
+Whenever proposed image usage includes `ai`, Stage 2 authors one separate, visible custom rendering proposal in addition to the preset cards. It uses `rendering: custom` plus a complete behavior paragraph, remains initially unselected, and enters the confirmed contract only when the user chooses it. A template-backed proposal must honor inherited identity and the confirmed template-application plan.
 
 **Hard rule — `rendering_behavior` prose**:
 
@@ -75,7 +69,7 @@ When no preset carries the deck's temperament, set `image_rendering: custom` and
 - image_rendering_behavior: "Hand-screened poster aesthetic — slightly misregistered halftone overlays, 3 flat ink colors with visible dot pattern at 12% opacity, no gradients, no anti-aliased edges; reads as silkscreen print."
 ```
 
-**Hard rule**: `custom` is a tail-case, not a default. See [`strategist.md`](../strategist.md) h.5 for the one-`custom`-per-dimension limit.
+**Hard rule**: the custom candidate is mandatory when AI images are proposed; selecting `custom` is a tail-case, not the default. See [`strategist-image.md`](../strategist-image.md) for the Stage-2 carrier and downstream lock behavior.
 
 ---
 

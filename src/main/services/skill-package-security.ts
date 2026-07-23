@@ -19,6 +19,17 @@ export const TRUSTED_SKILL_DISCOVERY_LIMITS = Object.freeze({
   maxDepth: 16
 })
 
+// Bundled skills ship inside the WorkWise app and are audited by maintainers
+// before release. They may legitimately exceed the network-install limits
+// (e.g. PPT Master carries ~250 Python scripts plus SVG templates). This
+// profile applies only to installBundledSkill, never to GitHub/remote installs.
+export const BUNDLED_SKILL_LIMITS = Object.freeze({
+  maxFiles: 1_024,
+  maxTotalBytes: 16 * 1024 * 1024,
+  maxFileBytes: 4 * 1024 * 1024,
+  maxDepth: 16
+})
+
 export type SkillPackageLimits = {
   maxFiles: number
   maxTotalBytes: number

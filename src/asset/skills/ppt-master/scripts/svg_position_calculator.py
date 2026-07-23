@@ -35,16 +35,9 @@ from pathlib import Path
 from typing import Dict, List, Tuple, Optional, Any
 from dataclasses import dataclass
 
-# Fix garbled Chinese output on Windows
-if sys.platform == 'win32':
-    try:
-        sys.stdout.reconfigure(encoding='utf-8')
-        sys.stderr.reconfigure(encoding='utf-8')
-    except AttributeError:
-        # Python < 3.7
-        import io
-        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
-        sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8')
+from console_encoding import configure_utf8_stdio
+
+configure_utf8_stdio()
 
 # Import canvas format configuration
 try:
@@ -1014,7 +1007,7 @@ def analyze_svg_file(svg_file: str) -> None:
     print(f"{'='*70}")
 
     # Extract viewBox
-    viewbox_match = re.search(r'viewBox="([^"]+)"', content)
+    viewbox_match = re.search(r'viewBox\s*=\s*["\']([^"\']+)["\']', content)
     if viewbox_match:
         print(f"Canvas viewBox: {viewbox_match.group(1)}")
 
@@ -1300,7 +1293,7 @@ def from_json_config(config_file: str) -> None:
         print(" ".join(points_list))
 
 
-def main() -> None:
+def main(argv: list[str] | None = None) -> int:
     """Run the CLI entry point."""
     parser = argparse.ArgumentParser(
         description='SVG Position Calculation and Validation Tool',
@@ -1323,11 +1316,11 @@ Common commands:
         """
     )
 
-    subparsers = parser.add_subparsers(dest='command', help='Command')
+    subparsers = parser.add_subparsers(dest='command', help='Command', required=True)
 
     # calc subcommand
     calc_parser = subparsers.add_parser('calc', help='Calculate coordinates')
-    calc_subparsers = calc_parser.add_subparsers(dest='chart_type', help='Chart type')
+    calc_subparsers = calc_parser.add_subparsers(dest='chart_type', help='Chart type', required=True)
 
     # Bar chart
     bar_parser = calc_subparsers.add_parser('bar', help='Bar chart')
@@ -1388,7 +1381,7 @@ Common commands:
     json_parser = subparsers.add_parser('from-json', help='Calculate from JSON config file')
     json_parser.add_argument('config_file', help='JSON config file path')
 
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     if args.command == 'calc':
         # Parse chart area
@@ -1475,6 +1468,7 @@ Common commands:
 
         else:
             parser.print_help()
+            return 1
 
     elif args.command == 'validate':
         validator = SVGPositionValidator(tolerance=args.tolerance)
@@ -1499,13 +1493,14 @@ Common commands:
             expected_path = Path(args.expected)
             if not expected_path.exists():
                 print(f"[Error] Expected coordinates file does not exist: {args.expected}")
-                return
+                return 1
             with open(expected_path, 'r', encoding='utf-8') as f:
                 expected_coords = json.load(f)
             results = validator.validate_from_file(args.svg_file, expected_coords)
             print(validator.format_results(results))
         else:
             print("Validation mode requires --expected <json_file>; use --extract to extract coordinates first")
+            return 1
 
     elif args.command == 'analyze':
         analyze_svg_file(args.svg_file)
@@ -1518,7 +1513,10 @@ Common commands:
 
     else:
         parser.print_help()
+        return 1
+
+    return 0
 
 
 if __name__ == '__main__':
-    main()
+    raise SystemExit(main())

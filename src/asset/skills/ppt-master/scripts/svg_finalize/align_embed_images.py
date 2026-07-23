@@ -9,12 +9,12 @@ Replaces the previous three independent finalize_svg steps:
                      reference points to a pre-cropped asset.
     fix-aspect    →  for each <image>, read the source bitmap dimensions and
                      adjust x/y/width/height so the rendered box matches the
-                     image aspect ratio (PowerPoint's "Convert to Shape"
-                     ignores preserveAspectRatio and stretches otherwise).
-    embed-images  →  Base64-inline every external image reference so the
-                     legacy/preview pptx (which packages the SVG verbatim)
-                     can resolve them — pptx-internal SVG cannot follow
-                     ``../images/…`` relative URIs.
+                     image aspect ratio in PowerPoint SVG rendering paths that
+                     do not honor preserveAspectRatio consistently.
+    embed-images  →  Base64-inline every embeddable external image reference
+                     so ``svg_final/`` remains portable when opened or manually
+                     inserted as an SVG image. EMF/WMF keep the documented
+                     external-reference exception.
 
 Why merge: each step independently parsed + serialized the SVG, each step
 re-read the same bitmap from disk, and the two spatial transforms (crop and
@@ -53,6 +53,22 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 from urllib.parse import unquote
 from xml.etree import ElementTree as ET
+
+_SCRIPTS_DIR = Path(__file__).resolve().parents[1]
+if str(_SCRIPTS_DIR) not in sys.path:
+    sys.path.insert(0, str(_SCRIPTS_DIR))
+
+from console_encoding import configure_utf8_stdio  # noqa: E402
+
+configure_utf8_stdio()
+
+if __package__ in {None, ''}:
+    import types
+
+    package = types.ModuleType('svg_finalize')
+    package.__path__ = [str(Path(__file__).resolve().parent)]  # type: ignore[attr-defined]
+    sys.modules.setdefault('svg_finalize', package)
+    __package__ = 'svg_finalize'
 
 # Reuse helpers from the previous standalone modules.
 from .crop_images import crop_image_to_size, get_crop_anchor, parse_preserve_aspect_ratio
@@ -113,6 +129,21 @@ def _resolve_image_path(href: str, svg_dir: Path) -> Path | None:
     return candidate if candidate.exists() else None
 
 
+def _is_svg_image(img_path: Path, raw_bytes: bytes) -> bool:
+    """Return True when an image reference is an SVG document."""
+    if img_path.suffix.lower() == '.svg':
+        return True
+    head = raw_bytes.lstrip()[:512].lower()
+    return head.startswith(b'<svg') or (head.startswith(b'<?xml') and b'<svg' in head)
+
+
+def _embed_raw_image(image: ET.Element, img_path: Path, raw_bytes: bytes) -> None:
+    """Embed raw image bytes without PIL transforms."""
+    mime_type = get_mime_type(img_path.name, raw_bytes)
+    b64 = base64.b64encode(raw_bytes).decode('ascii')
+    _set_href(image, f'data:{mime_type};base64,{b64}')
+
+
 def _load_pil_image(img_path: Path) -> 'PILImage' | None:
     """Open an image with PIL, returning None on any failure."""
     try:
@@ -147,6 +178,43 @@ def _normalize_for_save(img: 'PILImage', mime_type: str) -> 'PILImage':
     return img
 
 
+def _has_alpha(img: 'PILImage') -> bool:
+    """Return whether a PIL image has transparency."""
+    if img.mode in ('RGBA', 'LA'):
+        return True
+    if img.mode == 'P':
+        return 'transparency' in getattr(img, 'info', {})
+    return False
+
+
+def _target_size(
+    box_w: float,
+    box_h: float,
+    *,
+    max_dimension: int | None,
+    image_scale: float,
+) -> tuple[int, int]:
+    """Resolve the pixel budget for a rendered SVG image box."""
+    target_w = max(1, int(round(box_w * max(image_scale, 1.0))))
+    target_h = max(1, int(round(box_h * max(image_scale, 1.0))))
+    if max_dimension and max(target_w, target_h) > max_dimension:
+        ratio = max_dimension / max(target_w, target_h)
+        target_w = max(1, int(round(target_w * ratio)))
+        target_h = max(1, int(round(target_h * ratio)))
+    return target_w, target_h
+
+
+def _downscale_to_target(img: 'PILImage', target_w: int, target_h: int) -> tuple['PILImage', bool]:
+    """Downscale without upsampling."""
+    width, height = img.size
+    ratio = min(target_w / width, target_h / height, 1.0)
+    if ratio >= 1.0:
+        return img, False
+    from PIL import Image
+    new_size = (max(1, int(round(width * ratio))), max(1, int(round(height * ratio))))
+    return img.resize(new_size, Image.Resampling.LANCZOS), True
+
+
 def _encode_pil_to_data_uri(
     img: 'PILImage',
     src_path: Path,
@@ -162,7 +230,10 @@ def _encode_pil_to_data_uri(
     already-optimized asset. *fallback_bytes* carries the raw on-disk
     bytes for that path.
     """
-    mime_type = get_mime_type(src_path.name, fallback_bytes)
+    original_mime_type = get_mime_type(src_path.name, fallback_bytes)
+    mime_type = original_mime_type
+    if compress and mime_type == 'image/png' and not _has_alpha(img):
+        mime_type = 'image/jpeg'
     pil_format = _PIL_FORMAT_BY_MIME.get(mime_type, 'PNG')
 
     # Encode current PIL image
@@ -184,7 +255,7 @@ def _encode_pil_to_data_uri(
     # round-tripping an asset that was already well-compressed inflates it),
     # fall back to those.
     chosen = encoded_bytes
-    if fallback_bytes and len(fallback_bytes) < len(encoded_bytes):
+    if fallback_bytes and mime_type == original_mime_type and len(fallback_bytes) < len(encoded_bytes):
         chosen = fallback_bytes
 
     chosen = _optimize_image_bytes(
@@ -223,6 +294,7 @@ def _process_one_image(
     *,
     compress: bool,
     max_dimension: int | None,
+    image_scale: float,
     verbose: bool,
 ) -> tuple[bool, str | None]:
     """Align (slice/meet) and embed a single <image>.
@@ -252,9 +324,33 @@ def _process_one_image(
             print(f'   [INFO] {img_path.name}: Office vector left external for native PPTX passthrough')
         return False, None
 
+    if _is_svg_image(img_path, raw_bytes):
+        _embed_raw_image(image, img_path, raw_bytes)
+        if verbose:
+            print(f'   [OK] {img_path.name} (svg, embedded as-is)')
+        return True, None
+
     img = _load_pil_image(img_path)
     if img is None:
         return False, 'PIL open failed'
+
+    # Multi-frame images (animated GIF / WebP / APNG): every PIL transform
+    # and re-save below operates on frame 0 only, silently flattening the
+    # animation — and the "original bytes are smaller" fallback never fires
+    # because one frame is always smaller than all frames. Embed the raw
+    # bytes untouched and keep the geometry attributes (including
+    # preserveAspectRatio, which the native converter maps to srcRect
+    # non-destructively). Animated assets skip re-encode, resize, and the
+    # size cap.
+    if getattr(img, 'is_animated', False):
+        _embed_raw_image(image, img_path, raw_bytes)
+        if max_dimension and max(img.size) > max_dimension:
+            print(f'   [WARN] {img_path.name}: animated image kept as-is '
+                  f'({img.size[0]}x{img.size[1]} exceeds max dimension '
+                  f'{max_dimension}px); animations are exempt from size limits')
+        if verbose:
+            print(f'   [OK] {img_path.name} (animated, embedded as-is)')
+        return True, None
 
     box_x = _parse_float(image.get('x'))
     box_y = _parse_float(image.get('y'))
@@ -272,6 +368,7 @@ def _process_one_image(
     final_img: 'PILImage' = img
     new_x, new_y, new_w, new_h = box_x, box_y, box_w, box_h
     transformed = False  # True iff bitmap content changed (crop happened)
+    target_box_w, target_box_h = box_w, box_h
 
     if not par_attr:
         # No preserveAspectRatio at all. The previous pipeline's fix-aspect
@@ -298,6 +395,16 @@ def _process_one_image(
             new_y = box_y + off_y
             new_w = new_w_calc
             new_h = new_h_calc
+            target_box_w, target_box_h = new_w, new_h
+
+    target_w, target_h = _target_size(
+        target_box_w,
+        target_box_h,
+        max_dimension=max_dimension,
+        image_scale=image_scale,
+    )
+    final_img, resized = _downscale_to_target(final_img, target_w, target_h)
+    transformed = transformed or resized
 
     # ------------------------------------------------------------------
     # Encode and rewrite
@@ -356,8 +463,9 @@ def align_and_embed_images_in_svg(
     *,
     dry_run: bool = False,
     verbose: bool = False,
-    compress: bool = False,
-    max_dimension: int | None = None,
+    compress: bool = True,
+    max_dimension: int | None = 2560,
+    image_scale: float = 2.0,
 ) -> tuple[int, int]:
     """Run the merged align + embed pass on a single SVG file.
 
@@ -396,7 +504,8 @@ def align_and_embed_images_in_svg(
 
         ok, err = _process_one_image(
             image, svg_dir,
-            compress=compress, max_dimension=max_dimension, verbose=verbose,
+            compress=compress, max_dimension=max_dimension,
+            image_scale=image_scale, verbose=verbose,
         )
         if ok:
             processed += 1
@@ -415,7 +524,8 @@ def align_and_embed_images_in_svg(
 # Standalone CLI (rare; the main entry point is finalize_svg.py)
 # ---------------------------------------------------------------------------
 
-def _cli() -> None:
+def build_parser() -> argparse.ArgumentParser:
+    """Build the standalone diagnostic parser."""
     import argparse
     parser = argparse.ArgumentParser(
         description='Align (slice/meet) and Base64-embed all <image> refs in an SVG.',
@@ -423,15 +533,31 @@ def _cli() -> None:
     parser.add_argument('svg', type=Path, help='SVG file to process in place')
     parser.add_argument('-n', '--dry-run', action='store_true')
     parser.add_argument('-v', '--verbose', action='store_true')
-    parser.add_argument('--compress', action='store_true',
-                        help='Compress images before embedding')
-    parser.add_argument('--max-dimension', type=int, default=None,
-                        help='Downscale images larger than this on either axis')
-    args = parser.parse_args()
+    parser.add_argument('--compress', dest='compress', action='store_true', default=True,
+                        help='Compress images before embedding (default)')
+    parser.add_argument('--no-compress', dest='compress', action='store_false',
+                        help='Disable image compression')
+    parser.add_argument('--max-dimension', type=int, default=2560,
+                        help='Downscale images larger than this on either axis (default: 2560)')
+    parser.add_argument('--image-scale', type=float, default=2.0,
+                        help='Target pixels per rendered SVG pixel')
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    """Run the standalone diagnostic CLI."""
+    parser = build_parser()
+    args = parser.parse_args(argv)
 
     if not args.svg.exists():
         print(f'Error: file not found: {args.svg}', file=sys.stderr)
-        sys.exit(1)
+        return 1
+    if args.max_dimension < 1:
+        print('Error: --max-dimension must be >= 1', file=sys.stderr)
+        return 1
+    if args.image_scale < 1:
+        print('Error: --image-scale must be >= 1', file=sys.stderr)
+        return 1
 
     proc, err = align_and_embed_images_in_svg(
         args.svg,
@@ -439,9 +565,11 @@ def _cli() -> None:
         verbose=args.verbose,
         compress=args.compress,
         max_dimension=args.max_dimension,
+        image_scale=args.image_scale,
     )
     print(f'Processed {proc} image(s), {err} error(s)')
+    return 1 if err else 0
 
 
 if __name__ == '__main__':
-    _cli()
+    raise SystemExit(main())

@@ -155,7 +155,9 @@ function normalizeStoredSettings(settings: AppSettingsV1): WorkWiseSettingsV2 {
       activeWorkspaceRoot: writeWorkspaces.includes(writeActiveRoot) ? writeActiveRoot : writeDefaultRoot,
       workspaces: writeWorkspaces.length > 0 ? writeWorkspaces : [writeDefaultRoot],
       inlineCompletion: normalized.write.inlineCompletion,
-      knowledgeBase: normalized.write.knowledgeBase
+      knowledgeBase: normalized.write.knowledgeBase,
+      exportTemplates: normalized.write.exportTemplates,
+      defaultExportTemplateId: normalized.write.defaultExportTemplateId
     },
     claw: {
       ...normalized.claw,

@@ -7,6 +7,7 @@ Memphis / Pop — clashing color blocks, geometric confetti, bold outlines, 80s-
 ## 1. Shape & decoration
 
 - Shape language: bold geometric primitives — circles, triangles, zigzags, squiggles, blobs — with thick dark outlines (2-4px). Mixed corner radii allowed; playful inconsistency is on-brand.
+- Composition geometry: a giant primitive bleeding off one edge as the backdrop; a diagonal two-color field split; a zigzag or squiggle band as the section divider; props scattered at angles around one dominant rotated frame or badge at the focal point.
 - Decoration: scattered geometric confetti, color-block backings, pattern fills (dots / stripes), oversized punctuation. Generous decoration — but composed, not chaotic.
 - Whitespace: energetic asymmetry; props float at angles. Still leave the focal content room to read against the noise.
 
@@ -31,3 +32,7 @@ Memphis / Pop — clashing color blocks, geometric confetti, bold outlines, 80s-
 ## 5. Paired image-rendering
 
 `flat` — clean vivid flat-color illustration that matches the pop-block energy.
+
+## 6. Illustration propensity
+
+**core** — bold-outline spots, confetti, and geometric shapes *are* the Memphis language; with no user steer, default to recommending a coherent spot-illustration family. Default *lean* only — heaviness and placement stay Strategist judgment, an explicit user request wins either way, and `image_usage: none` writes no illustration rows.

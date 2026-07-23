@@ -30,6 +30,7 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
+from console_encoding import configure_utf8_stdio
 from config import load_prefixed_env_file
 from tts_backends import (
     backend_cosyvoice,
@@ -38,6 +39,8 @@ from tts_backends import (
     backend_minimax,
     backend_qwen,
 )
+
+configure_utf8_stdio()
 
 
 @dataclass(frozen=True)
@@ -233,7 +236,7 @@ def main() -> int:
     if args.provider == "edge" and not args.voice:
         parser.error(
             "--voice is required for --provider edge. Run --list-voices --locale <locale> to discover voices "
-            "(e.g. --locale zh-CN), or follow skills/ppt-master/workflows/generate-audio.md "
+            "(e.g. --locale zh-CN), or follow skills/ppt-master/workflows/stages/generate-audio.md "
             "for an AI-curated recommendation."
         )
         raise AssertionError("unreachable")

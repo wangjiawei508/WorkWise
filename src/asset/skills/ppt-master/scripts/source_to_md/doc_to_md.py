@@ -1,12 +1,15 @@
 #!/usr/bin/env python3
 """
-Document to Markdown Converter (native Python paths)
+Document to Markdown Converter (hybrid Python + Pandoc fallback)
 
 Primary formats (pure Python, no external tools required):
-    .docx   → mammoth
+    .docx   → mammoth (tables preserved; OMML equations rewritten to inline LaTeX)
     .html   → markdownify + BeautifulSoup
     .epub   → ebooklib + markdownify
     .ipynb  → nbconvert
+
+Fallback formats (require pandoc installed):
+    .doc .odt .rtf .tex .latex .rst .org .typ
 
 All paths produce the same output convention:
     <input>.md                     Markdown file
@@ -21,11 +24,24 @@ import mimetypes
 import posixpath
 import re
 import shutil
+import subprocess
 import sys
+import tempfile
+import uuid
 import zipfile
 from pathlib import Path
 from urllib.parse import unquote, urlparse
 from xml.etree import ElementTree as ET
+
+_SCRIPTS_DIR = Path(__file__).resolve().parents[1]
+if str(_SCRIPTS_DIR) not in sys.path:
+    sys.path.insert(0, str(_SCRIPTS_DIR))
+
+from console_encoding import configure_utf8_stdio  # noqa: E402
+from _batch import run_path_batch  # noqa: E402
+from _conversion_profile import write_conversion_profile_best_effort  # noqa: E402
+
+configure_utf8_stdio()
 
 # ─────────────────────────────────────────────────────────────
 # Format registry
@@ -34,7 +50,25 @@ from xml.etree import ElementTree as ET
 # Formats handled by pure-Python paths
 NATIVE_FORMATS = {".docx", ".html", ".htm", ".epub", ".ipynb"}
 
+# Formats handled by pandoc fallback: suffix → (pandoc input format, description)
+PANDOC_FORMATS = {
+    ".doc":   ("doc",    "Microsoft Word 97-2003"),
+    ".odt":   ("odt",    "OpenDocument Text"),
+    ".rtf":   ("rtf",    "Rich Text Format"),
+    ".tex":   ("latex",  "LaTeX"),
+    ".latex": ("latex",  "LaTeX"),
+    ".rst":   ("rst",    "reStructuredText"),
+    ".org":   ("org",    "Emacs Org-mode"),
+    ".typ":   ("typst",  "Typst"),
+}
+
+# Formats pandoc should extract embedded media from
+PANDOC_MEDIA_FORMATS = {".odt"}
 OFFICE_VECTOR_EXTENSIONS = {".emf", ".wmf"}
+IMAGE_ASSET_SUFFIXES = {
+    ".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".tiff", ".tif",
+    ".emf", ".wmf", ".svg",
+}
 
 DOCX_NS = {
     "w": "http://schemas.openxmlformats.org/wordprocessingml/2006/main",
@@ -45,8 +79,24 @@ DOCX_NS = {
     "v": "urn:schemas-microsoft-com:vml",
     "o": "urn:schemas-microsoft-com:office:office",
     "mc": "http://schemas.openxmlformats.org/markup-compatibility/2006",
+    "m": "http://schemas.openxmlformats.org/officeDocument/2006/math",
 }
 EMU_PER_INCH = 914400
+MATH_NS = DOCX_NS["m"]
+W_NS = DOCX_NS["w"]
+XML_SPACE_ATTR = "{http://www.w3.org/XML/1998/namespace}space"
+
+# OMML n-ary operator chars (m:nary/m:naryPr/m:chr) → LaTeX command.
+NARY_OPS = {
+    "∑": r"\sum", "∏": r"\prod", "∐": r"\coprod",
+    "∫": r"\int", "∬": r"\iint", "∭": r"\iiint", "∮": r"\oint",
+    "⋃": r"\bigcup", "⋂": r"\bigcap", "⋁": r"\bigvee", "⋀": r"\bigwedge",
+}
+# OMML accent chars (m:acc/m:accPr/m:chr) → LaTeX command.
+ACCENT_CMDS = {
+    "̂": r"\hat", "̃": r"\tilde", "̄": r"\bar", "→": r"\vec", "⃗": r"\vec",
+    "̇": r"\dot", "̈": r"\ddot", "̌": r"\check", "́": r"\acute", "̀": r"\grave",
+}
 
 
 # ─────────────────────────────────────────────────────────────
@@ -128,6 +178,59 @@ def _image_size(path: Path) -> tuple[int | None, int | None]:
 def _is_office_vector(ext: str) -> bool:
     """Return whether an extension is an Office vector preview format."""
     return ext.lower() in OFFICE_VECTOR_EXTENSIONS
+
+
+def _write_generic_image_manifest(
+    media_dir: Path,
+    rel_media_dir: str,
+    markdown: str,
+    source_kind: str,
+) -> None:
+    """Write lightweight image metadata for non-DOCX converter paths."""
+    if not media_dir.exists():
+        return
+
+    ref_pattern = re.compile(rf"{re.escape(rel_media_dir)}/([^)\s]+)")
+    refs = [Path(match.group(1)).name for match in ref_pattern.finditer(markdown)]
+    occurrence_map: dict[str, list[dict[str, object]]] = {}
+    for index, filename in enumerate(refs, 1):
+        occurrence_map.setdefault(filename, []).append({
+            "occurrence_index": index,
+            "source_ref": f"{rel_media_dir}/{filename}",
+        })
+
+    manifest: list[dict[str, object]] = []
+    for file_path in sorted(path for path in media_dir.iterdir() if path.is_file()):
+        ext = _normalize_ext(file_path.suffix)
+        if ext not in IMAGE_ASSET_SUFFIXES:
+            continue
+        width, height = _image_size(file_path)
+        ratio = width / height if width and height else None
+        asset_kind = "office_vector" if _is_office_vector(ext) else "bitmap"
+        occurrences = occurrence_map.get(file_path.name, [])
+        entry: dict[str, object] = {
+            "index": len(manifest) + 1,
+            "filename": file_path.name,
+            "original_filename": file_path.name,
+            "asset_kind": asset_kind,
+            "svg_renderable": asset_kind != "office_vector",
+            "pptx_native_supported": True,
+            "source_kind": source_kind,
+            "source_ext": ext,
+            "pixel_width": width,
+            "pixel_height": height,
+            "pixel_ratio": round(ratio, 6) if ratio else None,
+            "display_ratio": round(ratio, 6) if ratio else None,
+            "occurrences": occurrences,
+            "usage_count": len(occurrences) if occurrences else 1,
+        }
+        manifest.append(entry)
+
+    if manifest:
+        (media_dir / "image_manifest.json").write_text(
+            json.dumps(manifest, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
 
 
 def _local_name(elem: ET.Element) -> str:
@@ -360,6 +463,361 @@ def _manifest_entry(
 
 
 # ─────────────────────────────────────────────────────────────
+# OMML (Office Math) → LaTeX
+# ─────────────────────────────────────────────────────────────
+#
+# mammoth drops all math content, so Word-native equations and MathType
+# formulas saved as Office Math (OMML) vanish from the output. This pure-Python
+# converter rewrites each <m:oMath> into inline `$...$` LaTeX before mammoth
+# runs, so formulas survive into the Markdown in document order.
+#
+# Scope: OMML only. Classic MathType OLE objects (Equation.DSMT4 / MTEF binary)
+# carry no OMML — they expose only a WMF/EMF preview image, which mammoth still
+# emits as a picture. Decoding MTEF is out of scope.
+
+def _m_child(elem: ET.Element, name: str) -> ET.Element | None:
+    """Return the first OMML child with the given local name."""
+    for child in elem:
+        if _local_name(child) == name:
+            return child
+    return None
+
+
+def _m_pr_val(elem: ET.Element, prop: str) -> str | None:
+    """Return m:val of a property inside the element's *Pr block (e.g. chr)."""
+    for child in elem:
+        if not _local_name(child).endswith("Pr"):
+            continue
+        for sub in child:
+            if _local_name(sub) == prop:
+                return sub.get(f"{{{MATH_NS}}}val")
+    return None
+
+
+def _brace(latex: str) -> str:
+    """Wrap multi-char LaTeX in braces so it binds as one super/subscript arg."""
+    return latex if len(latex) <= 1 else "{" + latex + "}"
+
+
+def _omml_part(elem: ET.Element, name: str) -> str:
+    """Convert a named OMML child (e/num/den/sup/sub/...) to LaTeX."""
+    child = _m_child(elem, name)
+    return _omml_to_latex(child) if child is not None else ""
+
+
+def _omml_run(elem: ET.Element) -> str:
+    """Concatenate text from an OMML run, skipping property children."""
+    return "".join(
+        c.text or "" for c in elem if _local_name(c) == "t"
+    )
+
+
+def _omml_children(elem: ET.Element) -> str:
+    """Convert all non-property children in order (default/passthrough rule)."""
+    return "".join(
+        _omml_to_latex(c) for c in elem if not _local_name(c).endswith("Pr")
+    )
+
+
+def _omml_matrix(elem: ET.Element, *, environment: str) -> str:
+    """Convert a matrix (m:m) or equation array (m:eqArr) to a LaTeX env."""
+    rows: list[str] = []
+    for row in elem:
+        if _local_name(row) not in ("mr", "e"):
+            continue
+        if _local_name(row) == "e":  # eqArr stores rows as bare <m:e>
+            rows.append(_omml_to_latex(row))
+            continue
+        cells = [_omml_to_latex(cell) for cell in row if _local_name(cell) == "e"]
+        rows.append(" & ".join(cells))
+    body = r" \\ ".join(rows)
+    return rf"\begin{{{environment}}} {body} \end{{{environment}}}"
+
+
+def _omml_to_latex(elem: ET.Element) -> str:
+    """Recursively convert one OMML element subtree to a LaTeX string.
+
+    Unknown elements degrade to a concatenation of their children rather than
+    being dropped, so rare constructs lose markup but never lose content.
+    """
+    local = _local_name(elem)
+
+    if local == "t":
+        return elem.text or ""
+    if local == "r":
+        return _omml_run(elem)
+    if local in ("oMath", "oMathPara", "e", "num", "den", "sup", "sub",
+                 "deg", "fName", "lim", "box", "borderBox"):
+        return _omml_children(elem)
+    if local == "sSup":
+        return _brace(_omml_part(elem, "e")) + "^" + _brace(_omml_part(elem, "sup"))
+    if local == "sSub":
+        return _brace(_omml_part(elem, "e")) + "_" + _brace(_omml_part(elem, "sub"))
+    if local == "sSubSup":
+        return (_brace(_omml_part(elem, "e"))
+                + "_" + _brace(_omml_part(elem, "sub"))
+                + "^" + _brace(_omml_part(elem, "sup")))
+    if local == "sPre":
+        return ("{}_" + _brace(_omml_part(elem, "sub"))
+                + "^" + _brace(_omml_part(elem, "sup"))
+                + _brace(_omml_part(elem, "e")))
+    if local == "f":
+        return r"\frac{" + _omml_part(elem, "num") + "}{" + _omml_part(elem, "den") + "}"
+    if local == "rad":
+        deg = _m_child(elem, "deg")
+        body = _omml_part(elem, "e")
+        deg_latex = _omml_to_latex(deg) if deg is not None and len(deg) else ""
+        return rf"\sqrt[{deg_latex}]{{{body}}}" if deg_latex else rf"\sqrt{{{body}}}"
+    if local == "d":
+        beg = _m_pr_val(elem, "begChr")
+        end = _m_pr_val(elem, "endChr")
+        beg = "(" if beg is None else (beg or ".")
+        end = ")" if end is None else (end or ".")
+        inner = "".join(_omml_to_latex(c) for c in elem if _local_name(c) == "e")
+        return rf"\left{beg}{inner}\right{end}"
+    if local == "nary":
+        chr_ = _m_pr_val(elem, "chr") or "∫"
+        op = NARY_OPS.get(chr_, chr_)
+        sub, sup = _m_child(elem, "sub"), _m_child(elem, "sup")
+        out = op
+        if sub is not None and len(sub):
+            out += "_" + _brace(_omml_to_latex(sub))
+        if sup is not None and len(sup):
+            out += "^" + _brace(_omml_to_latex(sup))
+        return out + _brace(_omml_part(elem, "e"))
+    if local == "func":
+        return "\\" + _omml_part(elem, "fName").strip() + _brace(_omml_part(elem, "e"))
+    if local == "limLow":
+        return _brace(_omml_part(elem, "e")) + "_" + _brace(_omml_part(elem, "lim"))
+    if local == "limUpp":
+        return _brace(_omml_part(elem, "e")) + "^" + _brace(_omml_part(elem, "lim"))
+    if local == "bar":
+        cmd = r"\underline" if _m_pr_val(elem, "pos") == "bot" else r"\overline"
+        return cmd + "{" + _omml_part(elem, "e") + "}"
+    if local == "acc":
+        cmd = ACCENT_CMDS.get(_m_pr_val(elem, "chr") or "̂", r"\hat")
+        return cmd + "{" + _omml_part(elem, "e") + "}"
+    if local == "groupChr":
+        return _omml_part(elem, "e")
+    if local == "m":
+        return _omml_matrix(elem, environment="matrix")
+    if local == "eqArr":
+        return _omml_matrix(elem, environment="aligned")
+
+    return _omml_children(elem)
+
+
+def _make_text_run(text: str) -> ET.Element:
+    """Build a <w:r><w:t xml:space="preserve">text</w:t></w:r> element."""
+    run = ET.Element(f"{{{W_NS}}}r")
+    t = ET.SubElement(run, f"{{{W_NS}}}t")
+    t.set(XML_SPACE_ATTR, "preserve")
+    t.text = text
+    return run
+
+
+def _make_text_paragraph(text: str) -> ET.Element:
+    """Build a simple Word paragraph containing text."""
+    paragraph = ET.Element(f"{{{W_NS}}}p")
+    paragraph.append(_make_text_run(text))
+    return paragraph
+
+
+def _docx_inject_math_latex(
+    input_file: Path,
+) -> tuple[Path, dict[str, str]] | None:
+    """Replace OMML equations with alphanumeric placeholders in a temp DOCX.
+
+    Returns ``(temp_file, {placeholder: latex})`` or None when the document has
+    no OMML math. Placeholders are plain ``[A-Za-z0-9]`` tokens so mammoth never
+    markdown-escapes the LaTeX; the caller swaps each token for its `$...$` value
+    after mammoth has produced the Markdown.
+    """
+    try:
+        with zipfile.ZipFile(input_file) as docx:
+            document_xml = docx.read("word/document.xml")
+    except (KeyError, zipfile.BadZipFile, OSError):
+        return None
+    try:
+        root = ET.fromstring(document_xml)
+    except ET.ParseError:
+        return None
+
+    parent_map = {child: parent for parent in root.iter() for child in parent}
+    targets: list[tuple[ET.Element, bool]] = []
+    for elem in root.iter():
+        local = _local_name(elem)
+        if local == "oMathPara":
+            targets.append((elem, True))
+        elif local == "oMath":
+            parent = parent_map.get(elem)
+            if parent is None or _local_name(parent) != "oMathPara":
+                targets.append((elem, False))
+    if not targets:
+        return None
+
+    token_base = uuid.uuid4().hex
+    replacements: dict[str, str] = {}
+    for index, (elem, display) in enumerate(targets):
+        parent = parent_map.get(elem)
+        if parent is None:
+            continue
+        latex = _omml_to_latex(elem).strip()
+        position = list(parent).index(elem)
+        parent.remove(elem)
+        if latex:
+            token = f"MATHEQ{token_base}{index:04d}"
+            delim = "$$" if display else "$"
+            replacements[token] = f"{delim}{latex}{delim}"
+            parent.insert(position, _make_text_run(token))
+    if not replacements:
+        return None
+
+    for prefix, uri in DOCX_NS.items():
+        if prefix != "rel":
+            ET.register_namespace(prefix, uri)
+    patched_xml = ET.tostring(root, encoding="utf-8", xml_declaration=True)
+
+    tmp = tempfile.NamedTemporaryFile(suffix=".docx", delete=False)
+    tmp.close()
+    out_path = Path(tmp.name)
+    with zipfile.ZipFile(input_file) as zin, \
+            zipfile.ZipFile(out_path, "w", zipfile.ZIP_DEFLATED) as zout:
+        for item in zin.infolist():
+            data = patched_xml if item.filename == "word/document.xml" else zin.read(item.filename)
+            zout.writestr(item, data)
+    return out_path, replacements
+
+
+# ─────────────────────────────────────────────────────────────
+# DOCX tables → pipe Markdown
+# ─────────────────────────────────────────────────────────────
+
+def _docx_paragraph_text(paragraph: ET.Element) -> str:
+    """Extract readable text from one Word paragraph."""
+    parts: list[str] = []
+    for elem in paragraph.iter():
+        local = _local_name(elem)
+        if local == "t":
+            parts.append(elem.text or "")
+        elif local == "tab":
+            parts.append("\t")
+        elif local in {"br", "cr"}:
+            parts.append(" ")
+    return "".join(parts).strip()
+
+
+def _docx_table_has_media(table: ET.Element) -> bool:
+    """Return whether a table contains image-bearing nodes."""
+    return any(_local_name(elem) in {"drawing", "imagedata"} for elem in table.iter())
+
+
+def _docx_table_cell_text(cell: ET.Element) -> str:
+    """Extract table-cell text, preserving paragraph breaks as Markdown breaks."""
+    paragraphs: list[str] = []
+    for child in cell:
+        if _local_name(child) == "p":
+            text = _docx_paragraph_text(child)
+            if text:
+                paragraphs.append(text)
+    return "<br>".join(paragraphs)
+
+
+def _markdown_table_cell(text: str) -> str:
+    """Escape Markdown table delimiters in one cell."""
+    text = re.sub(r"[ \t\r\n]+", " ", text).strip()
+    return text.replace("|", r"\|")
+
+
+def _docx_table_to_markdown(table: ET.Element) -> str:
+    """Convert a Word table XML node to a pipe Markdown table."""
+    rows: list[list[str]] = []
+    for row in table.findall("w:tr", DOCX_NS):
+        cells = [
+            _markdown_table_cell(_docx_table_cell_text(cell))
+            for cell in row.findall("w:tc", DOCX_NS)
+        ]
+        if cells:
+            rows.append(cells)
+    if not rows:
+        return ""
+
+    width = max(len(row) for row in rows)
+    rows = [row + [""] * (width - len(row)) for row in rows]
+    header, body = rows[0], rows[1:]
+    lines = [
+        "| " + " | ".join(header) + " |",
+        "| " + " | ".join("---" for _ in range(width)) + " |",
+    ]
+    lines.extend("| " + " | ".join(row) + " |" for row in body)
+    return "\n".join(lines)
+
+
+def _docx_inject_tables_markdown(
+    input_file: Path,
+) -> tuple[Path, dict[str, str]] | None:
+    """Replace text-only DOCX tables with Markdown placeholders in a temp DOCX."""
+    try:
+        with zipfile.ZipFile(input_file) as docx:
+            document_xml = docx.read("word/document.xml")
+    except (KeyError, zipfile.BadZipFile, OSError):
+        return None
+    try:
+        root = ET.fromstring(document_xml)
+    except ET.ParseError:
+        return None
+
+    parent_map = {child: parent for parent in root.iter() for child in parent}
+    token_base = uuid.uuid4().hex
+    replacements: dict[str, str] = {}
+    for index, table in enumerate(root.findall(".//w:tbl", DOCX_NS)):
+        if _docx_table_has_media(table):
+            continue
+        markdown = _docx_table_to_markdown(table)
+        if not markdown:
+            continue
+        parent = parent_map.get(table)
+        if parent is None:
+            continue
+        position = list(parent).index(table)
+        token = f"MARKDOWNTABLE{token_base}{index:04d}"
+        parent.remove(table)
+        parent.insert(position, _make_text_paragraph(token))
+        replacements[token] = markdown
+    if not replacements:
+        return None
+
+    for prefix, uri in DOCX_NS.items():
+        if prefix != "rel":
+            ET.register_namespace(prefix, uri)
+    patched_xml = ET.tostring(root, encoding="utf-8", xml_declaration=True)
+
+    tmp = tempfile.NamedTemporaryFile(suffix=".docx", delete=False)
+    tmp.close()
+    out_path = Path(tmp.name)
+    with zipfile.ZipFile(input_file) as zin, \
+            zipfile.ZipFile(out_path, "w", zipfile.ZIP_DEFLATED) as zout:
+        for item in zin.infolist():
+            data = patched_xml if item.filename == "word/document.xml" else zin.read(item.filename)
+            zout.writestr(item, data)
+    return out_path, replacements
+
+
+def _clean_mammoth_markdown(markdown: str) -> str:
+    """Remove Mammoth escapes for punctuation that is safe as literal text."""
+    def _repl(match: re.Match[str]) -> str:
+        char = match.group(1)
+        if char == ".":
+            line_start = markdown.rfind("\n", 0, match.start()) + 1
+            line_prefix = markdown[line_start:match.start()]
+            if re.fullmatch(r"\s*\d+", line_prefix):
+                return match.group(0)
+        return char
+
+    return re.sub(r"\\([.(),:])", _repl, markdown)
+
+
+# ─────────────────────────────────────────────────────────────
 # DOCX → Markdown (mammoth)
 # ─────────────────────────────────────────────────────────────
 
@@ -415,13 +873,45 @@ def _convert_docx(input_file: Path, out_file: Path) -> str:
         ))
         return {"src": f"{rel_media_dir}/{filename}"}
 
-    with input_file.open("rb") as f:
-        result = mammoth.convert_to_markdown(
-            f,
-            convert_image=mammoth.images.img_element(_save_image),
-        )
+    # Rewrite OMML equations to LaTeX placeholders before mammoth (which would
+    # otherwise drop them); the placeholders are swapped back below.
+    math_injection = _docx_inject_math_latex(input_file)
+    if math_injection is not None:
+        math_file, math_replacements = math_injection
+    else:
+        math_file, math_replacements = None, {}
+    table_file = None
+    table_replacements: dict[str, str] = {}
+    mammoth_source = math_file or input_file
+    table_injection = _docx_inject_tables_markdown(mammoth_source)
+    if table_injection is not None:
+        table_file, table_replacements = table_injection
+        mammoth_source = table_file
+    try:
+        with mammoth_source.open("rb") as f:
+            result = mammoth.convert_to_markdown(
+                f,
+                convert_image=mammoth.images.img_element(_save_image),
+            )
+    finally:
+        if table_file is not None:
+            try:
+                table_file.unlink()
+            except OSError:
+                pass
+        if math_file is not None:
+            try:
+                math_file.unlink()
+            except OSError:
+                pass
 
-    markdown = _html_img_to_md(result.value)
+    markdown = result.value
+    for token, table_markdown in table_replacements.items():
+        markdown = markdown.replace(token, table_markdown)
+    for token, latex in math_replacements.items():
+        markdown = markdown.replace(token, latex)
+    markdown = _html_img_to_md(markdown)
+    markdown = _clean_mammoth_markdown(markdown)
     out_file.write_text(markdown, encoding="utf-8")
 
     if manifest:
@@ -555,6 +1045,7 @@ def _convert_html(input_file: Path, out_file: Path) -> str:
     # Collapse 3+ blank lines to 2 for tidier output
     markdown = re.sub(r"\n{3,}", "\n\n", markdown).strip() + "\n"
     out_file.write_text(markdown, encoding="utf-8")
+    _write_generic_image_manifest(media_dir, rel_media_dir, markdown, "html_image")
 
     if not any(media_dir.iterdir()):
         media_dir.rmdir()
@@ -568,6 +1059,129 @@ def _convert_html(input_file: Path, out_file: Path) -> str:
 # EPUB → Markdown (ebooklib + markdownify)
 # ─────────────────────────────────────────────────────────────
 
+def _sanitize_epub_manifest(src: Path) -> tuple[Path, bool]:
+    """Return an EPUB path that ebooklib can read.
+
+    Some EPUBs contain OPF manifest entries pointing at files that are missing
+    from the ZIP archive. ebooklib reads every manifest item eagerly, so one
+    stale entry can abort the whole conversion. When broken entries are found,
+    this writes a temporary EPUB with those manifest items and matching spine
+    refs removed.
+    """
+    OPF_NS = "http://www.idpf.org/2007/opf"
+    CONT_NS = "urn:oasis:names:tc:opendocument:xmlns:container"
+
+    try:
+        with zipfile.ZipFile(src, "r") as zin:
+            names = set(zin.namelist())
+            if "META-INF/container.xml" not in names:
+                return src, False
+
+            container_root = ET.fromstring(zin.read("META-INF/container.xml"))
+            rootfile_el = container_root.find(f".//{{{CONT_NS}}}rootfile")
+            if rootfile_el is None:
+                return src, False
+
+            opf_path = rootfile_el.get("full-path")
+            if not opf_path or opf_path not in names:
+                return src, False
+
+            opf_root = ET.fromstring(zin.read(opf_path))
+            manifest_el = opf_root.find(f"{{{OPF_NS}}}manifest")
+            if manifest_el is None:
+                return src, False
+
+            opf_dir = posixpath.dirname(opf_path)
+            bad_ids: list[str] = []
+            bad_hrefs: list[str] = []
+            for item_el in list(manifest_el.findall(f"{{{OPF_NS}}}item")):
+                href = item_el.get("href", "")
+                if not href:
+                    continue
+                rel = unquote(href)
+                zpath = posixpath.normpath(
+                    posixpath.join(opf_dir, rel) if opf_dir else rel
+                )
+                if zpath in names:
+                    continue
+
+                item_id = item_el.get("id", "")
+                if item_id:
+                    bad_ids.append(item_id)
+                bad_hrefs.append(href)
+                manifest_el.remove(item_el)
+
+            if not bad_hrefs:
+                return src, False
+
+            spine_el = opf_root.find(f"{{{OPF_NS}}}spine")
+            if spine_el is not None and bad_ids:
+                for itemref in list(spine_el.findall(f"{{{OPF_NS}}}itemref")):
+                    if itemref.get("idref") in bad_ids:
+                        spine_el.remove(itemref)
+
+            ET.register_namespace("", OPF_NS)
+            ET.register_namespace("dc", "http://purl.org/dc/elements/1.1/")
+            new_opf = ET.tostring(opf_root, encoding="utf-8", xml_declaration=True)
+
+            tmp = tempfile.NamedTemporaryFile(suffix=".epub", delete=False)
+            tmp.close()
+            out_path = Path(tmp.name)
+
+            with zipfile.ZipFile(out_path, "w", zipfile.ZIP_DEFLATED) as zout:
+                if "mimetype" in names:
+                    zout.writestr(
+                        zipfile.ZipInfo("mimetype"),
+                        zin.read("mimetype"),
+                        compress_type=zipfile.ZIP_STORED,
+                    )
+                for name in zin.namelist():
+                    if name == "mimetype":
+                        continue
+                    if name == opf_path:
+                        zout.writestr(name, new_opf)
+                    else:
+                        zout.writestr(name, zin.read(name))
+
+            preview = ", ".join(bad_hrefs[:3])
+            if len(bad_hrefs) > 3:
+                preview += " ..."
+            print(
+                f"[INFO] EPUB manifest sanitized: removed "
+                f"{len(bad_hrefs)} broken item(s) [{preview}]"
+            )
+            return out_path, True
+    except (zipfile.BadZipFile, ET.ParseError, OSError) as exc:
+        print(
+            f"[WARN] EPUB sanitize skipped "
+            f"({exc.__class__.__name__}: {exc}); using original file"
+        )
+        return src, False
+
+
+def _epub_image_candidates(src: str, document_name: str) -> list[str]:
+    """Build lookup candidates for an image reference inside an EPUB document."""
+    parsed = urlparse(src)
+    raw_path = parsed.path if parsed.scheme else src
+    decoded_path = unquote(raw_path)
+    normalized_path = posixpath.normpath(decoded_path).lstrip("/")
+    document_dir = posixpath.dirname(document_name)
+    relative_path = posixpath.normpath(
+        posixpath.join(document_dir, decoded_path)
+    ).lstrip("/")
+
+    candidates = [
+        src,
+        raw_path,
+        decoded_path,
+        normalized_path,
+        relative_path,
+        Path(decoded_path).name,
+        Path(normalized_path).name,
+    ]
+    return [candidate for candidate in dict.fromkeys(candidates) if candidate]
+
+
 def _convert_epub(input_file: Path, out_file: Path) -> str:
     try:
         import ebooklib
@@ -580,7 +1194,15 @@ def _convert_epub(input_file: Path, out_file: Path) -> str:
         return ""
 
     media_dir, rel_media_dir = _ensure_media_dir(out_file)
-    book = epub.read_epub(str(input_file))
+    sanitized_path, is_temp_copy = _sanitize_epub_manifest(input_file)
+    try:
+        book = epub.read_epub(str(sanitized_path))
+    finally:
+        if is_temp_copy:
+            try:
+                sanitized_path.unlink()
+            except OSError:
+                pass
 
     # Extract images, remembering original path → new filename mapping
     img_map: dict[str, str] = {}
@@ -607,8 +1229,8 @@ def _convert_epub(input_file: Path, out_file: Path) -> str:
             src = img.get("src", "")
             if not src:
                 continue
-            # Try exact match, then basename, then normalized path
-            candidates = [src, Path(src).name, unquote(src), Path(unquote(src)).name]
+            # Try exact match, basename, decoded path, and path relative to this XHTML file.
+            candidates = _epub_image_candidates(src, item.file_name)
             resolved = next((img_map[c] for c in candidates if c in img_map), None)
             if resolved:
                 img["src"] = f"{rel_media_dir}/{resolved}"
@@ -619,6 +1241,7 @@ def _convert_epub(input_file: Path, out_file: Path) -> str:
     markdown = markdownify(combined_html, heading_style="ATX", bullets="-")
     markdown = re.sub(r"\n{3,}", "\n\n", markdown).strip() + "\n"
     out_file.write_text(markdown, encoding="utf-8")
+    _write_generic_image_manifest(media_dir, rel_media_dir, markdown, "epub_image")
 
     if not any(media_dir.iterdir()):
         media_dir.rmdir()
@@ -684,6 +1307,76 @@ def _convert_ipynb(input_file: Path, out_file: Path) -> str:
 
     markdown = out_file.read_text(encoding="utf-8") if out_file.exists() else body
     media_dir = out_file.parent / rel_media_dir
+    _write_generic_image_manifest(media_dir, rel_media_dir, markdown, "ipynb_image")
+    _report_result(out_file, media_dir if media_dir.exists() else None)
+    return markdown
+
+
+# ─────────────────────────────────────────────────────────────
+# Pandoc fallback
+# ─────────────────────────────────────────────────────────────
+
+def _check_pandoc() -> bool:
+    return shutil.which("pandoc") is not None
+
+
+def _convert_with_pandoc(input_file: Path, out_file: Path, suffix: str) -> str:
+    if not _check_pandoc():
+        print(f"[ERROR] Format '{suffix}' requires pandoc. Install it:")
+        print("   macOS:   brew install pandoc")
+        print("   Ubuntu:  sudo apt install pandoc")
+        print("   Windows: https://pandoc.org/installing.html")
+        return ""
+
+    input_format, _ = PANDOC_FORMATS[suffix]
+    rel_media_dir = f"{out_file.stem}_files"
+    media_dir = out_file.parent / rel_media_dir
+
+    cmd = [
+        "pandoc",
+        "-f", input_format,
+        "-t", "gfm",
+        str(input_file.resolve()),
+        "-o", str(out_file.resolve()),
+        "--wrap", "none",
+        "--strip-comments",
+    ]
+    if suffix in PANDOC_MEDIA_FORMATS:
+        cmd.extend(["--extract-media", rel_media_dir])
+
+    result = subprocess.run(cmd, capture_output=True, text=True,
+                            cwd=str(out_file.parent))
+    if result.returncode != 0:
+        print(f"[ERROR] Pandoc conversion failed:\n{result.stderr}")
+        return ""
+    if not out_file.exists():
+        print("[ERROR] Conversion completed but no output file was generated")
+        return ""
+
+    markdown = out_file.read_text(encoding="utf-8")
+
+    # Flatten nested media/ subdir that pandoc creates
+    nested_media = media_dir / "media"
+    if nested_media.exists():
+        for f in nested_media.iterdir():
+            if f.is_file():
+                shutil.move(str(f), str(media_dir / f.name))
+        try:
+            nested_media.rmdir()
+        except OSError:
+            pass
+        markdown = markdown.replace(f"{rel_media_dir}/media/", f"{rel_media_dir}/")
+
+    # Normalize absolute paths to relative
+    for abs_str in (str(media_dir.resolve()).replace("\\", "/"),
+                    str(media_dir.resolve())):
+        if abs_str in markdown:
+            markdown = markdown.replace(abs_str, rel_media_dir)
+
+    markdown = _html_img_to_md(markdown)
+    out_file.write_text(markdown, encoding="utf-8")
+    _write_generic_image_manifest(media_dir, rel_media_dir, markdown, "pandoc_image")
+
     _report_result(out_file, media_dir if media_dir.exists() else None)
     return markdown
 
@@ -708,11 +1401,10 @@ def convert_to_markdown(input_path: str, output_path: str | None = None) -> str:
         return ""
 
     suffix = input_file.suffix.lower()
-    if suffix not in NATIVE_FORMATS:
-        supported = ", ".join(sorted(NATIVE_FORMATS))
+    if suffix not in NATIVE_FORMATS and suffix not in PANDOC_FORMATS:
+        supported = ", ".join(sorted(NATIVE_FORMATS | PANDOC_FORMATS.keys()))
         print(f"[ERROR] Unsupported format: {suffix}")
         print(f"   Supported: {supported}")
-        print("   Convert legacy document formats to DOCX, Markdown, PDF, HTML, XLSX, or PPTX first.")
         return ""
 
     out_file = Path(output_path) if output_path else input_file.with_suffix(".md")
@@ -722,38 +1414,79 @@ def convert_to_markdown(input_path: str, output_path: str | None = None) -> str:
         desc = _FORMAT_DESC[suffix]
         print(f"[INFO] Converting {desc}: {input_file.name}")
         if suffix == ".docx":
-            return _convert_docx(input_file, out_file)
-        if suffix in (".html", ".htm"):
-            return _convert_html(input_file, out_file)
-        if suffix == ".epub":
-            return _convert_epub(input_file, out_file)
-        if suffix == ".ipynb":
-            return _convert_ipynb(input_file, out_file)
+            markdown = _convert_docx(input_file, out_file)
+        elif suffix in (".html", ".htm"):
+            markdown = _convert_html(input_file, out_file)
+        elif suffix == ".epub":
+            markdown = _convert_epub(input_file, out_file)
+        elif suffix == ".ipynb":
+            markdown = _convert_ipynb(input_file, out_file)
+        else:
+            markdown = ""
+        if markdown:
+            profile_path = write_conversion_profile_best_effort(
+                input_path=str(input_file),
+                markdown_path=out_file,
+                converter="doc_to_md.py",
+                conversion_type=suffix.lstrip("."),
+            )
+            if profile_path:
+                print(f"   Wrote conversion profile -> {profile_path}")
+        return markdown
 
-    return ""
+    _, format_desc = PANDOC_FORMATS[suffix]
+    print(f"[INFO] Converting {format_desc} via pandoc: {input_file.name}")
+    markdown = _convert_with_pandoc(input_file, out_file, suffix)
+    if markdown:
+        profile_path = write_conversion_profile_best_effort(
+            input_path=str(input_file),
+            markdown_path=out_file,
+            converter="doc_to_md.py",
+            conversion_type=suffix.lstrip("."),
+        )
+        if profile_path:
+            print(f"   Wrote conversion profile -> {profile_path}")
+    return markdown
 
 
-def main() -> None:
+def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Convert supported documents to Markdown with native Python libraries",
+        description="Convert documents to Markdown "
+                    "(pure-Python for common formats, pandoc fallback for the rest)",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
   python doc_to_md.py lecture.docx                # Word → Markdown (mammoth)
+  python doc_to_md.py lecture.docx notes.html     # Convert multiple files
+  python doc_to_md.py ./docs -o ./markdown        # Convert supported files in a directory
   python doc_to_md.py article.html                # HTML → Markdown (markdownify)
   python doc_to_md.py book.epub                   # EPUB → Markdown (ebooklib)
   python doc_to_md.py notebook.ipynb              # Jupyter → Markdown (nbconvert)
-Supported formats:
+  python doc_to_md.py manuscript.tex              # LaTeX → Markdown (pandoc fallback)
+
+Native formats (no pandoc required):
   .docx  .html/.htm  .epub  .ipynb
+
+Pandoc fallback formats (require system pandoc):
+  .doc  .odt  .rtf  .tex/.latex  .rst  .org  .typ
         """,
     )
-    parser.add_argument("input", help="Input document file")
-    parser.add_argument("-o", "--output", help="Output Markdown file path")
+    parser.add_argument("inputs", nargs="+", help="Input document file(s) or directories")
+    parser.add_argument(
+        "-o",
+        "--output",
+        help="Output Markdown file for one input, or output directory for multiple inputs/directories",
+    )
     args = parser.parse_args()
 
-    result = convert_to_markdown(args.input, args.output)
-    sys.exit(0 if result else 1)
+    supported_suffixes = set(NATIVE_FORMATS) | set(PANDOC_FORMATS)
+    return run_path_batch(
+        args.inputs,
+        supported_suffixes,
+        args.output,
+        lambda source, output: bool(convert_to_markdown(str(source), str(output))),
+    )
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

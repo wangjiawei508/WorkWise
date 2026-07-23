@@ -13,10 +13,20 @@ API docs: https://www.mediawiki.org/wiki/API:Search
 from __future__ import annotations
 
 import sys
+from pathlib import Path
 
-if __name__ == "__main__" and any(arg in {"-h", "--help", "help"} for arg in sys.argv[1:]):
+_SCRIPTS_DIR = Path(__file__).resolve().parents[1]
+if str(_SCRIPTS_DIR) not in sys.path:
+    sys.path.insert(0, str(_SCRIPTS_DIR))
+
+from console_encoding import configure_utf8_stdio  # noqa: E402
+
+configure_utf8_stdio()
+
+if __name__ == "__main__":
     print(__doc__)
-    raise SystemExit(0)
+    print("Use via: python3 skills/ppt-master/scripts/image_search.py ...")
+    raise SystemExit(0 if any(arg in {"-h", "--help", "help"} for arg in sys.argv[1:]) else 1)
 
 import html
 import re

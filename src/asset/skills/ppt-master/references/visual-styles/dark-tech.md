@@ -7,6 +7,7 @@ Dark canvas, luminous accents, geometric precision. For tech, AI, dev tools, dat
 ## 1. Shape & decoration
 
 - Shape language: crisp geometry; thin glowing rules; hexagon / circuit / grid motifs used sparingly. Slight rounding (`rx` 4-8) or sharp.
+- Composition geometry: a glowing diagonal circuit trace splitting the field; concentric orbit rings staging a central metric; a hexagon node cluster mapping components; an oversized low-opacity numeral or glyph floating behind the content layer; thin bracket frames zoning the page.
 - Decoration: glow accents, fine grid backgrounds, monospace labels, node / connector lines. Restrained — precision over clutter.
 - Whitespace: dark negative space reads as depth; let elements float on it.
 
@@ -26,8 +27,12 @@ Dark canvas, luminous accents, geometric precision. For tech, AI, dev tools, dat
 
 ## 4. Texture / elevation
 
-- Depth via glow and layering on dark, not drop shadows. Outer glow / light strokes mark elevation; gradients stay same-hue and subtle. (Dark-theme legibility — prefer light stroke / outer glow over black shadow: [`shared-standards.md §6`](../shared-standards.md).)
+- Depth via glow and layering on dark, not drop shadows. Outer glow / light strokes mark elevation; gradients stay same-hue and subtle.
 
 ## 5. Paired image-rendering
 
 `digital-dashboard` or `blueprint` — polished UI / technical-schematic look for AI images.
+
+## 6. Illustration propensity
+
+**sparse** — glow accents and geometric precision lead, and raster spots tend to read as clip-art against the dark UI. With no user steer, default to none. If the user explicitly asks, prefer restrained geometric marks over illustrated characters. `image_usage: none` writes no illustration rows.

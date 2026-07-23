@@ -10,6 +10,8 @@ Handles:
 - <p:grpSp>        -> GROUP (recurses; resolves a:chOff/a:chExt frame)
 - <p:graphicFrame> -> GRAPHIC (table / chart / SmartArt — emitted as opaque
                      placeholder for v1 so callers can decide a fallback)
+- <mc:AlternateContent> -> supported Choice shape with the baked Fallback
+                           preview retained for graphic frames
 """
 
 from __future__ import annotations
@@ -17,7 +19,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from xml.etree import ElementTree as ET
 
-from .emu_units import NS, Xfrm, parse_xfrm
+from .emu_units import NS, Xfrm, ooxml_bool, parse_xfrm
 
 
 # ---------------------------------------------------------------------------
@@ -29,6 +31,24 @@ PICTURE = "pic"
 CONNECTOR = "cxnSp"
 GROUP = "grpSp"
 GRAPHIC = "graphicFrame"
+
+_TITLE_PLACEHOLDER_TYPES = {"title", "ctrTitle"}
+_BODY_PLACEHOLDER_TYPES = {
+    "body",
+    "chart",
+    "clipArt",
+    "dgm",
+    "media",
+    "obj",
+    "pic",
+    "subTitle",
+    "tbl",
+}
+_DEFAULT_PLACEHOLDER_TYPE = "obj"
+_DEFAULT_PLACEHOLDER_INDEX = "0"
+_TX_STYLE_TITLE_KEY = ("__txStyleTitle", None)
+_TX_STYLE_BODY_KEY = ("__txStyleBody", None)
+_TX_STYLE_OTHER_KEY = ("__txStyleOther", None)
 
 
 @dataclass
@@ -52,6 +72,8 @@ class ShapeNode:
     spid: str = ""
     hidden: bool = False
     placeholder: PlaceholderInfo | None = None
+    inherited_lst_styles: tuple[ET.Element, ...] = ()
+    inherited_body_properties: tuple[ET.Element, ...] = ()
     # GROUP only: children, in z-order
     children: list["ShapeNode"] = field(default_factory=list)
 
@@ -77,7 +99,7 @@ def _read_nv_sp_pr(parent: ET.Element, nv_tag: str) -> tuple[str, str, bool, Pla
     if cnv is not None:
         name = cnv.attrib.get("name", "")
         spid = cnv.attrib.get("id", "")
-        if cnv.attrib.get("hidden") == "1":
+        if ooxml_bool(cnv.attrib.get("hidden")):
             hidden = True
 
     nv_pr = container.find("p:nvPr", NS)
@@ -153,10 +175,56 @@ _KIND_MAP = {
 }
 
 
+def _first_shape_child(container: ET.Element | None) -> ET.Element | None:
+    if container is None:
+        return None
+    for child in list(container):
+        if not isinstance(child.tag, str):
+            continue
+        if child.tag.split("}", 1)[-1] in _KIND_MAP:
+            return child
+    return None
+
+
+def _resolve_alternate_content(wrapper: ET.Element) -> ET.Element | None:
+    """Select an AlternateContent shape while retaining its baked preview."""
+    choice = wrapper.find("mc:Choice", NS)
+    fallback = wrapper.find("mc:Fallback", NS)
+    selected = _first_shape_child(choice)
+    selected_from_choice = selected is not None
+    if selected is None:
+        selected = _first_shape_child(fallback)
+    if selected is None:
+        return None
+
+    clone = ET.fromstring(ET.tostring(selected, encoding="utf-8"))
+    if (
+        selected_from_choice
+        and clone.tag.split("}", 1)[-1] == "graphicFrame"
+        and fallback is not None
+    ):
+        graphic_data = clone.find("a:graphic/a:graphicData", NS)
+        if graphic_data is not None:
+            preview = ET.Element(f"{{{NS['mc']}}}AlternateContent")
+            preview.append(
+                ET.fromstring(ET.tostring(fallback, encoding="utf-8"))
+            )
+            graphic_data.append(preview)
+    return clone
+
+
 def _walk_container(
     container: ET.Element,
     parent_group_xfrm: Xfrm | None,
     placeholder_xfrms: dict[tuple[str | None, str | None], Xfrm] | None = None,
+    placeholder_lst_styles: dict[
+        tuple[str | None, str | None],
+        list[ET.Element],
+    ] | None = None,
+    placeholder_body_properties: dict[
+        tuple[str | None, str | None],
+        list[ET.Element],
+    ] | None = None,
 ) -> list[ShapeNode]:
     """Walk a p:spTree or p:grpSp subtree. Children kept in document (z) order.
     """
@@ -165,6 +233,12 @@ def _walk_container(
         if not isinstance(child.tag, str):
             continue
         local = child.tag.split("}", 1)[-1]
+        if local == "AlternateContent":
+            resolved = _resolve_alternate_content(child)
+            if resolved is None:
+                continue
+            child = resolved
+            local = child.tag.split("}", 1)[-1]
         kind_info = _KIND_MAP.get(local)
         if kind_info is None:
             continue
@@ -194,14 +268,31 @@ def _walk_container(
         if parent_group_xfrm is not None:
             xfrm = _adjust_for_group(xfrm, parent_group_xfrm)
 
+        inherited_lst_styles: tuple[ET.Element, ...] = ()
+        if ph is not None and placeholder_lst_styles:
+            inherited_lst_styles = _lookup_placeholder_lst_styles(
+                ph, placeholder_lst_styles,
+            )
+        inherited_body_properties: tuple[ET.Element, ...] = ()
+        if ph is not None and placeholder_body_properties:
+            inherited_body_properties = _lookup_placeholder_body_properties(
+                ph,
+                placeholder_body_properties,
+            )
+
         node = ShapeNode(
             kind=kind, xml=child, xfrm=xfrm,
             name=name, spid=spid, hidden=hidden, placeholder=ph,
+            inherited_lst_styles=inherited_lst_styles,
+            inherited_body_properties=inherited_body_properties,
         )
 
         if kind == GROUP:
             node.children = _walk_container(
-                child, xfrm, placeholder_xfrms=placeholder_xfrms,
+                child, xfrm,
+                placeholder_xfrms=placeholder_xfrms,
+                placeholder_lst_styles=placeholder_lst_styles,
+                placeholder_body_properties=placeholder_body_properties,
             )
 
         nodes.append(node)
@@ -212,19 +303,78 @@ def _lookup_placeholder_xfrm(
     ph: PlaceholderInfo,
     table: dict[tuple[str | None, str | None], Xfrm],
 ) -> Xfrm | None:
-    """Find an inherited xfrm for a placeholder. PowerPoint matches first by
-    (type, idx) exactly, then by type alone, then by idx alone — so a slide
-    body with idx="1" can pull from a layout body that omits idx, and a slide
-    title with no idx can pull from a master title that has idx="0"."""
+    """Find inherited geometry after applying the OOXML placeholder defaults."""
+    ph_type, ph_idx = _placeholder_identity(ph.type, ph.idx)
     for key in (
-        (ph.type, ph.idx),
-        (ph.type, None),
-        (None, ph.idx),
+        (ph_type, ph_idx),
+        (ph_type, None),
+        (None, ph_idx),
     ):
         hit = table.get(key)
         if hit is not None and (hit.w > 0 or hit.h > 0):
             return hit
     return None
+
+
+def _lookup_placeholder_lst_styles(
+    ph: PlaceholderInfo,
+    table: dict[tuple[str | None, str | None], list[ET.Element]],
+) -> tuple[ET.Element, ...]:
+    """Find inherited txBody/lstStyle elements for a placeholder."""
+    ph_type, ph_idx = _placeholder_identity(ph.type, ph.idx)
+    styles: list[ET.Element] = []
+    seen: set[int] = set()
+    for key in (
+        (ph_type, ph_idx),
+        (ph_type, None),
+        (None, ph_idx),
+        _placeholder_tx_style_key(ph),
+    ):
+        for style in table.get(key, []):
+            marker = id(style)
+            if marker in seen:
+                continue
+            styles.append(style)
+            seen.add(marker)
+    return tuple(styles)
+
+
+def _lookup_placeholder_body_properties(
+    ph: PlaceholderInfo,
+    table: dict[tuple[str | None, str | None], list[ET.Element]],
+) -> tuple[ET.Element, ...]:
+    """Find inherited txBody/bodyPr elements for a placeholder."""
+    ph_type, ph_idx = _placeholder_identity(ph.type, ph.idx)
+    exact = table.get((ph_type, ph_idx), [])
+    if exact:
+        return tuple(exact)
+    for key in ((ph_type, None), (None, ph_idx)):
+        candidates = table.get(key, [])
+        if candidates:
+            return (candidates[0],)
+    return ()
+
+
+def _placeholder_tx_style_key(
+    ph: PlaceholderInfo,
+) -> tuple[str | None, str | None]:
+    ph_type, _ph_idx = _placeholder_identity(ph.type, ph.idx)
+    if ph_type in _TITLE_PLACEHOLDER_TYPES:
+        return _TX_STYLE_TITLE_KEY
+    if ph_type in _BODY_PLACEHOLDER_TYPES:
+        return _TX_STYLE_BODY_KEY
+    return _TX_STYLE_OTHER_KEY
+
+
+def _placeholder_identity(
+    ph_type: str | None,
+    ph_idx: str | None,
+) -> tuple[str, str]:
+    """Resolve the schema defaults used for placeholder inheritance keys."""
+    return (
+        _DEFAULT_PLACEHOLDER_TYPE if ph_type is None else ph_type,
+        _DEFAULT_PLACEHOLDER_INDEX if ph_idx is None else ph_idx,
+    )
 
 
 def _build_placeholder_xfrm_table(
@@ -255,13 +405,92 @@ def _build_placeholder_xfrm_table(
             xfrm = parse_xfrm(xfrm_elem)
             if xfrm.w <= 0 and xfrm.h <= 0:
                 continue
-            ph_type = ph_elem.attrib.get("type")
-            ph_idx = ph_elem.attrib.get("idx")
+            ph_type, ph_idx = _placeholder_identity(
+                ph_elem.attrib.get("type"),
+                ph_elem.attrib.get("idx"),
+            )
             for key in ((ph_type, ph_idx),
                         (ph_type, None),
                         (None, ph_idx)):
                 table.setdefault(key, xfrm)
     return table
+
+
+def _build_placeholder_lst_style_table(
+    *parts: ET.Element | None,
+) -> dict[tuple[str | None, str | None], list[ET.Element]]:
+    """Index placeholder txBody/lstStyle elements in priority order."""
+    table: dict[tuple[str | None, str | None], list[ET.Element]] = {}
+    for part_xml in parts:
+        if part_xml is None:
+            continue
+        sp_tree = part_xml.find("p:cSld/p:spTree", NS)
+        if sp_tree is None:
+            continue
+        for sp in sp_tree.iter():
+            if not isinstance(sp.tag, str) or sp.tag.split("}", 1)[-1] != "sp":
+                continue
+            ph_elem = sp.find("p:nvSpPr/p:nvPr/p:ph", NS)
+            if ph_elem is None:
+                continue
+            lst_style = sp.find("p:txBody/a:lstStyle", NS)
+            if lst_style is None:
+                continue
+            ph_type, ph_idx = _placeholder_identity(
+                ph_elem.attrib.get("type"),
+                ph_elem.attrib.get("idx"),
+            )
+            for key in ((ph_type, ph_idx),
+                        (ph_type, None),
+                        (None, ph_idx)):
+                table.setdefault(key, []).append(lst_style)
+        _append_master_tx_styles(table, part_xml)
+    return table
+
+
+def _build_placeholder_body_property_table(
+    *parts: ET.Element | None,
+) -> dict[tuple[str | None, str | None], list[ET.Element]]:
+    """Index placeholder txBody/bodyPr elements in priority order."""
+    table: dict[tuple[str | None, str | None], list[ET.Element]] = {}
+    for part_xml in parts:
+        if part_xml is None:
+            continue
+        sp_tree = part_xml.find("p:cSld/p:spTree", NS)
+        if sp_tree is None:
+            continue
+        for sp in sp_tree.iter():
+            if not isinstance(sp.tag, str) or sp.tag.split("}", 1)[-1] != "sp":
+                continue
+            ph_elem = sp.find("p:nvSpPr/p:nvPr/p:ph", NS)
+            body_pr = sp.find("p:txBody/a:bodyPr", NS)
+            if ph_elem is None or body_pr is None:
+                continue
+            ph_type, ph_idx = _placeholder_identity(
+                ph_elem.attrib.get("type"),
+                ph_elem.attrib.get("idx"),
+            )
+            for key in (
+                (ph_type, ph_idx),
+                (ph_type, None),
+                (None, ph_idx),
+            ):
+                table.setdefault(key, []).append(body_pr)
+    return table
+
+
+def _append_master_tx_styles(
+    table: dict[tuple[str | None, str | None], list[ET.Element]],
+    part_xml: ET.Element,
+) -> None:
+    for key, path in (
+        (_TX_STYLE_TITLE_KEY, "p:txStyles/p:titleStyle"),
+        (_TX_STYLE_BODY_KEY, "p:txStyles/p:bodyStyle"),
+        (_TX_STYLE_OTHER_KEY, "p:txStyles/p:otherStyle"),
+    ):
+        style = part_xml.find(path, NS)
+        if style is not None:
+            table.setdefault(key, []).append(style)
 
 
 def walk_sp_tree(
@@ -273,17 +502,26 @@ def walk_sp_tree(
     """Top-level entry: return shape nodes for a slide / layout / master XML.
 
     When ``slide_xml`` is a regular slide, pass its ``layout_xml`` and
-    ``master_xml`` so that placeholders without explicit geometry can inherit
-    from the layout/master. Layout and master walks pass neither — their own
-    placeholders are the source of truth.
+    ``master_xml`` so placeholders can inherit geometry, text list styles, and
+    body properties from the layout/master. Layout and master walks pass
+    neither — their own placeholders are the source of truth.
     """
     sp_tree = slide_xml.find("p:cSld/p:spTree", NS)
     if sp_tree is None:
         return []
     placeholder_xfrms = _build_placeholder_xfrm_table(layout_xml, master_xml)
+    placeholder_lst_styles = _build_placeholder_lst_style_table(
+        layout_xml, master_xml,
+    )
+    placeholder_body_properties = _build_placeholder_body_property_table(
+        layout_xml,
+        master_xml,
+    )
     return _walk_container(
         sp_tree, parent_group_xfrm=None,
         placeholder_xfrms=placeholder_xfrms or None,
+        placeholder_lst_styles=placeholder_lst_styles or None,
+        placeholder_body_properties=placeholder_body_properties or None,
     )
 
 

@@ -161,6 +161,9 @@ module.exports = {
     '!**/*.map',
     '!**/*.d.ts',
     '!**/*.ts',
+    '!src/asset/skills/**/__pycache__/**',
+    '!src/asset/skills/**/*.pyc',
+    '!src/asset/skills/**/*.pyo',
     '!**/tsconfig*.json',
     '!**/README*',
     '!**/CHANGELOG*'
