@@ -39,3 +39,7 @@ The Design command bridge SHALL accept the documented SVG-like path and paint al
 #### Scenario: Model retries the same request
 - **WHEN** a model emits additional canvas commands after the first accepted atomic command for the same user request
 - **THEN** WorkWise ignores the retries without changing another document or showing a stale-document error
+
+#### Scenario: User switches Design documents
+- **WHEN** the active Design document or page changes
+- **THEN** the assistant starts a new canvas-scoped session and clears prior command, export, and artifact-action notices instead of presenting them as results for the new canvas

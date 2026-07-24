@@ -38,3 +38,5 @@
 - [x] 6.5 Commit the corrected implementation in reviewable commits and push the current feature branch without adding `.codex/config.toml` or ZCode session state
 - [x] 6.6 Re-run full local quality gates and real-app pan/zoom/Agent-visible-result persistence regression after the emergency Design repair
 - [x] 6.7 Build and inspect a new three-platform 0.3.2 candidate containing the emergency Design repair before declaring it publishable
+- [x] 6.8 Preserve executable permissions for the packaged MarkItDown/PPT Master sidecar and prevent stale assistant or export state from crossing Design documents
+- [ ] 6.9 Rebuild and install the corrected 0.3.2 candidate, then verify conversational poster/PPT creation, isolated canvas pan/zoom, and real PNG/SVG/PPTX artifact delivery

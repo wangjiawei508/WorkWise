@@ -31,3 +31,7 @@ WorkWise SHALL resolve the audited PPT Master runtime in packaged macOS Apple Si
 #### Scenario: Packaged export
 - **WHEN** PPTX export runs from an installed client
 - **THEN** WorkWise uses packaged unpacked resources and either produces a validated PPTX or reports a dependency diagnostic
+
+#### Scenario: Packaged converter permissions
+- **WHEN** the macOS or Linux client is assembled
+- **THEN** the packaged MarkItDown/PPT Master sidecar is nonempty and executable before application signing and artifact creation
