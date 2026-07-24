@@ -37,4 +37,4 @@
 - [x] 6.4 Perform real installed-app Design/Write/PPT smoke testing or record a concrete environment blocker with a reproducible fallback test
 - [x] 6.5 Commit the corrected implementation in reviewable commits and push the current feature branch without adding `.codex/config.toml` or ZCode session state
 - [x] 6.6 Re-run full local quality gates and real-app pan/zoom/Agent-visible-result persistence regression after the emergency Design repair
-- [ ] 6.7 Build and inspect a new three-platform candidate containing the emergency Design repair before declaring 0.3.1 publishable
+- [x] 6.7 Build and inspect a new three-platform 0.3.2 candidate containing the emergency Design repair before declaring it publishable
