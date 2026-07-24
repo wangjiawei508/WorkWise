@@ -1,5 +1,15 @@
+import { execFileSync } from 'node:child_process'
+import {
+  chmodSync,
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync
+} from 'node:fs'
 import { readFile } from 'node:fs/promises'
-import { resolve } from 'node:path'
+import { tmpdir } from 'node:os'
+import { join, resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
 const root = resolve(import.meta.dirname, '../../..')
@@ -49,5 +59,53 @@ describe('document helper packaging policy', () => {
     expect(packageVerifier).toContain("'magika', 'models', 'standard_v3_3', 'model.onnx'")
     expect(buildScript).toContain("'ppt-master', 'scripts', 'svg_to_pptx.py'")
     expect(packageVerifier).toContain("'ppt-master', 'scripts'")
+  })
+
+  it('does not leave the candidate root through a DMG Applications symlink', () => {
+    if (process.platform === 'win32') return
+    const candidateRoot = mkdtempSync(join(tmpdir(), 'workwise-sidecar-candidate-'))
+    const externalRoot = mkdtempSync(join(tmpdir(), 'workwise-sidecar-external-'))
+    const verifier = resolve(root, 'scripts/verify-packaged-markitdown.cjs')
+    const createSidecar = (base: string, executableMode: number): void => {
+      const sidecarRoot = join(
+        base,
+        'WorkWise.app/Contents/Resources/app.asar.unpacked/sidecars/markitdown'
+      )
+      mkdirSync(
+        join(sidecarRoot, '_internal', 'magika', 'models', 'standard_v3_3'),
+        { recursive: true }
+      )
+      mkdirSync(join(sidecarRoot, '_internal', 'ppt-master', 'scripts'), {
+        recursive: true
+      })
+      const executable = join(sidecarRoot, 'workwise-markitdown')
+      writeFileSync(executable, 'sidecar')
+      chmodSync(executable, executableMode)
+      for (const file of ['requirements.lock', 'README.md', 'THIRD_PARTY_NOTICES.md']) {
+        writeFileSync(join(sidecarRoot, file), file)
+      }
+      writeFileSync(
+        join(sidecarRoot, '_internal', 'magika', 'models', 'standard_v3_3', 'model.onnx'),
+        'model'
+      )
+      for (const script of ['svg_to_pptx.py', 'pptx_to_svg.py', 'preset_shape_svg.py']) {
+        writeFileSync(join(sidecarRoot, '_internal', 'ppt-master', 'scripts', script), script)
+      }
+    }
+
+    try {
+      createSidecar(candidateRoot, 0o755)
+      createSidecar(externalRoot, 0o644)
+      symlinkSync(externalRoot, join(candidateRoot, 'Applications'))
+
+      expect(() => {
+        execFileSync(process.execPath, [verifier, candidateRoot, 'mac', '1'], {
+          stdio: 'pipe'
+        })
+      }).not.toThrow()
+    } finally {
+      rmSync(candidateRoot, { force: true, recursive: true })
+      rmSync(externalRoot, { force: true, recursive: true })
+    }
   })
 })

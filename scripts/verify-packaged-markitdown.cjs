@@ -1,4 +1,4 @@
-const { existsSync, readdirSync, statSync } = require('node:fs')
+const { existsSync, lstatSync, readdirSync, statSync } = require('node:fs')
 const { basename, dirname, join, resolve } = require('node:path')
 
 const root = resolve(process.argv[2] || 'dist')
@@ -50,7 +50,8 @@ console.log(`Verified ${matches.length} packaged MarkItDown helper(s):\n${matche
 function walk(directory, visit) {
   for (const entry of readdirSync(directory)) {
     const path = join(directory, entry)
-    const info = statSync(path)
+    const info = lstatSync(path)
+    if (info.isSymbolicLink()) continue
     if (info.isDirectory()) walk(path, visit)
     else if (info.isFile()) visit(path)
   }
