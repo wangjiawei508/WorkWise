@@ -129,4 +129,23 @@ describe('DesignWorkspaceView export delivery', () => {
       path: '/tmp/QA board.pptx'
     })
   })
+
+  it('clears the previous document artifact when the active Design document changes', async () => {
+    await act(async () => {
+      buttonWithText('Export PPTX').click()
+    })
+    await settle()
+    expect(container.textContent).toContain('QA board.pptx')
+
+    await act(async () => {
+      const otherDocument = createDesignDocument({ name: 'Other board' })
+      useDesignWorkspaceStore.getState().loadDocument(otherDocument, {
+        activePageId: otherDocument.pages[0].id,
+        persistedRevision: otherDocument.revision
+      })
+    })
+    await settle()
+
+    expect(container.textContent).not.toContain('QA board.pptx')
+  })
 })

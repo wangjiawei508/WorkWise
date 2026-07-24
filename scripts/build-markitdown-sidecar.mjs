@@ -1,5 +1,12 @@
 import { spawnSync } from 'node:child_process'
-import { copyFileSync, existsSync, mkdirSync, rmSync } from 'node:fs'
+import {
+  chmodSync,
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  rmSync,
+  statSync
+} from 'node:fs'
 import { arch, platform } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -12,8 +19,16 @@ const python = process.env.WORKWISE_PYTHON || (platform() === 'win32' ? 'python'
 
 if (process.argv.includes('--verify-only')) {
   const executable = platform() === 'win32' ? 'workwise-markitdown.exe' : 'workwise-markitdown'
-  if (!existsSync(join(outputRoot, 'workwise-markitdown', executable))) {
+  const executablePath = join(outputRoot, 'workwise-markitdown', executable)
+  if (!existsSync(executablePath)) {
     throw new Error(`MarkItDown sidecar is missing: ${outputRoot}`)
+  }
+  const executableInfo = statSync(executablePath)
+  if (executableInfo.size === 0) {
+    throw new Error(`MarkItDown sidecar is empty: ${executablePath}`)
+  }
+  if (platform() !== 'win32' && (executableInfo.mode & 0o111) === 0) {
+    throw new Error(`MarkItDown sidecar is not executable: ${executablePath}`)
   }
   if (!existsSync(join(outputRoot, 'workwise-markitdown', '_internal', 'magika', 'models', 'standard_v3_3', 'model.onnx'))) {
     throw new Error(`MarkItDown Magika model is missing: ${outputRoot}`)
@@ -42,6 +57,9 @@ const result = spawnSync(
 )
 if (result.status !== 0) process.exit(result.status ?? 1)
 const packagedRoot = join(outputRoot, 'workwise-markitdown')
+if (platform() !== 'win32') {
+  chmodSync(join(packagedRoot, 'workwise-markitdown'), 0o755)
+}
 copyFileSync(join(sidecarRoot, 'requirements.lock'), join(packagedRoot, 'requirements.lock'))
 copyFileSync(join(sidecarRoot, 'README.md'), join(packagedRoot, 'README.md'))
 copyFileSync(join(root, 'THIRD_PARTY_NOTICES.md'), join(packagedRoot, 'THIRD_PARTY_NOTICES.md'))

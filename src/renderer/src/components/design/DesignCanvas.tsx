@@ -84,25 +84,26 @@ export function DesignCanvas(): ReactElement | null {
   const [manualScale, setManualScale] = useState<number | null>(null)
   const [pan, setPan] = useState<DesignCanvasPan>({ x: 0, y: 0 })
   const [snapLines, setSnapLines] = useState<SnapLine[]>([])
-
-  const getActivePage = useDesignWorkspaceStore((s) => s.getActivePage)
+  const activePage: DesignPage | undefined = document && activePageId
+    ? document.pages.find((item) => item.id === activePageId)
+    : undefined
+  const activePageWidth = activePage?.width
+  const activePageHeight = activePage?.height
 
   useEffect(() => {
     const viewport = viewportRef.current
-    if (!viewport || !document || !activePageId) return
-    const page = document.pages.find((item) => item.id === activePageId)
-    if (!page) return
+    if (!viewport || !activePageId || !activePageWidth || !activePageHeight) return
     const updateFitScale = (): void => {
       const bounds = viewport.getBoundingClientRect()
       setFitScale(
-        designCanvasFitScale(bounds.width, bounds.height, page.width, page.height)
+        designCanvasFitScale(bounds.width, bounds.height, activePageWidth, activePageHeight)
       )
     }
     updateFitScale()
     const observer = new ResizeObserver(updateFitScale)
     observer.observe(viewport)
     return () => observer.disconnect()
-  }, [activePageId, document?.id])
+  }, [activePageHeight, activePageId, activePageWidth, document?.id])
 
   useEffect(() => {
     setManualScale(null)
@@ -124,7 +125,7 @@ export function DesignCanvas(): ReactElement | null {
 
   if (!document || !activePageId) return null
 
-  const page: DesignPage | undefined = document.pages.find((p) => p.id === activePageId)
+  const page = activePage
   if (!page) return null
 
   const sortedElements = [...page.elements].sort((a, b) => a.zIndex - b.zIndex)

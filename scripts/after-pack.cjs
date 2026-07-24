@@ -1,5 +1,13 @@
 const { execFileSync } = require('node:child_process')
-const { cpSync, existsSync, mkdirSync, renameSync, rmSync } = require('node:fs')
+const {
+  chmodSync,
+  cpSync,
+  existsSync,
+  mkdirSync,
+  renameSync,
+  rmSync,
+  statSync
+} = require('node:fs')
 const { join } = require('node:path')
 const { verifyAsarArchive } = require('./verify-packaged-asar.cjs')
 
@@ -63,6 +71,32 @@ function validateBundledKunRuntime(context) {
     join(root, 'node_modules', 'better-sqlite3', 'package.json'),
     'root better-sqlite3 dependency'
   )
+}
+
+function ensureBundledMarkItDownExecutable(context) {
+  const platform = normalizePlatform(context.electronPlatformName)
+  const executableName = platform === 'win32'
+    ? 'workwise-markitdown.exe'
+    : 'workwise-markitdown'
+  const executablePath = join(
+    unpackedAppRoot(context),
+    'sidecars',
+    'markitdown',
+    executableName
+  )
+  assertExists(executablePath, 'MarkItDown sidecar executable')
+
+  const before = statSync(executablePath)
+  if (!before.isFile() || before.size === 0) {
+    throw new Error(`[after-pack] MarkItDown sidecar is empty or not a file: ${executablePath}`)
+  }
+
+  if (platform !== 'win32') {
+    chmodSync(executablePath, 0o755)
+    if ((statSync(executablePath).mode & 0o111) === 0) {
+      throw new Error(`[after-pack] MarkItDown sidecar is not executable: ${executablePath}`)
+    }
+  }
 }
 
 function activateBundledRuntimeDependencies(context) {
@@ -129,6 +163,7 @@ function maybeAdhocSignMacApp(context) {
 async function afterPack(context) {
   activateBundledRuntimeDependencies(context)
   validateBundledKunRuntime(context)
+  ensureBundledMarkItDownExecutable(context)
   copyBundledMarkdownConverters(context)
   const integrity = verifyAsarArchive(
     join(packedResourcesDir(context), 'app.asar'),
@@ -148,6 +183,7 @@ module.exports._internals = {
   unpackedAppRoot,
   activateBundledRuntimeDependencies,
   validateBundledKunRuntime,
+  ensureBundledMarkItDownExecutable,
   copyBundledMarkdownConverters,
   converterDirNameForContext,
   normalizeArch

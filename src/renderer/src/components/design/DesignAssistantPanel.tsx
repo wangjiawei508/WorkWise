@@ -15,6 +15,10 @@ type Props = {
   disabled?: boolean
 }
 
+export function designAssistantScopeKey(documentId: string, pageId: string): string {
+  return `${documentId}:${pageId}`
+}
+
 export function buildDesignPrompt(
   request: string,
   document: DesignDocumentV1,
@@ -157,7 +161,7 @@ export function DesignAssistantPanel({
               {reply.text}
             </div>
           ))}
-          {busy ? (
+          {busy && requestLabel ? (
             <div className="flex items-center gap-2 px-1 py-2 text-[11.5px] text-ds-faint">
               <Loader2 className="h-3.5 w-3.5 animate-spin text-accent" strokeWidth={1.8} />
               <span>{liveAssistant.trim() || t('designAssistantWorking')}</span>

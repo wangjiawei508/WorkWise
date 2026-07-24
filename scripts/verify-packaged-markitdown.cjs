@@ -14,6 +14,13 @@ const matches = []
 walk(root, (path) => {
   if (basename(path) !== executable) return
   if (!path.replaceAll('\\', '/').includes('/app.asar.unpacked/sidecars/markitdown/')) return
+  const executableInfo = statSync(path)
+  if (executableInfo.size === 0) {
+    throw new Error(`Packaged MarkItDown helper is empty: ${path}`)
+  }
+  if (target === 'mac' && (executableInfo.mode & 0o111) === 0) {
+    throw new Error(`Packaged MarkItDown helper is not executable: ${path}`)
+  }
   const sidecarRoot = dirname(path)
   for (const required of ['requirements.lock', 'README.md', 'THIRD_PARTY_NOTICES.md']) {
     if (!existsSync(join(sidecarRoot, required))) throw new Error(`Packaged MarkItDown notice is missing: ${join(sidecarRoot, required)}`)

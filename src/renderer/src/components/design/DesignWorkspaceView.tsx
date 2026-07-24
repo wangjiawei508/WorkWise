@@ -38,7 +38,7 @@ import { insertDesignMarkdownIntoWrite } from '../../design/design-write-inserti
 import { useWriteWorkspaceStore } from '../../write/write-workspace-store'
 import { parsePresetPathsFromSvg } from '@shared/design-svg-parser'
 import { DesignCanvas } from './DesignCanvas'
-import { DesignAssistantPanel } from './DesignAssistantPanel'
+import { DesignAssistantPanel, designAssistantScopeKey } from './DesignAssistantPanel'
 import { DesignLayersPanel } from './DesignLayersPanel'
 import { DesignNewDocumentDialog } from './DesignNewDocumentDialog'
 import { DesignPropertiesPanel } from './DesignPropertiesPanel'
@@ -220,6 +220,15 @@ export function DesignWorkspaceView({
     tone: 'success' | 'error'
     message: string
   } | null>(null)
+
+  useEffect(() => {
+    canvasCommandScopeRef.current += 1
+    setAssistantCommandNotice(null)
+    setOperationNotice(null)
+    setExportArtifact(null)
+    setArtifactAction(null)
+    setArtifactActionError(null)
+  }, [activePageId, document?.id, workspaceRoot])
 
   const refreshSavedDocuments = useCallback(async (): Promise<void> => {
     if (!workspaceRoot || typeof window.workwise?.listDesignDocuments !== 'function') {
@@ -903,6 +912,10 @@ export function DesignWorkspaceView({
           ? document && useDesignWorkspaceStore.getState().getActivePage()
             ? (
                 <DesignAssistantPanel
+                  key={designAssistantScopeKey(
+                    document.id,
+                    useDesignWorkspaceStore.getState().getActivePage()!.id
+                  )}
                   document={document}
                   page={useDesignWorkspaceStore.getState().getActivePage()!}
                   workspaceRoot={workspaceRoot}

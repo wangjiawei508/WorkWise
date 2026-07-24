@@ -1,4 +1,11 @@
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import {
+  chmodSync,
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  statSync,
+  writeFileSync
+} from 'node:fs'
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -201,6 +208,22 @@ describe('electron-builder WorkWise packaging', () => {
     expect(() => afterPack._internals.validateBundledKunRuntime(context)).toThrow(
       /kun\/node_modules\/zod\/package\.json/
     )
+  })
+
+  it('makes the packaged macOS MarkItDown sidecar executable before signing', () => {
+    const root = tempRoot()
+    const context = createMacPackContext(root)
+    const executable = join(
+      afterPack._internals.unpackedAppRoot(context),
+      'sidecars/markitdown/workwise-markitdown'
+    )
+    touch(executable)
+    chmodSync(executable, 0o644)
+
+    expect(() =>
+      afterPack._internals.ensureBundledMarkItDownExecutable(context)
+    ).not.toThrow()
+    expect(statSync(executable).mode & 0o111).not.toBe(0)
   })
 
   it('detects missing unpacked ASAR entries after packaging hooks', async () => {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { createDesignDocument, createDesignElement } from '@shared/design-document'
-import { buildDesignPrompt } from './DesignAssistantPanel'
+import { buildDesignPrompt, designAssistantScopeKey } from './DesignAssistantPanel'
 
 describe('Design assistant active-canvas prompt', () => {
   it('binds the request to one exact document revision and atomic command key', () => {
@@ -26,5 +26,13 @@ describe('Design assistant active-canvas prompt', () => {
     expect(prompt).toContain('"selectedElementIds":["shape_1"]')
     expect(prompt).toContain('Do not write SVG, HTML, JSON, scripts, or other files')
     expect(prompt).toContain('User request: 把选中的矩形改成蓝色')
+  })
+
+  it('isolates assistant state by document and page', () => {
+    expect(designAssistantScopeKey('document-a', 'page-1')).toBe('document-a:page-1')
+    expect(designAssistantScopeKey('document-a', 'page-1'))
+      .not.toBe(designAssistantScopeKey('document-b', 'page-1'))
+    expect(designAssistantScopeKey('document-a', 'page-1'))
+      .not.toBe(designAssistantScopeKey('document-a', 'page-2'))
   })
 })
