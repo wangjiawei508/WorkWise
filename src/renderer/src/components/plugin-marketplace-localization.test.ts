@@ -12,6 +12,11 @@ describe('plugin marketplace localization fallbacks', () => {
   it('uses readable built-in fallbacks instead of unresolved translation keys', () => {
     expect(marketplaceText(missing, 'pluginCliLarkTitle')).toBe('Lark CLI')
     expect(marketplaceText(missing, 'pluginSkillAgentReachTitle')).toBe('Agent Reach')
+    expect(marketplaceText(missing, 'pluginSkillDocumentIllustratorTitle')).toBe('Document Illustrator')
+    expect(marketplaceText(missing, 'pluginCommercialLicenseRequired')).toBe('Commercial license required')
+    expect(marketplaceText(missing, 'pluginNoRedistributionLicense')).toBe('No redistribution license')
+    expect(marketplaceText(missing, 'pluginDetailExternalProject'))
+      .toBe('External project · not installed by WorkWise')
   })
 
   it('turns technical Skill and network failures into concise messages', () => {

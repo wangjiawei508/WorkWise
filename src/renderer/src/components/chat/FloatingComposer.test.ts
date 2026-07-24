@@ -210,6 +210,80 @@ describe('FloatingComposer model controls', () => {
     expect(html).toContain('Auto')
     expect(html).toContain('High')
   })
+
+  it('shows built-in agent profiles as a usable thread selector', () => {
+    useChatStore.setState({
+      activeThreadId: 'thr_tender',
+      activeThreadGoal: null,
+      route: 'chat',
+      workspaceRoot: '/workspace/workwise'
+    })
+    const html = renderToStaticMarkup(
+      createElement(FloatingComposer, {
+        input: '编制这份投标文件',
+        setInput: () => undefined,
+        mode: 'agent',
+        setMode: () => undefined,
+        busy: false,
+        runtimeReady: true,
+        hasActiveThread: true,
+        composerModel: 'auto',
+        composerPickList: ['auto'],
+        onComposerModelChange: () => undefined,
+        agentProfiles: [
+          { id: 'general', name: 'General', role: '通用执行' },
+          { id: 'tender-master', name: '招投标编制专家', role: '投标文件分析与编制' }
+        ],
+        activeAgentId: 'tender-master',
+        onAgentChange: () => undefined,
+        queuedMessages: [],
+        onRemoveQueuedMessage: () => undefined,
+        onSend: () => undefined,
+        onInterrupt: () => undefined
+      })
+    )
+
+    expect(html).toContain('aria-label="Switch agent"')
+    expect(html).toMatch(/value="tender-master"[^>]*selected=""/)
+    expect(html).toContain('招投标编制专家')
+  })
+
+  it('disables both Agent switching and sending while an Agent change is being applied', () => {
+    useChatStore.setState({
+      activeThreadId: 'thr_tender',
+      activeThreadGoal: null,
+      route: 'chat',
+      workspaceRoot: '/workspace/workwise'
+    })
+    const html = renderToStaticMarkup(
+      createElement(FloatingComposer, {
+        input: '立即发送',
+        setInput: () => undefined,
+        mode: 'agent',
+        setMode: () => undefined,
+        busy: false,
+        runtimeReady: true,
+        hasActiveThread: true,
+        composerModel: 'auto',
+        composerPickList: ['auto'],
+        onComposerModelChange: () => undefined,
+        agentProfiles: [
+          { id: 'general', name: 'General', role: '通用执行' },
+          { id: 'tender-master', name: '招投标编制专家', role: '投标文件分析与编制' }
+        ],
+        activeAgentId: 'tender-master',
+        agentSelectionApplying: true,
+        onAgentChange: () => undefined,
+        queuedMessages: [],
+        onRemoveQueuedMessage: () => undefined,
+        onSend: () => undefined,
+        onInterrupt: () => undefined
+      })
+    )
+
+    expect(html).toMatch(/<select[^>]*disabled=""/)
+    expect(html).toMatch(/<button[^>]*disabled=""[^>]*title="Send"/)
+  })
 })
 
 describe('FloatingComposer image transfer helpers', () => {

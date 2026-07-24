@@ -38,14 +38,23 @@ function profile(id: string, name: string): string {
 }
 
 describe('AgentProfileService', () => {
-  it('provides the four immutable built-in profiles', () => {
+  it('provides immutable built-in profiles including the tender specialist', () => {
     expect(builtInAgentProfiles().map((entry) => entry.id)).toEqual([
       'general',
       'explore',
       'review',
-      'research'
+      'research',
+      'tender-master'
     ])
     expect(builtInAgentProfiles().every((entry) => entry.builtIn)).toBe(true)
+    expect(builtInAgentProfiles().find((entry) => entry.id === 'tender-master')).toMatchObject({
+      name: '招投标编制专家',
+      trustLevel: 'workspace-write',
+      toolAllowlist: ['read', 'write', 'edit', 'ls', 'find', 'grep'],
+      mcpAllowlist: [],
+      preferredSkillIds: ['tender-master'],
+      systemPrompt: expect.stringContaining('$tender-master')
+    })
   })
 
   it('lets workspace profiles override global profiles with the same id', async () => {
@@ -101,6 +110,8 @@ describe('AgentProfileService', () => {
     await expect(service.save({ scope: 'global', profile: input, expectedRevision: 0 }))
       .rejects.toMatchObject({ code: 'stale_request' })
     await expect(service.save({ scope: 'global', profile: { ...input, id: 'general' } }))
+      .rejects.toThrow(/read-only/)
+    await expect(service.save({ scope: 'global', profile: { ...input, id: 'tender-master' } }))
       .rejects.toThrow(/read-only/)
   })
 })

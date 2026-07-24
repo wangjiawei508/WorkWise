@@ -256,6 +256,94 @@ describe('skill-service', () => {
     })
   })
 
+  it('installs the bundled tender master skill with agent, references, and local QA scripts', async () => {
+    const workspaceRoot = join(tempRoot, 'workspace-bundled-tender-master')
+    const skillInstallRoot = join(workspaceRoot, '.agents', 'skills')
+
+    const installed = await installBundledSkill(skillInstallRoot, {
+      id: 'tender-master'
+    })
+
+    expect(installed.ok).toBe(true)
+    if (!installed.ok) return
+    const installedRoot = join(skillInstallRoot, 'tender-master')
+    const skill = await readFile(join(installedRoot, 'SKILL.md'), 'utf8')
+    expect(skill).toContain('招投标编制专家')
+    expect(skill).toContain('技术参数、实质性要求和验收条件必须')
+    expect(skill).not.toContain('\uFFFD')
+    expect(await readFile(join(installedRoot, 'agents', 'tender-agent.md'), 'utf8'))
+      .toContain('九步流程顺序锁死')
+    expect(await readFile(join(installedRoot, 'references', 'prompt-and-riskledger.md'), 'utf8'))
+      .toContain('不能把“必须≥500TB”弱化')
+    expect(existsSync(join(installedRoot, 'scripts', 'bid_quality_check.py'))).toBe(true)
+    expect(existsSync(join(installedRoot, 'scripts', 'build_docx.py'))).toBe(true)
+    expect(existsSync(join(installedRoot, 'README.md'))).toBe(false)
+
+    const source = JSON.parse(
+      await readFile(join(installedRoot, '.workwise-skill-source.json'), 'utf8')
+    ) as Record<string, unknown>
+    expect(source).toMatchObject({
+      type: 'bundled',
+      id: 'tender-master',
+      autoUpdate: false
+    })
+
+    const result = await listGuiSkills(createSettings(workspaceRoot), workspaceRoot)
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.skills).toContainEqual(expect.objectContaining({
+      id: 'tender-master',
+      source: {
+        type: 'bundled',
+        id: 'tender-master',
+        autoUpdate: false
+      }
+    }))
+  })
+
+  it('installs the audited MIT document illustrator without third-party credential scripts', async () => {
+    const workspaceRoot = join(tempRoot, 'workspace-bundled-document-illustrator')
+    const skillInstallRoot = join(workspaceRoot, '.agents', 'skills')
+
+    const installed = await installBundledSkill(skillInstallRoot, {
+      id: 'document-illustrator'
+    })
+
+    expect(installed.ok).toBe(true)
+    if (!installed.ok) return
+    const installedRoot = join(skillInstallRoot, 'document-illustrator')
+    const skill = await readFile(join(installedRoot, 'SKILL.md'), 'utf8')
+    expect(skill).toContain('文档配图助手')
+    expect(skill).toContain('WorkWise 已配置的图片生成能力')
+    expect(skill).not.toContain('GEMINI_API_KEY')
+    expect(existsSync(join(installedRoot, 'LICENSE'))).toBe(true)
+    expect(await readFile(join(installedRoot, 'references', 'upstream.md'), 'utf8'))
+      .toContain('8344815d407cc25cc04c327557f36ed839f0aaef')
+    expect(existsSync(join(installedRoot, 'scripts'))).toBe(false)
+    expect(existsSync(join(installedRoot, '.env'))).toBe(false)
+
+    const source = JSON.parse(
+      await readFile(join(installedRoot, '.workwise-skill-source.json'), 'utf8')
+    ) as Record<string, unknown>
+    expect(source).toMatchObject({
+      type: 'bundled',
+      id: 'document-illustrator',
+      autoUpdate: false
+    })
+
+    const result = await listGuiSkills(createSettings(workspaceRoot), workspaceRoot)
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.skills).toContainEqual(expect.objectContaining({
+      id: 'document-illustrator',
+      source: {
+        type: 'bundled',
+        id: 'document-illustrator',
+        autoUpdate: false
+      }
+    }))
+  })
+
   it('installs bundled GitHub-managed writing skills with update metadata', async () => {
     const workspaceRoot = join(tempRoot, 'workspace-bundled-writing')
     const skillInstallRoot = join(workspaceRoot, '.agents', 'skills')
