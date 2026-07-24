@@ -197,6 +197,13 @@ jobs:
           name: markitdown-darwin-x64
           path: build/sidecars/markitdown-darwin-x64
 
+      # actions/download-artifact does not preserve POSIX executable bits.
+      # Restore them at the artifact boundary before verification and packaging.
+      - name: Restore macOS sidecar executable permissions
+        run: |
+          chmod 755 build/sidecars/markitdown-darwin-arm64/workwise-markitdown/workwise-markitdown
+          chmod 755 build/sidecars/markitdown-darwin-x64/workwise-markitdown/workwise-markitdown
+
       - name: Verify both macOS sidecars
         run: |
           WORKWISE_SIDECAR_ARCH=arm64 node scripts/build-markitdown-sidecar.mjs --verify-only

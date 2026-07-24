@@ -13,6 +13,13 @@ describe('document helper packaging policy', () => {
     expect(workflow).toContain('markitdown-darwin-arm64')
     expect(workflow).toContain('markitdown-darwin-x64')
     expect(workflow).toContain('markitdown-win32-x64')
+    expect(workflow).toContain('Restore macOS sidecar executable permissions')
+    expect(workflow).toContain(
+      'chmod 755 build/sidecars/markitdown-darwin-arm64/workwise-markitdown/workwise-markitdown'
+    )
+    expect(workflow).toContain(
+      'chmod 755 build/sidecars/markitdown-darwin-x64/workwise-markitdown/workwise-markitdown'
+    )
     expect(workflow).toContain("WORKWISE_REQUIRE_DOCUMENT_SIDECAR: '1'")
     expect(workflow).toContain('verify-packaged-markitdown.cjs dist mac')
     expect(workflow).toContain('verify-packaged-markitdown.cjs dist win')
