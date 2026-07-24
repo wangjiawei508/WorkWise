@@ -13,6 +13,7 @@ import {
 import {
   Archive,
   BarChart3,
+  Bot,
   FileEdit,
   FileText,
   GitFork,
@@ -103,6 +104,14 @@ type Props = {
   composerReasoningEffort?: string
   onComposerModelChange: (modelId: string) => void
   onComposerReasoningEffortChange?: (effort: ComposerReasoningEffort) => void
+  agentProfiles?: Array<{
+    id: string
+    name: string
+    role: string
+  }>
+  activeAgentId?: string
+  agentSelectionApplying?: boolean
+  onAgentChange?: (agentId: string) => void
   hideModelPicker?: boolean
   modelPickerMode?: 'select' | 'combobox'
   queuedMessages: QueuedComposerMessage[]
@@ -483,6 +492,10 @@ export function FloatingComposer({
   composerReasoningEffort,
   onComposerModelChange,
   onComposerReasoningEffortChange,
+  agentProfiles = [],
+  activeAgentId = 'general',
+  agentSelectionApplying = false,
+  onAgentChange,
   hideModelPicker = false,
   modelPickerMode = 'select',
   queuedMessages,
@@ -569,7 +582,7 @@ export function FloatingComposer({
       : (hasActiveThread || !!effectiveWorkspaceRoot)
   )
   const canChangeModel = canCompose && !busy
-  const canSend = canCompose && (
+  const canSend = canCompose && !agentSelectionApplying && (
     input.trim().length > 0 ||
     (attachmentUploadEnabled && attachments.length > 0) ||
     (fileReferenceEnabled && fileReferences.length > 0)
@@ -1890,6 +1903,43 @@ export function FloatingComposer({
                 stretchModelPicker ? 'flex-1' : 'shrink-0'
               }`}
             >
+              {onAgentChange && agentProfiles.length > 0 ? (
+                <label
+                  className="ds-no-drag relative inline-flex h-9 max-w-44 shrink-0 items-center gap-1.5 rounded-full border border-ds-border-muted bg-ds-card/72 px-2.5 text-[12px] font-medium text-ds-muted transition focus-within:border-ds-border-strong hover:bg-ds-hover"
+                  title={t('agentSwitcherTitleWith', {
+                    agent: agentProfiles.find((profile) => profile.id === activeAgentId)?.name
+                      ?? activeAgentId
+                  })}
+                >
+                  {agentSelectionApplying ? (
+                    <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" strokeWidth={1.9} />
+                  ) : (
+                    <Bot className="h-3.5 w-3.5 shrink-0" strokeWidth={1.9} />
+                  )}
+                  <select
+                    aria-label={t('agentSwitcherMenuTitle')}
+                    value={
+                      agentProfiles.some((profile) => profile.id === activeAgentId)
+                        ? activeAgentId
+                        : ''
+                    }
+                    disabled={busy || !runtimeReady || agentSelectionApplying}
+                    onChange={(event) => onAgentChange(event.currentTarget.value)}
+                    className="min-w-0 max-w-32 cursor-pointer appearance-none truncate bg-transparent pr-2 text-ds-muted outline-none disabled:cursor-not-allowed disabled:opacity-55"
+                  >
+                    {!agentProfiles.some((profile) => profile.id === activeAgentId) ? (
+                      <option value="" disabled>
+                        {t('agentUnavailable')}
+                      </option>
+                    ) : null}
+                    {agentProfiles.map((profile) => (
+                      <option key={profile.id} value={profile.id} title={profile.role}>
+                        {profile.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              ) : null}
               {hideModelPicker ? null : (
                 <FloatingComposerModelPicker
                   compact={compact}

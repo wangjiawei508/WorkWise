@@ -15,6 +15,7 @@ import {
   type KeyboardShortcutCommandId
 } from '@shared/keyboard-shortcuts'
 import type { DesktopCommand, SkillListItem, WriteKnowledgeSearchResult } from '@shared/workwise-api'
+import type { AgentProfileV1 } from '@shared/agent-workbench'
 import type { ClipboardImageReadResult } from '@shared/workspace-file'
 import type { AttachmentReference, ChatBlock } from '../agent/types'
 import type { CoreRuntimeInfoJson, CoreRuntimeSkillJson } from '../agent/runtime-contract'
@@ -36,6 +37,7 @@ import {
   type ComposerExecutionSettings,
   type ComposerFileReference
 } from './chat/FloatingComposer'
+import { setThreadAgentWithOneRevisionReplay } from './chat/thread-agent-selection'
 import {
   composerReasoningEffortRequestValue,
   type ComposerReasoningEffort
@@ -364,6 +366,8 @@ export function Workbench(): ReactElement {
     useState<ComposerReasoningEffort>('max')
   const [runtimeInfo, setRuntimeInfo] = useState<CoreRuntimeInfoJson | null>(null)
   const [runtimeSkills, setRuntimeSkills] = useState<CoreRuntimeSkillJson[]>([])
+  const [agentProfiles, setAgentProfiles] = useState<AgentProfileV1[]>([])
+  const [agentSelectionApplying, setAgentSelectionApplying] = useState(false)
   const [composerAttachments, setComposerAttachments] = useState<AttachmentReference[]>([])
   const [composerFileReferences, setComposerFileReferences] = useState<ComposerFileReference[]>([])
   const [composerExecutionSettings, setComposerExecutionSettings] =
@@ -469,6 +473,10 @@ export function Workbench(): ReactElement {
     () => threads.find((thread) => thread.id === activeThreadId)?.workspace || workspaceRoot || '',
     [activeThreadId, threads, workspaceRoot]
   )
+  const activeThread = useMemo(
+    () => threads.find((thread) => thread.id === activeThreadId) ?? null,
+    [activeThreadId, threads]
+  )
   const composerChangeSummary = useMemo(
     () => collectComposerChangeSummary(timelineBlocks, activeSkillWorkspace),
     [activeSkillWorkspace, timelineBlocks]
@@ -486,6 +494,60 @@ export function Workbench(): ReactElement {
     (count, side) => count + (side.busy ? 1 : 0),
     0
   )
+
+  useEffect(() => {
+    if (
+      route !== 'chat'
+      || runtimeConnection !== 'ready'
+      || !activeThreadId
+      || typeof window.workwise?.listAgentProfiles !== 'function'
+    ) {
+      setAgentProfiles([])
+      return
+    }
+    let cancelled = false
+    void window.workwise.listAgentProfiles(activeSkillWorkspace).then(
+      (snapshot) => {
+        if (!cancelled) setAgentProfiles(snapshot.profiles)
+      },
+      (cause) => {
+        if (!cancelled) {
+          setAgentProfiles([])
+          setError(cause instanceof Error ? cause.message : String(cause))
+        }
+      }
+    )
+    return () => {
+      cancelled = true
+    }
+  }, [activeSkillWorkspace, activeThreadId, route, runtimeConnection, setError])
+
+  const changeActiveThreadAgent = async (agentId: string): Promise<void> => {
+    if (
+      !activeThreadId
+      || busy
+      || agentSelectionApplying
+      || typeof window.workwise?.setThreadAgent !== 'function'
+    ) return
+
+    setAgentSelectionApplying(true)
+    try {
+      await setThreadAgentWithOneRevisionReplay({
+        threadId: activeThreadId,
+        agentId,
+        expectedRevision: activeThread?.agentRevision ?? 0,
+        setThreadAgent: window.workwise.setThreadAgent,
+        refreshThreads: useChatStore.getState().refreshThreads,
+        readExpectedRevision: () => useChatStore.getState().threads
+          .find((thread) => thread.id === activeThreadId)?.agentRevision
+      })
+      await useChatStore.getState().refreshThreads()
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause))
+    } finally {
+      setAgentSelectionApplying(false)
+    }
+  }
   const {
     beginLeftResize,
     beginRightResize,
@@ -2027,6 +2089,10 @@ export function Workbench(): ReactElement {
                 onComposerReasoningEffortChange={
                   route === 'chat' || route === 'claw' ? setComposerReasoningEffort : undefined
                 }
+                agentProfiles={route === 'chat' ? agentProfiles : undefined}
+                activeAgentId={activeThread?.agentId ?? 'general'}
+                agentSelectionApplying={agentSelectionApplying}
+                onAgentChange={route === 'chat' ? (agentId) => void changeActiveThreadAgent(agentId) : undefined}
                 onSend={handleSend}
                 attachments={composerAttachments}
                 attachmentUploadEnabled={attachmentUploadEnabled}

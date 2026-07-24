@@ -26,10 +26,16 @@ async function runtimeJson<T>(path: string, method = 'GET', body?: unknown): Pro
     parsed = null
   }
   if (!result.ok) {
+    const code = parsed && typeof parsed === 'object' && 'code' in parsed
+      ? String(parsed.code)
+      : undefined
     const message = parsed && typeof parsed === 'object' && 'message' in parsed
       ? String(parsed.message)
       : `Runtime request failed (${result.status}).`
-    throw new Error(message)
+    throw Object.assign(new Error(code ? `[${code}] ${message}` : message), {
+      code,
+      status: result.status
+    })
   }
   return parsed as T
 }

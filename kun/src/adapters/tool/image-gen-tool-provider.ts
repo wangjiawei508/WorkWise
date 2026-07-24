@@ -1,6 +1,6 @@
 import { randomBytes } from 'node:crypto'
-import { mkdir, readFile } from 'node:fs/promises'
-import { isAbsolute, join, relative, resolve } from 'node:path'
+import { lstat, mkdir, readFile, realpath } from 'node:fs/promises'
+import { basename, dirname, extname, isAbsolute, join, relative, resolve } from 'node:path'
 import type { KunCapabilitiesConfig } from '../../contracts/capabilities.js'
 import type { AttachmentStore } from '../../attachments/attachment-store.js'
 import { detectImage } from '../../attachments/attachment-store.js'
@@ -185,6 +185,10 @@ export function buildImageGenToolProviders(
           items: { type: 'string' },
           maxItems: config.maxReferenceImages,
           description: 'Workspace-relative paths of reference images for image-to-image guidance'
+        },
+        output_path: {
+          type: 'string',
+          description: 'Optional workspace-relative output path or stem. PNG/JPEG/WebP extension is normalized to the actual result.'
         }
       },
       required: ['prompt'],
@@ -198,6 +202,7 @@ export function buildImageGenToolProviders(
 
       const aspectRatio = pickString(args.aspect_ratio)
       const imageSize = pickString(args.image_size)
+      const requestedOutputPath = pickString(args.output_path)
       const size = mapImageSize(aspectRatio, imageSize, config.defaultSize)
 
       const references = await collectReferenceImages(
@@ -237,12 +242,21 @@ export function buildImageGenToolProviders(
       const mimeType = detected?.mimeType ?? image.mimeType ?? 'image/png'
       const ext = mimeType === 'image/jpeg' ? 'jpg' : mimeType === 'image/webp' ? 'webp' : 'png'
       const stamp = (options.nowIso?.() ?? new Date().toISOString()).replace(/\D/g, '').slice(0, 14)
-      const fileName = `img-${stamp}-${randomBytes(2).toString('hex')}.${ext}`
+      const defaultFileName = `img-${stamp}-${randomBytes(2).toString('hex')}.${ext}`
+      const relativePath = requestedOutputPath
+        ? normalizedImageOutputPath(requestedOutputPath, ext)
+        : `${GENERATED_IMAGE_DIR}/${defaultFileName}`
+      if (!relativePath) {
+        return toolError(
+          'invalid_output_path',
+          'output_path must be a workspace-relative PNG, JPEG, or WebP path'
+        )
+      }
+      const fileName = basename(relativePath)
       // Forward slashes regardless of platform: the path is echoed back to the
       // model and rendered in chat, where POSIX-style relative paths are expected.
-      const relativePath = `${GENERATED_IMAGE_DIR}/${fileName}`
       const { absolutePath } = await resolveWorkspacePath(relativePath, context)
-      await mkdir(join(context.workspace, GENERATED_IMAGE_DIR), { recursive: true })
+      await mkdir(dirname(absolutePath), { recursive: true })
       await atomicWriteFile(absolutePath, image.data, {
         beforeReplace: async () => {
           await resolveWorkspacePath(absolutePath, context)
@@ -302,10 +316,25 @@ export function buildImageGenToolProviders(
   }
 }
 
+export function normalizedImageOutputPath(
+  rawPath: string,
+  actualExtension: 'png' | 'jpg' | 'webp'
+): string | null {
+  const normalized = rawPath.trim().replaceAll('\\', '/')
+  if (!normalized || normalized.startsWith('/') || /^[a-zA-Z]:\//.test(normalized)) return null
+  const currentExtension = extname(normalized).toLowerCase()
+  if (currentExtension && !['.png', '.jpg', '.jpeg', '.webp'].includes(currentExtension)) return null
+  const stem = currentExtension ? normalized.slice(0, -currentExtension.length) : normalized
+  if (!stem || stem.split('/').some((segment) => !segment || segment === '.' || segment === '..')) {
+    return null
+  }
+  return `${stem}.${actualExtension}`
+}
+
 type ReferenceImages = { images: { name: string; mimeType: string; data: Buffer }[] }
 type ReferenceError = { error: { output: unknown; isError: true } }
 
-async function collectReferenceImages(
+export async function collectReferenceImages(
   value: unknown,
   workspace: string,
   maxCount: number
@@ -319,15 +348,41 @@ async function collectReferenceImages(
     return { error: toolError('invalid_reference_path', `at most ${maxCount} reference images are allowed`) }
   }
   const images: ReferenceImages['images'] = []
+  let canonicalWorkspace: string
+  try {
+    canonicalWorkspace = await realpath(resolve(workspace))
+  } catch {
+    return { error: toolError('invalid_reference_path', 'workspace root is unavailable') }
+  }
   for (const rawPath of paths) {
-    const resolved = resolve(workspace, rawPath)
-    const rel = relative(workspace, resolved)
+    const workspacePath = resolve(workspace)
+    const resolved = resolve(workspacePath, rawPath)
+    const rel = relative(workspacePath, resolved)
     if (rel.startsWith('..') || isAbsolute(rel)) {
       return { error: toolError('invalid_reference_path', `reference image must be inside the workspace: ${rawPath}`) }
     }
     let data: Buffer
     try {
-      data = await readFile(resolved)
+      let cursor = workspacePath
+      for (const segment of rel.split(/[\\/]+/).filter(Boolean)) {
+        cursor = join(cursor, segment)
+        if ((await lstat(cursor)).isSymbolicLink()) {
+          return {
+            error: toolError(
+              'invalid_reference_path',
+              `reference image path cannot contain a symbolic link or junction: ${rawPath}`
+            )
+          }
+        }
+      }
+      const canonicalResolved = await realpath(resolved)
+      const canonicalRel = relative(canonicalWorkspace, canonicalResolved)
+      if (canonicalRel.startsWith('..') || isAbsolute(canonicalRel)) {
+        return {
+          error: toolError('invalid_reference_path', `reference image escapes the workspace: ${rawPath}`)
+        }
+      }
+      data = await readFile(canonicalResolved)
     } catch {
       return { error: toolError('invalid_reference_path', `reference image not found: ${rawPath}`) }
     }

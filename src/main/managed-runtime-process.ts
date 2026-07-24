@@ -45,6 +45,7 @@ import { isRuntimeHealthResponseBody } from './runtime-health'
 import { appendManagedLogLine } from './logger'
 import {
   guiSkillRootsForRuntime,
+  installBundledSkill,
   normalizeSkillRootPath,
   resolveBundledSkillDirectory
 } from './services/skill-service'
@@ -319,6 +320,7 @@ export function isManagedRuntimeChildRunning(): boolean {
 
 export type StartManagedRuntimeChildOptions = {
   autoInstallBundledAgentPack?: boolean
+  autoInstallBundledSpecialistSkills?: boolean
 }
 
 export async function startManagedRuntimeChild(
@@ -341,6 +343,7 @@ export async function startManagedRuntimeChild(
   }
   const dataDir = resolveManagedRuntimeDataDir(runtime)
   await ensureBundledAgentPackForRuntime(options)
+  await ensureBundledSpecialistSkillsForRuntime(options)
   await syncManagedRuntimeConfig(dataDir, runtime, {
     scheduleMcp: {
       settings,
@@ -426,6 +429,34 @@ async function ensureBundledAgentPackForRuntime(options: StartManagedRuntimeChil
     ? `bundled agent pack ${METRO_MONITORING_AGENT_PACK_ID} available at ${result.rootPath} (${result.installedAssets} assets)`
     : `bundled agent pack ${METRO_MONITORING_AGENT_PACK_ID} could not be installed: ${result.message}`
   await appendManagedLogLine('runtime', formatRuntimeLogLine('lifecycle', undefined, message)).catch(() => undefined)
+}
+
+const AUTO_INSTALLED_SPECIALIST_SKILLS = [
+  { id: 'tender-master', skillName: 'tender-master' },
+  { id: 'document-illustrator', skillName: 'document-illustrator' }
+] as const
+
+async function ensureBundledSpecialistSkillsForRuntime(
+  options: StartManagedRuntimeChildOptions
+): Promise<void> {
+  if (
+    options.autoInstallBundledSpecialistSkills === false
+    || (
+      options.autoInstallBundledSpecialistSkills === undefined
+      && options.autoInstallBundledAgentPack === false
+    )
+  ) return
+  const root = join(homedir(), '.workwise', 'skills')
+  for (const source of AUTO_INSTALLED_SPECIALIST_SKILLS) {
+    const result = await installBundledSkill(root, source)
+    const message = result.ok
+      ? `bundled Skill ${source.id} available at ${result.path}`
+      : `bundled Skill ${source.id} could not be installed: ${result.message}`
+    await appendManagedLogLine(
+      'runtime',
+      formatRuntimeLogLine('lifecycle', undefined, message)
+    ).catch(() => undefined)
+  }
 }
 
 export async function syncManagedRuntimeConfig(

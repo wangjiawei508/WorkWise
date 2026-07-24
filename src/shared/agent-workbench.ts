@@ -124,6 +124,7 @@ export type AgentProfileV1 = {
   model?: string
   toolAllowlist: string[]
   mcpAllowlist: string[]
+  preferredSkillIds?: string[]
   trustLevel: WorkspaceTrustLevel
   budget: {
     maxAttempts: number

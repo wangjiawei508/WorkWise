@@ -30,6 +30,7 @@ export const ThreadAgentProfileSchema = z.object({
   model: z.string().min(1).max(256).optional(),
   toolAllowlist: z.array(z.string().min(1).max(256)).max(512),
   mcpAllowlist: z.array(z.string().min(1).max(256)).max(512),
+  preferredSkillIds: z.array(z.string().min(1).max(256)).max(64).optional(),
   trustLevel: ThreadAgentTrustLevelSchema,
   budget: z.object({
     maxAttempts: z.number().int().positive().max(128),

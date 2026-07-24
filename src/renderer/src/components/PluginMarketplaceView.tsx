@@ -338,6 +338,22 @@ const MARKETPLACE_TEXT_FALLBACKS: Record<string, string> = {
   pluginSkillGuizangTitle: 'Guizang illustration materials',
   pluginSkillGuizangDesc: 'Browse the illustration project and its installation guide.',
   pluginSkillGuizangDetail: 'Open the upstream project without redistributing its files.',
+  pluginSkillTenderMasterTitle: 'Tender Master',
+  pluginSkillTenderMasterDesc: 'Tender analysis, scoring-aligned drafting, compliance checks, and verified delivery.',
+  pluginSkillTenderMasterDetail: 'Install the bundled Tender Master Skill and its local QA utilities.',
+  pluginSkillDocumentIllustratorTitle: 'Document Illustrator',
+  pluginSkillDocumentIllustratorDesc: 'Plan and generate consistent cover and section illustrations from documents.',
+  pluginSkillDocumentIllustratorDetail: 'Install the audited MIT Skill adapted to WorkWise image generation and document delivery.',
+  pluginSkillSocialCardTitle: 'Guizang Social Card',
+  pluginSkillSocialCardDesc: 'Create social card and carousel image packages.',
+  pluginSkillSocialCardDetail: 'Commercial platform embedding requires an upstream commercial license.',
+  pluginSkillLogoGeneratorTitle: 'Logo Generator',
+  pluginSkillLogoGeneratorDesc: 'Generate SVG logo directions and showcase materials.',
+  pluginSkillLogoGeneratorDetail: 'The upstream repository needs a formal redistribution license before WorkWise can bundle it.',
+  pluginCommercialLicenseRequired: 'Commercial license required',
+  pluginRedistributionLicenseRequired: 'License clarification required',
+  pluginNoRedistributionLicense: 'No redistribution license',
+  pluginDetailExternalProject: 'External project · not installed by WorkWise',
   pluginExternalOnly: 'Open project',
   pluginCliLarkTitle: 'Lark CLI',
   pluginCliLarkDesc: 'Connect to Lark apps, documents, and collaboration tasks.',
@@ -820,6 +836,60 @@ const RECOMMENDED_ITEMS: MarketplaceItem[] = [
     }
   },
   {
+    id: 'tender-master',
+    kind: 'skill',
+    titleKey: 'pluginSkillTenderMasterTitle',
+    descriptionKey: 'pluginSkillTenderMasterDesc',
+    detailKey: 'pluginSkillTenderMasterDetail',
+    sourceUrl: 'https://github.com/wangjiawei508/WorkWise',
+    group: 'recommended',
+    sourceLabelKey: 'pluginSkillSourceBundled',
+    statusTone: 'success',
+    bundledSkill: {
+      id: 'tender-master',
+      skillName: 'tender-master'
+    }
+  },
+  {
+    id: 'document-illustrator',
+    kind: 'skill',
+    titleKey: 'pluginSkillDocumentIllustratorTitle',
+    descriptionKey: 'pluginSkillDocumentIllustratorDesc',
+    detailKey: 'pluginSkillDocumentIllustratorDetail',
+    sourceUrl: 'https://github.com/op7418/Document-illustrator-skill',
+    group: 'recommended',
+    sourceLabelKey: 'pluginSkillSourceBundledGitHub',
+    statusTone: 'success',
+    bundledSkill: {
+      id: 'document-illustrator',
+      skillName: 'document-illustrator'
+    }
+  },
+  {
+    id: 'guizang-social-card-skill',
+    kind: 'skill',
+    titleKey: 'pluginSkillSocialCardTitle',
+    descriptionKey: 'pluginSkillSocialCardDesc',
+    detailKey: 'pluginSkillSocialCardDetail',
+    sourceUrl: 'https://github.com/op7418/guizang-social-card-skill',
+    group: 'recommended',
+    sourceLabelKey: 'pluginCommercialLicenseRequired',
+    statusTone: 'warning',
+    externalOnly: true
+  },
+  {
+    id: 'logo-generator-skill',
+    kind: 'skill',
+    titleKey: 'pluginSkillLogoGeneratorTitle',
+    descriptionKey: 'pluginSkillLogoGeneratorDesc',
+    detailKey: 'pluginSkillLogoGeneratorDetail',
+    sourceUrl: 'https://github.com/op7418/logo-generator-skill',
+    group: 'recommended',
+    sourceLabelKey: 'pluginRedistributionLicenseRequired',
+    statusTone: 'warning',
+    externalOnly: true
+  },
+  {
     id: 'writing-humanizer',
     kind: 'skill',
     titleKey: 'pluginSkillWritingHumanizerTitle',
@@ -997,7 +1067,7 @@ const RECOMMENDED_ITEMS: MarketplaceItem[] = [
     detailKey: 'pluginSkillGuizangDetail',
     sourceUrl: 'https://github.com/op7418/guizang-material-illustration',
     group: 'recommended',
-    sourceLabelKey: 'pluginExternalOnly',
+    sourceLabelKey: 'pluginNoRedistributionLicense',
     statusTone: 'warning',
     externalOnly: true
   },
@@ -2305,7 +2375,13 @@ function PluginSection({
                     type="button"
                     disabled={!canAddOrConfigure || busy}
                     onClick={() => void onAdd(item)}
-                    title={installed && item.reconfigurable ? t('pluginConfigure') : installed ? t('pluginAdded') : t('pluginAdd')}
+                    title={item.externalOnly
+                      ? t('pluginOpenSource')
+                      : installed && item.reconfigurable
+                        ? t('pluginConfigure')
+                        : installed
+                          ? t('pluginAdded')
+                          : t('pluginAdd')}
                     className={`flex h-9 w-9 items-center justify-center rounded-xl transition ${
                       installed && !item.reconfigurable
                         ? 'text-ds-faint'
@@ -2314,6 +2390,8 @@ function PluginSection({
                   >
                     {busy ? (
                       <Loader2 className="h-4 w-4 animate-spin" strokeWidth={2} />
+                    ) : item.externalOnly ? (
+                      <ExternalLink className="h-4 w-4" strokeWidth={1.9} />
                     ) : installed && !item.reconfigurable ? (
                       <Check className="h-4 w-4" strokeWidth={2} />
                     ) : installed && item.reconfigurable ? (
@@ -2410,7 +2488,13 @@ function PluginDetailDialog({
         <div className="mt-4 grid gap-3 text-[13px] md:grid-cols-2">
           <div className="rounded-xl border border-ds-border-muted bg-ds-main/25 p-3">
             <div className="font-semibold text-ds-ink">{t('pluginDetailStatus')}</div>
-            <div className="mt-1 text-ds-muted">{installed ? t('pluginAdded') : t('pluginDetailNotAdded')}</div>
+            <div className="mt-1 text-ds-muted">
+              {item.externalOnly
+                ? t('pluginDetailExternalProject')
+                : installed
+                  ? t('pluginAdded')
+                  : t('pluginDetailNotAdded')}
+            </div>
           </div>
           <div className="rounded-xl border border-ds-border-muted bg-ds-main/25 p-3">
             <div className="font-semibold text-ds-ink">{t('pluginDetailSource')}</div>
@@ -2429,7 +2513,7 @@ function PluginDetailDialog({
               {t('pluginOpenSource')}
             </button>
           ) : null}
-          {item.group === 'recommended' && !item.systemManaged ? (
+          {item.group === 'recommended' && !item.systemManaged && !item.externalOnly ? (
             <button
               type="button"
               onClick={onAdd}
