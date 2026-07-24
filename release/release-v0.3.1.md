@@ -68,3 +68,10 @@
 - 真实回归发现并修复旧测试 Runtime 占用端口后被新 UI 误连接的问题；客户端和 Runtime 现在通过固定协议版本握手，不再把缺少协议字段的旧服务静默视为兼容。
 - 生产依赖安全审计在高危阈值下通过；已应用兼容的 `body-parser` 与 `fast-uri` 修复。仍有 2 项来自 MCP SDK 间接依赖的中危 Windows `serve-static` 报告，但 WorkWise 未使用该静态文件中间件，避免为消除不可达路径报告而强制降级 MCP SDK。
 - 历史三平台候选运行 `30015706434` 已在目标提交 `37089736ac889c8414cc6b9a03da23fc5fa0013a` 上通过安装包、更新元数据、MarkItDown、ASAR 和原生依赖校验。两个 macOS 包与 0.2.5–0.3.0 一样未签名、未公证；正式发布页必须提示首次启动前执行 `xattr -dr com.apple.quarantine /Applications/WorkWise.app`。该候选已落后于后续修复，所以不能直接发布，必须基于最终提交重跑完整候选门禁。
+- 最终产品代码提交 `93f97cf30dfd6b066b7a853bac5815b9b51cf3f2` 的两小时稳定性门禁已通过；后续提交 `6929d4e783f9d2fed1c79eaea02afd99923114b8` 只补充 CI 校验依赖，不改变客户端源码。
+- 最终三平台候选运行 `30057460266` 全部通过；候选 artifact 只含三个客户端和内部校验清单，公开 `v0.3.1` Release 尚未创建。
+- 最终客户端 SHA-256：
+  - macOS Apple Silicon：`85ca0012994a3d2f744c28a16a39dbb73710bd60d1b3cbc0012520c1d5d75e2c`
+  - macOS Intel：`b80ca896c683740378d5a89b7647ea64c65d063073ec195d9f943ada6242d458`
+  - Windows x64：`ed9072113ac5f7dfd836f68cf01a27f9f3f28fefd7b92b72d0bd0e3c1ec5fe26`
+- 独立下载复核确认两个 DMG、Windows NSIS、ASAR、MarkItDown、PPT Master 4.0.0、原生 SQLite、版本和内部更新元数据均正确；0.3.1 已达到可发布候选标准，但正式发布仍需用户再次确认。
