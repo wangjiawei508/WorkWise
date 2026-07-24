@@ -28,3 +28,14 @@ The Design assistant rail SHALL show semantic progress, approval or failure, and
 #### Scenario: Bridge unavailable
 - **WHEN** the runtime command bridge is unavailable
 - **THEN** the assistant rail disables submission and displays an actionable connection message
+
+### Requirement: Visible and request-scoped canvas results
+The Design command bridge SHALL accept the documented SVG-like path and paint aliases, apply only the first valid atomic command for the latest user request, and render the accepted result visibly on the active canvas.
+
+#### Scenario: Agent draws a stroked logo path
+- **WHEN** the Agent supplies `path` with nested `style`, `fill: none`, a hex stroke prefixed by `#`, and rounded cap or join values
+- **THEN** WorkWise normalizes and persists those values and displays the stroked path on the active canvas
+
+#### Scenario: Model retries the same request
+- **WHEN** a model emits additional canvas commands after the first accepted atomic command for the same user request
+- **THEN** WorkWise ignores the retries without changing another document or showing a stale-document error

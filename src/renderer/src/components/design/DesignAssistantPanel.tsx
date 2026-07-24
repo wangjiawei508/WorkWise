@@ -12,6 +12,7 @@ type Props = {
   workspaceRoot: string
   selectedElementIds: string[]
   commandNotice: { tone: 'success' | 'error'; message: string } | null
+  disabled?: boolean
 }
 
 export function buildDesignPrompt(
@@ -66,7 +67,8 @@ export function DesignAssistantPanel({
   page,
   workspaceRoot,
   selectedElementIds,
-  commandNotice
+  commandNotice,
+  disabled = false
 }: Props): ReactElement {
   const { t } = useTranslation('common')
   const [prompt, setPrompt] = useState('')
@@ -112,7 +114,7 @@ export function DesignAssistantPanel({
 
   const handleSubmit = async (): Promise<void> => {
     const request = prompt.trim()
-    if (!request || busy || runtimeConnection !== 'ready') return
+    if (!request || disabled || busy || runtimeConnection !== 'ready') return
     setRequestLabel(request)
     setPrompt('')
     const started = await sendMessage(
@@ -189,9 +191,9 @@ export function DesignAssistantPanel({
             }
           }}
           rows={3}
-          disabled={runtimeConnection !== 'ready'}
+          disabled={disabled || runtimeConnection !== 'ready'}
           placeholder={
-            runtimeConnection === 'ready'
+            runtimeConnection === 'ready' && !disabled
               ? t('designAssistantPlaceholder')
               : t('runtimeActionNeedsConnection')
           }
@@ -204,7 +206,7 @@ export function DesignAssistantPanel({
           <button
             type="button"
             onClick={() => void handleSubmit()}
-            disabled={!prompt.trim() || busy || runtimeConnection !== 'ready'}
+            disabled={!prompt.trim() || disabled || busy || runtimeConnection !== 'ready'}
             className="flex h-7 items-center gap-1 rounded-lg bg-accent px-2.5 text-[11.5px] font-medium text-white transition hover:bg-accent/90 disabled:cursor-not-allowed disabled:opacity-40"
           >
             {busy

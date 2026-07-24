@@ -106,9 +106,15 @@ export type DesignPptxImportResult = {
   message?: string
 }
 
+export type DesignCanvasElementPatch =
+  Omit<Partial<DesignElement>, 'fill' | 'stroke'> & {
+    fill?: string | null
+    stroke?: string | null
+  }
+
 export type DesignCanvasOperation =
   | { kind: 'add'; element: DesignElement }
-  | { kind: 'update'; elementId: string; patch: Partial<DesignElement> }
+  | { kind: 'update'; elementId: string; patch: DesignCanvasElementPatch }
   | { kind: 'remove'; elementIds: string[] }
   | { kind: 'group'; elementIds: string[]; name?: string }
   | { kind: 'ungroup'; groupIds: string[] }

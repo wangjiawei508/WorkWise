@@ -110,11 +110,13 @@ describe('createDesignElement 工厂', () => {
     expect(el.fill).toBeUndefined()
   })
 
-  it('路径：默认 pathData + fill', () => {
+  it('路径：默认 pathData + stroke，无 fill', () => {
     const el = createDesignElement('path')
     expect(el.type).toBe('path')
     expect(el.pathData).toBeDefined()
-    expect(el.fill).toBeDefined()
+    expect(el.stroke).toBeDefined()
+    expect(el.strokeWidth).toBeGreaterThan(0)
+    expect(el.fill).toBeUndefined()
   })
 
   it('预设：默认 presetName', () => {

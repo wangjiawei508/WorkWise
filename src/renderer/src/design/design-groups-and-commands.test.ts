@@ -161,6 +161,38 @@ describe('Design active-canvas commands', () => {
     expect(elements()).toHaveLength(0)
   })
 
+  it('gives agent-created geometry a visible style when the model omits one', () => {
+    const store = useDesignWorkspaceStore.getState()
+    const document = store.document!
+    const page = store.getActivePage()!
+    const invisibleInput = createDesignElement('path', {
+      id: 'agent-logo-path',
+      fill: undefined,
+      stroke: undefined,
+      pathData: 'M 10 10 L 90 10 L 50 90 Z'
+    })
+    const result = store.applyCanvasCommand({
+      schema: 'workwise.design.command',
+      version: 1,
+      idempotencyKey: 'visible-default',
+      workspaceRoot: '/workspace',
+      documentId: document.id,
+      pageId: page.id,
+      expectedRevision: document.revision,
+      operations: [{ kind: 'add', element: invisibleInput }]
+    }, '/workspace')
+
+    expect(result.ok).toBe(true)
+    expect(elements()).toEqual([
+      expect.objectContaining({
+        id: 'agent-logo-path',
+        stroke: 'C41E3A',
+        strokeWidth: 2
+      })
+    ])
+    expect(elements()[0].fill).toBeUndefined()
+  })
+
   it('does not acknowledge an idempotency key from a different document', () => {
     const store = useDesignWorkspaceStore.getState()
     const document = store.document!

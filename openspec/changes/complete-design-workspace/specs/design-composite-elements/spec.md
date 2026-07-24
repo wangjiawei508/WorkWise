@@ -28,3 +28,14 @@ WorkWise SHALL transform grouped descendants deterministically and keep derived 
 #### Scenario: Move a group
 - **WHEN** a user moves a selected group
 - **THEN** every descendant moves by the same delta and one undo operation restores the prior state
+
+### Requirement: Canvas interaction isolation
+The Design canvas SHALL own pan and zoom gestures inside its viewport while preserving a small explicit desktop drag region outside the canvas.
+
+#### Scenario: Pan the empty canvas stage
+- **WHEN** the user drags the empty stage or canvas background
+- **THEN** the canvas content pans and the application window remains fixed
+
+#### Scenario: Zoom and fit
+- **WHEN** the user uses the zoom controls or trackpad zoom gesture
+- **THEN** WorkWise changes the canvas scale within bounded limits and can restore a fitted centered view

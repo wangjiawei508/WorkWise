@@ -33,6 +33,8 @@ export function DesignElementRenderer({
   const fill = formatSvgColor(element.fill)
   const stroke = formatSvgColor(element.stroke)
   const strokeWidth = element.strokeWidth
+  const strokeLinecap = element.strokeLinecap
+  const strokeLinejoin = element.strokeLinejoin
   const opacity = element.opacity
 
   // 通用样式属性（全 inline，符合 svg_quality_checker 约束）
@@ -40,6 +42,8 @@ export function DesignElementRenderer({
     ...(fill !== undefined ? { fill } : { fill: 'none' }),
     ...(stroke !== undefined ? { stroke } : {}),
     ...(strokeWidth !== undefined ? { strokeWidth } : {}),
+    ...(strokeLinecap !== undefined ? { strokeLinecap } : {}),
+    ...(strokeLinejoin !== undefined ? { strokeLinejoin } : {}),
     ...(opacity !== undefined ? { opacity } : {})
   }
 

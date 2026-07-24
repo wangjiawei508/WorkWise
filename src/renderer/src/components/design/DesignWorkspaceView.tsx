@@ -27,6 +27,7 @@ import {
 } from 'lucide-react'
 import { SidebarTitlebarToggleButton } from '../sidebar/SidebarPrimitives'
 import { useDesignWorkspaceStore, type DesignTool } from '../../design/design-workspace-store'
+import { selectActiveCanvasCommandForLatestRequest } from '../../design/design-command-consumer'
 import {
   designExportFileStem,
   designPageToPngBase64,
@@ -375,74 +376,94 @@ export function DesignWorkspaceView({
   ])
 
   useEffect(() => {
+    if (restoring || !document || !activePageId) return
+    let latestUserBlockIndex = -1
+    for (let index = runtimeBlocks.length - 1; index >= 0; index -= 1) {
+      if (runtimeBlocks[index].kind === 'user') {
+        latestUserBlockIndex = index
+        break
+      }
+    }
     const commands = runtimeBlocks
+      .slice(latestUserBlockIndex + 1)
       .filter((block) => block.kind === 'tool')
       .map((block) => canvasCommandFromMeta(block.meta))
       .filter((command): command is DesignCanvasCommandV1 => command !== null)
       .slice(-64)
 
-    for (const command of commands) {
-      if (
-        processedCanvasCommandsRef.current.has(command.idempotencyKey) ||
-        enqueuedCanvasCommandsRef.current.has(command.idempotencyKey)
-      ) {
-        continue
-      }
-      enqueuedCanvasCommandsRef.current.add(command.idempotencyKey)
-      const commandScope = canvasCommandScopeRef.current
-      let markProcessed = false
-      const queued = canvasCommandQueueRef.current
-        .catch(() => undefined)
-        .then(async () => {
-          if (commandScope !== canvasCommandScopeRef.current) return
-          const ack = applyCanvasCommand(command, workspaceRoot)
-          if (!ack.ok) {
-            markProcessed = true
-            setAssistantCommandNotice({
-              tone: 'error',
-              message: ack.message || t('designAssistantApplyFailed')
-            })
-            return
-          }
-          const saved = await flushDesignSave()
-          if (commandScope !== canvasCommandScopeRef.current) return
-          if (saved) {
-            markProcessed = true
-            canvasCommandSaveRetriesRef.current.delete(command.idempotencyKey)
-          } else {
-            const retryCount =
-              (canvasCommandSaveRetriesRef.current.get(command.idempotencyKey) ?? 0) + 1
-            canvasCommandSaveRetriesRef.current.set(command.idempotencyKey, retryCount)
-            if (retryCount < 3) {
-              window.setTimeout(() => {
-                if (commandScope === canvasCommandScopeRef.current) {
-                  setCanvasCommandRetryGeneration((value) => value + 1)
-                }
-              }, retryCount * 750)
-            }
-          }
-          setAssistantCommandNotice(saved
-            ? {
-                tone: 'success',
-                message: t('designAssistantApplied', { count: ack.appliedOperations })
-              }
-            : {
-                tone: 'error',
-                message: t('designAssistantSaveFailed')
-              })
-        })
-        .finally(() => {
-          if (markProcessed && commandScope === canvasCommandScopeRef.current) {
-            processedCanvasCommandsRef.current.add(command.idempotencyKey)
-          }
-          enqueuedCanvasCommandsRef.current.delete(command.idempotencyKey)
-        })
-      canvasCommandQueueRef.current = queued
+    const selection = selectActiveCanvasCommandForLatestRequest(commands, {
+      workspaceRoot,
+      documentId: document.id,
+      pageId: activePageId
+    })
+    for (const ignoredCommandId of selection.ignoredCommandIds) {
+      processedCanvasCommandsRef.current.add(ignoredCommandId)
     }
+    const command = selection.command
+    if (!command) return
+    if (
+      processedCanvasCommandsRef.current.has(command.idempotencyKey) ||
+      enqueuedCanvasCommandsRef.current.has(command.idempotencyKey)
+    ) {
+      return
+    }
+    enqueuedCanvasCommandsRef.current.add(command.idempotencyKey)
+    const commandScope = canvasCommandScopeRef.current
+    let markProcessed = false
+    const queued = canvasCommandQueueRef.current
+      .catch(() => undefined)
+      .then(async () => {
+        if (commandScope !== canvasCommandScopeRef.current) return
+        const ack = applyCanvasCommand(command, workspaceRoot)
+        if (!ack.ok) {
+          markProcessed = true
+          setAssistantCommandNotice({
+            tone: 'error',
+            message: t('designAssistantApplyFailed')
+          })
+          return
+        }
+        const saved = await flushDesignSave()
+        if (commandScope !== canvasCommandScopeRef.current) return
+        if (saved) {
+          markProcessed = true
+          canvasCommandSaveRetriesRef.current.delete(command.idempotencyKey)
+        } else {
+          const retryCount =
+            (canvasCommandSaveRetriesRef.current.get(command.idempotencyKey) ?? 0) + 1
+          canvasCommandSaveRetriesRef.current.set(command.idempotencyKey, retryCount)
+          if (retryCount < 3) {
+            window.setTimeout(() => {
+              if (commandScope === canvasCommandScopeRef.current) {
+                setCanvasCommandRetryGeneration((value) => value + 1)
+              }
+            }, retryCount * 750)
+          }
+        }
+        setAssistantCommandNotice(saved
+          ? {
+              tone: 'success',
+              message: t('designAssistantApplied', { count: ack.appliedOperations })
+            }
+          : {
+              tone: 'error',
+              message: t('designAssistantSaveFailed')
+            })
+      })
+      .finally(() => {
+        if (markProcessed && commandScope === canvasCommandScopeRef.current) {
+          processedCanvasCommandsRef.current.add(command.idempotencyKey)
+        }
+        enqueuedCanvasCommandsRef.current.delete(command.idempotencyKey)
+      })
+    canvasCommandQueueRef.current = queued
   }, [
+    activePageId,
     applyCanvasCommand,
     canvasCommandRetryGeneration,
+    document,
     flushDesignSave,
+    restoring,
     runtimeBlocks,
     t,
     workspaceRoot
@@ -887,6 +908,7 @@ export function DesignWorkspaceView({
                   workspaceRoot={workspaceRoot}
                   selectedElementIds={selectedElementIds}
                   commandNotice={assistantCommandNotice}
+                  disabled={restoring}
                 />
               )
             : null
@@ -947,9 +969,9 @@ export function DesignWorkspaceView({
   }
 
   return (
-    <div className="flex h-full min-h-0 flex-col bg-ds-main">
+    <div className="ds-no-drag flex h-full min-h-0 flex-col bg-ds-main">
       {/* 顶栏 */}
-      <header className="ds-no-drag flex h-12 shrink-0 items-center gap-2 border-b border-ds-border-muted px-3">
+      <header className="ds-drag flex h-12 shrink-0 items-center gap-2 border-b border-ds-border-muted px-3">
         {leftSidebarCollapsed ? (
           <SidebarTitlebarToggleButton
             onClick={onToggleLeftSidebar}

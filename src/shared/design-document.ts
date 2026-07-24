@@ -207,6 +207,10 @@ export type DesignElement = {
   stroke?: string
   /** 描边宽度（像素） */
   strokeWidth?: number
+  /** 描边端点样式 */
+  strokeLinecap?: 'butt' | 'round' | 'square'
+  /** 描边拐角样式 */
+  strokeLinejoin?: 'miter' | 'round' | 'bevel'
   /** 不透明度 0-1。注意：svg_quality_checker 禁止 <g opacity=> 和 rgba，
    *  导出器会把透明度施加到具体元素，而不是结构分组。 */
   opacity?: number
@@ -421,7 +425,15 @@ export function createDesignElement(
   }
   if (type === 'path') {
     base.pathData = overrides.pathData ?? 'M0,0 L100,0 L100,100 L0,100 Z'
-    base.fill = overrides.fill ?? 'C41E3A'
+    if (overrides.fill === undefined && overrides.stroke === undefined) {
+      base.fill = undefined
+      base.stroke = 'C41E3A'
+      base.strokeWidth = overrides.strokeWidth ?? 2
+    } else {
+      base.fill = overrides.fill
+      base.stroke = overrides.stroke
+      base.strokeWidth = overrides.strokeWidth
+    }
   }
   if (type === 'preset') {
     base.presetName = overrides.presetName ?? 'rect'
@@ -761,6 +773,16 @@ export function normalizeDesignElement(input: Partial<DesignElement> | null | un
     ...(input.fill !== undefined ? { fill: isValidDesignColor(input.fill) ? input.fill : '000000' } : {}),
     ...(input.stroke !== undefined ? { stroke: isValidDesignColor(input.stroke) ? input.stroke : '000000' } : {}),
     ...(typeof input.strokeWidth === 'number' ? { strokeWidth: input.strokeWidth } : {}),
+    ...(input.strokeLinecap === 'butt' ||
+      input.strokeLinecap === 'round' ||
+      input.strokeLinecap === 'square'
+      ? { strokeLinecap: input.strokeLinecap }
+      : {}),
+    ...(input.strokeLinejoin === 'miter' ||
+      input.strokeLinejoin === 'round' ||
+      input.strokeLinejoin === 'bevel'
+      ? { strokeLinejoin: input.strokeLinejoin }
+      : {}),
     ...(typeof input.opacity === 'number' && input.opacity >= 0 && input.opacity <= 1 ? { opacity: input.opacity } : {}),
     ...(typeof input.text === 'string' ? { text: input.text } : {}),
     ...(typeof input.fontSize === 'number' && input.fontSize > 0 ? { fontSize: input.fontSize } : {}),

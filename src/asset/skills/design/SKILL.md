@@ -43,7 +43,14 @@ List available DrawingML preset shape names (187 presets).
 
 ## Guidelines
 
-- Colors are 6-digit hex without # (e.g. `1E3A5F` for dark blue)
+- Put paint fields directly on each element: `fill`, `stroke`, `stroke_width`, `opacity`.
+  A nested `style` object is accepted for compatibility, but top-level fields are preferred.
+- Colors may be 6-digit hex with or without `#` (e.g. `0D9488` or `#0D9488`);
+  use the literal `none` when a path should have no fill.
+- Every added visual element must have a visible `fill` or `stroke`; paths made from
+  open line segments should normally use `fill: none`, `stroke`, and `stroke_width`.
+- Preserve user-requested colors in the first and only operation batch. Never replace
+  a requested palette with a default color.
 - All coordinates are in pixels, origin at top-left, Y pointing down
 - For text shapes, always provide the `text` parameter
 - Export to PPTX only when the user explicitly asks for PowerPoint format

@@ -249,6 +249,22 @@ function parseOpacity(value: string | undefined): number | undefined {
   return Number.isFinite(opacity) ? Math.max(0, Math.min(1, opacity)) : undefined
 }
 
+function parseStrokeLinecap(
+  value: string | undefined
+): DesignElement['strokeLinecap'] {
+  return value === 'butt' || value === 'round' || value === 'square'
+    ? value
+    : undefined
+}
+
+function parseStrokeLinejoin(
+  value: string | undefined
+): DesignElement['strokeLinejoin'] {
+  return value === 'miter' || value === 'round' || value === 'bevel'
+    ? value
+    : undefined
+}
+
 /** 创建 rect 元素 */
 function createRectElement(attrs: SvgAttributes): DesignElement | null {
   const x = parseNum(attrs.x, 0)
@@ -261,6 +277,8 @@ function createRectElement(attrs: SvgAttributes): DesignElement | null {
     fill: parseColor(attrs.fill) ?? 'FFFFFF',
     stroke: parseColor(attrs.stroke),
     strokeWidth: attrs['stroke-width'] ? parseNum(attrs['stroke-width'], 0) : undefined,
+    strokeLinecap: parseStrokeLinecap(attrs['stroke-linecap']),
+    strokeLinejoin: parseStrokeLinejoin(attrs['stroke-linejoin']),
     rotation: parseRotation(attrs.transform),
     zIndex: 0
   })
@@ -279,6 +297,10 @@ function createEllipseElement(attrs: SvgAttributes): DesignElement | null {
     w: rx * 2,
     h: ry * 2,
     fill: parseColor(attrs.fill) ?? 'FFFFFF',
+    stroke: parseColor(attrs.stroke),
+    strokeWidth: attrs['stroke-width'] ? parseNum(attrs['stroke-width'], 0) : undefined,
+    strokeLinecap: parseStrokeLinecap(attrs['stroke-linecap']),
+    strokeLinejoin: parseStrokeLinejoin(attrs['stroke-linejoin']),
     rotation: parseRotation(attrs.transform),
     zIndex: 0
   })
@@ -297,6 +319,8 @@ function createLineElement(attrs: SvgAttributes): DesignElement | null {
     h: y2 - y1,
     stroke: parseColor(attrs.stroke) ?? '000000',
     strokeWidth: attrs['stroke-width'] ? parseNum(attrs['stroke-width'], 1) : 1,
+    strokeLinecap: parseStrokeLinecap(attrs['stroke-linecap']),
+    strokeLinejoin: parseStrokeLinejoin(attrs['stroke-linejoin']),
     rotation: parseRotation(attrs.transform),
     zIndex: 0
   })
@@ -317,6 +341,8 @@ function createPathElement(attrs: SvgAttributes): DesignElement | null {
     fill: parseColor(attrs.fill) ?? 'FFFFFF',
     stroke: parseColor(attrs.stroke),
     strokeWidth: attrs['stroke-width'] ? parseNum(attrs['stroke-width'], 0) : undefined,
+    strokeLinecap: parseStrokeLinecap(attrs['stroke-linecap']),
+    strokeLinejoin: parseStrokeLinejoin(attrs['stroke-linejoin']),
     rotation: parseRotation(attrs.transform),
     zIndex: 0
   })
@@ -365,6 +391,10 @@ function createPolygonElement(attrs: SvgAttributes, closed: boolean): DesignElem
     h: Math.max(bounds.h, 1),
     pathData: d,
     fill: parseColor(attrs.fill) ?? 'FFFFFF',
+    stroke: parseColor(attrs.stroke),
+    strokeWidth: attrs['stroke-width'] ? parseNum(attrs['stroke-width'], 0) : undefined,
+    strokeLinecap: parseStrokeLinecap(attrs['stroke-linecap']),
+    strokeLinejoin: parseStrokeLinejoin(attrs['stroke-linejoin']),
     rotation: parseRotation(attrs.transform),
     zIndex: 0
   })

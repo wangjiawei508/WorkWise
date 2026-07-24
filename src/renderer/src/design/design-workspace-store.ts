@@ -322,7 +322,11 @@ function applyCanvasOperations(
   let selectedIds: string[] = []
   for (const operation of operations) {
     if (operation.kind === 'add') {
-      const normalized = normalizeDesignElement(operation.element)
+      const parsed = normalizeDesignElement(operation.element)
+      // Agent-created shapes must never be accepted as an apparently
+      // successful but completely invisible result. Apply the same visible
+      // defaults used by manual toolbar insertion when fill/stroke is omitted.
+      const normalized = parsed ? createDesignElement(parsed.type, parsed) : null
       if (
         !normalized ||
         nextPage.elements.some((element) => element.id === normalized.id) ||
@@ -336,7 +340,12 @@ function applyCanvasOperations(
     } else if (operation.kind === 'update') {
       if (!nextPage.elements.some((element) => element.id === operation.elementId)) return null
       const forbidden = ['id', 'type', 'childIds', 'imageAssetId'] as const
-      const patch = { ...operation.patch }
+      const { fill, stroke, ...remainingPatch } = operation.patch
+      const patch: Partial<DesignElement> = {
+        ...remainingPatch,
+        ...(fill !== undefined ? { fill: fill ?? undefined } : {}),
+        ...(stroke !== undefined ? { stroke: stroke ?? undefined } : {})
+      }
       for (const field of forbidden) delete patch[field]
       nextPage = updateElementInPage(nextPage, operation.elementId, patch)
       selectedIds = [operation.elementId]

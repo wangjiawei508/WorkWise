@@ -21,6 +21,7 @@
 - [x] 4.1 Replace disconnected file-writing runtime behavior with validated active-canvas commands and idempotent acknowledgements
 - [x] 4.2 Apply Agent commands through renderer store actions with expected-revision checks, one-step history, persistence, and result status
 - [x] 4.3 Implement the honest Design assistant rail with semantic progress, unavailable/conflict states, and localized text
+- [x] 4.4 Isolate canvas pan/zoom from desktop dragging and normalize visible request-scoped SVG-like Agent commands
 
 ## 5. Import, export, and delivery integrity
 
@@ -35,3 +36,5 @@
 - [x] 6.3 Pass OpenSpec strict validation, brand boundary, ESLint, TypeScript, full Vitest, production build, and platform packaging checks
 - [x] 6.4 Perform real installed-app Design/Write/PPT smoke testing or record a concrete environment blocker with a reproducible fallback test
 - [x] 6.5 Commit the corrected implementation in reviewable commits and push the current feature branch without adding `.codex/config.toml` or ZCode session state
+- [x] 6.6 Re-run full local quality gates and real-app pan/zoom/Agent-visible-result persistence regression after the emergency Design repair
+- [ ] 6.7 Build and inspect a new three-platform candidate containing the emergency Design repair before declaring 0.3.1 publishable

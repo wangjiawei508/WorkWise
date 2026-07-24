@@ -101,10 +101,72 @@ function createDesignApplyCanvasCommandsTool(): LocalTool {
               element: {
                 type: 'object',
                 description:
-                  'For add: rect, ellipse, line, path or text with x/y/w/h plus optional style and type fields.'
+                  'For add: rect, ellipse, line, path or text with x/y/w/h. Put fill, stroke and stroke_width directly on the element (or inside style). Colors may be 0D9488 or #0D9488; use "none" for no fill. For paths use path_data or path.',
+                properties: {
+                  id: { type: 'string' },
+                  type: {
+                    type: 'string',
+                    enum: ['rect', 'ellipse', 'line', 'path', 'text']
+                  },
+                  x: { type: 'number' },
+                  y: { type: 'number' },
+                  w: { type: 'number' },
+                  h: { type: 'number' },
+                  rotation: { type: 'number' },
+                  z_index: { type: 'integer' },
+                  name: { type: 'string' },
+                  fill: { type: 'string' },
+                  stroke: { type: 'string' },
+                  stroke_width: { type: 'number' },
+                  stroke_linecap: {
+                    type: 'string',
+                    enum: ['butt', 'round', 'square']
+                  },
+                  stroke_linejoin: {
+                    type: 'string',
+                    enum: ['miter', 'round', 'bevel']
+                  },
+                  opacity: { type: 'number' },
+                  text: { type: 'string' },
+                  font_size: { type: 'number' },
+                  font_family: { type: 'string' },
+                  font_weight: { type: 'string' },
+                  text_align: {
+                    type: 'string',
+                    enum: ['left', 'center', 'right']
+                  },
+                  path_data: { type: 'string' },
+                  path: { type: 'string' },
+                  style: {
+                    type: 'object',
+                    description: 'Optional SVG-like paint object. Prefer top-level paint fields.',
+                    properties: {
+                      fill: { type: 'string' },
+                      stroke: { type: 'string' },
+                      strokeWidth: { type: 'number' },
+                      stroke_width: { type: 'number' },
+                      strokeLinecap: {
+                        type: 'string',
+                        enum: ['butt', 'round', 'square']
+                      },
+                      strokeLinejoin: {
+                        type: 'string',
+                        enum: ['miter', 'round', 'bevel']
+                      },
+                      opacity: { type: 'number' }
+                    },
+                    additionalProperties: true
+                  }
+                },
+                required: ['type', 'x', 'y', 'w', 'h'],
+                additionalProperties: false
               },
               element_id: { type: 'string' },
-              patch: { type: 'object' },
+              patch: {
+                type: 'object',
+                description: 'Editable fields. Paint may be top-level or inside style.',
+                additionalProperties: true
+              },
               element_ids: {
                 type: 'array',
                 items: { type: 'string' },
@@ -156,7 +218,9 @@ function createDesignApplyCanvasCommandsTool(): LocalTool {
         output: {
           ok: true,
           status: 'pending_canvas_apply',
-          message: `Queued ${operations.length} Design canvas operation(s) for the active desktop canvas.`,
+          message:
+            `Validated and queued ${operations.length} Design canvas operation(s). ` +
+            'The normalized operations below are the accepted result; do not call this tool again for the same user request.',
           designCanvasCommand: {
             schema: 'workwise.design.command',
             version: 1,
@@ -359,12 +423,18 @@ function optionalText(value: unknown, field: string, maxLength: number): string 
   return value
 }
 
-function optionalColor(value: unknown, field: string): string | undefined {
+function optionalColor(value: unknown, field: string): string | null | undefined {
   if (value === undefined) return undefined
-  if (typeof value !== 'string' || !/^[0-9A-Fa-f]{6}$/.test(value)) {
-    throw new Error(`invalid_input: ${field} must be a 6-digit hex color without #`)
+  if (typeof value !== 'string') {
+    throw new Error(`invalid_input: ${field} must be a 6-digit hex color or "none"`)
   }
-  return value.toUpperCase()
+  const normalized = value.trim()
+  if (normalized.toLowerCase() === 'none') return null
+  const withoutHash = normalized.startsWith('#') ? normalized.slice(1) : normalized
+  if (!/^[0-9A-Fa-f]{6}$/.test(withoutHash)) {
+    throw new Error(`invalid_input: ${field} must be a 6-digit hex color or "none"`)
+  }
+  return withoutHash.toUpperCase()
 }
 
 function identifierArray(value: unknown, field: string): string[] {
@@ -376,6 +446,18 @@ function identifierArray(value: unknown, field: string): string[] {
 
 function normalizeElement(value: unknown): Record<string, unknown> {
   const element = recordOf(value, 'element')
+  const allowed = new Set([
+    'id', 'type', 'x', 'y', 'w', 'h', 'rotation', 'z_index', 'zIndex', 'name',
+    'fill', 'stroke', 'stroke_width', 'strokeWidth', 'opacity', 'style',
+    'stroke_linecap', 'strokeLinecap', 'stroke_linejoin', 'strokeLinejoin',
+    'text', 'font_size', 'fontSize', 'font_family', 'fontFamily',
+    'font_weight', 'fontWeight', 'text_align', 'textAlign',
+    'path', 'path_data', 'pathData'
+  ])
+  for (const key of Object.keys(element)) {
+    if (!allowed.has(key)) throw new Error(`invalid_input: element.${key} is not supported`)
+  }
+  const style = element.style === undefined ? {} : recordOf(element.style, 'element.style')
   const type = element.type
   if (!['rect', 'ellipse', 'line', 'path', 'text'].includes(String(type))) {
     throw new Error('invalid_input: add.element.type must be rect, ellipse, line, path or text')
@@ -392,22 +474,65 @@ function normalizeElement(value: unknown): Record<string, unknown> {
     rotation: boundedNumber(element.rotation, 'element.rotation', -3600, 3600, 0),
     zIndex: boundedInteger(element.z_index ?? element.zIndex ?? 0, 'element.z_index', 0, 1_000_000)
   }
-  const fill = optionalColor(element.fill, 'element.fill')
-  const stroke = optionalColor(element.stroke, 'element.stroke')
+  const fill = optionalColor(element.fill ?? style.fill, 'element.fill')
+  const stroke = optionalColor(element.stroke ?? style.stroke, 'element.stroke')
   const name = optionalText(element.name, 'element.name', 200)
-  if (fill) normalized.fill = fill
-  if (stroke) normalized.stroke = stroke
+  if (type === 'line') {
+    normalized.stroke = stroke ?? '1A1A2E'
+  } else if (type === 'path') {
+    if (fill !== null && fill !== undefined) normalized.fill = fill
+    if (stroke !== null && stroke !== undefined) normalized.stroke = stroke
+    if (fill === undefined && stroke === undefined) normalized.stroke = 'C41E3A'
+  } else {
+    if (fill !== null) {
+      normalized.fill = fill ?? (
+        type === 'ellipse' ? '4A90D9'
+          : type === 'text' ? '1A1A2E'
+            : '1E3A5F'
+      )
+    }
+    if (stroke !== null && stroke !== undefined) normalized.stroke = stroke
+  }
   if (name) normalized.name = name
-  if (element.stroke_width !== undefined || element.strokeWidth !== undefined) {
+  const strokeLinecap =
+    element.stroke_linecap ?? element.strokeLinecap ?? style.stroke_linecap ?? style.strokeLinecap
+  if (strokeLinecap !== undefined) {
+    if (!['butt', 'round', 'square'].includes(String(strokeLinecap))) {
+      throw new Error('invalid_input: element.stroke_linecap is invalid')
+    }
+    normalized.strokeLinecap = strokeLinecap
+  }
+  const strokeLinejoin =
+    element.stroke_linejoin ?? element.strokeLinejoin ?? style.stroke_linejoin ?? style.strokeLinejoin
+  if (strokeLinejoin !== undefined) {
+    if (!['miter', 'round', 'bevel'].includes(String(strokeLinejoin))) {
+      throw new Error('invalid_input: element.stroke_linejoin is invalid')
+    }
+    normalized.strokeLinejoin = strokeLinejoin
+  }
+  if (
+    element.stroke_width !== undefined ||
+    element.strokeWidth !== undefined ||
+    style.stroke_width !== undefined ||
+    style.strokeWidth !== undefined ||
+    type === 'line' ||
+    (type === 'path' && normalized.stroke !== undefined)
+  ) {
     normalized.strokeWidth = boundedNumber(
-      element.stroke_width ?? element.strokeWidth,
+      element.stroke_width ?? element.strokeWidth ?? style.stroke_width ?? style.strokeWidth,
       'element.stroke_width',
       0,
-      100
+      100,
+      type === 'line' || type === 'path' ? 2 : undefined
     )
   }
-  if (element.opacity !== undefined) {
-    normalized.opacity = boundedNumber(element.opacity, 'element.opacity', 0, 1)
+  if (element.opacity !== undefined || style.opacity !== undefined) {
+    normalized.opacity = boundedNumber(
+      element.opacity ?? style.opacity,
+      'element.opacity',
+      0,
+      1
+    )
   }
   if (type === 'text') {
     normalized.text = optionalText(element.text, 'element.text', 20_000) ?? 'Text'
@@ -432,7 +557,7 @@ function normalizeElement(value: unknown): Record<string, unknown> {
   }
   if (type === 'path') {
     const pathData = optionalText(
-      element.path_data ?? element.pathData,
+      element.path_data ?? element.pathData ?? element.path,
       'element.path_data',
       100_000
     )
@@ -445,11 +570,39 @@ function normalizeElement(value: unknown): Record<string, unknown> {
 }
 
 function normalizePatch(value: unknown): Record<string, unknown> {
-  const patch = recordOf(value, 'patch')
+  const originalPatch = recordOf(value, 'patch')
+  const style = originalPatch.style === undefined
+    ? {}
+    : recordOf(originalPatch.style, 'patch.style')
+  const patch: Record<string, unknown> = {
+    ...originalPatch,
+    ...(originalPatch.fill === undefined && style.fill !== undefined ? { fill: style.fill } : {}),
+    ...(originalPatch.stroke === undefined && style.stroke !== undefined ? { stroke: style.stroke } : {}),
+    ...(originalPatch.stroke_width === undefined &&
+      originalPatch.strokeWidth === undefined &&
+      (style.stroke_width !== undefined || style.strokeWidth !== undefined)
+      ? { strokeWidth: style.stroke_width ?? style.strokeWidth }
+      : {}),
+    ...(originalPatch.opacity === undefined && style.opacity !== undefined
+      ? { opacity: style.opacity }
+      : {}),
+    ...(originalPatch.stroke_linecap === undefined &&
+      originalPatch.strokeLinecap === undefined &&
+      (style.stroke_linecap !== undefined || style.strokeLinecap !== undefined)
+      ? { strokeLinecap: style.stroke_linecap ?? style.strokeLinecap }
+      : {}),
+    ...(originalPatch.stroke_linejoin === undefined &&
+      originalPatch.strokeLinejoin === undefined &&
+      (style.stroke_linejoin !== undefined || style.strokeLinejoin !== undefined)
+      ? { strokeLinejoin: style.stroke_linejoin ?? style.strokeLinejoin }
+      : {})
+  }
+  delete patch.style
   const allowed = new Set([
     'x', 'y', 'w', 'h', 'rotation', 'fill', 'stroke', 'stroke_width', 'strokeWidth',
+    'stroke_linecap', 'strokeLinecap', 'stroke_linejoin', 'strokeLinejoin',
     'opacity', 'text', 'font_size', 'fontSize', 'font_family', 'fontFamily',
-    'font_weight', 'fontWeight', 'text_align', 'textAlign', 'path_data', 'pathData',
+    'font_weight', 'fontWeight', 'text_align', 'textAlign', 'path', 'path_data', 'pathData',
     'name', 'locked', 'hidden', 'z_index', 'zIndex'
   ])
   for (const key of Object.keys(patch)) {
@@ -457,15 +610,17 @@ function normalizePatch(value: unknown): Record<string, unknown> {
   }
   const probe = normalizeElement({
     id: 'el_probe',
-    type: patch.path_data !== undefined || patch.pathData !== undefined ? 'path' : 'text',
+    type: patch.path !== undefined || patch.path_data !== undefined || patch.pathData !== undefined
+      ? 'path'
+      : 'text',
     x: patch.x ?? 0,
     y: patch.y ?? 0,
     w: patch.w ?? 1,
     h: patch.h ?? 1,
     rotation: patch.rotation ?? 0,
     zIndex: patch.z_index ?? patch.zIndex ?? 0,
-    ...(patch.path_data !== undefined || patch.pathData !== undefined
-      ? { pathData: patch.path_data ?? patch.pathData }
+    ...(patch.path !== undefined || patch.path_data !== undefined || patch.pathData !== undefined
+      ? { pathData: patch.path_data ?? patch.pathData ?? patch.path }
       : { text: patch.text ?? '', fontSize: patch.font_size ?? patch.fontSize ?? 32 }),
     ...patch
   })
@@ -478,9 +633,16 @@ function normalizePatch(value: unknown): Record<string, unknown> {
             : key === 'font_weight' ? 'fontWeight'
               : key === 'text_align' ? 'textAlign'
                 : key === 'path_data' ? 'pathData'
+                  : key === 'path' ? 'pathData'
+                    : key === 'stroke_linecap' ? 'strokeLinecap'
+                      : key === 'stroke_linejoin' ? 'strokeLinejoin'
                   : key === 'z_index' ? 'zIndex'
                     : key
-    normalized[camelKey] = probe[camelKey] ?? original
+    if (camelKey === 'fill' || camelKey === 'stroke') {
+      normalized[camelKey] = optionalColor(original, `patch.${camelKey}`)
+    } else {
+      normalized[camelKey] = probe[camelKey] ?? original
+    }
   }
   return normalized
 }

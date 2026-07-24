@@ -97,6 +97,22 @@ describe('elementToSvgString - SVG 合规性', () => {
     expect(svg).toContain('M10,20')
   })
 
+  it('preserves rounded path caps and joins in exported SVG', () => {
+    const el = createDesignElement('path', {
+      pathData: 'M100 100 L200 100 L200 200',
+      fill: undefined,
+      stroke: '0D9488',
+      strokeWidth: 24,
+      strokeLinecap: 'round',
+      strokeLinejoin: 'round'
+    })
+    const svg = elementToSvgString(el)
+    expect(svg).toContain('fill="none"')
+    expect(svg).toContain('stroke="#0D9488"')
+    expect(svg).toContain('stroke-linecap="round"')
+    expect(svg).toContain('stroke-linejoin="round"')
+  })
+
   it('exports a rendered preset path instead of a placeholder rectangle', () => {
     const el = createDesignElement('preset', {
       x: 100,

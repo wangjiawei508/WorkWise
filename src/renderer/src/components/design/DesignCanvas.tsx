@@ -1,6 +1,14 @@
-import { useCallback, useRef, useState, type ReactElement } from 'react'
+import { useCallback, useEffect, useRef, useState, type ReactElement } from 'react'
+import { Maximize2, Minus, Plus } from 'lucide-react'
+import { useTranslation } from 'react-i18next'
 import { formatSvgColor, type DesignElement, type DesignPage } from '@shared/design-document'
 import { useDesignWorkspaceStore } from '../../design/design-workspace-store'
+import {
+  designCanvasFitScale,
+  moveDesignCanvasPan,
+  stepDesignCanvasScale,
+  type DesignCanvasPan
+} from '../../design/design-canvas-viewport'
 import {
   RESIZE_HANDLES,
   computeResizedBounds,
@@ -28,9 +36,10 @@ import { DesignElementRenderer } from './DesignElementRenderer'
  * 与 PPT Master 一致（✅ canvas_contract.py 确认任意正整数尺寸）。
  * 拖拽时用 getScreenCTM().inverse() 把屏幕坐标转换为 SVG 坐标（✅ SVG 标准 API）。
  *
- * 已支持缩放手柄、旋转、吸附和多选移动。
+ * 已支持画布平移/缩放、缩放手柄、旋转、吸附和多选移动。
  */
 export function DesignCanvas(): ReactElement | null {
+  const { t } = useTranslation('common')
   const document = useDesignWorkspaceStore((s) => s.document)
   const activePageId = useDesignWorkspaceStore((s) => s.activePageId)
   const selectedElementIds = useDesignWorkspaceStore((s) => s.selectedElementIds)
@@ -44,6 +53,7 @@ export function DesignCanvas(): ReactElement | null {
   const endTransientChange = useDesignWorkspaceStore((s) => s.endTransientChange)
 
   const svgRef = useRef<SVGSVGElement | null>(null)
+  const viewportRef = useRef<HTMLDivElement | null>(null)
   // 拖拽状态：记录起始 SVG 坐标 + 元素初始 x/y（按 elementId 索引）
   const dragStateRef = useRef<{
     startSvgX: number
@@ -60,12 +70,46 @@ export function DesignCanvas(): ReactElement | null {
     centerX: number
     centerY: number
   } | null>(null)
+  const panStateRef = useRef<{
+    startClientX: number
+    startClientY: number
+    startPan: DesignCanvasPan
+    moved: boolean
+  } | null>(null)
   const [isDragging, setIsDragging] = useState(false)
   const [isResizing, setIsResizing] = useState(false)
   const [isRotating, setIsRotating] = useState(false)
+  const [isPanning, setIsPanning] = useState(false)
+  const [fitScale, setFitScale] = useState(1)
+  const [manualScale, setManualScale] = useState<number | null>(null)
+  const [pan, setPan] = useState<DesignCanvasPan>({ x: 0, y: 0 })
   const [snapLines, setSnapLines] = useState<SnapLine[]>([])
 
   const getActivePage = useDesignWorkspaceStore((s) => s.getActivePage)
+
+  useEffect(() => {
+    const viewport = viewportRef.current
+    if (!viewport || !document || !activePageId) return
+    const page = document.pages.find((item) => item.id === activePageId)
+    if (!page) return
+    const updateFitScale = (): void => {
+      const bounds = viewport.getBoundingClientRect()
+      setFitScale(
+        designCanvasFitScale(bounds.width, bounds.height, page.width, page.height)
+      )
+    }
+    updateFitScale()
+    const observer = new ResizeObserver(updateFitScale)
+    observer.observe(viewport)
+    return () => observer.disconnect()
+  }, [activePageId, document?.id])
+
+  useEffect(() => {
+    setManualScale(null)
+    setPan({ x: 0, y: 0 })
+    panStateRef.current = null
+    setIsPanning(false)
+  }, [activePageId, document?.id])
 
   const screenToSvg = useCallback((clientX: number, clientY: number): { x: number; y: number } => {
     const svg = svgRef.current
@@ -92,6 +136,22 @@ export function DesignCanvas(): ReactElement | null {
     // made during the element's mousedown would be cleared immediately.
     if (event.target !== event.currentTarget) return
     clearSelection()
+  }
+
+  const handleViewportMouseDown = (event: React.MouseEvent<HTMLDivElement>): void => {
+    if (event.button !== 0 && event.button !== 1) return
+    const target = event.target
+    const isEmptyViewport = target === event.currentTarget
+    const isCanvasBackground = target === svgRef.current
+    if (!isEmptyViewport && !isCanvasBackground) return
+    panStateRef.current = {
+      startClientX: event.clientX,
+      startClientY: event.clientY,
+      startPan: pan,
+      moved: false
+    }
+    setIsPanning(true)
+    event.preventDefault()
   }
 
   const handleElementMouseDown = (element: DesignElement, event: React.MouseEvent): void => {
@@ -160,6 +220,14 @@ export function DesignCanvas(): ReactElement | null {
   }
 
   const handleMouseMove = (event: React.MouseEvent): void => {
+    const panState = panStateRef.current
+    if (panState) {
+      const deltaX = event.clientX - panState.startClientX
+      const deltaY = event.clientY - panState.startClientY
+      if (Math.abs(deltaX) + Math.abs(deltaY) > 2) panState.moved = true
+      setPan(moveDesignCanvasPan(panState.startPan, deltaX, deltaY))
+      return
+    }
     // 旋转优先级最高
     const rotate = rotateStateRef.current
     if (rotate) {
@@ -241,6 +309,8 @@ export function DesignCanvas(): ReactElement | null {
   }
 
   const handleMouseUp = (): void => {
+    panStateRef.current = null
+    if (isPanning) setIsPanning(false)
     const wasDragging = dragStateRef.current !== null
     const wasResizing = resizeStateRef.current !== null
     const wasRotating = rotateStateRef.current !== null
@@ -254,16 +324,48 @@ export function DesignCanvas(): ReactElement | null {
     setSnapLines([])
   }
 
+  const scale = manualScale ?? fitScale
+
+  const handleWheel = (event: React.WheelEvent<HTMLDivElement>): void => {
+    event.preventDefault()
+    if (event.ctrlKey || event.metaKey) {
+      const next = stepDesignCanvasScale(scale, event.deltaY > 0 ? -1 : 1)
+      setManualScale(next)
+      return
+    }
+    setPan((current) => moveDesignCanvasPan(current, -event.deltaX, -event.deltaY))
+  }
+
+  const changeScale = (direction: -1 | 1): void => {
+    setManualScale(stepDesignCanvasScale(scale, direction))
+  }
+
+  const fitCanvas = (): void => {
+    setManualScale(null)
+    setPan({ x: 0, y: 0 })
+  }
+
   return (
     <div
-      className="flex min-h-0 flex-1 items-center justify-center overflow-auto bg-ds-subtle/30 p-8"
+      ref={viewportRef}
+      className={`ds-no-drag relative min-h-0 flex-1 overflow-hidden bg-ds-subtle/30 ${
+        isPanning ? 'cursor-grabbing' : 'cursor-grab'
+      }`}
+      onMouseDown={handleViewportMouseDown}
       onMouseMove={handleMouseMove}
       onMouseUp={handleMouseUp}
       onMouseLeave={handleMouseUp}
+      onWheel={handleWheel}
+      style={{ touchAction: 'none', userSelect: 'none' }}
     >
       <div
-        className="shadow-[0_8px_32px_rgba(15,23,42,0.12)]"
-        style={{ lineHeight: 0, maxWidth: '100%', maxHeight: '100%' }}
+        className="absolute left-1/2 top-1/2 shadow-[0_8px_32px_rgba(15,23,42,0.12)]"
+        style={{
+          lineHeight: 0,
+          width: page.width * scale,
+          height: page.height * scale,
+          transform: `translate(calc(-50% + ${pan.x}px), calc(-50% + ${pan.y}px))`
+        }}
       >
         <svg
           ref={svgRef}
@@ -271,12 +373,10 @@ export function DesignCanvas(): ReactElement | null {
           preserveAspectRatio="xMidYMid meet"
           style={{
             display: 'block',
-            maxWidth: '100%',
-            maxHeight: 'calc(100vh - 160px)',
-            width: page.width,
-            height: page.height,
+            width: '100%',
+            height: '100%',
             background: formatSvgColor(page.background) ?? '#FFFFFF',
-            cursor: isDragging ? 'grabbing' : 'default'
+            cursor: isPanning || isDragging ? 'grabbing' : 'grab'
           }}
           onClick={handleBackgroundClick}
         >
@@ -309,6 +409,38 @@ export function DesignCanvas(): ReactElement | null {
             : <line key={`snap-${i}`} x1={line.start} y1={line.position} x2={line.end} y2={line.position} stroke="#E11D48" strokeWidth={1} strokeDasharray="3 3" style={{ pointerEvents: 'none' }} />
           )}
         </svg>
+      </div>
+      <div className="ds-no-drag absolute bottom-3 right-3 z-10 flex items-center gap-1 rounded-lg border border-ds-border bg-ds-card/95 p-1 text-ds-muted shadow-sm backdrop-blur">
+        <button
+          type="button"
+          onClick={() => changeScale(-1)}
+          className="flex h-7 w-7 items-center justify-center rounded-md transition hover:bg-ds-hover hover:text-ds-ink"
+          title={t('designZoomOut')}
+          aria-label={t('designZoomOut')}
+        >
+          <Minus className="h-3.5 w-3.5" strokeWidth={1.9} />
+        </button>
+        <span className="min-w-12 text-center text-[11px] tabular-nums">
+          {Math.round(scale * 100)}%
+        </span>
+        <button
+          type="button"
+          onClick={() => changeScale(1)}
+          className="flex h-7 w-7 items-center justify-center rounded-md transition hover:bg-ds-hover hover:text-ds-ink"
+          title={t('designZoomIn')}
+          aria-label={t('designZoomIn')}
+        >
+          <Plus className="h-3.5 w-3.5" strokeWidth={1.9} />
+        </button>
+        <button
+          type="button"
+          onClick={fitCanvas}
+          className="flex h-7 w-7 items-center justify-center rounded-md transition hover:bg-ds-hover hover:text-ds-ink"
+          title={t('designFitCanvas')}
+          aria-label={t('designFitCanvas')}
+        >
+          <Maximize2 className="h-3.5 w-3.5" strokeWidth={1.8} />
+        </button>
       </div>
     </div>
   )

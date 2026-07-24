@@ -41,6 +41,12 @@ export function elementToSvgString(
   const styleParts: string[] = []
   if (stroke !== undefined) styleParts.push(`stroke="${stroke}"`)
   if (strokeWidth !== undefined) styleParts.push(`stroke-width="${strokeWidth}"`)
+  if (element.strokeLinecap !== undefined) {
+    styleParts.push(`stroke-linecap="${element.strokeLinecap}"`)
+  }
+  if (element.strokeLinejoin !== undefined) {
+    styleParts.push(`stroke-linejoin="${element.strokeLinejoin}"`)
+  }
   if (opacity !== undefined) styleParts.push(`opacity="${opacity}"`)
   const styleStr = styleParts.join(' ')
 
