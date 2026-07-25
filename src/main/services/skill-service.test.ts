@@ -314,6 +314,8 @@ describe('skill-service', () => {
     const installedRoot = join(skillInstallRoot, 'document-illustrator')
     const skill = await readFile(join(installedRoot, 'SKILL.md'), 'utf8')
     expect(skill).toContain('文档配图助手')
+    expect(skill).toContain('任何读取、建目录或写计划之前')
+    expect(skill).toContain('不要创建 `illustrations/`')
     expect(skill).toContain('WorkWise 已配置的图片生成能力')
     expect(skill).not.toContain('GEMINI_API_KEY')
     expect(existsSync(join(installedRoot, 'LICENSE'))).toBe(true)
