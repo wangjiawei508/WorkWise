@@ -85,6 +85,7 @@ import {
   hasSuccessfulFileDeliverable,
   incompleteTurnContinuationInstruction,
   latestTurnAssistantText,
+  looksLikeExternalCapabilityBlockedReply,
   looksLikeProgressOnlyReply,
   promptRequiresFileDeliverable,
   requiredFileExtensionsForPrompt
@@ -485,6 +486,14 @@ export class AgentLoop {
               severity: 'warning'
             })
             continue
+          }
+          if (decision.kind === 'waiting_user') {
+            await this.opts.turns.finishTurn({
+              threadId,
+              turnId,
+              status: 'completed'
+            })
+            return 'completed'
           }
           if (decision.kind !== 'completed') {
             await this.opts.turns.finishTurn({
@@ -1306,6 +1315,12 @@ export class AgentLoop {
         const incompleteDeliverable = requiresFileDeliverable && !hasFileDeliverable
         const progressOnly = looksLikeProgressOnlyReply(textAccumulator.value)
         if (incompleteDeliverable || progressOnly) {
+          if (
+            incompleteDeliverable &&
+            looksLikeExternalCapabilityBlockedReply(textAccumulator.value)
+          ) {
+            return 'stop'
+          }
           const recoveryCount = this.incompleteCompletionRecoveriesByTurn.get(turnId) ?? 0
           if (recoveryCount < MAX_INCOMPLETE_COMPLETION_RECOVERIES) {
             this.incompleteCompletionRecoveriesByTurn.set(turnId, recoveryCount + 1)

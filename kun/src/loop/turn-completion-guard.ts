@@ -22,6 +22,15 @@ const PROGRESS_ONLY_PATTERN =
 const DELIVERED_RESULT_PATTERN =
   /(?:文档|文件|报告|方案|表格|PPT|PDF|Word|Excel|Markdown).{0,24}(?:已完成|已生成|已创建|已保存|已写入|已导出)|(?:已完成|已生成|已创建|已保存|已写入|已导出).{0,24}(?:文档|文件|报告|方案|表格|PPT|PDF|Word|Excel|Markdown)|(?:document|file|report|spreadsheet|presentation).{0,40}(?:completed|created|generated|saved|written|exported)/i
 
+const EXTERNAL_CAPABILITY_PATTERN =
+  /(?:图片生成|图像生成|生图|图片生成提供商|图片生成工具|image generation|image generator|image provider|image tool)/i
+
+const MISSING_CONFIGURATION_PATTERN =
+  /(?:未配置|未检测到|不可用|缺少.{0,40}(?:提供商|模型|凭据|密钥)|not configured|not available|unavailable|missing.{0,40}(?:provider|model|credential|api key))/i
+
+const BLOCKED_ACTION_PATTERN =
+  /(?:无法继续|不能继续|立即停止|已停止|请到.{0,40}设置|cannot continue|unable to continue|stopped|configure.{0,40}(?:provider|model|credential|api key)|go to.{0,40}settings)/i
+
 const PPT_DELIVERABLE_PATTERN =
   /(?:\bpptx?\b|powerpoint|slide deck|presentation|演示文稿|幻灯片|做\s*PPT|生成\s*PPT|PPT\s*Master)/i
 
@@ -126,6 +135,14 @@ export function looksLikeProgressOnlyReply(text: string): boolean {
   if (!normalized || normalized.length > 1_200) return false
   if (DELIVERED_RESULT_PATTERN.test(normalized)) return false
   return PROGRESS_ONLY_PATTERN.test(normalized)
+}
+
+export function looksLikeExternalCapabilityBlockedReply(text: string): boolean {
+  const normalized = text.trim()
+  if (!normalized || normalized.length > 4_000) return false
+  return EXTERNAL_CAPABILITY_PATTERN.test(normalized) &&
+    MISSING_CONFIGURATION_PATTERN.test(normalized) &&
+    BLOCKED_ACTION_PATTERN.test(normalized)
 }
 
 export function latestTurnAssistantText(items: readonly TurnItem[], turnId: string): string {

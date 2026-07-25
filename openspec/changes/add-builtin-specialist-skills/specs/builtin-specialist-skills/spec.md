@@ -73,7 +73,7 @@ WorkWise SHALL bundle the MIT-licensed `document-illustrator` Skill with its lic
 
 #### Scenario: Image generation is unavailable
 - **WHEN** the configured image provider is disabled or incomplete
-- **THEN** the Skill reports the missing capability and does not claim that images were delivered
+- **THEN** the Skill reports the missing capability, transitions the file task to `waiting_user` without automatic completion retries, and does not claim that images were delivered
 
 ### Requirement: Restricted upstream sources are not redistributed without authorization
 WorkWise MUST NOT package Guizang Social Card, Guizang Material Illustration, or Logo Generator source files until valid redistribution authorization is recorded. Their marketplace cards SHALL state the applicable commercial or license blocker and MAY open the canonical project page.

@@ -4,6 +4,7 @@ import {
   hasSuccessfulFileDeliverable,
   completionIntentText,
   incompleteTurnContinuationInstruction,
+  looksLikeExternalCapabilityBlockedReply,
   looksLikeProgressOnlyReply,
   promptRequiresFileDeliverable,
   requiredFileExtensionsForPrompt
@@ -68,6 +69,21 @@ describe('turn completion guard', () => {
   it('distinguishes a progress announcement from a delivered result', () => {
     expect(looksLikeProgressOnlyReply('资料够了。现在开始撰写完整文档。')).toBe(true)
     expect(looksLikeProgressOnlyReply('文档已完成并保存到 workspace/report.md。')).toBe(false)
+  })
+
+  it('distinguishes a missing external capability from an incomplete deliverable', () => {
+    expect(looksLikeExternalCapabilityBlockedReply(
+      '图片生成能力未配置，无法继续。请到设置 → 图片生成配置提供商、模型和凭据后重试。'
+    )).toBe(true)
+    expect(looksLikeExternalCapabilityBlockedReply(
+      'Image generation is not configured, so I cannot continue. Configure an image provider in Settings.'
+    )).toBe(true)
+    expect(looksLikeExternalCapabilityBlockedReply(
+      '图片生成能力尚未配置，但我会先创建目录并继续编写配图计划。'
+    )).toBe(false)
+    expect(looksLikeExternalCapabilityBlockedReply(
+      '文档尚未生成，我现在继续处理。'
+    )).toBe(false)
   })
 
   it('recognizes a successful document write in the current turn', () => {

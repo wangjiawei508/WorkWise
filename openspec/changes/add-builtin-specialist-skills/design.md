@@ -61,7 +61,7 @@ Both bundled packages use the existing bundled-Skill installer, source metadata,
 ## Risks / Trade-offs
 
 - [Risk] The user expects all four GitHub projects to be physically bundled. → Mitigation: expose the exact licensing evidence and keep the project cards visible; bundle immediately after valid written authorization is supplied and audited.
-- [Risk] Document illustration can be selected without an image provider. → Mitigation: generate a plan, report the missing provider clearly, and never claim image files exist.
+- [Risk] Document illustration can be selected without an image provider. → Mitigation: check the capability before document work, report the missing provider once, persist the task as `waiting_user`, and never claim image files exist.
 - [Risk] Tender heuristics may miss a requirement or scoring row. → Mitigation: label extraction as draft-only, retain anchors, and require human confirmation and final validation.
 - [Risk] Upstream changes after the locked commits are not included. → Mitigation: upgrades are separate reviewed changes, not implicit marketplace updates.
 - [Risk] A built-in Tender Agent can be selected while startup provisioning is unavailable or blocked by an unmanaged same-id package. → Mitigation: critical guardrails live in the Agent prompt, the profile declares `tender-master` as its preferred Skill, and missing Skill resources are reported instead of invented.

@@ -438,4 +438,76 @@ describe('AgentLoop completion guard', () => {
     expect(persistedEvents.filter((event) => event.kind === 'turn_completed')).toHaveLength(1)
     expect(persistedEvents.filter((event) => event.kind === 'turn_failed')).toHaveLength(0)
   })
+
+  it('stops after one blocked file attempt when the task waits for provider configuration', async () => {
+    const threadId = 'thread_image_provider_blocked'
+    const nowIso = () => '2026-07-26T00:00:00.000Z'
+    const threadStore = new InMemoryThreadStore()
+    const sessionStore = new InMemorySessionStore()
+    const eventBus = new InMemoryEventBus()
+    const ids = new SequentialIdGenerator()
+    const inflight = new InflightTracker()
+    const steering = new SteeringQueue()
+    const compactor = new ContextCompactor()
+    const approvalGate = new InMemoryApprovalGate()
+    const userInputGate = new InMemoryUserInputGate()
+    const events = new RuntimeEventRecorder({
+      eventBus, sessionStore, allocateSeq: (id) => eventBus.allocateSeq(id), nowIso
+    })
+    const activeTask = { id: 'task_provider_blocked', attempts: 1 }
+    const tasks = {
+      activeTask: () => activeTask,
+      beginAttempt: () => activeTask,
+      assessCandidate: async () => ({
+        kind: 'waiting_user',
+        task: activeTask,
+        reason: '继续前需要配置图片生成提供商。'
+      })
+    } as unknown as TaskController
+    const turns = new TurnService({
+      threadStore, sessionStore, events, inflight, steering, compactor, ids, nowIso
+    })
+    let modelSteps = 0
+    const model: ModelClient = {
+      provider: 'test',
+      model: 'fixture-model',
+      async *stream() {
+        modelSteps += 1
+        yield {
+          kind: 'assistant_text_delta',
+          text: '图片生成能力未配置，无法继续。请到设置 → 图片生成配置提供商、模型和凭据后重试。'
+        }
+        yield { kind: 'completed', stopReason: 'stop' }
+      }
+    }
+    const toolHost: ToolHost = {
+      id: 'provider-blocked-host',
+      async listTools() { return [] },
+      async execute() { throw new Error('no tool should be called') }
+    }
+    await threadStore.upsert(createThreadRecord({
+      id: threadId,
+      title: 'provider blocked',
+      workspace: '',
+      model: model.model,
+      createdAt: nowIso()
+    }))
+    const started = await turns.startTurn({
+      threadId,
+      request: { prompt: '请使用 Document Illustrator 生成并插入一张章节头图文件。' }
+    })
+    const loop = new AgentLoop({
+      threadStore, sessionStore, approvalGate, userInputGate, model, toolHost,
+      usage: new UsageService(), events, turns, inflight, steering, compactor,
+      prefix: createImmutablePrefix(), ids, nowIso, tasks
+    })
+
+    await expect(loop.runTurn(threadId, started.turnId)).resolves.toBe('completed')
+    expect(modelSteps).toBe(1)
+    const items = await sessionStore.loadItems(threadId)
+    expect(items.filter((item) => item.kind === 'error')).toHaveLength(0)
+    const persistedEvents = await sessionStore.loadEventsSince(threadId, 0)
+    expect(persistedEvents.filter((event) => event.kind === 'turn_completed')).toHaveLength(1)
+    expect(persistedEvents.filter((event) => event.kind === 'turn_failed')).toHaveLength(0)
+  })
 })

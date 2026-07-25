@@ -10,7 +10,7 @@
 - [x] 2.2 Correct evidence, hard-requirement, deviation, placeholder and final-delivery safety rules
 - [x] 2.3 Add the Chinese-first marketplace card, English localization and immutable native `tender-master` Agent profile
 - [x] 2.4 Add and run deterministic helper-script tests for extraction, scoring, quality blockers, fee estimation, conversion and DOCX behavior
-- [ ] 2.5 Run representative goods, software/service and engineering scenarios through the installed Skill/Agent path and review real task outputs
+- [x] 2.5 Run representative goods, software/service and engineering scenarios through the installed Skill/Agent path and review real task outputs
 - [x] 2.6 Add a usable active-thread Agent selector with one safe revision-conflict replay and renderer coverage
 
 ## 3. Document Illustrator Integration
@@ -35,3 +35,4 @@
 - [x] 5.5 Commit and push the feature branch without `.codex/config.toml`, `.zcode/` or local `main` changes
 - [ ] 5.6 Build a three-platform 0.3.2 candidate and verify packaged Skill files, license exclusions, marketplace behavior, Agent visibility and real scenario results
 - [x] 5.7 Record candidate evidence and report readiness without creating a version tag or public Release
+- [x] 5.8 Reproduce the post-release missing-image-provider retry defect and make blocked file tasks persist as `waiting_user` after one explicit response
