@@ -24,7 +24,7 @@
 
 - [x] 4.1 Keep Guizang Material Illustration as an external project because its repository has no license
 - [x] 4.2 Add external-only Social Card and Logo Generator cards with explicit commercial or redistribution authorization status
-- [ ] 4.3 If the user supplies valid written authorization, audit it and create a separate reviewed bundling delta; otherwise retain the current link-only treatment
+- [x] 4.3 If the user supplies valid written authorization, audit it and create a separate reviewed bundling delta; otherwise retain the current link-only treatment
 
 ## 5. Validation and Candidate Acceptance
 

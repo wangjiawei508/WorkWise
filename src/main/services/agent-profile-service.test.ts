@@ -58,6 +58,8 @@ describe('AgentProfileService', () => {
     const tender = builtInAgentProfiles().find((entry) => entry.id === 'tender-master')
     expect(tender?.systemPrompt).toContain('不得把它们升级为事实、资格条件或定稿门槛')
     expect(tender?.systemPrompt).toContain('不得猜测彩页、证书、合同或招标文件“可能包含”什么')
+    expect(tender?.systemPrompt).toContain('响应合同优先于默认模板')
+    expect(tender?.systemPrompt).toContain('未明确要求行业建议时一律省略')
   })
 
   it('lets workspace profiles override global profiles with the same id', async () => {
