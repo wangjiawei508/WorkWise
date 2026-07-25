@@ -32,6 +32,6 @@
 - [x] 5.2 Pass targeted bundled installation, Agent profile, license boundary and localization tests
 - [x] 5.3 Run OpenSpec strict validation, brand boundary, ESLint, TypeScript, full Vitest and production build
 - [x] 5.4 Run role-based product, security and release QA reviews and fix all release blockers
-- [ ] 5.5 Commit and push the feature branch without `.codex/config.toml`, `.zcode/` or local `main` changes
+- [x] 5.5 Commit and push the feature branch without `.codex/config.toml`, `.zcode/` or local `main` changes
 - [ ] 5.6 Build a three-platform 0.3.2 candidate and verify packaged Skill files, license exclusions, marketplace behavior, Agent visibility and real scenario results
-- [ ] 5.7 Record candidate evidence and report readiness without creating a version tag or public Release
+- [x] 5.7 Record candidate evidence and report readiness without creating a version tag or public Release
