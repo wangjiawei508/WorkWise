@@ -27,13 +27,22 @@
 - Stable 缺少 Developer ID、Apple 公证或 R2 凭据时流水线硬失败。macOS 配置启用 hardened runtime、secure timestamp、notarization 和 stapling 验证。
 - 提升后仅保留最近三个可安装版本；`r2:rollback` 只把已验证的版本目录重新指向通道，不修改版本化对象。
 
+## 托管原生更新验收运行
+
+- 2026-08-01 已从提交 `303bcef099f292f31ad2465d541e5a729d2cfd37` 触发 [Release #30702815117](https://github.com/wangjiawei508/WorkWise/actions/runs/30702815117) 的 acceptance-only 模式；普通候选构建、Stable 发布和 GitHub Release 作业均保持跳过。
+- macOS arm64、macOS x64 与 Windows x64 的 MarkItDown 原生侧车均构建并上传成功，证明三平台依赖准备路径可运行。
+- Windows 0.3.3 基线安装器与 0.3.4 目标更新工件均构建成功；运行保留了 `acceptance-base-win`（229,262,686 bytes）与 `acceptance-target-win`（229,498,612 bytes）artifact，但因测试 feed 未发布，没有执行客户端安装更新。
+- macOS 0.3.3/0.3.4 双版本打包在签名凭据门禁处按预期硬失败，首个明确缺口为 `MAC_CODESIGN_P12_BASE64`；工作流没有降级生成未签名包，也没有进入公证、R2 发布或客户端安装验收。
+- 仓库 Actions secrets 名称清单当前为空。完成验收至少需要配置 `MAC_CODESIGN_P12_BASE64`、`CSC_KEY_PASSWORD`、`APPLE_API_KEY_BASE64`、`APPLE_API_KEY_ID`、`APPLE_API_ISSUER`、`R2_ACCOUNT_ID`、`R2_BUCKET`、`R2_ACCESS_KEY_ID` 和 `R2_SECRET_ACCESS_KEY`。
+- 隔离前缀清理作业也因 R2 凭据为空而硬失败；发布作业此前已跳过，因此本次没有上传或遗留任何 run-scoped R2 对象。
+- 本次运行属于失败门禁证据，不是任务 6.5 的通过证据；配置凭据后必须从当前分支重新运行同一 acceptance-only 流程，并归档三平台 `passed` artifact。
+
 ## 尚缺的外部证据（Stable 保持阻断）
 
-- 当前本地工作区没有 R2 生产凭据，未执行官方域名的真实上传、完整下载、Range、哈希、提升或回滚演练。
-- 当前没有可用于正式发布的 Apple Developer ID、公证凭据，未生成可验证的签名、公证、staple 安装包。
-- 当前环境只有 macOS Apple Silicon，未完成 macOS Intel 和 Windows x64 的原生安装及 0.3.3 → 测试 0.3.4 应用内更新。
+- 当前仓库未配置 R2 发布凭据，未执行官方域名的真实上传、完整下载、Range、哈希、提升或回滚演练。
+- 当前仓库未配置可用于正式发布的 Apple Developer ID 与公证凭据，未生成可验证的签名、公证、staple 安装包。
+- 三平台 runner 已能构建原生文档侧车，但仍未完成 macOS arm64、macOS x64 和 Windows x64 的 0.3.3 → 测试 0.3.4 原生安装与应用内更新闭环。
 - 三平台验收应按 [WORKWISE_0.3.3_UPDATER_ACCEPTANCE.md](./WORKWISE_0.3.3_UPDATER_ACCEPTANCE.md) 运行；在工作流 URL、提交 SHA、测试 feed 清单哈希和三份 `passed` artifact 归档前，OpenSpec 任务 6.5 保持未完成。
-- 当前 GitHub 凭据无权列出仓库 Actions 密钥名称，因此不能在本地确认 Apple/R2 secrets 是否已配置；流水线会在使用前逐项硬校验并明确失败。
 - 自动化验收使用可重复生成的 101 页招标夹具；正式发布前如需客户项目级证据，仍应使用经授权且已脱敏的真实招标文件补充业务复核。
 - Flow Runtime 的跨重启自动化验收已通过；打包应用 UI 的人工截图或录屏可在发布候选环境中补充，但不替代自动化运行历史。
 
