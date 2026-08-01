@@ -14,6 +14,8 @@ import type {
   GuiUpdateChannel,
   GuiUpdateDownloadResult,
   GuiUpdateInfo,
+  GuiUpdateInstallPreflight,
+  GuiUpdateInstallRequest,
   GuiUpdateInstallResult,
   GuiUpdateState
 } from './gui-update'
@@ -385,6 +387,19 @@ export type WorkWiseApi = {
   diagnoseDocumentEngine: (id: DocumentEngineId) => Promise<DocumentEngineStatusV1>
   parseDocument: (request: DocumentParseRequestV1) => Promise<DocumentParseResultV1>
   cancelDocumentParse: (parseId: string) => Promise<boolean>
+  importChatAttachment: (request: {
+    importId?: string
+    sourcePath: string
+    declaredMimeType?: string
+    threadId?: string
+    workspace?: string
+  }) => Promise<{ attachment: {
+    id: string; name: string; mimeType: string; byteSize: number; kind: string;
+    state: 'uploading' | 'parsing' | 'ready' | 'degraded' | 'failed' | 'cancelled';
+    degradationReasons?: string[]; progress?: number
+  }; managedPath: string }>
+  cancelChatAttachmentImport: (importId: string) => Promise<boolean>
+  openChatAttachmentOriginal: (managedPath: string) => Promise<void>
   previewWorkspaceFile: (request: {
     workspaceRoot: string
     relativePath: string
@@ -523,7 +538,8 @@ export type WorkWiseApi = {
   getGuiUpdateState: () => Promise<GuiUpdateState>
   checkGuiUpdate: (channel?: GuiUpdateChannel) => Promise<GuiUpdateInfo>
   downloadGuiUpdate: (channel?: GuiUpdateChannel) => Promise<GuiUpdateDownloadResult>
-  installGuiUpdate: () => Promise<GuiUpdateInstallResult>
+  preflightGuiUpdateInstall: () => Promise<GuiUpdateInstallPreflight>
+  installGuiUpdate: (request?: GuiUpdateInstallRequest) => Promise<GuiUpdateInstallResult>
   onGuiUpdateState: (handler: (payload: GuiUpdateState) => void) => () => void
   logError: (category: string, message: string, detail?: unknown) => Promise<void>
   getLogPath: () => Promise<string>

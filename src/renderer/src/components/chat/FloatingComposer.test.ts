@@ -993,4 +993,27 @@ describe('FloatingComposer capability controls', () => {
     expect(sendButton).toContain('disabled=""')
     expect(html).toContain('lucide-loader-circle')
   })
+
+  it('renders document attachment size, progress, failure retry, removal, and open-original actions', () => {
+    useChatStore.setState({ activeThreadId: 'thr_attachment', route: 'chat', workspaceRoot: '/workspace', threads: [] })
+    const html = renderToStaticMarkup(createElement(FloatingComposer, {
+      input: 'review', setInput: () => undefined, mode: 'agent', setMode: () => undefined,
+      busy: false, runtimeReady: true, hasActiveThread: true, composerModel: 'deepseek-v4-pro',
+      composerPickList: ['deepseek-v4-pro'], onComposerModelChange: () => undefined,
+      queuedMessages: [], onRemoveQueuedMessage: () => undefined, onSend: () => undefined,
+      onInterrupt: () => undefined, attachmentUploadEnabled: true, webAccessAvailable: false,
+      attachments: [
+        { id: 'import_running', name: '招标文件.pdf', byteSize: 2 * 1024 * 1024, state: 'parsing', progress: 0.42 },
+        { id: 'import_failed', name: '报价表.xlsx', byteSize: 1024, state: 'failed', localSourcePath: '/source/报价表.xlsx', degradationReasons: ['损坏'] },
+        { id: 'att_ready', name: '技术要求.docx', byteSize: 4096, state: 'ready', managedPath: '/managed/技术要求.docx' }
+      ],
+      onRemoveAttachment: vi.fn(), onRetryAttachment: vi.fn()
+    }))
+    expect(html).toContain('招标文件.pdf')
+    expect(html).toContain('2.0 MiB')
+    expect(html).toContain('42%')
+    expect(html).toContain('aria-label="重试附件"')
+    expect(html).toContain('aria-label="打开原文件"')
+    expect(html).toContain('aria-label="Remove attachment"')
+  })
 })

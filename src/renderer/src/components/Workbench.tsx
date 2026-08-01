@@ -115,6 +115,9 @@ const TodoPanel = lazy(() =>
 const ScheduleTasksView = lazy(() =>
   import('./schedule/ScheduleTasksView').then((module) => ({ default: module.ScheduleTasksView }))
 )
+const FlowWorkspaceView = lazy(() =>
+  import('./flow/FlowWorkspaceView').then((module) => ({ default: module.FlowWorkspaceView }))
+)
 const DesignWorkspaceView = lazy(() =>
   import('./design/DesignWorkspaceView').then((module) => ({ default: module.DesignWorkspaceView }))
 )
@@ -258,6 +261,7 @@ export function Workbench(): ReactElement {
     runtimeErrorDetail,
     busy,
     route,
+    flowFilter,
     pluginHostRoute,
     workspaceRoot,
     runtimeConnection,
@@ -270,6 +274,7 @@ export function Workbench(): ReactElement {
     openPlugins,
     openClaw,
     openSchedule,
+    openFlow,
     openDesign,
     chooseWorkspace,
     clawChannels,
@@ -315,6 +320,7 @@ export function Workbench(): ReactElement {
       runtimeErrorDetail: s.runtimeErrorDetail,
       busy: s.busy,
       route: s.route,
+      flowFilter: s.flowFilter,
       pluginHostRoute: s.pluginHostRoute,
       workspaceRoot: s.workspaceRoot,
       runtimeConnection: s.runtimeConnection,
@@ -327,6 +333,7 @@ export function Workbench(): ReactElement {
       openPlugins: s.openPlugins,
       openClaw: s.openClaw,
       openSchedule: s.openSchedule,
+      openFlow: s.openFlow,
       openDesign: s.openDesign,
       chooseWorkspace: s.chooseWorkspace,
       clawChannels: s.clawChannels,
@@ -943,26 +950,35 @@ export function Workbench(): ReactElement {
         setAttachmentUploadError(t('composerAttachmentUnavailable'))
         return
       }
+      const remaining = Math.max(0, 8 - composerAttachments.length)
+      const selected = files.slice(0, remaining)
+      if (selected.reduce((total, file) => total + file.size, 0) > 500 * 1024 * 1024) throw new Error('附件批次不能超过 500 MiB')
       const uploaded: AttachmentReference[] = []
-      for (const file of files) {
-        if (!file.type.startsWith('image/')) continue
-        const prepared = await prepareImageAttachmentUpload(file, attachmentCapabilities)
-        const attachment = await provider.uploadAttachment({
-          name: file.name || 'image',
-          mimeType: prepared.mimeType,
-          dataBase64: prepared.dataBase64,
-          textFallback: prepared.textFallback,
-          ...(activeThreadId ? { threadId: activeThreadId } : {}),
-          ...(workspace ? { workspace } : {})
-        })
-        uploaded.push({
-          id: attachment.id,
-          name: attachment.name,
-          mimeType: attachment.mimeType,
-          width: attachment.width,
-          height: attachment.height,
-          previewUrl: `data:${prepared.mimeType};base64,${prepared.dataBase64}`
-        })
+      for (const file of selected) {
+        if (file.size > 200 * 1024 * 1024) throw new Error(`${file.name} 超过 200 MiB`)
+        if (file.type.startsWith('image/') || /\.(?:png|jpe?g|webp)$/i.test(file.name)) {
+          const prepared = await prepareImageAttachmentUpload(file, attachmentCapabilities)
+          const attachment = await provider.uploadAttachment({
+            name: file.name || 'image', mimeType: prepared.mimeType, dataBase64: prepared.dataBase64,
+            textFallback: prepared.textFallback, ...(activeThreadId ? { threadId: activeThreadId } : {}), ...(workspace ? { workspace } : {})
+          })
+          uploaded.push({ id: attachment.id, name: attachment.name, mimeType: attachment.mimeType, byteSize: attachment.byteSize, width: attachment.width, height: attachment.height, state: 'ready', previewUrl: `data:${prepared.mimeType};base64,${prepared.dataBase64}` })
+          continue
+        }
+        if (!/\.(?:pdf|docx|xlsx|pptx|txt|md|markdown|csv)$/i.test(file.name)) continue
+        if (typeof window.workwise.importChatAttachment !== 'function') throw new Error(t('composerAttachmentUnavailable'))
+        const placeholderId = `import_${crypto.randomUUID()}`
+        const sourcePath = window.workwise.getPathForFile(file)
+        setComposerAttachments((current) => [...current, { id: placeholderId, name: file.name, mimeType: file.type, byteSize: file.size, state: 'uploading', localSourcePath: sourcePath }])
+        setComposerAttachments((current) => current.map((item) => item.id === placeholderId ? { ...item, state: 'parsing' } : item))
+        try {
+          const result = await window.workwise.importChatAttachment({ importId: placeholderId, sourcePath, declaredMimeType: file.type || undefined, ...(activeThreadId ? { threadId: activeThreadId } : {}), ...(workspace ? { workspace } : {}) })
+          setComposerAttachments((current) => current.filter((item) => item.id !== placeholderId))
+          uploaded.push({ ...result.attachment, managedPath: result.managedPath, localSourcePath: sourcePath })
+        } catch (error) {
+          setComposerAttachments((current) => current.map((item) => item.id === placeholderId ? { ...item, state: 'failed', degradationReasons: [error instanceof Error ? error.message : String(error)] } : item))
+          throw error
+        }
       }
       if (uploaded.length > 0) {
         setComposerAttachments((current) => {
@@ -981,7 +997,25 @@ export function Workbench(): ReactElement {
   }
 
   const removeComposerAttachment = (id: string): void => {
+    const attachment = composerAttachments.find((item) => item.id === id)
+    if (attachment && ['uploading', 'parsing'].includes(attachment.state ?? '')) void window.workwise.cancelChatAttachmentImport(id)
     setComposerAttachments((current) => current.filter((attachment) => attachment.id !== id))
+  }
+
+  const retryComposerAttachment = async (id: string): Promise<void> => {
+    const attachment = composerAttachments.find((item) => item.id === id)
+    if (!attachment?.localSourcePath || !['failed', 'cancelled'].includes(attachment.state ?? '')) return
+    const workspace = threads.find((thread) => thread.id === activeThreadId)?.workspace || workspaceRoot || undefined
+    setAttachmentUploadError(null)
+    setComposerAttachments((current) => current.map((item) => item.id === id ? { ...item, state: 'parsing', degradationReasons: [] } : item))
+    try {
+      const result = await window.workwise.importChatAttachment({ importId: id, sourcePath: attachment.localSourcePath, declaredMimeType: attachment.mimeType, ...(activeThreadId ? { threadId: activeThreadId } : {}), ...(workspace ? { workspace } : {}) })
+      setComposerAttachments((current) => current.map((item) => item.id === id ? { ...result.attachment, managedPath: result.managedPath, localSourcePath: attachment.localSourcePath } : item))
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      setComposerAttachments((current) => current.map((item) => item.id === id ? { ...item, state: 'failed', degradationReasons: [message] } : item))
+      setAttachmentUploadError(message)
+    }
   }
 
   const handlePasteClipboardImage = async (options: { silentNoImage?: boolean } = {}): Promise<void> => {
@@ -1466,6 +1500,10 @@ export function Workbench(): ReactElement {
   const handleSendAsync = async (): Promise<void> => {
     const v = input.trim()
     const attachments = route === 'chat' ? composerAttachments : []
+    if (attachments.some((attachment) => attachment.state && !['ready', 'degraded'].includes(attachment.state))) {
+      setAttachmentUploadError('请等待附件解析完成，或移除失败的附件后再发送。')
+      return
+    }
     const attachmentIds = attachments.map((attachment) => attachment.id)
     const fileReferences = route === 'chat' ? composerFileReferences : []
     const reasoningEffort = composerReasoningEffortRequestValue(composerReasoningEffort)
@@ -1680,6 +1718,11 @@ export function Workbench(): ReactElement {
     openSchedule()
   }
 
+  const openFlowView = (): void => {
+    setConnectPhoneSidebarOpen(false)
+    openFlow()
+  }
+
   const openDesignView = (): void => {
     setConnectPhoneSidebarOpen(false)
     openDesign()
@@ -1699,11 +1742,13 @@ export function Workbench(): ReactElement {
     setConnectPhoneSidebarOpen((open) => !open)
   }
 
-  const sidebarView: 'chat' | 'write' | 'claw' | 'schedule' | 'design' =
+  const sidebarView: 'chat' | 'write' | 'claw' | 'schedule' | 'design' | 'flow' =
     route === 'claw' || (route === 'plugins' && pluginHostRoute === 'claw')
       ? 'claw'
       : route === 'schedule'
         ? 'schedule'
+      : route === 'flow'
+        ? 'flow'
       : route === 'write'
         ? 'write'
       : route === 'design'
@@ -1914,6 +1959,7 @@ export function Workbench(): ReactElement {
               onWriteOpen={openWriteMode}
               onToggleFocusMode={toggleFocusMode}
               onScheduleOpen={openScheduleView}
+              onFlowOpen={openFlowView}
               onDesignOpen={openDesignView}
               onToggleSidebar={toggleLeftSidebar}
             />
@@ -1946,6 +1992,14 @@ export function Workbench(): ReactElement {
               <PluginMarketplaceView />
             </Suspense>
           </>
+        ) : route === 'flow' ? (
+          <Suspense fallback={<div className="h-full bg-ds-main" />}>
+            <FlowWorkspaceView
+              leftSidebarCollapsed={leftSidebarCollapsed}
+              onToggleLeftSidebar={toggleLeftSidebar}
+              filter={flowFilter}
+            />
+          </Suspense>
         ) : route === 'schedule' ? (
           <Suspense fallback={<div className="h-full bg-ds-main" />}>
             <ScheduleTasksView
@@ -2109,6 +2163,7 @@ export function Workbench(): ReactElement {
                 onPickAttachments={(files) => void handlePickAttachments(files)}
                 onPasteClipboardImage={(options) => void handlePasteClipboardImage(options)}
                 onRemoveAttachment={removeComposerAttachment}
+                onRetryAttachment={(id) => void retryComposerAttachment(id)}
                 onAddFileReference={addComposerFileReference}
                 onRemoveFileReference={removeComposerFileReference}
                 queuedMessages={queuedMessages}

@@ -91,7 +91,7 @@ export type SettingsRouteSection =
   | 'shortcuts'
   | 'claw'
   | 'help'
-export type AppRoute = 'chat' | 'write' | 'design' | 'settings' | 'plugins' | 'claw' | 'schedule'
+export type AppRoute = 'chat' | 'write' | 'design' | 'flow' | 'settings' | 'plugins' | 'claw' | 'schedule'
 export type PluginHostRoute = 'chat' | 'claw'
 
 /**
@@ -130,6 +130,7 @@ export type SidePanelState = {
 
 export type ChatState = {
   route: AppRoute
+  flowFilter: 'all' | 'scheduled'
   settingsReturnRoute: Exclude<AppRoute, 'settings'>
   pluginHostRoute: PluginHostRoute
   settingsSection: SettingsRouteSection
@@ -188,6 +189,7 @@ export type ChatState = {
   openPlugins: (host?: PluginHostRoute) => void
   openClaw: () => void
   openSchedule: () => void
+  openFlow: (filter?: 'scheduled') => void
   openDesign: () => void
   refreshClawChannels: () => Promise<void>
   addClawChannel: (

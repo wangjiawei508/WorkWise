@@ -35,6 +35,11 @@ import {
   attachmentDiagnostics,
   getAttachmentContent,
   getAttachmentMetadata,
+  importDocumentAttachment,
+  ingestParsedAttachmentBatch,
+  listAttachmentSections,
+  readAttachmentSection,
+  searchAttachmentSections,
   uploadAttachment
 } from './attachments.js'
 import {
@@ -44,6 +49,7 @@ import {
   memoryDiagnostics,
   updateMemory
 } from './memory.js'
+import { flowRoutes } from './flows.js'
 import { isAuthorized, bearerToken } from '../auth.js'
 import { ERRORS } from './runtime-error.js'
 import type { ServerRuntime } from './server-runtime.js'
@@ -98,6 +104,10 @@ export function buildRouter(runtime: ServerRuntime): Router {
     if (!authorize(request, runtime)) return ERRORS.unauthorized()
     return uploadAttachment(runtime.attachmentStore, request)
   })
+  router.add('POST', '/v1/attachments/documents', async (request) => {
+    if (!authorize(request, runtime)) return ERRORS.unauthorized()
+    return importDocumentAttachment(runtime.attachmentStore, request)
+  })
   router.add('GET', '/v1/attachments/diagnostics', async (request) => {
     if (!authorize(request, runtime)) return ERRORS.unauthorized()
     return attachmentDiagnostics(runtime.attachmentStore)
@@ -110,6 +120,47 @@ export function buildRouter(runtime: ServerRuntime): Router {
     if (!authorize(request, runtime)) return ERRORS.unauthorized()
     return getAttachmentContent(runtime.attachmentStore, ctx.params.id, request)
   })
+  router.add('GET', '/v1/attachments/:id/sections', async (request, ctx) => {
+    if (!authorize(request, runtime)) return ERRORS.unauthorized()
+    return listAttachmentSections(runtime.attachmentStore, ctx.params.id, request)
+  })
+  router.add('GET', '/v1/attachments/:id/sections/search', async (request, ctx) => {
+    if (!authorize(request, runtime)) return ERRORS.unauthorized()
+    return searchAttachmentSections(runtime.attachmentStore, ctx.params.id, request)
+  })
+  router.add('GET', '/v1/attachments/:id/sections/:sectionId', async (request, ctx) => {
+    if (!authorize(request, runtime)) return ERRORS.unauthorized()
+    return readAttachmentSection(runtime.attachmentStore, ctx.params.id, ctx.params.sectionId, request)
+  })
+  router.add('POST', '/v1/attachments/:id/parsed', async (request, ctx) => {
+    if (!authorize(request, runtime)) return ERRORS.unauthorized()
+    return ingestParsedAttachmentBatch(runtime.attachmentStore, ctx.params.id, request)
+  })
+  router.add('POST', '/v1/flow-webhooks/:id', async (request, ctx) => flowRoutes.webhook(runtime.flowService, ctx.params.id, request))
+  router.add('GET', '/v1/flows', async (request) => authorize(request, runtime) ? flowRoutes.list(runtime.flowService) : ERRORS.unauthorized())
+  router.add('POST', '/v1/flows', async (request) => authorize(request, runtime) ? flowRoutes.create(runtime.flowService, request) : ERRORS.unauthorized())
+  router.add('GET', '/v1/flows/:id', async (request, ctx) => authorize(request, runtime) ? flowRoutes.get(runtime.flowService, ctx.params.id) : ERRORS.unauthorized())
+  router.add('DELETE', '/v1/flows/:id', async (request, ctx) => authorize(request, runtime) ? flowRoutes.archive(runtime.flowService, ctx.params.id) : ERRORS.unauthorized())
+  router.add('GET', '/v1/flows/:id/versions', async (request, ctx) => authorize(request, runtime) ? flowRoutes.versions(runtime.flowService, ctx.params.id) : ERRORS.unauthorized())
+  router.add('PUT', '/v1/flows/:id', async (request) => authorize(request, runtime) ? flowRoutes.update(runtime.flowService, request) : ERRORS.unauthorized())
+  router.add('POST', '/v1/flows/validate', async (request) => authorize(request, runtime) ? flowRoutes.validate(runtime.flowService, request) : ERRORS.unauthorized())
+  router.add('POST', '/v1/flows/publish', async (request) => authorize(request, runtime) ? flowRoutes.publish(runtime.flowService, request) : ERRORS.unauthorized())
+  router.add('POST', '/v1/flows/run', async (request) => authorize(request, runtime) ? flowRoutes.run(runtime.flowService, request) : ERRORS.unauthorized())
+  router.add('POST', '/v1/flows/test-node', async (request) => authorize(request, runtime) ? flowRoutes.testNode(runtime.flowService, request) : ERRORS.unauthorized())
+  router.add('POST', '/v1/flows/migrations/schedules', async (request) => authorize(request, runtime) ? flowRoutes.migrateSchedules(runtime.flowService, request) : ERRORS.unauthorized())
+  router.add('GET', '/v1/legacy-schedules', async (request) => authorize(request, runtime) ? flowRoutes.listLegacySchedules(runtime.flowService) : ERRORS.unauthorized())
+  router.add('POST', '/v1/legacy-schedules', async (request) => authorize(request, runtime) ? flowRoutes.createLegacySchedule(runtime.flowService, request) : ERRORS.unauthorized())
+  router.add('PUT', '/v1/legacy-schedules/:id', async (request, ctx) => authorize(request, runtime) ? flowRoutes.updateLegacySchedule(runtime.flowService, ctx.params.id, request) : ERRORS.unauthorized())
+  router.add('POST', '/v1/legacy-schedules/:id/run', async (request, ctx) => authorize(request, runtime) ? flowRoutes.runLegacySchedule(runtime.flowService, ctx.params.id) : ERRORS.unauthorized())
+  router.add('DELETE', '/v1/legacy-schedules/:id', async (request, ctx) => authorize(request, runtime) ? flowRoutes.archiveLegacySchedule(runtime.flowService, ctx.params.id) : ERRORS.unauthorized())
+  router.add('GET', '/v1/flows/:id/history', async (request, ctx) => authorize(request, runtime) ? flowRoutes.history(runtime.flowService, ctx.params.id, request) : ERRORS.unauthorized())
+  router.add('GET', '/v1/flow-runs/:id', async (request, ctx) => authorize(request, runtime) ? flowRoutes.runDetails(runtime.flowService, ctx.params.id) : ERRORS.unauthorized())
+  router.add('POST', '/v1/flow-runs/:id/cancel', async (request, ctx) => authorize(request, runtime) ? flowRoutes.action(runtime.flowService, ctx.params.id, 'cancel', request) : ERRORS.unauthorized())
+  router.add('POST', '/v1/flow-runs/:id/resume', async (request, ctx) => authorize(request, runtime) ? flowRoutes.action(runtime.flowService, ctx.params.id, 'resume', request) : ERRORS.unauthorized())
+  router.add('POST', '/v1/flow-runs/:id/retry', async (request, ctx) => authorize(request, runtime) ? flowRoutes.action(runtime.flowService, ctx.params.id, 'retry', request) : ERRORS.unauthorized())
+  router.add('POST', '/v1/flow-runs/decision', async (request) => authorize(request, runtime) ? flowRoutes.decide(runtime.flowService, request) : ERRORS.unauthorized())
+  router.add('GET', '/v1/flows/:id/export', async (request, ctx) => authorize(request, runtime) ? flowRoutes.export(runtime.flowService, ctx.params.id) : ERRORS.unauthorized())
+  router.add('POST', '/v1/flows/:id/webhooks', async (request, ctx) => authorize(request, runtime) ? flowRoutes.provisionWebhook(runtime.flowService, ctx.params.id, request) : ERRORS.unauthorized())
   router.add('GET', '/v1/memory', async (request) => {
     if (!authorize(request, runtime)) return ERRORS.unauthorized()
     return listMemories(runtime.memoryStore, request)

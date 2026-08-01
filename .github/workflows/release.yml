@@ -28,7 +28,8 @@ env:
   NODE_VERSION: '22.22.0'
   RELEASE_CHANNEL: stable
   WORKWISE_DOWNLOAD_URL: https://www.railwise.cn/products/workwise/
-  WORKWISE_UPDATE_PROVIDER: github
+  WORKWISE_UPDATE_PROVIDER: generic
+  WORKWISE_UPDATE_BASE_URL: https://www.railwise.cn/downloads
   WORKWISE_GITHUB_REPO: wangjiawei508/WorkWise
 
 jobs:
@@ -225,7 +226,11 @@ jobs:
             echo "Apple signing credentials present: building a signed, notarized package."
           else
             echo "enabled=false" >> "${GITHUB_OUTPUT}"
-            echo "::warning::Apple signing secrets are not configured; building an UNSIGNED macOS package. Users must clear the quarantine attribute (see scripts/mac-unquarantine.sh)."
+            if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+              echo "::error::Stable macOS publication requires Developer ID signing and Apple notarization credentials."
+              exit 1
+            fi
+            echo "::warning::Candidate build is unsigned and cannot be promoted to Stable."
           fi
 
       - name: Decode Apple signing credentials
@@ -373,6 +378,11 @@ jobs:
       RELEASE_CHANNEL: stable
       WORKWISE_UPDATE_CHANNEL: stable
       MAC_SIGNED: ${{ secrets.MAC_CODESIGN_P12_BASE64 != '' && secrets.CSC_KEY_PASSWORD != '' && secrets.APPLE_API_KEY_BASE64 != '' && secrets.APPLE_API_KEY_ID != '' && secrets.APPLE_API_ISSUER != '' }}
+      R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+      R2_BUCKET: ${{ secrets.R2_BUCKET }}
+      R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+      R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+      WORKWISE_PUBLIC_BASE_URL: https://www.railwise.cn/downloads
     steps:
       - name: Check out tag
         uses: actions/checkout@v7
@@ -438,6 +448,31 @@ jobs:
           done
 
           find public-release-assets -maxdepth 1 -type f -print | sort
+
+      - name: Verify Stable delivery credentials
+        run: |
+          set -euo pipefail
+          [[ "${MAC_SIGNED}" == "true" ]] || { echo "::error::Stable requires signed and notarized macOS packages"; exit 1; }
+          for name in R2_ACCOUNT_ID R2_BUCKET R2_ACCESS_KEY_ID R2_SECRET_ACCESS_KEY; do
+            [[ -n "${!name:-}" ]] || { echo "::error::Missing ${name}; Stable promotion is blocked"; exit 1; }
+          done
+
+      - name: Upload immutable updater artifacts to R2
+        run: |
+          set -euo pipefail
+          node ./scripts/publish-r2.mjs upload --platform mac --tag "${TAG_NAME}" --channel stable --dist release-artifacts
+          node ./scripts/publish-r2.mjs upload --platform win --tag "${TAG_NAME}" --channel stable --dist release-artifacts
+
+      - name: Promote verified R2 channel pointer
+        run: |
+          set -euo pipefail
+          node ./scripts/verify-release-assets.cjs release-artifacts
+          node ./scripts/publish-r2.mjs verify --tag "${TAG_NAME}" --channel stable --platforms mac,win
+          node ./scripts/publish-r2.mjs promote --tag "${TAG_NAME}" --channel stable --platforms mac,win
+          curl --fail --silent --show-error --location --range 0-1023 \
+            "https://www.railwise.cn/downloads/workwise/channels/stable/latest/latest-mac.yml" >/dev/null
+          curl --fail --silent --show-error --location --range 0-1023 \
+            "https://www.railwise.cn/downloads/workwise/channels/stable/latest/latest.yml" >/dev/null
 
       - name: Prepare website update channel assets
         run: |

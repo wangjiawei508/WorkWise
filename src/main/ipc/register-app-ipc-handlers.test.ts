@@ -33,7 +33,8 @@ vi.mock('../services/managed-tool-service', () => ({
 
 vi.mock('electron', () => ({
   app: {
-    quit: vi.fn()
+    quit: vi.fn(),
+    getPath: vi.fn(() => '/tmp')
   },
   dialog: {},
   shell: {
@@ -99,6 +100,48 @@ describe('registerAppIpcHandlers', () => {
   beforeEach(() => {
     handlers.clear()
     vi.clearAllMocks()
+  })
+
+  it('requires explicit confirmation when update preflight finds active Agent work', async () => {
+    const installGuiUpdate = vi.fn(async () => ({ ok: true as const }))
+    const runtimeRequest = vi.fn(async (path: string) => {
+      if (path.startsWith('/v1/tasks')) {
+        return { ok: true, status: 200, body: JSON.stringify([{ id: 'task-1', goal: '编制投标文件', status: 'running' }]) }
+      }
+      if (path === '/v1/flows') return { ok: true, status: 200, body: JSON.stringify({ flows: [] }) }
+      return { ok: false, status: 404, body: '{}' }
+    })
+    const { registerAppIpcHandlers } = await import('./register-app-ipc-handlers')
+    registerAppIpcHandlers(registerOptions({
+      runtimeRequest: runtimeRequest as never,
+      loadGuiUpdaterModule: vi.fn(async () => ({ installGuiUpdate })) as never
+    }))
+
+    const preflight = await handlers.get('gui:update-install-preflight')?.({})
+    expect(preflight).toMatchObject({
+      ok: true,
+      activeWork: [{ kind: 'agent', id: 'task-1', status: 'running', recoverable: true }]
+    })
+    await expect(handlers.get('gui:update-install')?.({}, {})).resolves.toMatchObject({ ok: false })
+    expect(installGuiUpdate).not.toHaveBeenCalled()
+    await expect(handlers.get('gui:update-install')?.({}, { confirmActiveWork: true })).resolves.toEqual({ ok: true })
+    expect(installGuiUpdate).toHaveBeenCalledTimes(1)
+  })
+
+  it('preserves heading, page, table, worksheet, and slide provenance in attachment sections', async () => {
+    const { buildAttachmentSections } = await import('./register-app-ipc-handlers')
+    const sections = buildAttachmentSections(
+      'att_fixture',
+      '# 报价条款\n\n报价表\n\n<!-- Slide number: 3 -->\n\n| 条款 | 金额 |\n| --- | --- |\n| A | 100 |',
+      {
+        headings: [{ text: '报价条款', page: 7 }],
+        tables: [{ markdown: '| 条款 | 金额 |\n| --- | --- |\n| A | 100 |', page: 8 }],
+        sourceStructure: { worksheets: ['报价表'], slideCount: 3 }
+      }
+    )
+    expect(sections[0]?.provenance).toEqual({
+      heading: '报价条款', worksheet: '报价表', slide: 3, table: 'table-1', page: 8
+    })
   })
 
   it('rejects invalid settings patches at the handler boundary', async () => {

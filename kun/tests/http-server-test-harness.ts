@@ -82,7 +82,7 @@ type Harness = {
   nowIso: () => string
 }
 
-export function buildHarness(): Harness {
+export function buildHarness(options: { onThreadDeleted?: (threadId: string) => Promise<void> } = {}): Harness {
   const bus = new InMemoryEventBus()
   const approvalGate = new InMemoryApprovalGate()
   const userInputGate = new InMemoryUserInputGate()
@@ -108,7 +108,7 @@ export function buildHarness(): Harness {
     ids,
     nowIso
   })
-  const threadService = new ThreadService({ threadStore, sessionStore, events, ids, nowIso })
+  const threadService = new ThreadService({ threadStore, sessionStore, events, ids, nowIso, ...options })
   const model = makeModel([{ kind: 'completed', stopReason: 'stop' }])
   const loop = new AgentLoop({
     threadStore,

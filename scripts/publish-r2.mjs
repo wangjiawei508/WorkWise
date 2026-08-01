@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import {
   CopyObjectCommand,
+  DeleteObjectsCommand,
   GetObjectCommand,
   ListObjectsV2Command,
   PutObjectCommand,
@@ -39,7 +40,10 @@ const PLATFORM_SPECS = {
 function usage() {
   console.log(`Usage:
   node scripts/publish-r2.mjs upload --platform mac|win --tag vX.Y.Z [--channel frontier|stable] [--dry-run]
+  node scripts/publish-r2.mjs verify --tag vX.Y.Z [--channel frontier|stable] [--platforms mac,win]
   node scripts/publish-r2.mjs promote --tag vX.Y.Z [--channel frontier|stable] [--platforms mac,win] [--dry-run]
+  node scripts/publish-r2.mjs rollback --tag vX.Y.Z [--channel frontier|stable] [--platforms mac,win]
+  node scripts/publish-r2.mjs cleanup-acceptance --run-id 123456
 
 If --platforms is omitted, promote uses the platform manifests already uploaded for that tag.
 If --channel is omitted, the default channel is frontier.
@@ -190,6 +194,19 @@ function joinUrl(base, ...parts) {
 
 function channelBasePath(prefix, channel) {
   return `${prefix}/channels/${channel}`
+}
+
+function acceptancePrefixForRunId(prefix, rawRunId) {
+  const runId = String(rawRunId || '').trim()
+  if (!/^[1-9]\d*$/.test(runId)) {
+    throw new Error('Acceptance cleanup run id must be a positive GitHub Actions run id.')
+  }
+  const normalized = trimSlashes(prefix)
+  const expected = `workwise/acceptance/${runId}`
+  if (normalized !== expected) {
+    throw new Error(`Refusing acceptance cleanup outside ${expected}: ${normalized || '<empty>'}`)
+  }
+  return `${expected}/`
 }
 
 function firstEnv(...names) {
@@ -537,10 +554,123 @@ async function listReleaseKeys(config, tag, channel) {
   return keys
 }
 
+async function listPrefixKeys(config, prefix) {
+  const keys = []
+  let ContinuationToken
+  do {
+    const response = await config.client.send(new ListObjectsV2Command({
+      Bucket: config.bucket,
+      Prefix: prefix,
+      ContinuationToken
+    }))
+    for (const item of response.Contents ?? []) {
+      if (item.Key) keys.push(item.Key)
+    }
+    ContinuationToken = response.NextContinuationToken
+  } while (ContinuationToken)
+  return keys
+}
+
+async function cleanupAcceptance({ flags, dryRun }) {
+  if (dryRun) throw new Error('Acceptance cleanup does not support --dry-run; omit cleanup instead.')
+  const runId = requireFlag(flags, 'run-id')
+  const config = readConfig({ dryRun: false })
+  const prefix = acceptancePrefixForRunId(config.prefix, runId)
+  const keys = await listPrefixKeys(config, prefix)
+  if (!keys.length) {
+    console.log(`No isolated acceptance objects found under ${prefix}`)
+    return
+  }
+  for (let index = 0; index < keys.length; index += 1000) {
+    await config.client.send(new DeleteObjectsCommand({
+      Bucket: config.bucket,
+      Delete: { Objects: keys.slice(index, index + 1000).map((Key) => ({ Key })), Quiet: true }
+    }))
+  }
+  console.log(`Removed ${keys.length} isolated acceptance object(s) under ${prefix}`)
+}
+
+function compareReleaseTagsDescending(a, b) {
+  const parts = (value) => value.slice(1).split('.').map(Number)
+  const left = parts(a); const right = parts(b)
+  for (let index = 0; index < 3; index += 1) {
+    if (left[index] !== right[index]) return right[index] - left[index]
+  }
+  return 0
+}
+
+async function enforceReleaseRetention(config, channel, keep = 3, dryRun = false) {
+  const releaseRoot = `${channelBasePath(config.prefix, channel)}/releases/`
+  const keys = []
+  let ContinuationToken
+  do {
+    const response = await config.client.send(new ListObjectsV2Command({
+      Bucket: config.bucket,
+      Prefix: releaseRoot,
+      Delimiter: '/',
+      ContinuationToken
+    }))
+    for (const prefix of response.CommonPrefixes ?? []) {
+      const tag = prefix.Prefix?.slice(releaseRoot.length).replace(/\/$/, '')
+      if (tag && /^v\d+\.\d+\.\d+$/.test(tag)) keys.push(tag)
+    }
+    ContinuationToken = response.NextContinuationToken
+  } while (ContinuationToken)
+  const expired = [...new Set(keys)].sort(compareReleaseTagsDescending).slice(keep)
+  for (const tag of expired) {
+    const objects = await listReleaseKeys(config, tag, channel)
+    if (!objects.length) continue
+    if (dryRun) {
+      console.log(`[dry-run] retain ${keep}: delete ${objects.length} objects for ${tag}`)
+      continue
+    }
+    for (let index = 0; index < objects.length; index += 1000) {
+      await config.client.send(new DeleteObjectsCommand({
+        Bucket: config.bucket,
+        Delete: { Objects: objects.slice(index, index + 1000).map((Key) => ({ Key })), Quiet: true }
+      }))
+    }
+    console.log(`Retention removed archived release ${tag}`)
+  }
+}
+
 async function getJson(config, key) {
   const res = await config.client.send(new GetObjectCommand({ Bucket: config.bucket, Key: key }))
   const text = await res.Body.transformToString()
   return JSON.parse(text)
+}
+
+async function hashHttpsDownload(url, expectedSize) {
+  if (!url.startsWith('https://')) throw new Error(`Release download is not HTTPS: ${url}`)
+  const response = await fetch(url, { redirect: 'follow' })
+  if (!response.ok || !response.body) throw new Error(`Download verification failed ${response.status}: ${url}`)
+  const hash = createHash('sha512'); let size = 0
+  for await (const chunk of response.body) { hash.update(chunk); size += chunk.byteLength }
+  if (Number.isFinite(expectedSize) && size !== expectedSize) throw new Error(`Download size mismatch for ${url}: ${size} != ${expectedSize}`)
+  const range = await fetch(url, { headers: { Range: 'bytes=0-1023' }, redirect: 'follow' })
+  if (range.status !== 206 || !/^bytes 0-\d+\//i.test(range.headers.get('content-range') ?? '')) {
+    throw new Error(`Range download verification failed for ${url}: ${range.status}`)
+  }
+  await range.arrayBuffer()
+  return hash.digest('base64')
+}
+
+async function verifyRemoteRelease({ flags }) {
+  const tag = normalizeTag(requireFlag(flags, 'tag')); const channel = readChannel(flags)
+  const platforms = String(flags.get('platforms') || 'mac,win').split(',').map((value) => value.trim()).filter(Boolean)
+  const config = readConfig({ dryRun: false })
+  for (const platform of platforms) {
+    if (!PLATFORMS.includes(platform)) throw new Error(`Unsupported platform: ${platform}`)
+    const key = `${channelBasePath(config.prefix, channel)}/releases/${tag}/release-${platform}.json`
+    const manifest = await getJson(config, key)
+    if (manifest.tag !== tag || manifest.version !== tag.slice(1)) throw new Error(`Remote ${platform} manifest identity mismatch`)
+    for (const file of manifest.files ?? []) {
+      const url = joinUrl(config.publicBaseUrl, channelBasePath(config.prefix, channel), 'releases', tag, file.fileName)
+      const sha512 = await hashHttpsDownload(url, Number(file.size))
+      if (sha512 !== file.sha512) throw new Error(`Remote SHA-512 mismatch for ${file.fileName}`)
+      console.log(`Verified HTTPS, Range and SHA-512: ${file.fileName}`)
+    }
+  }
 }
 
 async function promoteRelease({ flags, dryRun }) {
@@ -578,6 +708,17 @@ async function promoteRelease({ flags, dryRun }) {
       throw new Error(`Missing ${key}. Run upload for ${platform} before promoting.`)
     }
     platformManifests.push(await getJson(config, key))
+  }
+
+  for (const manifest of platformManifests) {
+    if (manifest.tag !== tag || manifest.version !== tag.slice(1)) {
+      throw new Error(`Archived manifest identity mismatch for ${manifest.platform}: ${manifest.tag}/${manifest.version}`)
+    }
+    for (const download of manifest.downloads ?? []) {
+      if (!download.sha512 || !download.archiveUrl?.startsWith('https://')) {
+        throw new Error(`Archived manifest has an untrusted download entry: ${download.fileName ?? 'unknown'}`)
+      }
+    }
   }
 
   const allFiles = new Map()
@@ -661,6 +802,7 @@ async function promoteRelease({ flags, dryRun }) {
     console.log(`  ${target.label}/latest.json`)
     console.log(`Latest manifest: ${joinUrl(config.publicBaseUrl, target.basePath, 'latest', 'latest.json')}`)
   }
+  await enforceReleaseRetention(config, channel, 3, dryRun)
 }
 
 async function main() {
@@ -675,14 +817,33 @@ async function main() {
     await uploadPlatform({ flags, dryRun })
     return
   }
-  if (command === 'promote') {
+  if (command === 'verify') {
+    await verifyRemoteRelease({ flags })
+    return
+  }
+  if (command === 'promote' || command === 'rollback') {
     await promoteRelease({ flags, dryRun })
+    return
+  }
+  if (command === 'cleanup-acceptance') {
+    await cleanupAcceptance({ flags, dryRun })
     return
   }
   throw new Error(`Unknown command: ${command}`)
 }
 
-main().catch((error) => {
-  console.error(`[publish-r2] ${error instanceof Error ? error.message : String(error)}`)
-  process.exitCode = 1
-})
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  main().catch((error) => {
+    console.error(`[publish-r2] ${error instanceof Error ? error.message : String(error)}`)
+    process.exitCode = 1
+  })
+}
+
+export const _internals = {
+  normalizeTag,
+  normalizeChannel,
+  compareReleaseTagsDescending,
+  acceptancePrefixForRunId,
+  parseUpdateYml,
+  classifyDownload
+}

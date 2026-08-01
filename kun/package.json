@@ -1,6 +1,6 @@
 {
   "name": "kun",
-  "version": "0.3.0",
+  "version": "0.3.3",
   "description": "Internal WorkWise Agent Runtime",
   "type": "module",
   "private": true,

@@ -55,6 +55,7 @@ import {
   revealGeneratedWorkspaceFile,
   saveGeneratedWorkspaceFileAs
 } from '../../lib/generated-file-actions'
+import { registerGuiUpdateSaveHandler } from '../../lib/gui-update-install-preflight'
 
 type Props = {
   leftSidebarCollapsed: boolean
@@ -296,6 +297,8 @@ export function DesignWorkspaceView({
     saveQueueRef.current = operation
     return operation
   }, [t, workspaceRoot])
+
+  useEffect(() => registerGuiUpdateSaveHandler('Design', flushDesignSave), [flushDesignSave])
 
   const restoreDesignDocument = useCallback(async (
     documentId?: string

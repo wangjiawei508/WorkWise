@@ -1,5 +1,5 @@
 import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, Notification, powerSaveBlocker, shell, Tray, type MessageBoxOptions } from 'electron'
-import { existsSync } from 'node:fs'
+import { existsSync, openAsBlob } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -47,6 +47,7 @@ import { waitForRuntimeTurnsIdle } from './runtime/managed-runtime-idle'
 import { configureLogger, logError, logWarn, pruneOnStartup } from './logger'
 import { createClawRuntime, type ClawRuntime } from './claw-runtime'
 import { createScheduleRuntime, type ScheduleRuntime } from './schedule-runtime'
+import { migrateSchedulesToFlows } from './schedule-flow-migration'
 import { runClawScheduleMcpServerFromArgv } from './claw-schedule-mcp-server'
 import {
   clawScheduleMcpSettingsChanged,
@@ -79,6 +80,13 @@ import {
   applicationMenuLabels,
   buildApplicationMenuTemplate
 } from './application-menu'
+import {
+  configureGuiUpdaterAcceptance,
+  failGuiUpdaterAcceptance,
+  prepareGuiUpdaterAcceptance,
+  runGuiUpdaterAcceptance,
+  type ActiveGuiUpdaterAcceptance
+} from './gui-updater-acceptance'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 // 品牌升级为 WorkWise Runtime 后仍保留旧 AppUserModelId:它必须和 electron-builder
@@ -932,7 +940,7 @@ async function waitForManagedRuntimeReadyBeforeStop(
 async function runtimeRequest(
   settings: AppSettingsV1,
   pathAndQuery: string,
-  init: { method?: string; body?: string; headers?: Record<string, string> }
+  init: { method?: string; body?: BodyInit; headers?: Record<string, string> }
 ): Promise<{ ok: boolean; status: number; body: string }> {
   try {
     return await runtimeRequestViaHost(settings, pathAndQuery, init, ensureRuntime)
@@ -957,6 +965,19 @@ app.whenReady().then(async () => {
   traceStartup('app.whenReady:start')
   if (!gotSingleInstanceLock) return
 
+  const preparedUpdaterAcceptance = await prepareGuiUpdaterAcceptance({
+    argv: process.argv,
+    userDataPath: app.getPath('userData'),
+    currentVersion: app.getVersion()
+  })
+  if (preparedUpdaterAcceptance?.kind === 'terminal') {
+    console.info('[workwise updater acceptance] terminal report written:', preparedUpdaterAcceptance.reportPath)
+    app.quit()
+    return
+  }
+  const updaterAcceptance: ActiveGuiUpdaterAcceptance | null = preparedUpdaterAcceptance
+  if (updaterAcceptance) configureGuiUpdaterAcceptance(updaterAcceptance)
+
   traceStartup('install webview guards:start')
   installDevPreviewWebviewGuards()
   traceStartup('install webview guards:done')
@@ -968,7 +989,7 @@ app.whenReady().then(async () => {
 
   store = new JsonSettingsStore(app.getPath('userData'))
   traceStartup('settings load:start')
-  const initial = await store.load()
+  let initial = await store.load()
   traceStartup('settings load:done')
   appBehavior = initial.appBehavior
   syncApplicationMenu(initial)
@@ -985,6 +1006,12 @@ app.whenReady().then(async () => {
     retentionDays: initial.log.retentionDays
   })
   traceStartup('logger configured')
+  initial = await migrateSchedulesToFlows({
+    settings: initial,
+    request: (settings, path, init) => runtimeRequest(settings, path, init),
+    patchSettings: (patch) => store!.patch(patch),
+    logError
+  })
   scheduleRuntime = createScheduleRuntime({ store, runtimeRequest, logError, powerSaveBlocker })
   scheduleRuntime.sync(initial)
   clawRuntime = createClawRuntime({
@@ -1087,6 +1114,11 @@ app.whenReady().then(async () => {
       const settings = await store.load()
       return runtimeRequest(settings, path, { method, body })
     },
+    runtimeFileRequest: async (path, filePath, headers) => {
+      const settings = await store.load()
+      const blob = await openAsBlob(filePath)
+      return runtimeRequest(settings, path, { method: 'POST', body: blob, headers: { ...headers, 'Content-Length': String(blob.size) } })
+    },
     fetchUpstreamModels: fetchModels,
     getClawRuntime: () => clawRuntime,
     getScheduleRuntime: () => scheduleRuntime,
@@ -1107,9 +1139,14 @@ app.whenReady().then(async () => {
     logError
   })
 
-  void loadGuiUpdaterModule().catch((error) => {
-    console.warn('[workwise updater] failed to initialize on startup:', error)
-  })
+  void loadGuiUpdaterModule()
+    .then(async (module) => {
+      if (updaterAcceptance) await runGuiUpdaterAcceptance(updaterAcceptance, module)
+    })
+    .catch(async (error) => {
+      console.warn('[workwise updater] failed to initialize on startup:', error)
+      if (updaterAcceptance) await failGuiUpdaterAcceptance(updaterAcceptance, error)
+    })
 
   registerRuntimeSseIpc({ ipcMain, store, ensureRuntime, logError })
   traceStartup('ipc registration:done')

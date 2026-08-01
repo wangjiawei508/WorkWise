@@ -1,7 +1,7 @@
 {
   "name": "workwise",
   "productName": "WorkWise",
-  "version": "0.3.2",
+  "version": "0.3.3",
   "description": "AI workbench for engineering, infrastructure, and operations workflows",
   "license": "MIT",
   "engines": {
@@ -41,7 +41,9 @@
     "prepare:converters": "node ./scripts/prepare-markdown-converters.cjs",
     "prepare:electron": "node ./scripts/ensure-electron-install.cjs",
     "r2:upload": "node ./scripts/publish-r2.mjs upload",
+    "r2:verify": "node ./scripts/publish-r2.mjs verify",
     "r2:promote": "node ./scripts/publish-r2.mjs promote",
+    "r2:rollback": "node ./scripts/publish-r2.mjs rollback",
     "postinstall": "node ./scripts/postinstall.cjs",
     "verify:apple": "node ./scripts/verify-apple-signing.cjs",
     "verify:release-assets": "node ./scripts/verify-release-assets.cjs",
@@ -64,6 +66,7 @@
     "@larksuiteoapi/node-sdk": "^1.71.1",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@tencent-weixin/openclaw-weixin": "2.4.3",
+    "@xyflow/react": "^12.11.2",
     "better-sqlite3": "^12.11.1",
     "diff": "^9.0.0",
     "docx": "^9.7.1",

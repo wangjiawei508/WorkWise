@@ -23,6 +23,7 @@ import type { ReviewTarget } from '../../contracts/review.js'
 import type { TaskController } from '../../services/task-controller.js'
 import type { TaskRunRepository } from '../../services/task-run-repository.js'
 import type { RuntimeSpanService } from '../../services/runtime-span-service.js'
+import type { FlowRuntimeService } from '../../flow/service.js'
 
 export type RuntimeToolDiagnostics = {
   providers: ToolProviderPolicy[]
@@ -57,6 +58,7 @@ export type ServerRuntime = {
   toolHost?: ToolHost
   attachmentStore?: AttachmentStore
   memoryStore?: MemoryStore
+  flowService?: FlowRuntimeService
   runTurn(threadId: string, turnId: string): Promise<'completed' | 'failed' | 'aborted'> | void
   cancelChildRuns?(parentThreadId: string, reason?: string): number
   runReview?(input: {

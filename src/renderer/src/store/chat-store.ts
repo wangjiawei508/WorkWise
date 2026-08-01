@@ -119,6 +119,7 @@ let composerModelLoadPromise: Promise<void> | null = null
 
 export const useChatStore = create<ChatState>((set, get) => ({
   route: 'chat',
+  flowFilter: 'all',
   settingsReturnRoute: 'chat',
   pluginHostRoute: 'chat',
   settingsSection: 'general',

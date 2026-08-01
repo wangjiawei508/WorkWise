@@ -84,14 +84,14 @@ const hasNotaryToolCredentials = Boolean(
 const updateChannel = normalizeUpdateChannel(
   process.env.WORKWISE_UPDATE_CHANNEL || 'stable'
 )
-const configuredPublicBaseUrl = (process.env.WORKWISE_PUBLIC_BASE_URL || '')
+const configuredPublicBaseUrl = (process.env.WORKWISE_PUBLIC_BASE_URL || 'https://www.railwise.cn/downloads')
   .trim()
   .replace(/\/+$/, '')
 const releasePrefix = (process.env.WORKWISE_RELEASE_PREFIX || 'workwise')
   .trim()
   .replace(/^\/+|\/+$/g, '')
 const explicitUpdateUrl = (process.env.WORKWISE_UPDATE_URL || '').trim()
-const hasGenericUpdateFeed = Boolean(explicitUpdateUrl || configuredPublicBaseUrl)
+const hasGenericUpdateFeed = true
 const updateProvider = (
   process.env.WORKWISE_UPDATE_PROVIDER || (hasGenericUpdateFeed ? 'generic' : 'github')
 ).trim().toLowerCase()

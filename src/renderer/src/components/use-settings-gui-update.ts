@@ -7,6 +7,7 @@ import type {
   GuiUpdateState
 } from '@shared/gui-update'
 import { guiUpdateFailureMessage } from './settings-utils'
+import { preflightAndInstallGuiUpdate } from '../lib/gui-update-install-preflight'
 
 export function useSettingsGuiUpdate({
   category,
@@ -127,7 +128,7 @@ export function useSettingsGuiUpdate({
     setInstallingGuiUpdate(true)
     setGuiUpdateError(null)
     try {
-      const result = await window.workwise.installGuiUpdate()
+      const result = await preflightAndInstallGuiUpdate()
       if (!result.ok) {
         setGuiUpdateError(result.message)
         setInstallingGuiUpdate(false)

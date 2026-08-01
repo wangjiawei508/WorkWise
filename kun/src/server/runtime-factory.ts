@@ -16,6 +16,8 @@ import { buildTodoLocalTools } from '../adapters/tool/todo-tools.js'
 import { LocalToolHost, buildDefaultLocalTools } from '../adapters/tool/local-tool-host.js'
 import { buildMcpToolProviders } from '../adapters/tool/mcp-tool-provider.js'
 import { buildMemoryToolProviders } from '../adapters/tool/memory-tool-provider.js'
+import { buildAttachmentToolProviders } from '../adapters/tool/attachment-tool-provider.js'
+import { buildFlowToolProviders } from '../adapters/tool/flow-tool-provider.js'
 import { buildDelegationToolProviders } from '../adapters/tool/delegation-tool-provider.js'
 import { buildWebToolProviders } from '../adapters/tool/web-tool-provider.js'
 import { buildImageGenToolProviders } from '../adapters/tool/image-gen-tool-provider.js'
@@ -28,6 +30,11 @@ import {
   type KunCapabilitiesConfig
 } from '../contracts/capabilities.js'
 import { RUNTIME_RESOURCE_LIMITS_V1 } from '../contracts/resource-limits.js'
+import { buildCoreFlowAdapters } from '../flow/core-adapters.js'
+import { buildFlowNodeRegistry } from '../flow/node-registry.js'
+import { FlowRepository } from '../flow/repository.js'
+import { FlowRuntimeService } from '../flow/service.js'
+import { EncryptedFileFlowSecretStore, FlowWebhookSecurity, UnavailableFlowSecretStore } from '../flow/webhook-security.js'
 import type { ApprovalPolicy, SandboxMode } from '../contracts/policy.js'
 import { AgentLoop } from '../loop/agent-loop.js'
 import { ContextCompactor } from '../loop/context-compactor.js'
@@ -231,7 +238,6 @@ export async function createKunServeRuntime(
     approvalGate,
     userInputGate
   })
-  const threadService = new ThreadService({ threadStore, sessionStore, events, ids, nowIso })
   await seedUsageCarryover({ threadStore, sessionStore, usageService })
   const modelClient = new DeepseekCompatModelClient({
     baseUrl: options.baseUrl,
@@ -265,6 +271,36 @@ export async function createKunServeRuntime(
         nowIso
       })
     : undefined
+  await attachmentStore?.cleanupAbandoned()
+  const attachmentCleanupTimer = attachmentStore
+    ? setInterval(() => { void attachmentStore.cleanupAbandoned() }, 24 * 60 * 60 * 1000)
+    : undefined
+  attachmentCleanupTimer?.unref()
+  const threadService = new ThreadService({
+    threadStore, sessionStore, events, ids, nowIso,
+    ...(attachmentStore ? { onThreadDeleted: async (threadId: string) => { await attachmentStore.releaseReferences({ threadId }) } } : {})
+  })
+  const flowRepository = new FlowRepository(join(options.dataDir, 'flow.sqlite'), nowIso)
+  const flowSecretKey = process.env.WORKWISE_FLOW_SECRET_STORE_KEY
+  const flowSecretStore = flowSecretKey && /^[A-Za-z0-9_-]{43}$/.test(flowSecretKey)
+    ? new EncryptedFileFlowSecretStore(join(options.dataDir, 'flow-secrets'), Buffer.from(flowSecretKey, 'base64url'))
+    : new UnavailableFlowSecretStore()
+  let flowDelegationRuntime: DelegationRuntime | undefined
+  const flowService = new FlowRuntimeService(
+    flowRepository,
+    buildFlowNodeRegistry(),
+    buildCoreFlowAdapters(new Map(), {
+      model: modelClient,
+      defaultModel: options.model,
+      attachments: attachmentStore,
+      runSubagent: async (input) => {
+        if (!flowDelegationRuntime) throw new Error('subagent capability is unavailable')
+        return flowDelegationRuntime.runChild(input)
+      }
+    }),
+    nowIso,
+    new FlowWebhookSecurity(flowRepository, flowSecretStore)
+  )
   const memoryStore = options.capabilities?.memory.enabled
     ? new FileMemoryStore({
         rootDir: join(options.dataDir, 'memory'),
@@ -294,6 +330,8 @@ export async function createKunServeRuntime(
     ...mcpProviders.providers,
     ...webProviders.providers,
     ...buildMemoryToolProviders(memoryStore),
+    ...buildAttachmentToolProviders(attachmentStore),
+    ...buildFlowToolProviders(flowService),
     ...imageGenProviders.providers,
     ...pptMasterProviders.providers,
     ...designProviders.providers
@@ -329,6 +367,8 @@ export async function createKunServeRuntime(
         spanService
       })
     : undefined
+  flowDelegationRuntime = delegationRuntime
+  flowService.startSchedules()
   const capabilities = buildRuntimeCapabilityManifest({
     config: options.capabilities,
     model: modelCapabilitiesForModel(options.model, modelProfiles),
@@ -447,6 +487,7 @@ export async function createKunServeRuntime(
     toolHost,
     ...(attachmentStore ? { attachmentStore } : {}),
     ...(memoryStore ? { memoryStore } : {}),
+    flowService,
     runTurn(threadId, turnId) {
       return loop.runTurn(threadId, turnId)
     },
@@ -495,6 +536,7 @@ export async function createKunServeRuntime(
       return skillRuntime.diagnostics()
     },
     shutdown: async () => {
+      if (attachmentCleanupTimer) clearInterval(attachmentCleanupTimer)
       turnService.abortAll('application_exit')
       delegationRuntime?.abortAll('application_exit')
       approvalGate.expireAll('application_exit')
@@ -504,6 +546,7 @@ export async function createKunServeRuntime(
         await mcpProviders.close()
       } finally {
         try {
+          flowService.shutdown()
           taskRepository.close()
         } finally {
           await stores.shutdown?.()

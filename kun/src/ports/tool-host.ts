@@ -13,6 +13,8 @@ export type ToolProviderKind =
   | 'web'
   | 'skill'
   | 'memory'
+  | 'attachment'
+  | 'flow'
   | 'gui'
   | 'delegation'
   | 'image'
@@ -73,6 +75,8 @@ export type ToolHostContext = {
   guiDesign?: GuiDesignContext
   /** Active model capability metadata used by capability-aware providers. */
   model?: ModelCapabilityMetadata
+  /** Runtime-owned stack for guarded Flow-to-Flow invocation. */
+  flowInvocationStack?: string[]
   /** Skill ids activated for this turn, if the Skill runtime is enabled. */
   activeSkillIds?: readonly string[]
   /** Optional memory recall/mutation policy for this turn. */

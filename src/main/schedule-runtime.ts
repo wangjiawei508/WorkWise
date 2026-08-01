@@ -97,6 +97,12 @@ export class ScheduleRuntime {
 
   async runTask(taskId: string): Promise<ScheduleRunResult> {
     const settings = await this.deps.store.load()
+    if (this.usesFlowCompatibility(settings)) {
+      const result = await this.deps.runtimeRequest(settings, `/v1/legacy-schedules/${encodeURIComponent(taskId)}/run`, { method: 'POST', body: '{}' })
+      if (!result.ok) return { ok: false, message: runtimeErrorMessage(result, 'Failed to run migrated Flow.') }
+      const parsed = parseJsonObject(result.body); const run = nestedRecord(parsed?.run); const runId = asString(run.id)
+      return runId ? { ok: true, threadId: runId, message: 'Flow started.' } : { ok: false, message: 'Runtime did not return a Flow run.' }
+    }
     const task = settings.schedule.tasks.find((item) => item.id === taskId)
     if (!task) return { ok: false, message: 'Task not found.' }
     return this.runTaskInternal(task, false)
@@ -121,13 +127,7 @@ export class ScheduleRuntime {
         mode: options.mode ?? settings.schedule.mode,
         id: randomUUID()
       })
-      const saved = await this.deps.store.patch({
-        schedule: {
-          enabled: true,
-          tasks: [...settings.schedule.tasks, task]
-        }
-      })
-      this.sync(saved)
+      await this.createTask(task)
       return {
         kind: 'created',
         taskId: task.id,
@@ -144,11 +144,23 @@ export class ScheduleRuntime {
 
   async listTasks(): Promise<ScheduledTaskV1[]> {
     const settings = await this.deps.store.load()
+    if (this.usesFlowCompatibility(settings)) {
+      const result = await this.deps.runtimeRequest(settings, '/v1/legacy-schedules', { method: 'GET' })
+      if (!result.ok) throw new Error(runtimeErrorMessage(result, 'Failed to list migrated schedules.'))
+      const parsed = parseJsonObject(result.body); return Array.isArray(parsed?.tasks) ? parsed.tasks as ScheduledTaskV1[] : []
+    }
     return settings.schedule.tasks
   }
 
   async createTask(task: ScheduledTaskV1): Promise<ScheduledTaskV1> {
     const settings = await this.deps.store.load()
+    if (this.usesFlowCompatibility(settings)) {
+      const result = await this.deps.runtimeRequest(settings, '/v1/legacy-schedules', { method: 'POST', body: JSON.stringify(task) })
+      if (!result.ok) throw new Error(runtimeErrorMessage(result, 'Failed to create migrated schedule.'))
+      const parsed = parseJsonObject(result.body); const saved = parsed?.task
+      if (!saved || typeof saved !== 'object' || Array.isArray(saved)) throw new Error('Runtime did not return the migrated schedule.')
+      return saved as ScheduledTaskV1
+    }
     const saved = await this.deps.store.patch({
       schedule: {
         enabled: true,
@@ -201,7 +213,7 @@ export class ScheduleRuntime {
 
   async updateTaskById(taskId: string, patch: Partial<ScheduledTaskV1>): Promise<ScheduledTaskV1 | null> {
     const settings = await this.deps.store.load()
-    const task = settings.schedule.tasks.find((item) => item.id === taskId)
+    const task = (this.usesFlowCompatibility(settings) ? await this.listTasks() : settings.schedule.tasks).find((item) => item.id === taskId)
     if (!task) return null
     const now = new Date().toISOString()
     const shouldRecomputeNextRun =
@@ -212,6 +224,11 @@ export class ScheduleRuntime {
       schedule: patch.schedule ? { ...task.schedule, ...patch.schedule } : task.schedule,
       ...(shouldRecomputeNextRun ? { nextRunAt: '' } : {}),
       updatedAt: now
+    }
+    if (this.usesFlowCompatibility(settings)) {
+      const result = await this.deps.runtimeRequest(settings, `/v1/legacy-schedules/${encodeURIComponent(taskId)}`, { method: 'PUT', body: JSON.stringify(nextTask) })
+      if (!result.ok) throw new Error(runtimeErrorMessage(result, 'Failed to update migrated schedule.'))
+      const parsed = parseJsonObject(result.body); return parsed?.task as ScheduledTaskV1 ?? nextTask
     }
     const saved = await this.deps.store.patch({
       schedule: {
@@ -224,7 +241,12 @@ export class ScheduleRuntime {
 
   async deleteTaskById(taskId: string): Promise<boolean> {
     const settings = await this.deps.store.load()
-    if (!settings.schedule.tasks.some((item) => item.id === taskId)) return false
+    const tasks = this.usesFlowCompatibility(settings) ? await this.listTasks() : settings.schedule.tasks
+    if (!tasks.some((item) => item.id === taskId)) return false
+    if (this.usesFlowCompatibility(settings)) {
+      const result = await this.deps.runtimeRequest(settings, `/v1/legacy-schedules/${encodeURIComponent(taskId)}`, { method: 'DELETE' })
+      return result.ok
+    }
     await appCancellationRegistry.cancel({ scope: 'schedule', id: taskId }, 'schedule_deleted')
     const saved = await this.deps.store.patch({
       schedule: {
@@ -243,6 +265,8 @@ export class ScheduleRuntime {
     this.scheduler.unref?.()
     void this.tick()
   }
+
+  private usesFlowCompatibility(settings: AppSettingsV1): boolean { return settings.schedule.enabled === false && settings.schedule.tasks.length > 0 }
 
   private async tick(): Promise<void> {
     const settings = await this.deps.store.load()

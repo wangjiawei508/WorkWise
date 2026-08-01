@@ -147,7 +147,7 @@ describe('gui updater source helpers', () => {
     expect(module._internals.selectGithubRelease(releases, 'frontier')?.version).toBe('0.3.0-beta.1')
   })
 
-  it('defaults to GitHub Releases and keeps explicit feed overrides', async () => {
+  it('defaults to the official railwise.cn feed and keeps explicit enterprise overrides', async () => {
     const previous = {
       WORKWISE_UPDATE_PROVIDER: process.env.WORKWISE_UPDATE_PROVIDER,
       WORKWISE_ENABLE_GITHUB_UPDATE_FALLBACK: process.env.WORKWISE_ENABLE_GITHUB_UPDATE_FALLBACK,
@@ -179,12 +179,11 @@ describe('gui updater source helpers', () => {
 
     try {
       const module = await import('./gui-updater')
-      expect(module._internals.resolveUpdateFeedConfig('stable')).toMatchObject({
-        kind: 'github',
-        owner: 'wangjiawei508',
-        repo: 'WorkWise'
+      expect(module._internals.resolveUpdateFeedConfig('stable')).toEqual({
+        kind: 'generic',
+        url: 'https://www.railwise.cn/downloads/workwise/channels/stable/latest/'
       })
-      expect(module._internals.downloadPageUrl()).toBe('https://github.com/wangjiawei508/WorkWise/releases')
+      expect(module._internals.downloadPageUrl()).toBe('https://www.railwise.cn/products/workwise/')
 
       process.env.WORKWISE_UPDATE_PROVIDER = 'none'
       expect(module._internals.resolveUpdateFeedConfig('stable')).toEqual({ kind: 'none' })
@@ -241,20 +240,25 @@ describe('gui updater source helpers', () => {
     }), '0.2.0')).toBeNull()
   })
 
+  it('rejects downgrades and manifest/download version mismatches', async () => {
+    const module = await import('./gui-updater')
+    expect(module._internals.validateCandidateVersion('0.0.9')).toMatch(/downgrade/i)
+    expect(module._internals.validateCandidateVersion('0.2.0', '0.3.0')).toMatch(/does not match/i)
+    expect(module._internals.validateCandidateVersion('not-a-version')).toMatch(/invalid/i)
+  })
+
+  it('does not mark a mismatched downloaded package ready to install', async () => {
+    const module = await import('./gui-updater')
+    module.initializeGuiUpdater(() => null, () => 'stable')
+    updater.emit('update-available', { version: '0.3.0', releaseDate: '2026-08-01T00:00:00.000Z' })
+    updater.emit('update-downloaded', { version: '0.4.0', releaseDate: '2026-08-01T00:00:00.000Z' })
+    expect(module.getGuiUpdateState()).toMatchObject({ status: 'error', code: 'download_failed' })
+    await expect(module.installGuiUpdate()).resolves.toMatchObject({ ok: false })
+  })
+
   it('coalesces concurrent checks for the same update channel', async () => {
-    const fetchMock = vi.fn(async () => ({
-      ok: true,
-      status: 200,
-      headers: new Headers(),
-      json: async () => [
-        {
-          tag_name: 'v0.2.0',
-          html_url: 'https://github.com/wangjiawei508/WorkWise/releases/tag/v0.2.0',
-          published_at: '2026-07-14T00:00:00.000Z'
-        }
-      ]
-    }))
-    vi.stubGlobal('fetch', fetchMock)
+    process.env.WORKWISE_ALLOW_UNSIGNED_UPDATES = '1'
+    updater.checkForUpdates.mockResolvedValue({ isUpdateAvailable: true, updateInfo: { version: '0.2.0', releaseDate: '2026-07-14T00:00:00.000Z' } })
     const module = await import('./gui-updater')
 
     const [first, second] = await Promise.all([
@@ -264,6 +268,7 @@ describe('gui updater source helpers', () => {
 
     expect(first).toEqual(second)
     expect(first).toMatchObject({ ok: true, latestVersion: '0.2.0', hasUpdate: true })
-    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(updater.checkForUpdates).toHaveBeenCalledTimes(1)
+    delete process.env.WORKWISE_ALLOW_UNSIGNED_UPDATES
   })
 })

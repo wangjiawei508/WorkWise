@@ -521,4 +521,24 @@ describe('ScheduleRuntime', () => {
       .syncPowerSaveBlocker({ ...scheduled, schedule: { ...scheduled.schedule, keepAwake: false } })
     expect(powerSaveBlocker.stop).toHaveBeenCalledWith(1)
   })
+
+  it('forwards legacy schedule CRUD and manual runs to migrated Flow APIs', async () => {
+    const task = makeTask(); let tasks = [task]
+    const runtimeRequest = vi.fn(async (_settings: AppSettingsV1, path: string, init: { method?: string; body?: string }) => {
+      if (path === '/v1/legacy-schedules' && init.method === 'GET') return { ok: true, status: 200, body: JSON.stringify({ tasks }) }
+      if (path === '/v1/legacy-schedules' && init.method === 'POST') { const created = JSON.parse(init.body!) as ScheduledTaskV1; tasks.push(created); return { ok: true, status: 201, body: JSON.stringify({ task: created }) } }
+      if (path.endsWith('/run')) return { ok: true, status: 202, body: JSON.stringify({ run: { id: 'flow-run-1' } }) }
+      if (init.method === 'PUT') { const updated = JSON.parse(init.body!) as ScheduledTaskV1; tasks = tasks.map((item) => item.id === updated.id ? updated : item); return { ok: true, status: 200, body: JSON.stringify({ task: updated }) } }
+      if (init.method === 'DELETE') { tasks = tasks.filter((item) => !path.includes(item.id)); return { ok: true, status: 200, body: JSON.stringify({ archived: true }) } }
+      return { ok: false, status: 404, body: 'not found' }
+    })
+    const { runtime, store } = createRuntime(settingsWith([task], { enabled: false }), runtimeRequest)
+    expect(await runtime.listTasks()).toEqual([task]); expect(await runtime.runTask(task.id)).toMatchObject({ ok: true, threadId: 'flow-run-1' })
+    expect((await runtime.updateTaskById(task.id, { title: 'Updated' }))?.title).toBe('Updated')
+    const created = makeTask({ id: 'task-2' }); expect((await runtime.createTask(created)).id).toBe('task-2')
+    expect(await runtime.deleteTaskById(task.id)).toBe(true); expect(store.patch).not.toHaveBeenCalled()
+    expect(runtimeRequest.mock.calls.map((call) => [call[1], call[2].method])).toEqual(expect.arrayContaining([
+      ['/v1/legacy-schedules', 'GET'], ['/v1/legacy-schedules', 'POST'], ['/v1/legacy-schedules/task-1/run', 'POST'], ['/v1/legacy-schedules/task-1', 'PUT'], ['/v1/legacy-schedules/task-1', 'DELETE']
+    ]))
+  })
 })
