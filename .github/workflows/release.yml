@@ -16,6 +16,21 @@ on:
         required: false
         type: boolean
         default: false
+      run_updater_acceptance:
+        description: 'Run only the isolated 0.3.3 → test 0.3.4 native updater acceptance workflow.'
+        required: false
+        type: boolean
+        default: false
+      acceptance_base_version:
+        description: 'Installed baseline version for native updater acceptance.'
+        required: false
+        type: string
+        default: '0.3.3'
+      acceptance_target_version:
+        description: 'Temporary target version for native updater acceptance.'
+        required: false
+        type: string
+        default: '0.3.4'
 
 permissions:
   contents: write
@@ -33,8 +48,18 @@ env:
   WORKWISE_GITHUB_REPO: wangjiawei508/WorkWise
 
 jobs:
+  native-updater-acceptance:
+    name: Native updater acceptance
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_updater_acceptance == true }}
+    uses: ./.github/workflows/updater-acceptance-e2e.yml
+    with:
+      base_version: ${{ inputs.acceptance_base_version }}
+      target_version: ${{ inputs.acceptance_target_version }}
+    secrets: inherit
+
   prepare:
     name: Prepare release version
+    if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.run_updater_acceptance == true) }}
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.version.outputs.version }}

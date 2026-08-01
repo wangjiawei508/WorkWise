@@ -1,6 +1,16 @@
 name: Build and exercise native updater
 
 on:
+  workflow_call:
+    inputs:
+      base_version:
+        description: 'Installed baseline version built from this commit.'
+        required: true
+        type: string
+      target_version:
+        description: 'Temporary target version published to the isolated Frontier feed.'
+        required: true
+        type: string
   workflow_dispatch:
     inputs:
       base_version:
