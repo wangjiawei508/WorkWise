@@ -1,3 +1,4 @@
+import { existsSync } from 'node:fs'
 import { mkdir, readFile, rename, unlink, writeFile } from 'node:fs/promises'
 import { dirname, isAbsolute, join } from 'node:path'
 import type {
@@ -67,6 +68,11 @@ export type TerminalGuiUpdaterAcceptance = {
 }
 
 export type GuiUpdaterAcceptance = ActiveGuiUpdaterAcceptance | TerminalGuiUpdaterAcceptance
+
+export function isGuiUpdaterAcceptanceLaunch(argv: string[], userDataPath: string): boolean {
+  return argv.some((argument) => argument.startsWith(ACCEPTANCE_ARG)) ||
+    existsSync(join(userDataPath, STATE_FILE))
+}
 
 type PrepareOptions = {
   argv: string[]

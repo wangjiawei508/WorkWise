@@ -83,6 +83,7 @@ import {
 import {
   configureGuiUpdaterAcceptance,
   failGuiUpdaterAcceptance,
+  isGuiUpdaterAcceptanceLaunch,
   prepareGuiUpdaterAcceptance,
   runGuiUpdaterAcceptance,
   type ActiveGuiUpdaterAcceptance
@@ -326,11 +327,17 @@ const appIcon = createAppIcon(workwiseLogoPng)
 const dockIcon = createAppIcon(workwiseDockPng)
 const trayIcon = createAppIcon(workwiseTrayPng)
 traceStartup('app icon loaded', { source: workwiseLogoPng.startsWith('data:') ? 'data-url' : 'path' })
-const gotSingleInstanceLock = runningClawScheduleMcpServer || app.requestSingleInstanceLock()
+const guiUpdaterAcceptanceLaunch = isGuiUpdaterAcceptanceLaunch(process.argv, app.getPath('userData'))
+const gotSingleInstanceLock = runningClawScheduleMcpServer ||
+  guiUpdaterAcceptanceLaunch ||
+  app.requestSingleInstanceLock()
 traceStartup('single instance lock checked', {
   gotSingleInstanceLock,
-  skippedForClawScheduleMcpServer: runningClawScheduleMcpServer
+  skippedForClawScheduleMcpServer: runningClawScheduleMcpServer,
+  skippedForGuiUpdaterAcceptance: guiUpdaterAcceptanceLaunch
 })
+
+if (!gotSingleInstanceLock) app.quit()
 
 function trayLabels(locale: AppSettingsV1['locale']): { show: string; quit: string; tooltip: string } {
   if (locale === 'zh') {

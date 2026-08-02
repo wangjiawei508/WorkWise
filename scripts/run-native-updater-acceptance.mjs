@@ -45,7 +45,7 @@ function installMac(installer, root) {
     run('ditto', [join(mount, appName), destination])
     run('codesign', ['--verify', '--deep', '--strict', '--verbose=2', destination])
     run('spctl', ['--assess', '--type', 'execute', '--verbose=2', destination])
-    return join(destination, 'Contents', 'MacOS', 'WorkWise')
+    return destination
   } finally {
     run('hdiutil', ['detach', mount])
   }
@@ -146,10 +146,23 @@ async function main() {
     : installWindows(installer, root)
   const logPath = join(dirname(reportPath), `${basename(reportPath, '.json')}.log`)
   const log = openSync(logPath, 'a')
-  const child = spawn(executable, [`--workwise-updater-acceptance=${configPath}`], {
+  const acceptanceArgument = `--workwise-updater-acceptance=${configPath}`
+  const launchCommand = process.platform === 'darwin' ? 'open' : executable
+  const launchArguments = process.platform === 'darwin'
+    ? [
+        '-n',
+        '--stdout', logPath,
+        '--stderr', logPath,
+        '--env', 'WORKWISE_STARTUP_TRACE=1',
+        executable,
+        '--args', acceptanceArgument
+      ]
+    : [acceptanceArgument]
+  const child = spawn(launchCommand, launchArguments, {
     detached: true,
     stdio: ['ignore', log, log],
-    windowsHide: true
+    windowsHide: true,
+    env: { ...process.env, WORKWISE_STARTUP_TRACE: '1' }
   })
   child.unref()
   closeSync(log)

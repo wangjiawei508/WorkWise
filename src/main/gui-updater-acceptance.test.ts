@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
+  isGuiUpdaterAcceptanceLaunch,
   prepareGuiUpdaterAcceptance,
   runGuiUpdaterAcceptance,
   type ActiveGuiUpdaterAcceptance,
@@ -38,6 +39,19 @@ async function readReport(path: string): Promise<GuiUpdaterAcceptanceReport> {
 }
 
 describe('GUI updater native acceptance probe', () => {
+  it('recognizes the baseline argument and the persisted target relaunch state', async () => {
+    const files = await fixture()
+    expect(isGuiUpdaterAcceptanceLaunch(
+      [`--workwise-updater-acceptance=${files.configPath}`],
+      files.userDataPath
+    )).toBe(true)
+    expect(isGuiUpdaterAcceptanceLaunch([], files.userDataPath)).toBe(false)
+
+    await mkdir(files.userDataPath, { recursive: true })
+    await writeFile(join(files.userDataPath, 'updater-acceptance-state.json'), '{}', 'utf8')
+    expect(isGuiUpdaterAcceptanceLaunch([], files.userDataPath)).toBe(true)
+  })
+
   it('rejects an insecure test feed before arming the packaged app', async () => {
     const files = await fixture({ feedUrl: 'http://updates.example.test/latest/' })
     await expect(prepareGuiUpdaterAcceptance({

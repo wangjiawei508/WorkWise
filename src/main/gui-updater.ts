@@ -885,6 +885,10 @@ export async function downloadGuiUpdate(channel?: GuiUpdateChannel): Promise<Gui
   }
 }
 
+function shouldInstallSilently(platform: NodeJS.Platform): boolean {
+  return platform === 'win32'
+}
+
 export async function installGuiUpdate(): Promise<GuiUpdateInstallResult> {
   try {
     if (!downloaded) {
@@ -897,7 +901,10 @@ export async function installGuiUpdate(): Promise<GuiUpdateInstallResult> {
     }
     emitGuiUpdateState({ status: 'installing', info: lastInfo ?? undefined })
     await runBeforeInstallUpdate()
-    autoUpdater.quitAndInstall(false, true)
+    // Assisted NSIS installers are interactive unless isSilent is true. An
+    // in-app update must finish after WorkWise exits without leaving a hidden
+    // installer waiting for input. macOS ignores this parameter.
+    autoUpdater.quitAndInstall(shouldInstallSilently(process.platform), true)
     return { ok: true }
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e)
@@ -918,5 +925,6 @@ export const _internals = {
   resolveUpdateFeedConfig,
   downloadPageUrl,
   parseScheduledCheckAt,
-  validateCandidateVersion
+  validateCandidateVersion,
+  shouldInstallSilently
 }

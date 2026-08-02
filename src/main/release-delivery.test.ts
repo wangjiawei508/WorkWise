@@ -140,6 +140,9 @@ describe('R2 release delivery gates', () => {
     expect(publication).toContain('deploy-website-release.mjs verify-public')
     expect(workflow.jobs['cleanup-test-feed'].steps.at(-1).run).toContain('cleanup-acceptance')
     expect(workflow.jobs['cleanup-test-feed'].steps.at(-1).run).toContain('github.run_id')
+    const harness = readFileSync('scripts/run-native-updater-acceptance.mjs', 'utf8')
+    expect(harness).toContain("'--env', 'WORKWISE_STARTUP_TRACE=1'")
+    expect(harness).toContain("WORKWISE_STARTUP_TRACE: '1'")
   })
 
   it('dispatches branch-only updater acceptance through the registered release workflow', () => {

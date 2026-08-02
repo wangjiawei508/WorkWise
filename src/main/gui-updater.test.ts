@@ -107,6 +107,12 @@ describe('installGuiUpdate', () => {
     await expect(installing).resolves.toEqual({ ok: true })
     expect(updater.quitAndInstall).toHaveBeenCalledWith(false, true)
   })
+
+  it('uses silent replacement only for the assisted Windows installer', async () => {
+    const module = await import('./gui-updater')
+    expect(module._internals.shouldInstallSilently('win32')).toBe(true)
+    expect(module._internals.shouldInstallSilently('darwin')).toBe(false)
+  })
 })
 
 describe('gui updater source helpers', () => {
