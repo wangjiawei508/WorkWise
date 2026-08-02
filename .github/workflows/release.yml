@@ -166,7 +166,23 @@ jobs:
         env:
           WORKWISE_SIDECAR_ARCH: ${{ matrix.arch }}
           WORKWISE_SIDECAR_PLATFORM: ${{ matrix.platform }}
-      - name: Upload native sidecar
+      - name: Archive macOS sidecar with framework links and permissions
+        if: ${{ matrix.platform == 'darwin' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          tar -czf "build/sidecars/${{ matrix.artifact }}.tar.gz" \
+            -C "build/sidecars/${{ matrix.artifact }}" .
+      - name: Upload archived macOS sidecar
+        if: ${{ matrix.platform == 'darwin' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          if-no-files-found: error
+          retention-days: 7
+          path: build/sidecars/${{ matrix.artifact }}.tar.gz
+      - name: Upload native Windows sidecar
+        if: ${{ matrix.platform == 'win32' }}
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact }}
@@ -215,18 +231,24 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: markitdown-darwin-arm64
-          path: build/sidecars/markitdown-darwin-arm64
+          path: build/sidecars/archives
 
       - name: Download Intel MarkItDown sidecar
         uses: actions/download-artifact@v4
         with:
           name: markitdown-darwin-x64
-          path: build/sidecars/markitdown-darwin-x64
+          path: build/sidecars/archives
 
-      # actions/download-artifact does not preserve POSIX executable bits.
-      # Restore them at the artifact boundary before verification and packaging.
-      - name: Restore macOS sidecar executable permissions
+      - name: Restore macOS sidecars with framework links and permissions
         run: |
+          set -euo pipefail
+          mkdir -p build/sidecars/markitdown-darwin-arm64 build/sidecars/markitdown-darwin-x64
+          tar -xzf build/sidecars/archives/markitdown-darwin-arm64.tar.gz -C build/sidecars/markitdown-darwin-arm64
+          tar -xzf build/sidecars/archives/markitdown-darwin-x64.tar.gz -C build/sidecars/markitdown-darwin-x64
+          test -L build/sidecars/markitdown-darwin-arm64/workwise-markitdown/_internal/Python.framework/Python
+          test -L build/sidecars/markitdown-darwin-arm64/workwise-markitdown/_internal/Python.framework/Versions/Current
+          test -L build/sidecars/markitdown-darwin-x64/workwise-markitdown/_internal/Python.framework/Python
+          test -L build/sidecars/markitdown-darwin-x64/workwise-markitdown/_internal/Python.framework/Versions/Current
           chmod 755 build/sidecars/markitdown-darwin-arm64/workwise-markitdown/workwise-markitdown
           chmod 755 build/sidecars/markitdown-darwin-x64/workwise-markitdown/workwise-markitdown
 

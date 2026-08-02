@@ -46,10 +46,6 @@ function isBundleLike(path) {
   return /\.(app|appex|bundle|framework|plugin|xpc)$/i.test(path)
 }
 
-function isCollectedPythonFramework(path) {
-  return /\/app\.asar\.unpacked\/sidecars\/markitdown\/_internal\/Python\.framework$/i.test(path)
-}
-
 function isLikelySignedFile(path, info) {
   if (/\.(dylib|node|so)$/i.test(path)) return true
   if (/\/app\.asar\.unpacked\/sidecars\/markitdown\/_internal\/Python\.framework\/Versions\/[^/]+\/Python$/i.test(path)) {
@@ -70,7 +66,7 @@ function collectSignedCodeCandidates(appBundle) {
       if (info.isSymbolicLink()) continue
 
       if (info.isDirectory()) {
-        if (isBundleLike(path) && !isCollectedPythonFramework(path)) candidates.add(path)
+        if (isBundleLike(path)) candidates.add(path)
         stack.push(path)
         continue
       }

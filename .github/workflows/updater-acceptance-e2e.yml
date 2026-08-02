@@ -119,7 +119,23 @@ jobs:
           python sidecars/markitdown/generate_sbom.py build/sidecars/${{ matrix.artifact }}/SBOM-python.json
           node scripts/verify-document-dependencies.mjs --python-sbom build/sidecars/${{ matrix.artifact }}/SBOM-python.json
           node scripts/build-markitdown-sidecar.mjs --verify-only
-      - name: Upload document sidecar
+      - name: Archive macOS sidecar with framework links and permissions
+        if: ${{ matrix.platform == 'darwin' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          tar -czf "build/sidecars/${{ matrix.artifact }}.tar.gz" \
+            -C "build/sidecars/${{ matrix.artifact }}" .
+      - name: Upload archived macOS document sidecar
+        if: ${{ matrix.platform == 'darwin' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: acceptance-${{ matrix.artifact }}
+          if-no-files-found: error
+          retention-days: 3
+          path: build/sidecars/${{ matrix.artifact }}.tar.gz
+      - name: Upload Windows document sidecar
+        if: ${{ matrix.platform == 'win32' }}
         uses: actions/upload-artifact@v4
         with:
           name: acceptance-${{ matrix.artifact }}
@@ -152,16 +168,23 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           name: acceptance-markitdown-darwin-arm64
-          path: build/sidecars/markitdown-darwin-arm64
+          path: build/sidecars/archives
       - uses: actions/download-artifact@v4
         with:
           name: acceptance-markitdown-darwin-x64
-          path: build/sidecars/markitdown-darwin-x64
+          path: build/sidecars/archives
 
       - name: Restore and verify both macOS sidecars
         shell: bash
         run: |
           set -euo pipefail
+          mkdir -p build/sidecars/markitdown-darwin-arm64 build/sidecars/markitdown-darwin-x64
+          tar -xzf build/sidecars/archives/markitdown-darwin-arm64.tar.gz -C build/sidecars/markitdown-darwin-arm64
+          tar -xzf build/sidecars/archives/markitdown-darwin-x64.tar.gz -C build/sidecars/markitdown-darwin-x64
+          test -L build/sidecars/markitdown-darwin-arm64/workwise-markitdown/_internal/Python.framework/Python
+          test -L build/sidecars/markitdown-darwin-arm64/workwise-markitdown/_internal/Python.framework/Versions/Current
+          test -L build/sidecars/markitdown-darwin-x64/workwise-markitdown/_internal/Python.framework/Python
+          test -L build/sidecars/markitdown-darwin-x64/workwise-markitdown/_internal/Python.framework/Versions/Current
           chmod 755 build/sidecars/markitdown-darwin-arm64/workwise-markitdown/workwise-markitdown
           chmod 755 build/sidecars/markitdown-darwin-x64/workwise-markitdown/workwise-markitdown
           WORKWISE_SIDECAR_ARCH=arm64 node scripts/build-markitdown-sidecar.mjs --verify-only
