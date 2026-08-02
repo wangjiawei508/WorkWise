@@ -225,11 +225,11 @@ module.exports = {
     gatekeeperAssess: false,
     entitlements: 'build/entitlements.mac.plist',
     entitlementsInherit: 'build/entitlements.mac.inherit.plist',
-    // PyInstaller preserves the two conventional Python.framework entry
-    // symlinks. codesign must sign the versioned Mach-O and the framework
-    // bundle, not re-sign those symlink paths as standalone bundles.
+    // PyInstaller's collected Python.framework container is not a valid
+    // standalone framework bundle. Sign the versioned Mach-O inside it, but
+    // do not ask codesign to treat the container or entry symlinks as bundles.
     signIgnore: [
-      'Python\\.framework/(?:Python|Versions/Current/Python)$'
+      'Python\\.framework(?:/(?:Python|Versions/Current/Python))?$'
     ],
     icon: './src/asset/img/workwise.icns',
     // arm64 (Apple Silicon) + x64 (Intel). On M 系列 Mac 本地打包会各出一组 dmg/zip。

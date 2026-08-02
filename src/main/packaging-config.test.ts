@@ -274,13 +274,13 @@ describe('electron-builder WorkWise packaging', () => {
     expect(signedConfig.mac.forceCodeSigning).toBe(true)
     expect(signedConfig.mac.timestamp).toBe('http://timestamp.apple.com/ts01')
     expect(signedConfig.mac.signIgnore).toEqual([
-      'Python\\.framework/(?:Python|Versions/Current/Python)$'
+      'Python\\.framework(?:/(?:Python|Versions/Current/Python))?$'
     ])
     const pythonFrameworkEntry = new RegExp(signedConfig.mac.signIgnore[0])
+    expect(pythonFrameworkEntry.test('/_internal/Python.framework')).toBe(true)
     expect(pythonFrameworkEntry.test('/_internal/Python.framework/Python')).toBe(true)
     expect(pythonFrameworkEntry.test('/_internal/Python.framework/Versions/Current/Python')).toBe(true)
     expect(pythonFrameworkEntry.test('/_internal/Python.framework/Versions/3.12/Python')).toBe(false)
-    expect(pythonFrameworkEntry.test('/_internal/Python.framework')).toBe(false)
   })
 
   it('checks timestamp candidates across nested macOS signed code', () => {
@@ -293,19 +293,27 @@ describe('electron-builder WorkWise packaging', () => {
       'Contents/Resources/app.asar.unpacked/node_modules/better-sqlite3/build/Release/better_sqlite3.node'
     )
     const resourceScript = join(appBundle, 'Contents/Resources/postinstall.sh')
+    const pythonFramework = join(
+      appBundle,
+      'Contents/Resources/app.asar.unpacked/sidecars/markitdown/_internal/Python.framework'
+    )
+    const pythonBinary = join(pythonFramework, 'Versions/3.12/Python')
 
     touch(mainExecutable)
     touch(join(framework, 'Versions/A/Electron Framework'))
     touch(nativeAddon)
     touch(resourceScript)
+    touch(pythonBinary)
     chmodSync(mainExecutable, 0o755)
     chmodSync(resourceScript, 0o755)
+    chmodSync(pythonBinary, 0o755)
 
     expect(macNotarize._internals.collectSignedCodeCandidates(appBundle)).toEqual([
       appBundle,
       framework,
       mainExecutable,
-      nativeAddon
+      nativeAddon,
+      pythonBinary
     ])
   })
 })
