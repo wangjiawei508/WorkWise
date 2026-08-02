@@ -1,0 +1,78 @@
+name: Cleanup updater acceptance
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: 'Exact GitHub Actions run id whose isolated R2 and website feeds must be removed.'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  cleanup:
+    name: Cleanup exact isolated feed
+    runs-on: ubuntu-latest
+    env:
+      R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+      R2_BUCKET: ${{ secrets.R2_BUCKET }}
+      R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+      R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+      WORKWISE_PUBLIC_BASE_URL: https://www.railwise.cn/downloads
+      WORKWISE_RELEASE_PREFIX: workwise/acceptance/${{ inputs.run_id }}
+      WORKWISE_WEBSITE_SSH_HOST: ${{ secrets.WORKWISE_WEBSITE_SSH_HOST }}
+      WORKWISE_WEBSITE_SSH_PORT: ${{ secrets.WORKWISE_WEBSITE_SSH_PORT }}
+      WORKWISE_WEBSITE_SSH_USER: ${{ secrets.WORKWISE_WEBSITE_SSH_USER }}
+      WORKWISE_WEBSITE_SSH_PRIVATE_KEY: ${{ secrets.WORKWISE_WEBSITE_SSH_PRIVATE_KEY }}
+      WORKWISE_WEBSITE_SSH_KNOWN_HOSTS: ${{ secrets.WORKWISE_WEBSITE_SSH_KNOWN_HOSTS }}
+      WORKWISE_WEBSITE_RELEASE_ROOT: ${{ secrets.WORKWISE_WEBSITE_RELEASE_ROOT }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22.22.0'
+          cache: npm
+      - run: npm ci --ignore-scripts
+
+      - name: Validate exact cleanup scope
+        shell: bash
+        env:
+          CLEANUP_RUN_ID: ${{ inputs.run_id }}
+        run: |
+          set -euo pipefail
+          [[ "${CLEANUP_RUN_ID}" =~ ^[1-9][0-9]*$ ]] || { echo "::error::run_id must be a positive integer"; exit 1; }
+          for name in \
+            R2_ACCOUNT_ID R2_BUCKET R2_ACCESS_KEY_ID R2_SECRET_ACCESS_KEY \
+            WORKWISE_WEBSITE_SSH_HOST WORKWISE_WEBSITE_SSH_PORT WORKWISE_WEBSITE_SSH_USER \
+            WORKWISE_WEBSITE_SSH_PRIVATE_KEY WORKWISE_WEBSITE_SSH_KNOWN_HOSTS WORKWISE_WEBSITE_RELEASE_ROOT; do
+            [[ -n "${!name:-}" ]] || { echo "::error::Missing ${name}"; exit 1; }
+          done
+
+      - name: Prepare pinned website SSH transport
+        shell: bash
+        run: |
+          set -euo pipefail
+          ssh_dir="${RUNNER_TEMP}/workwise-website-ssh"
+          install -d -m 700 "${ssh_dir}"
+          export SSH_KEY_PATH="${ssh_dir}/deploy-key"
+          export SSH_KNOWN_HOSTS_PATH="${ssh_dir}/known_hosts"
+          node - <<'NODE'
+          const fs = require('node:fs')
+          fs.writeFileSync(process.env.SSH_KEY_PATH, `${process.env.WORKWISE_WEBSITE_SSH_PRIVATE_KEY.trim()}\n`, { mode: 0o600 })
+          fs.writeFileSync(process.env.SSH_KNOWN_HOSTS_PATH, `${process.env.WORKWISE_WEBSITE_SSH_KNOWN_HOSTS.trim()}\n`, { mode: 0o600 })
+          NODE
+          {
+            echo "WORKWISE_WEBSITE_SSH_KEY_PATH=${SSH_KEY_PATH}"
+            echo "WORKWISE_WEBSITE_SSH_KNOWN_HOSTS_PATH=${SSH_KNOWN_HOSTS_PATH}"
+          } >> "${GITHUB_ENV}"
+
+      - name: Remove exact R2 and website acceptance prefixes
+        shell: bash
+        env:
+          CLEANUP_RUN_ID: ${{ inputs.run_id }}
+        run: |
+          set -euo pipefail
+          node scripts/publish-r2.mjs cleanup-acceptance --run-id "${CLEANUP_RUN_ID}"
+          node scripts/deploy-website-release.mjs cleanup-acceptance --run-id "${CLEANUP_RUN_ID}"

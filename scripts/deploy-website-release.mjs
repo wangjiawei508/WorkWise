@@ -2,10 +2,18 @@
 
 import { createHash } from 'node:crypto'
 import { createReadStream, existsSync, readFileSync, statSync } from 'node:fs'
-import { readdir, readFile } from 'node:fs/promises'
-import { basename, resolve } from 'node:path'
+import { mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { basename, join, resolve } from 'node:path'
+import { tmpdir } from 'node:os'
 import { execFileSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
+import {
+  DeleteObjectsCommand,
+  GetObjectCommand,
+  PutObjectCommand,
+  S3Client
+} from '@aws-sdk/client-s3'
+import { getSignedUrl } from '@aws-sdk/s3-request-presigner'
 
 const CHANNELS = new Set(['stable', 'frontier'])
 const SAFE_TOKEN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/
@@ -13,7 +21,7 @@ const WEBSITE_ROOT_SUFFIX = '/downloads/workwise'
 
 function usage() {
   console.log(`Usage:
-  node scripts/deploy-website-release.mjs stage --source DIR --tag vX.Y.Z --channel stable|frontier --release-prefix workwise[/acceptance/RUN_ID] --deploy-id ID
+  node scripts/deploy-website-release.mjs stage --source DIR --tag vX.Y.Z --channel stable|frontier --release-prefix workwise[/acceptance/RUN_ID] --deploy-id ID [--transport scp|r2]
   node scripts/deploy-website-release.mjs promote --tag vX.Y.Z --channel stable|frontier --release-prefix workwise[/acceptance/RUN_ID] --deploy-id ID
   node scripts/deploy-website-release.mjs verify-public --source DIR --tag vX.Y.Z --channel stable|frontier --release-prefix workwise[/acceptance/RUN_ID] --target release|latest
   node scripts/deploy-website-release.mjs cleanup-acceptance --run-id RUN_ID
@@ -28,6 +36,9 @@ SSH environment:
 
 Public verification:
   WORKWISE_PUBLIC_BASE_URL=https://www.railwise.cn/downloads
+
+R2-accelerated website transfer:
+  R2_ACCOUNT_ID, R2_BUCKET, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY
 `)
 }
 
@@ -73,6 +84,17 @@ function normalizeDeployId(value) {
   const deployId = String(value || '').trim()
   if (!SAFE_TOKEN.test(deployId)) throw new Error(`Unsafe deploy id: ${value}`)
   return deployId
+}
+
+function normalizeTransport(value) {
+  const transport = String(value || 'scp').trim()
+  if (!['scp', 'r2'].includes(transport)) throw new Error(`Invalid website transport: ${value}`)
+  return transport
+}
+
+function r2StagingPrefix(releasePrefix, deployId) {
+  const normalized = normalizeReleasePrefix(releasePrefix)
+  return `${normalized.prefix}/delivery-staging/${normalizeDeployId(deployId)}/`
 }
 
 function normalizeReleasePrefix(value) {
@@ -168,6 +190,93 @@ function copyDirectory(config, sourceDir, remoteDir) {
   )
 }
 
+function copyFile(config, sourcePath, remotePath) {
+  execFileSync(
+    'scp',
+    [
+      '-P', config.port,
+      '-i', config.keyPath,
+      '-o', 'BatchMode=yes',
+      '-o', 'IdentitiesOnly=yes',
+      '-o', 'StrictHostKeyChecking=yes',
+      '-o', `UserKnownHostsFile=${config.knownHostsPath}`,
+      sourcePath,
+      `${config.user}@${config.host}:${remotePath}`
+    ],
+    { stdio: 'inherit' }
+  )
+}
+
+function readR2TransportConfig() {
+  const accountId = String(process.env.R2_ACCOUNT_ID || '').trim()
+  const bucket = String(process.env.R2_BUCKET || '').trim()
+  const accessKeyId = String(process.env.R2_ACCESS_KEY_ID || '').trim()
+  const secretAccessKey = String(process.env.R2_SECRET_ACCESS_KEY || '').trim()
+  const rawEndpoint = String(process.env.R2_ENDPOINT || '').trim()
+  const missing = []
+  if (!accountId && !rawEndpoint) missing.push('R2_ACCOUNT_ID or R2_ENDPOINT')
+  if (!bucket) missing.push('R2_BUCKET')
+  if (!accessKeyId) missing.push('R2_ACCESS_KEY_ID')
+  if (!secretAccessKey) missing.push('R2_SECRET_ACCESS_KEY')
+  if (missing.length) throw new Error(`R2 website transport is missing: ${missing.join(', ')}`)
+  const endpoint = rawEndpoint || `https://${accountId}.r2.cloudflarestorage.com`
+  return {
+    bucket,
+    client: new S3Client({
+      region: 'auto',
+      endpoint,
+      credentials: { accessKeyId, secretAccessKey },
+      forcePathStyle: true
+    })
+  }
+}
+
+async function uploadR2TransportObjects(sourceDir, releasePrefix, deployId) {
+  const { bucket, client } = readR2TransportConfig()
+  const prefix = r2StagingPrefix(releasePrefix, deployId)
+  const entries = await readdir(sourceDir, { withFileTypes: true })
+  const files = entries
+    .filter((entry) => entry.isFile())
+    .map((entry) => entry.name)
+    .sort()
+  if (!files.length) throw new Error('Website release source has no files to transfer.')
+  for (const name of files) {
+    if (!/^[A-Za-z0-9._-]+$/.test(name)) throw new Error(`Unsafe website asset name: ${name}`)
+  }
+
+  const objects = files.map((name) => ({ name, key: `${prefix}${name}` }))
+  const deleteObjects = () => client.send(new DeleteObjectsCommand({
+    Bucket: bucket,
+    Delete: { Quiet: true, Objects: objects.map(({ key }) => ({ Key: key })) }
+  }))
+  let downloads
+  try {
+    await Promise.all(objects.map(({ name, key }) => client.send(new PutObjectCommand({
+      Bucket: bucket,
+      Key: key,
+      Body: createReadStream(resolve(sourceDir, name))
+    }))))
+    downloads = await Promise.all(objects.map(async ({ name, key }) => ({
+      name,
+      url: await getSignedUrl(client, new GetObjectCommand({ Bucket: bucket, Key: key }), {
+        expiresIn: 2 * 60 * 60
+      })
+    })))
+  } catch (error) {
+    try { await deleteObjects() } catch { /* Preserve the upload/presigning failure. */ }
+    client.destroy()
+    throw error
+  }
+
+  return {
+    downloads,
+    cleanup: async () => {
+      await deleteObjects()
+      client.destroy()
+    }
+  }
+}
+
 function parseVersion(source, fileName) {
   const value = source.match(/^version:\s*['"]?([^'"\s]+)['"]?\s*$/m)?.[1] || ''
   if (!/^\d+\.\d+\.\d+$/.test(value)) throw new Error(`${fileName} is missing a valid version.`)
@@ -219,6 +328,54 @@ test -w "$root"
 rm -rf -- "$stage"
 mkdir -p -- "$stage/payload" "$base/channels/$channel/releases"
 printf '%s\n' "$stage/payload"
+`
+
+const DOWNLOAD_R2_STAGE_SCRIPT = String.raw`set -euo pipefail
+manifest="$1"
+payload="$2"
+case "$manifest" in "$payload"/.r2-downloads.json) ;; *) exit 64 ;; esac
+python3 - "$manifest" "$payload" <<'PY'
+import json
+import os
+import pathlib
+import re
+import shutil
+import sys
+import urllib.request
+
+manifest = pathlib.Path(sys.argv[1])
+payload = pathlib.Path(sys.argv[2])
+downloads = json.loads(manifest.read_text(encoding='utf-8'))
+if not isinstance(downloads, list) or not downloads:
+    raise RuntimeError('R2 download manifest is empty')
+for item in downloads:
+    name = item.get('name', '') if isinstance(item, dict) else ''
+    url = item.get('url', '') if isinstance(item, dict) else ''
+    if not re.fullmatch(r'[A-Za-z0-9._-]+', name) or not url.startswith('https://'):
+        raise RuntimeError('R2 download manifest contains an unsafe entry')
+    destination = payload / name
+    temporary = payload / f'.download-{name}'
+    try:
+        request = urllib.request.Request(url, headers={'User-Agent': 'WorkWise-release-delivery/1'})
+        with urllib.request.urlopen(request, timeout=120) as response, temporary.open('wb') as output:
+            shutil.copyfileobj(response, output, length=1024 * 1024)
+        os.replace(temporary, destination)
+    except Exception:
+        temporary.unlink(missing_ok=True)
+        raise RuntimeError(f'R2 download failed for {name}') from None
+manifest.unlink()
+PY
+`
+
+const CLEAN_STAGE_SCRIPT = String.raw`set -euo pipefail
+root="$1"
+relative="$2"
+deploy_id="$3"
+base="$root"
+if [[ -n "$relative" ]]; then base="$root/$relative"; fi
+stage="$base/.deploy-$deploy_id"
+case "$stage" in "$root"/*/.deploy-*|"$root"/.deploy-*) ;; *) exit 64 ;; esac
+if [[ -e "$stage" ]]; then rm -rf -- "$stage"; fi
 `
 
 const FINALIZE_STAGE_SCRIPT = String.raw`set -euo pipefail
@@ -333,6 +490,7 @@ async function stageRelease(flags) {
   const channel = normalizeChannel(requireFlag(flags, 'channel'))
   const releasePrefix = normalizeReleasePrefix(requireFlag(flags, 'release-prefix'))
   const deployId = normalizeDeployId(requireFlag(flags, 'deploy-id'))
+  const transport = normalizeTransport(flags.get('transport'))
   if (releasePrefix.acceptanceRunId && !deployId.includes(releasePrefix.acceptanceRunId)) {
     throw new Error('Acceptance deploy id must include its GitHub run id.')
   }
@@ -346,15 +504,41 @@ async function stageRelease(flags) {
   ])
   const remoteDir = output.trim().split(/\r?\n/).at(-1)
   if (!remoteDir?.endsWith(`/payload`)) throw new Error('Remote staging directory was not created.')
-  copyDirectory(config, sourceDir, remoteDir)
-  process.stdout.write(runRemote(config, FINALIZE_STAGE_SCRIPT, [
-    config.root,
-    releasePrefix.relative,
-    channel,
-    tag,
-    tag.slice(1),
-    deployId
-  ]))
+  let r2Transfer
+  try {
+    if (transport === 'r2') {
+      r2Transfer = await uploadR2TransportObjects(sourceDir, releasePrefix.prefix, deployId)
+      const temporaryDirectory = await mkdtemp(join(tmpdir(), 'workwise-r2-transfer-'))
+      const manifestPath = join(temporaryDirectory, 'downloads.json')
+      const remoteManifest = `${remoteDir}/.r2-downloads.json`
+      try {
+        await writeFile(manifestPath, JSON.stringify(r2Transfer.downloads), { mode: 0o600 })
+        copyFile(config, manifestPath, remoteManifest)
+        runRemote(config, DOWNLOAD_R2_STAGE_SCRIPT, [remoteManifest, remoteDir])
+      } finally {
+        await rm(temporaryDirectory, { recursive: true, force: true })
+      }
+    } else {
+      copyDirectory(config, sourceDir, remoteDir)
+    }
+    process.stdout.write(runRemote(config, FINALIZE_STAGE_SCRIPT, [
+      config.root,
+      releasePrefix.relative,
+      channel,
+      tag,
+      tag.slice(1),
+      deployId
+    ]))
+  } catch (error) {
+    try {
+      runRemote(config, CLEAN_STAGE_SCRIPT, [config.root, releasePrefix.relative, deployId])
+    } catch {
+      // Preserve the original transfer/finalization failure.
+    }
+    throw error
+  } finally {
+    await r2Transfer?.cleanup()
+  }
 }
 
 function promoteRelease(flags) {
@@ -462,11 +646,15 @@ export const _internals = {
   normalizeChannel,
   normalizeRunId,
   normalizeDeployId,
+  normalizeTransport,
   normalizeReleasePrefix,
+  r2StagingPrefix,
   normalizeWebsiteRoot,
   parseVersion,
   validateSourceDirectory,
   INIT_STAGE_SCRIPT,
+  DOWNLOAD_R2_STAGE_SCRIPT,
+  CLEAN_STAGE_SCRIPT,
   FINALIZE_STAGE_SCRIPT,
   PROMOTE_SCRIPT,
   CLEANUP_ACCEPTANCE_SCRIPT

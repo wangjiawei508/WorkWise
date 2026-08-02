@@ -564,7 +564,8 @@ jobs:
             --tag "${TAG_NAME}" \
             --channel stable \
             --release-prefix workwise \
-            --deploy-id "${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+            --deploy-id "${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" \
+            --transport r2
 
       - name: Verify official immutable HTTPS downloads
         run: |

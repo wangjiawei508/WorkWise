@@ -69,6 +69,10 @@ describe('R2 release delivery gates', () => {
     })
     expect(() => websiteDelivery.normalizeReleasePrefix('workwise/../other')).toThrow(/Release prefix/)
     expect(() => websiteDelivery.normalizeReleasePrefix('workwise/acceptance/all')).toThrow(/Release prefix/)
+    expect(websiteDelivery.r2StagingPrefix('workwise/acceptance/12345', '12345-1'))
+      .toBe('workwise/acceptance/12345/delivery-staging/12345-1/')
+    expect(websiteDelivery.normalizeTransport('r2')).toBe('r2')
+    expect(() => websiteDelivery.normalizeTransport('ftp')).toThrow(/transport/)
   })
 
   it('pins website deployment to the WorkWise download root and atomic verified promotion', () => {
@@ -78,6 +82,7 @@ describe('R2 release delivery gates', () => {
     expect(() => websiteDelivery.normalizeWebsiteRoot('/srv/../downloads/workwise')).toThrow(/Unsafe/)
     expect(() => websiteDelivery.normalizeWebsiteRoot('/')).toThrow(/Unsafe/)
     expect(websiteDelivery.FINALIZE_STAGE_SCRIPT).toContain('sha256sum -c SHA256SUMS.txt')
+    expect(websiteDelivery.DOWNLOAD_R2_STAGE_SCRIPT).toContain('urllib.request.urlopen')
     expect(websiteDelivery.PROMOTE_SCRIPT).toContain('renameat2')
     expect(websiteDelivery.PROMOTE_SCRIPT).toContain('sorted(versions, reverse=True)[3:]')
     expect(websiteDelivery.CLEANUP_ACCEPTANCE_SCRIPT).toContain('/acceptance/[1-9][0-9]*')
@@ -121,6 +126,7 @@ describe('R2 release delivery gates', () => {
       .toContain('secrets.WORKWISE_WEBSITE_SSH_PRIVATE_KEY')
     const publication = workflow.jobs['publish-test-feed'].steps.map((step: any) => step.run || '').join('\n')
     expect(publication).toContain('deploy-website-release.mjs stage')
+    expect(publication).toContain('--transport r2')
     expect(publication).toContain('deploy-website-release.mjs promote')
     expect(publication).toContain('deploy-website-release.mjs verify-public')
     expect(workflow.jobs['cleanup-test-feed'].steps.at(-1).run).toContain('cleanup-acceptance')
@@ -139,6 +145,7 @@ describe('R2 release delivery gates', () => {
       .toContain('secrets.WORKWISE_WEBSITE_SSH_PRIVATE_KEY')
     const publication = release.jobs.publish.steps.map((step: any) => step.run || '').join('\n')
     expect(publication).toContain('deploy-website-release.mjs stage')
+    expect(publication).toContain('--transport r2')
     expect(publication).toContain('deploy-website-release.mjs promote')
     expect(publication).toContain('deploy-website-release.mjs verify-public')
     const sidecarTransfer = release.jobs['build-document-sidecars'].steps.map((step: any) => step.run || '').join('\n')
@@ -146,5 +153,17 @@ describe('R2 release delivery gates', () => {
     const macBuild = release.jobs['build-macos'].steps.map((step: any) => step.run || '').join('\n')
     expect(macBuild).toContain('tar -xzf')
     expect(macBuild).toContain('test -L')
+  })
+
+  it('provides an exact-scope cleanup workflow for canceled updater acceptance runs', () => {
+    const cleanup = YAML.parse(readFileSync('.github/workflows/updater-acceptance-cleanup.yml', 'utf8')) as {
+      on: { workflow_dispatch: { inputs: Record<string, unknown> } }
+      jobs: Record<string, any>
+    }
+    expect(cleanup.on.workflow_dispatch.inputs).toHaveProperty('run_id')
+    const command = cleanup.jobs.cleanup.steps.map((step: any) => step.run || '').join('\n')
+    expect(command).toContain('publish-r2.mjs cleanup-acceptance')
+    expect(command).toContain('deploy-website-release.mjs cleanup-acceptance')
+    expect(command).toContain('^[1-9][0-9]*$')
   })
 })

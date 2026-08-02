@@ -420,7 +420,8 @@ jobs:
             --tag "${TARGET_TAG}" \
             --channel frontier \
             --release-prefix "${WORKWISE_RELEASE_PREFIX}" \
-            --deploy-id "${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+            --deploy-id "${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" \
+            --transport r2
           node scripts/deploy-website-release.mjs verify-public \
             --source acceptance-release-assets \
             --tag "${TARGET_TAG}" \
