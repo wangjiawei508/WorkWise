@@ -7,8 +7,37 @@ import YAML from 'yaml'
 import { _internals } from '../../scripts/publish-r2.mjs'
 // @ts-expect-error JavaScript release helper intentionally has no declaration file.
 import { _internals as websiteDelivery } from '../../scripts/deploy-website-release.mjs'
+// @ts-expect-error JavaScript release helper intentionally has no declaration file.
+import { isTransientMacSigningFailure, runMacArtifactBuildWithRetry } from '../../scripts/run-mac-artifact-build-with-retry.mjs'
 
 describe('R2 release delivery gates', () => {
+  it('retries only transient Apple timestamp outages during signed macOS packaging', async () => {
+    expect(isTransientMacSigningFailure('The timestamp service is not available.')).toBe(true)
+    expect(isTransientMacSigningFailure('bundle format is ambiguous')).toBe(false)
+
+    const attempts: number[] = []
+    const waits: number[] = []
+    await runMacArtifactBuildWithRetry('x64', {
+      attempts: 3,
+      baseDelayMs: 5,
+      execute: async (attempt: number) => {
+        attempts.push(attempt)
+        return attempt === 1
+          ? { code: 1, signal: null, output: 'The timestamp service is not available.' }
+          : { code: 0, signal: null, output: '' }
+      },
+      wait: async (ms: number) => { waits.push(ms) }
+    })
+
+    expect(attempts).toEqual([1, 2])
+    expect(waits).toEqual([5])
+    await expect(runMacArtifactBuildWithRetry('arm64', {
+      attempts: 3,
+      execute: async () => ({ code: 1, signal: null, output: 'invalid signature' }),
+      wait: async () => undefined
+    })).rejects.toThrow(/artifact build failed/)
+  })
+
   it('keeps releases in semantic newest-first order for three-version retention', () => {
     expect(['v0.3.9', 'v0.10.0', 'v0.3.10', 'v0.2.8'].sort(_internals.compareReleaseTagsDescending))
       .toEqual(['v0.10.0', 'v0.3.10', 'v0.3.9', 'v0.2.8'])
