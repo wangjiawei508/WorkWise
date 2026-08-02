@@ -640,18 +640,31 @@ async function getJson(config, key) {
   return JSON.parse(text)
 }
 
-async function hashHttpsDownload(url, expectedSize) {
-  if (!url.startsWith('https://')) throw new Error(`Release download is not HTTPS: ${url}`)
-  const response = await fetch(url, { redirect: 'follow' })
-  if (!response.ok || !response.body) throw new Error(`Download verification failed ${response.status}: ${url}`)
-  const hash = createHash('sha512'); let size = 0
-  for await (const chunk of response.body) { hash.update(chunk); size += chunk.byteLength }
-  if (Number.isFinite(expectedSize) && size !== expectedSize) throw new Error(`Download size mismatch for ${url}: ${size} != ${expectedSize}`)
-  const range = await fetch(url, { headers: { Range: 'bytes=0-1023' }, redirect: 'follow' })
-  if (range.status !== 206 || !/^bytes 0-\d+\//i.test(range.headers.get('content-range') ?? '')) {
-    throw new Error(`Range download verification failed for ${url}: ${range.status}`)
+async function hashR2Object(config, key, expectedSize) {
+  const response = await config.client.send(new GetObjectCommand({ Bucket: config.bucket, Key: key }))
+  if (!response.Body) throw new Error(`R2 object has no body: ${key}`)
+  const hash = createHash('sha512')
+  let size = 0
+  for await (const chunk of response.Body) {
+    hash.update(chunk)
+    size += chunk.byteLength
   }
-  await range.arrayBuffer()
+  if (Number.isFinite(expectedSize) && size !== expectedSize) {
+    throw new Error(`R2 object size mismatch for ${key}: ${size} != ${expectedSize}`)
+  }
+  if (Number.isFinite(response.ContentLength) && response.ContentLength !== size) {
+    throw new Error(`R2 Content-Length mismatch for ${key}: ${response.ContentLength} != ${size}`)
+  }
+
+  const range = await config.client.send(new GetObjectCommand({
+    Bucket: config.bucket,
+    Key: key,
+    Range: 'bytes=0-1023'
+  }))
+  if (!range.Body || !/^bytes 0-\d+\/\d+$/i.test(range.ContentRange ?? '')) {
+    throw new Error(`R2 Range download verification failed for ${key}`)
+  }
+  await range.Body.transformToByteArray()
   return hash.digest('base64')
 }
 
@@ -665,10 +678,12 @@ async function verifyRemoteRelease({ flags }) {
     const manifest = await getJson(config, key)
     if (manifest.tag !== tag || manifest.version !== tag.slice(1)) throw new Error(`Remote ${platform} manifest identity mismatch`)
     for (const file of manifest.files ?? []) {
-      const url = joinUrl(config.publicBaseUrl, channelBasePath(config.prefix, channel), 'releases', tag, file.fileName)
-      const sha512 = await hashHttpsDownload(url, Number(file.size))
+      if (file.key !== `${channelBasePath(config.prefix, channel)}/releases/${tag}/${file.fileName}`) {
+        throw new Error(`Remote object key mismatch for ${file.fileName}`)
+      }
+      const sha512 = await hashR2Object(config, file.key, Number(file.size))
       if (sha512 !== file.sha512) throw new Error(`Remote SHA-512 mismatch for ${file.fileName}`)
-      console.log(`Verified HTTPS, Range and SHA-512: ${file.fileName}`)
+      console.log(`Verified R2 object, Range and SHA-512: ${file.fileName}`)
     }
   }
 }

@@ -407,6 +407,12 @@ jobs:
       R2_BUCKET: ${{ secrets.R2_BUCKET }}
       R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
       R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+      WORKWISE_WEBSITE_SSH_HOST: ${{ secrets.WORKWISE_WEBSITE_SSH_HOST }}
+      WORKWISE_WEBSITE_SSH_PORT: ${{ secrets.WORKWISE_WEBSITE_SSH_PORT }}
+      WORKWISE_WEBSITE_SSH_USER: ${{ secrets.WORKWISE_WEBSITE_SSH_USER }}
+      WORKWISE_WEBSITE_SSH_PRIVATE_KEY: ${{ secrets.WORKWISE_WEBSITE_SSH_PRIVATE_KEY }}
+      WORKWISE_WEBSITE_SSH_KNOWN_HOSTS: ${{ secrets.WORKWISE_WEBSITE_SSH_KNOWN_HOSTS }}
+      WORKWISE_WEBSITE_RELEASE_ROOT: ${{ secrets.WORKWISE_WEBSITE_RELEASE_ROOT }}
       WORKWISE_PUBLIC_BASE_URL: https://www.railwise.cn/downloads
     steps:
       - name: Check out tag
@@ -478,26 +484,12 @@ jobs:
         run: |
           set -euo pipefail
           [[ "${MAC_SIGNED}" == "true" ]] || { echo "::error::Stable requires signed and notarized macOS packages"; exit 1; }
-          for name in R2_ACCOUNT_ID R2_BUCKET R2_ACCESS_KEY_ID R2_SECRET_ACCESS_KEY; do
+          for name in \
+            R2_ACCOUNT_ID R2_BUCKET R2_ACCESS_KEY_ID R2_SECRET_ACCESS_KEY \
+            WORKWISE_WEBSITE_SSH_HOST WORKWISE_WEBSITE_SSH_PORT WORKWISE_WEBSITE_SSH_USER \
+            WORKWISE_WEBSITE_SSH_PRIVATE_KEY WORKWISE_WEBSITE_SSH_KNOWN_HOSTS WORKWISE_WEBSITE_RELEASE_ROOT; do
             [[ -n "${!name:-}" ]] || { echo "::error::Missing ${name}; Stable promotion is blocked"; exit 1; }
           done
-
-      - name: Upload immutable updater artifacts to R2
-        run: |
-          set -euo pipefail
-          node ./scripts/publish-r2.mjs upload --platform mac --tag "${TAG_NAME}" --channel stable --dist release-artifacts
-          node ./scripts/publish-r2.mjs upload --platform win --tag "${TAG_NAME}" --channel stable --dist release-artifacts
-
-      - name: Promote verified R2 channel pointer
-        run: |
-          set -euo pipefail
-          node ./scripts/verify-release-assets.cjs release-artifacts
-          node ./scripts/publish-r2.mjs verify --tag "${TAG_NAME}" --channel stable --platforms mac,win
-          node ./scripts/publish-r2.mjs promote --tag "${TAG_NAME}" --channel stable --platforms mac,win
-          curl --fail --silent --show-error --location --range 0-1023 \
-            "https://www.railwise.cn/downloads/workwise/channels/stable/latest/latest-mac.yml" >/dev/null
-          curl --fail --silent --show-error --location --range 0-1023 \
-            "https://www.railwise.cn/downloads/workwise/channels/stable/latest/latest.yml" >/dev/null
 
       - name: Prepare website update channel assets
         run: |
@@ -505,9 +497,82 @@ jobs:
           node ./scripts/prepare-website-release-assets.cjs \
             release-artifacts \
             website-release-assets \
-            "${RELEASE_VERSION}"
+            "${RELEASE_VERSION}" \
+            --channel stable \
+            --release-prefix workwise \
+            --public-base-url "${WORKWISE_PUBLIC_BASE_URL}"
 
           node ./scripts/verify-release-assets.cjs website-release-assets --write-sha256 SHA256SUMS.txt
+
+      - name: Prepare pinned website SSH transport
+        shell: bash
+        run: |
+          set -euo pipefail
+          ssh_dir="${RUNNER_TEMP}/workwise-website-ssh"
+          install -d -m 700 "${ssh_dir}"
+          export SSH_KEY_PATH="${ssh_dir}/deploy-key"
+          export SSH_KNOWN_HOSTS_PATH="${ssh_dir}/known_hosts"
+          node - <<'NODE'
+          const fs = require('node:fs')
+          fs.writeFileSync(process.env.SSH_KEY_PATH, `${process.env.WORKWISE_WEBSITE_SSH_PRIVATE_KEY.trim()}\n`, { mode: 0o600 })
+          fs.writeFileSync(process.env.SSH_KNOWN_HOSTS_PATH, `${process.env.WORKWISE_WEBSITE_SSH_KNOWN_HOSTS.trim()}\n`, { mode: 0o600 })
+          NODE
+          {
+            echo "WORKWISE_WEBSITE_SSH_KEY_PATH=${SSH_KEY_PATH}"
+            echo "WORKWISE_WEBSITE_SSH_KNOWN_HOSTS_PATH=${SSH_KNOWN_HOSTS_PATH}"
+          } >> "${GITHUB_ENV}"
+
+      - name: Upload immutable updater artifacts to R2
+        run: |
+          set -euo pipefail
+          node ./scripts/publish-r2.mjs upload --platform mac --tag "${TAG_NAME}" --channel stable --dist release-artifacts
+          node ./scripts/publish-r2.mjs upload --platform win --tag "${TAG_NAME}" --channel stable --dist release-artifacts
+
+      - name: Verify immutable R2 updater artifacts
+        run: |
+          set -euo pipefail
+          node ./scripts/verify-release-assets.cjs release-artifacts
+          node ./scripts/publish-r2.mjs verify --tag "${TAG_NAME}" --channel stable --platforms mac,win
+
+      - name: Stage immutable release on the official website
+        run: |
+          set -euo pipefail
+          node ./scripts/deploy-website-release.mjs stage \
+            --source website-release-assets \
+            --tag "${TAG_NAME}" \
+            --channel stable \
+            --release-prefix workwise \
+            --deploy-id "${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+
+      - name: Verify official immutable HTTPS downloads
+        run: |
+          set -euo pipefail
+          node ./scripts/deploy-website-release.mjs verify-public \
+            --source website-release-assets \
+            --tag "${TAG_NAME}" \
+            --channel stable \
+            --release-prefix workwise \
+            --target release
+
+      - name: Promote verified R2 and official website latest pointers
+        run: |
+          set -euo pipefail
+          node ./scripts/publish-r2.mjs promote --tag "${TAG_NAME}" --channel stable --platforms mac,win
+          node ./scripts/deploy-website-release.mjs promote \
+            --tag "${TAG_NAME}" \
+            --channel stable \
+            --release-prefix workwise \
+            --deploy-id "${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+
+      - name: Verify promoted official updater feed
+        run: |
+          set -euo pipefail
+          node ./scripts/deploy-website-release.mjs verify-public \
+            --source website-release-assets \
+            --tag "${TAG_NAME}" \
+            --channel stable \
+            --release-prefix workwise \
+            --target latest
 
       - name: Upload website update channel artifact
         uses: actions/upload-artifact@v4

@@ -310,6 +310,12 @@ jobs:
       R2_BUCKET: ${{ secrets.R2_BUCKET }}
       R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
       R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+      WORKWISE_WEBSITE_SSH_HOST: ${{ secrets.WORKWISE_WEBSITE_SSH_HOST }}
+      WORKWISE_WEBSITE_SSH_PORT: ${{ secrets.WORKWISE_WEBSITE_SSH_PORT }}
+      WORKWISE_WEBSITE_SSH_USER: ${{ secrets.WORKWISE_WEBSITE_SSH_USER }}
+      WORKWISE_WEBSITE_SSH_PRIVATE_KEY: ${{ secrets.WORKWISE_WEBSITE_SSH_PRIVATE_KEY }}
+      WORKWISE_WEBSITE_SSH_KNOWN_HOSTS: ${{ secrets.WORKWISE_WEBSITE_SSH_KNOWN_HOSTS }}
+      WORKWISE_WEBSITE_RELEASE_ROOT: ${{ secrets.WORKWISE_WEBSITE_RELEASE_ROOT }}
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
@@ -326,7 +332,51 @@ jobs:
           name: acceptance-target-win
           path: target-release
 
-      - name: Upload, verify, and atomically promote isolated feed
+      - name: Require isolated feed credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          for name in \
+            R2_ACCOUNT_ID R2_BUCKET R2_ACCESS_KEY_ID R2_SECRET_ACCESS_KEY \
+            WORKWISE_WEBSITE_SSH_HOST WORKWISE_WEBSITE_SSH_PORT WORKWISE_WEBSITE_SSH_USER \
+            WORKWISE_WEBSITE_SSH_PRIVATE_KEY WORKWISE_WEBSITE_SSH_KNOWN_HOSTS WORKWISE_WEBSITE_RELEASE_ROOT; do
+            [[ -n "${!name:-}" ]] || { echo "::error::Missing ${name}; updater acceptance feed is blocked"; exit 1; }
+          done
+
+      - name: Prepare isolated website update assets
+        shell: bash
+        env:
+          TARGET_VERSION: ${{ inputs.target_version }}
+        run: |
+          set -euo pipefail
+          node scripts/prepare-website-release-assets.cjs \
+            target-release \
+            acceptance-release-assets \
+            "${TARGET_VERSION}" \
+            --channel frontier \
+            --release-prefix "${WORKWISE_RELEASE_PREFIX}" \
+            --public-base-url "${WORKWISE_PUBLIC_BASE_URL}"
+          node scripts/verify-release-assets.cjs acceptance-release-assets --write-sha256 SHA256SUMS.txt
+
+      - name: Prepare pinned website SSH transport
+        shell: bash
+        run: |
+          set -euo pipefail
+          ssh_dir="${RUNNER_TEMP}/workwise-website-ssh"
+          install -d -m 700 "${ssh_dir}"
+          export SSH_KEY_PATH="${ssh_dir}/deploy-key"
+          export SSH_KNOWN_HOSTS_PATH="${ssh_dir}/known_hosts"
+          node - <<'NODE'
+          const fs = require('node:fs')
+          fs.writeFileSync(process.env.SSH_KEY_PATH, `${process.env.WORKWISE_WEBSITE_SSH_PRIVATE_KEY.trim()}\n`, { mode: 0o600 })
+          fs.writeFileSync(process.env.SSH_KNOWN_HOSTS_PATH, `${process.env.WORKWISE_WEBSITE_SSH_KNOWN_HOSTS.trim()}\n`, { mode: 0o600 })
+          NODE
+          {
+            echo "WORKWISE_WEBSITE_SSH_KEY_PATH=${SSH_KEY_PATH}"
+            echo "WORKWISE_WEBSITE_SSH_KNOWN_HOSTS_PATH=${SSH_KNOWN_HOSTS_PATH}"
+          } >> "${GITHUB_ENV}"
+
+      - name: Upload and verify isolated immutable feed
         shell: bash
         env:
           TARGET_TAG: v${{ inputs.target_version }}
@@ -335,7 +385,44 @@ jobs:
           node scripts/publish-r2.mjs upload --platform mac --tag "${TARGET_TAG}" --channel frontier --dist target-release
           node scripts/publish-r2.mjs upload --platform win --tag "${TARGET_TAG}" --channel frontier --dist target-release
           node scripts/publish-r2.mjs verify --tag "${TARGET_TAG}" --channel frontier --platforms mac,win
+
+      - name: Stage and verify isolated official website release
+        shell: bash
+        env:
+          TARGET_TAG: v${{ inputs.target_version }}
+        run: |
+          set -euo pipefail
+          node scripts/deploy-website-release.mjs stage \
+            --source acceptance-release-assets \
+            --tag "${TARGET_TAG}" \
+            --channel frontier \
+            --release-prefix "${WORKWISE_RELEASE_PREFIX}" \
+            --deploy-id "${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          node scripts/deploy-website-release.mjs verify-public \
+            --source acceptance-release-assets \
+            --tag "${TARGET_TAG}" \
+            --channel frontier \
+            --release-prefix "${WORKWISE_RELEASE_PREFIX}" \
+            --target release
+
+      - name: Atomically promote isolated feed
+        shell: bash
+        env:
+          TARGET_TAG: v${{ inputs.target_version }}
+        run: |
+          set -euo pipefail
           node scripts/publish-r2.mjs promote --tag "${TARGET_TAG}" --channel frontier --platforms mac,win
+          node scripts/deploy-website-release.mjs promote \
+            --tag "${TARGET_TAG}" \
+            --channel frontier \
+            --release-prefix "${WORKWISE_RELEASE_PREFIX}" \
+            --deploy-id "${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          node scripts/deploy-website-release.mjs verify-public \
+            --source acceptance-release-assets \
+            --tag "${TARGET_TAG}" \
+            --channel frontier \
+            --release-prefix "${WORKWISE_RELEASE_PREFIX}" \
+            --target latest
 
       - name: Capture promoted feed evidence
         shell: bash
@@ -437,6 +524,12 @@ jobs:
       R2_BUCKET: ${{ secrets.R2_BUCKET }}
       R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
       R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+      WORKWISE_WEBSITE_SSH_HOST: ${{ secrets.WORKWISE_WEBSITE_SSH_HOST }}
+      WORKWISE_WEBSITE_SSH_PORT: ${{ secrets.WORKWISE_WEBSITE_SSH_PORT }}
+      WORKWISE_WEBSITE_SSH_USER: ${{ secrets.WORKWISE_WEBSITE_SSH_USER }}
+      WORKWISE_WEBSITE_SSH_PRIVATE_KEY: ${{ secrets.WORKWISE_WEBSITE_SSH_PRIVATE_KEY }}
+      WORKWISE_WEBSITE_SSH_KNOWN_HOSTS: ${{ secrets.WORKWISE_WEBSITE_SSH_KNOWN_HOSTS }}
+      WORKWISE_WEBSITE_RELEASE_ROOT: ${{ secrets.WORKWISE_WEBSITE_RELEASE_ROOT }}
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
@@ -444,5 +537,24 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
       - run: npm ci --ignore-scripts
-      - name: Delete only this run's acceptance prefix
+      - name: Delete only this run's R2 acceptance prefix
         run: node scripts/publish-r2.mjs cleanup-acceptance --run-id "${{ github.run_id }}"
+      - name: Prepare pinned website SSH transport
+        shell: bash
+        run: |
+          set -euo pipefail
+          ssh_dir="${RUNNER_TEMP}/workwise-website-ssh"
+          install -d -m 700 "${ssh_dir}"
+          export SSH_KEY_PATH="${ssh_dir}/deploy-key"
+          export SSH_KNOWN_HOSTS_PATH="${ssh_dir}/known_hosts"
+          node - <<'NODE'
+          const fs = require('node:fs')
+          fs.writeFileSync(process.env.SSH_KEY_PATH, `${process.env.WORKWISE_WEBSITE_SSH_PRIVATE_KEY.trim()}\n`, { mode: 0o600 })
+          fs.writeFileSync(process.env.SSH_KNOWN_HOSTS_PATH, `${process.env.WORKWISE_WEBSITE_SSH_KNOWN_HOSTS.trim()}\n`, { mode: 0o600 })
+          NODE
+          {
+            echo "WORKWISE_WEBSITE_SSH_KEY_PATH=${SSH_KEY_PATH}"
+            echo "WORKWISE_WEBSITE_SSH_KNOWN_HOSTS_PATH=${SSH_KNOWN_HOSTS_PATH}"
+          } >> "${GITHUB_ENV}"
+      - name: Delete only this run's website acceptance prefix
+        run: node scripts/deploy-website-release.mjs cleanup-acceptance --run-id "${{ github.run_id }}"

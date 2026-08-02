@@ -135,9 +135,51 @@ async function listChecksumTargets(distDir) {
   return entries
     .filter((name) =>
       /^WorkWise-.+/.test(name) ||
-      /^latest(?:-mac)?\.yml$/.test(name)
+      /^latest(?:-mac)?\.yml$/.test(name) ||
+      name === 'latest.json'
     )
     .sort()
+}
+
+async function assertLatestJson(distDir) {
+  const manifest = JSON.parse(await readFile(join(distDir, 'latest.json'), 'utf8'))
+  if (manifest.schemaVersion !== 1 || manifest.productName !== 'WorkWise') {
+    throw new Error('latest.json has an invalid schema or product identity.')
+  }
+  if (!/^\d+\.\d+\.\d+$/.test(manifest.version || '') || manifest.tag !== `v${manifest.version}`) {
+    throw new Error('latest.json has a mismatched version or tag.')
+  }
+  if (!String(manifest.updateBaseUrl || '').startsWith('https://')) {
+    throw new Error('latest.json updateBaseUrl must use HTTPS.')
+  }
+  if (!['stable', 'frontier'].includes(manifest.channel)) {
+    throw new Error('latest.json has an invalid update channel.')
+  }
+  if (!Array.isArray(manifest.files) || !manifest.files.length) {
+    throw new Error('latest.json does not contain release files.')
+  }
+  const updateBaseUrl = new URL(manifest.updateBaseUrl)
+  if (manifest.updateMetadata?.mac !== new URL('latest-mac.yml', updateBaseUrl).href ||
+      manifest.updateMetadata?.win !== new URL('latest.yml', updateBaseUrl).href) {
+    throw new Error('latest.json update metadata URLs do not match updateBaseUrl.')
+  }
+  for (const file of manifest.files) {
+    const rawName = String(file.name || '')
+    const name = basename(rawName)
+    if (name !== rawName || !/^[A-Za-z0-9._-]+$/.test(name)) {
+      throw new Error(`latest.json contains an unsafe file name: ${rawName}`)
+    }
+    const path = join(distDir, name)
+    const info = await fileInfo(path)
+    const sha256 = await hashFile(path, 'sha256', 'hex')
+    if (info.size !== file.size || sha256 !== file.sha256) {
+      throw new Error(`latest.json does not match ${name}.`)
+    }
+    if (file.url !== new URL(encodeURIComponent(name), updateBaseUrl).href) {
+      throw new Error(`latest.json URL does not match updateBaseUrl for ${name}.`)
+    }
+  }
+  console.log('✓ latest.json metadata matches local artifacts.')
 }
 
 async function writeSha256File(distDir, outputName) {
@@ -177,6 +219,7 @@ async function main() {
 
   if (entries.has('latest.yml')) await assertUpdateFile(distDir, 'latest.yml')
   if (entries.has('latest-mac.yml')) await assertUpdateFile(distDir, 'latest-mac.yml')
+  if (entries.has('latest.json')) await assertLatestJson(distDir)
   if (!entries.has('latest.yml') && !entries.has('latest-mac.yml')) {
     throw new Error(`No latest.yml or latest-mac.yml found in ${distDir}.`)
   }

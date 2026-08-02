@@ -5,6 +5,8 @@ import YAML from 'yaml'
 // validation helpers for release-gate coverage.
 // @ts-expect-error JavaScript release helper intentionally has no declaration file.
 import { _internals } from '../../scripts/publish-r2.mjs'
+// @ts-expect-error JavaScript release helper intentionally has no declaration file.
+import { _internals as websiteDelivery } from '../../scripts/deploy-website-release.mjs'
 
 describe('R2 release delivery gates', () => {
   it('keeps releases in semantic newest-first order for three-version retention', () => {
@@ -23,6 +25,33 @@ describe('R2 release delivery gates', () => {
     expect(() => _internals.acceptancePrefixForRunId('workwise', '12345')).toThrow(/Refusing/)
     expect(() => _internals.acceptancePrefixForRunId('workwise/acceptance/12346', '12345')).toThrow(/Refusing/)
     expect(() => _internals.acceptancePrefixForRunId('workwise/acceptance/all', 'all')).toThrow(/positive/)
+  })
+
+  it('limits website publication to stable or exact run-scoped acceptance prefixes', () => {
+    expect(websiteDelivery.normalizeReleasePrefix('workwise')).toEqual({
+      prefix: 'workwise',
+      relative: '',
+      acceptanceRunId: ''
+    })
+    expect(websiteDelivery.normalizeReleasePrefix('workwise/acceptance/12345')).toEqual({
+      prefix: 'workwise/acceptance/12345',
+      relative: 'acceptance/12345',
+      acceptanceRunId: '12345'
+    })
+    expect(() => websiteDelivery.normalizeReleasePrefix('workwise/../other')).toThrow(/Release prefix/)
+    expect(() => websiteDelivery.normalizeReleasePrefix('workwise/acceptance/all')).toThrow(/Release prefix/)
+  })
+
+  it('pins website deployment to the WorkWise download root and atomic verified promotion', () => {
+    expect(websiteDelivery.normalizeWebsiteRoot('/srv/site/downloads/workwise'))
+      .toBe('/srv/site/downloads/workwise')
+    expect(() => websiteDelivery.normalizeWebsiteRoot('/srv/site/downloads')).toThrow(/Unsafe/)
+    expect(() => websiteDelivery.normalizeWebsiteRoot('/srv/../downloads/workwise')).toThrow(/Unsafe/)
+    expect(() => websiteDelivery.normalizeWebsiteRoot('/')).toThrow(/Unsafe/)
+    expect(websiteDelivery.FINALIZE_STAGE_SCRIPT).toContain('sha256sum -c SHA256SUMS.txt')
+    expect(websiteDelivery.PROMOTE_SCRIPT).toContain('renameat2')
+    expect(websiteDelivery.PROMOTE_SCRIPT).toContain('sorted(versions, reverse=True)[3:]')
+    expect(websiteDelivery.CLEANUP_ACCEPTANCE_SCRIPT).toContain('/acceptance/[1-9][0-9]*')
   })
 
   it('parses updater metadata with SHA-512 and blockmap fields', () => {
@@ -54,6 +83,12 @@ describe('R2 release delivery gates', () => {
     ])
     expect(workflow.env.WORKWISE_RELEASE_PREFIX).toContain('workwise/acceptance/')
     expect(workflow.jobs['build-macos'].env.MAC_CODESIGN_P12_BASE64).toContain('secrets.MAC_CODESIGN_P12_BASE64')
+    expect(workflow.jobs['publish-test-feed'].env.WORKWISE_WEBSITE_SSH_PRIVATE_KEY)
+      .toContain('secrets.WORKWISE_WEBSITE_SSH_PRIVATE_KEY')
+    const publication = workflow.jobs['publish-test-feed'].steps.map((step: any) => step.run || '').join('\n')
+    expect(publication).toContain('deploy-website-release.mjs stage')
+    expect(publication).toContain('deploy-website-release.mjs promote')
+    expect(publication).toContain('deploy-website-release.mjs verify-public')
     expect(workflow.jobs['cleanup-test-feed'].steps.at(-1).run).toContain('cleanup-acceptance')
     expect(workflow.jobs['cleanup-test-feed'].steps.at(-1).run).toContain('github.run_id')
   })
@@ -66,5 +101,11 @@ describe('R2 release delivery gates', () => {
     expect(release.on.workflow_dispatch.inputs).toHaveProperty('run_updater_acceptance')
     expect(release.jobs['native-updater-acceptance'].uses).toBe('./.github/workflows/updater-acceptance-e2e.yml')
     expect(release.jobs.prepare.if).toContain('run_updater_acceptance')
+    expect(release.jobs.publish.env.WORKWISE_WEBSITE_SSH_PRIVATE_KEY)
+      .toContain('secrets.WORKWISE_WEBSITE_SSH_PRIVATE_KEY')
+    const publication = release.jobs.publish.steps.map((step: any) => step.run || '').join('\n')
+    expect(publication).toContain('deploy-website-release.mjs stage')
+    expect(publication).toContain('deploy-website-release.mjs promote')
+    expect(publication).toContain('deploy-website-release.mjs verify-public')
   })
 })
