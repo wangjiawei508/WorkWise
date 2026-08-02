@@ -31,6 +31,11 @@ on:
         required: false
         type: string
         default: '0.3.4'
+      cleanup_acceptance_run_id:
+        description: 'Cleanup only: exact updater acceptance run id to remove from R2 and the official website.'
+        required: false
+        type: string
+        default: ''
 
 permissions:
   contents: write
@@ -50,16 +55,24 @@ env:
 jobs:
   native-updater-acceptance:
     name: Native updater acceptance
-    if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_updater_acceptance == true }}
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_updater_acceptance == true && inputs.cleanup_acceptance_run_id == '' }}
     uses: ./.github/workflows/updater-acceptance-e2e.yml
     with:
       base_version: ${{ inputs.acceptance_base_version }}
       target_version: ${{ inputs.acceptance_target_version }}
     secrets: inherit
 
+  cleanup-updater-acceptance:
+    name: Cleanup updater acceptance
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.cleanup_acceptance_run_id != '' }}
+    uses: ./.github/workflows/updater-acceptance-cleanup.yml
+    with:
+      run_id: ${{ inputs.cleanup_acceptance_run_id }}
+    secrets: inherit
+
   prepare:
     name: Prepare release version
-    if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.run_updater_acceptance == true) }}
+    if: ${{ !(github.event_name == 'workflow_dispatch' && (inputs.run_updater_acceptance == true || inputs.cleanup_acceptance_run_id != '')) }}
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.version.outputs.version }}

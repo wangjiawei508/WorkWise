@@ -1,6 +1,12 @@
 name: Cleanup updater acceptance
 
 on:
+  workflow_call:
+    inputs:
+      run_id:
+        description: 'Exact GitHub Actions run id whose isolated R2 and website feeds must be removed.'
+        required: true
+        type: string
   workflow_dispatch:
     inputs:
       run_id:

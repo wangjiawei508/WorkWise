@@ -139,7 +139,9 @@ describe('R2 release delivery gates', () => {
       jobs: Record<string, any>
     }
     expect(release.on.workflow_dispatch.inputs).toHaveProperty('run_updater_acceptance')
+    expect(release.on.workflow_dispatch.inputs).toHaveProperty('cleanup_acceptance_run_id')
     expect(release.jobs['native-updater-acceptance'].uses).toBe('./.github/workflows/updater-acceptance-e2e.yml')
+    expect(release.jobs['cleanup-updater-acceptance'].uses).toBe('./.github/workflows/updater-acceptance-cleanup.yml')
     expect(release.jobs.prepare.if).toContain('run_updater_acceptance')
     expect(release.jobs.publish.env.WORKWISE_WEBSITE_SSH_PRIVATE_KEY)
       .toContain('secrets.WORKWISE_WEBSITE_SSH_PRIVATE_KEY')
