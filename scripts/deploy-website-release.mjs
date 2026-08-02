@@ -244,7 +244,11 @@ async function uploadR2TransportObjects(sourceDir, releasePrefix, deployId) {
     if (!/^[A-Za-z0-9._-]+$/.test(name)) throw new Error(`Unsafe website asset name: ${name}`)
   }
 
-  const objects = files.map((name) => ({ name, key: `${prefix}${name}` }))
+  const objects = files.map((name) => ({
+    name,
+    key: `${prefix}${name}`,
+    size: statSync(resolve(sourceDir, name)).size
+  }))
   const deleteObjects = () => client.send(new DeleteObjectsCommand({
     Bucket: bucket,
     Delete: { Quiet: true, Objects: objects.map(({ key }) => ({ Key: key })) }
@@ -256,10 +260,11 @@ async function uploadR2TransportObjects(sourceDir, releasePrefix, deployId) {
       Key: key,
       Body: createReadStream(resolve(sourceDir, name))
     }))))
-    downloads = await Promise.all(objects.map(async ({ name, key }) => ({
+    downloads = await Promise.all(objects.map(async ({ name, key, size }) => ({
       name,
+      size,
       url: await getSignedUrl(client, new GetObjectCommand({ Bucket: bucket, Key: key }), {
-        expiresIn: 2 * 60 * 60
+        expiresIn: 6 * 60 * 60
       })
     })))
   } catch (error) {
@@ -337,6 +342,7 @@ import pathlib
 import re
 import shutil
 import sys
+import time
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
@@ -346,30 +352,78 @@ downloads = json.loads(manifest.read_text(encoding='utf-8'))
 if not isinstance(downloads, list) or not downloads:
     raise RuntimeError('R2 download manifest is empty')
 validated = []
+seen = set()
 for item in downloads:
     name = item.get('name', '') if isinstance(item, dict) else ''
     url = item.get('url', '') if isinstance(item, dict) else ''
-    if not re.fullmatch(r'[A-Za-z0-9._-]+', name) or not url.startswith('https://'):
+    size = item.get('size', 0) if isinstance(item, dict) else 0
+    if (
+        not re.fullmatch(r'[A-Za-z0-9._-]+', name)
+        or name in seen
+        or not url.startswith('https://')
+        or not isinstance(size, int)
+        or size <= 0
+    ):
         raise RuntimeError('R2 download manifest contains an unsafe entry')
-    validated.append((name, url))
+    seen.add(name)
+    validated.append((name, url, size))
 
-def download(entry):
-    name, url = entry
+chunk_size = 16 * 1024 * 1024
+jobs = []
+parts_by_name = {}
+for name, url, size in validated:
+    parts = []
+    for index, start in enumerate(range(0, size, chunk_size)):
+        end = min(size - 1, start + chunk_size - 1)
+        part = payload / f'.download-{name}.part-{index:05d}'
+        parts.append((part, end - start + 1))
+        jobs.append((name, url, size, part, start, end))
+    parts_by_name[name] = (size, parts)
+
+def download_part(job):
+    name, url, size, part, start, end = job
+    expected_length = end - start + 1
+    for attempt in range(4):
+        try:
+            request = urllib.request.Request(url, headers={
+                'User-Agent': 'WorkWise-release-delivery/1',
+                'Range': f'bytes={start}-{end}',
+            })
+            with urllib.request.urlopen(request, timeout=120) as response, part.open('wb') as output:
+                content_range = response.headers.get('Content-Range', '')
+                if response.status != 206 or content_range != f'bytes {start}-{end}/{size}':
+                    raise RuntimeError('R2 range response did not match the requested chunk')
+                shutil.copyfileobj(response, output, length=1024 * 1024)
+            if part.stat().st_size != expected_length:
+                raise RuntimeError('R2 range response had the wrong size')
+            return
+        except Exception:
+            part.unlink(missing_ok=True)
+            if attempt == 3:
+                raise RuntimeError(f'R2 download failed for {name}') from None
+            time.sleep(2 ** attempt)
+
+with ThreadPoolExecutor(max_workers=min(24, len(jobs))) as executor:
+    futures = [executor.submit(download_part, job) for job in jobs]
+    for future in as_completed(futures):
+        future.result()
+
+for name, _, _ in validated:
+    size, parts = parts_by_name[name]
     destination = payload / name
     temporary = payload / f'.download-{name}'
     try:
-        request = urllib.request.Request(url, headers={'User-Agent': 'WorkWise-release-delivery/1'})
-        with urllib.request.urlopen(request, timeout=120) as response, temporary.open('wb') as output:
-            shutil.copyfileobj(response, output, length=1024 * 1024)
+        with temporary.open('wb') as output:
+            for part, _ in parts:
+                with part.open('rb') as source:
+                    shutil.copyfileobj(source, output, length=1024 * 1024)
+        if temporary.stat().st_size != size:
+            raise RuntimeError(f'R2 assembled download had the wrong size for {name}')
         os.replace(temporary, destination)
-    except Exception:
+    finally:
         temporary.unlink(missing_ok=True)
-        raise RuntimeError(f'R2 download failed for {name}') from None
-
-with ThreadPoolExecutor(max_workers=min(6, len(validated))) as executor:
-    futures = [executor.submit(download, entry) for entry in validated]
-    for future in as_completed(futures):
-        future.result()
+        for part, _ in parts:
+            part.unlink(missing_ok=True)
 manifest.unlink()
 `
 
@@ -444,10 +498,22 @@ function delay(milliseconds) {
 
 async function waitForRemoteR2Download(config, payload, options = {}) {
   const pollIntervalMs = options.pollIntervalMs ?? 10_000
-  const timeoutMs = options.timeoutMs ?? 90 * 60 * 1000
+  const timeoutMs = options.timeoutMs ?? 4 * 60 * 60 * 1000
   const deadline = Date.now() + timeoutMs
+  let consecutivePollFailures = 0
   while (Date.now() < deadline) {
-    const output = runRemote(config, POLL_R2_STAGE_DOWNLOAD_SCRIPT, [payload]).trim()
+    let output
+    try {
+      output = runRemote(config, POLL_R2_STAGE_DOWNLOAD_SCRIPT, [payload]).trim()
+      consecutivePollFailures = 0
+    } catch (error) {
+      consecutivePollFailures += 1
+      if (consecutivePollFailures >= 5) {
+        throw new Error('Remote R2 download status could not be read after 5 attempts.', { cause: error })
+      }
+      await delay(Math.min(30_000, pollIntervalMs * consecutivePollFailures))
+      continue
+    }
     if (output === 'success') return
     if (!output.startsWith('running')) {
       throw new Error(`Remote R2 download failed: ${output || 'empty status'}`)
@@ -781,6 +847,7 @@ export const _internals = {
   R2_DOWNLOAD_WORKER,
   START_R2_STAGE_DOWNLOAD_SCRIPT,
   POLL_R2_STAGE_DOWNLOAD_SCRIPT,
+  waitForRemoteR2Download,
   CLEAN_STAGE_SCRIPT,
   FINALIZE_STAGE_SCRIPT,
   PROMOTE_SCRIPT,
