@@ -23,6 +23,7 @@ describe('document helper packaging policy', () => {
     expect(workflow).toContain('markitdown-darwin-arm64')
     expect(workflow).toContain('markitdown-darwin-x64')
     expect(workflow).toContain('markitdown-win32-x64')
+    expect(workflow).toContain('@napi-rs/canvas-darwin-x64@0.1.100')
     expect(workflow).toContain('Restore macOS sidecars with framework links and permissions')
     expect(workflow).toContain(
       'chmod 755 build/sidecars/markitdown-darwin-arm64/workwise-markitdown/workwise-markitdown'

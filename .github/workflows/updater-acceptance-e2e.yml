@@ -163,6 +163,8 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
       - run: npm ci
+      - name: Install Intel canvas binding for cross-arch macOS packaging
+        run: npm install --no-save --package-lock=false --force @napi-rs/canvas-darwin-x64@0.1.100
       - run: npm run prepare:electron
 
       - uses: actions/download-artifact@v4

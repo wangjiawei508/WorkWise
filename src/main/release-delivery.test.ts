@@ -131,6 +131,7 @@ describe('R2 release delivery gates', () => {
     const macBuild = workflow.jobs['build-macos'].steps.map((step: any) => step.run || '').join('\n')
     expect(macBuild).toContain('tar -xzf')
     expect(macBuild).toContain('test -L')
+    expect(macBuild).toContain('@napi-rs/canvas-darwin-x64@0.1.100')
     expect(workflow.jobs['publish-test-feed'].env.WORKWISE_WEBSITE_SSH_PRIVATE_KEY)
       .toContain('secrets.WORKWISE_WEBSITE_SSH_PRIVATE_KEY')
     const publication = workflow.jobs['publish-test-feed'].steps.map((step: any) => step.run || '').join('\n')

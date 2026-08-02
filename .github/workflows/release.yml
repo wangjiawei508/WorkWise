@@ -237,6 +237,9 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Install Intel canvas binding for cross-arch macOS packaging
+        run: npm install --no-save --package-lock=false --force @napi-rs/canvas-darwin-x64@0.1.100
+
       - name: Prepare checksummed Electron runtime
         run: npm run prepare:electron
 
