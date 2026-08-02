@@ -330,11 +330,7 @@ mkdir -p -- "$stage/payload" "$base/channels/$channel/releases"
 printf '%s\n' "$stage/payload"
 `
 
-const DOWNLOAD_R2_STAGE_SCRIPT = String.raw`set -euo pipefail
-manifest="$1"
-payload="$2"
-case "$manifest" in "$payload"/.r2-downloads.json) ;; *) exit 64 ;; esac
-python3 - "$manifest" "$payload" <<'PY'
+const R2_DOWNLOAD_WORKER = String.raw`#!/usr/bin/env python3
 import json
 import os
 import pathlib
@@ -375,8 +371,91 @@ with ThreadPoolExecutor(max_workers=min(6, len(validated))) as executor:
     for future in as_completed(futures):
         future.result()
 manifest.unlink()
-PY
 `
+
+const START_R2_STAGE_DOWNLOAD_SCRIPT = String.raw`set -euo pipefail
+manifest="$1"
+payload="$2"
+worker="$payload/.r2-download-worker.py"
+status="$payload/.r2-download.status"
+log="$payload/.r2-download.log"
+pid_file="$payload/.r2-download.pid"
+case "$manifest" in "$payload"/.r2-downloads.json) ;; *) exit 64 ;; esac
+test -f "$manifest"
+test -f "$worker"
+command -v setsid >/dev/null
+rm -f -- "$status" "$status.tmp."* "$log" "$pid_file"
+chmod 700 -- "$worker"
+nohup setsid bash -c '
+  worker="$1"
+  manifest="$2"
+  payload="$3"
+  log="$4"
+  status="$5"
+  python3 "$worker" "$manifest" "$payload" >"$log" 2>&1
+  code=$?
+  state=failure
+  if [[ "$code" -eq 0 ]]; then state=success; fi
+  temporary="$status.tmp.$$"
+  printf "%s %s\n" "$state" "$code" >"$temporary"
+  mv -- "$temporary" "$status"
+' workwise-r2-download "$worker" "$manifest" "$payload" "$log" "$status" </dev/null >/dev/null 2>&1 &
+pid=$!
+if ! [[ "$pid" =~ ^[1-9][0-9]*$ ]]; then exit 70; fi
+printf '%s\n' "$pid" >"$pid_file"
+printf 'started %s\n' "$pid"
+`
+
+const POLL_R2_STAGE_DOWNLOAD_SCRIPT = String.raw`set -euo pipefail
+payload="$1"
+worker="$payload/.r2-download-worker.py"
+manifest="$payload/.r2-downloads.json"
+status="$payload/.r2-download.status"
+log="$payload/.r2-download.log"
+pid_file="$payload/.r2-download.pid"
+case "$worker" in */.deploy-*/payload/.r2-download-worker.py) ;; *) exit 64 ;; esac
+if [[ -f "$status" ]]; then
+  read -r state code <"$status"
+  if [[ "$state" == success && "$code" == 0 ]]; then
+    rm -f -- "$worker" "$manifest" "$status" "$log" "$pid_file"
+    printf 'success\n'
+    exit 0
+  fi
+  printf 'failure %s\n' "\${code:-unknown}"
+  if [[ -f "$log" ]]; then tail -n 50 -- "$log"; fi
+  exit 0
+fi
+if [[ ! -f "$pid_file" ]]; then
+  printf 'failure missing-pid\n'
+  exit 0
+fi
+read -r pid <"$pid_file"
+if [[ "$pid" =~ ^[1-9][0-9]*$ ]] && kill -0 -- "-$pid" 2>/dev/null; then
+  printf 'running\n'
+  exit 0
+fi
+printf 'failure missing-status\n'
+if [[ -f "$log" ]]; then tail -n 50 -- "$log"; fi
+`
+
+function delay(milliseconds) {
+  return new Promise((resolvePromise) => setTimeout(resolvePromise, milliseconds))
+}
+
+async function waitForRemoteR2Download(config, payload, options = {}) {
+  const pollIntervalMs = options.pollIntervalMs ?? 10_000
+  const timeoutMs = options.timeoutMs ?? 90 * 60 * 1000
+  const deadline = Date.now() + timeoutMs
+  while (Date.now() < deadline) {
+    const output = runRemote(config, POLL_R2_STAGE_DOWNLOAD_SCRIPT, [payload]).trim()
+    if (output === 'success') return
+    if (!output.startsWith('running')) {
+      throw new Error(`Remote R2 download failed: ${output || 'empty status'}`)
+    }
+    await delay(pollIntervalMs)
+  }
+  throw new Error(`Remote R2 download timed out after ${Math.round(timeoutMs / 60_000)} minutes.`)
+}
 
 const CLEAN_STAGE_SCRIPT = String.raw`set -euo pipefail
 root="$1"
@@ -386,6 +465,22 @@ base="$root"
 if [[ -n "$relative" ]]; then base="$root/$relative"; fi
 stage="$base/.deploy-$deploy_id"
 case "$stage" in "$root"/*/.deploy-*|"$root"/.deploy-*) ;; *) exit 64 ;; esac
+pid_file="$stage/payload/.r2-download.pid"
+worker="$stage/payload/.r2-download-worker.py"
+if [[ -f "$pid_file" ]]; then
+  read -r pid <"$pid_file"
+  if [[ "$pid" =~ ^[1-9][0-9]*$ && -r "/proc/$pid/cmdline" ]]; then
+    command_line="$(tr '\0' ' ' <"/proc/$pid/cmdline")"
+    if [[ "$command_line" == *"$worker"* ]]; then
+      kill -- "-$pid" 2>/dev/null || true
+      for _ in {1..20}; do
+        kill -0 -- "-$pid" 2>/dev/null || break
+        sleep 0.25
+      done
+      kill -KILL -- "-$pid" 2>/dev/null || true
+    fi
+  fi
+fi
 if [[ -e "$stage" ]]; then rm -rf -- "$stage"; fi
 `
 
@@ -491,7 +586,21 @@ root="$1"
 run_id="$2"
 target="$root/acceptance/$run_id"
 case "$target" in "$root"/acceptance/[1-9][0-9]*) ;; *) exit 64 ;; esac
-if [[ -e "$target" ]]; then rm -rf -- "$target"; fi
+if [[ -d "$target" ]]; then
+  shopt -s nullglob
+  for pid_file in "$target"/.deploy-*/payload/.r2-download.pid; do
+    payload="$(dirname -- "$pid_file")"
+    worker="$payload/.r2-download-worker.py"
+    read -r pid <"$pid_file"
+    if [[ "$pid" =~ ^[1-9][0-9]*$ && -r "/proc/$pid/cmdline" ]]; then
+      command_line="$(tr '\0' ' ' <"/proc/$pid/cmdline")"
+      if [[ "$command_line" == *"$worker"* ]]; then
+        kill -- "-$pid" 2>/dev/null || true
+      fi
+    fi
+  done
+  rm -rf -- "$target"
+fi
 printf '%s\n' "$target"
 `
 
@@ -521,11 +630,16 @@ async function stageRelease(flags) {
       r2Transfer = await uploadR2TransportObjects(sourceDir, releasePrefix.prefix, deployId)
       const temporaryDirectory = await mkdtemp(join(tmpdir(), 'workwise-r2-transfer-'))
       const manifestPath = join(temporaryDirectory, 'downloads.json')
+      const workerPath = join(temporaryDirectory, 'r2-download-worker.py')
       const remoteManifest = `${remoteDir}/.r2-downloads.json`
+      const remoteWorker = `${remoteDir}/.r2-download-worker.py`
       try {
         await writeFile(manifestPath, JSON.stringify(r2Transfer.downloads), { mode: 0o600 })
+        await writeFile(workerPath, R2_DOWNLOAD_WORKER, { mode: 0o700 })
         copyFile(config, manifestPath, remoteManifest)
-        runRemote(config, DOWNLOAD_R2_STAGE_SCRIPT, [remoteManifest, remoteDir])
+        copyFile(config, workerPath, remoteWorker)
+        runRemote(config, START_R2_STAGE_DOWNLOAD_SCRIPT, [remoteManifest, remoteDir])
+        await waitForRemoteR2Download(config, remoteDir)
       } finally {
         await rm(temporaryDirectory, { recursive: true, force: true })
       }
@@ -664,7 +778,9 @@ export const _internals = {
   parseVersion,
   validateSourceDirectory,
   INIT_STAGE_SCRIPT,
-  DOWNLOAD_R2_STAGE_SCRIPT,
+  R2_DOWNLOAD_WORKER,
+  START_R2_STAGE_DOWNLOAD_SCRIPT,
+  POLL_R2_STAGE_DOWNLOAD_SCRIPT,
   CLEAN_STAGE_SCRIPT,
   FINALIZE_STAGE_SCRIPT,
   PROMOTE_SCRIPT,
