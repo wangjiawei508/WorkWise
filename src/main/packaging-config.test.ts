@@ -273,6 +273,14 @@ describe('electron-builder WorkWise packaging', () => {
     expect(signedConfig.mac.hardenedRuntime).toBe(true)
     expect(signedConfig.mac.forceCodeSigning).toBe(true)
     expect(signedConfig.mac.timestamp).toBe('http://timestamp.apple.com/ts01')
+    expect(signedConfig.mac.signIgnore).toEqual([
+      'Python\\.framework/(?:Python|Versions/Current/Python)$'
+    ])
+    const pythonFrameworkEntry = new RegExp(signedConfig.mac.signIgnore[0])
+    expect(pythonFrameworkEntry.test('/_internal/Python.framework/Python')).toBe(true)
+    expect(pythonFrameworkEntry.test('/_internal/Python.framework/Versions/Current/Python')).toBe(true)
+    expect(pythonFrameworkEntry.test('/_internal/Python.framework/Versions/3.12/Python')).toBe(false)
+    expect(pythonFrameworkEntry.test('/_internal/Python.framework')).toBe(false)
   })
 
   it('checks timestamp candidates across nested macOS signed code', () => {
