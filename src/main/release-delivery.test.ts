@@ -83,6 +83,8 @@ describe('R2 release delivery gates', () => {
     expect(() => websiteDelivery.normalizeWebsiteRoot('/')).toThrow(/Unsafe/)
     expect(websiteDelivery.FINALIZE_STAGE_SCRIPT).toContain('sha256sum -c SHA256SUMS.txt')
     expect(websiteDelivery.DOWNLOAD_R2_STAGE_SCRIPT).toContain('urllib.request.urlopen')
+    expect(websiteDelivery.DOWNLOAD_R2_STAGE_SCRIPT).toContain('ThreadPoolExecutor')
+    expect(websiteDelivery.DOWNLOAD_R2_STAGE_SCRIPT).toContain('max_workers=min(6, len(validated))')
     expect(websiteDelivery.PROMOTE_SCRIPT).toContain('renameat2')
     expect(websiteDelivery.PROMOTE_SCRIPT).toContain('sorted(versions, reverse=True)[3:]')
     expect(websiteDelivery.CLEANUP_ACCEPTANCE_SCRIPT).toContain('/acceptance/[1-9][0-9]*')

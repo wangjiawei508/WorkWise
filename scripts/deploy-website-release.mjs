@@ -342,17 +342,23 @@ import re
 import shutil
 import sys
 import urllib.request
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 manifest = pathlib.Path(sys.argv[1])
 payload = pathlib.Path(sys.argv[2])
 downloads = json.loads(manifest.read_text(encoding='utf-8'))
 if not isinstance(downloads, list) or not downloads:
     raise RuntimeError('R2 download manifest is empty')
+validated = []
 for item in downloads:
     name = item.get('name', '') if isinstance(item, dict) else ''
     url = item.get('url', '') if isinstance(item, dict) else ''
     if not re.fullmatch(r'[A-Za-z0-9._-]+', name) or not url.startswith('https://'):
         raise RuntimeError('R2 download manifest contains an unsafe entry')
+    validated.append((name, url))
+
+def download(entry):
+    name, url = entry
     destination = payload / name
     temporary = payload / f'.download-{name}'
     try:
@@ -363,6 +369,11 @@ for item in downloads:
     except Exception:
         temporary.unlink(missing_ok=True)
         raise RuntimeError(f'R2 download failed for {name}') from None
+
+with ThreadPoolExecutor(max_workers=min(6, len(validated))) as executor:
+    futures = [executor.submit(download, entry) for entry in validated]
+    for future in as_completed(futures):
+        future.result()
 manifest.unlink()
 PY
 `
