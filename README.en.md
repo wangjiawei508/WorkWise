@@ -13,7 +13,7 @@ WorkWise is a local-first desktop AI workbench. It brings **Code**, **Write**, s
 
 ## Current release
 
-The current stable release is **v0.3.0**. The 0.3.1 Design and Write changes on this branch are a release candidate, not a published release. Public releases have three user-facing installers:
+The current stable release is **[v0.3.3](https://github.com/wangjiawei508/WorkWise/releases/tag/v0.3.3)**. It adds **WorkWise Flow Preview**, general-purpose document attachments, local document indexing and retrieval, and production in-app updates. Public releases have three user-facing installers:
 
 | Platform | Installer | Download |
 | --- | --- | --- |
@@ -21,7 +21,7 @@ The current stable release is **v0.3.0**. The 0.3.1 Design and Write changes on 
 | macOS Intel | `WorkWise-<version>-mac-Intel.dmg` | [Release assets](https://github.com/wangjiawei508/WorkWise/releases) |
 | Windows x64 | `WorkWise-<version>-win-x64.exe` | [Release assets](https://github.com/wangjiawei508/WorkWise/releases) |
 
-GitHub Releases is the production source for installers and automatic-update metadata, with no separate object-storage credentials required. The product website may continue to act as the download navigator. There is currently no Linux client, portable edition, or activation-code flow.
+GitHub Releases remains the public release log and manual installer source. Signed updater metadata and platform update artifacts are published through the official `railwise.cn` Stable channel. There is currently no Linux client, portable edition, or activation-code flow.
 
 ## Why WorkWise
 
@@ -49,12 +49,24 @@ Use a complete document workflow for Markdown and text work:
 
 Read more: [Write and document export](https://kb.railwise.cn/products/workwise/write-export/).
 
-### Design workbench (0.3.1 release candidate)
+### Document attachments and retrieval
+
+Attach PDF, DOCX, XLSX, PPTX, TXT, Markdown, CSV, PNG, JPEG, or WebP files directly to a conversation. Files are streamed into application-managed storage, validated, parsed locally, split into indexed sections, and retrieved only when needed. Long documents are not inserted wholesale into the initial model context; retrieval results preserve page, worksheet, or slide provenance.
+
+Document content is always treated as untrusted reference material. It cannot override system instructions or grant tool permission. Encrypted, damaged, disguised, or oversized files are rejected with an explicit reason. MarkItDown is bundled for local parsing, while MinerU remains an optional local high-accuracy component for difficult scanned PDFs.
+
+### Design workbench
 
 Create multi-page structured canvases with text, shapes, images, layers, groups, undo/redo,
 and revision-safe Agent canvas commands. Export the active design directly to PNG or SVG,
 insert it into a Write document, or deliver a validated editable PPTX through the audited
 PPT Master workflow. HTML and image previews never satisfy a PowerPoint request.
+
+### Flow Preview
+
+Build executable workflows by connecting typed trigger, Agent, retrieval, tool, control, approval, and output nodes. The three-column workbench brings node configuration, mock and single-node tests, publish validation, run history, recovery, and approval resumption into one page. Published flows can be invoked by Agents, schedules, or signed webhooks.
+
+Flow is visible by default and labeled Preview. Nodes that require an unconfigured model, external account, or companion CLI show the missing capability, and flows with unresolved dependencies cannot be published. Restricted code execution and webhook signing, replay protection, and rate limits keep execution within explicit boundaries.
 
 ### Skills and MCP
 
@@ -72,10 +84,10 @@ Read more: [Local data and security](https://kb.railwise.cn/products/workwise/se
 
 | Status | Scope |
 | --- | --- |
-| Available now | Code, Write, reliable task runs, model configuration, workspace sessions, bundled Skills, document parsing, download entry, GUI update checks |
-| Release candidate | Design canvas, Agent canvas commands, PNG/SVG/PPTX export, Design-to-Write insertion, template-driven DOCX export |
-| Preview | Advanced MCP marketplace, optional online Skill updates, complex Markdown / DOCX export, mobile connection, scheduled tasks |
-| Direction | Enterprise knowledge base, bidding support, operations analysis, and more industry agent packs |
+| Available now | Code, Write, Design, reliable task runs, Agents, MCP V2, general document attachments, indexed retrieval, validated document delivery, and in-app updates |
+| Preview | Flow canvas, typed nodes, mock and single-node tests, publish validation, run history, approval, and failure recovery |
+| Optional | Local MinerU parsing, online Skill updates, mobile connection, and companion command-line tools |
+| Direction | More multimodal generation nodes, industry nodes, and enterprise integrations |
 
 Preview and directional items are not described as stable released features.
 
@@ -84,8 +96,8 @@ Preview and directional items are not described as stable released features.
 1. Download the installer that matches your device and install it.
 2. Configure DeepSeek, Agnes AI, or another OpenAI-compatible service in Settings.
 3. Choose a local project or source-material directory as a workspace.
-4. Work on project tasks in Code or start a document in Write.
-5. Enable Skills when appropriate, then review content, images, tables, and layout before formal export.
+4. Work on project tasks in Code, start a document in Write, or attach business files to a conversation.
+5. Open Flow Preview when automation is useful, then review content, images, tables, and layout before formal delivery.
 
 - [Quick start](https://kb.railwise.cn/products/workwise/quickstart/)
 - [Installation guide](https://kb.railwise.cn/products/workwise/install-guide/)
@@ -96,6 +108,12 @@ Preview and directional items are not described as stable released features.
 - **macOS**: When macOS shows a first-open security prompt, verify the installer source first. You can allow the app in System Settings > Privacy & Security; the installation guide includes a fallback `xattr` path when needed.
 - **Windows**: When Defender or SmartScreen appears, verify the source, file name, and version before continuing under your organization’s security policy.
 - **Model services**: API-key availability, quotas, model access, and billing are controlled by the provider and your account.
+
+### In-app updates
+
+WorkWise 0.3.3 checks the official `railwise.cn` Stable channel at startup and every 24 hours. The blue update icon first downloads in the background; after completion it changes to **Restart and update**. Before restarting, WorkWise saves edits and reports active Agent, Flow, and scheduled runs. The platform updater then replaces and relaunches the application without opening a browser or requiring another drag-and-drop installation.
+
+Version 0.3.2 and earlier did not include the trusted production update channel, so those users need one final manual installation of 0.3.3. Subsequent stable releases can update in the application.
 
 ## Development
 
@@ -121,11 +139,11 @@ The local agent is provided by WorkWise Agent Runtime through a stable HTTP/SSE 
 
 ## Release policy
 
-- Public GitHub Releases expose only the macOS Apple Silicon DMG, macOS Intel DMG,
-  and Windows x64 EXE. ZIP, blockmap, update metadata, and checksums stay in the
-  internal website/update-channel artifact.
+- Public GitHub Releases expose the macOS Apple Silicon DMG, macOS Intel DMG,
+  and Windows x64 EXE. ZIP, blockmap, signed update metadata, and checksums are
+  published through the official `railwise.cn` update channel.
 - Intermediate build artifacts are not published, and unverified roadmap items are not presented as released capabilities.
-- [GitHub Releases](https://github.com/wangjiawei508/WorkWise/releases) is the public release log; the website and knowledge base synchronize version and platform information from it.
+- [GitHub Releases](https://github.com/wangjiawei508/WorkWise/releases) is the public release log; verified Stable pointers are promoted only after signing, notarization, hash, download, and manifest checks pass.
 - The historical 0.2.5 public behavior baseline is tracked in the [public behavior gap table](docs/PUBLIC_BEHAVIOR_GAP_0.2.5.zh-CN.md).
 
 ## Feedback
