@@ -193,4 +193,34 @@ describe('TaskController reliability boundaries', () => {
     })
     repository.close()
   })
+
+  it('waits for provider configuration instead of retrying a blocked file task', async () => {
+    const { repository, sessionStore, controller, task } = await fixture(
+      '请使用 Document Illustrator 生成并插入一张章节头图文件。'
+    )
+    await sessionStore.appendItem(task.threadId, makeAssistantTextItem({
+      id: 'item_provider_blocked',
+      threadId: task.threadId,
+      turnId: 'turn_reliability',
+      text: '图片生成能力未配置，无法继续。请到设置 → 图片生成配置提供商、模型和凭据后重试。',
+      status: 'completed'
+    }))
+
+    controller.beginAttempt(task.threadId, 'turn_reliability')
+    await expect(controller.assessCandidate(task.threadId, 'turn_reliability'))
+      .resolves.toMatchObject({
+        kind: 'waiting_user',
+        task: {
+          status: 'waiting_user',
+          attempts: 1,
+          waitingReason: expect.stringContaining('配置可用的图片生成提供商')
+        }
+      })
+
+    expect(repository.events(task.id).filter((event) => event.kind === 'attempt_retrying')).toHaveLength(0)
+    expect(repository.events(task.id).filter((event) => event.kind === 'task_waiting_user')).toHaveLength(1)
+    expect(repository.events(task.id).filter((event) => event.kind === 'task_completed')).toHaveLength(0)
+    expect(repository.latestCheckpoint(task.id)?.resumeSummary).toContain('配置可用的图片生成提供商')
+    repository.close()
+  })
 })

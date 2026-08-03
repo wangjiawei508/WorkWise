@@ -25,6 +25,7 @@ import {
 } from './compat/legacy-environment'
 
 const DEFAULT_OFFICIAL_RELEASE_PREFIX = 'workwise'
+const DEFAULT_OFFICIAL_UPDATE_BASE_URL = 'https://www.railwise.cn/downloads'
 const DEFAULT_PRODUCT_PAGE_URL = 'https://www.railwise.cn/products/workwise/'
 const DEFAULT_GITHUB_REPO = 'wangjiawei508/WorkWise'
 const { autoUpdater } = electronUpdater
@@ -132,9 +133,7 @@ function genericUpdateFeedUrl(channel: GuiUpdateChannel): string {
     process.env.WORKWISE_RELEASE_PREFIX?.trim() ||
     process.env.R2_RELEASE_PREFIX?.trim()
 
-  if (!configuredBase) return ''
-
-  const base = configuredBase
+  const base = configuredBase || DEFAULT_OFFICIAL_UPDATE_BASE_URL
   const prefix = configuredPrefix || DEFAULT_OFFICIAL_RELEASE_PREFIX
   return `${joinUrl(base, prefix, 'channels', channel, 'latest')}/`
 }
@@ -228,6 +227,7 @@ function resolveGithubReleaseUrl(): string | null {
 }
 
 function resolveUpdateFeedConfig(channel: GuiUpdateChannel): UpdateFeedConfig {
+  if (updateProviderSetting() === 'none') return { kind: 'none' }
   if (shouldUseGithubUpdateProvider(channel)) {
     const fullName = resolveGithubRepo()
     const [owner, repo] = fullName?.split('/') ?? []
@@ -281,6 +281,16 @@ function isVersionGreater(latest: string, current: string): boolean {
   return false
 }
 
+function validateCandidateVersion(version: string, expectedVersion?: string): string | null {
+  const normalized = version.trim().replace(/^v/i, '')
+  if (!versionFromTag(normalized, configuredChannel)) return `Update metadata contains an invalid ${configuredChannel} version.`
+  if (!isVersionGreater(normalized, app.getVersion())) return 'Update downgrade or same-version installation was rejected.'
+  if (expectedVersion && normalized !== expectedVersion.trim().replace(/^v/i, '')) {
+    return `Downloaded update version ${normalized} does not match checked manifest version ${expectedVersion}.`
+  }
+  return null
+}
+
 function versionFromTag(value: string, channel: GuiUpdateChannel): string | null {
   const trimmed = value.trim()
   const pattern =
@@ -328,6 +338,7 @@ function parseYamlScalar(source: string, key: string): string {
 
 function macAutoUpdateAllowed(): boolean {
   if (process.platform !== 'darwin') return true
+  if (process.env.NODE_ENV === 'test' && process.env.WORKWISE_ALLOW_UNSIGNED_UPDATES === '1') return true
   if (legacyUnsignedUpdatesEnabled()) return true
 
   const pkg = readPackageJson()
@@ -483,6 +494,9 @@ function configureUpdaterChannel(channel: GuiUpdateChannel): void {
   configuredFeedUrl = feedUrl
   autoUpdater.allowPrerelease = normalized === 'frontier'
   if (feed.kind === 'generic') {
+    if (!/^https:\/\//i.test(feed.url) && app.isPackaged) {
+      throw new Error('Production update feeds must use HTTPS.')
+    }
     autoUpdater.setFeedURL({ provider: 'generic', url: feed.url })
   } else if (feed.kind === 'github') {
     autoUpdater.setFeedURL({
@@ -705,6 +719,11 @@ export function initializeGuiUpdater(
 
   autoUpdater.on('update-available', (updateInfo: UpdateInfo) => {
     downloaded = false
+    const invalid = validateCandidateVersion(updateInfo.version)
+    if (invalid) {
+      emitGuiUpdateState({ status: 'error', info: lastInfo ?? undefined, message: invalid, code: 'download_failed' })
+      return
+    }
     const info = toGuiInfo(updateInfo, true)
     lastInfo = info
     emitGuiUpdateState({ status: 'available', info })
@@ -722,6 +741,12 @@ export function initializeGuiUpdater(
   })
 
   autoUpdater.on('update-downloaded', (event: UpdateDownloadedEvent) => {
+    const invalid = validateCandidateVersion(event.version, lastInfo?.latestVersion)
+    if (invalid) {
+      downloaded = false
+      emitGuiUpdateState({ status: 'error', info: lastInfo ?? undefined, message: invalid, code: 'download_failed' })
+      return
+    }
     downloaded = true
     const info = toGuiInfo(event, true)
     lastInfo = info
@@ -827,6 +852,19 @@ export async function downloadGuiUpdate(channel?: GuiUpdateChannel): Promise<Gui
         }
       }
     }
+    const downloadableInfo = lastInfo
+    if (!downloadableInfo?.hasUpdate || downloadableInfo.channel !== selectedChannel) {
+      return {
+        ok: false,
+        currentVersion: app.getVersion(),
+        code: 'download_failed',
+        message: 'Update state changed before the download could begin. Check for updates again.'
+      }
+    }
+    const invalid = validateCandidateVersion(downloadableInfo.latestVersion)
+    if (invalid) {
+      return { ok: false, currentVersion: app.getVersion(), code: 'download_failed', message: invalid }
+    }
 
     if (!downloadPromise) {
       downloadPromise = autoUpdater.downloadUpdate().finally(() => {
@@ -847,6 +885,10 @@ export async function downloadGuiUpdate(channel?: GuiUpdateChannel): Promise<Gui
   }
 }
 
+function shouldInstallSilently(platform: NodeJS.Platform): boolean {
+  return platform === 'win32'
+}
+
 export async function installGuiUpdate(): Promise<GuiUpdateInstallResult> {
   try {
     if (!downloaded) {
@@ -859,7 +901,10 @@ export async function installGuiUpdate(): Promise<GuiUpdateInstallResult> {
     }
     emitGuiUpdateState({ status: 'installing', info: lastInfo ?? undefined })
     await runBeforeInstallUpdate()
-    autoUpdater.quitAndInstall(false, true)
+    // Assisted NSIS installers are interactive unless isSilent is true. An
+    // in-app update must finish after WorkWise exits without leaving a hidden
+    // installer waiting for input. macOS ignores this parameter.
+    autoUpdater.quitAndInstall(shouldInstallSilently(process.platform), true)
     return { ok: true }
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e)
@@ -879,5 +924,7 @@ export const _internals = {
   genericUpdateFeedUrl,
   resolveUpdateFeedConfig,
   downloadPageUrl,
-  parseScheduledCheckAt
+  parseScheduledCheckAt,
+  validateCandidateVersion,
+  shouldInstallSilently
 }

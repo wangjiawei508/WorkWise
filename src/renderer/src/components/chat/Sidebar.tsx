@@ -6,6 +6,7 @@ import {
   FileQuestion,
   LayoutGrid,
   Palette,
+  Workflow,
   Plus,
   Settings,
   Smartphone
@@ -31,7 +32,7 @@ import {
 type Props = {
   threads: NormalizedThread[]
   activeThreadId: string | null
-  activeView: 'chat' | 'write' | 'claw' | 'schedule' | 'design'
+  activeView: 'chat' | 'write' | 'claw' | 'schedule' | 'design' | 'flow'
   connectPhoneSidebarOpen: boolean
   focusModeEnabled: boolean
   pluginsActive: boolean
@@ -55,6 +56,7 @@ type Props = {
   onToggleFocusMode: () => void
   onWriteOpen: () => void
   onScheduleOpen: () => void
+  onFlowOpen: () => void
   onDesignOpen: () => void
   onToggleSidebar: () => void
 }
@@ -86,6 +88,7 @@ export function Sidebar({
   onToggleFocusMode,
   onWriteOpen,
   onScheduleOpen,
+  onFlowOpen,
   onDesignOpen,
   onToggleSidebar
 }: Props): ReactElement {
@@ -163,6 +166,13 @@ export function Sidebar({
             />
           </>
         ) : null}
+        <SidebarCommandRow
+          icon={<Workflow className="h-4 w-4" strokeWidth={1.75} />}
+          label={t('flow')}
+          trailing={<span className="rounded bg-blue-50 px-1.5 py-0.5 text-[10px] font-medium text-blue-600 dark:bg-blue-400/10 dark:text-blue-300">Preview</span>}
+          onClick={onFlowOpen}
+          active={activeView === 'flow'}
+        />
         <SidebarCommandRow
           icon={<LayoutGrid className="h-4 w-4" strokeWidth={1.75} />}
           label={t('plugins')}

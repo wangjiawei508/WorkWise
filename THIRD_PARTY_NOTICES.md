@@ -19,6 +19,15 @@ distributed under the Apache License 2.0.
 
 Source: https://github.com/mozilla/pdf.js
 
+## React Flow
+
+WorkWise Flow uses `@xyflow/react` 12.9.2 for its controlled node canvas,
+typed handles, keyboard interaction, selection, zoom, and minimap. React Flow
+is distributed under the MIT License. It is a renderer component only and does
+not introduce a second WorkWise Runtime or execution framework.
+
+Source: https://github.com/xyflow/xyflow
+
 ## MinerU
 
 MinerU is not bundled with WorkWise. Users may optionally install a locked

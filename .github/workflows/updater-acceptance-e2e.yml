@@ -1,0 +1,586 @@
+name: Build and exercise native updater
+
+on:
+  workflow_call:
+    inputs:
+      base_version:
+        description: 'Installed baseline version built from this commit.'
+        required: true
+        type: string
+      target_version:
+        description: 'Temporary target version published to the isolated Frontier feed.'
+        required: true
+        type: string
+  workflow_dispatch:
+    inputs:
+      base_version:
+        description: 'Installed baseline version built from this commit.'
+        required: true
+        type: string
+        default: '0.3.3'
+      target_version:
+        description: 'Temporary target version published to the isolated Frontier feed.'
+        required: true
+        type: string
+        default: '0.3.4'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: updater-acceptance-e2e-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  NODE_VERSION: '22.22.0'
+  WORKWISE_UPDATE_CHANNEL: frontier
+  RELEASE_CHANNEL: frontier
+  WORKWISE_PUBLIC_BASE_URL: https://www.railwise.cn/downloads
+  WORKWISE_RELEASE_PREFIX: workwise/acceptance/${{ github.run_id }}
+  WORKWISE_TEST_FEED_URL: https://www.railwise.cn/downloads/workwise/acceptance/${{ github.run_id }}/channels/frontier/latest/
+
+jobs:
+  prepare:
+    name: Validate acceptance versions
+    runs-on: ubuntu-latest
+    outputs:
+      feed_url: ${{ steps.identity.outputs.feed_url }}
+      release_prefix: ${{ steps.identity.outputs.release_prefix }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Validate source and target identity
+        id: identity
+        shell: bash
+        env:
+          BASE_VERSION: ${{ inputs.base_version }}
+          TARGET_VERSION: ${{ inputs.target_version }}
+        run: |
+          set -euo pipefail
+          node - <<'NODE'
+          const fs = require('node:fs')
+          const base = process.env.BASE_VERSION
+          const target = process.env.TARGET_VERSION
+          const packageVersion = JSON.parse(fs.readFileSync('package.json', 'utf8')).version
+          const parse = (value, label) => {
+            if (!/^\d+\.\d+\.\d+$/.test(value || '')) throw new Error(`${label} must be x.y.z`)
+            return value.split('.').map(Number)
+          }
+          const left = parse(base, 'base_version')
+          const right = parse(target, 'target_version')
+          if (packageVersion !== base) throw new Error(`package.json is ${packageVersion}; expected baseline ${base}`)
+          const newer = right.some((value, index) => value > left[index] && right.slice(0, index).every((part, i) => part === left[i]))
+          if (!newer) throw new Error(`target_version ${target} must be newer than ${base}`)
+          NODE
+          echo "feed_url=${WORKWISE_TEST_FEED_URL}" >> "${GITHUB_OUTPUT}"
+          echo "release_prefix=${WORKWISE_RELEASE_PREFIX}" >> "${GITHUB_OUTPUT}"
+
+  build-document-sidecars:
+    name: Acceptance MarkItDown ${{ matrix.platform }} ${{ matrix.arch }}
+    needs: prepare
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15
+            platform: darwin
+            arch: arm64
+            artifact: markitdown-darwin-arm64
+          - runner: macos-15-intel
+            platform: darwin
+            arch: x64
+            artifact: markitdown-darwin-x64
+          - runner: windows-2022
+            platform: win32
+            arch: x64
+            artifact: markitdown-win32-x64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          architecture: ${{ matrix.arch }}
+          cache: pip
+          cache-dependency-path: sidecars/markitdown/requirements.lock
+      - name: Build audited native document sidecar
+        shell: bash
+        env:
+          WORKWISE_PYTHON: python
+          WORKWISE_SIDECAR_ARCH: ${{ matrix.arch }}
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check --requirement sidecars/markitdown/requirements.lock
+          npm run build:markitdown-sidecar
+          python sidecars/markitdown/generate_sbom.py build/sidecars/${{ matrix.artifact }}/SBOM-python.json
+          node scripts/verify-document-dependencies.mjs --python-sbom build/sidecars/${{ matrix.artifact }}/SBOM-python.json
+          node scripts/build-markitdown-sidecar.mjs --verify-only
+      - name: Archive macOS sidecar with framework links and permissions
+        if: ${{ matrix.platform == 'darwin' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          tar -czf "build/sidecars/${{ matrix.artifact }}.tar.gz" \
+            -C "build/sidecars/${{ matrix.artifact }}" .
+      - name: Upload archived macOS document sidecar
+        if: ${{ matrix.platform == 'darwin' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: acceptance-${{ matrix.artifact }}
+          if-no-files-found: error
+          retention-days: 3
+          path: build/sidecars/${{ matrix.artifact }}.tar.gz
+      - name: Upload Windows document sidecar
+        if: ${{ matrix.platform == 'win32' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: acceptance-${{ matrix.artifact }}
+          if-no-files-found: error
+          retention-days: 3
+          path: build/sidecars/${{ matrix.artifact }}/
+
+  build-macos:
+    name: Build signed 0.3.3 and 0.3.4 macOS packages
+    needs: [prepare, build-document-sidecars]
+    runs-on: macos-15
+    env:
+      WORKWISE_REQUIRE_DOCUMENT_SIDECAR: '1'
+      WORKWISE_UPDATE_PROVIDER: generic
+      WORKWISE_UPDATE_URL: ${{ needs.prepare.outputs.feed_url }}
+      MAC_CODESIGN_P12_BASE64: ${{ secrets.MAC_CODESIGN_P12_BASE64 }}
+      CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+      APPLE_API_KEY_BASE64: ${{ secrets.APPLE_API_KEY_BASE64 }}
+      APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+      APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci
+      - name: Install Intel canvas binding for cross-arch macOS packaging
+        run: npm install --no-save --package-lock=false --force @napi-rs/canvas-darwin-x64@0.1.100
+      - run: npm run prepare:electron
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: acceptance-markitdown-darwin-arm64
+          path: build/sidecars/archives
+      - uses: actions/download-artifact@v4
+        with:
+          name: acceptance-markitdown-darwin-x64
+          path: build/sidecars/archives
+
+      - name: Restore and verify both macOS sidecars
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p build/sidecars/markitdown-darwin-arm64 build/sidecars/markitdown-darwin-x64
+          tar -xzf build/sidecars/archives/markitdown-darwin-arm64.tar.gz -C build/sidecars/markitdown-darwin-arm64
+          tar -xzf build/sidecars/archives/markitdown-darwin-x64.tar.gz -C build/sidecars/markitdown-darwin-x64
+          test -L build/sidecars/markitdown-darwin-arm64/workwise-markitdown/_internal/Python.framework/Python
+          test -L build/sidecars/markitdown-darwin-arm64/workwise-markitdown/_internal/Python.framework/Versions/Current
+          test -L build/sidecars/markitdown-darwin-x64/workwise-markitdown/_internal/Python.framework/Python
+          test -L build/sidecars/markitdown-darwin-x64/workwise-markitdown/_internal/Python.framework/Versions/Current
+          chmod 755 build/sidecars/markitdown-darwin-arm64/workwise-markitdown/workwise-markitdown
+          chmod 755 build/sidecars/markitdown-darwin-x64/workwise-markitdown/workwise-markitdown
+          WORKWISE_SIDECAR_ARCH=arm64 node scripts/build-markitdown-sidecar.mjs --verify-only
+          WORKWISE_SIDECAR_ARCH=x64 node scripts/build-markitdown-sidecar.mjs --verify-only
+
+      - name: Require and decode Apple signing credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          for name in MAC_CODESIGN_P12_BASE64 CSC_KEY_PASSWORD APPLE_API_KEY_BASE64 APPLE_API_KEY_ID APPLE_API_ISSUER; do
+            [[ -n "${!name:-}" ]] || { echo "::error::Missing ${name}; native updater acceptance requires signed and notarized macOS packages"; exit 1; }
+          done
+          cert_path="${RUNNER_TEMP}/developer-id.p12"
+          key_path="${RUNNER_TEMP}/AuthKey_${APPLE_API_KEY_ID}.p8"
+          export CERT_PATH="${cert_path}" KEY_PATH="${key_path}"
+          node - <<'NODE'
+          const fs = require('node:fs')
+          fs.writeFileSync(process.env.CERT_PATH, Buffer.from(process.env.MAC_CODESIGN_P12_BASE64, 'base64'))
+          fs.writeFileSync(process.env.KEY_PATH, Buffer.from(process.env.APPLE_API_KEY_BASE64, 'base64'))
+          NODE
+          {
+            echo "CSC_LINK=${cert_path}"
+            echo "APPLE_API_KEY=${key_path}"
+            echo "MAC_SIGN=1"
+          } >> "${GITHUB_ENV}"
+
+      - name: Verify Apple credentials and notary access
+        shell: bash
+        run: >
+          npm run verify:apple -- --p12 "${CSC_LINK}"
+          --p12-password "${CSC_KEY_PASSWORD}"
+          --p8 "${APPLE_API_KEY}"
+          --key-id "${APPLE_API_KEY_ID}"
+          --issuer "${APPLE_API_ISSUER}"
+          --check-notary
+
+      - name: Build signed and notarized baseline packages
+        shell: bash
+        env:
+          WORKWISE_APP_VERSION: ${{ inputs.base_version }}
+        run: |
+          set -euo pipefail
+          npm run dist:mac:signed
+          node scripts/generate-mac-latest.cjs dist
+          mkdir -p acceptance-artifacts/base-mac
+          cp dist/WorkWise-${WORKWISE_APP_VERSION}-mac-arm64.dmg acceptance-artifacts/base-mac/
+          cp dist/WorkWise-${WORKWISE_APP_VERSION}-mac-x64.dmg acceptance-artifacts/base-mac/
+
+      - name: Build signed and notarized target packages
+        shell: bash
+        env:
+          WORKWISE_APP_VERSION: ${{ inputs.target_version }}
+        run: |
+          set -euo pipefail
+          npm run dist:mac:signed
+          node scripts/generate-mac-latest.cjs dist
+          node scripts/verify-packaged-markitdown.cjs dist mac
+          node scripts/verify-packaged-runtime-native.cjs dist mac
+          mkdir -p acceptance-artifacts/target-mac
+          cp dist/WorkWise-${WORKWISE_APP_VERSION}-mac-* acceptance-artifacts/target-mac/
+          cp dist/latest-mac.yml acceptance-artifacts/target-mac/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: acceptance-base-mac
+          if-no-files-found: error
+          retention-days: 3
+          path: acceptance-artifacts/base-mac/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: acceptance-target-mac
+          if-no-files-found: error
+          retention-days: 3
+          path: acceptance-artifacts/target-mac/
+
+  build-windows:
+    name: Build 0.3.3 and 0.3.4 Windows packages
+    needs: [prepare, build-document-sidecars]
+    runs-on: windows-2022
+    env:
+      WORKWISE_REQUIRE_DOCUMENT_SIDECAR: '1'
+      WORKWISE_UPDATE_PROVIDER: generic
+      WORKWISE_UPDATE_URL: ${{ needs.prepare.outputs.feed_url }}
+      WORKWISE_SIDECAR_ARCH: x64
+      CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci
+      - run: npm run prepare:electron
+      - uses: actions/download-artifact@v4
+        with:
+          name: acceptance-markitdown-win32-x64
+          path: build/sidecars/markitdown-win32-x64
+      - name: Verify Windows document sidecar
+        run: node scripts/build-markitdown-sidecar.mjs --verify-only
+
+      - name: Build baseline installer
+        shell: pwsh
+        env:
+          WORKWISE_APP_VERSION: ${{ inputs.base_version }}
+        run: |
+          npm run dist:win
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          New-Item -ItemType Directory -Force -Path acceptance-artifacts/base-win | Out-Null
+          Copy-Item "dist/WorkWise-$env:WORKWISE_APP_VERSION-win-x64.exe" acceptance-artifacts/base-win/
+
+      - name: Build target updater artifacts
+        shell: pwsh
+        env:
+          WORKWISE_APP_VERSION: ${{ inputs.target_version }}
+        run: |
+          Get-ChildItem dist -Filter 'WorkWise-*' -ErrorAction SilentlyContinue | Remove-Item -Force
+          Remove-Item dist/latest.yml -Force -ErrorAction SilentlyContinue
+          npm run dist:win
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node scripts/verify-packaged-markitdown.cjs dist win
+          node scripts/verify-packaged-runtime-native.cjs dist win
+          New-Item -ItemType Directory -Force -Path acceptance-artifacts/target-win | Out-Null
+          Copy-Item "dist/WorkWise-$env:WORKWISE_APP_VERSION-win-x64.exe" acceptance-artifacts/target-win/
+          Copy-Item "dist/WorkWise-$env:WORKWISE_APP_VERSION-win-x64.exe.blockmap" acceptance-artifacts/target-win/
+          Copy-Item dist/latest.yml acceptance-artifacts/target-win/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: acceptance-base-win
+          if-no-files-found: error
+          retention-days: 3
+          path: acceptance-artifacts/base-win/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: acceptance-target-win
+          if-no-files-found: error
+          retention-days: 3
+          path: acceptance-artifacts/target-win/
+
+  publish-test-feed:
+    name: Publish isolated 0.3.4 Frontier feed
+    needs: [prepare, build-macos, build-windows]
+    runs-on: ubuntu-latest
+    env:
+      R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+      R2_BUCKET: ${{ secrets.R2_BUCKET }}
+      R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+      R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+      WORKWISE_WEBSITE_SSH_HOST: ${{ secrets.WORKWISE_WEBSITE_SSH_HOST }}
+      WORKWISE_WEBSITE_SSH_PORT: ${{ secrets.WORKWISE_WEBSITE_SSH_PORT }}
+      WORKWISE_WEBSITE_SSH_USER: ${{ secrets.WORKWISE_WEBSITE_SSH_USER }}
+      WORKWISE_WEBSITE_SSH_PRIVATE_KEY: ${{ secrets.WORKWISE_WEBSITE_SSH_PRIVATE_KEY }}
+      WORKWISE_WEBSITE_SSH_KNOWN_HOSTS: ${{ secrets.WORKWISE_WEBSITE_SSH_KNOWN_HOSTS }}
+      WORKWISE_WEBSITE_RELEASE_ROOT: ${{ secrets.WORKWISE_WEBSITE_RELEASE_ROOT }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - uses: actions/download-artifact@v4
+        with:
+          name: acceptance-target-mac
+          path: target-release
+      - uses: actions/download-artifact@v4
+        with:
+          name: acceptance-target-win
+          path: target-release
+
+      - name: Require isolated feed credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          for name in \
+            R2_ACCOUNT_ID R2_BUCKET R2_ACCESS_KEY_ID R2_SECRET_ACCESS_KEY \
+            WORKWISE_WEBSITE_SSH_HOST WORKWISE_WEBSITE_SSH_PORT WORKWISE_WEBSITE_SSH_USER \
+            WORKWISE_WEBSITE_SSH_PRIVATE_KEY WORKWISE_WEBSITE_SSH_KNOWN_HOSTS WORKWISE_WEBSITE_RELEASE_ROOT; do
+            [[ -n "${!name:-}" ]] || { echo "::error::Missing ${name}; updater acceptance feed is blocked"; exit 1; }
+          done
+
+      - name: Prepare isolated website update assets
+        shell: bash
+        env:
+          TARGET_VERSION: ${{ inputs.target_version }}
+        run: |
+          set -euo pipefail
+          node scripts/prepare-website-release-assets.cjs \
+            target-release \
+            acceptance-release-assets \
+            "${TARGET_VERSION}" \
+            --channel frontier \
+            --release-prefix "${WORKWISE_RELEASE_PREFIX}" \
+            --public-base-url "${WORKWISE_PUBLIC_BASE_URL}"
+          node scripts/verify-release-assets.cjs acceptance-release-assets --write-sha256 SHA256SUMS.txt
+
+      - name: Prepare pinned website SSH transport
+        shell: bash
+        run: |
+          set -euo pipefail
+          ssh_dir="${RUNNER_TEMP}/workwise-website-ssh"
+          install -d -m 700 "${ssh_dir}"
+          export SSH_KEY_PATH="${ssh_dir}/deploy-key"
+          export SSH_KNOWN_HOSTS_PATH="${ssh_dir}/known_hosts"
+          node - <<'NODE'
+          const fs = require('node:fs')
+          fs.writeFileSync(process.env.SSH_KEY_PATH, `${process.env.WORKWISE_WEBSITE_SSH_PRIVATE_KEY.trim()}\n`, { mode: 0o600 })
+          fs.writeFileSync(process.env.SSH_KNOWN_HOSTS_PATH, `${process.env.WORKWISE_WEBSITE_SSH_KNOWN_HOSTS.trim()}\n`, { mode: 0o600 })
+          NODE
+          {
+            echo "WORKWISE_WEBSITE_SSH_KEY_PATH=${SSH_KEY_PATH}"
+            echo "WORKWISE_WEBSITE_SSH_KNOWN_HOSTS_PATH=${SSH_KNOWN_HOSTS_PATH}"
+          } >> "${GITHUB_ENV}"
+
+      - name: Upload and verify isolated immutable feed
+        shell: bash
+        env:
+          TARGET_TAG: v${{ inputs.target_version }}
+        run: |
+          set -euo pipefail
+          node scripts/publish-r2.mjs upload --platform mac --tag "${TARGET_TAG}" --channel frontier --dist target-release
+          node scripts/publish-r2.mjs upload --platform win --tag "${TARGET_TAG}" --channel frontier --dist target-release
+          node scripts/publish-r2.mjs verify --tag "${TARGET_TAG}" --channel frontier --platforms mac,win
+
+      - name: Stage and verify isolated official website release
+        shell: bash
+        env:
+          TARGET_TAG: v${{ inputs.target_version }}
+        run: |
+          set -euo pipefail
+          node scripts/deploy-website-release.mjs stage \
+            --source acceptance-release-assets \
+            --tag "${TARGET_TAG}" \
+            --channel frontier \
+            --release-prefix "${WORKWISE_RELEASE_PREFIX}" \
+            --deploy-id "${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" \
+            --transport r2
+          node scripts/deploy-website-release.mjs verify-public \
+            --source acceptance-release-assets \
+            --tag "${TARGET_TAG}" \
+            --channel frontier \
+            --release-prefix "${WORKWISE_RELEASE_PREFIX}" \
+            --target release
+
+      - name: Atomically promote isolated feed
+        shell: bash
+        env:
+          TARGET_TAG: v${{ inputs.target_version }}
+        run: |
+          set -euo pipefail
+          node scripts/publish-r2.mjs promote --tag "${TARGET_TAG}" --channel frontier --platforms mac,win
+          node scripts/deploy-website-release.mjs promote \
+            --tag "${TARGET_TAG}" \
+            --channel frontier \
+            --release-prefix "${WORKWISE_RELEASE_PREFIX}" \
+            --deploy-id "${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          node scripts/deploy-website-release.mjs verify-public \
+            --source acceptance-release-assets \
+            --tag "${TARGET_TAG}" \
+            --channel frontier \
+            --release-prefix "${WORKWISE_RELEASE_PREFIX}" \
+            --target latest
+
+      - name: Capture promoted feed evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p feed-evidence
+          curl --fail --silent --show-error --location "${WORKWISE_TEST_FEED_URL}latest.json" -o feed-evidence/latest.json
+          curl --fail --silent --show-error --location "${WORKWISE_TEST_FEED_URL}latest-mac.yml" -o feed-evidence/latest-mac.yml
+          curl --fail --silent --show-error --location "${WORKWISE_TEST_FEED_URL}latest.yml" -o feed-evidence/latest.yml
+          shasum -a 512 feed-evidence/* > feed-evidence/SHA512SUMS.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: updater-acceptance-feed-${{ github.run_id }}
+          if-no-files-found: error
+          retention-days: 30
+          path: feed-evidence/
+
+  native-update:
+    name: ${{ matrix.label }} native update
+    needs: [prepare, build-macos, build-windows, publish-test-feed]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: macOS Apple Silicon
+            runner: macos-15
+            platform: darwin
+            arch: arm64
+            base_artifact: acceptance-base-mac
+            installer_name: WorkWise-${{ inputs.base_version }}-mac-arm64.dmg
+          - label: macOS Intel
+            runner: macos-15-intel
+            platform: darwin
+            arch: x64
+            base_artifact: acceptance-base-mac
+            installer_name: WorkWise-${{ inputs.base_version }}-mac-x64.dmg
+          - label: Windows x64
+            runner: windows-2022
+            platform: win32
+            arch: x64
+            base_artifact: acceptance-base-win
+            installer_name: WorkWise-${{ inputs.base_version }}-win-x64.exe
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - uses: actions/download-artifact@v4
+        with:
+          name: ${{ matrix.base_artifact }}
+          path: ${{ runner.temp }}/updater-base
+      - name: Create evidence directory
+        shell: bash
+        run: mkdir -p "${RUNNER_TEMP}/updater-evidence"
+      - name: Install baseline, update in app, and verify automatic relaunch
+        shell: bash
+        run: >-
+          node scripts/run-native-updater-acceptance.mjs
+          --installer="${RUNNER_TEMP}/updater-base/${{ matrix.installer_name }}"
+          --feed-url="${WORKWISE_TEST_FEED_URL}"
+          --base-version="${{ inputs.base_version }}"
+          --target-version="${{ inputs.target_version }}"
+          --channel=frontier
+          --expected-arch="${{ matrix.arch }}"
+          --report="${RUNNER_TEMP}/updater-evidence/${{ matrix.platform }}-${{ matrix.arch }}.json"
+      - name: Upload native updater evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: updater-acceptance-${{ matrix.platform }}-${{ matrix.arch }}-${{ github.run_id }}
+          if-no-files-found: warn
+          retention-days: 30
+          path: ${{ runner.temp }}/updater-evidence/
+
+  acceptance-gate:
+    name: All native updater paths passed
+    if: always()
+    needs: native-update
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require all three native jobs
+        env:
+          RESULT: ${{ needs.native-update.result }}
+        run: |
+          if [[ "${RESULT}" != "success" ]]; then
+            echo "::error::macOS arm64, macOS x64, and Windows x64 updater acceptance must all pass."
+            exit 1
+          fi
+
+  cleanup-test-feed:
+    name: Remove isolated updater feed
+    if: always()
+    needs: [publish-test-feed, acceptance-gate]
+    runs-on: ubuntu-latest
+    env:
+      R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+      R2_BUCKET: ${{ secrets.R2_BUCKET }}
+      R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+      R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+      WORKWISE_WEBSITE_SSH_HOST: ${{ secrets.WORKWISE_WEBSITE_SSH_HOST }}
+      WORKWISE_WEBSITE_SSH_PORT: ${{ secrets.WORKWISE_WEBSITE_SSH_PORT }}
+      WORKWISE_WEBSITE_SSH_USER: ${{ secrets.WORKWISE_WEBSITE_SSH_USER }}
+      WORKWISE_WEBSITE_SSH_PRIVATE_KEY: ${{ secrets.WORKWISE_WEBSITE_SSH_PRIVATE_KEY }}
+      WORKWISE_WEBSITE_SSH_KNOWN_HOSTS: ${{ secrets.WORKWISE_WEBSITE_SSH_KNOWN_HOSTS }}
+      WORKWISE_WEBSITE_RELEASE_ROOT: ${{ secrets.WORKWISE_WEBSITE_RELEASE_ROOT }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - name: Delete only this run's R2 acceptance prefix
+        run: node scripts/publish-r2.mjs cleanup-acceptance --run-id "${{ github.run_id }}"
+      - name: Prepare pinned website SSH transport
+        shell: bash
+        run: |
+          set -euo pipefail
+          ssh_dir="${RUNNER_TEMP}/workwise-website-ssh"
+          install -d -m 700 "${ssh_dir}"
+          export SSH_KEY_PATH="${ssh_dir}/deploy-key"
+          export SSH_KNOWN_HOSTS_PATH="${ssh_dir}/known_hosts"
+          node - <<'NODE'
+          const fs = require('node:fs')
+          fs.writeFileSync(process.env.SSH_KEY_PATH, `${process.env.WORKWISE_WEBSITE_SSH_PRIVATE_KEY.trim()}\n`, { mode: 0o600 })
+          fs.writeFileSync(process.env.SSH_KNOWN_HOSTS_PATH, `${process.env.WORKWISE_WEBSITE_SSH_KNOWN_HOSTS.trim()}\n`, { mode: 0o600 })
+          NODE
+          {
+            echo "WORKWISE_WEBSITE_SSH_KEY_PATH=${SSH_KEY_PATH}"
+            echo "WORKWISE_WEBSITE_SSH_KNOWN_HOSTS_PATH=${SSH_KNOWN_HOSTS_PATH}"
+          } >> "${GITHUB_ENV}"
+      - name: Delete only this run's website acceptance prefix
+        run: node scripts/deploy-website-release.mjs cleanup-acceptance --run-id "${{ github.run_id }}"

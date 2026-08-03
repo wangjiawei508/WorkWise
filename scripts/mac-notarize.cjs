@@ -48,6 +48,9 @@ function isBundleLike(path) {
 
 function isLikelySignedFile(path, info) {
   if (/\.(dylib|node|so)$/i.test(path)) return true
+  if (/\/app\.asar\.unpacked\/sidecars\/markitdown\/_internal\/Python\.framework\/Versions\/[^/]+\/Python$/i.test(path)) {
+    return info.isFile() && (info.mode & 0o111) !== 0
+  }
   return info.isFile() && (info.mode & 0o111) !== 0 && /\/Contents\/(?:MacOS|Frameworks)\//.test(path)
 }
 

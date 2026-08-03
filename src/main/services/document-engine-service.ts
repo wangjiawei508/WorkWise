@@ -16,6 +16,7 @@ import { MINERU_VERSION, MineruInstallerService, type MineruInstallPreflight } f
 import { analyzePdfDocument, type PdfDocumentAnalysisV1 } from './pdf-document-service'
 import { atomicWriteFile } from './durable-file'
 import { inspectOfficeArchive } from './office-archive-security'
+import JSZip from 'jszip'
 
 const MARKITDOWN_ENGINE_VERSION = 'markitdown-v0.1.4-workwise-1'
 const MAX_DOCUMENT_BYTES = 200 * 1024 * 1024
@@ -323,6 +324,7 @@ export class DocumentEngineService {
         references: response.references ?? [],
         analysis: pdfAnalysis
       })
+      const sourceStructure = await inspectDocumentStructure(inputPath, extension, pdfAnalysis)
       const result: DocumentParseResultV1 = {
         id: parseId,
         engine: selectedEngine,
@@ -333,6 +335,7 @@ export class DocumentEngineService {
         tables: supplemented.tables,
         media: response.media ?? [],
         references: supplemented.references,
+        sourceStructure,
         warnings: [...(response.warnings ?? []), ...(pdfAnalysis?.warnings ?? [])],
         quality: {
           status: degradedFrom
@@ -504,6 +507,36 @@ export class DocumentEngineService {
       return false
     }
   }
+}
+
+async function inspectDocumentStructure(
+  path: string,
+  extension: string,
+  pdfAnalysis?: PdfDocumentAnalysisV1
+): Promise<DocumentParseResultV1['sourceStructure']> {
+  if (extension === '.pdf') return pdfAnalysis ? { pageCount: pdfAnalysis.pageCount } : undefined
+  if (extension !== '.xlsx' && extension !== '.pptx') return undefined
+  const archive = await JSZip.loadAsync(await readFile(path), { checkCRC32: true })
+  if (extension === '.pptx') {
+    return { slideCount: Object.keys(archive.files).filter((name) => /^ppt\/slides\/slide[1-9]\d*\.xml$/i.test(name)).length }
+  }
+  const workbook = await archive.file('xl/workbook.xml')?.async('string')
+  if (!workbook) return { worksheets: [] }
+  return {
+    worksheets: [...workbook.matchAll(/<sheet\b[^>]*\bname=(?:"([^"]*)"|'([^']*)')/gi)]
+      .map((match) => decodeXmlEntities(match[1] ?? match[2] ?? ''))
+  }
+}
+
+function decodeXmlEntities(value: string): string {
+  return value.replace(/&(?:amp|lt|gt|quot|apos|#\d+|#x[\da-f]+);/gi, (entity) => {
+    const named: Record<string, string> = { '&amp;': '&', '&lt;': '<', '&gt;': '>', '&quot;': '"', '&apos;': "'" }
+    const normalized = entity.toLowerCase()
+    if (named[normalized]) return named[normalized]!
+    const hexadecimal = normalized.startsWith('&#x')
+    const codePoint = Number.parseInt(entity.slice(hexadecimal ? 3 : 2, -1), hexadecimal ? 16 : 10)
+    return Number.isSafeInteger(codePoint) ? String.fromCodePoint(codePoint) : entity
+  })
 }
 
 function engineCacheVersion(engine: DocumentEngineId): string {

@@ -37,6 +37,7 @@ import {
 import type { AgnesImageSize } from '@shared/agnes-image'
 import { createWriteRecentEdit } from '../../write/recent-edits'
 import { startWriteWorkspaceFileWatch } from '../../write/write-file-watch'
+import { registerGuiUpdateSaveHandler } from '../../lib/gui-update-install-preflight'
 import type { WriteRichEditorHandle } from '../../write/tiptap/WriteRichEditor'
 import { useWriteSplitScrollSync } from './use-write-split-scroll-sync'
 import { WriteAgnesImageDialog } from './WriteAgnesImageDialog'
@@ -833,6 +834,12 @@ export function WriteWorkspaceView({
     }
     void useWriteWorkspaceStore.getState().flushSave(workspaceRoot)
   }, [workspaceRoot])
+
+  useEffect(() => registerGuiUpdateSaveHandler('Write', async () => {
+    if (!workspaceRoot.trim()) return true
+    await useWriteWorkspaceStore.getState().flushSave(workspaceRoot)
+    return useWriteWorkspaceStore.getState().saveStatus !== 'error'
+  }), [workspaceRoot])
 
   useEffect(() => {
     if (!activeFilePath || !workspaceRoot.trim() || (!activeFileIsText && !activeFileIsImage)) return

@@ -30,6 +30,7 @@ export function createAppActions(options: CreateAppActionsOptions): Pick<
   | 'openPlugins'
   | 'openClaw'
   | 'openSchedule'
+  | 'openFlow'
   | 'openDesign'
   | 'openInitialSetup'
   | 'closeInitialSetup'
@@ -110,7 +111,11 @@ export function createAppActions(options: CreateAppActionsOptions): Pick<
     },
 
     openSchedule: () => {
-      set({ route: 'schedule' })
+      set({ route: 'flow', flowFilter: 'scheduled' })
+    },
+
+    openFlow: (filter) => {
+      set({ route: 'flow', flowFilter: filter ?? 'all' })
     },
 
     openDesign: () => {

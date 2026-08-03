@@ -36,6 +36,7 @@ describe('GitHub release asset preparation', () => {
           '  - url: WorkWise-0.2.6-mac-x64.dmg',
           '  - url: WorkWise-0.2.6-mac-arm64.dmg',
           'path: WorkWise-0.2.6-mac-x64.zip',
+          "releaseDate: '2026-08-02T00:00:00.000Z'",
           ''
         ].join('\n')
       ],
@@ -46,6 +47,7 @@ describe('GitHub release asset preparation', () => {
           'files:',
           '  - url: WorkWise-0.2.6-win-x64.exe',
           'path: WorkWise-0.2.6-win-x64.exe',
+          "releaseDate: '2026-08-02T00:00:00.000Z'",
           ''
         ].join('\n')
       ]
@@ -68,6 +70,7 @@ describe('GitHub release asset preparation', () => {
       'WorkWise-0.2.6-win-x64.exe',
       'WorkWise-0.2.6-win-x64.exe.blockmap',
       'latest-mac.yml',
+      'latest.json',
       'latest.yml'
     ])
 
@@ -76,5 +79,17 @@ describe('GitHub release asset preparation', () => {
     expect(macMetadata).toContain('WorkWise-0.2.6-mac-x64.zip')
     expect(macMetadata).toContain('WorkWise-0.2.6-mac-Apple-Silicon.dmg')
     expect(macMetadata).toContain('WorkWise-0.2.6-mac-Intel.dmg')
+
+    const latest = JSON.parse(readFileSync(join(output, 'latest.json'), 'utf8'))
+    expect(latest).toMatchObject({
+      schemaVersion: 1,
+      productName: 'WorkWise',
+      channel: 'stable',
+      version: '0.2.6',
+      tag: 'v0.2.6',
+      generatedAt: '2026-08-02T00:00:00.000Z',
+      updateBaseUrl: 'https://www.railwise.cn/downloads/workwise/channels/stable/latest/'
+    })
+    expect(latest.files).toHaveLength(6)
   })
 })

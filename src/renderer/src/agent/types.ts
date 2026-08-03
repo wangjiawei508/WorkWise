@@ -20,6 +20,12 @@ export type AttachmentReference = {
   width?: number
   height?: number
   previewUrl?: string
+  kind?: string
+  state?: 'uploading' | 'parsing' | 'ready' | 'degraded' | 'failed' | 'cancelled'
+  degradationReasons?: string[]
+  progress?: number
+  managedPath?: string
+  localSourcePath?: string
 }
 
 export type GeneratedFileReference = {

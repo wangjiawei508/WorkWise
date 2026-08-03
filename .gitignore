@@ -19,6 +19,8 @@ artifacts/qa/0.3.0-markitdown/
 .env.*
 !.env.example
 !.env.*.example
+/.codex/config.toml
+/.zcode/
 
 ### Local release secrets
 scripts/release.local.env

@@ -2,6 +2,7 @@ import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, relative } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import JSZip from 'jszip'
 import {
   assessDocumentQuality,
   DocumentEngineError,
@@ -176,7 +177,30 @@ describe('DocumentEngineService', () => {
     })
     expect(result.headings[0]).toMatchObject({ text: 'Parsed', page: 1 })
     expect(result.references).toContainEqual({ page: 1, blockId: 'heading-1', kind: 'text' })
+    expect(result.sourceStructure).toEqual({ pageCount: 1 })
     expect(result.route).toEqual({ requestedMode: 'fast', selectedEngine: 'markitdown' })
+  })
+
+  it('preserves worksheet names and slide counts from validated Office packages', async () => {
+    const spreadsheet = await officeFixture('.xlsx', {
+      '[Content_Types].xml': '<Types/>',
+      'xl/workbook.xml': '<workbook><sheets><sheet name="投标&amp;报价"/><sheet name="风险清单"/></sheets></workbook>'
+    })
+    const spreadsheetResult = await new DocumentEngineService({ runner: runner('# 投标&报价\n\n内容') }).parse({
+      workspaceRoot: spreadsheet.root, relativePath: 'source.xlsx', mode: 'fast', idempotencyKey: 'xlsx-structure'
+    })
+    expect(spreadsheetResult.sourceStructure).toEqual({ worksheets: ['投标&报价', '风险清单'] })
+
+    const presentation = await officeFixture('.pptx', {
+      '[Content_Types].xml': '<Types/>',
+      'ppt/presentation.xml': '<presentation/>',
+      'ppt/slides/slide1.xml': '<slide/>',
+      'ppt/slides/slide2.xml': '<slide/>'
+    })
+    const presentationResult = await new DocumentEngineService({ runner: runner('<!-- Slide number: 1 -->\n内容') }).parse({
+      workspaceRoot: presentation.root, relativePath: 'source.pptx', mode: 'fast', idempotencyKey: 'pptx-structure'
+    })
+    expect(presentationResult.sourceStructure).toEqual({ slideCount: 2 })
   })
 
   it('routes low-quality auto parsing to local MinerU but keeps fast mode on MarkItDown', async () => {
@@ -203,6 +227,16 @@ describe('DocumentEngineService', () => {
     expect(fastBridge.mock.calls.map(([input]) => input.engine)).toEqual(['markitdown'])
   })
 })
+
+async function officeFixture(extension: '.xlsx' | '.pptx', files: Record<string, string>): Promise<{ root: string; path: string }> {
+  const root = await mkdtemp(join(tmpdir(), 'workwise-office-structure-'))
+  roots.push(root)
+  const path = join(root, `source${extension}`)
+  const archive = new JSZip()
+  Object.entries(files).forEach(([name, contents]) => archive.file(name, contents))
+  await writeFile(path, await archive.generateAsync({ type: 'nodebuffer' }))
+  return { root, path }
+}
 
 function minimalPdf(text: string): Buffer {
   const stream = `BT /F1 12 Tf 72 720 Td (${text.replace(/[()\\]/g, '\\$&')}) Tj ET`

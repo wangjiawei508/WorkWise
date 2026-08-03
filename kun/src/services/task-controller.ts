@@ -15,6 +15,7 @@ import type { SessionStore } from '../ports/session-store.js'
 import type { ThreadStore } from '../ports/thread-store.js'
 import {
   completionIntentText,
+  looksLikeExternalCapabilityBlockedReply,
   looksLikeProgressOnlyReply,
   promptRequiresFileDeliverable,
   requiredFileExtensionsForPrompt
@@ -30,6 +31,7 @@ const TERMINAL = new Set<TaskRunStatus>(['completed', 'failed', 'cancelled'])
 export type TaskCandidateDecision =
   | { kind: 'completed'; task: TaskRun }
   | { kind: 'continue'; task: TaskRun; reason: string }
+  | { kind: 'waiting_user'; task: TaskRun; reason: string }
   | { kind: 'stalled'; task: TaskRun; reason: string }
   | { kind: 'failed'; task: TaskRun; reason: string }
 
@@ -190,6 +192,18 @@ export class TaskController {
     const finalResponse = latestAssistantText(turn, turnItems)
     if (task.acceptance.requireFinalResponse && !finalResponse.trim()) {
       return this.retry(task, '模型只产生了思考或工具过程，没有最终回复。', fingerprint(turnItems), turnId)
+    }
+    if (
+      task.acceptance.kind === 'files' &&
+      looksLikeExternalCapabilityBlockedReply(finalResponse)
+    ) {
+      return this.waitForUser(
+        task,
+        '继续前需要在设置中配置可用的图片生成提供商、模型和凭据。',
+        finalResponse,
+        fingerprint(turnItems),
+        turnId
+      )
     }
     if (looksLikeProgressOnlyReply(finalResponse)) {
       return this.retry(task, '最终回复仍是进度说明，没有交付具体结果。', fingerprint(turnItems), turnId)
@@ -409,6 +423,49 @@ export class TaskController {
     if (status === 'failed') return { kind: 'failed', task: next, reason }
     if (status === 'stalled') return { kind: 'stalled', task: next, reason }
     return { kind: 'continue', task: next, reason }
+  }
+
+  private waitForUser(
+    taskInput: TaskRun,
+    reason: string,
+    finalResponse: string,
+    progressFingerprint: string,
+    turnId: string
+  ): Extract<TaskCandidateDecision, { kind: 'waiting_user' }> {
+    const stored = this.repository.get(taskInput.id) ?? taskInput
+    const now = this.nowIso()
+    const next = this.repository.update(stored.id, stored.revision, (current) => ({
+      ...current,
+      status: 'waiting_user',
+      finalResponse,
+      waitingReason: reason,
+      stalledReason: undefined,
+      nodes: current.nodes.map((node) =>
+        node.status === 'completed'
+          ? node
+          : {
+              ...node,
+              status: 'pending',
+              progressFingerprint,
+              errorCode: undefined,
+              errorMessage: undefined,
+              revision: node.revision + 1
+            }
+      ),
+      updatedAt: now
+    }), {
+      key: `task-waiting-user:${stored.attempts}:${progressFingerprint}`,
+      kind: 'task_waiting_user',
+      payload: { reason, turnId },
+      createdAt: now
+    })
+    this.saveCheckpoint(next, reason, progressFingerprint)
+    this.repository.releaseLease(next.id, this.ownerId)
+    this.spans?.finishTurn(next.id, turnId, {
+      status: 'ok',
+      attributes: { nextStatus: 'waiting_user' }
+    })
+    return { kind: 'waiting_user', task: next, reason }
   }
 
   private finish(task: TaskRun, status: Extract<TaskRunStatus, 'failed' | 'cancelled'>, reason: string): Extract<TaskCandidateDecision, { kind: 'failed' }> {

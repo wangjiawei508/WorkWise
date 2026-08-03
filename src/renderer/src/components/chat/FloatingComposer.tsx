@@ -143,6 +143,7 @@ type Props = {
   onPickAttachments?: (files: File[]) => void
   onPasteClipboardImage?: (options?: { silentNoImage?: boolean }) => void | Promise<void>
   onRemoveAttachment?: (id: string) => void
+  onRetryAttachment?: (id: string) => void
   onAddFileReference?: (reference: ComposerFileReference) => void
   onRemoveFileReference?: (relativePath: string) => void
   onSend: () => void
@@ -514,6 +515,7 @@ export function FloatingComposer({
   onPickAttachments,
   onPasteClipboardImage,
   onRemoveAttachment,
+  onRetryAttachment,
   onAddFileReference,
   onRemoveFileReference,
   onSend,
@@ -1313,12 +1315,14 @@ export function FloatingComposer({
     const rawFiles = Array.from(event.dataTransfer.files ?? [])
     const isImageLike = (file: File): boolean =>
       isImageMimeType(file.type) || Boolean(imageMimeTypeFromFileName(file.name))
-    const pathFiles = rawFiles.filter((file) => !isImageLike(file))
-    if (imageFiles.length === 0 && pathFiles.length === 0) return
+    const documentFiles = rawFiles.filter((file) => !isImageLike(file) && /\.(?:pdf|docx|xlsx|pptx|txt|md|markdown|csv)$/i.test(file.name))
+    const pathFiles = rawFiles.filter((file) => !isImageLike(file) && !documentFiles.includes(file))
+    if (imageFiles.length === 0 && documentFiles.length === 0 && pathFiles.length === 0) return
     event.preventDefault()
     if (imageFiles.length > 0 && onPickAttachments) {
       onPickAttachments(imageFiles)
     }
+    if (documentFiles.length > 0 && onPickAttachments) onPickAttachments(documentFiles)
     if (pathFiles.length > 0) {
       const paths: string[] = []
       for (const file of pathFiles) {
@@ -1424,7 +1428,7 @@ export function FloatingComposer({
                   ) : (
                     <ImagePlus className="h-3.5 w-3.5 shrink-0" strokeWidth={1.9} />
                   )}
-                  <span className="min-w-0 flex-1 truncate">{t('composerAddImage')}</span>
+                  <span className="min-w-0 flex-1 truncate">{t('composerAddFileOrImage')}</span>
                 </button>
                 <div className="my-1 h-px bg-ds-border-muted/70" />
               </>
@@ -1819,10 +1823,14 @@ export function FloatingComposer({
                   <span
                     key={attachment.id}
                     className="ds-no-drag inline-flex h-7 max-w-full items-center gap-1.5 rounded-lg border border-ds-border-muted bg-ds-card/80 px-2 text-[12px] font-medium text-ds-muted"
-                    title={attachment.id}
+                    title={attachment.degradationReasons?.join('\n') || (attachment.managedPath ? '双击打开原文件位置' : attachment.id)}
+                    onDoubleClick={() => { if (attachment.managedPath) void window.workwise.openChatAttachmentOriginal(attachment.managedPath) }}
                   >
-                    <ImagePlus className="h-3.5 w-3.5 shrink-0 text-ds-faint" strokeWidth={1.8} />
+                    {attachment.state === 'uploading' || attachment.state === 'parsing' ? <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-blue-600" /> : <FileText className="h-3.5 w-3.5 shrink-0 text-ds-faint" strokeWidth={1.8} />}
                     <span className="max-w-40 truncate">{attachment.name || attachment.id}</span>
+                    {typeof attachment.byteSize === 'number' ? <span className="shrink-0 text-[10px] text-ds-faint">{formatAttachmentBytes(attachment.byteSize)}</span> : null}
+                    {attachment.state ? <span className={`rounded px-1 py-0.5 text-[10px] ${attachment.state === 'ready' ? 'bg-green-100 text-green-700' : attachment.state === 'degraded' ? 'bg-yellow-100 text-yellow-700' : attachment.state === 'failed' ? 'bg-red-100 text-red-700' : 'bg-blue-100 text-blue-700'}`}>{attachment.state}</span> : null}
+                    {typeof attachment.progress === 'number' && attachment.progress > 0 && attachment.progress < 1 ? <span className="shrink-0 text-[10px] tabular-nums text-blue-600">{Math.round(attachment.progress * 100)}%</span> : null}
                     {onRemoveAttachment ? (
                       <button
                         type="button"
@@ -1833,6 +1841,14 @@ export function FloatingComposer({
                       >
                         <X className="h-3 w-3" strokeWidth={2} />
                       </button>
+                    ) : null}
+                    {onRetryAttachment && (attachment.state === 'failed' || attachment.state === 'cancelled') ? (
+                      <button type="button" onClick={() => onRetryAttachment(attachment.id)} className="rounded-full p-0.5 text-ds-faint transition hover:bg-ds-hover hover:text-ds-ink" aria-label="重试附件" title="重试附件">
+                        <RotateCcw className="h-3 w-3" strokeWidth={2} />
+                      </button>
+                    ) : null}
+                    {attachment.managedPath ? (
+                      <button type="button" onClick={() => void window.workwise.openChatAttachmentOriginal(attachment.managedPath!)} className="rounded px-1 text-[10px] text-blue-600 hover:bg-blue-50" aria-label="打开原文件" title="打开原文件">打开</button>
                     ) : null}
                   </span>
                 )
@@ -1848,7 +1864,7 @@ export function FloatingComposer({
             <input
               ref={fileInputRef}
               type="file"
-              accept="image/png,image/jpeg,image/webp"
+              accept=".pdf,.docx,.xlsx,.pptx,.txt,.md,.markdown,.csv,image/png,image/jpeg,image/webp"
               multiple
               className="hidden"
               onChange={handleAttachmentInput}
@@ -2074,4 +2090,10 @@ export function FloatingComposer({
       )}
     </div>
   )
+}
+
+function formatAttachmentBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(bytes < 10 * 1024 ? 1 : 0)} KiB`
+  return `${(bytes / (1024 * 1024)).toFixed(bytes < 10 * 1024 * 1024 ? 1 : 0)} MiB`
 }

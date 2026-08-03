@@ -163,20 +163,14 @@ describe('electron-builder WorkWise packaging', () => {
     expect(builderConfig.win.target).toEqual([{ target: 'nsis', arch: ['x64'] }])
   })
 
-  it('uses GitHub Releases by default and keeps generic mirrors opt-in', () => {
+  it('uses the official railwise.cn feed by default and keeps enterprise mirrors opt-in', () => {
     const githubConfig = loadBuilderConfigWithEnv({
       WORKWISE_UPDATE_PROVIDER: undefined,
       WORKWISE_UPDATE_URL: undefined,
       WORKWISE_PUBLIC_BASE_URL: undefined,
       WORKWISE_GITHUB_REPO: undefined
     })
-    expect(githubConfig.publish).toEqual([
-      {
-        provider: 'github',
-        owner: 'wangjiawei508',
-        repo: 'WorkWise'
-      }
-    ])
+    expect(githubConfig.publish).toEqual([{ provider: 'generic', url: 'https://www.railwise.cn/downloads/workwise/channels/stable/latest/' }])
 
     const genericConfig = loadBuilderConfigWithEnv({
       WORKWISE_UPDATE_PROVIDER: 'generic',
@@ -279,6 +273,7 @@ describe('electron-builder WorkWise packaging', () => {
     expect(signedConfig.mac.hardenedRuntime).toBe(true)
     expect(signedConfig.mac.forceCodeSigning).toBe(true)
     expect(signedConfig.mac.timestamp).toBe('http://timestamp.apple.com/ts01')
+    expect(signedConfig.mac.signIgnore).toBeUndefined()
   })
 
   it('checks timestamp candidates across nested macOS signed code', () => {
@@ -291,19 +286,28 @@ describe('electron-builder WorkWise packaging', () => {
       'Contents/Resources/app.asar.unpacked/node_modules/better-sqlite3/build/Release/better_sqlite3.node'
     )
     const resourceScript = join(appBundle, 'Contents/Resources/postinstall.sh')
+    const pythonFramework = join(
+      appBundle,
+      'Contents/Resources/app.asar.unpacked/sidecars/markitdown/_internal/Python.framework'
+    )
+    const pythonBinary = join(pythonFramework, 'Versions/3.12/Python')
 
     touch(mainExecutable)
     touch(join(framework, 'Versions/A/Electron Framework'))
     touch(nativeAddon)
     touch(resourceScript)
+    touch(pythonBinary)
     chmodSync(mainExecutable, 0o755)
     chmodSync(resourceScript, 0o755)
+    chmodSync(pythonBinary, 0o755)
 
     expect(macNotarize._internals.collectSignedCodeCandidates(appBundle)).toEqual([
       appBundle,
       framework,
       mainExecutable,
-      nativeAddon
+      nativeAddon,
+      pythonFramework,
+      pythonBinary
     ])
   })
 })

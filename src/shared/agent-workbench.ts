@@ -298,6 +298,11 @@ export type DocumentParseResultV1 = {
   tables: Array<{ markdown: string; page?: number }>
   media: Array<{ relativePath: string; mediaType?: string; page?: number }>
   references: DocumentPageReferenceV1[]
+  sourceStructure?: {
+    pageCount?: number
+    worksheets?: string[]
+    slideCount?: number
+  }
   warnings: string[]
   quality: {
     status: 'good' | 'degraded' | 'enhanced'

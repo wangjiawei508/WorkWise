@@ -1,8 +1,8 @@
 import { app, dialog, ipcMain, nativeImage, shell, type BrowserWindow, type WebContents } from 'electron'
 import { watch, type FSWatcher } from 'node:fs'
-import { randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import { basename, dirname, extname, join, resolve } from 'node:path'
-import { mkdir, readFile } from 'node:fs/promises'
+import { mkdir, readFile, realpath } from 'node:fs/promises'
 import { z } from 'zod'
 import {
   type AppSettingsPatch,
@@ -25,8 +25,16 @@ import type {
   WorkspacePickResult
 } from '../../shared/workwise-api'
 import type { WorkspaceFileSaveAsResult } from '../../shared/workspace-file'
-import type { GuiUpdateDownloadResult, GuiUpdateInfo, GuiUpdateInstallResult, GuiUpdateState } from '../../shared/gui-update'
+import type {
+  GuiUpdateActiveWorkItem,
+  GuiUpdateDownloadResult,
+  GuiUpdateInfo,
+  GuiUpdateInstallPreflight,
+  GuiUpdateInstallResult,
+  GuiUpdateState
+} from '../../shared/gui-update'
 import type { DesignAsset } from '../../shared/design-document'
+import { canonicalizeContainmentRoot, isCanonicalPathContained } from '../services/canonical-containment'
 import {
   agentProfileListPayloadSchema,
   agentProfileSavePayloadSchema,
@@ -164,6 +172,7 @@ import { atomicWriteFile as durableWriteFile } from '../services/durable-file'
 import { AgentProfileService } from '../services/agent-profile-service'
 import { WorkspaceTrustService } from '../services/workspace-trust-service'
 import { DocumentEngineService } from '../services/document-engine-service'
+import { ChatAttachmentImportService } from '../services/chat-attachment-import-service'
 import { WorkspacePreviewService } from '../services/workspace-preview-service'
 import { GitCheckpointService } from '../services/git-checkpoint-service'
 import { RepoMapService } from '../services/repo-map-service'
@@ -188,6 +197,7 @@ type RegisterAppIpcHandlersOptions = {
     method?: string,
     body?: string
   ) => Promise<RuntimeRequestResult>
+  runtimeFileRequest?: (path: string, filePath: string, headers: Record<string, string>) => Promise<RuntimeRequestResult>
   fetchUpstreamModels: () => Promise<UpstreamModelsResult>
   getClawRuntime: () => ClawRuntime | null
   getScheduleRuntime: () => ScheduleRuntime | null
@@ -219,6 +229,110 @@ function safeSaveAsFileName(input: string | undefined, fallback = 'generated-fil
   const name = basename(candidate) || fallback
   if (name === '.' || name === '..') return fallback
   return name
+}
+
+async function collectGuiUpdateActiveWork(
+  runtimeRequest: RegisterAppIpcHandlersOptions['runtimeRequest']
+): Promise<GuiUpdateInstallPreflight> {
+  const active: GuiUpdateActiveWorkItem[] = []
+  try {
+    const tasks = await runtimeRequest('/v1/tasks?limit=500', 'GET')
+    if (tasks.ok) {
+      const values = JSON.parse(tasks.body) as Array<Record<string, unknown>>
+      for (const task of Array.isArray(values) ? values : []) {
+        const status = typeof task.status === 'string' ? task.status : ''
+        if (['completed', 'failed', 'cancelled'].includes(status)) continue
+        active.push({
+          kind: 'agent',
+          id: String(task.id ?? ''),
+          label: String(task.goal ?? task.id ?? 'Agent task'),
+          status,
+          recoverable: true
+        })
+      }
+    }
+
+    const flowsResponse = await runtimeRequest('/v1/flows', 'GET')
+    if (flowsResponse.ok) {
+      const payload = JSON.parse(flowsResponse.body) as { flows?: Array<Record<string, unknown>> }
+      for (const flow of payload.flows ?? []) {
+        const flowId = String(flow.id ?? '')
+        if (!flowId) continue
+        const history = await runtimeRequest(`/v1/flows/${encodeURIComponent(flowId)}/history?limit=20`, 'GET')
+        if (!history.ok) continue
+        const historyPayload = JSON.parse(history.body) as { runs?: Array<Record<string, unknown>> }
+        const nodes = Array.isArray(flow.nodes) ? flow.nodes as Array<Record<string, unknown>> : []
+        const scheduled = nodes.some((node) => node.type === 'schedule_trigger')
+        for (const run of historyPayload.runs ?? []) {
+          const status = typeof run.status === 'string' ? run.status : ''
+          if (!['queued', 'running', 'waiting_approval', 'paused'].includes(status)) continue
+          active.push({
+            kind: scheduled ? 'schedule' : 'flow',
+            id: String(run.id ?? flowId),
+            label: String(flow.name ?? flowId),
+            status,
+            recoverable: status !== 'running' || nodes.every((node) => {
+              const policy = node.policy as Record<string, unknown> | undefined
+              return policy?.resumable !== false
+            })
+          })
+        }
+      }
+    }
+    return { ok: true, activeWork: active }
+  } catch (error) {
+    return {
+      ok: false,
+      activeWork: active,
+      message: error instanceof Error ? error.message : String(error)
+    }
+  }
+}
+
+function runtimeResponseMessage(result: RuntimeRequestResult): string {
+  try { const value = JSON.parse(result.body) as { message?: unknown }; if (typeof value.message === 'string') return value.message } catch { /* use status */ }
+  return `Runtime request failed (${result.status})`
+}
+
+export function buildAttachmentSections(attachmentId: string, text: string, document?: {
+  headings: Array<{ text: string; page?: number }>
+  tables: Array<{ markdown: string; page?: number }>
+  sourceStructure?: { worksheets?: string[]; slideCount?: number }
+}): Array<{
+  id: string; attachmentId: string; ordinal: number; text: string; tokenEstimate: number;
+  provenance: { heading?: string; page?: number; table?: string; worksheet?: string; slide?: number }; createdAt: string
+}> {
+  const tokens = text.normalize('NFC').match(/[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}]|[^\s\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}]{1,4}/gu) ?? []
+  const tokenOffset = (characterOffset: number): number => text.slice(0, characterOffset).normalize('NFC').match(/[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}]|[^\s\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}]{1,4}/gu)?.length ?? 0
+  type ProvenanceAnchor = { token: number; heading?: string; page?: number; worksheet?: string; slide?: number }
+  const anchors: ProvenanceAnchor[] = [
+    ...(document?.headings ?? []).flatMap((heading) => { const offset = text.indexOf(heading.text); return offset < 0 ? [] : [{ token: tokenOffset(offset), heading: heading.text, page: heading.page }] }),
+    ...(document?.sourceStructure?.worksheets ?? []).flatMap((worksheet) => { const offset = text.indexOf(worksheet); return offset < 0 ? [] : [{ token: tokenOffset(offset), worksheet }] }),
+    ...[...text.matchAll(/(?:<!--\s*)?slide(?:\s+number)?\s*[:#-]?\s*(\d+)(?:\s*-->)?/gi)].map((match) => ({ token: tokenOffset(match.index), slide: Number(match[1]) }))
+  ].sort((left, right) => left.token - right.token)
+  const tableAnchors = (document?.tables ?? []).flatMap((table, index) => {
+    const probes = [table.markdown, ...table.markdown.split(/[|\n]/)].map((value) => value.trim()).filter((value) => value && !/^[-:]+$/.test(value))
+    const offset = probes.map((probe) => text.indexOf(probe)).find((candidate) => candidate >= 0) ?? -1
+    return offset < 0 ? [] : [{ token: tokenOffset(offset), table: `table-${index + 1}`, page: table.page }]
+  })
+  const sections: Array<{ id: string; attachmentId: string; ordinal: number; text: string; tokenEstimate: number; provenance: { heading?: string; page?: number; table?: string; worksheet?: string; slide?: number }; createdAt: string }> = []; const createdAt = new Date().toISOString(); const target = 1200; const stride = 1050
+  for (let cursor = 0; cursor < tokens.length; cursor += stride) {
+    const chunk = tokens.slice(cursor, cursor + target); const sectionText = chunk.join(' '); if (!sectionText) break
+    const ordinal: number = sections.length
+    const activeAnchors = anchors.filter((item) => item.token <= cursor + target)
+    const headingAnchor = [...activeAnchors].reverse().find((item) => item.heading)
+    const worksheetAnchor = [...activeAnchors].reverse().find((item) => item.worksheet)
+    const slideAnchor = [...activeAnchors].reverse().find((item) => item.slide)
+    const table = tableAnchors.find((item) => item.token >= cursor && item.token < cursor + target)
+    const provenance = {
+      ...(headingAnchor?.heading ? { heading: headingAnchor.heading } : {}), ...(worksheetAnchor?.worksheet ? { worksheet: worksheetAnchor.worksheet } : {}),
+      ...(slideAnchor?.slide ? { slide: slideAnchor.slide } : {}), ...(table?.table ? { table: table.table } : {}),
+      ...((table?.page ?? headingAnchor?.page) ? { page: table?.page ?? headingAnchor?.page } : {})
+    }
+    sections.push({ id: `sec_${createHash('sha256').update(`${attachmentId}\0${ordinal}\0${sectionText}`).digest('hex').slice(0, 24)}`, attachmentId, ordinal, text: sectionText, tokenEstimate: chunk.length, provenance, createdAt })
+    if (cursor + target >= tokens.length) break
+  }
+  return sections
 }
 
 function saveDialogFilters(fileName: string, mimeType: string | undefined): Electron.FileFilter[] {
@@ -362,6 +476,7 @@ export function registerAppIpcHandlers(options: RegisterAppIpcHandlersOptions): 
     getMainWindow,
     applySettingsPatch,
     runtimeRequest,
+    runtimeFileRequest,
     fetchUpstreamModels,
     getClawRuntime,
     getScheduleRuntime,
@@ -386,6 +501,10 @@ export function registerAppIpcHandlers(options: RegisterAppIpcHandlersOptions): 
     developmentRoot: process.cwd()
   })
   const workspacePreviewService = new WorkspacePreviewService(documentEngineService)
+  const chatAttachmentImportService = new ChatAttachmentImportService({
+    managedRoot: join(app.getPath('userData'), 'chat-attachments'),
+    documentEngine: documentEngineService
+  })
   const gitCheckpointService = new GitCheckpointService()
   const repoMapService = new RepoMapService()
   const mcpConfigService = new McpConfigService()
@@ -651,6 +770,58 @@ export function registerAppIpcHandlers(options: RegisterAppIpcHandlersOptions): 
   ipcMain.handle('document-engine:cancel', async (_, payload: unknown) => {
     const parseId = parseIpcPayload('document-engine:cancel', streamIdSchema, payload)
     return documentEngineService.cancel(parseId)
+  })
+  ipcMain.handle('attachment:import-file', async (_, payload: unknown) => {
+    const request = parseIpcPayload('attachment:import-file', z.object({
+      importId: z.string().min(1).optional(), sourcePath: z.string().min(1), declaredMimeType: z.string().optional(),
+      threadId: z.string().min(1).optional(), workspace: z.string().min(1).optional()
+    }).strict().refine((value) => Boolean(value.threadId || value.workspace), { message: 'threadId or workspace is required' }), payload)
+    const staged = await chatAttachmentImportService.stage(request)
+    try {
+      if (!runtimeFileRequest) throw new Error('streamed Runtime attachment import is unavailable')
+      const imported = await runtimeFileRequest('/v1/attachments/documents', staged.absolutePath, {
+        'Content-Type': staged.mimeType,
+        'X-Workwise-File-Name': encodeURIComponent(staged.originalFileName),
+        'X-Workwise-Attachment-Kind': staged.kind,
+        ...(request.threadId ? { 'X-Workwise-Thread-Id': request.threadId } : {}),
+        ...(request.workspace ? { 'X-Workwise-Workspace': encodeURIComponent(request.workspace) } : {})
+      })
+      if (!imported.ok) throw new Error(runtimeResponseMessage(imported))
+      const attachment = (JSON.parse(imported.body) as { attachment: { id: string } }).attachment
+      const parsed = await chatAttachmentImportService.parse(staged)
+      const sections = buildAttachmentSections(attachment.id, parsed.document?.markdown ?? parsed.text ?? '', parsed.document)
+      for (let offset = 0; offset < sections.length || offset === 0; offset += 32) {
+        const batch = sections.slice(offset, offset + 32)
+        const final = offset + 32 >= sections.length
+        const result = await runtimeRequest(`/v1/attachments/${encodeURIComponent(attachment.id)}/parsed`, 'POST', JSON.stringify({
+          replace: offset === 0, sections: batch, final,
+          ...(final ? { metadata: {
+            state: parsed.state,
+            parser: parsed.document ? { engine: parsed.document.engine === 'mineru-local' ? 'mineru' : 'markitdown', version: parsed.document.engineVersion, local: true, parsedAt: new Date().toISOString() } : { engine: 'safe-text', local: true, parsedAt: new Date().toISOString() },
+            sourceStructure: parsed.sourceStructure ?? {},
+            degradationReasons: parsed.degradationReasons, parserWarnings: parsed.warnings,
+            summary: (parsed.document?.markdown ?? parsed.text ?? '').replace(/\s+/g, ' ').slice(0, 1200)
+          } } : {})
+        }))
+        if (!result.ok) throw new Error(runtimeResponseMessage(result))
+        if (final) return { attachment: (JSON.parse(result.body) as { attachment: unknown }).attachment, managedPath: staged.absolutePath }
+      }
+      throw new Error('attachment parsing produced no final result')
+    } catch (error) {
+      await chatAttachmentImportService.remove(staged).catch(() => undefined)
+      throw error
+    }
+  })
+  ipcMain.handle('attachment:cancel-import', async (_, payload: unknown) => {
+    const id = parseIpcPayload('attachment:cancel-import', z.string().min(1), payload)
+    return chatAttachmentImportService.cancel(id) || documentEngineService.cancel(id)
+  })
+  ipcMain.handle('attachment:open-original', async (_, payload: unknown) => {
+    const path = parseIpcPayload('attachment:open-original', z.string().min(1), payload)
+    const root = await canonicalizeContainmentRoot(join(app.getPath('userData'), 'chat-attachments'))
+    const target = await realpath(path)
+    if (!isCanonicalPathContained(root, target)) throw new Error('attachment path is outside managed storage')
+    shell.showItemInFolder(target)
   })
   ipcMain.handle('file:preview-workspace', async (_, payload: unknown) => {
     const request = parseIpcPayload('file:preview-workspace', workspacePreviewPayloadSchema, payload)
@@ -1444,7 +1615,22 @@ export function registerAppIpcHandlers(options: RegisterAppIpcHandlersOptions): 
       ).channel
     )
   })
-  ipcMain.handle('gui:update-install', async (): Promise<GuiUpdateInstallResult> => {
+  ipcMain.handle('gui:update-install-preflight', async (): Promise<GuiUpdateInstallPreflight> =>
+    collectGuiUpdateActiveWork(runtimeRequest)
+  )
+  ipcMain.handle('gui:update-install', async (_, payload: unknown): Promise<GuiUpdateInstallResult> => {
+    const request = parseIpcPayload(
+      'gui:update-install',
+      z.object({ confirmActiveWork: z.boolean().optional() }).strict(),
+      payload ?? {}
+    )
+    const preflight = await collectGuiUpdateActiveWork(runtimeRequest)
+    if (!preflight.ok) {
+      return { ok: false, currentVersion: getAppVersion(), message: preflight.message ?? 'Update preflight failed.', code: 'install_failed' }
+    }
+    if (preflight.activeWork.length > 0 && request.confirmActiveWork !== true) {
+      return { ok: false, currentVersion: getAppVersion(), message: 'Active work must be confirmed before restarting.', code: 'install_failed' }
+    }
     const module = await loadGuiUpdaterModule()
     return module.installGuiUpdate()
   })

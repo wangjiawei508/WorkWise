@@ -38,7 +38,7 @@ import {
 import { WriteFileTree } from './WriteFileTree'
 
 type Props = {
-  activeView: 'chat' | 'write' | 'claw' | 'schedule' | 'design'
+  activeView: 'chat' | 'write' | 'claw' | 'schedule' | 'design' | 'flow'
   connectPhoneSidebarOpen: boolean
   focusModeEnabled: boolean
   onCodeOpen: () => void

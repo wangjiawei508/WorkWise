@@ -1,5 +1,4 @@
 import { readFile } from 'node:fs/promises'
-import { getDocument } from 'pdfjs-dist/legacy/build/pdf.mjs'
 
 const MAX_ANALYZED_PAGES = 500
 const MAX_PAGE_TEXT_BYTES = 64 * 1024
@@ -25,6 +24,10 @@ export async function analyzePdfDocument(
 ): Promise<PdfDocumentAnalysisV1> {
   if (signal?.aborted) throw cancelledError()
   const bytes = await readFile(path)
+  // pdfjs probes optional native canvas bindings while the module loads. Keep
+  // that work out of the desktop bootstrap so one missing cross-arch optional
+  // package cannot prevent WorkWise itself from reaching app.whenReady().
+  const { getDocument } = await import('pdfjs-dist/legacy/build/pdf.mjs')
   const loadingTask = getDocument({
     data: new Uint8Array(bytes),
     isEvalSupported: false,

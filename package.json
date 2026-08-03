@@ -1,7 +1,7 @@
 {
   "name": "workwise",
   "productName": "WorkWise",
-  "version": "0.3.2",
+  "version": "0.3.3",
   "description": "AI workbench for engineering, infrastructure, and operations workflows",
   "license": "MIT",
   "engines": {
@@ -27,7 +27,7 @@
     "verify:document-licenses": "node ./scripts/verify-document-dependencies.mjs",
     "dist": "npm run build && npx --yes electron-builder@26.8.1 --config electron-builder.cjs --publish never",
     "dist:mac": "rm -f dist/WorkWise-*-mac-* dist/latest-mac.yml && npm run build && npm run dist:mac:x64:artifacts && npm run dist:mac:arm64:artifacts",
-    "dist:mac:signed": "rm -f dist/WorkWise-*-mac-* dist/latest-mac.yml && npm run build && MAC_SIGN=1 npm run dist:mac:x64:artifacts && MAC_SIGN=1 npm run dist:mac:arm64:artifacts",
+    "dist:mac:signed": "rm -f dist/WorkWise-*-mac-* dist/latest-mac.yml && npm run build && MAC_SIGN=1 node ./scripts/run-mac-artifact-build-with-retry.mjs x64 && MAC_SIGN=1 node ./scripts/run-mac-artifact-build-with-retry.mjs arm64",
     "dist:mac:arm64": "npm run build && npm run dist:mac:arm64:artifacts",
     "dist:mac:x64": "npm run build && npm run dist:mac:x64:artifacts",
     "dist:mac:arm64:artifacts": "npm run dist:mac:arm64:dmg && node ./scripts/zip-mac-app.cjs arm64",
@@ -41,7 +41,9 @@
     "prepare:converters": "node ./scripts/prepare-markdown-converters.cjs",
     "prepare:electron": "node ./scripts/ensure-electron-install.cjs",
     "r2:upload": "node ./scripts/publish-r2.mjs upload",
+    "r2:verify": "node ./scripts/publish-r2.mjs verify",
     "r2:promote": "node ./scripts/publish-r2.mjs promote",
+    "r2:rollback": "node ./scripts/publish-r2.mjs rollback",
     "postinstall": "node ./scripts/postinstall.cjs",
     "verify:apple": "node ./scripts/verify-apple-signing.cjs",
     "verify:release-assets": "node ./scripts/verify-release-assets.cjs",
@@ -55,6 +57,7 @@
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1049.0",
+    "@aws-sdk/s3-request-presigner": "^3.1101.0",
     "@codemirror/commands": "^6.10.3",
     "@codemirror/lang-markdown": "^6.5.0",
     "@codemirror/language": "^6.12.3",
@@ -64,6 +67,7 @@
     "@larksuiteoapi/node-sdk": "^1.71.1",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@tencent-weixin/openclaw-weixin": "2.4.3",
+    "@xyflow/react": "^12.11.2",
     "better-sqlite3": "^12.11.1",
     "diff": "^9.0.0",
     "docx": "^9.7.1",

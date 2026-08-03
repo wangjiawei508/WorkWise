@@ -141,6 +141,9 @@ const api = {
   installDocumentEngine: (id) => ipcRenderer.invoke('document-engine:install', id),
   diagnoseDocumentEngine: (id) => ipcRenderer.invoke('document-engine:diagnose', id),
   parseDocument: (request) => ipcRenderer.invoke('document-engine:parse', request),
+  importChatAttachment: (request) => ipcRenderer.invoke('attachment:import-file', request),
+  cancelChatAttachmentImport: (importId) => ipcRenderer.invoke('attachment:cancel-import', importId),
+  openChatAttachmentOriginal: (managedPath) => ipcRenderer.invoke('attachment:open-original', managedPath),
   cancelDocumentParse: (parseId) => ipcRenderer.invoke('document-engine:cancel', parseId),
   previewWorkspaceFile: (request) => ipcRenderer.invoke('file:preview-workspace', request),
   openSkillRoot: (rootPath) =>
@@ -306,7 +309,8 @@ const api = {
     ipcRenderer.invoke('gui:update-check', channel),
   downloadGuiUpdate: (channel) =>
     ipcRenderer.invoke('gui:update-download', channel),
-  installGuiUpdate: () => ipcRenderer.invoke('gui:update-install'),
+  preflightGuiUpdateInstall: () => ipcRenderer.invoke('gui:update-install-preflight'),
+  installGuiUpdate: (request) => ipcRenderer.invoke('gui:update-install', request),
   onGuiUpdateState: (handler) => {
     const wrapped = (
       _: Electron.IpcRendererEvent,

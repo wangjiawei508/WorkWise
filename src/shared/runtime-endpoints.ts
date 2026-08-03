@@ -33,6 +33,20 @@ export function runtimeAttachmentContentPath(attachmentId: string): string {
   return `${runtimeAttachmentPath(attachmentId)}/content`
 }
 
+export const RUNTIME_FLOWS_TEMPLATE = '/v1/flows'
+export const RUNTIME_FLOW_TEMPLATE = '/v1/flows/{id}'
+export const RUNTIME_FLOW_VALIDATE_TEMPLATE = '/v1/flows/validate'
+export const RUNTIME_FLOW_PUBLISH_TEMPLATE = '/v1/flows/publish'
+export const RUNTIME_FLOW_RUN_TEMPLATE = '/v1/flows/run'
+export const RUNTIME_FLOW_TEST_NODE_TEMPLATE = '/v1/flows/test-node'
+export const RUNTIME_FLOW_HISTORY_TEMPLATE = '/v1/flows/{id}/history'
+export const RUNTIME_FLOW_EXPORT_TEMPLATE = '/v1/flows/{id}/export'
+export const RUNTIME_FLOW_RUN_DETAILS_TEMPLATE = '/v1/flow-runs/{id}'
+export const RUNTIME_FLOW_RUN_CANCEL_TEMPLATE = '/v1/flow-runs/{id}/cancel'
+export const RUNTIME_FLOW_RUN_RESUME_TEMPLATE = '/v1/flow-runs/{id}/resume'
+export const RUNTIME_FLOW_RUN_RETRY_TEMPLATE = '/v1/flow-runs/{id}/retry'
+export const RUNTIME_FLOW_RUN_DECISION_TEMPLATE = '/v1/flow-runs/decision'
+
 export const RUNTIME_MEMORY_PATH = '/v1/memory'
 export const RUNTIME_MEMORY_TEMPLATE = '/v1/memory'
 export const RUNTIME_MEMORY_DIAGNOSTICS_PATH = '/v1/memory/diagnostics'

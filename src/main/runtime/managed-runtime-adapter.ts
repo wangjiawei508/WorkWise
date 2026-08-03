@@ -79,7 +79,7 @@ export function runtimeAuthHeaders(settings: AppSettingsV1): Headers {
 
 export type RuntimeRequestInit = {
   method?: string
-  body?: string
+  body?: BodyInit
   headers?: Record<string, string>
 }
 

@@ -71,3 +71,22 @@ export type GuiUpdateDownloadResult =
 export type GuiUpdateInstallResult =
   | { ok: true }
   | { ok: false; currentVersion: string; message: string; code?: GuiUpdateFailureCode }
+
+export type GuiUpdateActiveWorkItem = {
+  kind: 'agent' | 'flow' | 'schedule'
+  id: string
+  label: string
+  status: string
+  recoverable: boolean
+}
+
+export type GuiUpdateInstallPreflight = {
+  ok: boolean
+  activeWork: GuiUpdateActiveWorkItem[]
+  message?: string
+}
+
+export type GuiUpdateInstallRequest = {
+  /** The renderer may only set this after showing the current active-work list. */
+  confirmActiveWork?: boolean
+}

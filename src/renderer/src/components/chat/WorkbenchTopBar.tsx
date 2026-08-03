@@ -2,6 +2,7 @@ import type { ReactElement } from 'react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { EditorInfo } from '@shared/editor'
 import type { GuiUpdateState } from '@shared/gui-update'
+import { preflightAndInstallGuiUpdate } from '../../lib/gui-update-install-preflight'
 import {
   ArrowUpCircle,
   Check,
@@ -210,8 +211,11 @@ export function WorkbenchTopBar({
       if (!guiUpdateAction.downloaded && guiUpdateState.status !== 'downloaded') {
         const downloadResult = await window.workwise.downloadGuiUpdate(guiUpdateAction.channel)
         if (!downloadResult.ok) return
+        // The first click is download-only. The updater state event changes
+        // this control to “Restart and update” for an explicit second click.
+        return
       }
-      const installResult = await window.workwise.installGuiUpdate()
+      const installResult = await preflightAndInstallGuiUpdate()
       if (!installResult.ok && typeof window.workwise?.logError === 'function') {
         await window.workwise.logError('gui-update', 'Failed to install GUI update from workbench top bar', {
           version: guiUpdateAction.latestVersion,

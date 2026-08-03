@@ -1,0 +1,172 @@
+name: Native updater acceptance
+
+on:
+  workflow_dispatch:
+    inputs:
+      base_macos_arm64_url:
+        description: 'HTTPS URL of the signed WorkWise 0.3.3 Apple Silicon DMG.'
+        required: true
+        type: string
+      base_macos_x64_url:
+        description: 'HTTPS URL of the signed WorkWise 0.3.3 Intel DMG.'
+        required: true
+        type: string
+      base_windows_x64_url:
+        description: 'HTTPS URL of the WorkWise 0.3.3 Windows x64 NSIS installer.'
+        required: true
+        type: string
+      test_feed_url:
+        description: 'HTTPS generic updater feed whose latest manifest points to test version 0.3.4.'
+        required: true
+        type: string
+      base_version:
+        description: 'Installed version used to start the acceptance run.'
+        required: true
+        type: string
+        default: '0.3.3'
+      target_version:
+        description: 'Version expected after platform updater relaunch.'
+        required: true
+        type: string
+        default: '0.3.4'
+      channel:
+        description: 'Updater channel encoded in the test packages and manifest.'
+        required: true
+        type: choice
+        options:
+          - frontier
+          - stable
+        default: frontier
+
+permissions:
+  contents: read
+
+concurrency:
+  group: native-updater-acceptance-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  NODE_VERSION: '22.22.0'
+
+jobs:
+  native-update:
+    name: ${{ matrix.label }} 0.3.3 → 0.3.4
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: macOS Apple Silicon
+            runner: macos-15
+            platform: darwin
+            arch: arm64
+            extension: dmg
+            installer_url: ${{ inputs.base_macos_arm64_url }}
+          - label: macOS Intel
+            runner: macos-15-intel
+            platform: darwin
+            arch: x64
+            extension: dmg
+            installer_url: ${{ inputs.base_macos_x64_url }}
+          - label: Windows x64
+            runner: windows-2022
+            platform: win32
+            arch: x64
+            extension: exe
+            installer_url: ${{ inputs.base_windows_x64_url }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    steps:
+      - name: Check out acceptance harness
+        uses: actions/checkout@v7
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Reject insecure acceptance inputs
+        shell: bash
+        env:
+          BASE_INSTALLER_URL: ${{ matrix.installer_url }}
+          TEST_FEED_URL: ${{ inputs.test_feed_url }}
+        run: |
+          set -euo pipefail
+          [[ "${BASE_INSTALLER_URL}" == https://* ]] || { echo "::error::Base installer must use HTTPS"; exit 1; }
+          [[ "${TEST_FEED_URL}" == https://* ]] || { echo "::error::Test feed must use HTTPS"; exit 1; }
+
+      - name: Download signed macOS base installer
+        if: matrix.platform == 'darwin'
+        shell: bash
+        env:
+          BASE_INSTALLER_URL: ${{ matrix.installer_url }}
+        run: |
+          set -euo pipefail
+          mkdir -p "${RUNNER_TEMP}/updater-evidence"
+          curl --fail --silent --show-error --location \
+            --output "${RUNNER_TEMP}/workwise-base.${{ matrix.extension }}" \
+            "${BASE_INSTALLER_URL}"
+
+      - name: Download Windows base installer
+        if: matrix.platform == 'win32'
+        shell: pwsh
+        env:
+          BASE_INSTALLER_URL: ${{ matrix.installer_url }}
+        run: |
+          New-Item -ItemType Directory -Force -Path "$env:RUNNER_TEMP/updater-evidence" | Out-Null
+          Invoke-WebRequest -Uri $env:BASE_INSTALLER_URL -OutFile "$env:RUNNER_TEMP/workwise-base.${{ matrix.extension }}"
+
+      - name: Exercise signed macOS platform updater and automatic relaunch
+        if: matrix.platform == 'darwin'
+        shell: bash
+        env:
+          TEST_FEED_URL: ${{ inputs.test_feed_url }}
+        run: |
+          set -euo pipefail
+          node scripts/run-native-updater-acceptance.mjs \
+            --installer="${RUNNER_TEMP}/workwise-base.${{ matrix.extension }}" \
+            --feed-url="${TEST_FEED_URL}" \
+            --base-version="${{ inputs.base_version }}" \
+            --target-version="${{ inputs.target_version }}" \
+            --channel="${{ inputs.channel }}" \
+            --expected-arch="${{ matrix.arch }}" \
+            --report="${RUNNER_TEMP}/updater-evidence/${{ matrix.platform }}-${{ matrix.arch }}.json"
+
+      - name: Exercise Windows platform updater and automatic relaunch
+        if: matrix.platform == 'win32'
+        shell: pwsh
+        env:
+          TEST_FEED_URL: ${{ inputs.test_feed_url }}
+        run: |
+          node scripts/run-native-updater-acceptance.mjs `
+            "--installer=$env:RUNNER_TEMP/workwise-base.${{ matrix.extension }}" `
+            "--feed-url=$env:TEST_FEED_URL" `
+            "--base-version=${{ inputs.base_version }}" `
+            "--target-version=${{ inputs.target_version }}" `
+            "--channel=${{ inputs.channel }}" `
+            "--expected-arch=${{ matrix.arch }}" `
+            "--report=$env:RUNNER_TEMP/updater-evidence/${{ matrix.platform }}-${{ matrix.arch }}.json"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Upload native updater evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: updater-acceptance-${{ matrix.platform }}-${{ matrix.arch }}
+          if-no-files-found: warn
+          retention-days: 30
+          path: ${{ runner.temp }}/updater-evidence/
+
+  acceptance-gate:
+    name: All native updater paths passed
+    if: always()
+    needs: native-update
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require all three native jobs
+        env:
+          RESULT: ${{ needs.native-update.result }}
+        run: |
+          if [[ "${RESULT}" != "success" ]]; then
+            echo "::error::macOS arm64, macOS x64, and Windows x64 updater acceptance must all pass."
+            exit 1
+          fi

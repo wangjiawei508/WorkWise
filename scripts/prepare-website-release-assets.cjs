@@ -1,10 +1,75 @@
 #!/usr/bin/env node
 
-const { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } = require('node:fs')
+const { createHash } = require('node:crypto')
+const { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } = require('node:fs')
 const { basename, join, resolve } = require('node:path')
 
 function usage() {
-  console.error('Usage: node scripts/prepare-website-release-assets.cjs <inputDir> <outputDir> <version>')
+  console.error('Usage: node scripts/prepare-website-release-assets.cjs <inputDir> <outputDir> <version> [--channel stable|frontier] [--release-prefix workwise[/acceptance/RUN_ID]] [--public-base-url HTTPS_URL]')
+}
+
+function readOptions(argv) {
+  const options = {
+    channel: 'stable',
+    releasePrefix: 'workwise',
+    publicBaseUrl: 'https://www.railwise.cn/downloads'
+  }
+  for (let index = 5; index < argv.length; index += 1) {
+    const flag = argv[index]
+    const value = argv[index + 1]
+    if (!value || value.startsWith('--')) die(`Missing value for ${flag}`)
+    if (flag === '--channel') options.channel = value
+    else if (flag === '--release-prefix') options.releasePrefix = value.replace(/^\/+|\/+$/g, '')
+    else if (flag === '--public-base-url') options.publicBaseUrl = value.replace(/\/+$/, '')
+    else die(`Unknown flag: ${flag}`)
+    index += 1
+  }
+  if (!['stable', 'frontier'].includes(options.channel)) die(`Invalid channel: ${options.channel}`)
+  if (!/^workwise(?:\/acceptance\/[1-9]\d*)?$/.test(options.releasePrefix)) {
+    die(`Invalid release prefix: ${options.releasePrefix}`)
+  }
+  if (!options.publicBaseUrl.startsWith('https://')) die('Public base URL must use HTTPS.')
+  return options
+}
+
+function sha256(path) {
+  return createHash('sha256').update(readFileSync(path)).digest('hex')
+}
+
+function readReleaseDate(outputDir) {
+  const releaseDates = ['latest-mac.yml', 'latest.yml']
+    .map((name) => readFileSync(join(outputDir, name), 'utf8').match(/^releaseDate:\s*['"]?([^'"\s]+)['"]?\s*$/m)?.[1] || '')
+    .filter(Boolean)
+    .sort()
+  return releaseDates.at(-1) || '1970-01-01T00:00:00.000Z'
+}
+
+function writeLatestJson(outputDir, version, options) {
+  const updateBaseUrl = `${options.publicBaseUrl}/${options.releasePrefix}/channels/${options.channel}/latest/`
+  const files = readdirSync(outputDir)
+    .filter((name) => name.startsWith(`WorkWise-${version}-`))
+    .sort()
+    .map((name) => ({
+      name,
+      url: `${updateBaseUrl}${encodeURIComponent(name)}`,
+      size: statSync(join(outputDir, name)).size,
+      sha256: sha256(join(outputDir, name))
+    }))
+  const manifest = {
+    schemaVersion: 1,
+    productName: 'WorkWise',
+    channel: options.channel,
+    version,
+    tag: `v${version}`,
+    generatedAt: readReleaseDate(outputDir),
+    updateBaseUrl,
+    updateMetadata: {
+      mac: `${updateBaseUrl}latest-mac.yml`,
+      win: `${updateBaseUrl}latest.yml`
+    },
+    files
+  }
+  writeFileSync(join(outputDir, 'latest.json'), `${JSON.stringify(manifest, null, 2)}\n`, 'utf8')
 }
 
 function die(message) {
@@ -45,6 +110,7 @@ function main() {
     usage()
     die(`Invalid arguments: input=${process.argv[2] || ''}, output=${process.argv[3] || ''}, version=${version}`)
   }
+  const options = readOptions(process.argv)
 
   if (!existsSync(inputDir)) die(`Input directory does not exist: ${inputDir}`)
   rmSync(outputDir, { recursive: true, force: true })
@@ -71,6 +137,7 @@ function main() {
 
   rewriteUpdateMetadata(inputDir, outputDir, 'latest-mac.yml', fileMap)
   rewriteUpdateMetadata(inputDir, outputDir, 'latest.yml', fileMap)
+  writeLatestJson(outputDir, version, options)
 
   const output = readdirSync(outputDir).map((name) => basename(name)).sort()
   for (const name of output) console.log(name)
