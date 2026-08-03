@@ -3,6 +3,7 @@
   <h1>WorkWise</h1>
   <p><strong>让 AI 进入真实工作流。</strong></p>
   <p>本地优先的桌面 AI 工作台，把代码、写作、设计、技能与交付放在一个应用里。</p>
+  <p><strong>DeepSeek V4 原生默认支持</strong> · 主 Agent 默认 V4 Pro · Write 默认 V4 Flash</p>
   <p>
     简体中文 · <a href="./README.en.md">English</a>
   </p>
