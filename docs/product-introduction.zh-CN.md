@@ -19,11 +19,12 @@ WorkWise 是一款本地优先的桌面 AI 工作台。它把项目文件、会�
 
 ## DeepSeek V4 适配与支持
 
-WorkWise 最初围绕 DeepSeek 的实际使用场景开发，并持续把 DeepSeek 作为内置的一等模型服务支持；同时保持开放，不把用户锁定在单一模型或服务商中。
+WorkWise 不是在通用聊天客户端上额外增加一个 DeepSeek 选项，而是从项目起点就围绕 DeepSeek 的模型能力和真实工作场景构建。DeepSeek 是当前开箱即用的默认模型底座；同时 WorkWise 保持开放，允许用户在首次配置后按需添加其他兼容模型服务。
 
 ### 0.3.3 当前支持
 
 - 内置 `deepseek-v4-pro` 与 `deepseek-v4-flash` 模型配置，可直接连接 DeepSeek 官方 API，也可按组织要求配置兼容服务。
+- 首次启动的模型配置只提供 DeepSeek API Key 和可选服务地址；默认主 Agent 使用 `deepseek-v4-pro`，Write 行内补全默认使用 `deepseek-v4-flash`。一次配置即可供对话、写作和手机连接共用，没有 API Key 时仍可先使用本地写作和导出。
 - 按 DeepSeek V4 的 100 万 token 上下文建立运行时配置，并支持思考模式、工具调用、长对话历史延续、上下文压缩和缓存用量统计。DeepSeek 官方公布的模型能力与接口范围见 [DeepSeek V4 发布说明](https://api-docs.deepseek.com/news/news260424) 和 [模型与计费说明](https://api-docs.deepseek.com/quick_start/pricing)。
 - WorkWise 负责模型接入与工作流编排；API Key、模型可用性、调用额度和费用仍由用户选择的模型服务及其账户决定。
 

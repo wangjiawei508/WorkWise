@@ -21,6 +21,18 @@ WorkWise 面向需要长期上下文、反复修改和正式交付的工作。�
 
 **[0.3.3 正式版](https://github.com/wangjiawei508/WorkWise/releases/tag/v0.3.3)**在持久化 Agent 工作台、Write 和 Design 之上新增 WorkWise Flow Preview，并正式交付通用文档附件与应用内更新。PDF、DOCX、XLSX、PPTX、TXT、Markdown、CSV 和常用图片可以直接进入对话；长文档在本地解析、分段索引并按需检索。已安装 0.3.3 的用户从后续版本开始可直接在应用内下载并“重启更新”。
 
+## DeepSeek 原生默认支持
+
+WorkWise 不是在通用聊天客户端上额外增加一个 DeepSeek 选项，而是从项目起点就围绕 DeepSeek 的模型能力和真实工作场景构建。DeepSeek 是当前开箱即用的默认模型底座，其他兼容模型服务则作为后续可选扩展。
+
+- **安装后直接配置 DeepSeek**：首次启动的模型配置只提供 DeepSeek API Key 和可选服务地址，不需要先理解或切换服务商；完成一次配置后，对话、写作和手机连接即可共用。没有 API Key 时仍可先使用本地写作和导出。
+- **按模型特长分工**：默认主 Agent 使用 `deepseek-v4-pro`，Write 行内补全默认使用 `deepseek-v4-flash`；定时任务、Flow 和其他 Agent 场景也可在两者之间选择。
+- **不是简单转发接口**：0.3.3 按 DeepSeek V4 的 100 万 token 上下文配置运行时，并支持思考模式、工具调用、长对话延续、上下文压缩和缓存用量统计。
+- DeepSeek 已于 2026 年 7 月 31 日更新 V4 Flash API 公测版本，进一步后训练并增强 Agent 能力，同时原生支持 Responses API 与 Codex。通过官方 API 选择 `deepseek-v4-flash` 时，服务端模型更新不要求重新安装 WorkWise。详见 [DeepSeek 官方公告](https://x.com/deepseek_ai/status/2083084415157022911)。
+- 此次更新只涉及 V4 Flash；截至 2026 年 8 月 4 日，新版 V4 Pro 尚未完成同轮更新。待其正式发布后，WorkWise 将统一验证 Flash/Pro 的默认路由、Responses API、推理档位、长工具链、文档检索与 Flow 场景，不提前把预告能力写成已交付功能。
+
+完整支持范围与版本边界见[软件介绍](./docs/product-introduction.zh-CN.md)。DeepSeek V4 的公开模型参数和接口说明见[官方发布说明](https://api-docs.deepseek.com/news/news260424)。
+
 ## 一眼看懂
 
 | Code 工作台 | Write 写作工作台 |
