@@ -67,5 +67,5 @@
 - [x] 6.2 Run strict OpenSpec validation, full TypeScript checks, Runtime tests, desktop tests, production builds, package freshness, ASAR, native Runtime, and document-dependency verification.
 - [x] 6.3 Complete the tender acceptance using a 100+ page PDF, page-cited clause retrieval, and generated bid DOCX while direct full-document model injection remains disabled.
 - [x] 6.4 Complete the Flow acceptance for `schedule → tender retrieval → Agent preparation → DOCX → human approval → archive`, including retry, restart recovery, history, and redacted export.
-- [ ] 6.5 Complete 0.3.3 → test 0.3.4 in-app update acceptance on macOS arm64, macOS x64, and Windows x64 without browser access.
+- [x] 6.5 Complete 0.3.3 → test 0.3.4 in-app update acceptance on macOS arm64, macOS x64, and Windows x64 without browser access.
 - [x] 6.6 Record official-domain, R2, signing, notarization, installer, manifest, hash, Range, and rollback evidence; explicitly leave Stable promotion blocked wherever external credentials or platform environments are unavailable.
