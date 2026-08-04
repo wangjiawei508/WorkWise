@@ -286,6 +286,8 @@ export function WriteAssistantPanel({
         ) : null}
         <FloatingComposer
           variant="compact"
+          composerMinHeight={104}
+          composerMaxHeight={240}
           workspaceRootOverride={workspaceRoot}
           input={input}
           setInput={setInput}

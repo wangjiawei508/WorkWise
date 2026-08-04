@@ -7,6 +7,10 @@ WorkWise SHALL expose a `flow` main route and sidebar entry by default, label it
 - **WHEN** the user selects Flow from the sidebar
 - **THEN** WorkWise opens the Preview Flow workspace without requiring a feature flag
 
+#### Scenario: User creates the first Flow
+- **WHEN** the user selects “New Flow” from the empty workspace
+- **THEN** the canvas visibly renders a fitted `manual trigger → Agent` starter graph with selectable typed nodes instead of showing an empty grid with only the inspector
+
 #### Scenario: User opens Scheduled tasks
 - **WHEN** the user selects the legacy Scheduled tasks entry
 - **THEN** WorkWise opens Flow with the scheduled-Flow filter active

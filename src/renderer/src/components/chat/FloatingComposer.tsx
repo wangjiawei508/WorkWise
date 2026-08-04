@@ -90,6 +90,8 @@ export type { ComposerExecutionSettings } from './FloatingComposerExecutionPicke
 
 type Props = {
   variant?: 'default' | 'compact'
+  composerMinHeight?: number
+  composerMaxHeight?: number
   workspaceRootOverride?: string
   input: string
   setInput: (v: string) => void
@@ -479,6 +481,8 @@ export function formatGoalElapsedSeconds(seconds: number): string {
 
 export function FloatingComposer({
   variant = 'default',
+  composerMinHeight = 36,
+  composerMaxHeight = 176,
   workspaceRootOverride,
   input,
   setInput,
@@ -611,7 +615,12 @@ export function FloatingComposer({
   const hiddenChangedFileCount = Math.max(0, changedFiles.length - visibleChangedFiles.length)
   const stretchModelPicker =
     compact && modelPickerMode === 'combobox' && !showToolbarStartControls && !hideModelPicker
-  const draft = useComposerDraft({ input, canCompose: canEditComposer })
+  const draft = useComposerDraft({
+    input,
+    canCompose: canEditComposer,
+    minHeight: composerMinHeight,
+    maxHeight: composerMaxHeight
+  })
   const slashQuery = getSlashQuery(input)
   const [composerCursor, setComposerCursor] = useState(() => input.length)
   const [selectedCommandIndex, setSelectedCommandIndex] = useState(0)

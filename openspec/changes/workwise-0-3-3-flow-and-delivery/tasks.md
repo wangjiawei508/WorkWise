@@ -69,3 +69,11 @@
 - [x] 6.4 Complete the Flow acceptance for `schedule → tender retrieval → Agent preparation → DOCX → human approval → archive`, including retry, restart recovery, history, and redacted export.
 - [x] 6.5 Complete 0.3.3 → test 0.3.4 in-app update acceptance on macOS arm64, macOS x64, and Windows x64 without browser access.
 - [x] 6.6 Record official-domain, R2, signing, notarization, installer, manifest, hash, Range, and rollback evidence; explicitly leave Stable promotion blocked wherever external credentials or platform environments are unavailable.
+
+## 7. Packaged GUI recovery acceptance
+
+- [x] 7.1 Make the Write assistant reuse the shared Composer sizing behavior with a practical multi-line minimum, bounded auto-growth, internal scrolling, and no overlap between long text, attachments, and actions; add renderer regression coverage.
+- [x] 7.2 Stabilize React Flow node registration, explicit node dimensions, and viewport sizing so a newly created Flow visibly renders the fitted `manual trigger → Agent` starter graph; add mounted renderer coverage that asserts both nodes are present and `visibility: visible`.
+- [x] 7.3 Re-run typecheck, focused renderer tests, and production build for the GUI hotfix without touching the Extension/DeepSeek development worktree.
+- [ ] 7.4 Build a fresh candidate package and launch the exact packaged GUI to re-test Write long-form input and attachment import, Scheduled tasks, Flow starter visibility, and Design PPT import/targeted AI modification before any replacement release.
+- [x] 7.5 Add the missing `axios` production dependency required by `@larksuiteoapi/node-sdk` so the packaged GUI starts without a main-process module error; verify by launching the fresh local candidate package.

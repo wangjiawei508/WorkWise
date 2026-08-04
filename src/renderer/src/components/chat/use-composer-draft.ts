@@ -10,9 +10,30 @@ import {
 type UseComposerDraftOptions = {
   input: string
   canCompose: boolean
+  minHeight?: number
+  maxHeight?: number
 }
 
-export function useComposerDraft({ input, canCompose }: UseComposerDraftOptions): {
+export function resolveComposerTextareaLayout(
+  scrollHeight: number,
+  minHeight = 36,
+  maxHeight = 176
+): { height: number; overflowY: 'auto' | 'hidden' } {
+  const safeMinHeight = Math.max(1, Math.min(minHeight, maxHeight))
+  const safeMaxHeight = Math.max(safeMinHeight, maxHeight)
+  const contentHeight = Math.max(0, scrollHeight)
+  return {
+    height: Math.max(safeMinHeight, Math.min(contentHeight, safeMaxHeight)),
+    overflowY: contentHeight > safeMaxHeight ? 'auto' : 'hidden'
+  }
+}
+
+export function useComposerDraft({
+  input,
+  canCompose,
+  minHeight = 36,
+  maxHeight = 176
+}: UseComposerDraftOptions): {
   textareaRef: React.RefObject<HTMLTextAreaElement | null>
   focused: boolean
   focusComposer: () => void
@@ -31,11 +52,10 @@ export function useComposerDraft({ input, canCompose }: UseComposerDraftOptions)
     if (!el) return
 
     el.style.height = '0px'
-    const nextHeight = Math.min(el.scrollHeight, 176)
-    const minHeight = 36
-    el.style.height = `${Math.max(nextHeight, minHeight)}px`
-    el.style.overflowY = el.scrollHeight > 176 ? 'auto' : 'hidden'
-  }, [])
+    const layout = resolveComposerTextareaLayout(el.scrollHeight, minHeight, maxHeight)
+    el.style.height = `${layout.height}px`
+    el.style.overflowY = layout.overflowY
+  }, [maxHeight, minHeight])
 
   useLayoutEffect(() => {
     resizeTextarea()

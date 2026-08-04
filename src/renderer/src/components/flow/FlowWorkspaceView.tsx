@@ -2,7 +2,7 @@ import '@xyflow/react/dist/style.css'
 import { useCallback, useEffect, useMemo, useState, type ReactElement } from 'react'
 import {
   Background, Controls, Handle, MiniMap, Position, ReactFlow, addEdge, applyEdgeChanges, applyNodeChanges,
-  type Connection, type Edge, type EdgeChange, type Node, type NodeChange, type NodeProps
+  type Connection, type Edge, type EdgeChange, type Node, type NodeChange, type NodeProps, type ReactFlowInstance
 } from '@xyflow/react'
 import { AlertTriangle, CheckCircle2, ChevronRight, Download, History, Loader2, Play, Save, Send, Square, TestTube2, Workflow } from 'lucide-react'
 import { SidebarTitlebarToggleButton } from '../sidebar/SidebarPrimitives'
@@ -24,6 +24,9 @@ const PORT_COLORS: Record<PortType, string> = { string: '#2563eb', number: '#7c3
 const PORT_CONVERSIONS: Record<string, { from: PortType; to: PortType }> = { 'string-to-number': { from: 'string', to: 'number' }, 'string-to-boolean': { from: 'string', to: 'boolean' }, 'string-to-json': { from: 'string', to: 'json' }, 'table-to-json': { from: 'table', to: 'json' }, 'file-to-document': { from: 'file', to: 'document' }, 'image-to-file': { from: 'image', to: 'file' }, 'agent-message-to-string': { from: 'agent_message', to: 'string' } }
 const DEFAULT_POLICY: NodePolicy = { timeoutMs: 120000, retryAttempts: 0, retryBackoffMs: 1000, errorBehavior: 'fail', concurrencyLimit: 1, resumable: false, breakpoint: false }
 const MODEL_NODE_TYPES = new Set(['agent', 'subagent', 'classification', 'parameter_extraction', 'image_generation', 'speech_generation', 'music_generation', 'video_generation'])
+const FLOW_NODE_TYPES = { workwise: FlowNodeCard }
+const FLOW_NODE_WIDTH = 180
+const FLOW_NODE_HEIGHT = 80
 const NODE_CONFIG_FIELDS: Record<string, Array<{ key: string; label: string; kind?: 'number' | 'boolean' | 'json'; required?: boolean; placeholder?: string }>> = {
   schedule_trigger: [{ key: 'schedule', label: '计划表达式', required: true, placeholder: 'interval:15m / daily:09:00' }, { key: 'timezone', label: '时区', placeholder: 'Asia/Shanghai' }],
   webhook_trigger: [{ key: 'credentialRef', label: 'Webhook 密钥引用', required: true }],
@@ -88,6 +91,7 @@ export function FlowWorkspaceView({ leftSidebarCollapsed, onToggleLeftSidebar, f
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null); const [issues, setIssues] = useState<ValidationIssue[]>([])
   const [runs, setRuns] = useState<FlowRun[]>([]); const [mockInput, setMockInput] = useState('{}'); const [busy, setBusy] = useState<string | null>(null); const [error, setError] = useState<string | null>(null)
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null); const [runDetails, setRunDetails] = useState<FlowRunDetails | null>(null)
+  const [flowInstance, setFlowInstance] = useState<ReactFlowInstance<Node<FlowNodeData>, Edge> | null>(null)
 
   const visibleFlows = useMemo(() => flows.filter((flow) => flowMatchesFilter(flow, filter)), [filter, flows])
   const load = useCallback(async () => { setBusy('loading'); try { const result = await runtimeJson<{ flows: FlowDefinition[]; registry: RegistryEntry[] }>('/v1/flows'); setFlows(result.flows); setRegistry(result.registry); const filtered = result.flows.filter((flow) => flowMatchesFilter(flow, filter)); const selected = filtered.find((flow) => flow.id === activeId) ?? filtered[0] ?? null; setActiveId(selected?.id ?? null); setDraft(selected); setError(null) } catch (reason) { setError(message(reason)) } finally { setBusy(null) } }, [activeId, filter])
@@ -95,9 +99,25 @@ export function FlowWorkspaceView({ leftSidebarCollapsed, onToggleLeftSidebar, f
   useEffect(() => { if (!activeId) { setRuns([]); return } void runtimeJson<{ runs: FlowRun[] }>(`/v1/flows/${encodeURIComponent(activeId)}/history`).then((value) => setRuns(value.runs)).catch(() => setRuns([])) }, [activeId])
   useEffect(() => { if (!selectedRunId) { setRunDetails(null); return } void runtimeJson<FlowRunDetails>(`/v1/flow-runs/${selectedRunId}`).then(setRunDetails).catch((reason) => setError(message(reason))) }, [selectedRunId])
 
-  const nodes = useMemo<Node<FlowNodeData>[]>(() => (draft?.nodes ?? []).map((node) => ({ id: node.id, type: 'workwise', position: node.position, data: { label: node.label, nodeType: node.type, registry: registry.find((entry) => entry.type === node.type) }, selected: node.id === selectedNodeId })), [draft, registry, selectedNodeId])
+  const nodes = useMemo<Node<FlowNodeData>[]>(() => (draft?.nodes ?? []).map((node) => ({
+    id: node.id,
+    type: 'workwise',
+    position: node.position,
+    width: FLOW_NODE_WIDTH,
+    height: FLOW_NODE_HEIGHT,
+    data: { label: node.label, nodeType: node.type, registry: registry.find((entry) => entry.type === node.type) },
+    selected: node.id === selectedNodeId
+  })), [draft, registry, selectedNodeId])
   const edges = useMemo<Edge[]>(() => (draft?.edges ?? []).map((edge) => ({ id: edge.id, source: edge.sourceNodeId, sourceHandle: edge.sourcePortId, target: edge.targetNodeId, targetHandle: edge.targetPortId, animated: false, style: { stroke: '#94a3b8' } })), [draft])
   const selectedNode = draft?.nodes.find((node) => node.id === selectedNodeId) ?? null
+
+  useEffect(() => {
+    if (!flowInstance || !draft || nodes.length === 0) return
+    const frame = window.requestAnimationFrame(() => {
+      void flowInstance.fitView({ padding: 0.2, minZoom: 0.4, maxZoom: 1.2, duration: 0 })
+    })
+    return () => window.cancelAnimationFrame(frame)
+  }, [draft?.id, flowInstance, nodes.length])
 
   const onNodesChange = (changes: NodeChange<Node<FlowNodeData>>[]) => { if (!draft) return; const changed = applyNodeChanges(changes, nodes); setDraft({ ...draft, nodes: draft.nodes.map((node) => ({ ...node, position: changed.find((item) => item.id === node.id)?.position ?? node.position })) }) }
   const onEdgesChange = (changes: EdgeChange<Edge>[]) => { if (!draft) return; const changed = applyEdgeChanges(changes, edges); setDraft({ ...draft, edges: changed.map((edge) => ({ id: edge.id, sourceNodeId: edge.source, sourcePortId: edge.sourceHandle ?? 'output', targetNodeId: edge.target, targetPortId: edge.targetHandle ?? 'input', branch: 'normal' })) }) }
@@ -124,7 +144,7 @@ export function FlowWorkspaceView({ leftSidebarCollapsed, onToggleLeftSidebar, f
     {error ? <div className="flex items-center gap-2 border-b border-red-200 bg-red-50 px-4 py-2 text-[12px] text-red-700"><AlertTriangle className="h-4 w-4" />{error}</div> : null}
     <div className="grid min-h-0 flex-1 grid-cols-1 grid-rows-[auto_minmax(320px,1fr)_auto] lg:grid-cols-[220px_minmax(360px,1fr)_320px] lg:grid-rows-1">
       <aside className="max-h-44 overflow-y-auto border-b border-r border-[#e2e8f0] bg-white p-3 dark:border-ds-border dark:bg-ds-card lg:max-h-none"><div className="mb-3 text-[12px] font-semibold text-[#64748b]">节点目录</div>{registry.length === 0 && busy === 'loading' ? <LoadingState label="正在加载节点目录" /> : groupRegistry(registry).map(([category, entries]) => <section key={category} className="mb-4"><div className="mb-1.5 text-[11px] uppercase tracking-wide text-[#94a3b8]">{category}</div><div className="space-y-1">{entries.map((entry) => <button key={entry.type} disabled={!entry.available || !draft} title={flowRegistryAvailabilityLabel(entry)} aria-label={`${entry.label}。${flowRegistryAvailabilityLabel(entry)}`} onClick={() => addNode(entry)} className="flex w-full items-center gap-2 rounded-lg border border-transparent px-2 py-2 text-left text-[12px] hover:border-blue-100 hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-45 dark:hover:bg-blue-400/10"><ChevronRight className="h-3.5 w-3.5" /><span className="truncate">{entry.label}</span></button>)}</div></section>)}</aside>
-      <main className="relative min-h-[320px] bg-[radial-gradient(circle,#cbd5e1_1px,transparent_1px)] [background-size:20px_20px]">{busy === 'loading' && !draft ? <LoadingState label="正在加载 Flow" /> : !draft ? <EmptyState onCreate={() => void createFlow()} /> : <ReactFlow nodes={nodes} edges={edges} nodeTypes={{ workwise: FlowNodeCard }} onNodesChange={onNodesChange} onEdgesChange={onEdgesChange} onConnect={onConnect} onNodeClick={(_, node) => setSelectedNodeId(node.id)} fitView deleteKeyCode={['Backspace', 'Delete']} selectionOnDrag multiSelectionKeyCode="Shift"><MiniMap pannable zoomable nodeColor="#2563eb" /><Controls /><Background gap={20} size={1} color="transparent" /></ReactFlow>}</main>
+      <main className="relative min-h-[320px] min-w-0 bg-[radial-gradient(circle,#cbd5e1_1px,transparent_1px)] [background-size:20px_20px]">{busy === 'loading' && !draft ? <LoadingState label="正在加载 Flow" /> : !draft ? <EmptyState onCreate={() => void createFlow()} /> : <ReactFlow key={draft.id} aria-label="Flow 画布" className="h-full w-full" style={{ width: '100%', height: '100%' }} nodes={nodes} edges={edges} nodeTypes={FLOW_NODE_TYPES} onInit={setFlowInstance} onNodesChange={onNodesChange} onEdgesChange={onEdgesChange} onConnect={onConnect} onNodeClick={(_, node) => setSelectedNodeId(node.id)} fitView fitViewOptions={{ padding: 0.2, minZoom: 0.4, maxZoom: 1.2 }} deleteKeyCode={['Backspace', 'Delete']} selectionOnDrag multiSelectionKeyCode="Shift"><MiniMap pannable zoomable nodeColor="#2563eb" /><Controls /><Background gap={20} size={1} color="transparent" /></ReactFlow>}</main>
       <aside className="min-h-0 overflow-y-auto border-l border-[#e2e8f0] bg-white p-4 dark:border-ds-border dark:bg-ds-card"><FlowNodeInspector node={selectedNode} entry={selectedNode ? registry.find((item) => item.type === selectedNode.type) : undefined} allNodes={draft?.nodes ?? []} registry={registry} variables={draft?.variables ?? {}} onChange={(next) => draft && setDraft({ ...draft, nodes: draft.nodes.map((item) => item.id === next.id ? next : item) })} mockInput={mockInput} onMockInput={setMockInput} onTest={() => void testNode()} busy={busy === 'test'} /><div className="my-5 border-t border-[#e2e8f0] dark:border-ds-border" /><div className="mb-2 flex items-center gap-2 text-[13px] font-semibold"><History className="h-4 w-4" />运行历史</div><div className="space-y-2">{runs.slice(0, 20).map((runItem) => <button type="button" onClick={() => setSelectedRunId(runItem.id)} key={runItem.id} className={`w-full rounded-lg border p-2 text-left text-[11px] dark:border-ds-border ${selectedRunId === runItem.id ? 'border-blue-400 bg-blue-50' : 'border-[#e2e8f0]'}`}><div className="flex items-center justify-between"><span className="truncate font-mono">{runItem.id.slice(-10)}</span><Status value={runItem.status} /></div><div className="mt-1 text-[#94a3b8]">{new Date(runItem.updatedAt).toLocaleString()}</div></button>)}</div>{runDetails ? <RunDetailsPanel details={runDetails} onAction={(action, nodeId) => void runAction(action, nodeId)} busy={busy !== null} /> : null}{issues.length ? <><div className="my-5 border-t border-[#e2e8f0]" /><div className="mb-2 text-[13px] font-semibold">校验问题</div>{issues.map((issue, index) => <div key={`${issue.code}-${index}`} className="mb-2 rounded-lg bg-red-50 p-2 text-[11px] text-red-700">{issue.message}</div>)}</> : null}</aside>
     </div>
   </div>
