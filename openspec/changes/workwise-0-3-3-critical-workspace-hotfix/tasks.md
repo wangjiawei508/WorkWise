@@ -27,4 +27,4 @@
 
 - [x] 5.1 Add route and conversation-isolation tests for Code, Write, Design, Flow, and Scheduled Tasks.
 - [x] 5.2 Add Write attachment and Design PPTX/selection acceptance tests.
-- [ ] 5.3 Run TypeScript, Runtime, GUI, packaging, and installed-app smoke tests; update release notes only after passing.
+- [x] 5.3 Run TypeScript, Runtime, GUI, packaging, and installed-app smoke tests; update release notes only after passing.
