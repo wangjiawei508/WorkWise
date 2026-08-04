@@ -591,11 +591,13 @@ export function FloatingComposer({
   )
   const canPickAttachment = canCompose && attachmentUploadEnabled && !attachmentUploadBusy
   const showIntentToolbar = !compact && route === 'chat'
-  const showComposerMenuButton = showIntentToolbar
+  const showComposerMenuButton = showIntentToolbar || (compact && attachmentUploadEnabled)
   const canTogglePlanMode = canCompose && Boolean(onPlanCommand)
-  const canOpenGoalPanel = canCompose && route !== 'claw'
-  const canRunReview = canCompose && route !== 'claw' && Boolean(onReviewCommand)
-  const canOpenComposerMenu = showComposerMenuButton && (canTogglePlanMode || canOpenGoalPanel || canRunReview)
+  const canOpenGoalPanel = !compact && canCompose && route !== 'claw'
+  const canRunReview = !compact && canCompose && route !== 'claw' && Boolean(onReviewCommand)
+  const canOpenComposerMenu = showComposerMenuButton && (
+    (canPickAttachment && Boolean(onPickAttachments)) || canTogglePlanMode || canOpenGoalPanel || canRunReview
+  )
   const showToolbarStartControls = showComposerMenuButton
   const showChangeSummary = !compact && route === 'chat' && changedFiles.length > 0
   const effectiveChangedFileStats = changedFileStats ?? changedFiles.reduce(
@@ -1430,10 +1432,11 @@ export function FloatingComposer({
                   )}
                   <span className="min-w-0 flex-1 truncate">{t('composerAddFileOrImage')}</span>
                 </button>
-                <div className="my-1 h-px bg-ds-border-muted/70" />
+                {!compact ? <div className="my-1 h-px bg-ds-border-muted/70" /> : null}
               </>
             ) : null}
-            <button
+            {!compact ? <>
+              <button
               type="button"
               disabled={!canTogglePlanMode}
               onClick={handlePlanToolbarClick}
@@ -1456,8 +1459,8 @@ export function FloatingComposer({
                   } shadow-[0_1px_4px_rgba(15,23,42,0.28)]`}
                 />
               </span>
-            </button>
-            <button
+              </button>
+              <button
               type="button"
               disabled={!canOpenGoalPanel}
               onClick={handleGoalMenuClick}
@@ -1480,7 +1483,8 @@ export function FloatingComposer({
                   } shadow-[0_1px_4px_rgba(15,23,42,0.28)]`}
                 />
               </span>
-            </button>
+              </button>
+            </> : null}
           </div>
         ) : null}
 

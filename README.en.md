@@ -13,7 +13,7 @@ WorkWise is a local-first desktop AI workbench. It brings **Code**, **Write**, s
 
 ## Current release
 
-The current stable release is **[v0.3.3](https://github.com/wangjiawei508/WorkWise/releases/tag/v0.3.3)**. It adds **WorkWise Flow Preview**, general-purpose document attachments, local document indexing and retrieval, and production in-app updates. Public releases have three user-facing installers:
+The current stable release is **[v0.3.4](https://github.com/wangjiawei508/WorkWise/releases/tag/v0.3.4)**, an urgent corrective release for 0.3.3. Code, Write, Design, Flow, and Scheduled Tasks now keep clear workspace boundaries; Design uses document-scoped conversations and visible AI selection targets; Write accepts tender PDF/Office attachments and exposes the Tender Master workflow; PPTX imports are readable full-slide references; and every new Flow starts with an executable Manual → Agent graph. Installed 0.3.3 clients can update in the application. Public releases have three user-facing installers:
 
 | Platform | Installer | Download |
 | --- | --- | --- |
@@ -46,6 +46,7 @@ Use a complete document workflow for Markdown and text work:
 - Copy rich text and deliver through HTML, PDF, DOC, and DOCX paths.
 - Use Skills such as AI Word, humanized writing, and PPT Master to improve structure, expression, and review.
 - Keep a human review step for facts, images, tables, layout, and formal delivery.
+- Attach PDF and Office tender sources directly in Write, then start the bundled Tender Master workflow without switching to Code.
 
 Read more: [Write and document export](https://kb.railwise.cn/products/workwise/write-export/).
 
@@ -58,9 +59,10 @@ Document content is always treated as untrusted reference material. It cannot ov
 ### Design workbench
 
 Create multi-page structured canvases with text, shapes, images, layers, groups, undo/redo,
-and revision-safe Agent canvas commands. Export the active design directly to PNG or SVG,
-insert it into a Write document, or deliver a validated editable PPTX through the audited
-PPT Master workflow. HTML and image previews never satisfy a PowerPoint request.
+document-scoped Agent conversations, visible selection targets, and revision-safe canvas commands.
+PPTX import uses a readable-first full-slide reference that can be selected and annotated; source
+text, charts, and animations are not misrepresented as individually editable objects. Export the
+active design to PNG or SVG, insert it into Write, or deliver a validated PPTX through PPT Master.
 
 ### Flow Preview
 
@@ -111,7 +113,7 @@ Preview and directional items are not described as stable released features.
 
 ### In-app updates
 
-WorkWise 0.3.3 checks the official `railwise.cn` Stable channel at startup and every 24 hours. The blue update icon first downloads in the background; after completion it changes to **Restart and update**. Before restarting, WorkWise saves edits and reports active Agent, Flow, and scheduled runs. The platform updater then replaces and relaunches the application without opening a browser or requiring another drag-and-drop installation.
+WorkWise 0.3.4 checks the official `railwise.cn` Stable channel at startup and every 24 hours. The blue update icon first downloads in the background; after completion it changes to **Restart and update**. Before restarting, WorkWise saves edits and reports active Agent, Flow, and scheduled runs. The platform updater then replaces and relaunches the application without opening a browser or requiring another drag-and-drop installation.
 
 Version 0.3.2 and earlier did not include the trusted production update channel, so those users need one final manual installation of 0.3.3. Subsequent stable releases can update in the application.
 

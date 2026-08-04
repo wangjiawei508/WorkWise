@@ -10,7 +10,7 @@ import {
   X
 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
-import type { RuntimeConnectionStatus, ChatBlock } from '../../agent/types'
+import type { RuntimeConnectionStatus, ChatBlock, AttachmentReference } from '../../agent/types'
 import type { QueuedUserMessage } from '../../store/chat-store-types'
 import type { ModelProviderModelGroup } from '@shared/workwise-api'
 import {
@@ -40,6 +40,14 @@ type Props = {
   setComposerReasoningEffort: (effort: ComposerReasoningEffort) => void
   queuedMessages: QueuedUserMessage[]
   removeQueuedMessage: (id: string) => void
+  attachments: AttachmentReference[]
+  attachmentUploadEnabled: boolean
+  attachmentUploadBusy: boolean
+  attachmentUploadError: string | null
+  onPickAttachments: (files: File[]) => void
+  onPasteClipboardImage: (options?: { silentNoImage?: boolean }) => void | Promise<void>
+  onRemoveAttachment: (id: string) => void
+  onRetryAttachment: (id: string) => void
   onSend: () => void
   onInterrupt: (options?: { discard?: boolean }) => void
   onRetryConnection: () => void
@@ -68,6 +76,14 @@ export function WriteAssistantPanel({
   setComposerReasoningEffort,
   queuedMessages,
   removeQueuedMessage,
+  attachments,
+  attachmentUploadEnabled,
+  attachmentUploadBusy,
+  attachmentUploadError,
+  onPickAttachments,
+  onPasteClipboardImage,
+  onRemoveAttachment,
+  onRetryAttachment,
   onSend,
   onInterrupt,
   onRetryConnection,
@@ -181,6 +197,19 @@ export function WriteAssistantPanel({
             <div className="mt-3 grid gap-2">
               <button
                 type="button"
+                onClick={() => setAssistantPrompt(t('writeAssistantTenderPrompt'))}
+                className="flex items-center gap-3 rounded-2xl border border-ds-border bg-ds-card px-3 py-3 text-left transition hover:border-accent/25 hover:bg-ds-hover"
+              >
+                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-violet-500/10 text-violet-600 dark:text-violet-300">
+                  <FileText className="h-4 w-4" strokeWidth={1.9} />
+                </span>
+                <span className="min-w-0">
+                  <span className="block text-[13.5px] font-semibold text-ds-ink">{t('writeAssistantTender')}</span>
+                  <span className="mt-0.5 block truncate text-[12px] text-ds-faint">{t('writeAssistantTenderSub')}</span>
+                </span>
+              </button>
+              <button
+                type="button"
                 onClick={() => setAssistantPrompt(t('writeAssistantSummarizePrompt', { file: activeFileLabel }))}
                 className="flex items-center gap-3 rounded-2xl border border-ds-border bg-ds-card px-3 py-3 text-left transition hover:border-accent/25 hover:bg-ds-hover"
               >
@@ -274,6 +303,14 @@ export function WriteAssistantPanel({
           modelPickerMode="combobox"
           queuedMessages={queuedMessages}
           onRemoveQueuedMessage={removeQueuedMessage}
+          attachments={attachments}
+          attachmentUploadEnabled={attachmentUploadEnabled}
+          attachmentUploadBusy={attachmentUploadBusy}
+          attachmentUploadError={attachmentUploadError}
+          onPickAttachments={onPickAttachments}
+          onPasteClipboardImage={onPasteClipboardImage}
+          onRemoveAttachment={onRemoveAttachment}
+          onRetryAttachment={onRetryAttachment}
           onSend={onSend}
           onInterrupt={onInterrupt}
         />

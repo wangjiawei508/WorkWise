@@ -3,7 +3,6 @@ import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
   Clock3,
-  FileQuestion,
   LayoutGrid,
   Palette,
   Workflow,
@@ -48,7 +47,6 @@ type Props = {
   onRestoreThread: (id: string) => Promise<void>
   onNewChat: () => void
   onNewChatInWorkspace: (workspaceRoot: string) => void
-  onNewRequirement: () => void
   onOpenSettings: (section?: SettingsRouteSection) => void
   onOpenPlugins: () => void
   onToggleConnectPhone: () => void
@@ -80,7 +78,6 @@ export function Sidebar({
   onRestoreThread,
   onNewChat,
   onNewChatInWorkspace,
-  onNewRequirement,
   onOpenSettings,
   onOpenPlugins,
   onToggleConnectPhone,
@@ -146,8 +143,7 @@ export function Sidebar({
           onWriteOpen={onWriteOpen}
         />
 
-        {activeView !== 'claw' && activeView !== 'schedule' ? (
-          <>
+        {activeView === 'chat' ? (
             <SidebarCommandRow
               icon={<Plus className="h-4 w-4" strokeWidth={2} />}
               label={t('newAgent')}
@@ -156,15 +152,6 @@ export function Sidebar({
               disabledHint={t('runtimeActionNeedsConnection')}
               variant="accent"
             />
-            <SidebarCommandRow
-              icon={<FileQuestion className="h-4 w-4" strokeWidth={1.9} />}
-              label={t('sddNewRequirement')}
-              onClick={runtimeReady ? onNewRequirement : undefined}
-              disabled={!runtimeReady}
-              disabledHint={t('runtimeActionNeedsConnection')}
-              variant="accent"
-            />
-          </>
         ) : null}
         <SidebarCommandRow
           icon={<Workflow className="h-4 w-4" strokeWidth={1.75} />}
@@ -243,6 +230,12 @@ export function Sidebar({
           onShowArchivedChange={onShowArchivedThreadsChange}
           t={t}
         />
+      ) : activeView === 'design' || activeView === 'flow' ? (
+        <div className="ds-no-drag mx-2 rounded-2xl border border-ds-border-muted bg-ds-card/70 p-3 text-[12px] leading-5 text-ds-muted">
+          {activeView === 'design'
+            ? '设计文档、画布选择和设计助手在此工作台内独立管理。'
+            : 'Flow 仍为 Preview。请在画布中配置、校验并测试流程。'}
+        </div>
       ) : (
       <SidebarProjectsSection
         threads={threads}

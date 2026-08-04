@@ -1,8 +1,9 @@
-import { app, dialog, ipcMain, nativeImage, shell, type BrowserWindow, type WebContents } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, nativeImage, shell, type WebContents } from 'electron'
 import { watch, type FSWatcher } from 'node:fs'
 import { createHash, randomUUID } from 'node:crypto'
 import { basename, dirname, extname, join, resolve } from 'node:path'
-import { mkdir, readFile, realpath } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
 import { z } from 'zod'
 import {
   type AppSettingsPatch,
@@ -348,6 +349,71 @@ function saveDialogFilters(fileName: string, mimeType: string | undefined): Elec
   }
   filters.push({ name: 'All Files', extensions: ['*'] })
   return filters
+}
+
+async function rasterizeImportedDesignSvg(input: {
+  bytes: Uint8Array
+  width: number
+  height: number
+}): Promise<{ bytes: Uint8Array; mimeType: 'image/png' | 'image/jpeg'; width: number; height: number }> {
+  const sourceWidth = Math.max(1, Math.round(input.width))
+  const sourceHeight = Math.max(1, Math.round(input.height))
+  if (sourceWidth > 32_768 || sourceHeight > 32_768 || input.bytes.byteLength > 32 * 1024 * 1024) {
+    throw new Error('The imported slide exceeds the safe rendering limit.')
+  }
+  const scale = Math.min(1, 4096 / Math.max(sourceWidth, sourceHeight))
+  const width = Math.max(1, Math.round(sourceWidth * scale))
+  const height = Math.max(1, Math.round(sourceHeight * scale))
+  const directory = await mkdtemp(join(tmpdir(), 'workwise-design-slide-'))
+  const sourcePath = join(directory, 'slide.svg')
+  let renderer: BrowserWindow | null = null
+  try {
+    await writeFile(sourcePath, input.bytes)
+    renderer = new BrowserWindow({
+      show: false,
+      width,
+      height,
+      backgroundColor: '#FFFFFF',
+      webPreferences: {
+        sandbox: true,
+        contextIsolation: true,
+        nodeIntegration: false,
+        javascript: false,
+        webSecurity: true,
+        images: true,
+        offscreen: true,
+        backgroundThrottling: false,
+        partition: `design-pptx-raster-${randomUUID()}`
+      }
+    })
+    renderer.webContents.session.webRequest.onBeforeRequest(
+      { urls: ['<all_urls>'] },
+      (details, callback) => callback({
+        cancel: !(details.url.startsWith('file:') || details.url.startsWith('data:'))
+      })
+    )
+    await renderer.loadFile(sourcePath)
+    const captured = await renderer.webContents.capturePage({ x: 0, y: 0, width, height })
+    if (captured.isEmpty()) throw new Error('The imported slide could not be rendered.')
+    // capturePage uses the physical display scale on Retina screens. Normalize the
+    // persisted image to the logical slide size so results are deterministic and
+    // stay within the asset byte limit on every machine.
+    const normalized = captured.getSize().width === width && captured.getSize().height === height
+      ? captured
+      : captured.resize({ width, height, quality: 'best' })
+    const png = normalized.toPNG()
+    if (png.byteLength <= 12 * 1024 * 1024) {
+      return { bytes: png, mimeType: 'image/png', width, height }
+    }
+    const jpeg = normalized.toJPEG(95)
+    if (jpeg.byteLength <= 12 * 1024 * 1024) {
+      return { bytes: jpeg, mimeType: 'image/jpeg', width, height }
+    }
+    throw new Error('The rendered slide exceeds the 12 MiB image limit.')
+  } finally {
+    renderer?.destroy()
+    await rm(directory, { recursive: true, force: true }).catch(() => undefined)
+  }
 }
 
 async function saveWorkspaceFileAs(
@@ -1480,17 +1546,31 @@ export function registerAppIpcHandlers(options: RegisterAppIpcHandlersOptions): 
       const idMap = new Map<string, string>()
       const assets: DesignAsset[] = []
       for (const image of imported.images) {
-        const native = nativeImage.createFromBuffer(Buffer.from(image.bytes))
-        if (native.isEmpty()) throw new Error(`Imported image ${image.filename} could not be decoded.`)
-        const size = native.getSize()
+        const rendered = image.mimeType === 'image/svg+xml'
+          ? await rasterizeImportedDesignSvg({
+              bytes: image.bytes,
+              width: image.width ?? 1280,
+              height: image.height ?? 720
+            })
+          : (() => {
+              const native = nativeImage.createFromBuffer(Buffer.from(image.bytes))
+              if (native.isEmpty()) throw new Error(`Imported image ${image.filename} could not be decoded.`)
+              const size = native.getSize()
+              return {
+                bytes: image.bytes,
+                mimeType: image.mimeType,
+                width: size.width,
+                height: size.height
+              }
+            })()
         const stored = await storeDesignImageAsset({
           workspaceRoot: parsed.workspaceRoot,
           documentId: imported.document.id,
           originalFilename: image.filename,
-          mimeType: image.mimeType,
-          width: size.width,
-          height: size.height,
-          bytes: image.bytes
+          mimeType: rendered.mimeType,
+          width: rendered.width,
+          height: rendered.height,
+          bytes: rendered.bytes
         })
         idMap.set(image.provisionalId, stored.asset.id)
         assets.push(stored.asset)

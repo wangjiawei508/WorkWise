@@ -4,6 +4,7 @@ import { useShallow } from 'zustand/react/shallow'
 import {
   ChevronDown,
   ChevronRight,
+  FileQuestion,
   FilePlus2,
   Folder,
   FolderOpen,
@@ -43,6 +44,7 @@ type Props = {
   focusModeEnabled: boolean
   onCodeOpen: () => void
   onWriteOpen: () => void
+  onNewRequirement: () => void
   onOpenSettings: (section?: SettingsRouteSection) => void
   onToggleFocusMode: () => void
   onToggleConnectPhone: () => void
@@ -63,6 +65,7 @@ export function WriteSidebar({
   focusModeEnabled,
   onCodeOpen,
   onWriteOpen,
+  onNewRequirement,
   onOpenSettings,
   onToggleFocusMode,
   onToggleConnectPhone,
@@ -294,6 +297,14 @@ export function WriteSidebar({
           icon={<FilePlus2 className="h-4 w-4" strokeWidth={1.9} />}
           label={t('writeCreateFile')}
           onClick={() => void openCreateFileDialog()}
+          variant="accent"
+        />
+        <SidebarCommandRow
+          icon={<FileQuestion className="h-4 w-4" strokeWidth={1.9} />}
+          label={t('sddNewRequirement')}
+          onClick={runtimeConnection === 'ready' ? onNewRequirement : undefined}
+          disabled={runtimeConnection !== 'ready'}
+          disabledHint={t('runtimeActionNeedsConnection')}
           variant="accent"
         />
         <SidebarCommandRow

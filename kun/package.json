@@ -1,6 +1,6 @@
 {
   "name": "kun",
-  "version": "0.3.3",
+  "version": "0.3.4",
   "description": "Internal WorkWise Agent Runtime",
   "type": "module",
   "private": true,
@@ -72,5 +72,8 @@
     "@types/better-sqlite3": "^7.6.13",
     "typescript": "^5.8.2",
     "vitest": "^4.1.7"
+  },
+  "allowScripts": {
+    "better-sqlite3@12.11.1": true
   }
 }

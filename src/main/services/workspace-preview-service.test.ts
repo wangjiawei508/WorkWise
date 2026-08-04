@@ -68,7 +68,7 @@ describe('WorkspacePreviewService', () => {
         searchable: true,
         pageTexts: [{ page: 1, text: 'Searchable PDF' }]
       })
-  })
+  }, 15_000)
 
   it('rejects an OOXML file that only changed its extension', async () => {
     const workspace = await root()

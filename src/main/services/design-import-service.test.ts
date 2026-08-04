@@ -72,7 +72,7 @@ describe('Design PPTX ZIP preflight', () => {
       'STORE'
     )
 
-    await expect(preflightPptxForDesignImport(path)).rejects.toThrow('16 MiB XML')
+    await expect(preflightPptxForDesignImport(path)).rejects.toThrow('64 MiB XML')
   })
 
   it('rejects a highly compressed entry before Python or the sidecar is called', async () => {

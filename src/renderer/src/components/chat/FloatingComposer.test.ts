@@ -406,6 +406,19 @@ describe('FloatingComposer image transfer helpers', () => {
 })
 
 describe('FloatingComposer capability controls', () => {
+  it('keeps the file picker available in the compact Write composer', () => {
+    useChatStore.setState({ activeThreadId: 'thr_write', route: 'write', workspaceRoot: '/workspace', threads: [] })
+    const html = renderToStaticMarkup(createElement(FloatingComposer, {
+      variant: 'compact', input: '', setInput: () => undefined, mode: 'agent', setMode: () => undefined,
+      busy: false, runtimeReady: true, hasActiveThread: true, composerModel: '', composerPickList: [],
+      onComposerModelChange: () => undefined, queuedMessages: [], onRemoveQueuedMessage: () => undefined,
+      onSend: () => undefined, onInterrupt: () => undefined, attachmentUploadEnabled: true,
+      onPickAttachments: vi.fn(), webAccessAvailable: false
+    }))
+    expect(html).toContain('aria-label="More actions"')
+    expect(html).toContain('accept=".pdf,.docx,.xlsx,.pptx,.txt,.md,.markdown,.csv,image/png,image/jpeg,image/webp"')
+  })
+
   it('enables goal setup before a thread exists when a workspace is available', () => {
     useChatStore.setState({
       activeThreadId: null,

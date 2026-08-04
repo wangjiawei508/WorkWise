@@ -111,7 +111,7 @@ export function createAppActions(options: CreateAppActionsOptions): Pick<
     },
 
     openSchedule: () => {
-      set({ route: 'flow', flowFilter: 'scheduled' })
+      set({ route: 'schedule' })
     },
 
     openFlow: (filter) => {

@@ -17,6 +17,7 @@ import {
   Power,
   Timer,
   Trash2,
+  Workflow,
   X
 } from 'lucide-react'
 import {
@@ -42,6 +43,7 @@ type Props = {
   leftSidebarCollapsed: boolean
   onToggleLeftSidebar: () => void
   onOpenThread?: (threadId: string) => void
+  onOpenFlow?: () => void
 }
 
 type TaskFilter = 'all' | 'enabled' | 'running' | 'done'
@@ -206,7 +208,8 @@ function statusTone(status: ScheduledTaskV1['lastStatus']): string {
 export function ScheduleTasksView({
   leftSidebarCollapsed,
   onToggleLeftSidebar,
-  onOpenThread
+  onOpenThread,
+  onOpenFlow
 }: Props): ReactElement {
   const { t } = useTranslation('common')
   const [settings, setSettings] = useState<AppSettingsV1 | null>(null)
@@ -419,6 +422,16 @@ export function ScheduleTasksView({
               {t('scheduleSubtitle')}
             </p>
             <div className="flex items-center gap-2">
+              {onOpenFlow ? (
+                <button
+                  type="button"
+                  onClick={onOpenFlow}
+                  className="inline-flex items-center gap-1.5 rounded-xl border border-ds-border bg-ds-card px-3 py-2 text-[13px] text-ds-muted shadow-sm transition hover:border-accent/30 hover:text-accent"
+                >
+                  <Workflow className="h-4 w-4" strokeWidth={1.8} />
+                  {t('scheduleOpenFlow')}
+                </button>
+              ) : null}
               <select
                 value={filter}
                 onChange={(event) => setFilter(event.target.value as TaskFilter)}

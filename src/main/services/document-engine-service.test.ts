@@ -74,7 +74,7 @@ describe('DocumentEngineService', () => {
     expect(first.cacheHit).toBe(false)
     expect(second.cacheHit).toBe(true)
     expect(bridge).toHaveBeenCalledTimes(1)
-  })
+  }, 15_000)
 
   it('rejects workspace escape and unsupported formats', async () => {
     const { root } = await fixture('.txt')

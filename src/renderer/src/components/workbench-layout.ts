@@ -172,7 +172,14 @@ export function useWorkbenchLayout({
   const shellRef = useRef<HTMLDivElement | null>(null)
   const previewThreadId = useRef<string | null>(activeThreadId)
   const autoOpenedPreviewUrlRef = useRef<string | null>(null)
-  const rightPanelVisible = route === 'write' ? writeAssistantOpen : rightPanelMode !== null
+  const rightPanelVisible = route === 'write'
+    ? writeAssistantOpen || rightPanelMode === 'sdd-ai'
+    : rightPanelMode !== null
+
+  useEffect(() => {
+    if (route !== 'write' || !rightPanelVisible) return
+    setRightSidebarWidth((width) => Math.max(width, 480))
+  }, [rightPanelVisible, route])
 
   useEffect(() => {
     persistWidth(LEFT_PANEL_WIDTH_KEY, leftSidebarWidth)

@@ -1,10 +1,17 @@
-import { useMemo, useState, type ReactElement } from 'react'
+import { useEffect, useMemo, useState, type ReactElement } from 'react'
 import { Loader2, Send, Sparkles } from 'lucide-react'
 import { useShallow } from 'zustand/react/shallow'
 import { useTranslation } from 'react-i18next'
 import type { DesignDocumentV1, DesignPage } from '@shared/design-document'
 import type { ChatBlock } from '../../agent/types'
+import { getProvider } from '../../agent/registry'
 import { useChatStore } from '../../store/chat-store'
+import {
+  designAssistantThreadIdForDocument,
+  markDesignAssistantThread
+} from '../../design/design-thread-registry'
+
+const designThreadCreations = new Map<string, Promise<string>>()
 
 type Props = {
   document: DesignDocumentV1
@@ -26,6 +33,9 @@ export function buildDesignPrompt(
   selectedElementIds: string[],
   idempotencyKey = `design-${Date.now()}-${crypto.randomUUID()}`
 ): string {
+  const hasImportedSlideReference = page.elements.some(
+    (element) => element.type === 'image' && element.name?.startsWith('Imported slide ')
+  )
   const canvasContext = {
     documentId: document.id,
     pageId: page.id,
@@ -57,6 +67,10 @@ export function buildDesignPrompt(
     'You are editing the currently open WorkWise Design canvas.',
     'For any visual change, call design_apply_canvas_commands exactly once with one atomic operation batch.',
     'Do not write SVG, HTML, JSON, scripts, or other files as a substitute for changing the canvas.',
+    ...(hasImportedSlideReference ? [
+      'This page contains a flattened PowerPoint visual reference. Do not claim that its source text or chart objects were edited.',
+      'Use new overlay elements for annotations, or rebuild the requested portion with editable elements above the reference.'
+    ] : []),
     'Use the exact document_id, page_id and expected_revision from the canvas context.',
     `Use this exact idempotency_key: ${idempotencyKey}`,
     'Keep the final user-facing reply brief and describe only what changed.',
@@ -77,48 +91,92 @@ export function DesignAssistantPanel({
   const { t } = useTranslation('common')
   const [prompt, setPrompt] = useState('')
   const [requestLabel, setRequestLabel] = useState<string | null>(null)
+  const [assistantThreadId, setAssistantThreadId] = useState('')
+  const [threadError, setThreadError] = useState<string | null>(null)
   const {
+    activeThreadId,
     blocks,
     liveAssistant,
     busy,
     runtimeConnection,
     error,
-    sendMessage
+    sendMessage,
+    selectThread
   } = useChatStore(
     useShallow((state) => ({
+      activeThreadId: state.activeThreadId,
       blocks: state.blocks,
       liveAssistant: state.liveAssistant,
       busy: state.busy,
       runtimeConnection: state.runtimeConnection,
       error: state.error,
-      sendMessage: state.sendMessage
+      sendMessage: state.sendMessage,
+      selectThread: state.selectThread
     }))
   )
 
-  const replies = useMemo(() => {
-    if (!requestLabel) return []
-    let requestIndex = -1
-    for (let index = blocks.length - 1; index >= 0; index -= 1) {
-      const block = blocks[index]
-      if (
-        block?.kind === 'user' &&
-        (block.text === requestLabel || block.meta?.displayText === requestLabel)
-      ) {
-        requestIndex = index
-        break
-      }
+  useEffect(() => {
+    let cancelled = false
+    if (runtimeConnection !== 'ready' || !workspaceRoot.trim()) {
+      setAssistantThreadId('')
+      return
     }
-    return blocks
-      .slice(requestIndex >= 0 ? requestIndex + 1 : 0)
-      .filter((block): block is Extract<ChatBlock, { kind: 'assistant' }> =>
-        block.kind === 'assistant' && block.text.trim().length > 0
-      )
-      .slice(-3)
-  }, [blocks, requestLabel])
+    const ensureThread = async (): Promise<void> => {
+      setThreadError(null)
+      let threadId = designAssistantThreadIdForDocument(document.id)
+      const threadStillExists = useChatStore.getState().threads.some((thread) => thread.id === threadId)
+      if (!threadId || !threadStillExists) {
+        const creationKey = `${workspaceRoot}:${document.id}`
+        let pending = designThreadCreations.get(creationKey)
+        if (!pending) {
+          pending = getProvider().createThread({
+            workspace: workspaceRoot,
+            title: `Design · ${document.name}`,
+            mode: 'agent'
+          }).then((thread) => {
+            markDesignAssistantThread(document.id, thread.id, workspaceRoot)
+            useChatStore.setState((state) => ({
+              threads: state.threads.some((item) => item.id === thread.id)
+                ? state.threads
+                : [thread, ...state.threads]
+            }))
+            return thread.id
+          }).finally(() => designThreadCreations.delete(creationKey))
+          designThreadCreations.set(creationKey, pending)
+        }
+        threadId = await pending
+      }
+      if (cancelled) return
+      await selectThread(threadId)
+      if (cancelled) return
+      setAssistantThreadId(threadId)
+    }
+    void ensureThread().catch((cause) => {
+      if (!cancelled) setThreadError(cause instanceof Error ? cause.message : String(cause))
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [document.id, document.name, runtimeConnection, selectThread, workspaceRoot])
+
+  const messages = useMemo(() => {
+    if (!assistantThreadId || activeThreadId !== assistantThreadId) return []
+    return blocks.filter((block): block is Extract<ChatBlock, { kind: 'user' | 'assistant' }> =>
+      (block.kind === 'user' || block.kind === 'assistant') && block.text.trim().length > 0
+    )
+  }, [activeThreadId, assistantThreadId, blocks])
+
+  const selectedElements = useMemo(
+    () => selectedElementIds
+      .map((id) => page.elements.find((element) => element.id === id))
+      .filter((element): element is DesignPage['elements'][number] => Boolean(element)),
+    [page.elements, selectedElementIds]
+  )
 
   const handleSubmit = async (): Promise<void> => {
     const request = prompt.trim()
-    if (!request || disabled || busy || runtimeConnection !== 'ready') return
+    if (!request || !assistantThreadId || disabled || busy || runtimeConnection !== 'ready') return
+    if (activeThreadId !== assistantThreadId) await selectThread(assistantThreadId)
     setRequestLabel(request)
     setPrompt('')
     const started = await sendMessage(
@@ -140,7 +198,22 @@ export function DesignAssistantPanel({
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div className="min-h-0 flex-1 overflow-y-auto p-3">
-        {!requestLabel && replies.length === 0 ? (
+        <div className="mb-3 rounded-xl border border-ds-border-muted bg-ds-card p-2.5">
+          <div className="text-[11px] font-medium text-ds-muted">AI 修改目标</div>
+          {selectedElements.length > 0 ? (
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {selectedElements.map((element) => (
+                <span key={element.id} className="rounded-md bg-accent/10 px-2 py-1 text-[10.5px] text-accent">
+                  {element.name || element.type}
+                </span>
+              ))}
+            </div>
+          ) : (
+            <p className="mt-1 text-[10.5px] leading-4 text-ds-faint">未选择元素；AI 将按整页处理。先在画布点选元素即可进行定向修改。</p>
+          )}
+        </div>
+
+        {!requestLabel && messages.length === 0 ? (
           <div className="rounded-xl border border-ds-border-muted bg-ds-main/70 p-3">
             <Sparkles className="mb-2 h-4 w-4 text-accent" strokeWidth={1.8} />
             <div className="text-[12px] font-medium text-ds-ink">
@@ -153,12 +226,16 @@ export function DesignAssistantPanel({
         ) : null}
 
         <div className="space-y-2">
-          {replies.map((reply) => (
+          {messages.map((message) => (
             <div
-              key={reply.id}
-              className="whitespace-pre-wrap rounded-xl bg-ds-main px-3 py-2 text-[12px] leading-5 text-ds-ink"
+              key={message.id}
+              className={`whitespace-pre-wrap rounded-xl px-3 py-2 text-[12px] leading-5 ${
+                message.kind === 'user'
+                  ? 'ml-5 bg-accent/10 text-ds-ink'
+                  : 'mr-5 bg-ds-main text-ds-ink'
+              }`}
             >
-              {reply.text}
+              {message.kind === 'user' ? (message.meta?.displayText || message.text) : message.text}
             </div>
           ))}
           {busy && requestLabel ? (
@@ -181,6 +258,11 @@ export function DesignAssistantPanel({
               {error}
             </div>
           ) : null}
+          {threadError ? (
+            <div className="rounded-lg border border-red-200 bg-red-50 px-2.5 py-2 text-[11.5px] text-red-700">
+              {threadError}
+            </div>
+          ) : null}
         </div>
       </div>
 
@@ -195,9 +277,9 @@ export function DesignAssistantPanel({
             }
           }}
           rows={3}
-          disabled={disabled || runtimeConnection !== 'ready'}
+          disabled={disabled || runtimeConnection !== 'ready' || !assistantThreadId}
           placeholder={
-            runtimeConnection === 'ready' && !disabled
+            runtimeConnection === 'ready' && !disabled && assistantThreadId
               ? t('designAssistantPlaceholder')
               : t('runtimeActionNeedsConnection')
           }
@@ -210,7 +292,7 @@ export function DesignAssistantPanel({
           <button
             type="button"
             onClick={() => void handleSubmit()}
-            disabled={!prompt.trim() || disabled || busy || runtimeConnection !== 'ready'}
+            disabled={!prompt.trim() || !assistantThreadId || disabled || busy || runtimeConnection !== 'ready'}
             className="flex h-7 items-center gap-1 rounded-lg bg-accent px-2.5 text-[11.5px] font-medium text-white transition hover:bg-accent/90 disabled:cursor-not-allowed disabled:opacity-40"
           >
             {busy
