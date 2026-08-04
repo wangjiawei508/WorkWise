@@ -40,6 +40,48 @@ const NODE_CONFIG_FIELDS: Record<string, Array<{ key: string; label: string; kin
   run_flow: [{ key: 'flowId', label: '目标 Flow ID', required: true }]
 }
 
+export function createStarterFlowInput(id: string): Omit<FlowDefinition, 'revision' | 'createdAt' | 'updatedAt' | 'publishedVersionId'> {
+  const triggerId = `manual_${crypto.randomUUID().slice(0, 8)}`
+  const agentId = `agent_${crypto.randomUUID().slice(0, 8)}`
+  return {
+    schemaVersion: 1,
+    id,
+    name: '我的第一个 Flow',
+    description: '手动触发后由 Agent 处理输入。选择节点可配置参数和单节点测试。',
+    nodes: [
+      {
+        id: triggerId,
+        type: 'manual_trigger',
+        label: '手动触发',
+        position: { x: 120, y: 180 },
+        bindings: {},
+        config: {},
+        policy: { ...DEFAULT_POLICY },
+        disabled: false
+      },
+      {
+        id: agentId,
+        type: 'agent',
+        label: 'Agent 处理',
+        position: { x: 420, y: 180 },
+        bindings: {},
+        config: { prompt: '请根据 Flow 输入完成任务，并返回清晰、可核验的结果。' },
+        policy: { ...DEFAULT_POLICY, retryAttempts: 1, resumable: true },
+        disabled: false
+      }
+    ],
+    edges: [{
+      id: `edge_${crypto.randomUUID().slice(0, 8)}`,
+      sourceNodeId: triggerId,
+      sourcePortId: 'output',
+      targetNodeId: agentId,
+      targetPortId: 'input',
+      branch: 'normal'
+    }],
+    variables: {}
+  }
+}
+
 export function FlowWorkspaceView({ leftSidebarCollapsed, onToggleLeftSidebar, filter }: { leftSidebarCollapsed: boolean; onToggleLeftSidebar: () => void; filter: FlowListFilter }): ReactElement {
   const [flows, setFlows] = useState<FlowDefinition[]>([]); const [registry, setRegistry] = useState<RegistryEntry[]>([])
   const [activeId, setActiveId] = useState<string | null>(null); const [draft, setDraft] = useState<FlowDefinition | null>(null)
@@ -49,7 +91,7 @@ export function FlowWorkspaceView({ leftSidebarCollapsed, onToggleLeftSidebar, f
 
   const visibleFlows = useMemo(() => flows.filter((flow) => flowMatchesFilter(flow, filter)), [filter, flows])
   const load = useCallback(async () => { setBusy('loading'); try { const result = await runtimeJson<{ flows: FlowDefinition[]; registry: RegistryEntry[] }>('/v1/flows'); setFlows(result.flows); setRegistry(result.registry); const filtered = result.flows.filter((flow) => flowMatchesFilter(flow, filter)); const selected = filtered.find((flow) => flow.id === activeId) ?? filtered[0] ?? null; setActiveId(selected?.id ?? null); setDraft(selected); setError(null) } catch (reason) { setError(message(reason)) } finally { setBusy(null) } }, [activeId, filter])
-  useEffect(() => { void load() }, [filter])
+  useEffect(() => { void load() }, [load])
   useEffect(() => { if (!activeId) { setRuns([]); return } void runtimeJson<{ runs: FlowRun[] }>(`/v1/flows/${encodeURIComponent(activeId)}/history`).then((value) => setRuns(value.runs)).catch(() => setRuns([])) }, [activeId])
   useEffect(() => { if (!selectedRunId) { setRunDetails(null); return } void runtimeJson<FlowRunDetails>(`/v1/flow-runs/${selectedRunId}`).then(setRunDetails).catch((reason) => setError(message(reason))) }, [selectedRunId])
 
@@ -61,7 +103,7 @@ export function FlowWorkspaceView({ leftSidebarCollapsed, onToggleLeftSidebar, f
   const onEdgesChange = (changes: EdgeChange<Edge>[]) => { if (!draft) return; const changed = applyEdgeChanges(changes, edges); setDraft({ ...draft, edges: changed.map((edge) => ({ id: edge.id, sourceNodeId: edge.source, sourcePortId: edge.sourceHandle ?? 'output', targetNodeId: edge.target, targetPortId: edge.targetHandle ?? 'input', branch: 'normal' })) }) }
   const onConnect = (connection: Connection) => { if (!draft || !connection.source || !connection.target || !connection.sourceHandle || !connection.targetHandle) return; const source = registry.find((entry) => entry.type === draft.nodes.find((node) => node.id === connection.source)?.type)?.outputs.find((port) => port.id === connection.sourceHandle); const target = registry.find((entry) => entry.type === draft.nodes.find((node) => node.id === connection.target)?.type)?.inputs.find((port) => port.id === connection.targetHandle); const compatibility = source && target ? flowPortCompatibility(source.type, target.type) : null; if (!compatibility) { setError(`端口类型不兼容：${source?.type ?? '?'} → ${target?.type ?? '?'}`); return } const next = addEdge(connection, edges); const item = next.at(-1)!; if (!draft) return; setDraft({ ...draft, edges: [...draft.edges, { id: item.id, sourceNodeId: connection.source, sourcePortId: connection.sourceHandle, targetNodeId: connection.target, targetPortId: connection.targetHandle, ...(compatibility.conversionId ? { conversionId: compatibility.conversionId } : {}), branch: 'normal' }] }); setError(null) }
   const addNode = (entry: RegistryEntry) => { if (!draft || !entry.available) return; const id = `${entry.type}_${crypto.randomUUID().slice(0, 8)}`; const next = { id, type: entry.type, label: entry.label, position: { x: 180 + draft.nodes.length * 24, y: 100 + draft.nodes.length * 20 }, bindings: {}, config: entry.type === 'loop' ? { maxIterations: 10 } : {}, policy: { ...DEFAULT_POLICY }, disabled: false }; setDraft({ ...draft, nodes: [...draft.nodes, next] }); setSelectedNodeId(id) }
-  const createFlow = async () => { setBusy('create'); try { const now = new Date().toISOString(); const id = `flow_${crypto.randomUUID()}`; const value = await runtimeJson<{ flow: FlowDefinition }>('/v1/flows', 'POST', { schemaVersion: 1, id, name: '未命名流程', description: '', nodes: [], edges: [], variables: {} }); setFlows((current) => [value.flow, ...current]); setActiveId(id); setDraft(value.flow) } catch (reason) { setError(message(reason)) } finally { setBusy(null) } }
+  const createFlow = async () => { setBusy('create'); try { const id = `flow_${crypto.randomUUID()}`; const value = await runtimeJson<{ flow: FlowDefinition }>('/v1/flows', 'POST', createStarterFlowInput(id)); setFlows((current) => [value.flow, ...current]); setActiveId(id); setDraft(value.flow); setSelectedNodeId(value.flow.nodes.find((node) => node.type === 'agent')?.id ?? null); setIssues([]); setError(null) } catch (reason) { setError(message(reason)) } finally { setBusy(null) } }
   const save = async () => { if (!draft) return; setBusy('save'); try { const value = await runtimeJson<{ flow: FlowDefinition }>(`/v1/flows/${draft.id}`, 'PUT', { definition: draft, expectedRevision: draft.revision }); setDraft(value.flow); setFlows((current) => current.map((flow) => flow.id === value.flow.id ? value.flow : flow)); setError(null) } catch (reason) { setError(message(reason)) } finally { setBusy(null) } }
   const validate = async () => { if (!draft) return false; const result = await runtimeJson<{ valid: boolean; issues: ValidationIssue[] }>('/v1/flows/validate', 'POST', { definition: draft }); setIssues(result.issues); return result.valid }
   const publish = async () => { if (!draft) return; setBusy('publish'); try { await save(); const result = await runtimeJson<{ published: boolean; validation: { issues: ValidationIssue[] } }>('/v1/flows/publish', 'POST', { id: draft.id }); setIssues(result.validation.issues); if (!result.published) throw new Error('发布校验未通过') } catch (reason) { setError(message(reason)) } finally { setBusy(null) } }

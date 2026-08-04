@@ -164,6 +164,7 @@ def call_ppt_master(operation: str, request: dict[str, Any]) -> dict[str, Any]:
                             str(source),
                             "--output",
                             str(output),
+                            "--embed-images",
                             "--inheritance-mode",
                             "flat",
                         ]

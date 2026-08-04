@@ -376,6 +376,7 @@ export function Workbench(): ReactElement {
   const [agentProfiles, setAgentProfiles] = useState<AgentProfileV1[]>([])
   const [agentSelectionApplying, setAgentSelectionApplying] = useState(false)
   const [composerAttachments, setComposerAttachments] = useState<AttachmentReference[]>([])
+  const [writeAttachments, setWriteAttachments] = useState<AttachmentReference[]>([])
   const [composerFileReferences, setComposerFileReferences] = useState<ComposerFileReference[]>([])
   const [composerExecutionSettings, setComposerExecutionSettings] =
     useState<ComposerExecutionSettings | null>(null)
@@ -386,6 +387,8 @@ export function Workbench(): ReactElement {
     useState<ConversationViewMode | null>(null)
   const [attachmentUploadBusy, setAttachmentUploadBusy] = useState(false)
   const [attachmentUploadError, setAttachmentUploadError] = useState<string | null>(null)
+  const [writeAttachmentUploadBusy, setWriteAttachmentUploadBusy] = useState(false)
+  const [writeAttachmentUploadError, setWriteAttachmentUploadError] = useState<string | null>(null)
   const [connectPhoneSidebarOpen, setConnectPhoneSidebarOpen] = useState(false)
   const [focusModeEnabled, setFocusModeEnabled] = useState(readFocusModePreference)
   const [runtimeLogPath, setRuntimeLogPath] = useState('')
@@ -913,6 +916,25 @@ export function Workbench(): ReactElement {
     setComposerAttachments([])
   }
 
+  type AttachmentScope = 'chat' | 'write'
+  const attachmentsForScope = (scope: AttachmentScope): AttachmentReference[] =>
+    scope === 'write' ? writeAttachments : composerAttachments
+  const updateAttachmentsForScope = (
+    scope: AttachmentScope,
+    update: (current: AttachmentReference[]) => AttachmentReference[]
+  ): void => {
+    if (scope === 'write') setWriteAttachments(update)
+    else setComposerAttachments(update)
+  }
+  const setAttachmentBusyForScope = (scope: AttachmentScope, value: boolean): void => {
+    if (scope === 'write') setWriteAttachmentUploadBusy(value)
+    else setAttachmentUploadBusy(value)
+  }
+  const setAttachmentErrorForScope = (scope: AttachmentScope, value: string | null): void => {
+    if (scope === 'write') setWriteAttachmentUploadError(value)
+    else setAttachmentUploadError(value)
+  }
+
   const clearComposerFileReferences = (): void => {
     setComposerFileReferences([])
   }
@@ -934,23 +956,33 @@ export function Workbench(): ReactElement {
     if (route !== 'chat') setComposerFileReferences([])
   }, [route])
 
-  const handlePickAttachments = async (files: File[]): Promise<void> => {
+  const handlePickAttachments = async (
+    files: File[],
+    scope: AttachmentScope = route === 'write' ? 'write' : 'chat'
+  ): Promise<void> => {
     if (!files.length || !attachmentUploadEnabled) return
     const provider = getProvider()
     if (typeof provider.uploadAttachment !== 'function') {
-      setAttachmentUploadError(t('composerAttachmentUnavailable'))
+      setAttachmentErrorForScope(scope, t('composerAttachmentUnavailable'))
       return
     }
-    setAttachmentUploadBusy(true)
-    setAttachmentUploadError(null)
+    setAttachmentBusyForScope(scope, true)
+    setAttachmentErrorForScope(scope, null)
     try {
-      const workspace = threads.find((thread) => thread.id === activeThreadId)?.workspace || workspaceRoot || undefined
+      let targetThreadId = activeThreadId ?? undefined
+      let workspace = threads.find((thread) => thread.id === activeThreadId)?.workspace || workspaceRoot || undefined
+      if (scope === 'write') {
+        const writeState = useWriteWorkspaceStore.getState()
+        workspace = writeState.workspaceRoot || workspaceRoot || undefined
+        targetThreadId = await ensureWriteThreadForWorkspace(workspace, writeState.activeFilePath) ?? undefined
+        if (!targetThreadId) throw new Error(t('runtimeActionNeedsConnection'))
+      }
       const attachmentCapabilities = runtimeInfo?.capabilities.attachments
       if (!attachmentCapabilities) {
-        setAttachmentUploadError(t('composerAttachmentUnavailable'))
+        setAttachmentErrorForScope(scope, t('composerAttachmentUnavailable'))
         return
       }
-      const remaining = Math.max(0, 8 - composerAttachments.length)
+      const remaining = Math.max(0, 8 - attachmentsForScope(scope).length)
       const selected = files.slice(0, remaining)
       if (selected.reduce((total, file) => total + file.size, 0) > 500 * 1024 * 1024) throw new Error('附件批次不能超过 500 MiB')
       const uploaded: AttachmentReference[] = []
@@ -960,7 +992,7 @@ export function Workbench(): ReactElement {
           const prepared = await prepareImageAttachmentUpload(file, attachmentCapabilities)
           const attachment = await provider.uploadAttachment({
             name: file.name || 'image', mimeType: prepared.mimeType, dataBase64: prepared.dataBase64,
-            textFallback: prepared.textFallback, ...(activeThreadId ? { threadId: activeThreadId } : {}), ...(workspace ? { workspace } : {})
+            textFallback: prepared.textFallback, ...(targetThreadId ? { threadId: targetThreadId } : {}), ...(workspace ? { workspace } : {})
           })
           uploaded.push({ id: attachment.id, name: attachment.name, mimeType: attachment.mimeType, byteSize: attachment.byteSize, width: attachment.width, height: attachment.height, state: 'ready', previewUrl: `data:${prepared.mimeType};base64,${prepared.dataBase64}` })
           continue
@@ -969,19 +1001,19 @@ export function Workbench(): ReactElement {
         if (typeof window.workwise.importChatAttachment !== 'function') throw new Error(t('composerAttachmentUnavailable'))
         const placeholderId = `import_${crypto.randomUUID()}`
         const sourcePath = window.workwise.getPathForFile(file)
-        setComposerAttachments((current) => [...current, { id: placeholderId, name: file.name, mimeType: file.type, byteSize: file.size, state: 'uploading', localSourcePath: sourcePath }])
-        setComposerAttachments((current) => current.map((item) => item.id === placeholderId ? { ...item, state: 'parsing' } : item))
+        updateAttachmentsForScope(scope, (current) => [...current, { id: placeholderId, name: file.name, mimeType: file.type, byteSize: file.size, state: 'uploading', localSourcePath: sourcePath }])
+        updateAttachmentsForScope(scope, (current) => current.map((item) => item.id === placeholderId ? { ...item, state: 'parsing' } : item))
         try {
-          const result = await window.workwise.importChatAttachment({ importId: placeholderId, sourcePath, declaredMimeType: file.type || undefined, ...(activeThreadId ? { threadId: activeThreadId } : {}), ...(workspace ? { workspace } : {}) })
-          setComposerAttachments((current) => current.filter((item) => item.id !== placeholderId))
+          const result = await window.workwise.importChatAttachment({ importId: placeholderId, sourcePath, declaredMimeType: file.type || undefined, ...(targetThreadId ? { threadId: targetThreadId } : {}), ...(workspace ? { workspace } : {}) })
+          updateAttachmentsForScope(scope, (current) => current.filter((item) => item.id !== placeholderId))
           uploaded.push({ ...result.attachment, managedPath: result.managedPath, localSourcePath: sourcePath })
         } catch (error) {
-          setComposerAttachments((current) => current.map((item) => item.id === placeholderId ? { ...item, state: 'failed', degradationReasons: [error instanceof Error ? error.message : String(error)] } : item))
+          updateAttachmentsForScope(scope, (current) => current.map((item) => item.id === placeholderId ? { ...item, state: 'failed', degradationReasons: [error instanceof Error ? error.message : String(error)] } : item))
           throw error
         }
       }
       if (uploaded.length > 0) {
-        setComposerAttachments((current) => {
+        updateAttachmentsForScope(scope, (current) => {
           const byId = new Map(current.map((attachment) => [attachment.id, attachment]))
           for (const attachment of uploaded) {
             byId.set(attachment.id, attachment)
@@ -990,52 +1022,66 @@ export function Workbench(): ReactElement {
         })
       }
     } catch (error) {
-      setAttachmentUploadError(error instanceof Error ? error.message : String(error))
+      setAttachmentErrorForScope(scope, error instanceof Error ? error.message : String(error))
     } finally {
-      setAttachmentUploadBusy(false)
+      setAttachmentBusyForScope(scope, false)
     }
   }
 
-  const removeComposerAttachment = (id: string): void => {
-    const attachment = composerAttachments.find((item) => item.id === id)
+  const removeComposerAttachment = (id: string, scope: AttachmentScope = 'chat'): void => {
+    const attachment = attachmentsForScope(scope).find((item) => item.id === id)
     if (attachment && ['uploading', 'parsing'].includes(attachment.state ?? '')) void window.workwise.cancelChatAttachmentImport(id)
-    setComposerAttachments((current) => current.filter((attachment) => attachment.id !== id))
+    updateAttachmentsForScope(scope, (current) => current.filter((attachment) => attachment.id !== id))
   }
 
-  const retryComposerAttachment = async (id: string): Promise<void> => {
-    const attachment = composerAttachments.find((item) => item.id === id)
+  const retryComposerAttachment = async (id: string, scope: AttachmentScope = 'chat'): Promise<void> => {
+    const attachment = attachmentsForScope(scope).find((item) => item.id === id)
     if (!attachment?.localSourcePath || !['failed', 'cancelled'].includes(attachment.state ?? '')) return
-    const workspace = threads.find((thread) => thread.id === activeThreadId)?.workspace || workspaceRoot || undefined
-    setAttachmentUploadError(null)
-    setComposerAttachments((current) => current.map((item) => item.id === id ? { ...item, state: 'parsing', degradationReasons: [] } : item))
+    let targetThreadId = activeThreadId ?? undefined
+    let workspace = threads.find((thread) => thread.id === activeThreadId)?.workspace || workspaceRoot || undefined
+    if (scope === 'write') {
+      const writeState = useWriteWorkspaceStore.getState()
+      workspace = writeState.workspaceRoot || workspaceRoot || undefined
+      targetThreadId = await ensureWriteThreadForWorkspace(workspace, writeState.activeFilePath) ?? undefined
+      if (!targetThreadId) return
+    }
+    setAttachmentErrorForScope(scope, null)
+    updateAttachmentsForScope(scope, (current) => current.map((item) => item.id === id ? { ...item, state: 'parsing', degradationReasons: [] } : item))
     try {
-      const result = await window.workwise.importChatAttachment({ importId: id, sourcePath: attachment.localSourcePath, declaredMimeType: attachment.mimeType, ...(activeThreadId ? { threadId: activeThreadId } : {}), ...(workspace ? { workspace } : {}) })
-      setComposerAttachments((current) => current.map((item) => item.id === id ? { ...result.attachment, managedPath: result.managedPath, localSourcePath: attachment.localSourcePath } : item))
+      const result = await window.workwise.importChatAttachment({ importId: id, sourcePath: attachment.localSourcePath, declaredMimeType: attachment.mimeType, ...(targetThreadId ? { threadId: targetThreadId } : {}), ...(workspace ? { workspace } : {}) })
+      updateAttachmentsForScope(scope, (current) => current.map((item) => item.id === id ? { ...result.attachment, managedPath: result.managedPath, localSourcePath: attachment.localSourcePath } : item))
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
-      setComposerAttachments((current) => current.map((item) => item.id === id ? { ...item, state: 'failed', degradationReasons: [message] } : item))
-      setAttachmentUploadError(message)
+      updateAttachmentsForScope(scope, (current) => current.map((item) => item.id === id ? { ...item, state: 'failed', degradationReasons: [message] } : item))
+      setAttachmentErrorForScope(scope, message)
     }
   }
 
   const handlePasteClipboardImage = async (options: { silentNoImage?: boolean } = {}): Promise<void> => {
     if (!attachmentUploadEnabled) return
+    const scope: AttachmentScope = route === 'write' ? 'write' : 'chat'
     if (typeof window.workwise?.readClipboardImage !== 'function') {
-      setAttachmentUploadError(t('composerAttachmentUnavailable'))
+      setAttachmentErrorForScope(scope, t('composerAttachmentUnavailable'))
       return
     }
     const image = await window.workwise.readClipboardImage()
     if (!image.ok) {
       if (options.silentNoImage) return
-      setAttachmentUploadError(image.message)
+      setAttachmentErrorForScope(scope, image.message)
       return
     }
-    await handlePickAttachments([clipboardImageToFile(image)])
+    await handlePickAttachments([clipboardImageToFile(image)], scope)
   }
 
   const sendWritePrompt = async (value: string): Promise<void> => {
     const v = value.trim()
-    if (!v) return
+    const attachments = writeAttachments
+    if (attachments.some((attachment) => attachment.state && !['ready', 'degraded'].includes(attachment.state))) {
+      setWriteAttachmentUploadError('请等待附件解析完成，或移除失败的附件后再发送。')
+      return
+    }
+    if (!v && attachments.length === 0) return
+    const requestText = v || '请分析已添加的业务文档，先列出文件结构、关键要求和需要我确认的问题。'
     const initialWriteState = useWriteWorkspaceStore.getState()
     const writeWorkspaceRoot = initialWriteState.workspaceRoot || workspaceRoot
     const inputSnapshot = value
@@ -1064,11 +1110,11 @@ export function Workbench(): ReactElement {
     let knowledge: WriteKnowledgeSearchResult | undefined
     if (savedState.knowledgeBase.enabled && typeof window.workwise?.searchWriteKnowledge === 'function') {
       knowledge = await Promise.race([
-        window.workwise.searchWriteKnowledge(v).catch(() => undefined),
+        window.workwise.searchWriteKnowledge(requestText).catch(() => undefined),
         new Promise<undefined>((resolve) => window.setTimeout(() => resolve(undefined), 4_000))
       ])
     }
-    const prompt = composeWritePrompt(v, quoteSnapshot, {
+    const prompt = composeWritePrompt(requestText, quoteSnapshot, {
       workspaceRoot: writeWorkspaceRoot,
       activeFilePath: savedState.activeFilePath,
       contentHash: writeContentHash(savedState.fileContent),
@@ -1081,14 +1127,18 @@ export function Workbench(): ReactElement {
     setInput('')
     const model = savedState.assistantModel.trim()
     const reasoningEffort = composerReasoningEffortRequestValue(composerReasoningEffort)
+    const attachmentIds = attachments.map((attachment) => attachment.id)
     const sent = await sendMessage(prompt, mode === 'plan' ? 'plan' : 'agent', {
       ...(model ? { model } : {}),
-      ...(reasoningEffort ? { reasoningEffort } : {})
+      ...(reasoningEffort ? { reasoningEffort } : {}),
+      ...(attachmentIds.length ? { attachmentIds, attachments } : {})
     })
     if (!sent) {
       if (!inputRef.current.trim()) setInput(inputSnapshot)
       return
     }
+    setWriteAttachments([])
+    setWriteAttachmentUploadError(null)
     const currentQuoteIds = new Set(useWriteWorkspaceStore.getState().quotedSelections.map((quote) => quote.id))
     for (const quote of quoteSnapshot) {
       if (currentQuoteIds.has(quote.id)) useWriteWorkspaceStore.getState().removeQuotedSelection(quote.id)
@@ -1123,7 +1173,7 @@ export function Workbench(): ReactElement {
           ? state.threads
           : [normalizedThread, ...state.threads]
       }))
-      setRoute('chat')
+      setRoute('write')
       await selectThread(normalizedThread.id)
       void useChatStore.getState().refreshThreads()
       return normalizedThread.id
@@ -1136,7 +1186,7 @@ export function Workbench(): ReactElement {
   const ensureSddAssistantThreadForDraft = async (draft: SddDraft): Promise<string | null> => {
     const registeredThreadId = sddAssistantThreadIdForDraft(draft)
     if (registeredThreadId) {
-      setRoute('chat')
+      setRoute('write')
       if (useChatStore.getState().activeThreadId !== registeredThreadId) {
         await selectThread(registeredThreadId)
       }
@@ -1163,7 +1213,7 @@ export function Workbench(): ReactElement {
     dismissedSddDraftWorkspacesRef.current.delete(normalizeWorkspaceRoot(draft.workspaceRoot))
     setInput('')
     setMode('agent')
-    setRoute('chat')
+    setRoute('write')
     if (options.openAssistant ?? runtimeConnection === 'ready') {
       setRightSidebarWidth((width) => Math.max(width, 420))
       const sddThreadId = await ensureSddAssistantThreadForDraft(draft)
@@ -1202,13 +1252,10 @@ export function Workbench(): ReactElement {
   }
 
   const startNewSddRequirement = async (): Promise<void> => {
-    const activeCodeWorkspace = activeThreadId
-      ? normalizeWorkspaceRoot(codeThreads.find((thread) => thread.id === activeThreadId)?.workspace ?? '')
-      : ''
-    let targetWorkspace = activeCodeWorkspace || normalizeWorkspaceRoot(workspaceRoot)
+    let targetWorkspace = normalizeWorkspaceRoot(activeWriteWorkspaceRoot)
     if (!targetWorkspace) {
-      const picked = await chooseWorkspace({ selectThreadAfter: false })
-      targetWorkspace = normalizeWorkspaceRoot(picked ?? useChatStore.getState().workspaceRoot)
+      await openWrite()
+      targetWorkspace = normalizeWorkspaceRoot(useWriteWorkspaceStore.getState().workspaceRoot)
     }
     if (!targetWorkspace) {
       setError(t('workspaceRequiredToCreateThread'))
@@ -1252,11 +1299,8 @@ export function Workbench(): ReactElement {
   }
 
   useEffect(() => {
-    if (activeSddDraft) return
-    const activeCodeWorkspace = activeThreadId
-      ? normalizeWorkspaceRoot(codeThreads.find((thread) => thread.id === activeThreadId)?.workspace ?? '')
-      : ''
-    const targetWorkspace = activeCodeWorkspace || normalizeWorkspaceRoot(workspaceRoot)
+    if (route !== 'write' || activeSddDraft) return
+    const targetWorkspace = normalizeWorkspaceRoot(activeWriteWorkspaceRoot || workspaceRoot)
     if (!targetWorkspace || dismissedSddDraftWorkspacesRef.current.has(targetWorkspace)) return
     if (restoredSddDraftWorkspaceRef.current === targetWorkspace) return
 
@@ -1275,14 +1319,14 @@ export function Workbench(): ReactElement {
       dismissedSddDraftWorkspacesRef.current.delete(targetWorkspace)
       setInput('')
       setMode('agent')
-      setRoute('chat')
+      setRoute('write')
       setRightPanelMode(null)
     })
 
     return () => {
       cancelled = true
     }
-  }, [activeSddDraft, activeThreadId, codeThreads, setRightPanelMode, setRoute, workspaceRoot])
+  }, [activeSddDraft, activeWriteWorkspaceRoot, route, setRightPanelMode, setRoute, workspaceRoot])
 
   const sendSddAssistantPrompt = async (value: string): Promise<void> => {
     const v = value.trim()
@@ -1507,7 +1551,12 @@ export function Workbench(): ReactElement {
     const attachmentIds = attachments.map((attachment) => attachment.id)
     const fileReferences = route === 'chat' ? composerFileReferences : []
     const reasoningEffort = composerReasoningEffortRequestValue(composerReasoningEffort)
-    if (!v && attachmentIds.length === 0 && fileReferences.length === 0) return
+    if (
+      !v &&
+      attachmentIds.length === 0 &&
+      fileReferences.length === 0 &&
+      !(route === 'write' && writeAttachments.length > 0)
+    ) return
     const emptyPrompt =
       fileReferences.length > 0 && attachmentIds.length > 0
         ? t('composerFileAndImageOnlyPrompt')
@@ -1756,6 +1805,10 @@ export function Workbench(): ReactElement {
         : 'chat'
 
   const closeRightPanel = (): void => {
+    if (route === 'write' && rightPanelMode === 'sdd-ai') {
+      setRightPanelMode(null)
+      return
+    }
     if (route === 'write') {
       setWriteAssistantOpen(false)
       return
@@ -1768,6 +1821,8 @@ export function Workbench(): ReactElement {
     const writeState = useWriteWorkspaceStore.getState()
     const writeWorkspaceRoot = writeState.workspaceRoot || workspaceRoot
     setInput('')
+    setWriteAttachments([])
+    setWriteAttachmentUploadError(null)
     writeState.clearQuotedSelections()
     void createWriteThread(writeWorkspaceRoot, writeState.activeFilePath)
   }
@@ -1806,35 +1861,7 @@ export function Workbench(): ReactElement {
         />
         <div className="ds-workbench-right-panel h-full min-h-0 shrink-0" style={{ width: rightSidebarWidth }}>
           <Suspense fallback={<div className="h-full w-full bg-ds-sidebar" />}>
-            {route === 'write' && writeAssistantOpen ? (
-              <WriteAssistantPanel
-                input={input}
-                setInput={setInput}
-                mode={mode}
-                setMode={setMode}
-                busy={busy}
-                runtimeConnection={runtimeConnection}
-                activeThreadId={activeThreadId}
-                blocks={blocks}
-                liveReasoning={liveReasoning}
-                liveAssistant={liveAssistant}
-                composerModel={writeAssistantModel}
-                composerPickList={writeAssistantPickList}
-                composerModelGroups={composerModelGroups}
-                composerReasoningEffort={composerReasoningEffort}
-                setComposerModel={setWriteAssistantModel}
-                setComposerReasoningEffort={setComposerReasoningEffort}
-                queuedMessages={queuedMessages}
-                removeQueuedMessage={removeQueuedMessage}
-                onSend={handleSend}
-                onInterrupt={(options) => void interrupt(options)}
-                onRetryConnection={() => void probeRuntime('user')}
-                onOpenSettings={() => openSettings('agents')}
-                onNewConversation={startNewWriteAssistantConversation}
-                onCollapse={closeRightPanel}
-                className="h-full max-h-full w-full"
-              />
-            ) : rightPanelMode === 'sdd-ai' && activeSddDraft ? (
+            {rightPanelMode === 'sdd-ai' && activeSddDraft ? (
               <SddAssistantPanel
                 draft={activeSddDraft}
                 input={input}
@@ -1863,6 +1890,42 @@ export function Workbench(): ReactElement {
                   setInput('')
                   void createSddAssistantThreadForDraft(activeSddDraft)
                 }}
+                onCollapse={closeRightPanel}
+                className="h-full max-h-full w-full"
+              />
+            ) : route === 'write' && writeAssistantOpen ? (
+              <WriteAssistantPanel
+                input={input}
+                setInput={setInput}
+                mode={mode}
+                setMode={setMode}
+                busy={busy}
+                runtimeConnection={runtimeConnection}
+                activeThreadId={activeThreadId}
+                blocks={blocks}
+                liveReasoning={liveReasoning}
+                liveAssistant={liveAssistant}
+                composerModel={writeAssistantModel}
+                composerPickList={writeAssistantPickList}
+                composerModelGroups={composerModelGroups}
+                composerReasoningEffort={composerReasoningEffort}
+                setComposerModel={setWriteAssistantModel}
+                setComposerReasoningEffort={setComposerReasoningEffort}
+                queuedMessages={queuedMessages}
+                removeQueuedMessage={removeQueuedMessage}
+                attachments={writeAttachments}
+                attachmentUploadEnabled={attachmentUploadEnabled}
+                attachmentUploadBusy={writeAttachmentUploadBusy}
+                attachmentUploadError={writeAttachmentUploadError}
+                onPickAttachments={(files) => void handlePickAttachments(files, 'write')}
+                onPasteClipboardImage={(options) => void handlePasteClipboardImage(options)}
+                onRemoveAttachment={(id) => removeComposerAttachment(id, 'write')}
+                onRetryAttachment={(id) => void retryComposerAttachment(id, 'write')}
+                onSend={handleSend}
+                onInterrupt={(options) => void interrupt(options)}
+                onRetryConnection={() => void probeRuntime('user')}
+                onOpenSettings={() => openSettings('agents')}
+                onNewConversation={startNewWriteAssistantConversation}
                 onCollapse={closeRightPanel}
                 className="h-full max-h-full w-full"
               />
@@ -1926,6 +1989,7 @@ export function Workbench(): ReactElement {
                 focusModeEnabled={focusModeEnabled}
                 onCodeOpen={openCodeMode}
                 onWriteOpen={openWriteMode}
+                onNewRequirement={() => void startNewSddRequirement()}
                 onOpenSettings={(section) => openSettings(section)}
                 onToggleFocusMode={toggleFocusMode}
                 onToggleConnectPhone={toggleConnectPhone}
@@ -1951,7 +2015,6 @@ export function Workbench(): ReactElement {
               onRestoreThread={(id) => archiveThread(id, false)}
               onNewChat={startNewChat}
               onNewChatInWorkspace={startNewChatInWorkspace}
-              onNewRequirement={() => void startNewSddRequirement()}
               onOpenSettings={(section) => openSettings(section)}
               onOpenPlugins={openPluginsView}
               onToggleConnectPhone={toggleConnectPhone}
@@ -2006,6 +2069,7 @@ export function Workbench(): ReactElement {
               leftSidebarCollapsed={leftSidebarCollapsed}
               onToggleLeftSidebar={toggleLeftSidebar}
               onOpenThread={openThread}
+              onOpenFlow={() => openFlow('scheduled')}
             />
           </Suspense>
         ) : route === 'design' ? (
@@ -2021,13 +2085,25 @@ export function Workbench(): ReactElement {
           <>
             {writeRuntimeBannerMessage ? renderRuntimeBanner(writeRuntimeBannerMessage, runtimeErrorDetail) : null}
             <div className="flex min-h-0 flex-1">
-              <WriteWorkspaceView
-                leftSidebarCollapsed={leftSidebarCollapsed}
-                onToggleLeftSidebar={toggleLeftSidebar}
-                input={input}
-                setInput={setInput}
-                onSubmitPrompt={sendWritePrompt}
-              />
+              {activeSddDraft ? (
+                <SddDraftEditorView
+                  leftSidebarCollapsed={leftSidebarCollapsed}
+                  assistantOpen={rightPanelMode === 'sdd-ai'}
+                  onToggleLeftSidebar={toggleLeftSidebar}
+                  onToggleAssistant={() => void toggleSddAssistantPanel()}
+                  onNext={() => void handleSddNextStep()}
+                  onClose={() => dismissActiveSddDraft({ closeAssistant: true })}
+                  nextDisabled={busy || runtimeConnection !== 'ready' || sddDraftOperationStatus === 'upgrading'}
+                />
+              ) : (
+                <WriteWorkspaceView
+                  leftSidebarCollapsed={leftSidebarCollapsed}
+                  onToggleLeftSidebar={toggleLeftSidebar}
+                  input={input}
+                  setInput={setInput}
+                  onSubmitPrompt={sendWritePrompt}
+                />
+              )}
               {renderRightPanel()}
             </div>
           </>

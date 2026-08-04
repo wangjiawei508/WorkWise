@@ -17,7 +17,7 @@ describe('isChatAttachmentUploadEnabled', () => {
     })).toBe(true)
   })
 
-  it('disables composer attachments outside ready chat mode', () => {
+  it('enables the document composer in Write and disables unavailable routes', () => {
     expect(isChatAttachmentUploadEnabled({
       runtimeConnection: 'connecting',
       route: 'chat',
@@ -27,6 +27,12 @@ describe('isChatAttachmentUploadEnabled', () => {
     expect(isChatAttachmentUploadEnabled({
       runtimeConnection: 'ready',
       route: 'write',
+      mode: 'agent',
+      attachmentStoreAvailable: true
+    })).toBe(true)
+    expect(isChatAttachmentUploadEnabled({
+      runtimeConnection: 'ready',
+      route: 'design',
       mode: 'agent',
       attachmentStoreAvailable: true
     })).toBe(false)

@@ -615,9 +615,12 @@ export function DesignWorkspaceView({
         if (result.warnings?.length) {
           setOperationNotice({
             tone: 'warning',
-            message: `${t('designImportWarnings', { count: result.warnings.length })} ${
-              result.warnings.slice(0, 3).map((warning) => warning.message).join(' ')
-            }`
+            message: `${t('designImportEditableApproximation')} ${t('designImportWarnings', { count: result.warnings.length })}`
+          })
+        } else {
+          setOperationNotice({
+            tone: 'warning',
+            message: t('designImportEditableApproximation')
           })
         }
       } else if (!result.canceled) {
@@ -1336,11 +1339,11 @@ export function DesignWorkspaceView({
             <DesignCanvas />
             {/* 右侧面板区：切换属性/图层 */}
             <div className="flex w-72 shrink-0 flex-col border-l border-ds-border-muted bg-ds-card/95">
-              <DesignSidebarPanel />
+              {DesignSidebarPanel()}
             </div>
           </div>
           {/* 底部页面导航条 */}
-          <DesignPageBar />
+          {DesignPageBar()}
         </>
       )}
 

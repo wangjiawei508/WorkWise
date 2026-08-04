@@ -1,7 +1,7 @@
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it, vi } from 'vitest'
-import { FlowNodeInspector, FlowWorkspaceView, RunDetailsPanel, flowPortCompatibility, flowRegistryAvailabilityLabel, flowStatusClass } from './FlowWorkspaceView'
+import { FlowNodeInspector, FlowWorkspaceView, RunDetailsPanel, createStarterFlowInput, flowPortCompatibility, flowRegistryAvailabilityLabel, flowStatusClass } from './FlowWorkspaceView'
 
 describe('FlowNodeInspector', () => {
   it('renders binding, model/provider, node config, and complete execution policy controls', () => {
@@ -59,6 +59,19 @@ describe('Flow engineering status semantics', () => {
 })
 
 describe('Flow workspace controls and typed connections', () => {
+  it('creates a runnable starter graph instead of an empty canvas', () => {
+    const flow = createStarterFlowInput('flow_qa')
+    expect(flow.nodes.map((node) => node.type)).toEqual(['manual_trigger', 'agent'])
+    expect(flow.nodes.find((node) => node.type === 'agent')?.config.prompt).toBeTruthy()
+    expect(flow.edges).toEqual([
+      expect.objectContaining({
+        sourcePortId: 'output',
+        targetPortId: 'input',
+        branch: 'normal'
+      })
+    ])
+  })
+
   it('accepts identical and declared conversions while rejecting incompatible ports', () => {
     expect(flowPortCompatibility('json', 'json')).toEqual({})
     expect(flowPortCompatibility('file', 'document')).toEqual({ conversionId: 'file-to-document' })

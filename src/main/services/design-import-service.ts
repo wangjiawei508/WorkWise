@@ -14,7 +14,7 @@ import {
 import { tmpdir } from 'node:os'
 import { basename, dirname, extname, isAbsolute, join, relative, resolve } from 'node:path'
 import { parseSvgStringsToDocument } from '../../shared/design-svg-parser'
-import type { DesignDocumentV1 } from '../../shared/design-document'
+import { generateDesignElementId, type DesignDocumentV1 } from '../../shared/design-document'
 import type { DesignFidelityWarning } from '../../shared/design-workspace'
 import { resolvePptMasterScript } from './design-ppt-master-paths'
 import {
@@ -51,7 +51,10 @@ export const PPTX_IMPORT_LIMITS = Object.freeze({
   centralDirectoryBytes: 16 * 1024 * 1024,
   uncompressedBytes: 512 * 1024 * 1024,
   entryBytes: 128 * 1024 * 1024,
-  xmlBytes: 16 * 1024 * 1024,
+  // Real-world decks with charts and long embedded drawing data regularly exceed
+  // 16 MiB for a single XML part. The aggregate and compression-ratio limits still
+  // protect against ZIP bombs, so allow a bounded 64 MiB part here.
+  xmlBytes: 64 * 1024 * 1024,
   compressionRatio: 200,
   slides: 500
 })
@@ -76,8 +79,10 @@ type PptxCentralEntry = {
 export type ImportedDesignImage = {
   provisionalId: string
   filename: string
-  mimeType: 'image/png' | 'image/jpeg' | 'image/webp' | 'image/gif'
+  mimeType: 'image/png' | 'image/jpeg' | 'image/webp' | 'image/gif' | 'image/svg+xml'
   bytes: Uint8Array
+  width?: number
+  height?: number
 }
 
 export type DesignImportResult =
@@ -219,7 +224,7 @@ function parsePptxCentralDirectory(
       throw pptxLimitError('a ZIP entry exceeds the 128 MiB limit')
     }
     if (isXmlPptxEntry(name) && entryUncompressedBytes > PPTX_IMPORT_LIMITS.xmlBytes) {
-      throw pptxLimitError('an OOXML part exceeds the 16 MiB XML limit')
+      throw pptxLimitError('an OOXML part exceeds the 64 MiB XML limit')
     }
     if (
       entryUncompressedBytes > 1024 * 1024 &&
@@ -490,60 +495,75 @@ export async function importPptxToDesign(pptxPath: string): Promise<DesignImport
       svgStrings.push(content)
     }
 
-    // 5. 读取可安全保留的图片，并为解析器建立 href → asset id 映射。
-    const importedImages: ImportedDesignImage[] = []
-    const imageAssetIds = new Map<string, string>()
+    // 5. Preserve every slide as one self-contained visual reference. The old
+    //    element-by-element SVG decomposition was editable, but it silently lost
+    //    PowerPoint layout semantics (text wrapping, themes, clipping and effects),
+    //    producing unreadable pages. A flattened reference is readable and can be
+    //    selected or annotated; WorkWise keeps the editable conversion experimental
+    //    instead of presenting a broken approximation as the default.
     const warnings: DesignFidelityWarning[] = []
-    let imageBytes = 0
     for (let pageIndex = 0; pageIndex < svgStrings.length; pageIndex += 1) {
       const svg = svgStrings[pageIndex]
       warnings.push(...inspectDesignSvgFidelity(svg, pageIndex))
-      for (const href of imageHrefs(svg)) {
-        const key = `${pageIndex}:${href}`
-        if (imageAssetIds.has(key)) continue
-        if (importedImages.length >= MAX_IMPORTED_IMAGES) {
-          warnings.push({
-            code: 'missing_image',
-            pageId: `page-${pageIndex + 1}`,
-            message: `Page ${pageIndex + 1} contains more than ${MAX_IMPORTED_IMAGES} images; additional images were omitted.`
-          })
-          continue
-        }
-        try {
-          const image = await readImportedDesignImage(
-            href,
-            dirname(join(svgDir, svgFiles[pageIndex])),
-            tempDir
-          )
-          if (imageBytes + image.bytes.byteLength > MAX_IMPORTED_IMAGE_TOTAL_BYTES) {
-            throw new Error('the imported image total exceeds 48 MiB')
-          }
-          imageBytes += image.bytes.byteLength
-          const provisionalId = `asset_import_${pageIndex}_${importedImages.length}`
-          imageAssetIds.set(key, provisionalId)
-          importedImages.push({ provisionalId, ...image })
-        } catch (error) {
-          warnings.push({
-            code: 'missing_image',
-            pageId: `page-${pageIndex + 1}`,
-            message: `An image on page ${pageIndex + 1} was omitted: ${
-              error instanceof Error ? error.message : String(error)
-            }.`
-          })
-        }
-      }
     }
 
-    // 6. 解析为 DesignDocument；图片使用临时 asset id，IPC 层存入工作区后再重映射。
+    // 6. Parse page geometry, then replace the lossy editable decomposition with a
+    //    full-page SVG reference. IPC rasterizes these self-contained SVGs to PNG
+    //    before persistence, so untrusted SVG never remains an active document asset.
     const name = basename(pptxPath, '.pptx')
-    const document = parseSvgStringsToDocument(svgStrings, name, {
-      imageAssetIdForHref: (href, pageIndex) => imageAssetIds.get(`${pageIndex}:${href}`)
+    const parsedDocument = parseSvgStringsToDocument(svgStrings, name)
+    const importedImages: ImportedDesignImage[] = svgStrings.map((svg, pageIndex) => {
+      const page = parsedDocument.pages[pageIndex]
+      return {
+        provisionalId: `asset_import_slide_${pageIndex}`,
+        filename: `slide-${String(pageIndex + 1).padStart(3, '0')}.svg`,
+        mimeType: 'image/svg+xml',
+        bytes: Buffer.from(svg, 'utf8'),
+        width: page?.width,
+        height: page?.height
+      }
+    })
+    const document: DesignDocumentV1 = {
+      ...parsedDocument,
+      pages: parsedDocument.pages.map((page, pageIndex) => ({
+        ...page,
+        background: 'FFFFFF',
+        elements: [{
+          id: generateDesignElementId(),
+          type: 'image',
+          name: `Imported slide ${pageIndex + 1}${(() => {
+            const sourceText = page.elements
+              .filter((element) => element.type === 'text' && element.text?.trim())
+              .map((element) => element.text!.trim())
+              .join(' · ')
+              .slice(0, 400)
+            return sourceText ? ` · ${sourceText}` : ''
+          })()}`,
+          x: 0,
+          y: 0,
+          w: page.width,
+          h: page.height,
+          rotation: 0,
+          opacity: 1,
+          imageAssetId: importedImages[pageIndex].provisionalId,
+          zIndex: 0
+        }]
+      }))
+    }
+    warnings.unshift({
+      code: 'layout_approximation',
+      message: 'Slides were imported as readable visual references. Add or select overlay elements for AI-assisted changes.'
     })
 
     return { ok: true, document, images: importedImages, warnings: dedupeWarnings(warnings) }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
-    return { ok: false, message: `design_import_failed: ${message}` }
+    return {
+      ok: false,
+      message: message.startsWith('unsafe_pptx:')
+        ? `PowerPoint security check failed: ${message.slice('unsafe_pptx:'.length).trim()}.`
+        : message
+    }
   } finally {
     await rm(tempDir, { recursive: true, force: true }).catch(() => undefined)
   }
@@ -694,6 +714,7 @@ function runPptxToSvg(
       scriptPath,
       pptxPath,
       '-o', outputDir,
+      '--embed-images',
       '--inheritance-mode', 'flat'
     ]
     const child = execFile(pythonCmd, args, {

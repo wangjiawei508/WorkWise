@@ -20,7 +20,7 @@
 
 WorkWise 面向需要长期上下文、反复修改和正式交付的工作。它不只是一个聊天窗口：项目文件、会话、文档、方法和扩展能力围绕同一个本地工作区组织，让 AI 真正参与从理解任务到交付成果的完整过程。
 
-**[0.3.3 正式版](https://github.com/wangjiawei508/WorkWise/releases/tag/v0.3.3)**在持久化 Agent 工作台、Write 和 Design 之上新增 WorkWise Flow Preview，并正式交付通用文档附件与应用内更新。PDF、DOCX、XLSX、PPTX、TXT、Markdown、CSV 和常用图片可以直接进入对话；长文档在本地解析、分段索引并按需检索。已安装 0.3.3 的用户从后续版本开始可直接在应用内下载并“重启更新”。
+**[0.3.4 纠错正式版](https://github.com/wangjiawei508/WorkWise/releases/tag/v0.3.4)**修复了 0.3.3 的工作区边界和首次可用性问题：Code、Write、Design、Flow 与定时任务不再互相伪装；Design 使用文档专属会话和可见的 AI 选中目标；Write 可直接添加招标 PDF/Office 文档并启动 Tender Master 编制流程；PPTX 改为完整可读的整页视觉参考；Flow 新建即提供可运行起始图。已安装 0.3.3 的用户可直接通过应用内更新升级。
 
 ## DeepSeek 原生默认支持
 
@@ -28,7 +28,7 @@ WorkWise 不是在通用聊天客户端上额外增加一个 DeepSeek 选项，�
 
 - **安装后直接配置 DeepSeek**：首次启动的模型配置只提供 DeepSeek API Key 和可选服务地址，不需要先理解或切换服务商；完成一次配置后，对话、写作和手机连接即可共用。没有 API Key 时仍可先使用本地写作和导出。
 - **按模型特长分工**：默认主 Agent 使用 `deepseek-v4-pro`，Write 行内补全默认使用 `deepseek-v4-flash`；定时任务、Flow 和其他 Agent 场景也可在两者之间选择。
-- **不是简单转发接口**：0.3.3 按 DeepSeek V4 的 100 万 token 上下文配置运行时，并支持思考模式、工具调用、长对话延续、上下文压缩和缓存用量统计。
+- **不是简单转发接口**：当前版本按 DeepSeek V4 的 100 万 token 上下文配置运行时，并支持思考模式、工具调用、长对话延续、上下文压缩和缓存用量统计。
 - DeepSeek 已于 2026 年 7 月 31 日更新 V4 Flash API 公测版本，进一步后训练并增强 Agent 能力，同时原生支持 Responses API 与 Codex。通过官方 API 选择 `deepseek-v4-flash` 时，服务端模型更新不要求重新安装 WorkWise。详见 [DeepSeek 官方公告](https://x.com/deepseek_ai/status/2083084415157022911)。
 - 此次更新只涉及 V4 Flash；截至 2026 年 8 月 4 日，新版 V4 Pro 尚未完成同轮更新。待其正式发布后，WorkWise 将统一验证 Flash/Pro 的默认路由、Responses API、推理档位、长工具链、文档检索与 Flow 场景，不提前把预告能力写成已交付功能。
 
@@ -41,7 +41,7 @@ WorkWise 不是在通用聊天客户端上额外增加一个 DeepSeek 选项，�
 | 理解项目、修改文件、运行工具、审查变更 | 编写 Markdown、调用写作助手、预览并导出文档 |
 | ![WorkWise Code 工作台](./src/asset/img/code.gif) | ![WorkWise Write 写作工作台](./src/asset/img/write.gif) |
 
-Design 设计工作台提供可编辑多页画板、图片与组合、Agent 画板命令，以及 PNG、SVG、PPTX 和 Write 报告联动。
+Design 是独立工作区，提供可编辑多页画板、图片与组合、文档专属 Agent 会话、选中元素定向修改，以及 PNG、SVG、PPTX 和 Write 报告联动。
 
 ## 你可以用它做什么
 
@@ -67,7 +67,7 @@ Code 工作台适合开发、资料整理、自动化和长链路任务。任务
 
 ### Write：从草稿到可交付文档
 
-Write 提供 Markdown 编辑、实时预览、选区助手、知识检索和多种文档导出。PPT Master、写作优化、行业报告等 Skills 可补充方法与模板，但事实、图片、表格和正式版式仍需人工复核。
+Write 提供 Markdown 编辑、实时预览、选区助手、知识检索、文档附件和多种文档导出。写作助手可直接添加 PDF、DOCX、XLSX、PPTX、TXT、Markdown、CSV 与图片；“编制投标文件”入口会调用内置 Tender Master，先解析评分办法、实质性要求和格式约束，再按确认后的目录逐章编制。PPT Master、写作优化、行业报告等 Skills 可补充方法与模板，但事实、图片、表格和正式版式仍需人工复核。
 
 导出 Word（DOCX）支持模板选择：内置学术论文、行政公文、商务报告、技术文档四个模板，可分别设置标题、正文、表格、代码块的中西文字体、字号、颜色、行距、对齐和缩进（含首行缩进），也可把调整后的样式另存为用户自定义模板。公文模板符合 GB/T 9704 常见排版（方正小标宋二号标题、仿宋_GB2312 三号正文、首行缩进 2 字符）。
 
@@ -75,7 +75,7 @@ Write 提供 Markdown 编辑、实时预览、选区助手、知识检索和多�
 
 Design 以工作区内 `.workwise/design` 为持久化边界，支持多页画板、图片资源、预设形状、结构化组合、撤销/重做和冲突保护。Agent 通过带 revision 和幂等键的画板命令修改当前文档，不会绕过 WorkWise Agent Runtime 另建一套模型通道。
 
-导出前会先保存当前画板。PNG、SVG 可直接下载，PPTX 会验证真实 OOXML 结构，Write 联动会生成带来源信息的报告成果。导入 PPTX 时保留可安全转换的文字、图形、图片、旋转和组合关系；无法等价还原的效果会明确给出警告。
+导出前会先保存当前画板。PNG、SVG 可直接下载，PPTX 会验证真实 OOXML 结构，Write 联动会生成带来源信息的报告成果。导入 PPTX 默认采用“可读优先”：每页保留为完整、可选择的视觉参考，用户或 AI 可在其上添加标注或重做可编辑元素。WorkWise 不再把错位、遮挡的近似拆分结果伪装成逐元素可编辑 PowerPoint；动画和原始图表对象仍需在 PowerPoint 中复核。
 
 ### Flow Preview：把能力连接成可运行流程
 
@@ -123,7 +123,7 @@ Flow 默认可见并标注 Preview。未配置模型、外部账号或配套 CLI
 
 ## 更新与帮助
 
-WorkWise 0.3.3 使用 `railwise.cn` 官方 Stable 更新源：
+WorkWise 0.3.4 继续使用 `railwise.cn` 官方 Stable 更新源：
 
 - 启动后检查，并每 24 小时在后台复查；发现新版本时顶部显示蓝色更新图标。
 - 第一次点击只在后台下载并显示进度，不会退出应用；下载完成后变为“重启并更新”。
