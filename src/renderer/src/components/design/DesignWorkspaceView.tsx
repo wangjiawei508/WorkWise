@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type ReactElement } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { useTranslation } from 'react-i18next'
 import {
@@ -181,6 +181,29 @@ export function DesignWorkspaceView({
     }))
   )
   const runtimeBlocks = useChatStore((state) => state.blocks)
+
+  const activePage = useMemo<DesignPage | undefined>(
+    () => (document && activePageId
+      ? document.pages.find((page) => page.id === activePageId)
+      : undefined),
+    [activePageId, document]
+  )
+  const hasGroupSelection = useMemo(
+    () => selectedElementIds.some(
+      (id) => activePage?.elements.find((element) => element.id === id)?.type === 'group'
+    ),
+    [activePage, selectedElementIds]
+  )
+  const isFlatImagePage = useMemo(() => {
+    if (!activePage || activePage.elements.length === 0) return false
+    if (activePage.elements.length > 1) return false
+    const element = activePage.elements[0]
+    return (
+      element.type === 'image' &&
+      element.w >= activePage.width * 0.9 &&
+      element.h >= activePage.height * 0.9
+    )
+  }, [activePage])
 
   const handleToolClick = (tool: DesignTool): void => {
     if (tool === 'select') {
@@ -612,7 +635,17 @@ export function DesignWorkspaceView({
             setAssetDataUrl(asset.id, assetResult.dataUrl)
           }
         }))
-        if (result.warnings?.length) {
+        const hasVectorElements = result.document.pages.some((page) =>
+          page.elements.some((element) => element.type !== 'image')
+        )
+        if (hasVectorElements) {
+          setOperationNotice({
+            tone: 'success',
+            message: result.warnings?.length
+              ? `${t('designImportEditableOk')} ${t('designImportWarnings', { count: result.warnings.length })}`
+              : t('designImportEditableOk')
+          })
+        } else if (result.warnings?.length) {
           setOperationNotice({
             tone: 'warning',
             message: `${t('designImportEditableApproximation')} ${t('designImportWarnings', { count: result.warnings.length })}`
@@ -995,7 +1028,7 @@ export function DesignWorkspaceView({
             <button
               type="button"
               onClick={ungroupSelectedElements}
-              disabled={selectedElementIds.length === 0}
+              disabled={!hasGroupSelection}
               className="flex h-7 w-7 items-center justify-center rounded-lg text-ds-faint transition hover:bg-ds-hover/60 hover:text-ds-ink disabled:cursor-not-allowed disabled:opacity-30"
               title={t('designUngroup')}
               aria-label={t('designUngroup')}
@@ -1205,6 +1238,11 @@ export function DesignWorkspaceView({
                     </button>
                   ))}
               </div>
+            </div>
+          ) : null}
+          {isFlatImagePage ? (
+            <div className="mx-3 mt-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-[12px] leading-5 text-amber-800 dark:border-amber-800/40 dark:bg-amber-950/30 dark:text-amber-200">
+              {t('designFlatImagePageNotice')}
             </div>
           ) : null}
           {/* 画布 + 右侧面板（属性/图层） */}

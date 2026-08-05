@@ -1,5 +1,4 @@
-import type { ReactElement } from 'react'
-import { useShallow } from 'zustand/react/shallow'
+import { useMemo, type ReactElement } from 'react'
 import { useTranslation } from 'react-i18next'
 import { formatSvgColor, type DesignElement } from '@shared/design-document'
 import { useDesignWorkspaceStore } from '../../design/design-workspace-store'
@@ -14,13 +13,15 @@ import { useDesignWorkspaceStore } from '../../design/design-workspace-store'
  */
 export function DesignPropertiesPanel(): ReactElement {
   const { t } = useTranslation('common')
-  const { selectedElements, updateSelectedElements } = useDesignWorkspaceStore(
-    useShallow((s) => ({
-      selectedElements: s.selectedElementIds
-        .map((id) => s.getActivePage()?.elements.find((e) => e.id === id))
-        .filter((e): e is DesignElement => Boolean(e)),
-      updateSelectedElements: s.updateSelectedElements
-    }))
+  const selectedElementIds = useDesignWorkspaceStore((s) => s.selectedElementIds)
+  const activePage = useDesignWorkspaceStore((s) => s.getActivePage())
+  const updateSelectedElements = useDesignWorkspaceStore((s) => s.updateSelectedElements)
+  const selectedElements = useMemo(
+    () =>
+      selectedElementIds
+        .map((id) => activePage?.elements.find((element) => element.id === id))
+        .filter((element): element is DesignElement => Boolean(element)),
+    [activePage, selectedElementIds]
   )
 
   if (selectedElements.length === 0) {
