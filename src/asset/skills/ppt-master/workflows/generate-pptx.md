@@ -20,7 +20,10 @@ description: Generate PPTX route authority for source intake, planning, SVG auth
 WorkWise Runtime may disable shell commands (Write assistant and Flow agents run this way by default). In that environment:
 
 - Do **not** attempt `python3 ...`, `bash`, `project_manager.py`, `svg_quality_checker.py`, or any other Python/Node/shell helper. They are unavailable and will fail the turn.
-- Author the control inputs yourself: write `spec_lock.md` directly with the `<!-- ppt-master-schema: spec-lock/v1 -->` header, `## canvas` (`viewBox: 0 0 W H`, `format: ppt169|ppt43`), colors, typography, and `## pptx_structure` `mode: flat`.
+- After strategy planning, author the machine-readable confirmation proposal at `confirm_ui/recommendations.stage1.json`. Include a complete single-pass proposal: `mode`, `visual_style` (with a `candidates` array so the panel can render choices), `canvas`, `color`, `typography`, `icons`, `image_usage`, `page_count`, `audience`, `communication_intent`, `delivery_context`, `content_divergence`, `generation_mode`, `formula_policy`, `image_ai_path`, `refine_spec`, `proactive_speaker_notes`, `proactive_custom_animations`, `proactive_narration_audio`, `core_message`, `audience_outcome`, and `artifact_afterlife`. For every choice field, provide `candidates` with `id`/`label`/`desc` plus the AI-proposed `id` so the WorkWise confirmation panel can present options and defaults.
+- Tell the user in one short message: "请在右侧「PPT Master 方案确认」面板选择并确认方案。" Then **stop and wait** — do not guess the user's choices.
+- When the user confirms, WorkWise writes `confirm_ui/result.json` and injects a confirmation message into the conversation. Read `result.json` exactly once; it carries `stage: final` and `status: confirmed`.
+- Author the control inputs from the confirmed result: write `spec_lock.md` with the `<!-- ppt-master-schema: spec-lock/v1 -->` header, `## canvas` (`viewBox: 0 0 W H`, `format: ppt169|ppt43`), colors, typography, and `## pptx_structure` `mode: flat`; keep every confirmed field consistent in `design_spec.md`.
 - Hand-write every page in `svg_output/slide_01.svg`, `slide_02.svg`, ... following the SVG page-design boundary above and the PPT Master canvas contract.
 - Export with the built-in `ppt_master` tool:
 
