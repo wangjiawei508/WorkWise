@@ -172,6 +172,29 @@ def call_ppt_master(operation: str, request: dict[str, Any]) -> dict[str, Any]:
                         exit_code = int(module.main() or 0)
                     finally:
                         sys.argv = previous_argv
+                elif operation == "ppt-master-import-pptx-native":
+                    source = bounded_ppt_path(
+                        root, request.get("inputPath"), "inputPath", True
+                    )
+                    output = bounded_ppt_path(
+                        root,
+                        request.get("outputDirectory"),
+                        "outputDirectory",
+                        False,
+                    )
+                    if (
+                        source.suffix.lower() != ".pptx"
+                        or source.stat().st_size > MAX_INPUT_BYTES
+                    ):
+                        raise ValueError(
+                            "inputPath must be a PPTX no larger than 200 MiB"
+                        )
+                    output.mkdir(parents=True, exist_ok=True)
+                    module = load_script_module(
+                        "workwise_pptx_native_to_svg",
+                        scripts_root / "pptx_native_to_svg.py",
+                    )
+                    module.convert_pptx_to_svg(str(source), str(output))
                 elif operation == "ppt-master-export-pptx":
                     project = bounded_ppt_path(
                         root, request.get("projectPath"), "projectPath", True

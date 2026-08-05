@@ -435,16 +435,40 @@ export async function importPptxToDesign(pptxPath: string): Promise<DesignImport
     const preflight = await preflightPptxForDesignImport(stagedPptxPath)
     await mkdir(conversionDirectory, { recursive: true })
 
-    // 2. 正式包只使用随客户端分发的受限 sidecar。系统 Python 仅保留给
-    //    开发模式，避免已安装客户端受主机 Python/依赖环境影响。
+    // 2. 优先使用原生 PPTX 解析（python-pptx 直读形状/段落/字体），
+    //    失败或没有可编辑文字时回退到 pptx_to_svg。
+    let nativeSvgReady = false
     if (isPptMasterSidecarAvailable()) {
+      try {
+        await runPptMasterSidecar({
+          operation: 'ppt-master-import-pptx-native',
+          workspaceRoot: tempDir,
+          inputPath: stagedPptxPath,
+          outputDirectory: conversionDirectory
+        }, { timeoutMs: IMPORT_TIMEOUT_MS })
+        const probeSvgDir = join(conversionDirectory, 'svg')
+        if (existsSync(probeSvgDir)) {
+          const probeFiles = (await readdir(probeSvgDir))
+            .filter((name) => /^slide_\d+\.svg$/i.test(name))
+            .sort()
+          if (probeFiles.length > 0) {
+            const first = await readFile(join(probeSvgDir, probeFiles[0]), 'utf8')
+            nativeSvgReady = /<text\b/i.test(first)
+          }
+        }
+      } catch {
+        nativeSvgReady = false
+      }
+    }
+    if (!nativeSvgReady && isPptMasterSidecarAvailable()) {
       await runPptMasterSidecar({
         operation: 'ppt-master-import-pptx',
         workspaceRoot: tempDir,
         inputPath: stagedPptxPath,
         outputDirectory: conversionDirectory
       }, { timeoutMs: IMPORT_TIMEOUT_MS })
-    } else {
+    }
+    if (!nativeSvgReady && !isPptMasterSidecarAvailable()) {
       const developmentFallbackAllowed =
         process.env.NODE_ENV !== 'production' || process.defaultApp === true
       if (!developmentFallbackAllowed) {
@@ -535,15 +559,29 @@ export async function importPptxToDesign(pptxPath: string): Promise<DesignImport
     for (let pageIndex = 0; pageIndex < svgStrings.length; pageIndex += 1) {
       let imageIndex = 0
       for (const href of imageHrefs(svgStrings[pageIndex])) {
-        const match = href.match(/^data:image\/(png|jpeg|webp|gif);base64,([A-Za-z0-9+/=]+)$/i)
-        if (!match) continue
-        const bytes = Buffer.from(match[2], 'base64')
-        if (bytes.length === 0 || bytes.length > MAX_IMPORTED_IMAGE_BYTES) continue
-        const extension = match[1].toLowerCase() === 'jpeg' ? 'jpg' : match[1].toLowerCase()
+        let bytes: Uint8Array | null = null
+        let mimeType: ImportedDesignImage['mimeType'] | null = null
+        const dataMatch = href.match(/^data:image\/(png|jpeg|webp|gif);base64,([A-Za-z0-9+/=]+)$/i)
+        if (dataMatch) {
+          bytes = Buffer.from(dataMatch[2], 'base64')
+          mimeType = `image/${dataMatch[1].toLowerCase()}` as ImportedDesignImage['mimeType']
+        } else if (/^media\/[^/]+$/.test(href)) {
+          try {
+            const read = await readImportedDesignImage(href, svgDir, tempDir)
+            bytes = read.bytes
+            mimeType = read.mimeType
+          } catch {
+            continue
+          }
+        } else {
+          continue
+        }
+        if (!bytes || bytes.byteLength === 0 || bytes.byteLength > MAX_IMPORTED_IMAGE_BYTES || !mimeType) continue
+        const extension = mimeType === 'image/jpeg' ? 'jpg' : mimeType.split('/')[1]
         importedImages.push({
           provisionalId: pageImageElementId(pageIndex, imageIndex),
           filename: `slide-${String(pageIndex + 1).padStart(3, '0')}-img-${imageIndex + 1}.${extension}`,
-          mimeType: `image/${match[1].toLowerCase()}` as ImportedDesignImage['mimeType'],
+          mimeType,
           bytes
         })
         imageIndex += 1
@@ -554,7 +592,7 @@ export async function importPptxToDesign(pptxPath: string): Promise<DesignImport
     for (let pageIndex = 0; pageIndex < svgStrings.length; pageIndex += 1) {
       let imageIndex = 0
       for (const href of imageHrefs(svgStrings[pageIndex])) {
-        if (href.startsWith('data:image/')) {
+        if (href.startsWith('data:image/') || /^media\/[^/]+$/.test(href)) {
           hrefToImageId[pageIndex].set(href, pageImageElementId(pageIndex, imageIndex))
           imageIndex += 1
         }
