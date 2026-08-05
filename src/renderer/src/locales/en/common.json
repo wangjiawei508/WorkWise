@@ -1505,6 +1505,7 @@
   "pptConfirmSuccess": "Proposal confirmed. The agent is continuing.",
   "pptConfirmWriteFailed": "Failed to write result.json: ",
   "pptConfirmNoFields": "The agent has not submitted confirmable proposal fields yet. Wait a moment or ask it to complete the proposal.",
+  "sandboxFullAccessWarning": "Full access lets the agent run shell / Python and any command under your account, including reading and writing files and network access. Only enable it when you trust the current task and workspace content; PPT Master still prefers the managed sidecar, and upstream scripts should use the managed Python environment at ~/.workwise/ppt-master-python.",
   "writeAgnesImageTitle": "Agnes AI image generation",
   "writeAgnesImageSub": "Generate document images from reusable prompt templates",
   "writeAgnesImageTemplate": "Prompt template",

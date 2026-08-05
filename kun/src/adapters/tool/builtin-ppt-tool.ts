@@ -1,7 +1,8 @@
 import { spawn } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { mkdir, readFile, readdir, stat, writeFile } from 'node:fs/promises'
-import { isAbsolute, join, relative, resolve } from 'node:path'
+import { dirname, isAbsolute, join, relative, resolve } from 'node:path'
+import { homedir } from 'node:os'
 import JSZip from 'jszip'
 import type { ToolHostContext } from '../../ports/tool-host.js'
 import { defineLocalTool } from './local-tool-definition.js'
@@ -399,4 +400,50 @@ export const builtinPptToolInternals = {
   assertInsideWorkspace,
   spawnSidecar,
   executePptMasterExport
+}
+
+export type PptMasterEnvLocalToolOptions = {
+  pythonPath?: string
+}
+
+export function createPptMasterEnvLocalTool(
+  options: PptMasterEnvLocalToolOptions = {}
+): LocalTool {
+  const managedPython =
+    options.pythonPath?.trim() ||
+    process.env.WORKWISE_PPT_MASTER_PYTHON?.trim() ||
+    join(
+      homedir(),
+      '.workwise',
+      'ppt-master-python',
+      process.platform === 'win32' ? 'Scripts/python.exe' : 'bin/python'
+    )
+  const skillRoot = process.env.WORKWISE_PPT_MASTER_ROOT?.trim() || join(process.cwd(), 'src', 'asset', 'skills', 'ppt-master')
+  const requirementsPath = join(skillRoot, 'requirements.txt')
+  const venvRoot = dirname(dirname(managedPython))
+  return defineLocalTool({
+    name: 'ppt_master_env',
+    description:
+      'Return the managed PPT Master Python interpreter and its requirements file for full-access runs. In full-access workspaces, use this interpreter to run the upstream PPT Master Python tools (project_manager.py, svg_quality_checker.py, analyze_images.py, etc.) instead of a random system Python. If exists is false, create the environment once with the returned installCommand, then call this tool again to confirm.',
+    inputSchema: { type: 'object', properties: {} },
+    policy: 'auto',
+    execute: async () => {
+      const exists = existsSync(managedPython)
+      const installCommand = exists
+        ? null
+        : [
+            `${process.platform === 'win32' ? 'py -3' : 'python3'} -m venv "${venvRoot}"`,
+            `"${managedPython}" -m pip install -r "${requirementsPath}"`
+          ].join(' && ')
+      return {
+        output: {
+          pythonPath: managedPython,
+          venvRoot,
+          requirementsPath,
+          exists,
+          ...(installCommand ? { installCommand } : {})
+        }
+      }
+    }
+  })
 }

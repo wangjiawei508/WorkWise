@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import JSZip from 'jszip'
 import { LocalToolHost } from '../src/adapters/tool/local-tool-host.js'
-import { createPptMasterLocalTool } from '../src/adapters/tool/builtin-ppt-tool.js'
+import { createPptMasterEnvLocalTool, createPptMasterLocalTool } from '../src/adapters/tool/builtin-ppt-tool.js'
 import type { ToolHostContext } from '../src/ports/tool-host.js'
 
 const SLIDE_SVG = (index: number): string => `<?xml version="1.0"?>
@@ -180,6 +180,24 @@ describe('ppt_master built-in tool', () => {
     expect(result.item.output).toMatchObject({
       code: 'tool_execution_failed',
       error: expect.stringContaining('output_file_exists')
+    })
+  })
+
+  it('reports the managed PPT Master Python environment for full-access runs', async () => {
+    const pythonPath = join(workspace, 'managed', 'bin', 'python')
+    const tool = createPptMasterEnvLocalTool({ pythonPath })
+    const host = new LocalToolHost({ tools: [tool] })
+    const result = await host.execute(
+      { callId: 'call_ppt_env', toolName: 'ppt_master_env', arguments: {} },
+      buildContext(workspace)
+    )
+    expect(result.item.kind).toBe('tool_result')
+    if (result.item.kind !== 'tool_result') throw new Error('expected tool_result')
+    expect(result.item.output).toMatchObject({
+      pythonPath,
+      venvRoot: join(workspace, 'managed'),
+      exists: false,
+      installCommand: expect.stringContaining('python3 -m venv')
     })
   })
 

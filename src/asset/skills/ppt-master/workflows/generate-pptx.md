@@ -41,6 +41,15 @@ WorkWise Runtime may disable shell commands (Write assistant and Flow agents run
      The tool enforces the gates above (design_spec, spec_lock, full page set, per-page notes, severe low contrast), **requires a new output file name** (it refuses to overwrite an existing `.pptx`), and returns `slideCount`, `notesCount`, and `warnings`.
   8. **Verify and deliver** — require `slideCount` to equal the confirmed page count and, when notes are enabled, `notesCount` to equal `slideCount`. Fix any warnings and re-export until both pass. Then deliver the absolute `.pptx` path to the user. Never claim completion before the file exists, the counts match, and the deck reads correctly.
 
+### Full-Access Route (shell / Python allowed)
+
+When the workspace or Agent sandbox is `danger-full-access` (WorkWise 设置 → 沙箱模式 → 完全访问), host shell and Python are available. Use this route when the user explicitly enables it or asks for the full upstream workflow:
+
+- Use the managed interpreter reported by the `ppt_master_env` tool (`~/.workwise/ppt-master-python/bin/python`). If it does not exist yet, run the tool's `installCommand` once (creates the venv and installs the PPT Master requirements), then call `ppt_master_env` again to confirm.
+- Keep the WorkWise native confirmation panel as the confirmation step (author `confirm_ui/recommendations.stage1.json` → user confirms → read `result.json`). Do not switch to the browser confirm UI unless the user explicitly asks.
+- You MAY now run the upstream Python helpers with the managed interpreter: `project_manager.py` scaffolding/validation, `svg_quality_checker.py --stage first-page` after the first page and `--stage final` before export, `analyze_images.py`, `finalize_svg.py`, and `svg_to_pptx.py`. The production order from the restricted route still applies: design_spec → spec_lock → every page → per-page notes → quality check → export.
+- Still use the `ppt_master` tool for the final export (it enforces the gates and returns slideCount/notesCount), or run `svg_to_pptx.py` with the managed interpreter and then verify the same counts yourself. Never claim completion without a verified, new `.pptx` file.
+
 ### Quick Generate Profile Short Circuit
 
 For an explicit quick/fast, skip-strategy, or direct-SVG request, follow

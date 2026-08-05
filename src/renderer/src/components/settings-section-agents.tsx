@@ -1402,6 +1402,11 @@ export function AgentsSettingsSection({ ctx }: { ctx: Record<string, any> }): Re
                       </select>
                     }
                   />
+                  {kun.sandboxMode === 'danger-full-access' ? (
+                    <p className="mt-2 rounded-lg border border-orange-300/70 bg-orange-50 px-3 py-2 text-[12px] leading-5 text-orange-800 dark:border-orange-800/70 dark:bg-orange-950/30 dark:text-orange-200">
+                      {t('sandboxFullAccessWarning')}
+                    </p>
+                  ) : null}
                 </SettingsCard>
               </div>
             </>

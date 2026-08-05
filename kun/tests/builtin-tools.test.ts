@@ -273,7 +273,7 @@ describe('Kun built-in tools', () => {
   })
 
   it('exposes pi-style coding and read-only tool groups', () => {
-    expect(buildCodingBuiltinLocalTools().map((tool) => tool.name)).toEqual(['read', 'bash', 'edit', 'write', 'ppt_master'])
+    expect(buildCodingBuiltinLocalTools().map((tool) => tool.name)).toEqual(['read', 'bash', 'edit', 'write', 'ppt_master', 'ppt_master_env'])
     expect(buildReadOnlyBuiltinLocalTools().map((tool) => tool.name)).toEqual(['read', 'grep', 'find', 'ls'])
   })
 
@@ -285,7 +285,7 @@ describe('Kun built-in tools', () => {
       ls: { defaultLimit: 1 },
       bash: { defaultTimeoutSeconds: 5 }
     })
-    expect(Object.keys(toolRecord).sort()).toEqual(['bash', 'edit', 'find', 'grep', 'ls', 'ppt_master', 'read', 'write'])
+    expect(Object.keys(toolRecord).sort()).toEqual(['bash', 'edit', 'find', 'grep', 'ls', 'ppt_master', 'ppt_master_env', 'read', 'write'])
 
     await writeFile(join(workspace, 'limited.txt'), 'one\ntwo\nthree\n', 'utf8')
     const customHost = new LocalToolHost({ tools: [toolRecord.read, toolRecord.ls] })
@@ -301,14 +301,14 @@ describe('Kun built-in tools', () => {
     expect(defaultFindLocalToolOperations).toEqual({})
     expect(defaultGrepLocalToolOperations).toEqual({})
     expect(defaultLsLocalToolOperations.readdir).toBeTypeOf('function')
-    expect(createCodingTools().map((tool) => tool.name)).toEqual(['read', 'bash', 'edit', 'write', 'ppt_master'])
+    expect(createCodingTools().map((tool) => tool.name)).toEqual(['read', 'bash', 'edit', 'write', 'ppt_master', 'ppt_master_env'])
     expect(createReadOnlyTools().map((tool) => tool.name)).toEqual(['read', 'grep', 'find', 'ls'])
-    expect(createCodingToolDefinitions().map((tool) => tool.name)).toEqual(['read', 'bash', 'edit', 'write', 'ppt_master'])
+    expect(createCodingToolDefinitions().map((tool) => tool.name)).toEqual(['read', 'bash', 'edit', 'write', 'ppt_master', 'ppt_master_env'])
     expect(createReadOnlyToolDefinitions().map((tool) => tool.name)).toEqual(['read', 'grep', 'find', 'ls'])
     const allTools = createAllTools()
     const allDefinitions = createAllToolDefinitions()
-    expect(Object.keys(allTools).sort()).toEqual(['bash', 'edit', 'find', 'grep', 'ls', 'ppt_master', 'read', 'write'])
-    expect(Object.keys(allDefinitions).sort()).toEqual(['bash', 'edit', 'find', 'grep', 'ls', 'ppt_master', 'read', 'write'])
+    expect(Object.keys(allTools).sort()).toEqual(['bash', 'edit', 'find', 'grep', 'ls', 'ppt_master', 'ppt_master_env', 'read', 'write'])
+    expect(Object.keys(allDefinitions).sort()).toEqual(['bash', 'edit', 'find', 'grep', 'ls', 'ppt_master', 'ppt_master_env', 'read', 'write'])
     expect(createReadTool).toBe(createReadLocalTool)
     expect(createReadToolDefinition).toBe(createReadLocalTool)
     expect(createWriteTool).toBeTypeOf('function')

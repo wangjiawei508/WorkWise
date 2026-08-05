@@ -1,6 +1,6 @@
 import { stat } from 'node:fs/promises'
 import type { LocalTool } from './local-tool-host.js'
-import type { PptMasterLocalToolOptions } from './builtin-ppt-tool.js'
+import type { PptMasterEnvLocalToolOptions, PptMasterLocalToolOptions } from './builtin-ppt-tool.js'
 
 export type FsStats = NonNullable<Awaited<ReturnType<typeof stat>>>
 
@@ -99,6 +99,7 @@ export type BuiltinToolName =
   | 'find'
   | 'ls'
   | 'ppt_master'
+  | 'ppt_master_env'
 export const allBuiltinToolNames: Set<BuiltinToolName> = new Set([
   'read',
   'bash',
@@ -107,7 +108,8 @@ export const allBuiltinToolNames: Set<BuiltinToolName> = new Set([
   'grep',
   'find',
   'ls',
-  'ppt_master'
+  'ppt_master',
+  'ppt_master_env'
 ])
 export type ToolName = BuiltinToolName
 export const allToolNames: Set<ToolName> = allBuiltinToolNames
@@ -192,6 +194,7 @@ export type BuiltinLocalToolsOptions = {
   find?: FindLocalToolOptions
   ls?: LsLocalToolOptions
   pptMaster?: PptMasterLocalToolOptions
+  pptMasterEnv?: PptMasterEnvLocalToolOptions
 }
 export type ToolsOptions = BuiltinLocalToolsOptions
 

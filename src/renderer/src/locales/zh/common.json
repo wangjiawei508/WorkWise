@@ -1505,6 +1505,7 @@
   "pptConfirmSuccess": "方案已确认，Agent 正在继续。",
   "pptConfirmWriteFailed": "写入 result.json 失败：",
   "pptConfirmNoFields": "Agent 尚未提交可确认的方案字段，请稍候或让 Agent 补充方案。",
+  "sandboxFullAccessWarning": "完全访问会允许 Agent 执行 shell / Python 等任意命令，可读写你账号权限内的文件并联网。仅在你信任当前任务与工作区内容时开启；PPT Master 仍优先使用受管 sidecar，需要运行上游脚本时请先准备托管 Python 环境（~/.workwise/ppt-master-python）。",
   "writeAgnesImageTitle": "Agnes AI 文生图",
   "writeAgnesImageSub": "用标准提示词为当前 Markdown 生成配图",
   "writeAgnesImageTemplate": "提示词模板",
