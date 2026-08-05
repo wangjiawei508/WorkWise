@@ -243,7 +243,7 @@ export function PptMasterConfirmPanel({ workspaceRoot }: { workspaceRoot: string
     setBusy(true)
     setError(null)
     try {
-      const result = buildPptMasterResult(recommendations, edits, pending.projectDir)
+      const result = buildPptMasterResult(recommendations, edits, pending.projectDir, pending.stage)
       const writeResult = await window.workwise.writeWorkspaceFile({
         workspaceRoot,
         path: `${pending.confirmDir}/result.json`,
@@ -271,6 +271,15 @@ export function PptMasterConfirmPanel({ workspaceRoot }: { workspaceRoot: string
         <span className="min-w-0 flex-1 truncate text-[13px] font-semibold text-ds-ink">
           {t('pptConfirmTitle')}
         </span>
+        {pending.stage === 'stage1' ? (
+          <span className="shrink-0 rounded-full bg-blue-100 px-2 py-0.5 text-[11px] font-medium text-blue-700 dark:bg-blue-400/15 dark:text-blue-300">
+            Stage 1
+          </span>
+        ) : pending.stage === 'stage2' ? (
+          <span className="shrink-0 rounded-full bg-violet-100 px-2 py-0.5 text-[11px] font-medium text-violet-700 dark:bg-violet-400/15 dark:text-violet-300">
+            Stage 2
+          </span>
+        ) : null}
         {done ? (
           <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600" strokeWidth={2} />
         ) : null}

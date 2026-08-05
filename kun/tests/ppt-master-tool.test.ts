@@ -220,4 +220,123 @@ describe('ppt_master built-in tool', () => {
     if (result.item.kind !== 'tool_result') throw new Error('expected tool_result')
     expect(result.item.isError).toBe(true)
   })
+
+  it('does not treat a small decorative bar as the page background for contrast', async () => {
+    const projectDir = join(workspace, 'deck-contrast-false-positive')
+    const svgDir = join(projectDir, 'svg_output')
+    await mkdir(svgDir, { recursive: true })
+    await writeFile(
+      join(svgDir, 'slide_01.svg'),
+      `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 540">
+  <rect x="0" y="0" width="960" height="540" fill="#FFFFFF"/>
+  <rect x="0" y="0" width="40" height="4" fill="#1B3A5C"/>
+  <text x="40" y="62" font-size="28" fill="#1D2430">执行摘要</text>
+</svg>`,
+      'utf8'
+    )
+    await mkdir(join(projectDir, 'notes'), { recursive: true })
+    await writeFile(join(projectDir, 'notes', 'slide_01.md'), '# note', 'utf8')
+    await writeFile(join(projectDir, 'design_spec.md'), '# design spec', 'utf8')
+    await writeFile(
+      join(projectDir, 'spec_lock.md'),
+      '# spec lock\n\n## color\n\n| Key | Value |\n|---|---|\n| background | #FFFFFF |\n',
+      'utf8'
+    )
+    const outputPath = join(workspace, 'deck-contrast-false-positive.pptx')
+    const tool = createPptMasterLocalTool({
+      operations: {
+        spawnSidecar: async ({ request }) => {
+          expect(request.operation).toBe('ppt-master-export-pptx')
+          await writeFile(outputPath, 'PK\x03\x04fake-pptx')
+          return { ok: true, outputPath }
+        }
+      }
+    })
+    const host = new LocalToolHost({ tools: [tool] })
+    const result = await host.execute(
+      { callId: 'call_ppt_contrast_fp', toolName: 'ppt_master', arguments: { projectDir, outputPath } },
+      buildContext(workspace)
+    )
+    expect(result.item.kind).toBe('tool_result')
+    if (result.item.kind !== 'tool_result') throw new Error('expected tool_result')
+    expect(result.item.isError).not.toBe(true)
+  })
+
+  it('blocks text that genuinely sits on a low-contrast card', async () => {
+    const projectDir = join(workspace, 'deck-contrast-real')
+    const svgDir = join(projectDir, 'svg_output')
+    await mkdir(svgDir, { recursive: true })
+    await writeFile(
+      join(svgDir, 'slide_01.svg'),
+      `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 540">
+  <rect x="0" y="0" width="960" height="540" fill="#FFFFFF"/>
+  <rect x="40" y="40" width="400" height="200" fill="#1B3A5C"/>
+  <text x="60" y="100" font-size="20" fill="#1D2430">暗卡片上的深色文字</text>
+</svg>`,
+      'utf8'
+    )
+    await mkdir(join(projectDir, 'notes'), { recursive: true })
+    await writeFile(join(projectDir, 'notes', 'slide_01.md'), '# note', 'utf8')
+    await writeFile(join(projectDir, 'design_spec.md'), '# design spec', 'utf8')
+    await writeFile(
+      join(projectDir, 'spec_lock.md'),
+      '# spec lock\n\n## color\n\n| Key | Value |\n|---|---|\n| background | #FFFFFF |\n',
+      'utf8'
+    )
+    const outputPath = join(workspace, 'deck-contrast-real.pptx')
+    const tool = createPptMasterLocalTool()
+    const host = new LocalToolHost({ tools: [tool] })
+    const result = await host.execute(
+      { callId: 'call_ppt_contrast_real', toolName: 'ppt_master', arguments: { projectDir, outputPath } },
+      buildContext(workspace)
+    )
+    expect(result.item.kind).toBe('tool_result')
+    if (result.item.kind !== 'tool_result') throw new Error('expected tool_result')
+    expect(result.item.isError).toBe(true)
+    expect(result.item.output).toMatchObject({
+      error: expect.stringContaining('low_contrast_text')
+    })
+  })
+
+  it('accepts a full-page gradient background with high-contrast text', async () => {
+    const projectDir = join(workspace, 'deck-gradient')
+    const svgDir = join(projectDir, 'svg_output')
+    await mkdir(svgDir, { recursive: true })
+    await writeFile(
+      join(svgDir, 'slide_01.svg'),
+      `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 540">
+  <defs>
+    <linearGradient id="bgGrad01" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#0F1F38"/>
+      <stop offset="100%" stop-color="#1B3A5C"/>
+    </linearGradient>
+  </defs>
+  <rect x="0" y="0" width="960" height="540" fill="url(#bgGrad01)"/>
+  <text x="480" y="100" font-size="48" fill="#FFFFFF">封面标题</text>
+</svg>`,
+      'utf8'
+    )
+    await mkdir(join(projectDir, 'notes'), { recursive: true })
+    await writeFile(join(projectDir, 'notes', 'slide_01.md'), '# note', 'utf8')
+    await writeFile(join(projectDir, 'design_spec.md'), '# design spec', 'utf8')
+    await writeFile(join(projectDir, 'spec_lock.md'), '# spec lock', 'utf8')
+    const outputPath = join(workspace, 'deck-gradient.pptx')
+    const tool = createPptMasterLocalTool({
+      operations: {
+        spawnSidecar: async ({ request }) => {
+          expect(request.operation).toBe('ppt-master-export-pptx')
+          await writeFile(outputPath, 'PK\x03\x04fake-pptx')
+          return { ok: true, outputPath }
+        }
+      }
+    })
+    const host = new LocalToolHost({ tools: [tool] })
+    const result = await host.execute(
+      { callId: 'call_ppt_gradient', toolName: 'ppt_master', arguments: { projectDir, outputPath } },
+      buildContext(workspace)
+    )
+    expect(result.item.kind).toBe('tool_result')
+    if (result.item.kind !== 'tool_result') throw new Error('expected tool_result')
+    expect(result.item.isError).not.toBe(true)
+  })
 })

@@ -97,31 +97,219 @@ function contrastRatio(a: number, b: number): number {
   return (lighter + 0.05) / (darker + 0.05)
 }
 
-function svgBackgroundColor(svg: string): string | null {
-  const gradient = svg.match(
-    /<linearGradient\s+id="bg"[^>]*>[\s\S]*?<stop[^>]*stop-color="(#[0-9a-fA-F]{6})"/i
-  )
-  if (gradient) return gradient[1]
-  const rect = svg.match(/<rect\b[^>]*fill="(#[0-9a-fA-F]{6})"/i)
-  return rect ? rect[1] : null
+type RgbaColor = { r: number; g: number; b: number; a: number }
+type SvgRect = { x: number; y: number; width: number; height: number; fill: string; color: string | null; rgba: RgbaColor | null; order: number }
+type SvgText = { x: number; y: number; fill: string; color: string | null; rgba: RgbaColor | null; order: number }
+
+function parseSvgAttrs(tag: string): Record<string, string> {
+  const attrs: Record<string, string> = {}
+  const re = /([a-zA-Z:_-]+)="([^"]*)"/g
+  let match: RegExpExecArray | null
+  while ((match = re.exec(tag)) !== null) {
+    attrs[match[1]] = match[2]
+  }
+  return attrs
 }
 
-function svgContrastWarnings(svg: string, background: string | null): string[] {
-  if (!background) return []
-  const bg = parseHexColor(background)
+function numAttr(attrs: Record<string, string>, name: string, fallback: number): number {
+  const parsed = Number.parseFloat(attrs[name])
+  return Number.isFinite(parsed) ? parsed : fallback
+}
+
+function collectGradientStops(svg: string): Map<string, string> {
+  const stops = new Map<string, string>()
+  const re = /<(?:linear|radial)Gradient\b([^>]*)>([\s\S]*?)<\/(?:linear|radial)Gradient>/gi
+  let match: RegExpExecArray | null
+  while ((match = re.exec(svg)) !== null) {
+    const attrs = parseSvgAttrs(match[1])
+    const id = attrs.id
+    const first = match[2].match(/stop-color="(#[0-9a-fA-F]{6})"/i)
+    if (id && first) stops.set(id, first[1])
+  }
+  return stops
+}
+
+function resolveFillColor(fill: string, gradientStops: Map<string, string>): string | null {
+  if (!fill) return null
+  if (fill.startsWith('url(#')) {
+    const id = fill.slice(5, fill.indexOf(')')).replace('#', '')
+    return gradientStops.get(id) ?? null
+  }
+  return /^#[0-9a-fA-F]{6}$/.test(fill) ? fill : null
+}
+
+function parseSvgColor(value: string): RgbaColor | null {
+  const trimmed = value.trim()
+  let match = trimmed.match(/^#([0-9a-fA-F]{6})$/)
+  if (match) {
+    return {
+      r: parseInt(match[1].slice(0, 2), 16),
+      g: parseInt(match[1].slice(2, 4), 16),
+      b: parseInt(match[1].slice(4, 6), 16),
+      a: 1
+    }
+  }
+  match = trimmed.match(/^#([0-9a-fA-F]{3})$/)
+  if (match) {
+    const r = parseInt(match[1][0] + match[1][0], 16)
+    const g = parseInt(match[1][1] + match[1][1], 16)
+    const b = parseInt(match[1][2] + match[1][2], 16)
+    return { r, g, b, a: 1 }
+  }
+  match = trimmed.match(/^rgba?\(\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)\s*(?:,\s*([\d.]+)\s*)?\)$/i)
+  if (match) {
+    return {
+      r: Number(match[1]),
+      g: Number(match[2]),
+      b: Number(match[3]),
+      a: match[4] === undefined ? 1 : Number(match[4])
+    }
+  }
+  return null
+}
+
+function blendColors(foreground: RgbaColor, background: RgbaColor): RgbaColor {
+  const alpha = Math.min(1, Math.max(0, foreground.a))
+  return {
+    r: foreground.r * alpha + background.r * (1 - alpha),
+    g: foreground.g * alpha + background.g * (1 - alpha),
+    b: foreground.b * alpha + background.b * (1 - alpha),
+    a: 1
+  }
+}
+
+function luminanceOf(color: RgbaColor): number {
+  return relativeLuminance({ r: color.r, g: color.g, b: color.b })
+}
+
+function readSpecLockBackground(projectDir: string): string | null {
+  try {
+    const spec = readFileSync(join(projectDir, 'spec_lock.md'), 'utf8')
+    const lock = spec.match(/^\|\s*background\s*\|\s*(#[0-9a-fA-F]{6})\s*\|/m)
+    if (lock) return lock[1]
+    const design = readFileSync(join(projectDir, 'design_spec.md'), 'utf8')
+    const specDesign = design.match(/`background`\s*\|\s*`?(#[0-9a-fA-F]{6})`?/i)
+    if (specDesign) return specDesign[1]
+  } catch {
+    // missing/unreadable spec files fall back to SVG-derived background
+  }
+  return null
+}
+
+function svgPageBackground(svg: string, specBackground: string | null): string | null {
+  const gradientStops = collectGradientStops(svg)
+  const viewBox = svg.match(/viewBox="([0-9.\s]+)"/i)
+  const viewValues = viewBox ? viewBox[1].trim().split(/[\s,]+/) : []
+  const viewW = viewValues.length >= 3 ? Number.parseFloat(viewValues[2]) : Number.NaN
+  const viewH = viewValues.length >= 4 ? Number.parseFloat(viewValues[3]) : Number.NaN
+  const re = /<rect\b([^>]*)\/?>/gi
+  let match: RegExpExecArray | null
+  let fallback: string | null = null
+  while ((match = re.exec(svg)) !== null) {
+    const attrs = parseSvgAttrs(match[1])
+    const fill = attrs.fill
+    if (!fill) continue
+    const x = numAttr(attrs, 'x', 0)
+    const y = numAttr(attrs, 'y', 0)
+    const width = numAttr(attrs, 'width', 0)
+    const height = numAttr(attrs, 'height', 0)
+    const resolved = resolveFillColor(fill, gradientStops)
+    if (
+      Number.isFinite(viewW) &&
+      Number.isFinite(viewH) &&
+      x === 0 &&
+      y === 0 &&
+      Math.abs(width - viewW) < 1 &&
+      Math.abs(height - viewH) < 1
+    ) {
+      if (resolved) return resolved
+      if (fill.startsWith('#')) return fill
+    }
+    if (!fallback && fill.startsWith('#')) fallback = fill
+  }
+  return specBackground ?? fallback
+}
+
+function svgContrastWarnings(svg: string, pageBackground: string | null): string[] {
+  const bg = pageBackground ? parseHexColor(pageBackground) : null
   if (!bg) return []
-  const bgLuminance = relativeLuminance(bg)
+  const gradientStops = collectGradientStops(svg)
+  const rects: SvgRect[] = []
+  const texts: SvgText[] = []
+  let order = 0
+  const rectRe = /<rect\b([^>]*)\/?>/gi
+  let match: RegExpExecArray | null
+  while ((match = rectRe.exec(svg)) !== null) {
+    const attrs = parseSvgAttrs(match[1])
+    const fill = attrs.fill ?? ''
+    const opacity = numAttr(attrs, 'opacity', 1)
+    const fillOpacity = numAttr(attrs, 'fill-opacity', 1)
+    const rgba = parseSvgColor(fill)
+    if (rgba) rgba.a *= Math.min(1, Math.max(0, opacity * fillOpacity))
+    rects.push({
+      x: numAttr(attrs, 'x', 0),
+      y: numAttr(attrs, 'y', 0),
+      width: numAttr(attrs, 'width', 0),
+      height: numAttr(attrs, 'height', 0),
+      fill,
+      color: resolveFillColor(fill, gradientStops),
+      rgba,
+      order
+    })
+    order += 1
+  }
+  const textRe = /<text\b([^>]*)>/gi
+  while ((match = textRe.exec(svg)) !== null) {
+    const attrs = parseSvgAttrs(match[1])
+    const fill = attrs.fill ?? ''
+    const opacity = numAttr(attrs, 'opacity', 1)
+    const fillOpacity = numAttr(attrs, 'fill-opacity', 1)
+    const rgba = parseSvgColor(fill)
+    if (rgba) rgba.a *= Math.min(1, Math.max(0, opacity * fillOpacity))
+    texts.push({
+      x: numAttr(attrs, 'x', 0),
+      y: numAttr(attrs, 'y', 0),
+      fill,
+      color: resolveFillColor(fill, gradientStops),
+      rgba,
+      order
+    })
+    order += 1
+  }
+
   const warnings: string[] = []
   let index = 0
-  for (const match of svg.matchAll(/<text\b[^>]*\bfill="(#[0-9a-fA-F]{6})"[^>]*>/gi)) {
+  for (const text of texts) {
     index += 1
-    const fill = parseHexColor(match[1])
-    if (!fill) continue
-    const ratio = contrastRatio(relativeLuminance(fill), bgLuminance)
+    if (!text.rgba) continue
+    // Find the most specific background rect painted before this text that
+    // contains the text anchor. Rects painted after the text are overlays and
+    // must not be treated as the page background.
+    let containing: SvgRect | null = null
+    for (const rect of rects) {
+      if (rect.order >= text.order) break
+      if (!rect.rgba) continue
+      if (
+        text.x >= rect.x &&
+        text.x <= rect.x + rect.width &&
+        text.y >= rect.y &&
+        text.y <= rect.y + rect.height
+      ) {
+        if (!containing || rect.width * rect.height < containing.width * containing.height) {
+          containing = rect
+        }
+      }
+    }
+    const pageRgba: RgbaColor = { ...bg, a: 1 }
+    const rawBg = containing?.rgba ? containing.rgba : pageRgba
+    const effectiveBg = rawBg.a < 1 ? blendColors(rawBg, pageRgba) : rawBg
+    const effectiveText = text.rgba.a < 1 ? blendColors(text.rgba, effectiveBg) : text.rgba
+    const ratio = contrastRatio(luminanceOf(effectiveText), luminanceOf(effectiveBg))
+    const backgroundLabel = containing ? containing.fill : (pageBackground ?? '')
     if (ratio < 2.5) {
-      warnings.push(`low_contrast: text #${index} fill ${match[1]} on background ${background} has contrast ${ratio.toFixed(2)}:1 (below 2.5:1)`)
+      warnings.push(`low_contrast: text #${index} fill ${text.fill} on background ${backgroundLabel} has contrast ${ratio.toFixed(2)}:1 (below 2.5:1)`)
     } else if (ratio < 4.5) {
-      warnings.push(`low_contrast_warning: text #${index} fill ${match[1]} on background ${background} has contrast ${ratio.toFixed(2)}:1 (below 4.5:1)`)
+      warnings.push(`low_contrast_warning: text #${index} fill ${text.fill} on background ${backgroundLabel} has contrast ${ratio.toFixed(2)}:1 (below 4.5:1)`)
     }
   }
   return warnings
@@ -277,9 +465,10 @@ async function executePptMasterExport(
   // Contrast gate: severe low-contrast text blocks export; weaker violations warn.
   const severeContrast: string[] = []
   const contrastWarnings: string[] = []
+  const specBackground = readSpecLockBackground(projectDir)
   for (const slide of slides) {
     const svg = await readFile(join(svgDir, slide), 'utf8')
-    const background = svgBackgroundColor(svg)
+    const background = svgPageBackground(svg, specBackground)
     for (const warning of svgContrastWarnings(svg, background)) {
       if (warning.startsWith('low_contrast:')) severeContrast.push(`${slide}: ${warning}`)
       else contrastWarnings.push(`${slide}: ${warning}`)
