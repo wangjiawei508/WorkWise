@@ -182,12 +182,12 @@ function luminanceOf(color: RgbaColor): number {
   return relativeLuminance({ r: color.r, g: color.g, b: color.b })
 }
 
-function readSpecLockBackground(projectDir: string): string | null {
+async function readSpecLockBackground(projectDir: string): Promise<string | null> {
   try {
-    const spec = readFileSync(join(projectDir, 'spec_lock.md'), 'utf8')
+    const spec = await readFile(join(projectDir, 'spec_lock.md'), 'utf8')
     const lock = spec.match(/^\|\s*background\s*\|\s*(#[0-9a-fA-F]{6})\s*\|/m)
     if (lock) return lock[1]
-    const design = readFileSync(join(projectDir, 'design_spec.md'), 'utf8')
+    const design = await readFile(join(projectDir, 'design_spec.md'), 'utf8')
     const specDesign = design.match(/`background`\s*\|\s*`?(#[0-9a-fA-F]{6})`?/i)
     if (specDesign) return specDesign[1]
   } catch {
@@ -465,7 +465,7 @@ async function executePptMasterExport(
   // Contrast gate: severe low-contrast text blocks export; weaker violations warn.
   const severeContrast: string[] = []
   const contrastWarnings: string[] = []
-  const specBackground = readSpecLockBackground(projectDir)
+  const specBackground = await readSpecLockBackground(projectDir)
   for (const slide of slides) {
     const svg = await readFile(join(svgDir, slide), 'utf8')
     const background = svgPageBackground(svg, specBackground)
