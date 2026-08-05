@@ -909,10 +909,19 @@ function createTextElements(
     if (!rawText.trim()) return [null]
     const x = parseNum(attrs.x, 0)
     const baselineY = parseNum(attrs.y, 0) + parseNum(attrs.dy, 0)
+    let textW = estimateTextWidth(rawText, fontSize)
+    // 居中文本在画布上以 x + w/2 求锚点；w 为奇数会带来 0.5px 偏差，
+    // 就近取偶让锚点精确回到 SVG 的 text-anchor 位置。
+    if (textAlign === 'center' && textW % 2 !== 0) textW += 1
+    // The design model stores x as the element box's left edge, while SVG
+    // text-anchor keeps attrs.x as the anchor point (middle/end). Convert the
+    // anchor back to a box-left coordinate so the canvas renderer and the SVG
+    // serializer place the text at the original anchor position.
+    const boxLeft = x + dx - (textAlign === 'center' ? textW / 2 : textAlign === 'right' ? textW : 0)
     return [createDesignElement('text', {
-      x: Math.round(x + dx),
+      x: Math.round(boxLeft),
       y: Math.round(baselineY + dy - fontSize),
-      w: estimateTextWidth(rawText, fontSize),
+      w: textW,
       h: Math.round(fontSize * 1.4),
       text: rawText,
       fontSize,
@@ -938,10 +947,15 @@ function createTextElements(
       : fontSize
     const x = parseNum(tAttrs.x ?? attrs.x, 0)
     const baselineY = parseNum(tAttrs.y ?? attrs.y, 0) + parseNum(tAttrs.dy ?? attrs.dy, 0)
+    const align = tAttrs['text-anchor'] === 'middle' ? 'center'
+      : tAttrs['text-anchor'] === 'end' ? 'right' : textAlign
+    let contentW = estimateTextWidth(content, tFontSize)
+    if (align === 'center' && contentW % 2 !== 0) contentW += 1
+    const boxLeft = x + dx - (align === 'center' ? contentW / 2 : align === 'right' ? contentW : 0)
     results.push(createDesignElement('text', {
-      x: Math.round(x + dx),
+      x: Math.round(boxLeft),
       y: Math.round(baselineY + dy - tFontSize),
-      w: estimateTextWidth(content, tFontSize),
+      w: contentW,
       h: Math.round(tFontSize * 1.4),
       text: content,
       fontSize: Math.max(1, Math.round(tFontSize * fontSizeScale)),
@@ -959,8 +973,7 @@ function createTextElements(
       letterSpacing: tAttrs['letter-spacing'] !== undefined
         ? parseNum(tAttrs['letter-spacing'], 0)
         : letterSpacing,
-      textAlign: tAttrs['text-anchor'] === 'middle' ? 'center'
-        : tAttrs['text-anchor'] === 'end' ? 'right' : textAlign,
+      textAlign: align,
       rotation,
       zIndex: 0
     }))

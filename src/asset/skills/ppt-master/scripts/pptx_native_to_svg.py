@@ -480,25 +480,32 @@ def shape_to_svg(shape: Any, ctx: dict[str, float],
         return
 
     # PowerPoint "line" preset (straight/arrow connectors): render a real line,
-    # plus a triangle arrowhead when a tail/head end is declared.
+    # plus arrowheads when a tail/head end is declared.
     try:
         sp_pr = shape._element.find("{http://schemas.openxmlformats.org/presentationml/2006/main}spPr")
         prst_geom = sp_pr.find(f"{{{XML_NS_A}}}prstGeom") if sp_pr is not None else None
         prst = prst_geom.get("prst") if prst_geom is not None else None
         xfrm = sp_pr.find(f"{{{XML_NS_A}}}xfrm") if sp_pr is not None else None
         flip_h = xfrm is not None and xfrm.get("flipH") == "1"
+        flip_v = xfrm is not None and xfrm.get("flipV") == "1"
         ln = sp_pr.find(f"{{{XML_NS_A}}}ln") if sp_pr is not None else None
         tail_end = ln.find(f"{{{XML_NS_A}}}tailEnd") if ln is not None else None
         head_end = ln.find(f"{{{XML_NS_A}}}headEnd") if ln is not None else None
     except Exception:
         prst = None
         flip_h = False
+        flip_v = False
         tail_end = None
         head_end = None
 
     if prst == "line":
-        x1, y1 = (left, top) if not flip_h else (left + width, top)
-        x2, y2 = (left + width, top + height) if not flip_h else (left, top + height)
+        # The OOXML "line" preset path runs from the bounding box's top-left
+        # corner to its bottom-right corner; flipH/flipV mirror that path.
+        # tailEnd is the arrow at the path's end, headEnd at its start.
+        x1 = left + (width if flip_h else 0.0)
+        y1 = top + (height if flip_v else 0.0)
+        x2 = left + (0.0 if flip_h else width)
+        y2 = top + (0.0 if flip_v else height)
         color = stroke or "#000000"
         line_width = stroke_width if stroke_width is not None else 1.0
         out.append(
@@ -506,7 +513,22 @@ def shape_to_svg(shape: Any, ctx: dict[str, float],
             f'stroke="{color}" stroke-width="{fmt(max(line_width, 0.75))}"/>'
         )
 
-        def arrow_head(end_x: float, end_y: float, start_x: float, start_y: float) -> None:
+        def end_size(end: Any) -> tuple[float, float]:
+            """Arrowhead width/length factors relative to line width.
+
+            PowerPoint/DrawingML sizes are relative to the line width:
+            sm = 2x, med = 3x, lg = 5x (triangle-style markers). When the
+            attributes are omitted the schema default is medium.
+            """
+            if end is None:
+                return 3.0, 3.0
+            factors = {"sm": 2.0, "med": 3.0, "lg": 5.0}
+            w_factor = factors.get(end.get("w") or "med", 3.0)
+            len_factor = factors.get(end.get("len") or "med", 3.0)
+            return w_factor, len_factor
+
+        def arrow_head(end_x: float, end_y: float, start_x: float, start_y: float,
+                       width_factor: float, length_factor: float) -> None:
             dx = end_x - start_x
             dy = end_y - start_y
             length = math.hypot(dx, dy)
@@ -514,11 +536,12 @@ def shape_to_svg(shape: Any, ctx: dict[str, float],
                 return
             ux, uy = dx / length, dy / length
             px, py = -uy, ux
-            size = max(8.0, line_width * 3.5)
+            size_w = max(4.0, line_width * width_factor)
+            size_l = max(4.0, line_width * length_factor)
             tip_x, tip_y = end_x, end_y
-            base_x = end_x - ux * size
-            base_y = end_y - uy * size
-            half = size * 0.55
+            base_x = end_x - ux * size_l
+            base_y = end_y - uy * size_l
+            half = size_w * 0.5
             p1x = base_x + px * half
             p1y = base_y + py * half
             p2x = base_x - px * half
@@ -529,9 +552,11 @@ def shape_to_svg(shape: Any, ctx: dict[str, float],
             )
 
         if tail_end is not None:
-            arrow_head(x2, y2, x1, y1)
+            w_factor, len_factor = end_size(tail_end)
+            arrow_head(x2, y2, x1, y1, w_factor, len_factor)
         if head_end is not None:
-            arrow_head(x1, y1, x2, y2)
+            w_factor, len_factor = end_size(head_end)
+            arrow_head(x1, y1, x2, y2, w_factor, len_factor)
         return
 
     if shape_type == MSO_SHAPE_TYPE.TABLE:

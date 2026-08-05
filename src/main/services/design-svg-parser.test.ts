@@ -54,6 +54,32 @@ describe('parseSvgToPage - 基本', () => {
     expect(text?.letterSpacing).toBe(3)
   })
 
+  it('text-anchor=middle/end 转成元素盒左边缘坐标，画布居中/右对齐位置与 SVG 锚点一致', () => {
+    const svg = `<svg viewBox="0 0 200 100">
+      <text x="100" y="30" font-size="20" text-anchor="middle">居中</text>
+      <text x="180" y="60" font-size="20" text-anchor="end">右对齐</text>
+      <text x="10" y="90" font-size="20" text-anchor="start">左对齐</text>
+    </svg>`
+    const page = parseSvgToPage(svg)!
+    const texts = page.elements.filter((element) => element.type === 'text')
+    expect(texts).toHaveLength(3)
+
+    // 居中文本：x + w/2 应回到原始锚点 100
+    const centered = texts.find((element) => element.text === '居中')!
+    expect(centered.textAlign).toBe('center')
+    expect(centered.x + centered.w / 2).toBeCloseTo(100, 0)
+
+    // 右对齐文本：x + w 应回到原始锚点 180
+    const right = texts.find((element) => element.text === '右对齐')!
+    expect(right.textAlign).toBe('right')
+    expect(right.x + right.w).toBeCloseTo(180, 0)
+
+    // 左对齐文本：x 即原始锚点
+    const left = texts.find((element) => element.text === '左对齐')!
+    expect(left.textAlign).toBe('left')
+    expect(left.x).toBe(10)
+  })
+
   it('保留 ellipse fill=none 为无填充，并解析线与箭头', () => {
     const svg = `<svg viewBox="0 0 200 200">
       <ellipse cx="50" cy="50" rx="20" ry="20" fill="none" stroke="#D97706" stroke-width="3"/>
