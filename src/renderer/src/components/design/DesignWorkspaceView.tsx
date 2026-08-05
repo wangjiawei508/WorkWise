@@ -196,13 +196,22 @@ export function DesignWorkspaceView({
   )
   const isFlatImagePage = useMemo(() => {
     if (!activePage || activePage.elements.length === 0) return false
-    if (activePage.elements.length > 1) return false
-    const element = activePage.elements[0]
-    return (
-      element.type === 'image' &&
-      element.w >= activePage.width * 0.9 &&
-      element.h >= activePage.height * 0.9
+    const hasFullPageImage = activePage.elements.some(
+      (element) =>
+        element.type === 'image' &&
+        element.w >= activePage.width * 0.9 &&
+        element.h >= activePage.height * 0.9
     )
+    const hasVisibleVector = activePage.elements.some((element) => {
+      if (element.type === 'text') return Boolean(element.text?.trim())
+      if (element.type === 'path') return Boolean(element.pathData)
+      if (element.type === 'ellipse' || element.type === 'line') return true
+      if (element.type === 'rect') {
+        return (element.opacity ?? 1) > 0 && Boolean(element.fill || element.stroke)
+      }
+      return false
+    })
+    return hasFullPageImage && !hasVisibleVector
   }, [activePage])
 
   const handleToolClick = (tool: DesignTool): void => {
@@ -636,7 +645,15 @@ export function DesignWorkspaceView({
           }
         }))
         const hasVectorElements = result.document.pages.some((page) =>
-          page.elements.some((element) => element.type !== 'image')
+          page.elements.some((element) => {
+            if (element.type === 'text') return Boolean(element.text?.trim())
+            if (element.type === 'path') return Boolean(element.pathData)
+            if (element.type === 'ellipse' || element.type === 'line') return true
+            if (element.type === 'rect') {
+              return (element.opacity ?? 1) > 0 && Boolean(element.fill || element.stroke)
+            }
+            return false
+          })
         )
         if (hasVectorElements) {
           setOperationNotice({
