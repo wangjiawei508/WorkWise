@@ -416,10 +416,11 @@ export function createDesignElement(
     base.fontSize = overrides.fontSize ?? 24
     base.fontFamily = overrides.fontFamily ?? "system-ui, 'Microsoft YaHei', sans-serif"
     base.fontWeight = overrides.fontWeight ?? 'normal'
-    base.fill = overrides.fill ?? '1A1A2E'
+    // 显式传入 undefined 表示“无填充”（例如 SVG fill="none"），不得回退默认色
+    base.fill = 'fill' in overrides ? overrides.fill : '1A1A2E'
   }
   if (type === 'ellipse') {
-    base.fill = overrides.fill ?? '4A90D9'
+    base.fill = 'fill' in overrides ? overrides.fill : '4A90D9'
   }
   if (type === 'line') {
     base.stroke = overrides.stroke ?? '1A1A2E'

@@ -17,6 +17,7 @@ from __future__ import annotations
 import re
 import sys
 import zipfile
+import math
 from pathlib import Path
 from typing import Any, Optional
 
@@ -476,6 +477,61 @@ def shape_to_svg(shape: Any, ctx: dict[str, float],
             f'y2="{fmt(top + height)}" stroke="{stroke or "#000000"}" '
             f'stroke-width="{fmt(stroke_width if stroke_width is not None else 1.0)}"{transform}/>'
         )
+        return
+
+    # PowerPoint "line" preset (straight/arrow connectors): render a real line,
+    # plus a triangle arrowhead when a tail/head end is declared.
+    try:
+        sp_pr = shape._element.find("{http://schemas.openxmlformats.org/presentationml/2006/main}spPr")
+        prst_geom = sp_pr.find(f"{{{XML_NS_A}}}prstGeom") if sp_pr is not None else None
+        prst = prst_geom.get("prst") if prst_geom is not None else None
+        xfrm = sp_pr.find(f"{{{XML_NS_A}}}xfrm") if sp_pr is not None else None
+        flip_h = xfrm is not None and xfrm.get("flipH") == "1"
+        ln = sp_pr.find(f"{{{XML_NS_A}}}ln") if sp_pr is not None else None
+        tail_end = ln.find(f"{{{XML_NS_A}}}tailEnd") if ln is not None else None
+        head_end = ln.find(f"{{{XML_NS_A}}}headEnd") if ln is not None else None
+    except Exception:
+        prst = None
+        flip_h = False
+        tail_end = None
+        head_end = None
+
+    if prst == "line":
+        x1, y1 = (left, top) if not flip_h else (left + width, top)
+        x2, y2 = (left + width, top + height) if not flip_h else (left, top + height)
+        color = stroke or "#000000"
+        line_width = stroke_width if stroke_width is not None else 1.0
+        out.append(
+            f'<line x1="{fmt(x1)}" y1="{fmt(y1)}" x2="{fmt(x2)}" y2="{fmt(y2)}" '
+            f'stroke="{color}" stroke-width="{fmt(max(line_width, 0.75))}"/>'
+        )
+
+        def arrow_head(end_x: float, end_y: float, start_x: float, start_y: float) -> None:
+            dx = end_x - start_x
+            dy = end_y - start_y
+            length = math.hypot(dx, dy)
+            if length < 1e-6:
+                return
+            ux, uy = dx / length, dy / length
+            px, py = -uy, ux
+            size = max(8.0, line_width * 3.5)
+            tip_x, tip_y = end_x, end_y
+            base_x = end_x - ux * size
+            base_y = end_y - uy * size
+            half = size * 0.55
+            p1x = base_x + px * half
+            p1y = base_y + py * half
+            p2x = base_x - px * half
+            p2y = base_y - py * half
+            out.append(
+                f'<path d="M {fmt(tip_x)} {fmt(tip_y)} L {fmt(p1x)} {fmt(p1y)} '
+                f'L {fmt(p2x)} {fmt(p2y)} Z" fill="{color}" stroke="none"/>'
+            )
+
+        if tail_end is not None:
+            arrow_head(x2, y2, x1, y1)
+        if head_end is not None:
+            arrow_head(x1, y1, x2, y2)
         return
 
     if shape_type == MSO_SHAPE_TYPE.TABLE:

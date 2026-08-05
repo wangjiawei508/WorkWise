@@ -54,6 +54,19 @@ describe('parseSvgToPage - 基本', () => {
     expect(text?.letterSpacing).toBe(3)
   })
 
+  it('保留 ellipse fill=none 为无填充，并解析线与箭头', () => {
+    const svg = `<svg viewBox="0 0 200 200">
+      <ellipse cx="50" cy="50" rx="20" ry="20" fill="none" stroke="#D97706" stroke-width="3"/>
+      <line x1="10" y1="10" x2="90" y2="90" stroke="#0F3D6E" stroke-width="2"/>
+      <path d="M 90 90 L 80 92 L 84 84 Z" fill="#0F3D6E"/>
+    </svg>`
+    const page = parseSvgToPage(svg)!
+    const ring = page.elements.find((element) => element.type === 'ellipse' && element.stroke === 'D97706')
+    expect(ring?.fill).toBeUndefined()
+    expect(page.elements.some((element) => element.type === 'line')).toBe(true)
+    expect(page.elements.some((element) => element.type === 'path')).toBe(true)
+  })
+
   it('解析 ellipse 元素', () => {
     const page = parseSvgToPage(SIMPLE_SVG)!
     const ellipses = page.elements.filter((e) => e.type === 'ellipse')
