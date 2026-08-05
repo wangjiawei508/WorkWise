@@ -14,7 +14,11 @@ import {
 import { tmpdir } from 'node:os'
 import { basename, dirname, extname, isAbsolute, join, relative, resolve } from 'node:path'
 import { parseSvgStringsToDocument } from '../../shared/design-svg-parser'
-import { generateDesignElementId, type DesignDocumentV1 } from '../../shared/design-document'
+import {
+  generateDesignElementId,
+  type DesignDocumentV1,
+  type DesignElement
+} from '../../shared/design-document'
 import type { DesignFidelityWarning } from '../../shared/design-workspace'
 import { resolvePptMasterScript } from './design-ppt-master-paths'
 import {
@@ -495,12 +499,12 @@ export async function importPptxToDesign(pptxPath: string): Promise<DesignImport
       svgStrings.push(content)
     }
 
-    // 5. Preserve every slide as one self-contained visual reference. The old
-    //    element-by-element SVG decomposition was editable, but it silently lost
-    //    PowerPoint layout semantics (text wrapping, themes, clipping and effects),
-    //    producing unreadable pages. A flattened reference is readable and can be
-    //    selected or annotated; WorkWise keeps the editable conversion experimental
-    //    instead of presenting a broken approximation as the default.
+    // 5. Keep every slide as one locked, self-contained visual reference and
+    //    layer invisible hit-regions over each detected element. Users can
+    //    click any PowerPoint element (title, text box, shape, image) to select
+    //    it, read its bounds in Properties, and ask the assistant to modify the
+    //    selected region. Region elements are opacity-0 rects, so exports stay
+    //    visually identical while the canvas remains editable and annotatable.
     const warnings: DesignFidelityWarning[] = []
     for (let pageIndex = 0; pageIndex < svgStrings.length; pageIndex += 1) {
       const svg = svgStrings[pageIndex]
@@ -525,20 +529,16 @@ export async function importPptxToDesign(pptxPath: string): Promise<DesignImport
     })
     const document: DesignDocumentV1 = {
       ...parsedDocument,
-      pages: parsedDocument.pages.map((page, pageIndex) => ({
-        ...page,
-        background: 'FFFFFF',
-        elements: [{
+      pages: parsedDocument.pages.map((page, pageIndex) => {
+        const sourceText = page.elements
+          .filter((element) => element.type === 'text' && element.text?.trim())
+          .map((element) => element.text!.trim())
+          .join(' · ')
+          .slice(0, 400)
+        const reference: DesignElement = {
           id: generateDesignElementId(),
           type: 'image',
-          name: `Imported slide ${pageIndex + 1}${(() => {
-            const sourceText = page.elements
-              .filter((element) => element.type === 'text' && element.text?.trim())
-              .map((element) => element.text!.trim())
-              .join(' · ')
-              .slice(0, 400)
-            return sourceText ? ` · ${sourceText}` : ''
-          })()}`,
+          name: `幻灯片 ${pageIndex + 1} 参考图${sourceText ? ` · ${sourceText}` : ''}`,
           x: 0,
           y: 0,
           w: page.width,
@@ -546,13 +546,34 @@ export async function importPptxToDesign(pptxPath: string): Promise<DesignImport
           rotation: 0,
           opacity: 1,
           imageAssetId: importedImages[pageIndex].provisionalId,
-          zIndex: 0
-        }]
-      }))
+          zIndex: 0,
+          locked: true
+        }
+        const regions: DesignElement[] = page.elements.map((element, elementIndex) => ({
+          id: generateDesignElementId(),
+          type: 'rect',
+          name: designReferenceRegionName(element, elementIndex),
+          x: Math.round(element.x),
+          y: Math.round(element.y),
+          w: Math.max(1, Math.round(element.w || 1)),
+          h: Math.max(1, Math.round(element.h || 1)),
+          rotation: element.rotation ?? 0,
+          fill: 'FFFFFF',
+          stroke: 'FFFFFF',
+          opacity: 0,
+          locked: true,
+          zIndex: elementIndex + 1
+        }))
+        return {
+          ...page,
+          background: 'FFFFFF',
+          elements: [reference, ...regions]
+        }
+      })
     }
     warnings.unshift({
-      code: 'layout_approximation',
-      message: 'Slides were imported as readable visual references. Add or select overlay elements for AI-assisted changes.'
+      code: 'reference_regions',
+      message: 'Slides keep the original visual as a locked reference and add selectable hit regions for each detected element. Click an element to select it, then edit Properties or ask the assistant to change the selected region.'
     })
 
     return { ok: true, document, images: importedImages, warnings: dedupeWarnings(warnings) }
@@ -567,6 +588,26 @@ export async function importPptxToDesign(pptxPath: string): Promise<DesignImport
   } finally {
     await rm(tempDir, { recursive: true, force: true }).catch(() => undefined)
   }
+}
+
+const REFERENCE_REGION_LABELS: Record<string, string> = {
+  text: '文本',
+  rect: '形状',
+  ellipse: '椭圆',
+  line: '线条',
+  path: '图形',
+  image: '图片',
+  group: '组合',
+  preset: '预设形状'
+}
+
+function designReferenceRegionName(
+  element: Pick<DesignElement, 'type' | 'text'>,
+  index: number
+): string {
+  const label = REFERENCE_REGION_LABELS[element.type] ?? element.type ?? '元素'
+  const snippet = element.type === 'text' ? element.text?.trim().slice(0, 24) : ''
+  return snippet ? `${label} · ${snippet}` : `${label} ${index + 1}`
 }
 
 function imageHrefs(svg: string): string[] {

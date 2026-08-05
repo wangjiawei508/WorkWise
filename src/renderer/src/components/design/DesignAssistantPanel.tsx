@@ -34,7 +34,7 @@ export function buildDesignPrompt(
   idempotencyKey = `design-${Date.now()}-${crypto.randomUUID()}`
 ): string {
   const hasImportedSlideReference = page.elements.some(
-    (element) => element.type === 'image' && element.name?.startsWith('Imported slide ')
+    (element) => element.type === 'image' && element.name?.startsWith('幻灯片 ')
   )
   const canvasContext = {
     documentId: document.id,
@@ -68,8 +68,8 @@ export function buildDesignPrompt(
     'For any visual change, call design_apply_canvas_commands exactly once with one atomic operation batch.',
     'Do not write SVG, HTML, JSON, scripts, or other files as a substitute for changing the canvas.',
     ...(hasImportedSlideReference ? [
-      'This page contains a flattened PowerPoint visual reference. Do not claim that its source text or chart objects were edited.',
-      'Use new overlay elements for annotations, or rebuild the requested portion with editable elements above the reference.'
+      'This page contains a locked PowerPoint visual reference plus invisible selection regions. Selected elements are hit areas, not rendered content.',
+      'To change a selected region, add visible replacement elements (text/rect/shape/image) at the same bounds as the region, or add annotation callouts. Do not change the region opacity unless the user asks to reveal the outline.'
     ] : []),
     'Use the exact document_id, page_id and expected_revision from the canvas context.',
     `Use this exact idempotency_key: ${idempotencyKey}`,
@@ -147,9 +147,15 @@ export function DesignAssistantPanel({
         threadId = await pending
       }
       if (cancelled) return
-      await selectThread(threadId)
+      // Guard against re-selecting the same thread on every effect re-run.
+      // The runtime connection can flap while the managed Runtime is waking,
+      // and a repeated selectThread -> store update -> re-render cycle is what
+      // previously pushed React into error #185 (maximum update depth).
+      if (useChatStore.getState().activeThreadId !== threadId) {
+        await selectThread(threadId)
+      }
       if (cancelled) return
-      setAssistantThreadId(threadId)
+      setAssistantThreadId((current) => (current === threadId ? current : threadId))
     }
     void ensureThread().catch((cause) => {
       if (!cancelled) setThreadError(cause instanceof Error ? cause.message : String(cause))

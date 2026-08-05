@@ -15,6 +15,25 @@ description: Generate PPTX route authority for source intake, planning, SVG auth
 - Before each page, load compact page-context; its lock projection guards drift while unchanged large references stay in context.
 - `preset_shape_svg.py` may provide one stdout fragment only after the main agent chooses its semantic role, frame, and paint; it cannot choose layout or write a page.
 
+## Restricted Runtime Fallback (no Shell / no Python)
+
+WorkWise Runtime may disable shell commands (Write assistant and Flow agents run this way by default). In that environment:
+
+- Do **not** attempt `python3 ...`, `bash`, `project_manager.py`, `svg_quality_checker.py`, or any other Python/Node/shell helper. They are unavailable and will fail the turn.
+- Author the control inputs yourself: write `spec_lock.md` directly with the `<!-- ppt-master-schema: spec-lock/v1 -->` header, `## canvas` (`viewBox: 0 0 W H`, `format: ppt169|ppt43`), colors, typography, and `## pptx_structure` `mode: flat`.
+- Hand-write every page in `svg_output/slide_01.svg`, `slide_02.svg`, ... following the SVG page-design boundary above and the PPT Master canvas contract.
+- Export with the built-in `ppt_master` tool:
+
+  ```json
+  {
+    "projectDir": "<absolute workspace project directory>",
+    "outputPath": "<absolute workspace output .pptx>",
+    "format": "ppt169"
+  }
+  ```
+
+  The tool writes `spec_lock.md` when it is missing, runs the bundled converter, and returns the absolute output path. Deliver that file to the user. You may read the SVGs back yourself to self-check geometry, text, and styles before calling the tool.
+
 ### SVG Page-Design Boundary
 
 | Scope | Contract |
