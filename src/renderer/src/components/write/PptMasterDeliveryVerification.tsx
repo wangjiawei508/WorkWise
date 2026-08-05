@@ -12,7 +12,7 @@ function latestAssistantClaim(blocks: Array<{ kind: string; text?: string }>): s
     const block = blocks[index]
     if (block.kind !== 'assistant' || !block.text) continue
     if (
-      /(完整交付|PPT\s*已生成|成果文件|输出文件)/i.test(block.text) &&
+      /(完整交付|PPT\s*已生成|已交付|交付完成|导出成功|成果文件|输出文件|文件路径)/i.test(block.text) &&
       /\.pptx|ppt_master|slideCount/i.test(block.text)
     ) {
       return block.text

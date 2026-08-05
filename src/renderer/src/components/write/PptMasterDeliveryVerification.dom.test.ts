@@ -63,4 +63,28 @@ describe('PptMasterDeliveryVerification', () => {
     expect(container.textContent).toContain('System verified')
     expect(container.textContent).toContain('12')
   })
+
+  it('triggers on 已交付/文件路径 phrasings used by real agents', async () => {
+    useChatStore.setState({
+      blocks: [
+        {
+          kind: 'assistant',
+          id: 'b2',
+          text: '✅ 紧凑版 v3 已交付：文件路径 projects/deck/exports/deck_v3.pptx',
+          role: 'assistant',
+          createdAt: Date.now()
+        }
+      ] as never
+    })
+    await act(async () => {
+      root.render(createElement(PptMasterDeliveryVerification, { workspaceRoot: '/root' }))
+    })
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 1200))
+    })
+    expect(verifyMock).toHaveBeenCalledWith({
+      workspaceRoot: '/root',
+      projectDir: '/root/projects/deck'
+    })
+  })
 })
