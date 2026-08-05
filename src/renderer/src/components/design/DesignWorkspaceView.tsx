@@ -1241,8 +1241,16 @@ export function DesignWorkspaceView({
             </div>
           ) : null}
           {isFlatImagePage ? (
-            <div className="mx-3 mt-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-[12px] leading-5 text-amber-800 dark:border-amber-800/40 dark:bg-amber-950/30 dark:text-amber-200">
-              {t('designFlatImagePageNotice')}
+            <div className="mx-3 mt-2 flex flex-wrap items-center gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-[12px] leading-5 text-amber-800 dark:border-amber-800/40 dark:bg-amber-950/30 dark:text-amber-200">
+              <span className="min-w-0 flex-1">{t('designFlatImagePageNotice')}</span>
+              <button
+                type="button"
+                onClick={() => void handleImportPptx()}
+                disabled={importing}
+                className="shrink-0 rounded-lg border border-amber-300/70 bg-white px-2.5 py-1 text-[12px] font-medium text-amber-900 transition hover:bg-amber-100/80 disabled:cursor-not-allowed disabled:opacity-50 dark:border-amber-700/60 dark:bg-amber-900/20 dark:text-amber-100"
+              >
+                {importing ? t('designImporting') : t('designReimportPptxAsEditable')}
+              </button>
             </div>
           ) : null}
           {/* 画布 + 右侧面板（属性/图层） */}
