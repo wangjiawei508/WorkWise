@@ -809,6 +809,13 @@ export const workspaceDirectoryTargetPayloadSchema = z
   })
   .strict()
 
+export const pptMasterDeliverableVerifyPayloadSchema = z
+  .object({
+    workspaceRoot: trimmedString(MAX_PATH_LENGTH),
+    projectDir: trimmedString(MAX_PATH_LENGTH)
+  })
+  .strict()
+
 export const workspaceFileWritePayloadSchema = z
   .object({
     path: trimmedString(MAX_PATH_LENGTH),

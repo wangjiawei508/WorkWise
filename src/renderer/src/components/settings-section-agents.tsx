@@ -1,4 +1,5 @@
 import { useEffect, useState, type ReactElement, type ReactNode } from 'react'
+import { useTranslation } from 'react-i18next'
 import type {
   ApprovalPolicy,
   AppSettingsV1,
@@ -18,7 +19,7 @@ import {
 } from '@shared/app-settings'
 import type { GuiUpdateChannel } from '@shared/gui-update'
 import type { SkillRootId } from '../lib/skill-root-preference'
-import { Ban, ChevronDown, FolderOpen, Loader2, RefreshCw, Settings, Trash2 } from 'lucide-react'
+import { Ban, CheckCircle2, ChevronDown, FolderOpen, Loader2, RefreshCw, Settings, Trash2 } from 'lucide-react'
 import { GuiUpdateControl } from './settings-gui-update'
 import { AgentProfileCenter } from './agent-profile-center'
 import {
@@ -33,6 +34,84 @@ import { formatCompactNumber, formatCost } from '../hooks/use-thread-usage'
 import { parseUsageResponse } from '../hooks/usage-response'
 
 export { modelProvidersSettingsPatch } from './settings-section-providers'
+
+function PptMasterPythonEnvSetting(): ReactElement {
+  const { t } = useTranslation('common')
+  const [status, setStatus] = useState<{
+    exists: boolean
+    pythonPath: string
+    venvRoot: string
+    requirementsPath: string
+  } | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [message, setMessage] = useState<string | null>(null)
+  const [progress, setProgress] = useState<string | null>(null)
+
+  useEffect(() => {
+    const statusApi = window.workwise?.pptMasterPythonEnvStatus
+    if (statusApi) {
+      void statusApi().then(setStatus).catch(() => undefined)
+    }
+    const onProgress = window.workwise?.onPptMasterPythonEnvProgress
+    const unsubscribe = onProgress?.((item) => {
+      setProgress(item.message)
+      if (item.phase === 'done' || item.phase === 'error') {
+        setBusy(false)
+        setMessage(item.message)
+        const refresh = window.workwise?.pptMasterPythonEnvStatus
+        if (refresh) void refresh().then(setStatus).catch(() => undefined)
+      }
+    })
+    return () => unsubscribe?.()
+  }, [])
+
+  const prepare = async (): Promise<void> => {
+    if (typeof window === 'undefined' || !window.workwise?.pptMasterPythonEnsure) return
+    setBusy(true)
+    setMessage(null)
+    setProgress(null)
+    try {
+      const result = await window.workwise.pptMasterPythonEnsure()
+      setMessage(result.message)
+      const statusApi = window.workwise?.pptMasterPythonEnvStatus
+      if (statusApi) setStatus(await statusApi())
+    } catch (cause) {
+      setMessage(cause instanceof Error ? cause.message : String(cause))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const apiAvailable = typeof window !== 'undefined' && Boolean(window.workwise?.pptMasterPythonEnsure)
+
+  return (
+    <SettingRow
+      title={t('pptPythonEnvTitle')}
+      description={t('pptPythonEnvDesc')}
+      control={
+        <div className="flex flex-col items-end gap-1.5">
+          <button
+            type="button"
+            disabled={busy || !apiAvailable}
+            onClick={() => void prepare()}
+            className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-ds-border bg-ds-card px-3 text-[12px] font-semibold text-ds-ink transition hover:border-blue-300 hover:text-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : status?.exists ? <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" /> : null}
+            {busy ? t('pptPythonEnvPreparing') : status?.exists ? t('pptPythonEnvReady') : t('pptPythonEnvPrepare')}
+          </button>
+          {status ? (
+            <span className="text-[10.5px] text-ds-faint">{t('pptPythonEnvPath', { path: status.pythonPath })}</span>
+          ) : null}
+          {progress || message ? (
+            <span className="max-w-[220px] truncate text-right text-[10.5px] text-ds-faint" title={progress ?? message ?? ''}>
+              {progress ?? message}
+            </span>
+          ) : null}
+        </div>
+      }
+    />
+  )
+}
 
 function statusPill(status: string | undefined): string {
   if (status === 'available') return 'border-emerald-400/25 bg-emerald-500/10 text-emerald-700 dark:text-emerald-200'
@@ -1407,6 +1486,7 @@ export function AgentsSettingsSection({ ctx }: { ctx: Record<string, any> }): Re
                       {t('sandboxFullAccessWarning')}
                     </p>
                   ) : null}
+                  <PptMasterPythonEnvSetting />
                 </SettingsCard>
               </div>
             </>

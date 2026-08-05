@@ -21,6 +21,7 @@ import { MessageTimeline } from '../chat/MessageTimeline'
 import { FloatingComposer } from '../chat/FloatingComposer'
 import type { ComposerReasoningEffort } from '../chat/FloatingComposerModelPicker'
 import { PptMasterConfirmPanel } from './PptMasterConfirmPanel'
+import { PptMasterDeliveryVerification } from './PptMasterDeliveryVerification'
 
 type Props = {
   input: string
@@ -260,6 +261,7 @@ export function WriteAssistantPanel({
       </div>
 
       <PptMasterConfirmPanel workspaceRoot={workspaceRoot} />
+      <PptMasterDeliveryVerification workspaceRoot={workspaceRoot} />
 
       <div className="shrink-0 border-t border-ds-border-muted bg-white/92 p-3 dark:bg-ds-card">
         {quotedSelections.length > 0 ? (

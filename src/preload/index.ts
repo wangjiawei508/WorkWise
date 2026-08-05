@@ -193,6 +193,20 @@ const api = {
     ipcRenderer.invoke('file:save-workspace-clipboard-image', payload),
   readClipboardImage: () =>
     ipcRenderer.invoke('clipboard:read-image'),
+  verifyPptMasterDeliverable: (payload) =>
+    ipcRenderer.invoke('ppt:deliverable:verify', payload),
+  pptMasterPythonEnvStatus: () =>
+    ipcRenderer.invoke('ppt:python-env:status'),
+  pptMasterPythonEnsure: () =>
+    ipcRenderer.invoke('ppt:python-env:ensure'),
+  onPptMasterPythonEnvProgress: (callback) => {
+    const wrapped = (
+      _: Electron.IpcRendererEvent,
+      progress: Parameters<typeof callback>[0]
+    ) => callback(progress)
+    ipcRenderer.on('ppt:python-env:progress', wrapped)
+    return () => ipcRenderer.removeListener('ppt:python-env:progress', wrapped)
+  },
   renameWorkspaceEntry: (payload) =>
     ipcRenderer.invoke('file:rename-workspace-entry', payload),
   deleteWorkspaceEntry: (payload) =>
