@@ -8,7 +8,7 @@ magika_datas, magika_binaries, magika_hiddenimports = collect_all("magika")
 datas += magika_datas
 binaries += magika_binaries
 hiddenimports += magika_hiddenimports
-for package in ("pptx", "xlsxwriter", "PIL", "lxml"):
+for package in ("pptx", "xlsxwriter", "PIL", "lxml", "pathops", "uharfbuzz"):
     package_datas, package_binaries, package_hiddenimports = collect_all(package)
     datas += package_datas
     binaries += package_binaries

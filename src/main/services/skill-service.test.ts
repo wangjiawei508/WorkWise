@@ -411,30 +411,43 @@ describe('skill-service', () => {
     expect(existsSync(join(installedRoot, 'scripts', 'confirm_ui', 'static', 'index.html'))).toBe(true)
     expect(existsSync(join(installedRoot, 'scripts', 'docs', 'confirm_ui.md'))).toBe(true)
     expect(existsSync(join(installedRoot, 'scripts', 'svg_editor', 'static', 'index.html'))).toBe(true)
-    // 保持 v4.0 官方目录结构；图标大包不分发，只保留说明。
+    // 保持 v4.3 官方目录结构；图标大包不分发，只保留说明。
     expect(existsSync(join(installedRoot, 'templates', 'charts', 'charts_index.json'))).toBe(true)
     expect(existsSync(join(installedRoot, 'templates', 'layouts', 'layouts_index.json'))).toBe(true)
     expect(existsSync(join(installedRoot, 'templates', 'icons', 'README.md'))).toBe(true)
     expect(existsSync(join(installedRoot, 'templates', 'icons', 'app-window.svg'))).toBe(false)
     expect(existsSync(join(installedRoot, 'projects', 'README.md'))).toBe(true)
     expect(existsSync(join(installedRoot, 'examples', 'README.md'))).toBe(true)
+    // 精选轻量示例：只保留设计规格、锁文件与 svg_output，排除 images/svg_final/exports/sources。
     expect(existsSync(join(
       installedRoot,
       'examples',
-      'ppt169_顶级咨询风_构建有效AI代理_Anthropic',
+      'ppt169_kubernetes_blueprint_2026',
       'design_spec.md'
     ))).toBe(true)
     expect(existsSync(join(
       installedRoot,
       'examples',
-      'ppt169_顶级咨询风_构建有效AI代理_Anthropic',
-      'exports'
+      'ppt169_kubernetes_blueprint_2026',
+      'svg_output'
+    ))).toBe(true)
+    expect(existsSync(join(
+      installedRoot,
+      'examples',
+      'ppt169_kubernetes_blueprint_2026',
+      'images'
     ))).toBe(false)
     expect(existsSync(join(
       installedRoot,
       'examples',
-      'ppt169_顶级咨询风_构建有效AI代理_Anthropic',
-      'svg_output'
+      'ppt169_kubernetes_blueprint_2026',
+      'svg_final'
+    ))).toBe(false)
+    expect(existsSync(join(
+      installedRoot,
+      'examples',
+      'ppt169_kubernetes_blueprint_2026',
+      'exports'
     ))).toBe(false)
     const source = JSON.parse(
       await readFile(join(installedRoot, '.workwise-skill-source.json'), 'utf8')

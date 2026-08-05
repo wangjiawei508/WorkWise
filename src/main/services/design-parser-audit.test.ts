@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { parseSvgToPage } from '../../shared/design-svg-parser'
 import type { DesignElement } from '../../shared/design-document'
 
-const SVG_PATH = join(process.cwd(), 'src', 'asset', 'skills', 'ppt-master', 'examples', 'ppt169_顶级咨询风_甘孜州经济财政分析', 'svg_final', 'slide_05_gdp_analysis.svg')
+const SVG_PATH = join(process.cwd(), 'src', 'asset', 'skills', 'ppt-master', 'examples', 'ppt169_kubernetes_blueprint_2026', 'svg_output', '01_cover.svg')
 const skipOrNot = existsSync(SVG_PATH) ? describe : describe.skip
 
 skipOrNot('C2 审查：真实 SVG 解析质量审计', () => {
@@ -19,9 +19,9 @@ skipOrNot('C2 审查：真实 SVG 解析质量审计', () => {
   it('text 内容完整且准确', () => {
     const texts = page.elements.filter(e => e.type === 'text')
     console.log('text 元素:', texts.map(t => `"${t.text?.slice(0, 20)}" sz=${t.fontSize}`).slice(0, 8))
-    // 应该有含"甘孜州"的文字
-    const hasGanzi = texts.some(t => t.text?.includes('甘孜州'))
-    expect(hasGanzi).toBe(true)
+    // 应该包含示例封面中的核心标题
+    const hasKubernetes = texts.some(t => t.text?.includes('Kubernetes'))
+    expect(hasKubernetes).toBe(true)
   })
 
   it('无异常元素（非 line 的 w/h 不为 0 或巨大）', () => {

@@ -30,8 +30,10 @@
     "references/ai-image-comparison/**/*.json",
     "templates/icons/**/*.svg",
     "projects/*",
-    "examples/**/exports",
-    "examples/**/svg_output",
+    "examples/*/images",
+    "examples/*/svg_final",
+    "examples/*/exports",
+    "examples/*/sources",
     "**/backup",
     "**/*.pptx"
   ],
@@ -42,6 +44,6 @@
     "totalBytes": 9965361,
     "maximumFileBytes": 572130
   },
-  "slimNotes": "Controlled WorkWise snapshot of PPT Master v4.3.0. Core routing, references, workflows, all 64 top-level Python scripts and their modules, editable SVG/PPTX conversion, preset shapes, confirmation UI, chart templates, brand presets, deck presets, and lightweight SVG examples are retained. Large icon and AI-comparison image libraries, user projects, generated exports, backups, and private PPTX files are excluded. requirements.txt and the prompt-audit manifest are WorkWise-maintained overlays; no Pandoc dependency is installed, and optional Shape-Boolean packages (skia-pathops/uharfbuzz) are not bundled into the frozen sidecar. autoUpdate is disabled; a future upgrade requires a new audited snapshot.",
+  "slimNotes": "Controlled WorkWise snapshot of PPT Master v4.3.0. Core routing, references, workflows, all 64 top-level Python scripts and their modules, editable SVG/PPTX conversion, preset shapes, confirmation UI, chart templates, brand presets, deck presets, and three curated lightweight examples (SVG output + spec + notes only, no images/final previews/exports/sources) are retained. Large icon and AI-comparison image libraries, user projects, generated exports, backups, and private PPTX files are excluded. requirements.txt and the prompt-audit manifest are WorkWise-maintained overlays; no Pandoc dependency is installed. The frozen sidecar bundles the PPT Master 4.3 Shape Boolean dependencies (pathops/skia-pathops and uharfbuzz). autoUpdate is disabled; a future upgrade requires a new audited snapshot.",
   "upgradedAt": "2026-08-05"
 }

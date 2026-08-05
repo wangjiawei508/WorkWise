@@ -159,7 +159,7 @@ describe('parsePresetPathsFromSvg', () => {
 })
 
 // 用真实 example SVG 验证
-const EXAMPLE_SVG = join(process.cwd(), 'src', 'asset', 'skills', 'ppt-master', 'examples', 'ppt169_顶级咨询风_甘孜州经济财政分析', 'svg_final', 'slide_05_gdp_analysis.svg')
+const EXAMPLE_SVG = join(process.cwd(), 'src', 'asset', 'skills', 'ppt-master', 'examples', 'ppt169_kubernetes_blueprint_2026', 'svg_output', '01_cover.svg')
 const hasExample = existsSync(EXAMPLE_SVG)
 const skipOrNot = hasExample ? describe : describe.skip
 
@@ -194,8 +194,8 @@ skipOrNot('parseSvgToPage - 真实 PPT Master SVG', () => {
     const page = parseSvgToPage(svgContent)!
     const texts = page.elements.filter((e) => e.type === 'text')
     expect(texts.length).toBeGreaterThan(0)
-    // 至少有一个含中文文字
-    const hasChinese = texts.some((t) => /[\u4e00-\u9fff]/.test(t.text ?? ''))
-    expect(hasChinese).toBe(true)
+    // 至少有一段非空正文（英文示例封面含 "Kubernetes" 等标题）
+    const hasContent = texts.some((t) => (t.text ?? '').trim().length > 3)
+    expect(hasContent).toBe(true)
   })
 })
