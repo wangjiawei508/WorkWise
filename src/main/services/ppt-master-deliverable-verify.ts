@@ -60,14 +60,20 @@ export async function verifyPptMasterDeliverable(
     if (missingNotes.length > 0) issues.push(`缺少演讲备注：${missingNotes.slice(0, 3).join(', ')}${missingNotes.length > 3 ? ' 等' : ''}`)
   }
 
-  const pptxFiles = (await readdir(projectDir))
-    .filter((name) => /\.pptx$/i.test(name) && !name.startsWith('~$'))
-    .map((name) => join(projectDir, name))
+  const pptxCandidates: Array<{ name: string; path: string }> = []
+  for (const dir of [projectDir, join(projectDir, 'exports')]) {
+    if (!existsSync(dir)) continue
+    for (const name of await readdir(dir)) {
+      if (/\.pptx$/i.test(name) && !name.startsWith('~$')) {
+        pptxCandidates.push({ name, path: join(dir, name) })
+      }
+    }
+  }
   let latest: { path: string; size: number; mtimeMs: number } | null = null
-  for (const path of pptxFiles) {
-    const info = await stat(path)
+  for (const candidate of pptxCandidates) {
+    const info = await stat(candidate.path)
     if (!latest || info.mtimeMs > latest.mtimeMs) {
-      latest = { path, size: info.size, mtimeMs: info.mtimeMs }
+      latest = { path: candidate.path, size: info.size, mtimeMs: info.mtimeMs }
     }
   }
 

@@ -53,6 +53,17 @@ describe('verifyPptMasterDeliverable', () => {
     expect(result.issues).toEqual([])
   })
 
+  it('finds deliverables inside the exports subdirectory (PPT Master convention)', async () => {
+    await mkdir(join(projectDir, 'exports'), { recursive: true })
+    await writeFile(join(projectDir, 'exports', 'deck_v5.pptx'), await makePptx(2, 2))
+    const result = await verifyPptMasterDeliverable({ workspaceRoot: workspace, projectDir })
+    expect(result.ok).toBe(true)
+    expect(result.file?.path).toContain('exports')
+    expect(result.slideCount).toBe(2)
+    expect(result.notesCount).toBe(2)
+    expect(result.issues).toEqual([])
+  })
+
   it('reports missing notes and missing pptx as issues', async () => {
     await rm(join(projectDir, 'notes', 'slide_02.md'))
     const result = await verifyPptMasterDeliverable({ workspaceRoot: workspace, projectDir })
