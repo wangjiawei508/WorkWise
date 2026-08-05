@@ -274,6 +274,10 @@ export type DesignPage = {
   elements: DesignElement[]
   /** 背景色（hex 无 #）。缺省透明或白 */
   background?: string
+  /** 整页参考图资源 id（导入 PPT 时生成），用于“视觉保真”模式 */
+  fidelityImageAssetId?: string
+  /** 页面显示模式：editable=矢量元素可编辑；fidelity=整页参考图（视觉保真） */
+  displayMode?: 'editable' | 'fidelity'
 }
 
 // ---------------------------------------------------------------------------
@@ -855,7 +859,13 @@ export function normalizeDesignDocument(input: Partial<DesignDocumentV1> | null 
         width: typeof page.width === 'number' && Number.isFinite(page.width) && page.width > 0 ? Math.round(page.width) : 1280,
         height: typeof page.height === 'number' && Number.isFinite(page.height) && page.height > 0 ? Math.round(page.height) : 720,
         elements,
-        ...(page.background !== undefined && isValidDesignColor(page.background) ? { background: page.background } : {})
+        ...(page.background !== undefined && isValidDesignColor(page.background) ? { background: page.background } : {}),
+        ...(typeof page.fidelityImageAssetId === 'string' && page.fidelityImageAssetId.trim()
+          ? { fidelityImageAssetId: page.fidelityImageAssetId.trim() }
+          : {}),
+        ...(page.displayMode === 'fidelity' || page.displayMode === 'editable'
+          ? { displayMode: page.displayMode }
+          : {})
       })
     }
   }

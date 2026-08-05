@@ -1597,6 +1597,9 @@ export function registerAppIpcHandlers(options: RegisterAppIpcHandlersOptions): 
         assets,
         pages: imported.document.pages.map((page) => ({
           ...page,
+          ...(page.fidelityImageAssetId
+            ? { fidelityImageAssetId: idMap.get(page.fidelityImageAssetId) ?? page.fidelityImageAssetId }
+            : {}),
           elements: page.elements
             .map((element) =>
               element.type === 'image' && element.imageAssetId

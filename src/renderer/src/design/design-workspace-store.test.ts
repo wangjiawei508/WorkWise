@@ -430,4 +430,21 @@ describe('Design 工作区端到端：拖拽逻辑模拟', () => {
     expect(updated[1].x).toBe(380) // 300 + 80
     expect(updated[1].y).toBe(240) // 200 + 40
   })
+
+  it('setPageDisplayMode 切换整页参考图模式并推进 revision', () => {
+    const store = useDesignWorkspaceStore.getState()
+    store.createNewDocument()
+    const fresh = useDesignWorkspaceStore.getState()
+    const pageId = fresh.getActivePage()!.id
+    const revisionBefore = fresh.document!.revision
+
+    fresh.setPageDisplayMode(pageId, 'fidelity')
+
+    const state = useDesignWorkspaceStore.getState()
+    expect(state.getActivePage()?.displayMode).toBe('fidelity')
+    expect(state.document!.revision).toBeGreaterThan(revisionBefore)
+
+    store.setPageDisplayMode(pageId, 'editable')
+    expect(useDesignWorkspaceStore.getState().getActivePage()?.displayMode).toBe('editable')
+  })
 })

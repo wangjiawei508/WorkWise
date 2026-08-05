@@ -130,6 +130,11 @@ export function DesignCanvas(): ReactElement | null {
 
   const sortedElements = [...page.elements].sort((a, b) => a.zIndex - b.zIndex)
   const selectedIdSet = new Set(selectedElementIds)
+  const fidelityUrl =
+    page.displayMode === 'fidelity' && page.fidelityImageAssetId
+      ? assetDataUrls[page.fidelityImageAssetId]
+      : undefined
+  const showFidelity = Boolean(fidelityUrl)
 
   const handleBackgroundClick = (event: React.MouseEvent<SVGSVGElement>): void => {
     // A click that starts on an element also bubbles to the root SVG. Treat
@@ -381,7 +386,16 @@ export function DesignCanvas(): ReactElement | null {
           }}
           onClick={handleBackgroundClick}
         >
-          {sortedElements.map((element) => {
+          {showFidelity ? (
+            <image
+              href={fidelityUrl}
+              x={0}
+              y={0}
+              width={page.width}
+              height={page.height}
+              preserveAspectRatio="xMidYMid meet"
+            />
+          ) : sortedElements.map((element) => {
             const isSelected = selectedIdSet.has(element.id)
             return (
               <g

@@ -516,15 +516,15 @@ export async function importPptxToDesign(pptxPath: string): Promise<DesignImport
     const hasFallbackPages = keepVector.some((keep) => !keep)
     const importedImages: ImportedDesignImage[] = []
 
-    // Per-page rasterized references are only produced for fallback pages.
+    // Every page gets a full-page visual reference so users can switch a page
+    // to “fidelity mode” (exact original look) at any time.
     for (let pageIndex = 0; pageIndex < svgStrings.length; pageIndex += 1) {
-      if (keepVector[pageIndex]) continue
       const page = parsedDocument.pages[pageIndex]
       importedImages.push({
         provisionalId: pageReferenceImageId(pageIndex),
         filename: `slide-${String(pageIndex + 1).padStart(3, '0')}.svg`,
         mimeType: 'image/svg+xml',
-        bytes: Buffer.from(svg, 'utf8'),
+        bytes: Buffer.from(svgStrings[pageIndex], 'utf8'),
         width: page?.width,
         height: page?.height
       })
@@ -566,11 +566,16 @@ export async function importPptxToDesign(pptxPath: string): Promise<DesignImport
     })
     const document: DesignDocumentV1 = {
       ...parsedWithImages,
-      pages: parsedWithImages.pages.map((page, pageIndex) =>
-        keepVector[pageIndex]
+      pages: parsedWithImages.pages.map((page, pageIndex) => {
+        const base = keepVector[pageIndex]
           ? buildEditablePage(page)
           : buildReferencePage(page, pageIndex)
-      )
+        return {
+          ...base,
+          fidelityImageAssetId: pageReferenceImageId(pageIndex),
+          displayMode: keepVector[pageIndex] ? 'editable' : 'fidelity'
+        }
+      })
     }
     if (hasFallbackPages) {
       warnings.unshift({

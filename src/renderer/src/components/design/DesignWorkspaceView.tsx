@@ -131,6 +131,7 @@ export function DesignWorkspaceView({
     addPage,
     removePage,
     setActivePage,
+    setPageDisplayMode,
     persistedRevision,
     saveState,
     saveError,
@@ -163,6 +164,7 @@ export function DesignWorkspaceView({
       addPage: s.addPage,
       removePage: s.removePage,
       setActivePage: s.setActivePage,
+      setPageDisplayMode: s.setPageDisplayMode,
       persistedRevision: s.persistedRevision,
       saveState: s.saveState,
       saveError: s.saveError,
@@ -1094,6 +1096,35 @@ export function DesignWorkspaceView({
               <Redo2 className="h-4 w-4" strokeWidth={1.85} />
             </button>
             <div className="ml-auto flex items-center gap-1">
+              {activePage?.fidelityImageAssetId ? (
+                <div
+                  className="flex h-7 items-center gap-0.5 rounded-lg border border-ds-border bg-ds-card p-0.5"
+                  title={t('designDisplayModeHint')}
+                >
+                  <button
+                    type="button"
+                    onClick={() => setPageDisplayMode(activePage.id, 'editable')}
+                    className={`rounded-md px-2 py-0.5 text-[11.5px] transition ${
+                      activePage.displayMode !== 'fidelity'
+                        ? 'bg-accent/15 font-medium text-accent'
+                        : 'text-ds-faint hover:text-ds-ink'
+                    }`}
+                  >
+                    {t('designEditableMode')}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPageDisplayMode(activePage.id, 'fidelity')}
+                    className={`rounded-md px-2 py-0.5 text-[11.5px] transition ${
+                      activePage.displayMode === 'fidelity'
+                        ? 'bg-accent/15 font-medium text-accent'
+                        : 'text-ds-faint hover:text-ds-ink'
+                    }`}
+                  >
+                    {t('designFidelityMode')}
+                  </button>
+                </div>
+              ) : null}
               <button
                 type="button"
                 onClick={() => void handleImportPptx()}
@@ -1268,6 +1299,11 @@ export function DesignWorkspaceView({
               >
                 {importing ? t('designImporting') : t('designReimportPptxAsEditable')}
               </button>
+            </div>
+          ) : null}
+          {activePage?.displayMode === 'fidelity' ? (
+            <div className="mx-3 mt-2 rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-[12px] leading-5 text-blue-800 dark:border-blue-800/40 dark:bg-blue-950/30 dark:text-blue-200">
+              {t('designFidelityModeNotice')}
             </div>
           ) : null}
           {/* 画布 + 右侧面板（属性/图层） */}
