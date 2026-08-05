@@ -12,9 +12,9 @@ Executor finishes page → svg_quality_checker.py passes → visual_review.py re
 
 If the static checker has not been run or has failed, the subagent must abort with status `prereq_failed` and not start the rubric. Topics already enforced by the static checker (do **not** re-check here):
 
-- font-size ramp drift (`RAMP_MIN_RATIO=0.5` / `MAX=5.0`)
+- font-size anchor drift (more than `2px` from every declared role anchor)
 - id uniqueness, XML well-formed
-- spec_lock drift (colors / fonts / canvas)
+- canvas/structural typography validation and informational spec-lock anchor comparison (contextual colors/fonts are allowed)
 - animation_config compliance
 
 ## §0.1 Subagent inputs
@@ -40,7 +40,7 @@ The subagent reads inputs 2–4 **once** at the start of its turn, then iterates
 | ~~H5~~ | Font-ramp drift | *covered by `svg_quality_checker.py` — see §0 prerequisites* | n/a (do not re-check) |
 | H6 | Element collision | rect/circle/path bboxes overlap with z-order violating semantics | open spacing |
 | H7 | Anchored element displaced | page number / header / footer covered, missing, or out of canvas | restore to anchor position |
-| H8 | Image rendering broken | `<image>` empty / broken-image / severe distortion | fix `href`, adjust `preserveAspectRatio`, add `no-crop` if face/data is cropped |
+| H8 | Image rendering broken | `<image>` empty / broken-image / severe distortion | fix `href`; for `adaptive`, choose `meet` or a safer crop; a new complete-display requirement returns to §VIII `Crop Policy` and lock projection |
 | H9 | Missing key element | element required by `design_spec §IX` outline is absent from rendered slide | recreate from spec |
 
 Detection order (run sequentially, do not parallelize within a single subagent):
@@ -85,7 +85,7 @@ Hard boundary, equal weight to §1.
 
 - **Brand decisions** — color tokens, font families, geometry style (decided by `spec_lock.md` / brand directory)
 - **Layout restructure** — do not change column counts, replace chart types, add/remove sections
-- **Content** — do not add or remove copy; only adjust position, font-size (within ramp), spacing, letter-spacing, alignment, scrim
+- **Content** — do not add or remove copy; only adjust position, font-size (within the mapped role's anchor `±2px`), spacing, letter-spacing, alignment, scrim
 - **Other files** — never edit `design_spec.md` / `spec_lock.md` / `animations.json` / `image_prompts.json` / `images/` / other pages' SVGs
 - **Atomicity** — one edit per fix, no bulk multi-element replacements
 

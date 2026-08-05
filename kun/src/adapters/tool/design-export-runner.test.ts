@@ -48,7 +48,7 @@ async function minimalPowerPoint(input?: { externalImage?: boolean }): Promise<B
 }
 
 describe('design export SVG security', () => {
-  it('derives one PPT Master 4.0 flat contract from the SVG canvas', () => {
+  it('derives one PPT Master 4.3 flat contract from the SVG canvas', () => {
     const canvas = _internals.resolveSvgCanvas([
       {
         path: '/workspace/slide.svg',

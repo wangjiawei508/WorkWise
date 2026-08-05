@@ -25,11 +25,13 @@
 |---|---|
 | 可视化类型与数据到图形的映射 | 项目字体与字号体系 |
 | 节点、连接、轴、系列和标签关系 | 项目调色板与品牌色 |
-| 构图骨架、阅读顺序和容量边界 | 圆角、阴影、渐变、纹理和装饰语言 |
+| 可视化类型、构图骨架和阅读顺序 | 实际分组、框架数量、项目数量与容量适配 |
 | 必要的状态与语义区分 | 页面背景、页头、页脚和品牌 chrome |
 | 独立预览所需的中性样式 | 最终强调策略与页面级视觉层级 |
 
 **Hard rule**: Executor 适配模板时保留可视化类型、信息关系和数据准确性；最终视觉必须来自当前项目，而不是继承模板的示例审美。
+
+**Reference — not a constraint**: 模板的分组、框架数、项目数和示例容量用于展示结构，不是项目上限。Executor 可按实际内容调整，但不能改变已选可视化类型、关系或数据语义。
 
 ### 1.2 保留判断
 
@@ -207,9 +209,11 @@
 | 对象 | 模板表达 |
 |---|---|
 | 基础节点/容器 | `<rect>`、`<circle>`、`<ellipse>` |
-| 细关系线 | `<line>` 或少量开放 `<path>` |
+| 直线关系/分隔/引线 | `<line>` |
+| 预设可精确表达的弯折/曲线关系 | 完整 compact authored `bentConnector*` / `curvedConnector*` `<g>`；端点不附着 |
 | 标准块箭头/流程节点 | 仅在 preset 精确匹配时使用完整 compact authored-preset `<g>` |
-| 自定义数据几何 | `<path>`、`<polygon>`、`<polyline>` |
+| 单一预设不能表达、但封闭形状可组合的对象 | 优先用 `shape_boolean_svg.py` 物化 Merge Shapes 结果 |
+| 图元、预设、Boolean 都不能表达的数据/语义/锁定风格几何 | `<path>`、`<polygon>`、`<polyline>` |
 | 数据图表 | 默认 Shape fallback；符合条件时附带 native replacement marker |
 
 **Forbidden — inferred native semantics**: 概念图、流程图和框架图不添加 `data-pptx-replace-with="chart"`；普通关系线不添加 Connector attachment metadata。
@@ -438,7 +442,7 @@ python3 skills/ppt-master/scripts/compact_svg_coordinates.py \
 
 **Reference — not a constraint**: 半圆标签只在“标签从属于当前信息块”是结构信息时使用。颜色、圆角和高度由项目适配；它不是卡片的默认装饰。
 
-**Forbidden — cover hack**: 不用“全圆角矩形 + 同色覆盖矩形”拼接单侧圆角；需要时直接使用一个可编辑 path。
+**Forbidden — cover hack**: 不把“全圆角矩形 + 同色覆盖矩形”作为两个未合并对象叠放来伪造单侧圆角。需要时优先以封闭的圆角矩形和矩形为 operands，通过 `shape_boolean_svg.py` 物化 Union 结果；只有 Boolean 仍不能忠实表达时才手写可编辑 path。
 
 ### 11.2 Nested Card Border
 

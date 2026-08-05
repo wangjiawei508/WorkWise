@@ -764,7 +764,7 @@
   "pluginSkillWritingAgentTitle": "writing-agent",
   "pluginSkillWritingAgentDesc": "Multi-stage Chinese long-form and WeChat article writing workflow.",
   "pluginSkillWritingAgentDetail": "From dongbeixiaohuo/writing-agent. WorkWise bundles the core agents, skills, styles, workflows, and templates for topic selection, clarification, style confirmation, outlining, drafting, review, humanization, and pre-publish checks.",
-  "pluginSkillPptMasterTitle": "PPT Master 4.0.0",
+  "pluginSkillPptMasterTitle": "PPT Master 4.3.0",
   "pluginSkillPptMasterDesc": "A professional workflow for turning Markdown, reports, plans, and source material into presentations.",
   "pluginSkillPptMasterDetail": "A controlled slim snapshot of the official hugohe3/ppt-master v4.0.0 release (commit 6636fb1). WorkWise keeps the core Skill, references, workflows, all 55 top-level scripts and their modules, confirmation UI, SVG editor and preview, design specifications, and lightweight templates. Large icon libraries, AI comparison images, user projects, exports, backups, and private PPT files are excluded. requirements.txt is a WorkWise-audited optional dependency overlay without Pandoc; automatic upstream updates remain disabled so unaudited files cannot replace the snapshot.",
   "pluginSkillWritingDetectionTitle": "chatgpt-comparison-detection",

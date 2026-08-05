@@ -5,6 +5,8 @@ description: >
   reusable Brand/Layout/Deck workspaces, filling native PPTX templates, and
   enhancing finished PPTX files. Use when the user asks to create, regenerate,
   template, fill, or enhance a presentation, or mentions ppt-master.
+metadata:
+  version: "4.3.0"
 ---
 
 # PPT Master Skill
@@ -60,3 +62,4 @@ PPT Master is a routed presentation workflow. This entry owns global execution d
 - Keep required workflow, reference, script, and template documentation inside this Skill directory.
 - Repository-level documents may point into the package; package runtime files must not depend on repository-level instructions.
 - On Windows, if a documented `python3 ...` command is unavailable, rerun the same command with `python`.
+- Sponsor information is optional reference material. Read the matching [`SPONSORS.md`](SPONSORS.md) or [`SPONSORS_CN.md`](SPONSORS_CN.md) only when the user explicitly requests a model, AI image model, API/provider, or hosted-service recommendation. Never surface sponsor or model recommendations proactively during normal generation, troubleshooting, or quality review.

@@ -2,12 +2,12 @@
 """
 PPT Master - Strategist confirmation stage UI Server (Step 4)
 
-Lightweight Flask backend for the interactive, visual Strategist confirmation stage page.
-Strategist writes its recommendations to
-``<project>/confirm_ui/recommendations.json``; this server renders them as a
-clickable page (color swatches, live font previews, candidate picks). On
-submit it writes the user's final choices to
-``<project>/confirm_ui/result.json`` for the AI to read back.
+Lightweight Flask backend for the interactive, visual Strategist confirmation
+stage page. Strategist writes each stage to
+``<project>/confirm_ui/recommendations.stageN.json``; this server selects the
+current stage from ``result.json`` and renders it as a clickable page (color
+swatches, live font previews, candidate picks). On submit it writes the user's
+choices to ``<project>/confirm_ui/result.json`` for the AI to read back.
 
 This is the default confirmation surface. The chat fallback is used only when
 the user explicitly requests chat-only confirmation or the browser launch
@@ -22,7 +22,8 @@ Examples:
     python3 scripts/confirm_ui/server.py projects/my-project
     python3 scripts/confirm_ui/server.py projects/my-project --port 5051
     python3 scripts/confirm_ui/server.py projects/my-project --no-browser
-    python3 scripts/confirm_ui/server.py projects/my-project --daemon --wait
+    python3 scripts/confirm_ui/server.py projects/my-project --daemon
+    python3 scripts/confirm_ui/server.py projects/my-project --wait-only --wait-stage stage1
 
 Dependencies:
     flask>=3.0.0
@@ -54,6 +55,11 @@ if str(_SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS_DIR))
 
 from console_encoding import configure_utf8_stdio  # noqa: E402
+from language_tags import (  # noqa: E402
+    LanguageTagError,
+    language_base,
+    normalize_language_tag,
+)
 from server_common import (  # noqa: E402
     claim_lock as _claim_lock,
     clear_lock as _clear_lock,
@@ -76,7 +82,12 @@ LOCK_FILE_NAME = '.confirm_ui.lock'
 
 # Round-trip/session files, all under <project_path>/confirm_ui/.
 CONFIRM_DIR_NAME = 'confirm_ui'
-RECOMMENDATIONS_NAME = 'recommendations.json'
+LEGACY_RECOMMENDATIONS_NAME = 'recommendations.json'
+RECOMMENDATION_STAGE_NAMES = {
+    1: 'recommendations.stage1.json',
+    2: 'recommendations.stage2.json',
+    3: 'recommendations.stage3.json',
+}
 RESULT_NAME = 'result.json'
 SESSION_NAME = 'session.json'
 
@@ -263,6 +274,7 @@ def _wait_for_result(
     proc: subprocess.Popen,
     started_at: float,
     timeout: int,
+    expected_stage: str,
 ) -> int:
     """Wait until this launch writes a fresh result file or the server exits."""
     logger.info('waiting for browser confirmation...')
@@ -272,7 +284,6 @@ def _wait_for_result(
             try:
                 if result_file.stat().st_mtime >= started_at:
                     actual_stage = _result_stage(result_file)
-                    expected_stage = _expected_result_stage(result_file.parent)
                     if actual_stage != expected_stage:
                         logger.error(
                             'confirmation stage mismatch: expected %s, found %s',
@@ -311,6 +322,8 @@ def _wait_for_result(
 
 def _result_stage(result_file: Path) -> Optional[str]:
     """Return the canonical ``stage`` field of result.json, or None."""
+    if not result_file.is_file():
+        return None
     try:
         data = _read_json_object(result_file)
     except (OSError, json.JSONDecodeError, ValueError):
@@ -335,7 +348,7 @@ def _stage_key(value: object) -> Optional[str]:
 
 
 def _recommendation_stage(data: dict) -> int:
-    """Return recommendations.json stage number, with legacy tier fallback."""
+    """Return a recommendation payload's stage, with legacy tier fallback."""
     stage = _stage_key(data.get('stage'))
     if not stage and 'tier' in data:
         stage = _stage_key(data.get('tier'))
@@ -370,6 +383,68 @@ def _result_stage_number(stage: Optional[str]) -> int:
     return 0
 
 
+def _expected_recommendation_stage(result_stage: Optional[str]) -> int:
+    """Return the recommendation stage that follows the current result."""
+    if result_stage == 'stage1':
+        return 2
+    if result_stage in {'stage2', 'final'}:
+        return 3
+    return 1
+
+
+def _stage_recommendations_path(confirm_dir: Path, stage_number: int) -> Path:
+    """Return the stage-specific recommendation path for one handoff."""
+    return confirm_dir / RECOMMENDATION_STAGE_NAMES[stage_number]
+
+
+def _active_recommendations_path(confirm_dir: Path) -> Path:
+    """Resolve the recommendation file for the current confirmation stage.
+
+    Once any stage-specific file exists, the legacy single-file input is ignored.
+    If the expected stage is missing but a later stage exists, return that later
+    file so the existing stage-skip guard can report the ordering error.
+    """
+    result_stage = _result_stage(confirm_dir / RESULT_NAME)
+    expected_stage = _expected_recommendation_stage(result_stage)
+    expected_file = _stage_recommendations_path(confirm_dir, expected_stage)
+    staged_files = {
+        stage_number: _stage_recommendations_path(confirm_dir, stage_number)
+        for stage_number in RECOMMENDATION_STAGE_NAMES
+    }
+    if any(path.exists() for path in staged_files.values()):
+        if expected_file.exists():
+            return expected_file
+        for stage_number in range(expected_stage + 1, 4):
+            candidate = staged_files[stage_number]
+            if candidate.exists():
+                return candidate
+        return expected_file
+
+    legacy_file = confirm_dir / LEGACY_RECOMMENDATIONS_NAME
+    return legacy_file if legacy_file.exists() else expected_file
+
+
+def _read_active_recommendations(
+    confirm_dir: Path,
+    *,
+    retries: int = 2,
+) -> tuple[Path, dict]:
+    """Read and validate the recommendation payload active for this stage."""
+    rec_file = _active_recommendations_path(confirm_dir)
+    data = _read_json_object(rec_file, retries=retries)
+    for stage_number, filename in RECOMMENDATION_STAGE_NAMES.items():
+        if rec_file.name != filename:
+            continue
+        actual_stage = _recommendation_stage(data)
+        if actual_stage != stage_number:
+            raise ValueError(
+                f'{filename} must declare stage={_stage_name(stage_number)}, '
+                f'found {_stage_name(actual_stage) or "absent"}'
+            )
+        break
+    return rec_file, data
+
+
 def _stage_skip(rec_stage_number: int, result_stage: Optional[str]) -> bool:
     """Detect a staged recommendation running ahead of the confirmed progression.
 
@@ -386,9 +461,9 @@ def _stage_skip(rec_stage_number: int, result_stage: Optional[str]) -> bool:
 
 
 def _stage_skip_error(confirm_dir: Path) -> Optional[str]:
-    """Return a directive error when recommendations.json skips a stage."""
+    """Return a directive error when the active recommendation skips a stage."""
     try:
-        rec_data = _read_json_object(confirm_dir / RECOMMENDATIONS_NAME)
+        rec_file, rec_data = _read_active_recommendations(confirm_dir)
     except (OSError, json.JSONDecodeError, ValueError):
         return None
     rec_stage_number = _recommendation_stage(rec_data)
@@ -397,14 +472,18 @@ def _stage_skip_error(confirm_dir: Path) -> Optional[str]:
         return None
     expected = _stage_name(_result_stage_number(result_stage) + 1)
     reattach = (
-        '--daemon --wait' if expected == 'stage1'
+        '--wait-only --wait-stage stage1'
+        if expected == 'stage1'
         else '--wait-only --wait-stage stage2'
     )
+    expected_file = RECOMMENDATION_STAGE_NAMES[
+        _expected_recommendation_stage(result_stage)
+    ]
     return (
-        f'stage skip detected: recommendations.json is {_stage_name(rec_stage_number)} but the last '
+        f'stage skip detected: {rec_file.name} is {_stage_name(rec_stage_number)} but the last '
         f'confirmed result is {result_stage or "absent"} — the page will not render a skipped stage. '
         f'Stages confirm in order and an active template does not exempt stage2 (generate-pptx Step 4). '
-        f'Overwrite recommendations.json with the {expected} recommendations, then re-run with {reattach}.'
+        f'Write the missing {expected_file} recommendations, then re-run with {reattach}.'
     )
 
 
@@ -480,17 +559,99 @@ def _positive_number(value: object) -> bool:
     return number > 0 and number != float('inf')
 
 
-def _typography_error(typography: object, label: str, *, require_sizes: bool) -> Optional[str]:
+def _is_english_language(language: object) -> bool:
+    """Return whether a recommendation language is an English locale."""
+    if not isinstance(language, str):
+        return False
+    try:
+        return language_base(language) == 'en'
+    except LanguageTagError:
+        return False
+
+
+def _recommendation_language(recommendations: dict) -> object:
+    """Return the deck's main language without conflating it with UI ``lang``."""
+    value = (
+        recommendations.get('primary_language')
+        or recommendations.get('content_language')
+        or recommendations.get('language')
+    )
+    if isinstance(value, dict):
+        return value.get('value') or value.get('id') or value.get('code') or ''
+    return value
+
+
+def _primary_language_error(recommendations: dict) -> Optional[str]:
+    """Require and canonicalize the staged content-language source of truth."""
+    return _canonicalize_primary_language(recommendations, required=True)
+
+
+def _canonicalize_primary_language(
+    recommendations: dict,
+    *,
+    required: bool,
+) -> Optional[str]:
+    """Write a canonical primary language into one recommendation/result object."""
+    value = _recommendation_language(recommendations)
+    if not isinstance(value, str) or not value.strip():
+        if required:
+            return (
+                'Stage 1 recommendations must declare a valid primary_language '
+                'BCP-47 tag; lang controls only the Confirm UI language'
+            )
+        return None
+    try:
+        recommendations['primary_language'] = normalize_language_tag(value)
+    except LanguageTagError as exc:
+        return f'invalid primary_language: {exc}'
+    return None
+
+
+def _typography_font_value(
+    font: dict,
+    field: str,
+    *,
+    english_primary: bool,
+) -> object:
+    """Return a canonical typography font value, accepting its language-aware alias."""
+    legacy_field = 'latin' if field == 'english' or english_primary else 'cjk'
+    value = font.get(field)
+    if not isinstance(value, str) or not value.strip():
+        value = font.get(legacy_field)
+    return value
+
+
+def _typography_error(
+    typography: object,
+    label: str,
+    *,
+    require_sizes: bool,
+    main_language: object = '',
+) -> Optional[str]:
     """Validate one complete user-facing typography recommendation or choice."""
     if not isinstance(typography, dict):
         return f'{label} must be an object'
+    english_primary = _is_english_language(main_language)
     for role in ('heading', 'body'):
         font = typography.get(role)
         if not isinstance(font, dict):
             return f'{label}.{role} must be an object'
-        for field in ('cjk', 'latin', 'css'):
-            if not isinstance(font.get(field), str) or not font[field].strip():
-                return f'{label}.{role}.{field} must be non-empty'
+        fields = (('primary', 'latin' if english_primary else 'cjk'),)
+        if not english_primary:
+            fields += (('english', 'latin'),)
+        for field, legacy_field in fields:
+            value = _typography_font_value(
+                font,
+                field,
+                english_primary=english_primary,
+            )
+            if not isinstance(value, str) or not value.strip():
+                return (
+                    f'{label}.{role}.{field} '
+                    f'(or legacy {legacy_field}) must be non-empty'
+                )
+        if not isinstance(font.get('css'), str) or not font['css'].strip():
+            return f'{label}.{role}.css must be non-empty'
     if not _positive_number(typography.get('body_size')):
         return f'{label}.body_size must be a positive number'
     if not require_sizes:
@@ -504,6 +665,72 @@ def _typography_error(typography: object, label: str, *, require_sizes: bool) ->
     return None
 
 
+def _typography_signature(
+    typography: dict,
+    *,
+    main_language: object,
+) -> tuple[str, ...]:
+    """Return the language-relevant font choices that distinguish one candidate."""
+    english_primary = _is_english_language(main_language)
+    fields = ('primary',) if english_primary else ('primary', 'english')
+    values = []
+    for role in ('heading', 'body'):
+        font = typography[role]
+        for field in fields:
+            value = _typography_font_value(
+                font,
+                field,
+                english_primary=english_primary,
+            )
+            values.append(str(value).strip().casefold())
+    return tuple(values)
+
+
+def _typography_candidates_distinct_error(
+    candidates: list,
+    labels: list[str],
+    *,
+    main_language: object,
+) -> Optional[str]:
+    """Require every candidate to offer a different relevant font combination."""
+    fixed = [
+        isinstance(candidate, dict) and candidate.get('fixed') is True
+        for candidate in candidates
+    ]
+    if any(fixed):
+        if not all(fixed):
+            return 'typography.fixed must be true on every candidate or omitted'
+        signatures = [
+            _typography_signature(
+                candidate,
+                main_language=main_language,
+            )
+            for candidate in candidates
+        ]
+        if any(signature != signatures[0] for signature in signatures[1:]):
+            return 'fixed typography candidates must repeat the same font combination'
+        return None
+    seen = {}
+    for index, candidate in enumerate(candidates):
+        signature = _typography_signature(
+            candidate,
+            main_language=main_language,
+        )
+        if signature in seen:
+            previous = seen[signature]
+            combination = (
+                'heading/body primary'
+                if _is_english_language(main_language)
+                else 'heading/body primary+english'
+            )
+            return (
+                f'{labels[index]} repeats {labels[previous]}; '
+                f'{combination} combinations must differ'
+            )
+        seen[signature] = index
+    return None
+
+
 def _candidate_list(spec: object) -> list:
     """Return candidates from the current or legacy recommendation shape."""
     if not isinstance(spec, dict):
@@ -514,13 +741,19 @@ def _candidate_list(spec: object) -> list:
     return candidates if isinstance(candidates, list) else []
 
 
-def _stage2_design_directions_error(recommendations: dict) -> Optional[str]:
+def _stage2_design_directions_error(
+    recommendations: dict,
+    *,
+    main_language: object = '',
+) -> Optional[str]:
     """Require three complete coordinated Stage 2 design systems."""
+    main_language = main_language or _recommendation_language(recommendations)
     directions = recommendations.get('design_directions')
     if isinstance(directions, dict):
         candidates = _candidate_list(directions)
         if len(candidates) < 3:
             return 'Stage 2 design_directions must include at least 3 candidates'
+        typography_candidates = []
         for index, candidate in enumerate(candidates, start=1):
             label = f'design_directions.candidates[{index - 1}]'
             if not isinstance(candidate, dict):
@@ -537,16 +770,25 @@ def _stage2_design_directions_error(recommendations: dict) -> Optional[str]:
                 candidate.get('typography'),
                 f'{label}.typography',
                 require_sizes=False,
+                main_language=main_language,
             )
             if error:
                 return error
+            typography_candidates.append(candidate['typography'])
             if _uses_ai_images(recommendations):
                 image_strategy = candidate.get('image_strategy')
                 if not isinstance(image_strategy, dict) or not str(
                     image_strategy.get('rendering') or ''
                 ).strip():
                     return f'{label}.image_strategy.rendering must be non-empty'
-        return None
+        return _typography_candidates_distinct_error(
+            typography_candidates,
+            [
+                f'design_directions.candidates[{index}].typography'
+                for index in range(len(typography_candidates))
+            ],
+            main_language=main_language,
+        )
 
     # Legacy staged files remain readable, but they must still provide three
     # complete color combinations and at least one complete typography choice.
@@ -560,14 +802,26 @@ def _stage2_design_directions_error(recommendations: dict) -> Optional[str]:
     typography = _candidate_list(recommendations.get('typography'))
     if not typography:
         return 'Stage 2 recommendations must include typography candidates'
+    if main_language and len(typography) < 3:
+        return 'Stage 2 recommendations must include 3 typography candidates'
     for index, candidate in enumerate(typography):
         error = _typography_error(
             candidate,
             f'typography.candidates[{index}]',
             require_sizes=False,
+            main_language=main_language,
         )
         if error:
             return error
+    if main_language:
+        return _typography_candidates_distinct_error(
+            typography,
+            [
+                f'typography.candidates[{index}]'
+                for index in range(len(typography))
+            ],
+            main_language=main_language,
+        )
     return None
 
 
@@ -612,9 +866,9 @@ def _submission_stage_error(
 ) -> Optional[str]:
     """Reject a confirmation that does not match the staged recommendation."""
     try:
-        recommendations = _read_json_object(confirm_dir / RECOMMENDATIONS_NAME)
+        rec_file, recommendations = _read_active_recommendations(confirm_dir)
     except (OSError, json.JSONDecodeError, ValueError) as exc:
-        return f'cannot confirm without valid recommendations.json: {exc}'
+        return f'cannot confirm without valid current recommendations: {exc}'
 
     rec_stage_number = _recommendation_stage(recommendations)
     template_required = _template_confirmation_required(
@@ -631,7 +885,28 @@ def _submission_stage_error(
             return 'legacy single-pass recommendations accept only a final submission'
         return None
 
+    if rec_stage_number == 1:
+        language_error = _primary_language_error(recommendations)
+        if language_error:
+            return language_error
+
     if rec_stage_number == 2:
+        try:
+            previous_result = _read_json_object(confirm_dir / RESULT_NAME)
+        except (OSError, json.JSONDecodeError, ValueError):
+            previous_result = {}
+        language_source = (
+            previous_result
+            if _recommendation_language(previous_result)
+            else recommendations
+        )
+        language_error = _canonicalize_primary_language(
+            language_source,
+            required=True,
+        )
+        if language_error:
+            return language_error
+        main_language = _recommendation_language(language_source)
         recommendation_error = _template_stage2_error(
             recommendations,
             template_required=template_required,
@@ -641,7 +916,10 @@ def _submission_stage_error(
         recommendation_error = _stage2_custom_candidates_error(recommendations)
         if recommendation_error:
             return recommendation_error
-        recommendation_error = _stage2_design_directions_error(recommendations)
+        recommendation_error = _stage2_design_directions_error(
+            recommendations,
+            main_language=main_language,
+        )
         if recommendation_error:
             return recommendation_error
 
@@ -653,7 +931,7 @@ def _submission_stage_error(
     if submitted_stage not in allowed_submissions[rec_stage_number]:
         expected = 'final' if rec_stage_number == 3 else _stage_name(rec_stage_number)
         return (
-            f'confirmation stage mismatch: recommendations.json is '
+            f'confirmation stage mismatch: {rec_file.name} is '
             f'{_stage_name(rec_stage_number)}, so the submitted stage must be '
             f'{expected}'
         )
@@ -692,7 +970,11 @@ def _custom_selection_error(result: dict) -> Optional[str]:
     return None
 
 
-def _stage2_solution_error(result: dict) -> Optional[str]:
+def _stage2_solution_error(
+    result: dict,
+    *,
+    main_language: object = '',
+) -> Optional[str]:
     """Reject a Stage 2/final payload with an incomplete design system."""
     color = result.get('color')
     color_error = _palette_error(color, 'color')
@@ -709,20 +991,20 @@ def _stage2_solution_error(result: dict) -> Optional[str]:
         typography,
         'typography',
         require_sizes=True,
+        main_language=main_language,
     )
-    typography_custom = (
-        isinstance(typography, dict)
-        and typography.get('name') == 'custom'
-        and str(typography.get('custom') or '').strip()
-        and _positive_number(typography.get('body_size'))
-        and isinstance(typography.get('sizes'), dict)
-        and all(
-            _positive_number(typography['sizes'].get(role))
-            for role in _TYPOGRAPHY_SIZE_ROLES
-        )
-    )
-    if typography_error and not typography_custom:
+    if typography_error:
         return typography_error
+
+    if _uses_ai_images(result):
+        image_strategy = result.get('image_strategy')
+        if not isinstance(image_strategy, dict) or not str(
+            image_strategy.get('rendering') or ''
+        ).strip():
+            return 'image_usage includes ai, so image_strategy.rendering must be non-empty'
+        rendering = image_strategy['rendering'].strip()
+        if rendering != 'custom' and rendering not in _ai_rendering_ids():
+            return f'image_strategy.rendering is not a known preset: {rendering}'
     return None
 
 
@@ -747,7 +1029,7 @@ def _normalize_custom_selections(result: dict) -> None:
 def _expected_result_stage(confirm_dir: Path) -> str:
     """Return the result stage expected from the current recommendations."""
     try:
-        recommendations = _read_json_object(confirm_dir / RECOMMENDATIONS_NAME)
+        _, recommendations = _read_active_recommendations(confirm_dir)
     except (OSError, json.JSONDecodeError, ValueError):
         return 'final'
     return {
@@ -784,7 +1066,7 @@ def _build_session_state(
 ) -> dict:
     """Derive the resumable Confirm UI state from disk artifacts."""
     previous = _read_session(confirm_dir)
-    rec_file = confirm_dir / RECOMMENDATIONS_NAME
+    rec_file = _active_recommendations_path(confirm_dir)
     result_file = confirm_dir / RESULT_NAME
 
     rec_stage_number = 0
@@ -792,7 +1074,7 @@ def _build_session_state(
     rec_error = None
     if rec_file.exists():
         try:
-            rec_data = _read_json_object(rec_file)
+            rec_file, rec_data = _read_active_recommendations(confirm_dir)
             rec_stage_number = _recommendation_stage(rec_data)
             rec_stage = _stage_name(rec_stage_number)
         except (OSError, json.JSONDecodeError, ValueError) as exc:
@@ -803,7 +1085,7 @@ def _build_session_state(
     stage_skip = _stage_skip(rec_stage_number, result_stage)
 
     # A skipped stage is never presented: the page keeps its "deriving…" state
-    # (waiting_agent) until the AI rewrites recommendations.json in order.
+    # (waiting_agent) until the AI creates the missing stage file.
     if result_stage == 'final':
         expected_stage_number = None
         status = 'done'
@@ -832,6 +1114,7 @@ def _build_session_state(
         'expected_stage_number': expected_stage_number,
         'recommendation_stage': rec_stage,
         'recommendation_stage_number': rec_stage_number,
+        'recommendation_file': rec_file.name,
         'recommendation_version': _file_version(rec_file),
         'recommendation_error': rec_error,
         'result_stage': result_stage,
@@ -900,7 +1183,47 @@ _PRODUCTION_RECOMMEND_KEYS = (
     'image_ai_path',
     'generation_mode',
 )
+_PROACTIVE_EXECUTION_DEFAULTS = {
+    'proactive_speaker_notes': True,
+    'proactive_custom_animations': False,
+    'proactive_narration_audio': False,
+}
 _LOCKED_RECOMMENDATIONS_KEY = '_locked_recommendations'
+
+
+def _resolve_proactive_execution_values(
+    source: dict,
+) -> tuple[dict[str, bool], Optional[str]]:
+    """Resolve proactive-execution booleans with backward-compatible defaults."""
+    values = {}
+    for key, default in _PROACTIVE_EXECUTION_DEFAULTS.items():
+        if key not in source:
+            values[key] = default
+            continue
+        raw_value = source[key]
+        if isinstance(raw_value, dict):
+            if 'value' not in raw_value or not isinstance(raw_value['value'], bool):
+                return {}, f'{key}.value must be a boolean'
+            raw_value = raw_value['value']
+        elif not isinstance(raw_value, bool):
+            return {}, f'{key} must be a boolean'
+        values[key] = raw_value
+    return values, None
+
+
+def _normalize_proactive_execution_result(
+    result: dict,
+    defaults: dict[str, bool],
+) -> Optional[str]:
+    """Write the independent raw confirmation booleans to the final result."""
+    values = {}
+    for key, default in defaults.items():
+        value = result.get(key, default)
+        if not isinstance(value, bool):
+            return f'{key} must be a boolean'
+        values[key] = value
+    result.update(values)
+    return None
 
 
 def _merge_confirmed_choices(data: dict, result_file: Path) -> None:
@@ -912,6 +1235,14 @@ def _merge_confirmed_choices(data: dict, result_file: Path) -> None:
     recommend = data.setdefault('recommend', {})
     if not isinstance(recommend, dict):
         recommend = data['recommend'] = {}
+    main_language = _recommendation_language(res)
+    if main_language:
+        try:
+            data['primary_language'] = normalize_language_tag(main_language)
+        except LanguageTagError:
+            # Keep the invalid legacy value visible to the API boundary below,
+            # which returns a user-facing contract error instead of hiding it.
+            data['primary_language'] = main_language
     for key in _CONTRACT_RECOMMEND_KEYS:
         if res.get(key) not in (None, ''):
             recommend[key] = res[key]
@@ -973,6 +1304,8 @@ def _merge_confirmed_choices(data: dict, result_file: Path) -> None:
             recommend[key] = res[key]
     if 'refine_spec' in res:
         data['refine_spec'] = {'value': bool(res.get('refine_spec'))}
+    for key, default in _PROACTIVE_EXECUTION_DEFAULTS.items():
+        data[key] = {'value': res.get(key, default)}
 
 
 def _apply_locked_recommendations(
@@ -991,6 +1324,8 @@ def _apply_locked_recommendations(
     previous_locks = previous.get(_LOCKED_RECOMMENDATIONS_KEY)
     if isinstance(previous_locks, dict):
         locked_values.update(previous_locks)
+    for key in _PROACTIVE_EXECUTION_DEFAULTS:
+        locked_values.pop(key, None)
 
     try:
         recommendations = _read_json_object(recommendations_file)
@@ -1007,10 +1342,12 @@ def _apply_locked_recommendations(
     ):
         locked_values = {}
     for key, field in recommendations.items():
+        if key in _PROACTIVE_EXECUTION_DEFAULTS:
+            continue
         if not isinstance(field, dict) or field.get('locked') is not True:
             continue
         if 'value' in field:
-            locked_values[key] = field.get('value') or ''
+            locked_values[key] = field['value']
     for key, value in locked_values.items():
         result[key] = value
     return locked_values
@@ -1024,7 +1361,7 @@ def _wait_only_for_result(
 ) -> int:
     """Attach to an already-running confirm server and wait for a target stage.
 
-    No child is launched here: the page is still open from the first ``--wait``
+    No child is launched here: the page is open from the preceding ``--daemon``
     launch, so liveness is tracked via the recorded pid, not a ``proc`` handle.
     Only the stage guard is used (no mtime gate), because intermediate submits
     may happen before this wait command is issued.
@@ -1032,17 +1369,9 @@ def _wait_only_for_result(
     logger.info('waiting for browser confirmation stage=%s...', target_stage)
     deadline = None if timeout <= 0 else time.time() + timeout
     while True:
-        current_stage = _result_stage(result_file)
-        if current_stage == target_stage:
-            logger.info('confirmation stage=%s received: %s', target_stage, result_file)
-            return 0
-        if _result_stage_number(current_stage) > _result_stage_number(target_stage):
-            logger.error(
-                'confirmation skipped expected stage=%s and advanced to %s',
-                target_stage,
-                current_stage,
-            )
-            return 2
+        result_status = _wait_result_status(result_file, target_stage)
+        if result_status is not None:
+            return result_status
 
         skip_error = _stage_skip_error(result_file.parent)
         if skip_error:
@@ -1063,6 +1392,25 @@ def _wait_only_for_result(
             return 124
 
         time.sleep(0.5)
+
+
+def _wait_result_status(
+    result_file: Path,
+    target_stage: str,
+) -> Optional[int]:
+    """Return a terminal wait status when the persisted result resolves the target."""
+    current_stage = _result_stage(result_file)
+    if current_stage == target_stage:
+        logger.info('confirmation stage=%s received: %s', target_stage, result_file)
+        return 0
+    if _result_stage_number(current_stage) > _result_stage_number(target_stage):
+        logger.error(
+            'confirmation skipped expected stage=%s and advanced to %s',
+            target_stage,
+            current_stage,
+        )
+        return 2
+    return None
 
 
 def _shutdown_existing(lock_file: Path) -> int:
@@ -1192,6 +1540,11 @@ def _ai_comparison_items(kind: str) -> list[dict[str, str]]:
     return items
 
 
+def _ai_rendering_ids() -> set[str]:
+    """Return the rendering presets exposed by the confirmation UI."""
+    return {item['id'] for item in _ai_comparison_items('rendering')}
+
+
 def _build_ai_image_comparison() -> dict:
     return {
         'rendering': _ai_comparison_items('rendering'),
@@ -1259,12 +1612,15 @@ def create_app(
     @app.route('/api/health')
     def health():
         """Expose a cheap readiness probe for the daemon launcher."""
-        rec_file = confirm_dir / RECOMMENDATIONS_NAME
+        rec_file = _active_recommendations_path(confirm_dir)
         rec_ok = False
         stage = None
         if rec_file.exists():
             try:
-                rec_data = _read_json_object(rec_file, retries=0)
+                rec_file, rec_data = _read_active_recommendations(
+                    confirm_dir,
+                    retries=0,
+                )
                 rec_ok = True
                 stage = _recommendation_stage(rec_data)
             except (OSError, json.JSONDecodeError, ValueError):
@@ -1334,15 +1690,24 @@ def create_app(
     @app.route('/api/recommendations')
     def get_recommendations():
         """Serve the Strategist-authored recommendations for this project."""
-        rec_file = confirm_dir / RECOMMENDATIONS_NAME
+        rec_file = _active_recommendations_path(confirm_dir)
         if not rec_file.exists():
-            return jsonify({'error': 'recommendations not found'}), 404
+            return jsonify({'error': f'{rec_file.name} not found'}), 404
         try:
-            data = _read_json_object(rec_file)
+            rec_file, data = _read_active_recommendations(confirm_dir)
         except (OSError, json.JSONDecodeError, ValueError) as exc:
-            return jsonify({'error': f'invalid recommendations.json: {exc}'}), 400
+            return jsonify({
+                'error': f'invalid current recommendation file: {exc}',
+            }), 400
         # Report whether a result already exists (re-open after confirm).
         result_file = confirm_dir / RESULT_NAME
+        if _stage_skip(
+            _recommendation_stage(data),
+            _result_stage(result_file),
+        ):
+            return jsonify({
+                'error': _stage_skip_error(confirm_dir),
+            }), 409
         data['_already_confirmed'] = result_file.exists()
         # Later stages render only downstream sections, so fold earlier confirmed
         # choices from result.json back in. A refresh / reopen then re-inits from
@@ -1350,6 +1715,18 @@ def create_app(
         rec_stage_number = _recommendation_stage(data)
         if rec_stage_number >= 2 and result_file.exists():
             _merge_confirmed_choices(data, result_file)
+        if rec_stage_number > 0:
+            language_error = _canonicalize_primary_language(
+                data,
+                required=True,
+            )
+            if language_error:
+                return jsonify({'error': language_error}), 409
+        else:
+            # Legacy single-pass files remain permissive. Canonicalize only
+            # aliases/tags the shared helper already understands; an old prose
+            # value must never prevent the compatibility UI from opening.
+            _canonicalize_primary_language(data, required=False)
         if rec_stage_number == 2:
             recommendation_error = _template_stage2_error(
                 data,
@@ -1366,6 +1743,14 @@ def create_app(
             recommendation_error = _stage2_design_directions_error(data)
             if recommendation_error:
                 return jsonify({'error': recommendation_error}), 409
+        if rec_stage_number in {0, 3}:
+            proactive_values, proactive_error = (
+                _resolve_proactive_execution_values(data)
+            )
+            if proactive_error:
+                return jsonify({'error': proactive_error}), 409
+            for key, value in proactive_values.items():
+                data[key] = {'value': value}
         # Template application is authored by Strategist from the installed
         # workspace and current content. Never expose legacy mode fields as
         # user-facing confirmation controls.
@@ -1375,9 +1760,8 @@ def create_app(
             recommend.pop('template_adherence', None)
         data.pop('template_reuse_scope', None)
         data.pop('template_adherence', None)
-        # The page polls this endpoint after a stage-1 confirm until the AI
-        # overwrites the file with the once-authored stage-2 recommendations, so it
-        # must never be served from a cache.
+        # The page polls this endpoint after each confirmation until the AI
+        # creates the next stage file, so it must never be cached.
         resp = jsonify(data)
         resp.headers['Cache-Control'] = 'no-store'
         return resp
@@ -1406,21 +1790,73 @@ def create_app(
         if custom_error:
             return jsonify({'error': custom_error}), 400
         try:
-            current_recommendations = _read_json_object(
-                confirm_dir / RECOMMENDATIONS_NAME,
+            rec_file, current_recommendations = _read_active_recommendations(
+                confirm_dir,
             )
         except (OSError, json.JSONDecodeError, ValueError):
+            rec_file = _active_recommendations_path(confirm_dir)
             current_recommendations = {}
-        if stage == 'stage2' or _recommendation_stage(current_recommendations) == 3:
-            solution_error = _stage2_solution_error(result)
+        rec_stage_number = _recommendation_stage(current_recommendations)
+        previous_result = {}
+        if rec_stage_number >= 2:
+            try:
+                previous_result = _read_json_object(result_file)
+            except (OSError, json.JSONDecodeError, ValueError):
+                pass
+        main_language = None
+        if rec_stage_number > 0:
+            language_source = (
+                previous_result
+                if _recommendation_language(previous_result)
+                else current_recommendations
+            )
+            if not _recommendation_language(language_source):
+                language_source = result
+            language_error = _canonicalize_primary_language(
+                language_source,
+                required=True,
+            )
+            if language_error:
+                return jsonify({'error': language_error}), 409
+            main_language = _recommendation_language(language_source)
+            if main_language:
+                result['primary_language'] = main_language
+            else:
+                result.pop('primary_language', None)
+        if stage == 'stage2' or rec_stage_number == 3:
+            solution_error = _stage2_solution_error(
+                result,
+                main_language=main_language,
+            )
             if solution_error:
                 return jsonify({'error': solution_error}), 400
+        if stage not in {'stage1', 'stage2'}:
+            proactive_defaults, proactive_recommendation_error = (
+                _resolve_proactive_execution_values(current_recommendations)
+            )
+            if proactive_recommendation_error:
+                return jsonify({
+                    'error': proactive_recommendation_error,
+                }), 409
+            proactive_result_error = _normalize_proactive_execution_result(
+                result,
+                proactive_defaults,
+            )
+            if proactive_result_error:
+                return jsonify({'error': proactive_result_error}), 400
         _normalize_custom_selections(result)
         locked_values = _apply_locked_recommendations(
             result,
-            confirm_dir / RECOMMENDATIONS_NAME,
+            rec_file,
             result_file,
         )
+        if stage not in {'stage1', 'stage2'}:
+            proactive_result_error = _normalize_proactive_execution_result(
+                result,
+                proactive_defaults,
+            )
+            if proactive_result_error:
+                return jsonify({'error': proactive_result_error}), 400
         result.pop('template_reuse_scope', None)
         result.pop('template_adherence', None)
         # Staged flow: Stage 1 / Stage 2 submits record intermediate choices but do
@@ -1470,17 +1906,19 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         '--wait-only', action='store_true',
         help='Attach to the confirm server for this project and wait for an '
-             'already-open page to write result.json. If the server died, '
-             'recover it on the recorded/default port so browser polling can resume.',
+             'already-open page to write result.json. If the target result is '
+             'already persisted, return without recovery; otherwise recover a '
+             'dead server on the recorded/default port so browser polling can resume.',
     )
     parser.add_argument(
-        '--wait-stage', default='final', metavar='{stage2,final}',
+        '--wait-stage', default='final', metavar='{stage1,stage2,final}',
         help='With --wait-only, wait for this result.json stage (default: final). '
-             'Use stage2 for the direction handoff in the three-stage flow.',
+             'Use stage1 after the initial daemon launch and chat handoff; use '
+             'stage2 for the direction handoff.',
     )
     parser.add_argument(
         '--wait-timeout', type=int, default=WAIT_TIMEOUT_DEFAULT,
-        help=f'Seconds the --wait parent blocks before returning (default: {WAIT_TIMEOUT_DEFAULT}; '
+        help=f'Seconds the wait caller blocks before returning (default: {WAIT_TIMEOUT_DEFAULT}; '
              '0 = no limit). Kept under the caller\'s tool timeout; the detached server lives on.',
     )
     parser.add_argument(
@@ -1511,24 +1949,30 @@ def main(argv: Optional[list[str]] = None) -> int:
         logger.error('%s is not a directory', project_path)
         return 1
     wait_stage = _stage_key(args.wait_stage)
-    if wait_stage not in {'stage2', 'final'}:
-        logger.error('--wait-stage must be stage2 or final')
+    if wait_stage not in {'stage1', 'stage2', 'final'}:
+        logger.error('--wait-stage must be stage1, stage2, or final')
         return 2
 
     # Step 4 cleanup: stop any lingering confirm server and exit. Independent of
-    # recommendations.json (the page may never have been confirmed).
+    # recommendation files (the page may never have been confirmed).
     if args.shutdown:
         return _shutdown_existing(project_path / LOCK_FILE_NAME)
 
-    # Staged wait: attach to the server launched by the first --wait and block
+    # Staged wait: attach to the server launched by --daemon and block
     # until the page writes the requested intermediate or final result.json.
     if args.wait_only:
         lock_file = project_path / LOCK_FILE_NAME
+        result_file = project_path / CONFIRM_DIR_NAME / RESULT_NAME
         if not _live_lock(lock_file):
-            if not (project_path / CONFIRM_DIR_NAME / RECOMMENDATIONS_NAME).exists():
+            confirm_dir = project_path / CONFIRM_DIR_NAME
+            result_status = _wait_result_status(result_file, wait_stage)
+            if result_status is not None:
+                return result_status
+            rec_file = _active_recommendations_path(confirm_dir)
+            if not rec_file.exists():
                 logger.error(
                     '%s not found — cannot recover confirm UI before wait-only',
-                    project_path / CONFIRM_DIR_NAME / RECOMMENDATIONS_NAME,
+                    rec_file,
                 )
                 return 1
             recovery_port = _preferred_recovery_port(lock_file, args.port)
@@ -1549,16 +1993,17 @@ def main(argv: Optional[list[str]] = None) -> int:
                 _server_url(actual_port),
             )
         return _wait_only_for_result(
-            project_path / CONFIRM_DIR_NAME / RESULT_NAME,
+            result_file,
             lock_file,
             args.wait_timeout,
             wait_stage,
         )
 
-    rec_file = project_path / CONFIRM_DIR_NAME / RECOMMENDATIONS_NAME
+    confirm_dir = project_path / CONFIRM_DIR_NAME
+    rec_file = _active_recommendations_path(confirm_dir)
     if not rec_file.exists():
         logger.error(
-            '%s not found — Strategist must write recommendations.json before launch',
+            '%s not found — Strategist must write the current recommendation stage before launch',
             rec_file,
         )
         return 1
@@ -1578,6 +2023,7 @@ def main(argv: Optional[list[str]] = None) -> int:
 
         confirm_dir = project_path / CONFIRM_DIR_NAME
         result_file = confirm_dir / RESULT_NAME
+        expected_stage = _expected_result_stage(confirm_dir)
         started_at = time.time()
         try:
             proc, port, _ = _launch_background_server(
@@ -1590,7 +2036,13 @@ def main(argv: Optional[list[str]] = None) -> int:
             logger.error('%s', exc)
             return 1
         if args.wait:
-            return _wait_for_result(result_file, proc, started_at, args.wait_timeout)
+            return _wait_for_result(
+                result_file,
+                proc,
+                started_at,
+                args.wait_timeout,
+                expected_stage,
+            )
         return 0
 
     # Per-project mutual exclusion: refuse duplicate launches. Stale locks

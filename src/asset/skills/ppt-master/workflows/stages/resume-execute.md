@@ -28,8 +28,8 @@ Verify the project's planning-session artifacts before doing anything else:
 
 | File / Directory | Required when | Reason |
 |---|---|---|
-| `<project_path>/spec_lock.md` | Always | Strategist's execution contract; `page-context` projects its current-page values |
-| `<project_path>/design_spec.md` | Always | Section IX page outline; `page-context` projects the current page block |
+| `<project_path>/spec_lock.md` | Always | Strategist's execution anchors and routing contract; read it completely once in this fresh execution context |
+| `<project_path>/design_spec.md` | Always | Complete approved design narrative and Section IX page outline; read it completely once in this fresh execution context |
 | `<project_path>/images/` plus files whose row status requires existence | `spec_lock images` references any image | `Existing` / `Generated` / `Sourced` / `Rendered` files must exist; an absent `Needs-Manual` file remains allowed until the Step 7 readiness gate |
 | `<project_path>/templates/` | `spec_lock page_layouts` references any | Layout / mirror prototypes required by execution |
 | `skills/ppt-master/templates/charts/` | `spec_lock page_charts` references any | Shared chart SVGs selected by key |
@@ -50,19 +50,36 @@ Read skills/ppt-master/workflows/generate-pptx.md
 
 Then jump to `### Step 6: Executor Phase` and run the documented pipeline:
 
-- Read the Step 6 flat core (`executor-base`, `shared-standards-core`, and the locked mode / visual-style files), then only the branches selected by its condition table
+- Read the complete project Design Spec, then the complete `spec_lock.md`, once to establish the fresh execution context
+- Resolve the effective Speaker Notes, Custom Animations, and Narration Audio
+  outcomes from `design_spec.md §I`. Missing legacy outcomes use
+  `enabled` / `disabled` / `disabled`; these production decisions never come
+  from `spec_lock.md`
+- If resuming mid-deck, read the latest completed SVG and current image metadata when images are used
+- Read the complete Step 6 always-on core exactly as listed in [`generate-pptx.md`](../generate-pptx.md); for custom directions, reload every optional `*_references` file from `spec_lock.md` before applying the behavior, then only the branches selected by the condition table
 - Design Parameter Confirmation
-- Read the project Design Spec and, when structured, the template Design Spec once; retain both in the fresh execution context
-- Per-page `python3 skills/ppt-master/scripts/project_manager.py page-context <project_path> P<NN> --record-usage` load + sequential page generation; the lock projection repeats intentionally, while each prototype/chart SVG is loaded only before its first use or after its SHA changes
+- When structured, read the template Design Spec and each selected prototype once; retain unchanged references in the fresh context. A later bounded repair follows [`executor-base.md`](../../references/executor-base.md) §2.1 only while that context remains valid and uncompacted
+- Generate pages sequentially from the retained planning artifacts. Use `page-context` only for the on-demand diagnostic/telemetry triggers in Executor §2.1, never as a routine pre-page load
 - Quality Check Gate
-- Speaker notes generation
-- Step 7: Post-processing & Export (`total_md_split` → `finalize_svg` → `svg_to_pptx`)
+- Speaker notes generation only when the effective Speaker Notes outcome is enabled
+- Conditional custom-animation handling under the effective outcome,
+  provenance, explicit instruction, and existing-sidecar rules
+- Step 7: Post-processing & Export (conditional `total_md_split` → `finalize_svg`
+  → `svg_to_pptx`; disabled speaker notes use `--no-notes`)
+- After the base export, run `generate-audio` when the effective Narration Audio
+  outcome is enabled; narration implies speaker notes are enabled
 
 Reload the Generate authority and required execution references; do not reconstruct or replay the earlier planning conversation.
 
-**Source materials**: the execution session is fresh; `<project_path>/sources/<file>.md` is NOT in context. The Executor SHOULD read the relevant `sources/` files when crafting per-page content — they hold the concrete facts, quotes, names, and details that turn skeleton outlines into substantive slides. `design_spec.md §IX` only carries the per-page intent; the source materials carry the texture.
+If the user gives a newer explicit instruction after Stage 3, update only the
+affected effective outcome and provenance in `design_spec.md §I`, then resume at
+its owning step. Do not reopen Confirm UI or add the decision to
+`spec_lock.md`. Before writing, apply Generate's single notes/audio dependency
+gate; at export, apply its sidecar suppression rules.
 
-> Note: this stage does NOT duplicate Step 6 / Step 7 content. `generate-pptx.md` is the authoritative procedure; resume-execute only adds the resumption entry, sanity check, and source-materials guidance.
+**Source verification**: the execution session is fresh. Read only the relevant `sources/` passages needed to resolve explicit `Fact IDs` / source references or verify facts, quotes, names, and data required by the current §IX block. Follow [`executor-base.md`](../../references/executor-base.md) §2.1's content-vs-expression contract; source verification never authorizes a second outline. If §IX lacks executable content or evidence, stop and return to Generate Step 4 for Design Spec repair.
+
+> Note: this stage does NOT duplicate Step 6 / Step 7 content. `generate-pptx.md` is the authoritative procedure; resume-execute only adds the resumption entry, sanity check, and source-verification guidance.
 
 ---
 

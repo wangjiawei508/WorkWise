@@ -3,12 +3,12 @@
   "owner": "hugohe3",
   "repo": "ppt-master",
   "path": "skills/ppt-master",
-  "ref": "v4.0.0",
-  "installedSha": "6636fb141077d73c43385fd8e88cb32309237300",
+  "ref": "v4.3.0",
+  "installedSha": "51cb529d00638097e70fd3e9d865a0bf061b5e19",
   "autoUpdate": false,
   "overlaySkillId": "ppt-master",
   "slimmed": true,
-  "upstreamRelease": "https://github.com/hugohe3/ppt-master/releases/tag/v4.0.0",
+  "upstreamRelease": "https://github.com/hugohe3/ppt-master/releases/tag/v4.3.0",
   "verifiedUpstreamPaths": [
     "SKILL.md",
     "workflows/generate-pptx.md",
@@ -36,12 +36,12 @@
     "**/*.pptx"
   ],
   "bundleInventory": {
-    "files": 554,
-    "topLevelPythonScripts": 55,
-    "allPythonFiles": 196,
-    "totalBytes": 8585871,
-    "maximumFileBytes": 538970
+    "files": 552,
+    "topLevelPythonScripts": 64,
+    "allPythonFiles": 217,
+    "totalBytes": 9965361,
+    "maximumFileBytes": 572130
   },
-  "slimNotes": "Controlled WorkWise snapshot of PPT Master v4.0.0. Core routing, references, workflows, all 55 top-level Python scripts and their modules, editable SVG/PPTX conversion, 187 preset shapes, confirmation UI, chart templates, five brand presets, two deck presets, the presentation_core layout, and two lightweight SVG examples are retained. Large icon and AI-comparison image libraries, user projects, generated exports, backups, and private PPTX files are excluded. requirements.txt and the prompt-audit manifest are WorkWise-maintained overlays; no Pandoc dependency is installed. autoUpdate is disabled; a future upgrade requires a new audited snapshot.",
-  "upgradedAt": "2026-07-20"
+  "slimNotes": "Controlled WorkWise snapshot of PPT Master v4.3.0. Core routing, references, workflows, all 64 top-level Python scripts and their modules, editable SVG/PPTX conversion, preset shapes, confirmation UI, chart templates, brand presets, deck presets, and lightweight SVG examples are retained. Large icon and AI-comparison image libraries, user projects, generated exports, backups, and private PPTX files are excluded. requirements.txt and the prompt-audit manifest are WorkWise-maintained overlays; no Pandoc dependency is installed, and optional Shape-Boolean packages (skia-pathops/uharfbuzz) are not bundled into the frozen sidecar. autoUpdate is disabled; a future upgrade requires a new audited snapshot.",
+  "upgradedAt": "2026-08-05"
 }

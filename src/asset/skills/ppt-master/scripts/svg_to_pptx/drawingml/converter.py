@@ -26,7 +26,13 @@ from pptx_to_svg.preset_authoring import (
 )
 from resource_paths import icon_search_dirs_for_svg
 
-from .context import ConvertContext, ShapeResult
+from .context import (
+    TEXT_FLOW_PRESERVE,
+    TEXT_FLOW_SPLIT,
+    ConvertContext,
+    ShapeResult,
+    resolve_text_flow,
+)
 from .paths import (
     project_freeform_geometry_errors,
     project_gradient_geometry_errors,
@@ -45,6 +51,7 @@ from .utils import (
     _extract_inheritable_styles,
     _get_attr,
     _is_unit_axis_reflection,
+    is_picture_effect_carrier,
     parse_svg_length,
     parse_transform_operations,
     parse_transform_matrix,
@@ -54,6 +61,7 @@ from .utils import (
     project_geometry_length_errors,
     project_gradient_errors,
     project_image_aspect_ratio_errors,
+    project_mask_errors,
     project_marker_errors,
     project_opacity_errors,
     project_paint_errors,
@@ -284,6 +292,22 @@ def _require_project_paints(
     suffix = '' if len(errors) <= 8 else f'; +{len(errors) - 8} more'
     raise SvgNativeConversionError(
         f'{Path(svg_path).name}: invalid project paint value(s): '
+        f'{preview}{suffix}'
+    )
+
+
+def _require_project_masks(
+    root: ET.Element,
+    svg_path: Path | str,
+) -> None:
+    """Reject SVG masks before native conversion can silently drop them."""
+    errors = project_mask_errors(root)
+    if not errors:
+        return
+    preview = '; '.join(errors[:8])
+    suffix = '' if len(errors) <= 8 else f'; +{len(errors) - 8} more'
+    raise SvgNativeConversionError(
+        f'{Path(svg_path).name}: invalid project mask(s): '
         f'{preview}{suffix}'
     )
 
@@ -735,6 +759,8 @@ def convert_g(elem: ET.Element, ctx: ConvertContext) -> ShapeResult | None:
     # translation here and apply pivot-centre compensation to ``a:off``
     # below instead.
     rotate_pivot = _extract_rotate_pivot(transform) if not matrix_supported else None
+    if rotate_pivot is not None:
+        angle_deg = parse_transform_operations(transform)[0][1][0]
     if matrix_supported:
         child_ctx = ctx.child(
             0, 0, 1.0, 1.0,
@@ -835,11 +861,19 @@ def convert_g(elem: ET.Element, ctx: ConvertContext) -> ShapeResult | None:
             or elem.get('data-pptx-geometry-kind') == 'custom'
         )
     )
+    logical_picture_effect_group = (
+        filter_id is not None
+        and is_picture_effect_carrier(elem)
+    )
     explicit_native_group = elem.get('data-pptx-object') == 'group'
     if (
         len(child_results) == 1
         and not explicit_native_group
-        and (not should_animate_group or logical_native_shape_group)
+        and (
+            not should_animate_group
+            or logical_native_shape_group
+            or logical_picture_effect_group
+        )
     ):
         if should_animate_group and elem_id:
             shape_match = re.search(r'<p:cNvPr id="(\d+)"', child_results[0].xml)
@@ -905,7 +939,7 @@ def convert_g(elem: ET.Element, ctx: ConvertContext) -> ShapeResult | None:
     )
 
     # Record top-level semantic groups (e.g. <g id="p02-title">) so the
-    # PPTX builder can emit per-element entrance timing. Only the outermost
+    # PPTX builder can emit per-element object timing. Only the outermost
     # multi-child wrapper qualifies — flattened single-child groups have no
     # <p:grpSp> to anchor a timing target on, and nested groups are
     # ignored to keep the animation budget at ~per-section granularity.
@@ -1339,7 +1373,7 @@ def convert_svg_to_slide_shapes(
     svg_path: str | Path,
     slide_num: int = 1,
     verbose: bool = False,
-    merge_paragraphs: bool = True,
+    merge_paragraphs: bool | None = None,
     image_optimize: bool = True,
     image_max_dimension: int | None = 2560,
     image_sizing: str = 'cap',
@@ -1349,8 +1383,10 @@ def convert_svg_to_slide_shapes(
     animation_group_overrides: frozenset[str] | None = None,
     theme_font_spec: ThemeFontSpec | None = None,
     theme_color_spec: ThemeColorSpec | None = None,
+    primary_language: str | None = None,
     trace_out: list[dict[str, Any]] | None = None,
     promote_background: bool = True,
+    text_flow: str | None = None,
 ) -> tuple[
     str,
     dict[str, bytes],
@@ -1365,10 +1401,11 @@ def convert_svg_to_slide_shapes(
         svg_path: Path to the SVG file.
         slide_num: Slide number (for naming).
         verbose: Print progress info.
-        merge_paragraphs: When True, mergeable paragraph blocks (same x,
-            dy clustered around one base line-height) become a single
-            editable text frame with multiple <a:p>. Disable it to preserve
-            the SVG's exact line layout (one textbox per line).
+        merge_paragraphs: Legacy compatibility option. True selects reflow;
+            False selects split. Do not combine with ``text_flow``.
+        text_flow: Positional-tspan policy. ``preserve`` keeps authored visual
+            line breaks in one frame, ``reflow`` lets PowerPoint wrap the text,
+            and ``split`` emits one text frame per visual line.
         image_optimize: Downsample oversized raster images for PPTX export.
         image_max_dimension: Maximum optimized image dimension in pixels.
         image_sizing: ``cap`` to only cap source dimensions, ``display`` to
@@ -1385,6 +1422,8 @@ def convert_svg_to_slide_shapes(
         theme_color_spec: Optional context-aware theme-color contract. Exact
             locked colors emit DrawingML scheme tokens while local colors stay
             fixed.
+        primary_language: Canonical BCP-47 project content language. ``None``
+            keeps the legacy per-run script heuristic.
         trace_out: Optional list populated with one per-slide trace dictionary.
         promote_background: Promote the first eligible full-canvas rectangle
             into native ``p:bg``. Structured export disables this generic pass
@@ -1398,12 +1437,13 @@ def convert_svg_to_slide_shapes(
         - rel_entries: List of relationship entries to add.
         - anim_targets: List of (shape_id, svg_id) tuples for top-level
           semantic groups, in z-order; consumed by the builder's optional
-          per-element entrance timing emitter.
+          per-element object-animation timing emitter.
         - package_files: Dict of {pptx internal path: bytes} for non-media
           OOXML parts such as native chart XML and embedded workbooks.
         - content_type_overrides: Dict of {pptx internal path: content type}
           for package_files that require [Content_Types].xml overrides.
     """
+    text_flow = resolve_text_flow(text_flow, merge_paragraphs)
     svg_path = Path(svg_path)
     tree = ET.parse(str(svg_path))
     root = tree.getroot()
@@ -1483,6 +1523,7 @@ def convert_svg_to_slide_shapes(
     _require_project_stroke_styles(root, svg_path)
     _require_project_opacities(root, svg_path)
     _require_project_paints(root, svg_path)
+    _require_project_masks(root, svg_path)
     _require_project_definitions(root, svg_path)
     _require_project_paint_references(root, svg_path)
     _require_project_line_end_markers(root, svg_path)
@@ -1564,6 +1605,7 @@ def convert_svg_to_slide_shapes(
     _require_project_stroke_styles(root, svg_path)
     _require_project_opacities(root, svg_path)
     _require_project_paints(root, svg_path)
+    _require_project_masks(root, svg_path)
     _require_project_definitions(root, svg_path)
     _require_project_paint_references(root, svg_path)
     _require_project_gradients(root, svg_path)
@@ -1585,17 +1627,24 @@ def convert_svg_to_slide_shapes(
     # and an x-anchored tspan would render in the wrong column. finalize_svg
     # does the same flattening on disk; doing it here keeps native pptx output
     # correct when reading raw svg_output/.
-    # merge_paragraphs additionally folds mergeable paragraph blocks into a
-    # single annotated <text> for downstream multi-<a:p> conversion.
+    # Preserve/reflow modes additionally fold conservative paragraph blocks
+    # into one annotated <text>. Preserve keeps visual lines as DrawingML hard
+    # breaks; reflow joins wrapping lines; split keeps one frame per line.
     from ..tspan_flattener import flatten_positional_tspans
-    flattened = flatten_positional_tspans(tree, merge_paragraphs=merge_paragraphs)
+    flattened = flatten_positional_tspans(
+        tree,
+        merge_paragraphs=text_flow != TEXT_FLOW_SPLIT,
+        preserve_line_breaks=text_flow == TEXT_FLOW_PRESERVE,
+    )
     if flattened:
         trace_steps.append({
             'action': 'flatten-positional-tspans',
-            'merge_paragraphs': merge_paragraphs,
+            'text_flow': text_flow,
+            # Compatibility field for older trace readers.
+            'merge_paragraphs': text_flow != TEXT_FLOW_SPLIT,
         })
         if verbose:
-            print('  Flattened positional <tspan> into independent <text>')
+            print(f'  Lowered positional <tspan> using {text_flow} text flow')
 
     _require_project_text_properties(root, svg_path)
     try:
@@ -1627,7 +1676,7 @@ def convert_svg_to_slide_shapes(
         viewport_width=viewport_width,
         viewport_height=viewport_height,
         svg_dir=Path(svg_path).parent,
-        merge_paragraphs=merge_paragraphs,
+        text_flow=text_flow,
         image_optimize=image_optimize,
         image_max_dimension=image_max_dimension,
         image_sizing=image_sizing,
@@ -1638,6 +1687,7 @@ def convert_svg_to_slide_shapes(
         trace_events=trace_events,
         theme_font_spec=theme_font_spec,
         theme_color_spec=theme_color_spec,
+        primary_language=primary_language,
         inherited_styles=_extract_inheritable_styles(root),
         text_font_sizes=text_font_sizes,
         text_letter_spacings=text_letter_spacings,

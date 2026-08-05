@@ -7,7 +7,7 @@
 | --- | --- |
 | Project Name | {{PROJECT_NAME}} |
 | Canvas Format | {{CANVAS_NAME}} ({{CANVAS_DIMENSIONS}}) |
-| Page Count | [fill] |
+| Page Count | [fill exact final count matching §IX] |
 | Target Audience | [fill] |
 | Communication Intent | [fill] |
 | Desired Audience Outcome | [fill] |
@@ -17,6 +17,13 @@
 | Reading Mode | [fill] |
 | Content Strategy | [fill] |
 | Design Style | [fill] |
+| Formula Policy | [fill] |
+| AI Image Acquisition Path | [fill or not applicable] |
+| Generation Mode | [fill] |
+| Spec Refinement | [fill] |
+| Speaker Notes | [fill enabled/disabled plus provenance] |
+| Custom Animations | [fill enabled/disabled plus provenance] |
+| Narration Audio | [fill enabled/disabled plus provenance] |
 | Created Date | {{CREATED_DATE}} |
 
 ## II. Canvas Specification
@@ -51,17 +58,14 @@
 
 ### Font Plan
 
-| Role | Chinese | English | Fallback tail |
-| --- | --- | --- | --- |
-| Title | [fill] | [fill] | [fill] |
-| Body | [fill] | [fill] | [fill] |
-| Emphasis | [fill] | [fill] | [fill] |
-| Code | [fill] | [fill] | [fill] |
+| Role | Character (Reference) | Primary | English if non-English | Fallback tail |
+| --- | --- | --- | --- | --- |
+| Title | [fill] | [fill] | [fill] | [fill] |
+| Body | [fill] | [fill] | [fill] | [fill] |
 
-- Title: [fill]
-- Body: [fill]
-- Emphasis: [fill or same as Body]
-- Code: [fill]
+- **Typography upgrade (Reference)**: [fill post-export substitution by role after target installation, or omit]
+- **Title stack**: [fill]
+- **Body stack**: [fill]
 
 ### Font Size Hierarchy
 
@@ -95,15 +99,10 @@
 | --- | --- | --- |
 | [fill] | [fill] | [fill] |
 
-## VII. Visualization Reference List
-
-| Page | Template | Path | Summary-quote | Usage |
-| --- | --- | --- | --- | --- |
-
 ## VIII. Image Resource List
 
-| Filename | Dimensions | Ratio | Purpose | Type | Layout pattern | Acquire Via | Status | Reference | text_policy | page_role |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Filename | Dimensions | Ratio | Purpose | Type | Layout pattern | Crop Policy | Acquire Via | Status | Reference | text_policy | page_role |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 
 ## IX. Content Outline
 
@@ -119,5 +118,6 @@
 
 ## X. Speaker Notes Requirements
 
+- **Generation**: [fill enabled or disabled]
 - **Filename**: match each SVG filename under `notes/`
 - **Content**: [fill]

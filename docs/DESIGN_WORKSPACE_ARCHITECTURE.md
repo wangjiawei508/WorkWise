@@ -108,15 +108,15 @@ Runtime 工具位于 `kun/src/adapters/tool/design-tool-provider.ts`，正式工
 
 Design 助手复用 WorkWise 的会话、模型、审批、任务状态和诊断。界面只显示简洁进度和结果，不显示私有思维链。
 
-## 6. PPT Master 4.0.0
+## 6. PPT Master 4.3.0
 
 内置快照固定为：
 
 - 上游：`hugohe3/ppt-master`
-- Release：`v4.0.0`
-- Commit：`6636fb141077d73c43385fd8e88cb32309237300`
+- Release：`v4.3.0`
+- Commit：`51cb529d00638097e70fd3e9d865a0bf061b5e19`
 
-受控快照保留核心工作流、100 个文本参考、55 个顶层 Python 脚本及模块、76 个图表模板、5 个品牌、2 个 Deck、`presentation_core` 布局和 187 个 preset shape 定义。
+受控快照保留核心工作流、文本参考、64 个顶层 Python 脚本及模块、图表模板、品牌、Deck、`presentation_core` 布局和 preset shape 定义。
 
 为控制安装包体积，不分发大体积图标 SVG 库、AI 对比 PNG、用户项目、生成导出物、备份和私有 PPTX。缺失的图标库不会导致整个 PPT 任务失败；工作流使用原生形状、项目内图标或已授权来源。
 
@@ -128,7 +128,7 @@ src/asset/skills/ppt-master/.workwise-skill-source.json
 
 `scripts/prompt_audit_manifest.json` 是 WorkWise 瘦身包适配层；它不参与 runtime prompt，只用于验证路径、引用、注册表和 Token 预算。审计不得出现缺失路径或错误。
 
-正式客户端把 MarkItDown 与上述 PPT Master 4.0.0 导入、导出和 preset 脚本一起冻结为按平台/架构构建的本地 sidecar。打包后的核心路径不依赖系统 Python；每个平台的 GitHub Actions 构建都会用该冻结程序执行一次 SVG → PPTX → SVG 往返验证。开发模式可以回退到审计快照中的 Python 脚本，但不得使用已经从 4.0.0 CLI 删除的旧参数。
+正式客户端把 MarkItDown 与上述 PPT Master 4.3.0 导入、导出和 preset 脚本一起冻结为按平台/架构构建的本地 sidecar。打包后的核心路径不依赖系统 Python；每个平台的 GitHub Actions 构建都会用该冻结程序执行一次 SVG → PPTX → SVG 往返验证。开发模式可以回退到审计快照中的 Python 脚本，但不得使用已经从 4.3.0 CLI 删除的旧参数。
 
 ## 7. PPTX 导入
 

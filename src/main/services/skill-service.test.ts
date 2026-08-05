@@ -440,7 +440,7 @@ describe('skill-service', () => {
       await readFile(join(installedRoot, '.workwise-skill-source.json'), 'utf8')
     ) as Record<string, unknown>
     expect(existsSync(join(installedRoot, '.workgpt-skill-source.json'))).toBe(false)
-    // v4.0 curated slim bundle: autoUpdate disabled, overlay preserved
+    // v4.3 curated slim bundle: autoUpdate disabled, overlay preserved
     expect(source).toMatchObject({
       type: 'github',
       owner: 'hugohe3',
@@ -456,15 +456,15 @@ describe('skill-service', () => {
     if (!result.ok) return
     expect(result.skills).toContainEqual(expect.objectContaining({
       id: 'ppt-master',
-      name: 'PPT Master 4.0.0',
+      name: 'PPT Master 4.3.0',
       description: expect.stringContaining('presentation workflow'),
       source: expect.objectContaining({
         type: 'github',
         owner: 'hugohe3',
         repo: 'ppt-master',
         path: 'skills/ppt-master',
-        ref: 'v4.0.0',
-        installedSha: '6636fb141077d73c43385fd8e88cb32309237300',
+        ref: 'v4.3.0',
+        installedSha: '51cb529d00638097e70fd3e9d865a0bf061b5e19',
         autoUpdate: false,
         overlaySkillId: 'ppt-master'
       })

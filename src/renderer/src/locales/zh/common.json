@@ -764,7 +764,7 @@
   "pluginSkillWritingAgentTitle": "writing-agent",
   "pluginSkillWritingAgentDesc": "中文长文和公众号文章的多阶段写作工作流。",
   "pluginSkillWritingAgentDetail": "来自 dongbeixiaohuo/writing-agent。WorkWise 内置其核心 agents、skills、styles、workflows 和 templates，用于选题、澄清、风格确认、提纲、起草、审稿、去 AI 味和发布前检查。",
-  "pluginSkillPptMasterTitle": "PPT Master 4.0.0",
+  "pluginSkillPptMasterTitle": "PPT Master 4.3.0",
   "pluginSkillPptMasterDesc": "把 Markdown、方案、报告和资料整理成演示文稿的专业工作流。",
   "pluginSkillPptMasterDetail": "来自 hugohe3/ppt-master 官方 v4.0.0（提交 6636fb1）的受控瘦身快照。WorkWise 保留核心 SKILL、references、workflows、55 个顶层脚本及其模块、确认页、SVG 编辑与预览、设计规范和轻量模板；排除大体积 icons、AI 图片对比素材、用户 projects、exports、backup 和私有 PPT 文件。requirements.txt 是 WorkWise 审计后的可选依赖清单，不使用 Pandoc；为避免未经审计的上游文件覆盖，自动更新保持关闭。",
   "pluginSkillWritingDetectionTitle": "chatgpt-comparison-detection",
