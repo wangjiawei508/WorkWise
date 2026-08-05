@@ -44,6 +44,16 @@ describe('parseSvgToPage - 基本', () => {
     expect(texts[0].fill).toBe('1A1A2E')
   })
 
+  it('保留 text 的字间距与 fill-opacity', () => {
+    const svg = `<svg viewBox="0 0 200 100">
+      <text x="20" y="40" font-size="16" fill="#FFFFFF" fill-opacity="0.7" letter-spacing="3">标题</text>
+    </svg>`
+    const page = parseSvgToPage(svg)!
+    const text = page.elements.find((element) => element.type === 'text')
+    expect(text?.opacity).toBe(0.7)
+    expect(text?.letterSpacing).toBe(3)
+  })
+
   it('解析 ellipse 元素', () => {
     const page = parseSvgToPage(SIMPLE_SVG)!
     const ellipses = page.elements.filter((e) => e.type === 'ellipse')

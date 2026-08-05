@@ -221,6 +221,8 @@ export type DesignElement = {
   fontFamily?: string
   fontWeight?: string
   textAlign?: 'left' | 'center' | 'right'
+  /** 字间距（像素），对应 SVG letter-spacing */
+  letterSpacing?: number
 
   // type=image 特有
   /** 图片资源 id（指向 document.assets），不是直接路径 */

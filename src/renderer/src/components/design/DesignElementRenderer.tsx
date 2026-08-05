@@ -112,6 +112,7 @@ export function DesignElementRenderer({
           fontSize={element.fontSize ?? 24}
           fontFamily={element.fontFamily ?? "system-ui, 'Microsoft YaHei', sans-serif"}
           fontWeight={element.fontWeight ?? 'normal'}
+          {...(element.letterSpacing !== undefined ? { letterSpacing: element.letterSpacing } : {})}
           textAnchor={textAnchorForAlign(element.textAlign)}
           {...styleProps}
           {...(transform ? { transform } : {})}

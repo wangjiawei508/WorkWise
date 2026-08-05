@@ -711,6 +711,12 @@ function effectiveStroke(
   return value === undefined ? undefined : (value ?? undefined)
 }
 
+function effectiveOpacity(attrs: SvgAttributes, ctx: StyleContext): number | undefined {
+  if (attrs.opacity !== undefined) return parseOpacity(attrs.opacity)
+  if (attrs['fill-opacity'] !== undefined) return parseOpacity(attrs['fill-opacity'])
+  return ctx.opacity
+}
+
 function createRectElement(
   attrs: SvgAttributes,
   ctx: StyleContext,
@@ -734,7 +740,7 @@ function createRectElement(
       : ctx.strokeWidth,
     strokeLinecap: parseStrokeLinecap(attrs['stroke-linecap']),
     strokeLinejoin: parseStrokeLinejoin(attrs['stroke-linejoin']),
-    opacity: attrs.opacity !== undefined ? parseOpacity(attrs.opacity) : ctx.opacity,
+    opacity: effectiveOpacity(attrs, ctx),
     rotation: Math.round(box.rotation),
     zIndex: 0
   })
@@ -770,7 +776,7 @@ function createEllipseElement(
       : ctx.strokeWidth,
     strokeLinecap: parseStrokeLinecap(attrs['stroke-linecap']),
     strokeLinejoin: parseStrokeLinejoin(attrs['stroke-linejoin']),
-    opacity: attrs.opacity !== undefined ? parseOpacity(attrs.opacity) : ctx.opacity,
+    opacity: effectiveOpacity(attrs, ctx),
     rotation: Math.round(box.rotation),
     zIndex: 0
   })
@@ -799,7 +805,7 @@ function createLineElement(
       : (ctx.strokeWidth ?? 1),
     strokeLinecap: parseStrokeLinecap(attrs['stroke-linecap']),
     strokeLinejoin: parseStrokeLinejoin(attrs['stroke-linejoin']),
-    opacity: attrs.opacity !== undefined ? parseOpacity(attrs.opacity) : ctx.opacity,
+    opacity: effectiveOpacity(attrs, ctx),
     rotation: Math.round(opsRotation(ops)),
     zIndex: 0
   })
@@ -828,7 +834,7 @@ function createPathElement(
       : ctx.strokeWidth,
     strokeLinecap: parseStrokeLinecap(attrs['stroke-linecap']),
     strokeLinejoin: parseStrokeLinejoin(attrs['stroke-linejoin']),
-    opacity: attrs.opacity !== undefined ? parseOpacity(attrs.opacity) : ctx.opacity,
+    opacity: effectiveOpacity(attrs, ctx),
     rotation: Math.round(Math.atan2(matrix[1], matrix[0]) * 180 / Math.PI),
     zIndex: 0
   })
@@ -865,7 +871,7 @@ function createPolygonElement(
       : ctx.strokeWidth,
     strokeLinecap: parseStrokeLinecap(attrs['stroke-linecap']),
     strokeLinejoin: parseStrokeLinejoin(attrs['stroke-linejoin']),
-    opacity: attrs.opacity !== undefined ? parseOpacity(attrs.opacity) : ctx.opacity,
+    opacity: effectiveOpacity(attrs, ctx),
     rotation: Math.round(Math.atan2(matrix[1], matrix[0]) * 180 / Math.PI),
     zIndex: 0
   })
@@ -886,7 +892,10 @@ function createTextElements(
   const fontSize = Math.max(1, Math.round(baseFontSize * fontSizeScale))
   const fill = attrs.fill !== undefined ? resolvePaint(attrs.fill, gradients) : ctx.fill
   const stroke = attrs.stroke !== undefined ? resolvePaint(attrs.stroke, gradients) : ctx.stroke
-  const opacity = attrs.opacity !== undefined ? parseOpacity(attrs.opacity) : ctx.opacity
+  const opacity = effectiveOpacity(attrs, ctx)
+  const letterSpacing = attrs['letter-spacing'] !== undefined
+    ? parseNum(attrs['letter-spacing'], 0)
+    : undefined
   const textAnchor = attrs['text-anchor'] ?? ctx.textAnchor
   const textAlign = textAnchor === 'middle' ? 'center' : textAnchor === 'end' ? 'right' : 'left'
   const fontFamily = attrs['font-family'] ?? ctx.fontFamily ?? "system-ui, 'Microsoft YaHei', sans-serif"
@@ -912,6 +921,7 @@ function createTextElements(
       fill: fill === undefined ? '000000' : (fill ?? undefined),
       stroke,
       opacity,
+      letterSpacing,
       textAlign,
       rotation,
       zIndex: 0
@@ -941,7 +951,14 @@ function createTextElements(
         ? (resolvePaint(tAttrs.fill, gradients) ?? undefined)
         : (fill === undefined ? '000000' : (fill ?? undefined)),
       stroke: tAttrs.stroke !== undefined ? (resolvePaint(tAttrs.stroke, gradients) ?? undefined) : stroke,
-      opacity: tAttrs.opacity !== undefined ? parseOpacity(tAttrs.opacity) : opacity,
+      opacity: tAttrs.opacity !== undefined
+        ? parseOpacity(tAttrs.opacity)
+        : tAttrs['fill-opacity'] !== undefined
+          ? parseOpacity(tAttrs['fill-opacity'])
+          : opacity,
+      letterSpacing: tAttrs['letter-spacing'] !== undefined
+        ? parseNum(tAttrs['letter-spacing'], 0)
+        : letterSpacing,
       textAlign: tAttrs['text-anchor'] === 'middle' ? 'center'
         : tAttrs['text-anchor'] === 'end' ? 'right' : textAlign,
       rotation,
