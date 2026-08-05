@@ -7,7 +7,9 @@ import type {
 } from '@shared/ppt-master-services'
 import { useChatStore } from '../../store/chat-store'
 
-function latestAssistantClaim(blocks: Array<{ kind: string; text?: string }>): string | null {
+function latestAssistantClaim(
+  blocks: Array<{ kind: string; text?: string }>
+): { text: string; pptxName?: string } | null {
   for (let index = blocks.length - 1; index >= 0; index -= 1) {
     const block = blocks[index]
     if (block.kind !== 'assistant' || !block.text) continue
@@ -15,7 +17,11 @@ function latestAssistantClaim(blocks: Array<{ kind: string; text?: string }>): s
       /(完整交付|PPT\s*已生成|已交付|交付完成|导出成功|成果文件|输出文件|文件路径)/i.test(block.text) &&
       /\.pptx|ppt_master|slideCount/i.test(block.text)
     ) {
-      return block.text
+      const pptxMatches = block.text.match(/([^\s`）)\]]+\.pptx)/gi)
+      return {
+        text: block.text,
+        pptxName: pptxMatches ? pptxMatches[pptxMatches.length - 1] : undefined
+      }
     }
   }
   return null
@@ -53,6 +59,7 @@ export function PptMasterDeliveryVerification({
   const [result, setResult] = useState<PptMasterDeliverableVerifyResult | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [resolvedProjectDir, setResolvedProjectDir] = useState<string | null>(null)
   const lastClaimRef = useRef<string | null>(null)
 
   const claim = useMemo(
@@ -60,23 +67,82 @@ export function PptMasterDeliveryVerification({
     [blocks]
   )
   const projectDir = useMemo(
-    () => (claim ? projectDirFromClaim(claim, workspaceRoot) : null),
+    () => (claim ? projectDirFromClaim(claim.text, workspaceRoot) : null),
     [claim, workspaceRoot]
   )
 
   useEffect(() => {
-    if (!claim || !projectDir || !workspaceRoot.trim()) {
+    if (!claim) {
+      setResolvedProjectDir(null)
+      return
+    }
+    if (projectDir) {
+      setResolvedProjectDir(projectDir)
+      return
+    }
+    if (!claim.pptxName || !window.workwise?.listWorkspaceDirectory) {
+      setResolvedProjectDir(null)
+      return
+    }
+    let cancelled = false
+    const fileName = claim.pptxName.split('/').pop() as string
+    const scan = async (): Promise<void> => {
+      try {
+        const rootResult = await window.workwise.listWorkspaceDirectory({ workspaceRoot, path: 'projects' })
+        if (!rootResult.ok) {
+          if (!cancelled) setResolvedProjectDir(null)
+          return
+        }
+        for (const project of rootResult.entries) {
+          if (project.type !== 'directory') continue
+          const exportsResult = await window.workwise.listWorkspaceDirectory({
+            workspaceRoot,
+            path: `${project.path}/exports`
+          })
+          if (
+            exportsResult.ok &&
+            exportsResult.entries.some((entry) => entry.type === 'file' && entry.name === fileName)
+          ) {
+            if (!cancelled) setResolvedProjectDir(project.path)
+            return
+          }
+          const projectRootResult = await window.workwise.listWorkspaceDirectory({
+            workspaceRoot,
+            path: project.path
+          })
+          if (
+            projectRootResult.ok &&
+            projectRootResult.entries.some((entry) => entry.type === 'file' && entry.name === fileName)
+          ) {
+            if (!cancelled) setResolvedProjectDir(project.path)
+            return
+          }
+        }
+        if (!cancelled) setResolvedProjectDir(null)
+      } catch {
+        if (!cancelled) setResolvedProjectDir(null)
+      }
+    }
+    void scan()
+    return () => {
+      cancelled = true
+    }
+  }, [claim, projectDir, workspaceRoot])
+
+  useEffect(() => {
+    if (!claim || !resolvedProjectDir || !workspaceRoot.trim()) {
       setResult(null)
       lastClaimRef.current = null
       return
     }
-    if (lastClaimRef.current === claim) return
-    lastClaimRef.current = claim
+    const claimKey = `${resolvedProjectDir}\u0000${claim.text}`
+    if (lastClaimRef.current === claimKey) return
+    lastClaimRef.current = claimKey
     let cancelled = false
     const timer = window.setTimeout(() => {
       setBusy(true)
       setError(null)
-      const request: PptMasterDeliverableVerifyRequest = { workspaceRoot, projectDir }
+      const request: PptMasterDeliverableVerifyRequest = { workspaceRoot, projectDir: resolvedProjectDir }
       window.workwise
         .verifyPptMasterDeliverable(request)
         .then((verifyResult) => {
@@ -93,9 +159,9 @@ export function PptMasterDeliveryVerification({
       cancelled = true
       window.clearTimeout(timer)
     }
-  }, [claim, projectDir, workspaceRoot])
+  }, [claim, resolvedProjectDir, workspaceRoot])
 
-  if (!claim || !projectDir) return null
+  if (!claim || !resolvedProjectDir) return null
 
   const PassIcon = result?.ok ? ShieldCheck : ShieldAlert
   return (
@@ -131,7 +197,7 @@ export function PptMasterDeliveryVerification({
               <div className="truncate">
                 {result.file
                   ? `${result.file.path.split('/').pop()} · ${formatBytes(result.file.size)} · ${new Date(result.file.modifiedAt).toLocaleString()}`
-                  : projectDir}
+                  : resolvedProjectDir}
               </div>
               {result.slideCount !== undefined ? (
                 <div>

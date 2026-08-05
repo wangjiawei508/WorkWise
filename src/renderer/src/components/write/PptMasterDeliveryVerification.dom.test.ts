@@ -27,7 +27,22 @@ beforeEach(async () => {
   }))
   Object.defineProperty(globalThis.window, 'workwise', {
     configurable: true,
-    value: { verifyPptMasterDeliverable: verifyMock } as unknown as typeof window.workwise
+    value: {
+      verifyPptMasterDeliverable: verifyMock,
+      listWorkspaceDirectory: vi.fn(async ({ path }: { path: string }) => {
+        if (path === 'projects') {
+          return { ok: true, root: '/root', entries: [
+            { name: 'deck', path: '/root/projects/deck', type: 'directory', ext: '' }
+          ] }
+        }
+        if (path === '/root/projects/deck/exports') {
+          return { ok: true, root: path, entries: [
+            { name: 'deck_v5.pptx', path: `${path}/deck_v5.pptx`, type: 'file', ext: 'pptx' }
+          ] }
+        }
+        return { ok: true, root: path, entries: [] }
+      })
+    } as unknown as typeof window.workwise
   })
   useChatStore.setState({
     blocks: [
@@ -86,5 +101,30 @@ describe('PptMasterDeliveryVerification', () => {
       workspaceRoot: '/root',
       projectDir: '/root/projects/deck'
     })
+  })
+
+  it('resolves project dir from exports-relative claims by scanning projects', async () => {
+    useChatStore.setState({
+      blocks: [
+        {
+          kind: 'assistant',
+          id: 'b3',
+          text: '✅ 交付完成 — deck\n最终文件 `exports/deck_v5.pptx`',
+          role: 'assistant',
+          createdAt: Date.now()
+        }
+      ] as never
+    })
+    await act(async () => {
+      root.render(createElement(PptMasterDeliveryVerification, { workspaceRoot: '/root' }))
+    })
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 1200))
+    })
+    expect(verifyMock).toHaveBeenCalledWith({
+      workspaceRoot: '/root',
+      projectDir: '/root/projects/deck'
+    })
+    expect(container.textContent).toContain('System verified')
   })
 })
