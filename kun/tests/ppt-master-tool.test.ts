@@ -156,6 +156,33 @@ describe('ppt_master built-in tool', () => {
     })
   })
 
+  it('refuses to overwrite an existing output file so each delivery is fresh', async () => {
+    const projectDir = join(workspace, 'deck-overwrite')
+    const svgDir = join(projectDir, 'svg_output')
+    await mkdir(svgDir, { recursive: true })
+    await writeFile(join(svgDir, 'slide_01.svg'), SLIDE_SVG(1), 'utf8')
+    await mkdir(join(projectDir, 'notes'), { recursive: true })
+    await writeFile(join(projectDir, 'notes', 'slide_01.md'), '# note', 'utf8')
+    await writeFile(join(projectDir, 'design_spec.md'), '# design spec', 'utf8')
+    await writeFile(join(projectDir, 'spec_lock.md'), '# spec lock', 'utf8')
+    const outputPath = join(workspace, 'existing.pptx')
+    await writeFile(outputPath, 'old content')
+
+    const tool = createPptMasterLocalTool()
+    const host = new LocalToolHost({ tools: [tool] })
+    const result = await host.execute(
+      { callId: 'call_ppt_overwrite', toolName: 'ppt_master', arguments: { projectDir, outputPath } },
+      buildContext(workspace)
+    )
+    expect(result.item.kind).toBe('tool_result')
+    if (result.item.kind !== 'tool_result') throw new Error('expected tool_result')
+    expect(result.item.isError).toBe(true)
+    expect(result.item.output).toMatchObject({
+      code: 'tool_execution_failed',
+      error: expect.stringContaining('output_file_exists')
+    })
+  })
+
   it('rejects output paths that escape the workspace', async () => {
     const projectDir = join(workspace, 'deck')
     const svgDir = join(projectDir, 'svg_output')

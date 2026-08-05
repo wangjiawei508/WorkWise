@@ -38,7 +38,7 @@ WorkWise Runtime may disable shell commands (Write assistant and Flow agents run
      }
      ```
 
-     The tool enforces the gates above (design_spec, spec_lock, full page set, per-page notes, severe low contrast) and returns `slideCount`, `notesCount`, and `warnings`.
+     The tool enforces the gates above (design_spec, spec_lock, full page set, per-page notes, severe low contrast), **requires a new output file name** (it refuses to overwrite an existing `.pptx`), and returns `slideCount`, `notesCount`, and `warnings`.
   8. **Verify and deliver** — require `slideCount` to equal the confirmed page count and, when notes are enabled, `notesCount` to equal `slideCount`. Fix any warnings and re-export until both pass. Then deliver the absolute `.pptx` path to the user. Never claim completion before the file exists, the counts match, and the deck reads correctly.
 
 ### Quick Generate Profile Short Circuit

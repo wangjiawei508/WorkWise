@@ -221,6 +221,11 @@ async function executePptMasterExport(
   if (!outputPath.toLowerCase().endsWith('.pptx')) {
     throw new Error('outputPath must end with .pptx')
   }
+  if (existsSync(outputPath)) {
+    throw new Error(
+      'output_file_exists: choose a NEW output file name for each delivery so the user always gets a fresh, verifiable file. Refusing to overwrite the existing .pptx.'
+    )
+  }
 
   const svgDir = join(projectDir, 'svg_output')
   await mkdir(svgDir, { recursive: true })
@@ -363,7 +368,7 @@ export function createPptMasterLocalTool(
   return defineLocalTool({
     name: 'ppt_master',
     description:
-      'Convert a completed PPT Master project into an editable .pptx using the bundled runtime. Production gates are enforced before export: the project MUST contain design_spec.md (authored from the confirmed result), spec_lock.md, every page in svg_output/slide_XX.svg, and notes/slide_XX.md for every slide unless the confirmed result disables proactive speaker notes. Text contrast below 2.5:1 on the page background blocks export and 2.5-4.5:1 is returned as warnings. The tool returns outputPath, slideCount, notesCount and warnings so you can verify the deliverable. Use this tool instead of shell or Python when generating PPTX files.',
+      'Convert a completed PPT Master project into a NEW editable .pptx using the bundled runtime. Production gates are enforced before export: the project MUST contain design_spec.md (authored from the confirmed result), spec_lock.md, every page in svg_output/slide_XX.svg, and notes/slide_XX.md for every slide unless the confirmed result disables proactive speaker notes. The outputPath must not already exist (each delivery needs a fresh file name). Text contrast below 2.5:1 on the page background blocks export and 2.5-4.5:1 is returned as warnings. The tool returns outputPath, slideCount, notesCount and warnings so you can verify the deliverable. Use this tool instead of shell or Python when generating PPTX files.',
     inputSchema: {
       type: 'object',
       properties: {
