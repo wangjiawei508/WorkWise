@@ -2,6 +2,7 @@ import { spawn } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { mkdir, readFile, readdir, stat, writeFile } from 'node:fs/promises'
 import { isAbsolute, join, relative, resolve } from 'node:path'
+import JSZip from 'jszip'
 import type { ToolHostContext } from '../../ports/tool-host.js'
 import { defineLocalTool } from './local-tool-definition.js'
 import type { LocalTool } from './local-tool-host.js'
@@ -69,6 +70,60 @@ function createSpecLock(width: number, height: number, format: 'ppt169' | 'ppt43
     '- mode: flat',
     ''
   ].join('\n')
+}
+
+function parseHexColor(value: string): { r: number; g: number; b: number } | null {
+  const hex = value.trim().replace(/^#/, '')
+  if (!/^[0-9a-fA-F]{6}$/.test(hex)) return null
+  return {
+    r: parseInt(hex.slice(0, 2), 16),
+    g: parseInt(hex.slice(2, 4), 16),
+    b: parseInt(hex.slice(4, 6), 16)
+  }
+}
+
+function relativeLuminance(color: { r: number; g: number; b: number }): number {
+  const linear = (channel: number): number => {
+    const value = channel / 255
+    return value <= 0.03928 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4
+  }
+  return 0.2126 * linear(color.r) + 0.7152 * linear(color.g) + 0.0722 * linear(color.b)
+}
+
+function contrastRatio(a: number, b: number): number {
+  const lighter = Math.max(a, b)
+  const darker = Math.min(a, b)
+  return (lighter + 0.05) / (darker + 0.05)
+}
+
+function svgBackgroundColor(svg: string): string | null {
+  const gradient = svg.match(
+    /<linearGradient\s+id="bg"[^>]*>[\s\S]*?<stop[^>]*stop-color="(#[0-9a-fA-F]{6})"/i
+  )
+  if (gradient) return gradient[1]
+  const rect = svg.match(/<rect\b[^>]*fill="(#[0-9a-fA-F]{6})"/i)
+  return rect ? rect[1] : null
+}
+
+function svgContrastWarnings(svg: string, background: string | null): string[] {
+  if (!background) return []
+  const bg = parseHexColor(background)
+  if (!bg) return []
+  const bgLuminance = relativeLuminance(bg)
+  const warnings: string[] = []
+  let index = 0
+  for (const match of svg.matchAll(/<text\b[^>]*\bfill="(#[0-9a-fA-F]{6})"[^>]*>/gi)) {
+    index += 1
+    const fill = parseHexColor(match[1])
+    if (!fill) continue
+    const ratio = contrastRatio(relativeLuminance(fill), bgLuminance)
+    if (ratio < 2.5) {
+      warnings.push(`low_contrast: text #${index} fill ${match[1]} on background ${background} has contrast ${ratio.toFixed(2)}:1 (below 2.5:1)`)
+    } else if (ratio < 4.5) {
+      warnings.push(`low_contrast_warning: text #${index} fill ${match[1]} on background ${background} has contrast ${ratio.toFixed(2)}:1 (below 4.5:1)`)
+    }
+  }
+  return warnings
 }
 
 function assertInsideWorkspace(target: string, workspace: string): void {
@@ -176,13 +231,58 @@ async function executePptMasterExport(
     throw new Error('svg_output must contain slide_01.svg, slide_02.svg, ...')
   }
 
+  // Production-flow gates: the deck must be designed and locked before export.
+  const designSpecPath = join(projectDir, 'design_spec.md')
   const specLockPath = join(projectDir, 'spec_lock.md')
+  if (!existsSync(designSpecPath)) {
+    throw new Error('missing design_spec.md: author the design spec from the confirmed result before exporting.')
+  }
   if (!existsSync(specLockPath)) {
-    const firstSvg = await readFile(join(svgDir, slides[0]), 'utf8')
-    const viewBox = firstSvg.match(/viewBox="0 0 (\d+(?:\.\d+)?) (\d+(?:\.\d+)?)"/)
-    const width = viewBox ? Math.round(Number(viewBox[1])) : format === 'ppt43' ? 1024 : 1280
-    const height = viewBox ? Math.round(Number(viewBox[2])) : format === 'ppt43' ? 768 : 720
-    await writeFile(specLockPath, createSpecLock(width, height, format), 'utf8')
+    throw new Error('missing spec_lock.md: author the execution lock from the design spec before exporting.')
+  }
+
+  // Speaker notes gate: notes are required for every slide unless the confirmed
+  // result explicitly disables proactive speaker notes.
+  const confirmedResultPath = join(projectDir, 'confirm_ui', 'result.json')
+  let speakerNotesEnabled = true
+  if (existsSync(confirmedResultPath)) {
+    try {
+      const confirmed = JSON.parse(await readFile(confirmedResultPath, 'utf8')) as Record<string, unknown>
+      if (confirmed.proactive_speaker_notes === false) speakerNotesEnabled = false
+    } catch {
+      // unreadable result.json -> treat as pending confirmation and require notes
+    }
+  }
+  if (speakerNotesEnabled) {
+    const missingNotes: string[] = []
+    for (const slide of slides) {
+      const noteName = slide.replace(/\.svg$/i, '.md')
+      if (!existsSync(join(projectDir, 'notes', noteName))) {
+        missingNotes.push(`notes/${noteName}`)
+      }
+    }
+    if (missingNotes.length > 0) {
+      throw new Error(
+        `missing speaker notes for ${missingNotes.length}/${slides.length} slides: ${missingNotes.join(', ')}. Write notes/<slide>.md for every slide before exporting.`
+      )
+    }
+  }
+
+  // Contrast gate: severe low-contrast text blocks export; weaker violations warn.
+  const severeContrast: string[] = []
+  const contrastWarnings: string[] = []
+  for (const slide of slides) {
+    const svg = await readFile(join(svgDir, slide), 'utf8')
+    const background = svgBackgroundColor(svg)
+    for (const warning of svgContrastWarnings(svg, background)) {
+      if (warning.startsWith('low_contrast:')) severeContrast.push(`${slide}: ${warning}`)
+      else contrastWarnings.push(`${slide}: ${warning}`)
+    }
+  }
+  if (severeContrast.length > 0) {
+    throw new Error(
+      `low_contrast_text: ${severeContrast.join('; ')}. Increase text contrast before exporting.`
+    )
   }
 
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS
@@ -223,11 +323,36 @@ async function executePptMasterExport(
   if (!outputStat.isFile() || outputStat.size === 0) {
     throw new Error('PPT Master export produced no output file.')
   }
+  let pptxSlideCount = 0
+  let notesCount = 0
+  try {
+    const zip = await JSZip.loadAsync(await readFile(outputPath))
+    pptxSlideCount = Object.keys(zip.files)
+      .filter((name) => /^ppt\/slides\/slide\d+\.xml$/.test(name))
+      .length
+    notesCount = Object.keys(zip.files)
+      .filter((name) => /^ppt\/notesSlides\/notesSlide\d+\.xml$/.test(name))
+      .length
+  } catch {
+    // A malformed output is still surfaced by the caller as a file; keep the
+    // SVG-derived slide count and report notes as unverified.
+    notesCount = 0
+  }
+  if (pptxSlideCount > 0 && pptxSlideCount !== slides.length) {
+    throw new Error(`ppt_master output slide count mismatch: expected ${slides.length}, got ${pptxSlideCount}.`)
+  }
+  if (speakerNotesEnabled && pptxSlideCount > 0 && notesCount !== pptxSlideCount) {
+    throw new Error(
+      `speaker_notes_missing_in_output: expected ${pptxSlideCount} notes slides, got ${notesCount}. Add notes/<slide>.md files and re-export.`
+    )
+  }
   return {
     output: {
       outputPath,
-      slideCount: slides.length,
-      bytes: outputStat.size
+      slideCount: pptxSlideCount > 0 ? pptxSlideCount : slides.length,
+      notesCount,
+      bytes: outputStat.size,
+      warnings: contrastWarnings
     }
   }
 }
@@ -238,7 +363,7 @@ export function createPptMasterLocalTool(
   return defineLocalTool({
     name: 'ppt_master',
     description:
-      'Convert per-slide SVG files into an editable .pptx using the bundled WorkWise PPT Master runtime. The project directory must contain svg_output/slide_01.svg, slide_02.svg, ... following the WorkWise canvas contract (viewBox 0 0 W H, inline styles). The tool writes spec_lock.md when missing, runs the converter, and returns the absolute output path. Use this tool instead of shell or Python when generating PPTX files.',
+      'Convert a completed PPT Master project into an editable .pptx using the bundled runtime. Production gates are enforced before export: the project MUST contain design_spec.md (authored from the confirmed result), spec_lock.md, every page in svg_output/slide_XX.svg, and notes/slide_XX.md for every slide unless the confirmed result disables proactive speaker notes. Text contrast below 2.5:1 on the page background blocks export and 2.5-4.5:1 is returned as warnings. The tool returns outputPath, slideCount, notesCount and warnings so you can verify the deliverable. Use this tool instead of shell or Python when generating PPTX files.',
     inputSchema: {
       type: 'object',
       properties: {

@@ -20,22 +20,26 @@ description: Generate PPTX route authority for source intake, planning, SVG auth
 WorkWise Runtime may disable shell commands (Write assistant and Flow agents run this way by default). In that environment:
 
 - Do **not** attempt `python3 ...`, `bash`, `project_manager.py`, `svg_quality_checker.py`, or any other Python/Node/shell helper. They are unavailable and will fail the turn.
-- After strategy planning, author the machine-readable confirmation proposal at `confirm_ui/recommendations.stage1.json`. Include a complete single-pass proposal: `mode`, `visual_style` (with a `candidates` array so the panel can render choices), `canvas`, `color`, `typography`, `icons`, `image_usage`, `page_count`, `audience`, `communication_intent`, `delivery_context`, `content_divergence`, `generation_mode`, `formula_policy`, `image_ai_path`, `refine_spec`, `proactive_speaker_notes`, `proactive_custom_animations`, `proactive_narration_audio`, `core_message`, `audience_outcome`, and `artifact_afterlife`. For every choice field, provide `candidates` with `id`/`label`/`desc` plus the AI-proposed `id` so the WorkWise confirmation panel can present options and defaults.
-- Tell the user in one short message: "请在右侧「PPT Master 方案确认」面板选择并确认方案。" Then **stop and wait** — do not guess the user's choices.
-- When the user confirms, WorkWise writes `confirm_ui/result.json` and injects a confirmation message into the conversation. Read `result.json` exactly once; it carries `stage: final` and `status: confirmed`.
-- Author the control inputs from the confirmed result: write `spec_lock.md` with the `<!-- ppt-master-schema: spec-lock/v1 -->` header, `## canvas` (`viewBox: 0 0 W H`, `format: ppt169|ppt43`), colors, typography, and `## pptx_structure` `mode: flat`; keep every confirmed field consistent in `design_spec.md`.
-- Hand-write every page in `svg_output/slide_01.svg`, `slide_02.svg`, ... following the SVG page-design boundary above and the PPT Master canvas contract.
-- Export with the built-in `ppt_master` tool:
+- This fallback MUST still follow the full Generate PPTX production flow in this route. Do not skip steps just because the Python helpers are unavailable. The mandatory order is:
 
-  ```json
-  {
-    "projectDir": "<absolute workspace project directory>",
-    "outputPath": "<absolute workspace output .pptx>",
-    "format": "ppt169"
-  }
-  ```
+  1. **Strategy and proposal** — run the normal Strategist planning, then author the machine-readable confirmation proposal at `confirm_ui/recommendations.stage1.json`. Include a complete single-pass proposal: `mode`, `visual_style` (with a `candidates` array so the panel can render choices), `canvas`, `color`, `typography`, `icons`, `image_usage`, `page_count`, `audience`, `communication_intent`, `delivery_context`, `content_divergence`, `generation_mode`, `formula_policy`, `image_ai_path`, `refine_spec`, `proactive_speaker_notes`, `proactive_custom_animations`, `proactive_narration_audio`, `core_message`, `audience_outcome`, and `artifact_afterlife`. Every choice field must provide `candidates` with `id`/`label`/`desc` plus the AI-proposed `id`.
+  2. **Confirm** — tell the user in one short message: "请在右侧「PPT Master 方案确认」面板选择并确认方案。" Then **stop and wait**; never guess the user's choices. When the user confirms, WorkWise writes `confirm_ui/result.json` and injects a confirmation message. Read `result.json` exactly once (`stage: final`, `status: confirmed`) and never reopen it.
+  3. **Design Spec** — author `design_spec.md` from the confirmed result, covering structure, canvas, palette, typography, image strategy, page-by-page plan, and per-page speaker note content whenever `proactive_speaker_notes` is enabled. This file is mandatory; the exporter will refuse to run without it.
+  4. **Execution Lock** — author `spec_lock.md` with the `<!-- ppt-master-schema: spec-lock/v1 -->` header, `## canvas` (`viewBox: 0 0 W H`, `format: ppt169|ppt43`), colors, typography, and `## pptx_structure` `mode: flat`. Keep it consistent with `design_spec.md`; the exporter refuses to run without it.
+  5. **All pages** — hand-write **every** page in `svg_output/slide_01.svg`, `slide_02.svg`, ... before exporting. Do not export a partial deck. Follow the SVG page-design boundary and canvas contract. Readability is mandatory: every text element must have ≥4.5:1 contrast against its background (never dark text on the dark canvas, never same-color text on a card); decorative gradient text on dark backgrounds is not acceptable for body or titles.
+  6. **Speaker notes** — when `proactive_speaker_notes` is enabled (or the user asks), write `notes/slide_XX.md` for **every** page, with the filename matching the SVG basename (`slide_01.svg` ↔ `notes/slide_01.md`). Notes must be useful narration, not placeholders.
+  7. **Export** — call the built-in `ppt_master` tool:
 
-  The tool writes `spec_lock.md` when it is missing, runs the bundled converter, and returns the absolute output path. Deliver that file to the user. You may read the SVGs back yourself to self-check geometry, text, and styles before calling the tool.
+     ```json
+     {
+       "projectDir": "<absolute workspace project directory>",
+       "outputPath": "<absolute workspace output .pptx>",
+       "format": "ppt169"
+     }
+     ```
+
+     The tool enforces the gates above (design_spec, spec_lock, full page set, per-page notes, severe low contrast) and returns `slideCount`, `notesCount`, and `warnings`.
+  8. **Verify and deliver** — require `slideCount` to equal the confirmed page count and, when notes are enabled, `notesCount` to equal `slideCount`. Fix any warnings and re-export until both pass. Then deliver the absolute `.pptx` path to the user. Never claim completion before the file exists, the counts match, and the deck reads correctly.
 
 ### Quick Generate Profile Short Circuit
 
