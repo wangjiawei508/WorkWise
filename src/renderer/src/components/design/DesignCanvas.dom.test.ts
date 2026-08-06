@@ -102,4 +102,31 @@ describe('DesignCanvas selection DOM events', () => {
 
     expect(useDesignWorkspaceStore.getState().selectedElementIds).toEqual([])
   })
+
+  it('renders only the fidelity reference image in fidelity mode', async () => {
+    const store = useDesignWorkspaceStore.getState()
+    const pageId = store.getActivePage()!.id
+    store.loadDocument(
+      {
+        ...store.document!,
+        pages: store.document!.pages.map((page) => page.id === pageId
+          ? {
+              ...page,
+              fidelityImageAssetId: 'asset_fidelity',
+              displayMode: 'fidelity'
+            }
+          : page)
+      },
+      { activePageId: pageId, persistedRevision: store.document!.revision }
+    )
+    useDesignWorkspaceStore.getState().setAssetDataUrl('asset_fidelity', 'data:image/png;base64,AAAA')
+    await act(async () => {
+      root.render(createElement(DesignCanvas))
+    })
+
+    const svg = canvasSvg()
+    const image = svg.querySelector('image')
+    expect(image).toBeInstanceOf(SVGImageElement)
+    expect(svg.querySelector(':scope > g')).toBeNull()
+  })
 })

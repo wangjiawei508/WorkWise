@@ -2,7 +2,8 @@
 """Generate per-slide narration audio from PPT Master notes.
 
 This script uses provider backends for the same per-slide output contract on
-macOS, Linux, and Windows. `edge-tts` remains the default no-key backend.
+macOS, Linux, and Windows. `edge-tts` remains the default no-key backend and
+also writes one compact, word-timed SRT file per slide from the same TTS stream.
 
 Usage:
     python3 skills/ppt-master/scripts/notes_to_audio.py <project_path> --voice zh-CN-XiaoxiaoNeural
@@ -25,13 +26,16 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import json
 import os
+import re
 import sys
 from dataclasses import dataclass
 from pathlib import Path
 
 from console_encoding import configure_utf8_stdio
 from config import load_prefixed_env_file
+from slide_roster import discover_slide_svgs
 from tts_backends import (
     backend_cosyvoice,
     backend_edge,
@@ -42,6 +46,9 @@ from tts_backends import (
 
 configure_utf8_stdio()
 
+DEFAULT_EDGE_CONCURRENCY = 3
+SUPPORTED_AUDIO_EXTENSIONS = frozenset({".m4a", ".mp3", ".wav"})
+
 
 @dataclass(frozen=True)
 class AudioBackend:
@@ -49,6 +56,19 @@ class AudioBackend:
     extension: str
     api_key: str = ""
     voice_id: str = ""
+
+
+@dataclass(frozen=True)
+class NoteRosterEntry:
+    note_path: Path
+    output_stem: str
+
+
+@dataclass(frozen=True)
+class AudioJob:
+    note_path: Path
+    text: str
+    output_path: Path
 
 
 def _load_tts_env_file() -> None:
@@ -75,6 +95,162 @@ def spoken_text(markdown: str) -> str:
             continue
         lines.append(line)
     return "\n".join(lines).strip()
+
+
+def _prepare_audio_jobs(
+    note_roster: list[NoteRosterEntry],
+    output_dir: Path,
+    extension: str,
+) -> list[AudioJob]:
+    """Read a complete per-slide notes roster into ordered audio jobs."""
+    jobs: list[AudioJob] = []
+    invalid: list[str] = []
+    for entry in note_roster:
+        note_path = entry.note_path
+        if not note_path.is_file():
+            invalid.append(f"{note_path.name} is missing")
+            continue
+        try:
+            text = spoken_text(note_path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeError) as exc:
+            invalid.append(f"{note_path.name} is unreadable: {exc}")
+            continue
+        if not text:
+            invalid.append(f"{note_path.name} has no spoken text")
+            continue
+        jobs.append(AudioJob(
+            note_path=note_path,
+            text=text,
+            output_path=output_dir / f"{entry.output_stem}{extension}",
+        ))
+    if invalid:
+        raise ValueError(
+            "per-slide notes are incomplete: " + "; ".join(invalid)
+        )
+    return jobs
+
+
+def _expected_note_roster(project: Path) -> list[NoteRosterEntry]:
+    """Resolve the owning route's complete per-slide notes roster."""
+    notes_dir = project / "notes"
+    svg_files = discover_slide_svgs(project / "svg_output")
+    if svg_files:
+        aliases: dict[int, list[Path]] = {}
+        for path in sorted(notes_dir.glob("*.md")):
+            match = re.search(r"slide[_]?(\d+)", path.stem)
+            if match:
+                aliases.setdefault(int(match.group(1)), []).append(path)
+        note_roster: list[NoteRosterEntry] = []
+        for index, svg_path in enumerate(svg_files, 1):
+            exact = notes_dir / f"{svg_path.stem}.md"
+            if exact.exists():
+                note_roster.append(NoteRosterEntry(
+                    note_path=exact,
+                    output_stem=svg_path.stem,
+                ))
+                continue
+            matches = aliases.get(index, [])
+            if len(matches) > 1:
+                raise ValueError(
+                    f"multiple notes files match slide {index}: "
+                    + ", ".join(path.name for path in matches)
+                )
+            note_roster.append(
+                NoteRosterEntry(
+                    note_path=matches[0] if matches else exact,
+                    output_stem=svg_path.stem,
+                )
+            )
+        return note_roster
+
+    slide_index_path = project / "analysis" / "slide_index.json"
+    if slide_index_path.is_file():
+        try:
+            slide_index = json.loads(
+                slide_index_path.read_text(encoding="utf-8")
+            )
+        except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+            raise ValueError(f"invalid slide index: {exc}") from exc
+        if not isinstance(slide_index, dict):
+            raise ValueError("invalid slide index root")
+        slides = slide_index.get("slides")
+        slide_count = slide_index.get("slide_count")
+        if (
+            not isinstance(slides, list)
+            or isinstance(slide_count, bool)
+            or not isinstance(slide_count, int)
+            or slide_count != len(slides)
+        ):
+            raise ValueError("invalid slide index notes roster")
+        note_roster: list[NoteRosterEntry] = []
+        for index, slide in enumerate(slides, 1):
+            note_file = slide.get("note_file") if isinstance(slide, dict) else None
+            if not isinstance(note_file, str) or Path(note_file).suffix != ".md":
+                raise ValueError(
+                    f"invalid slide index note_file for slide {index}"
+                )
+            note_name = Path(note_file).name
+            note_roster.append(
+                NoteRosterEntry(
+                    note_path=notes_dir / note_name,
+                    output_stem=Path(note_name).stem,
+                )
+            )
+        return note_roster
+
+    return [
+        NoteRosterEntry(
+            note_path=path,
+            output_stem=path.stem,
+        )
+        for path in sorted(notes_dir.glob("*.md"))
+        if path.name != "total.md"
+    ]
+
+
+def _remove_stale_audio_variants(output_path: Path) -> None:
+    """Remove other supported formats only after the target audio is published."""
+    for candidate in output_path.parent.iterdir():
+        if (
+            candidate.name != output_path.name
+            and candidate.is_file()
+            and candidate.stem == output_path.stem
+            and candidate.suffix.lower() in SUPPORTED_AUDIO_EXTENSIONS
+        ):
+            candidate.unlink()
+
+
+async def _generate_edge_jobs(
+    jobs: list[AudioJob],
+    subtitle_dir: Path,
+    *,
+    voice: str,
+    rate: str,
+    subtitle_max_chars: int,
+    concurrency: int,
+) -> list[BaseException | None]:
+    """Generate ordered Edge jobs with bounded slide-level concurrency."""
+    semaphore = asyncio.Semaphore(concurrency)
+
+    async def generate_job(job: AudioJob) -> None:
+        async with semaphore:
+            await backend_edge.generate(
+                job.text,
+                job.output_path,
+                voice=voice,
+                rate=rate,
+                subtitle_path=subtitle_dir / f"{job.output_path.stem}.srt",
+                subtitle_max_chars=subtitle_max_chars,
+            )
+
+    raw_results = await asyncio.gather(
+        *(generate_job(job) for job in jobs),
+        return_exceptions=True,
+    )
+    return [
+        result if isinstance(result, BaseException) else None
+        for result in raw_results
+    ]
 
 
 def main() -> int:
@@ -106,6 +282,18 @@ def main() -> int:
         "--rate",
         default="+0%",
         help='edge-tts speaking rate, e.g. "+0%%", "-10%%", "+15%%" (default: +0%%). Ignored by cloud providers.',
+    )
+    parser.add_argument(
+        "--concurrency",
+        type=int,
+        default=DEFAULT_EDGE_CONCURRENCY,
+        help="maximum concurrent Edge slide requests (default: 3; ignored by cloud providers)",
+    )
+    parser.add_argument(
+        "--subtitle-max-chars",
+        type=int,
+        default=backend_edge.DEFAULT_SUBTITLE_MAX_CHARS,
+        help="maximum visible characters per Edge subtitle cue (default: 20)",
     )
     parser.add_argument(
         "--elevenlabs-api-key-env",
@@ -245,6 +433,14 @@ def main() -> int:
         parser.error(f"--voice-id is required for --provider {args.provider}")
         raise AssertionError("unreachable")
 
+    if args.subtitle_max_chars < 1:
+        parser.error("--subtitle-max-chars must be at least 1")
+        raise AssertionError("unreachable")
+
+    if args.concurrency < 1:
+        parser.error("--concurrency must be at least 1")
+        raise AssertionError("unreachable")
+
     if args.provider == "elevenlabs":
         if not voice_id:
             parser.error("--voice-id is required for --provider elevenlabs")
@@ -290,91 +486,146 @@ def main() -> int:
     project = args.project_path
     notes_dir = project / "notes"
     output_dir = args.output or (project / "audio")
-    output_dir.mkdir(parents=True, exist_ok=True)
+    subtitle_dir = notes_dir / "subtitles"
 
-    note_files = [
-        path for path in sorted(notes_dir.glob("*.md"))
-        if path.name != "total.md"
-    ]
-    if not note_files:
-        print(f"error: no per-slide notes found in {notes_dir}", file=sys.stderr)
+    try:
+        note_roster = _expected_note_roster(project)
+        if not note_roster:
+            raise ValueError(f"no per-slide notes found in {notes_dir}")
+        jobs = _prepare_audio_jobs(
+            note_roster,
+            output_dir,
+            backend.extension,
+        )
+    except ValueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
         return 2
 
-    generated = 0
-    for note_path in note_files:
-        text = spoken_text(note_path.read_text(encoding="utf-8"))
-        if not text:
-            print(f"[skip] {note_path.name}: empty spoken text")
-            continue
-        output_path = output_dir / f"{note_path.stem}{backend.extension}"
-        try:
-            if backend.provider == "elevenlabs":
-                backend_elevenlabs.generate(
-                    text,
-                    output_path,
-                    api_key=backend.api_key,
-                    voice_id=backend.voice_id,
-                    model=args.elevenlabs_model,
-                    output_format=args.elevenlabs_output_format,
-                    stability=args.elevenlabs_stability,
-                    similarity_boost=args.elevenlabs_similarity_boost,
-                    style=args.elevenlabs_style,
-                    speaker_boost=args.elevenlabs_speaker_boost,
-                )
-            elif backend.provider == "minimax":
-                backend_minimax.generate(
-                    text,
-                    output_path,
-                    api_key=backend.api_key,
-                    voice_id=backend.voice_id,
-                    model=args.minimax_model,
-                    audio_format=args.minimax_output_format,
-                    sample_rate=args.minimax_sample_rate,
-                    bitrate=args.minimax_bitrate,
-                    channel=args.minimax_channel,
-                    speed=args.minimax_speed,
-                    volume=args.minimax_volume,
-                    pitch=args.minimax_pitch,
-                    language_boost=args.minimax_language_boost,
-                    base_url=args.minimax_base_url,
-                )
-            elif backend.provider == "qwen":
-                backend_qwen.generate(
-                    text,
-                    output_path,
-                    api_key=backend.api_key,
-                    voice_id=backend.voice_id,
-                    model=args.qwen_model,
-                    language_type=args.qwen_language_type,
-                    instructions=args.qwen_instructions,
-                    optimize_instructions=args.qwen_optimize_instructions,
-                    base_url=args.qwen_base_url,
-                )
-            elif backend.provider == "cosyvoice":
-                backend_cosyvoice.generate(
-                    text,
-                    output_path,
-                    api_key=backend.api_key,
-                    voice_id=backend.voice_id,
-                    model=args.cosyvoice_model,
-                    audio_format=args.cosyvoice_output_format,
-                    sample_rate=args.cosyvoice_sample_rate,
-                    volume=args.cosyvoice_volume,
-                    rate=args.cosyvoice_rate,
-                    pitch=args.cosyvoice_pitch,
-                    instruction=args.cosyvoice_instruction,
-                    language_hint=args.cosyvoice_language_hint,
-                    base_url=args.cosyvoice_base_url,
-                )
-            else:
-                asyncio.run(backend_edge.generate(text, output_path, voice=args.voice, rate=args.rate))
-        except Exception as exc:
-            print(f"error: failed to generate {output_path}: {exc}", file=sys.stderr)
-            return 1
-        generated += 1
-        print(f"[OK] {output_path}")
+    output_dir.mkdir(parents=True, exist_ok=True)
+    if backend.provider == "edge":
+        subtitle_dir.mkdir(parents=True, exist_ok=True)
 
-    print(f"[Done] Generated {generated}/{len(note_files)} audio file(s): {output_dir}")
+    generated = 0
+    if backend.provider == "edge":
+        print(
+            f"[Edge] Generating {len(jobs)} audio/SRT pair(s) "
+            f"with concurrency={args.concurrency}"
+        )
+        try:
+            results = asyncio.run(_generate_edge_jobs(
+                jobs,
+                subtitle_dir,
+                voice=args.voice,
+                rate=args.rate,
+                subtitle_max_chars=args.subtitle_max_chars,
+                concurrency=args.concurrency,
+            ))
+        except Exception as exc:
+            print(f"error: Edge audio generation failed: {exc}", file=sys.stderr)
+            return 1
+
+        failed = False
+        for job, result in zip(jobs, results):
+            subtitle_path = subtitle_dir / f"{job.output_path.stem}.srt"
+            if result is not None:
+                print(
+                    f"error: failed to generate {job.output_path}: {result}",
+                    file=sys.stderr,
+                )
+                failed = True
+                continue
+            try:
+                _remove_stale_audio_variants(job.output_path)
+            except OSError as exc:
+                print(
+                    f"error: failed to remove stale audio for "
+                    f"{job.output_path.stem}: {exc}",
+                    file=sys.stderr,
+                )
+                failed = True
+                continue
+            generated += 1
+            print(f"[OK] {job.output_path}")
+            print(f"     {subtitle_path}")
+        if failed:
+            return 1
+    else:
+        for job in jobs:
+            output_path = job.output_path
+            text = job.text
+            try:
+                if backend.provider == "elevenlabs":
+                    backend_elevenlabs.generate(
+                        text,
+                        output_path,
+                        api_key=backend.api_key,
+                        voice_id=backend.voice_id,
+                        model=args.elevenlabs_model,
+                        output_format=args.elevenlabs_output_format,
+                        stability=args.elevenlabs_stability,
+                        similarity_boost=args.elevenlabs_similarity_boost,
+                        style=args.elevenlabs_style,
+                        speaker_boost=args.elevenlabs_speaker_boost,
+                    )
+                elif backend.provider == "minimax":
+                    backend_minimax.generate(
+                        text,
+                        output_path,
+                        api_key=backend.api_key,
+                        voice_id=backend.voice_id,
+                        model=args.minimax_model,
+                        audio_format=args.minimax_output_format,
+                        sample_rate=args.minimax_sample_rate,
+                        bitrate=args.minimax_bitrate,
+                        channel=args.minimax_channel,
+                        speed=args.minimax_speed,
+                        volume=args.minimax_volume,
+                        pitch=args.minimax_pitch,
+                        language_boost=args.minimax_language_boost,
+                        base_url=args.minimax_base_url,
+                    )
+                elif backend.provider == "qwen":
+                    backend_qwen.generate(
+                        text,
+                        output_path,
+                        api_key=backend.api_key,
+                        voice_id=backend.voice_id,
+                        model=args.qwen_model,
+                        language_type=args.qwen_language_type,
+                        instructions=args.qwen_instructions,
+                        optimize_instructions=args.qwen_optimize_instructions,
+                        base_url=args.qwen_base_url,
+                    )
+                elif backend.provider == "cosyvoice":
+                    backend_cosyvoice.generate(
+                        text,
+                        output_path,
+                        api_key=backend.api_key,
+                        voice_id=backend.voice_id,
+                        model=args.cosyvoice_model,
+                        audio_format=args.cosyvoice_output_format,
+                        sample_rate=args.cosyvoice_sample_rate,
+                        volume=args.cosyvoice_volume,
+                        rate=args.cosyvoice_rate,
+                        pitch=args.cosyvoice_pitch,
+                        instruction=args.cosyvoice_instruction,
+                        language_hint=args.cosyvoice_language_hint,
+                        base_url=args.cosyvoice_base_url,
+                    )
+                _remove_stale_audio_variants(output_path)
+            except Exception as exc:
+                print(f"error: failed to generate {output_path}: {exc}", file=sys.stderr)
+                return 1
+            generated += 1
+            print(f"[OK] {output_path}")
+
+    if backend.provider == "edge":
+        print(
+            f"[Done] Generated {generated}/{len(note_roster)} audio/SRT pair(s): "
+            f"{output_dir} + {subtitle_dir}"
+        )
+    else:
+        print(f"[Done] Generated {generated}/{len(note_roster)} audio file(s): {output_dir}")
     return 0
 
 

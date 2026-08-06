@@ -75,6 +75,7 @@ export type DesignWorkspaceState = {
   renamePage: (pageId: string, name: string) => void
   duplicatePage: (pageId: string) => void
   movePage: (fromIndex: number, toIndex: number) => void
+  setPageDisplayMode: (pageId: string, mode: 'editable' | 'fidelity') => void
 
   addElement: (element: DesignElement) => void
   addDefaultElement: (type: DesignElementType) => void
@@ -575,6 +576,20 @@ export const useDesignWorkspaceStore = create<DesignWorkspaceState>((set, get) =
       set({
         document: touchDocument(document, pages),
         activePageId: duplicate.id,
+        selectedElementIds: [],
+        saveState: 'idle',
+        saveError: null
+      })
+    },
+    setPageDisplayMode: (pageId, mode) => {
+      const document = get().document
+      if (!document || !document.pages.some((page) => page.id === pageId)) return
+      commitBeforeChange()
+      set({
+        document: touchDocument(
+          document,
+          document.pages.map((page) => page.id === pageId ? { ...page, displayMode: mode } : page)
+        ),
         selectedElementIds: [],
         saveState: 'idle',
         saveError: null

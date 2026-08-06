@@ -2,9 +2,9 @@
 
 # Image_Searcher Reference Manual
 
-Role definition for the **web image acquisition path**: translate Strategist intent into keyword queries, search openly-licensed providers, download a license-cleared image into `project/images/`, and record provenance + license metadata into `image_sources.json`.
+Role definition for the **web image acquisition path**: translate the active resource owner's intent into keyword queries, search openly-licensed providers, download a license-cleared image into `project/images/`, and record provenance + license metadata into `image_sources.json`.
 
-**Trigger**: resource list rows with `Acquire Via: web`. The role is loaded only when at least one such row exists.
+**Trigger**: the Default Generate resource list or Quick Generate transient roster contains `Acquire Via: web`. The role is loaded only when at least one such row exists.
 
 ---
 
@@ -48,42 +48,34 @@ Strict:  provider chain, license filter = cc0,pdm,pexels,pixabay
 
 | Provider | Config | Strength |
 |---|---|---|
-| Openverse | zero-config | fallback aggregator: Wikimedia + Flickr + museums + rawpixel |
-| Wikimedia Commons | zero-config | educational, scientific, geographic, historical |
 | Pexels | recommended: `PEXELS_API_KEY` (free, [signup](https://www.pexels.com/api/)) | modern stock photography, people, workplace, lifestyle |
 | Pixabay | recommended: `PIXABAY_API_KEY` (free, [signup](https://pixabay.com/api/docs/)) | broad type coverage including photos and illustrations |
+| Openverse | zero-config | fallback aggregator: Wikimedia + Flickr + museums + rawpixel |
+| Wikimedia Commons | zero-config | educational, scientific, geographic, historical |
 
 Default chain (when `--provider` is unset):
 
-```
-openverse → wikimedia → pexels (if PEXELS_API_KEY set) → pixabay (if PIXABAY_API_KEY set)
-```
+`pexels` (when keyed) → `pixabay` (when keyed) → `openverse` → `wikimedia`.
 
 Keyed providers without an API key are silently skipped — not an error.
 
-**Validation**: For polished visual decks, configure at least one keyed provider before using `Acquire Via: web`.
+**Default — keyed providers for broader stock coverage (may override when zero-config sources fit)**: Configure Pexels or Pixabay when their stock-photo coverage serves the brief. Their absence is not a validation failure; Openverse and Wikimedia remain valid zero-config acquisition paths.
 
 ---
 
 ## 4. Intent → Query Translation
 
-Web image APIs match keywords against image metadata, not semantic embeddings. `simplify_query` automatically:
+Keep two layers distinct:
 
-1. Strips HEX color codes (`#1E3A5F`) and parentheticals (`(corporate vibe)`)
-2. Drops hard-noise words: brand names, generic filler
-3. Drops soft-noise words (`ai`, `tech`, `platform`, `professional`, `editorial`, `photo`, `background`) — only when concrete nouns remain
-4. Caps at 4 words
-5. **Fail-open**: if filtering empties the query, return the original
-
-Then `build_query_progression` tries: original → simplified (4 words) → simplified (3 words). First non-empty hit wins.
-
-**Per-row web Reference grammar**:
-
-| Segment | Rule |
+| Layer | Owner and grammar |
 |---|---|
-| Subject | Use 1-2 concrete nouns only: `offshore wind farm`, `Xiamen skyline`, `boardroom meeting` |
-| Quality cues | **DO NOT ADD QUALITY CUES** like `professional editorial photography` or `clean composition`. These APIs use exact keyword matching; adding long adjectives will result in 0 matches. |
-| Language | For Chinese landmarks: use precise Chinese names (e.g., `磁器口古镇`) if specifically targeting `--provider wikimedia`. For general stock providers (Pexels/Pixabay), use simple English nouns (e.g., `Chongqing Jiefangbei`); do NOT use complex Chinese sentences or overly long English descriptive strings which fail on these platforms. |
+| Default Generate `design_spec.md §VIII Reference` | Strategist's complete visual intent: exact subject, desired view/mood, focal or quiet region, and crop-safety constraints. Positive quality cues are valid here. |
+| Quick Generate transient `Reference` | Current main agent's active-context intent after honoring explicit user assets, URLs, subjects, and constraints; unspecified choices are resolved automatically without confirmation. |
+| `image_queries.json.items[].query` / positional query | Image_Searcher's concrete entity/identity keyword string. Start with the shortest phrase that preserves identity; keep exact multi-word names and necessary disambiguators even when they exceed four words. Omit mood, quality, composition, HEX, and negative wording. |
+
+Web APIs match metadata, not semantic intent. Providers try the original query first, then progressively simplified four/three/two/one-word variants. A pipeline manifest should therefore use a concise query without pre-truncating exact names. For Chinese landmarks, use the precise Chinese name with Wikimedia; for stock providers, use compact English identity terms when they retain the subject.
+
+Image_Searcher consumes the active Reference and never rewrites its owner. In Default Generate, that means no rewrite of `design_spec.md` or `spec_lock.md`; in Quick Generate, the transient Reference remains fixed for the run. A candidate either satisfies that existing subject/focal/crop intent, or the role tries materially different query/provider/permitted-license strategies until no untried strategy remains, then marks `Needs-Manual`. Never loosen `required_terms`, the license policy, or the active intent to manufacture a match.
 
 When the subject is an exact entity (landmark / person / company / product / venue), write `required_terms` at the same time you write the row's `query`. Use one required group per identity anchor and `|` for aliases / translations, e.g. `["Chongqing|重庆", "Jiefangbei|解放碑|Liberation Monument"]`. This keeps the query short for provider search while preventing metadata-ranked wrong entities from being accepted.
 
@@ -93,11 +85,11 @@ Do **not** loosen `required_terms` to generic category words just to improve cov
 
 > Note: Keyword APIs search negative words literally.
 
-| ✅ Good Reference (intent) | ❌ Avoid |
+| §VIII Reference (intent) | Provider query |
 |---|---|
-| "Offshore wind farm at dusk, aerial view, professional editorial photography" | "professional editorial photography background" |
-| "Diverse engineering team collaborating around a laptop, modern office, natural light" | "use Openverse, search 'team'" |
-| "Sunlit forest path in autumn, clean composition, high-resolution photography" | "Hero image, dramatic lighting" |
+| "Offshore wind farm at dusk, aerial view, quiet sky on the left for safe crop" | `offshore wind farm` |
+| "Diverse engineering team around a laptop, modern office, natural light" | `engineering team laptop` |
+| "Chongqing Jiefangbei monument, full structure visible, landscape frame" | `Chongqing Jiefangbei monument` |
 
 ---
 
@@ -120,13 +112,14 @@ python3 scripts/image_search.py "<query>" \
 | `--slide` | no | `""` | Slide ID from resource list (recorded in manifest) |
 | `--purpose` | no | `""` | `background` / `hero` / `side` / `accent` |
 | `--orientation` | no | `any` | `any` / `landscape` / `portrait` / `square` |
+| `--min-width / --min-height` | no | `1200 / 800` | Actual downloaded-pixel floors; `--from-url` honors explicit lower overrides |
 | `--provider` | no | (chain) | Pin one provider |
 | `--strict-no-attribution` | no | off | Restrict to no-attribution licenses; refuse CC BY / CC BY-SA |
 | `--require-terms` | no | — | Entity-safety gate for exact subjects. Repeatable; comma separates required groups; `A|B` means aliases within one group. Example: `--require-terms Chongqing --require-terms "Jiefangbei|Liberation Monument"` |
 | `--manifest` | no | (default) | Override manifest path |
 | `--save-candidates` | no | off | Escalation only: also keep a review pool in `candidates/<stem>/`. Default downloads just the best match (+ a review copy) |
 | `--max-candidates` | no | `4` | Pool size when `--save-candidates` is set |
-| `--promote` | no | — | Promote a reviewed candidate to the target filename, e.g. `--promote candidate_03.jpg --filename team.jpg -o <dir>` |
+| `--promote` | no | — | Human-selected candidate override; low resolution warns but does not block promotion |
 | `--from-url` | no | — | Manual replace: download a user-supplied image URL into `--filename` (recorded `license_tier: manual`); works without a multimodal model |
 
 ### Batch mode (≥ 2 web rows) — preferred
@@ -162,7 +155,7 @@ Use `required_terms` for **exact-entity images**: landmarks, people, companies, 
 
 For less-covered local attractions, keep the strict identity gate rather than progressively deleting location anchors or replacing proper names with category words. If strict metadata cannot prove the entity, mark the row `Needs-Manual` and use the manual URL path when the user supplies a confirmed source.
 
-The runner searches all `Pending` / `Failed` rows concurrently, appends each success to `image_sources.json` (the credit source of truth, idempotent on `filename`), and writes status back into `image_queries.json` — `Sourced` on success, `Needs-Manual` when the full provider/stage chain is exhausted. Status is saved after each completion, so an interrupted run preserves finished rows; re-running skips terminal rows. A single `web` row may still use single-query mode above.
+The runner first revalidates every `Sourced` row against its readable file, requested dimensions, and `image_sources.json` entry; drift returns that row to `Failed`. It then searches all `Pending` / `Failed` rows concurrently, appends each success to the provenance manifest, and writes status back into `image_queries.json`: `Sourced` on success, retryable `Failed` on provider/download errors, and terminal `Needs-Manual` only after a clean provider/stage exhaustion. Status is saved after each completion. A single `web` row may still use single-query mode above.
 
 **Pacing**: free providers (Wikimedia/Openverse) are rate-sensitive, so batch concurrency defaults to a modest **3** (`--concurrency N`, or `IMAGE_SEARCH_CONCURRENCY` env). Use `--concurrency 1` to restore strict one-at-a-time pacing. Single-query mode is one request at a time by nature.
 
@@ -180,29 +173,36 @@ Do not tune this into a visual taste engine. The scorer prevents obvious metadat
 
 ### Suitability review — with or without a multimodal model
 
-A metadata-ranked top hit is *downloadable and token-relevant*, not necessarily *visually suitable* — `score_candidate` never sees pixels. So a web best match should be reviewed before it is trusted, by whichever reviewer is available:
+A metadata-ranked top hit is *downloadable and token-relevant*, not necessarily *visually suitable* — `score_candidate` never sees pixels. Review it against the active Reference and Crop Policy before it is trusted:
 
-- **Multimodal model**: each download writes a downscaled review copy to `images/.review/<stem>.jpg` (the placed asset stays full-resolution; the bounded copy just keeps a very large original safe and quick to open). Read it and judge fit — subject, mood, quality, not just topic overlap.
-- **Non-multimodal model (no vision)**: do **not** pretend to confirm. Hand off to a human — surface each web image's `source_page_url` from `image_sources.json` (live preview also shows the placed result) and let the user judge.
+- **Multimodal model**: each download writes a downscaled review copy to `images/.review/<stem>.jpg` (the placed asset stays full-resolution). Judge subject identity, intended mood/view, focal or quiet region, and whether the active crop policy remains safe.
+- **Non-multimodal model (no vision)**: do **not** pretend to confirm. Default Generate hands off via each `source_page_url`. Quick Generate does not open an interaction; mark a required image `Needs-Manual` when visual suitability cannot be established, preserve provenance, and let the quick export gate block.
 
-For exact-entity rows, suitability has two gates: `required_terms` first enforces metadata identity, then the `.review` image confirms the pixels actually show the right subject well enough. A row can still be rejected after passing `required_terms` if the visual is weak, cropped badly, or only tangentially shows the subject.
+For exact-entity rows, suitability has two gates: `required_terms` first enforces metadata identity, then the `.review` image confirms the pixels actually show the right subject and satisfy the active focal/crop intent. Passing metadata never authorizes changing that intent downstream.
 
 Never treat a generic `required_terms` pass as acceptance. For example, matching `Ground Fissure` can return an unrelated transit station named Yunlong, and matching `stone pillar` can return a different scenic area. If the proper name / geography cannot be retained, stop at `Needs-Manual`.
 
 **Replacement ladder when a best match is not right** (any reviewer):
 
-1. refine the query and re-run that row once;
-2. **manual URL replace (universal, model-agnostic)** — the user finds a better image anywhere and gives its URL; download and swap it in:
+1. refine the query and re-run that row while each revision tests a materially different identity phrase or disambiguator; do not repeat a semantically exhausted query;
+2. **manual URL replace (universal, model-agnostic)** — use a user-supplied URL and swap it in:
    ```bash
    python3 scripts/image_search.py --from-url <image-url> --filename <name>.jpg -o <project_path>/images
    ```
-   Recorded with `license_tier: manual` — verifying usage rights is the user's call. Human replacement is a legitimate outcome, not a failure. It updates the image and `image_sources.json` but does **not** rewrite `image_queries.json`, so a row fixed this way may still read `Needs-Manual` in the batch manifest — harmless: the file is present, so export proceeds ([`executor-web-image.md`](./executor-web-image.md) §1);
+   Recorded with `license_tier: manual` — verifying usage rights is the user's
+   call. In Quick Generate, use this step only when the URL was already
+   supplied; never pause to request one. The command updates the image and
+   `image_sources.json` but does **not** rewrite `image_queries.json`. Validate
+   the downloaded file and matching manual-provenance entry, then reconcile
+   that query row and the active roster to `Sourced` before export; a stale
+   `Needs-Manual` status remains blocking
+   ([`executor-web-image.md`](./executor-web-image.md) §1);
 3. (opt-in) `--save-candidates` to pull auto-alternatives with their own `source_page_url`s, then `--promote` the best (below);
-4. if nothing fits, mark the row `Needs-Manual`.
+4. when the query variants, configured provider chain, and permitted license stages are exhausted and no user-confirmed manual URL is available, mark the row `Needs-Manual`.
 
 Web search is far cheaper than AI generation, so this review pass is well worth it.
 
-**This review never halts the pipeline** (image-base §6 hard rule). It runs inside Step 5 image acquisition: an image that cannot be verified or replaced right now becomes `Needs-Manual` and the deck still builds (placeholder), so generation flows straight into Step 6. Manual `--from-url` replacement is an improvement step, not a blocking gate — do it now, or later from live preview, without stopping the run.
+**This review never opens an acquisition-time interaction** ([`image-base.md`](./image-base.md) §6). Default Generate may build a placeholder and continue to Step 6. Quick Generate finishes all permitted automated strategies, records `Needs-Manual`, and blocks direct export when the unresolved image is required.
 
 ### Manual review candidates (escalation, opt-in)
 
@@ -266,47 +266,30 @@ Every successful download appends or replaces one entry keyed on `filename`:
 | `metadata_dimensions` | Present only when upstream-claimed size differs from the saved file (preview vs original). Informational only. |
 | `license_tier` | Drives Executor's attribution decision: `no-attribution` / `attribution-required` for provider-sourced images, or `manual` for a user-supplied `--from-url` replacement (embed only; rights/credit are the user's responsibility). |
 | `attribution_required` | Boolean alias of `license_tier == "attribution-required"`. |
-| `attribution_text` | Pre-rendered canonical credit string. **Use as-is; do not regenerate.** |
+| `attribution_text` | Canonical credit source. Preserve its author/provider/license facts; compress only through §7's visual grammar rather than inventing or dropping identity. |
 | `stage` | `all` by default, or `no-attribution-only` when strict mode is used. |
 
-> Manifest is **idempotent on `filename`**. Rerunning the CLI replaces that entry; other entries are preserved.
+> Manifest is **idempotent on `filename`** and written atomically. Rerunning replaces that entry while preserving all others. An existing unreadable/non-object manifest blocks the write instead of being overwritten as fresh state.
 
 ---
 
-## 7. On-Slide Attribution — Visual Specification
+## 7. On-Slide Attribution Contract
 
-Applied by Executor when an image's `license_tier == "attribution-required"`. Three layouts depending on the page.
+Applied by Executor when an image's `license_tier == "attribution-required"`.
 
-### 7.1 Single-image page
+**Hard rule — legal content and binding**: Every slide that uses the asset carries a visible, readable credit bound unambiguously to that asset. Preserve its author, source/provider, and CC BY / CC BY-SA license facts from `attribution_text`; do not invent, merge away, or drop identity.
 
-- **Position**: bottom-right of the image's container, hugging the image edge (within ~8 px)
-- **Font size**: 6–8pt equivalent (≈ 0.7–1 % of canvas short edge)
-- **Color**: `fill="#999999"` on light/photo backgrounds; `fill="#FFFFFF" fill-opacity="0.6"` on dark/photo
-- **Content**: `© {author} / {provider_short} / {license_short}`
-  - `provider_short`: `Openverse` / `Wikimedia` / `Pexels` / `Pixabay`
-  - `license_short`: `CC BY 4.0` / `CC BY-SA 4.0` / `Public Domain`
-  - Drop empty fields (CC0 with no author → `via Openverse`)
+**Reference — visual treatment is not a constraint**: Position, size, color, line structure, per-image versus combined credits, labels, and contrast treatment belong to the page composition. Use any treatment that stays readable and preserves the asset-to-credit binding; a scrim or gradient is optional, not required.
 
-**Forbidden — fields that break the visual line**: full URLs, `attribution_text` verbatim, "License:" prefix.
+**Reference — attribution treatments, not constraints**:
 
-### 7.2 Multi-image page (≥ 2 attribution-required)
+| Page situation | Possible treatment |
+|---|---|
+| One credited image | Place a compact credit near the image edge or in a page footnote area |
+| Several credited images | Use per-image credits or one combined source line with labels when needed for unambiguous mapping |
+| Hero / full-bleed image | Place the credit in an available quiet region; add a scrim or gradient only when contrast otherwise fails |
 
-Combine into one source line at the page bottom rather than scattering credits:
-
-```
-Sources: a, b via Wikimedia (CC BY); c via Openverse (CC BY-SA)
-```
-
-Use single-letter labels (a/b/c) only when needed for disambiguation.
-
-### 7.3 Hero / full-bleed image
-
-- Bottom 1.5 cm gradient overlay: `stop-color="#000000" stop-opacity="0"` → `stop-color="#000000" stop-opacity="0.5"`
-- 7pt text with `fill="#FFFFFF" fill-opacity="0.6"` inside the overlay band, right-aligned ~24 px from edge
-
-### 7.4 Source for the credit text
-
-Use `attribution_text` from the manifest as the **starting point**. Compress for the small-text constraint:
+Use `attribution_text` from the manifest as the **starting point**. Compress when the chosen page treatment needs a shorter line, without dropping the required facts:
 
 | Manifest | Slide credit |
 |---|---|
@@ -321,20 +304,21 @@ Extends [`image-base.md`](./image-base.md) §6.
 
 | Situation | Behavior |
 |---|---|
-| No candidates from any provider in either stage | Mark row `Needs-Manual`. Suggest: shorter query, drop `--strict-no-attribution`, or set keyed provider's API key. |
+| No candidates from any provider in either stage | Mark row `Needs-Manual`. Suggest a more precise query or another configured provider; rerun without `--strict-no-attribution` only when the confirmed page may carry visible credit. |
 | Single candidate fails to download (HTTP 403/404) | Dispatcher auto-falls through to the next ranked candidate. No user action. |
 | All candidates from one provider fail | Dispatcher moves to the next provider in the chain. |
+| Provider/network failure remains after dispatch | Mark row `Failed`; a later batch run retries it. |
 | Keyed provider has no API key | Silently skipped. Not an error. |
 
-CLI exit: `0` on success, `1` only when no acceptable image was found across the entire dispatch matrix.
+CLI exit: `0` when all attempted rows resolve; `1` while any row remains `Failed` or `Needs-Manual`.
 
 ---
 
-## 9. Handoff with Strategist
+## 9. Handoff with the Intent Owner
 
 Reference field is **intent description**, not a query. See [`image-base.md`](./image-base.md) §8 for the rule.
 
-If the description is verbose, that's fine — `simplify_query` handles it.
+Keep it intact as the acceptance contract. In Default Generate the owner is Strategist; in Quick Generate it is the current main agent's transient roster. Derive a separate concise provider query that preserves exact names and necessary disambiguation; do not pass the Reference verbatim or rewrite it after search.
 
 ---
 
@@ -350,7 +334,7 @@ Executor reads `image_sources.json` per slide that uses a Sourced image. For eac
 
 Executor does not interpret raw license strings — `license_tier` is sufficient.
 
-`svg_quality_checker.py` verifies this handoff before post-processing: if an attribution-required image is referenced without visible `CC BY` / `CC BY-SA` credit text, the SVG fails the quality gate.
+`svg_quality_checker.py` verifies this handoff before post-processing: a referenced attribution-required image needs its own visible author + CC BY / CC BY-SA credit; one generic deck-level CC token cannot satisfy several images.
 
 ---
 
@@ -359,8 +343,8 @@ Executor does not interpret raw license strings — `license_tier` is sufficient
 In addition to the shared checkpoint in [`image-base.md`](./image-base.md) §10:
 
 - [ ] Every web row has a downloaded file at `project/images/<filename>` OR is marked `Needs-Manual`
-- [ ] Each `Sourced` web image was reviewed for fit — a multimodal model via its `images/.review/<stem>.jpg` copy, otherwise handed to the user via `source_page_url`; a poor fit was re-queried, replaced with `--from-url`, escalated via `--save-candidates` + `--promote`, or marked `Needs-Manual`
+- [ ] Each `Sourced` web image was reviewed against the active Reference/Crop Policy — a multimodal model via `images/.review/<stem>.jpg`; without vision, Default Generate hands off via `source_page_url` while Quick Generate records `Needs-Manual` without interaction. A mismatch was re-queried, replaced, escalated, or marked `Needs-Manual`, never repaired by rewriting the active intent
 - [ ] Each `Sourced` row has a manifest entry with valid `license_tier` and non-empty `attribution_text` (except `manual` `--from-url` rows, which carry no `attribution_text`)
-- [ ] Any `attribution-required` image has visible inline credit text in the corresponding SVG
+- [ ] Any `attribution-required` image has visible author + license credit in every SVG that references it
 - [ ] `metadata_dimensions` warnings surfaced when downloaded preview is much smaller than upstream-claimed size
 - [ ] `Needs-Manual` rows include the failure reason

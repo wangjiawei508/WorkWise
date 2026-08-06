@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type ReactElement } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { useTranslation } from 'react-i18next'
 import {
@@ -43,7 +43,7 @@ import { DesignLayersPanel } from './DesignLayersPanel'
 import { DesignNewDocumentDialog } from './DesignNewDocumentDialog'
 import { DesignPropertiesPanel } from './DesignPropertiesPanel'
 import { DesignShapeLibraryPanel } from './DesignShapeLibraryPanel'
-import type { DesignCanvasFormat } from '@shared/design-document'
+import type { DesignCanvasFormat, DesignDocumentV1, DesignPage } from '@shared/design-document'
 import type {
   DesignCanvasCommandV1,
   DesignDocumentLoadResult,
@@ -131,6 +131,7 @@ export function DesignWorkspaceView({
     addPage,
     removePage,
     setActivePage,
+    setPageDisplayMode,
     persistedRevision,
     saveState,
     saveError,
@@ -163,6 +164,7 @@ export function DesignWorkspaceView({
       addPage: s.addPage,
       removePage: s.removePage,
       setActivePage: s.setActivePage,
+      setPageDisplayMode: s.setPageDisplayMode,
       persistedRevision: s.persistedRevision,
       saveState: s.saveState,
       saveError: s.saveError,
@@ -181,6 +183,38 @@ export function DesignWorkspaceView({
     }))
   )
   const runtimeBlocks = useChatStore((state) => state.blocks)
+
+  const activePage = useMemo<DesignPage | undefined>(
+    () => (document && activePageId
+      ? document.pages.find((page) => page.id === activePageId)
+      : undefined),
+    [activePageId, document]
+  )
+  const hasGroupSelection = useMemo(
+    () => selectedElementIds.some(
+      (id) => activePage?.elements.find((element) => element.id === id)?.type === 'group'
+    ),
+    [activePage, selectedElementIds]
+  )
+  const isFlatImagePage = useMemo(() => {
+    if (!activePage || activePage.elements.length === 0) return false
+    const hasFullPageImage = activePage.elements.some(
+      (element) =>
+        element.type === 'image' &&
+        element.w >= activePage.width * 0.9 &&
+        element.h >= activePage.height * 0.9
+    )
+    const hasVisibleVector = activePage.elements.some((element) => {
+      if (element.type === 'text') return Boolean(element.text?.trim())
+      if (element.type === 'path') return Boolean(element.pathData)
+      if (element.type === 'ellipse' || element.type === 'line') return true
+      if (element.type === 'rect') {
+        return (element.opacity ?? 1) > 0 && Boolean(element.fill || element.stroke)
+      }
+      return false
+    })
+    return hasFullPageImage && !hasVisibleVector
+  }, [activePage])
 
   const handleToolClick = (tool: DesignTool): void => {
     if (tool === 'select') {
@@ -612,7 +646,25 @@ export function DesignWorkspaceView({
             setAssetDataUrl(asset.id, assetResult.dataUrl)
           }
         }))
-        if (result.warnings?.length) {
+        const hasVectorElements = result.document.pages.some((page) =>
+          page.elements.some((element) => {
+            if (element.type === 'text') return Boolean(element.text?.trim())
+            if (element.type === 'path') return Boolean(element.pathData)
+            if (element.type === 'ellipse' || element.type === 'line') return true
+            if (element.type === 'rect') {
+              return (element.opacity ?? 1) > 0 && Boolean(element.fill || element.stroke)
+            }
+            return false
+          })
+        )
+        if (hasVectorElements) {
+          setOperationNotice({
+            tone: 'success',
+            message: result.warnings?.length
+              ? `${t('designImportEditableOk')} ${t('designImportWarnings', { count: result.warnings.length })}`
+              : t('designImportEditableOk')
+          })
+        } else if (result.warnings?.length) {
           setOperationNotice({
             tone: 'warning',
             message: `${t('designImportEditableApproximation')} ${t('designImportWarnings', { count: result.warnings.length })}`
@@ -860,133 +912,6 @@ export function DesignWorkspaceView({
   }, [document, undo, redo])
   const [sidebarTab, setSidebarTab] = useState<'assistant' | 'properties' | 'layers' | 'shapes'>('assistant')
 
-  // 右侧面板：属性/图层切换
-  const DesignSidebarPanel = (): ReactElement => (
-    <>
-      <div className="flex shrink-0 border-b border-ds-border-muted">
-        <button
-          type="button"
-          onClick={() => setSidebarTab('assistant')}
-          className={`flex flex-1 items-center justify-center gap-1 py-2 text-[12px] font-medium transition ${
-            sidebarTab === 'assistant'
-              ? 'border-b-2 border-accent text-accent'
-              : 'text-ds-faint hover:text-ds-ink'
-          }`}
-        >
-          <Sparkles className="h-3.5 w-3.5" strokeWidth={1.8} />
-          {t('designAssistant')}
-        </button>
-        <button
-          type="button"
-          onClick={() => setSidebarTab('properties')}
-          className={`flex-1 py-2 text-[12px] font-medium transition ${
-            sidebarTab === 'properties'
-              ? 'border-b-2 border-accent text-accent'
-              : 'text-ds-faint hover:text-ds-ink'
-          }`}
-        >
-          {t('designProperties')}
-        </button>
-        <button
-          type="button"
-          onClick={() => setSidebarTab('layers')}
-          className={`flex-1 py-2 text-[12px] font-medium transition ${
-            sidebarTab === 'layers'
-              ? 'border-b-2 border-accent text-accent'
-              : 'text-ds-faint hover:text-ds-ink'
-          }`}
-        >
-          {t('designLayers')}
-        </button>
-        <button
-          type="button"
-          onClick={() => {
-            void loadPresetShapes()
-            setSidebarTab('shapes')
-          }}
-          className={`flex-1 py-2 text-[12px] font-medium transition ${
-            sidebarTab === 'shapes'
-              ? 'border-b-2 border-accent text-accent'
-              : 'text-ds-faint hover:text-ds-ink'
-          }`}
-        >
-          {t('designShapeLibraryTab')}
-        </button>
-      </div>
-      <div className="min-h-0 flex-1">
-        {sidebarTab === 'assistant'
-          ? document && useDesignWorkspaceStore.getState().getActivePage()
-            ? (
-                <DesignAssistantPanel
-                  key={designAssistantScopeKey(
-                    document.id,
-                    useDesignWorkspaceStore.getState().getActivePage()!.id
-                  )}
-                  document={document}
-                  page={useDesignWorkspaceStore.getState().getActivePage()!}
-                  workspaceRoot={workspaceRoot}
-                  selectedElementIds={selectedElementIds}
-                  commandNotice={assistantCommandNotice}
-                  disabled={restoring}
-                />
-              )
-            : null
-          : sidebarTab === 'properties'
-          ? <DesignPropertiesPanel />
-          : sidebarTab === 'layers'
-            ? <DesignLayersPanel />
-            : <DesignShapeLibraryPanel presetShapes={presetShapes} onInsertPreset={handleInsertPreset} />}
-      </div>
-    </>
-  )
-
-  // 底部页面导航条：显示页面缩略条 + 增删
-  const DesignPageBar = (): ReactElement => {
-    const allPages = document?.pages ?? []
-    return (
-      <div className="flex h-10 shrink-0 items-center gap-1 border-t border-ds-border-muted bg-ds-card/95 px-2">
-        <button
-          type="button"
-          onClick={() => addPage()}
-          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-ds-faint transition hover:bg-ds-hover/60 hover:text-ds-ink"
-          title={t('designAddPage')}
-          aria-label={t('designAddPage')}
-        >
-          <Plus className="h-4 w-4" strokeWidth={1.85} />
-        </button>
-        <div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto">
-          {allPages.map((page, index) => (
-            <button
-              key={page.id}
-              type="button"
-              onClick={() => setActivePage(page.id)}
-              className={`flex h-7 shrink-0 items-center gap-1 rounded-md px-2 text-[11.5px] transition ${
-                page.id === activePageId
-                  ? 'bg-accent/15 text-accent'
-                  : 'text-ds-faint hover:bg-ds-hover/50 hover:text-ds-ink'
-              }`}
-              title={page.name}
-            >
-              <span className="font-mono opacity-60">{index + 1}</span>
-              <span className="max-w-[80px] truncate">{page.name}</span>
-            </button>
-          ))}
-        </div>
-        {allPages.length > 1 ? (
-          <button
-            type="button"
-            onClick={() => activePageId && removePage(activePageId)}
-            className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-ds-faint transition hover:bg-red-500/10 hover:text-red-600"
-            title={t('designRemovePage')}
-            aria-label={t('designRemovePage')}
-          >
-            <Trash2 className="h-3.5 w-3.5" strokeWidth={1.85} />
-          </button>
-        ) : null}
-      </div>
-    )
-  }
-
   return (
     <div className="ds-no-drag flex h-full min-h-0 flex-col bg-ds-main">
       {/* 顶栏 */}
@@ -1122,7 +1047,7 @@ export function DesignWorkspaceView({
             <button
               type="button"
               onClick={ungroupSelectedElements}
-              disabled={selectedElementIds.length === 0}
+              disabled={!hasGroupSelection}
               className="flex h-7 w-7 items-center justify-center rounded-lg text-ds-faint transition hover:bg-ds-hover/60 hover:text-ds-ink disabled:cursor-not-allowed disabled:opacity-30"
               title={t('designUngroup')}
               aria-label={t('designUngroup')}
@@ -1171,6 +1096,35 @@ export function DesignWorkspaceView({
               <Redo2 className="h-4 w-4" strokeWidth={1.85} />
             </button>
             <div className="ml-auto flex items-center gap-1">
+              {activePage?.fidelityImageAssetId ? (
+                <div
+                  className="flex h-7 items-center gap-0.5 rounded-lg border border-ds-border bg-ds-card p-0.5"
+                  title={t('designDisplayModeHint')}
+                >
+                  <button
+                    type="button"
+                    onClick={() => setPageDisplayMode(activePage.id, 'editable')}
+                    className={`rounded-md px-2 py-0.5 text-[11.5px] transition ${
+                      activePage.displayMode !== 'fidelity'
+                        ? 'bg-accent/15 font-medium text-accent'
+                        : 'text-ds-faint hover:text-ds-ink'
+                    }`}
+                  >
+                    {t('designEditableMode')}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPageDisplayMode(activePage.id, 'fidelity')}
+                    className={`rounded-md px-2 py-0.5 text-[11.5px] transition ${
+                      activePage.displayMode === 'fidelity'
+                        ? 'bg-accent/15 font-medium text-accent'
+                        : 'text-ds-faint hover:text-ds-ink'
+                    }`}
+                  >
+                    {t('designFidelityMode')}
+                  </button>
+                </div>
+              ) : null}
               <button
                 type="button"
                 onClick={() => void handleImportPptx()}
@@ -1334,16 +1288,51 @@ export function DesignWorkspaceView({
               </div>
             </div>
           ) : null}
+          {isFlatImagePage ? (
+            <div className="mx-3 mt-2 flex flex-wrap items-center gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-[12px] leading-5 text-amber-800 dark:border-amber-800/40 dark:bg-amber-950/30 dark:text-amber-200">
+              <span className="min-w-0 flex-1">{t('designFlatImagePageNotice')}</span>
+              <button
+                type="button"
+                onClick={() => void handleImportPptx()}
+                disabled={importing}
+                className="shrink-0 rounded-lg border border-amber-300/70 bg-white px-2.5 py-1 text-[12px] font-medium text-amber-900 transition hover:bg-amber-100/80 disabled:cursor-not-allowed disabled:opacity-50 dark:border-amber-700/60 dark:bg-amber-900/20 dark:text-amber-100"
+              >
+                {importing ? t('designImporting') : t('designReimportPptxAsEditable')}
+              </button>
+            </div>
+          ) : null}
+          {activePage?.displayMode === 'fidelity' ? (
+            <div className="mx-3 mt-2 rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-[12px] leading-5 text-blue-800 dark:border-blue-800/40 dark:bg-blue-950/30 dark:text-blue-200">
+              {t('designFidelityModeNotice')}
+            </div>
+          ) : null}
           {/* 画布 + 右侧面板（属性/图层） */}
           <div className="flex min-h-0 flex-1">
             <DesignCanvas />
             {/* 右侧面板区：切换属性/图层 */}
             <div className="flex w-72 shrink-0 flex-col border-l border-ds-border-muted bg-ds-card/95">
-              {DesignSidebarPanel()}
+              <DesignSidebarTabs
+                sidebarTab={sidebarTab}
+                onTabChange={setSidebarTab}
+                document={document}
+                workspaceRoot={workspaceRoot}
+                selectedElementIds={selectedElementIds}
+                assistantCommandNotice={assistantCommandNotice}
+                restoring={restoring}
+                presetShapes={presetShapes}
+                onLoadPresets={loadPresetShapes}
+                onInsertPreset={handleInsertPreset}
+              />
             </div>
           </div>
           {/* 底部页面导航条 */}
-          {DesignPageBar()}
+          <DesignPageBar
+            document={document}
+            activePageId={activePageId}
+            onAddPage={addPage}
+            onSelectPage={setActivePage}
+            onRemovePage={() => activePageId && removePage(activePageId)}
+          />
         </>
       )}
 
@@ -1368,6 +1357,179 @@ export function DesignWorkspaceView({
           })()
         }}
       />
+    </div>
+  )
+}
+
+/**
+ * 右侧面板：助手 / 属性 / 图层 / 形状库。
+ *
+ * 模块级组件：避免在 DesignWorkspaceView 每次渲染时重建组件类型，
+ * 否则子树的卸载/重建会让 Design 助手会话在状态更新时反复重连，
+ * 最终触发 React error #185（maximum update depth exceeded）。
+ */
+function DesignSidebarTabs({
+  sidebarTab,
+  onTabChange,
+  document,
+  workspaceRoot,
+  selectedElementIds,
+  assistantCommandNotice,
+  restoring,
+  presetShapes,
+  onLoadPresets,
+  onInsertPreset
+}: {
+  sidebarTab: 'assistant' | 'properties' | 'layers' | 'shapes'
+  onTabChange: (tab: 'assistant' | 'properties' | 'layers' | 'shapes') => void
+  document: DesignDocumentV1 | null
+  workspaceRoot: string
+  selectedElementIds: string[]
+  assistantCommandNotice: { tone: 'success' | 'error'; message: string } | null
+  restoring: boolean
+  presetShapes: string[]
+  onLoadPresets: () => Promise<void>
+  onInsertPreset: (name: string) => Promise<void>
+}): ReactElement {
+  const { t } = useTranslation('common')
+  const activePage = useDesignWorkspaceStore((s): DesignPage | undefined =>
+    s.document && s.activePageId
+      ? s.document.pages.find((item) => item.id === s.activePageId)
+      : undefined
+  )
+  return (
+    <>
+      <div className="flex shrink-0 border-b border-ds-border-muted">
+        <button
+          type="button"
+          onClick={() => onTabChange('assistant')}
+          className={`flex flex-1 items-center justify-center gap-1 py-2 text-[12px] font-medium transition ${
+            sidebarTab === 'assistant'
+              ? 'border-b-2 border-accent text-accent'
+              : 'text-ds-faint hover:text-ds-ink'
+          }`}
+        >
+          <Sparkles className="h-3.5 w-3.5" strokeWidth={1.8} />
+          {t('designAssistant')}
+        </button>
+        <button
+          type="button"
+          onClick={() => onTabChange('properties')}
+          className={`flex-1 py-2 text-[12px] font-medium transition ${
+            sidebarTab === 'properties'
+              ? 'border-b-2 border-accent text-accent'
+              : 'text-ds-faint hover:text-ds-ink'
+          }`}
+        >
+          {t('designProperties')}
+        </button>
+        <button
+          type="button"
+          onClick={() => onTabChange('layers')}
+          className={`flex-1 py-2 text-[12px] font-medium transition ${
+            sidebarTab === 'layers'
+              ? 'border-b-2 border-accent text-accent'
+              : 'text-ds-faint hover:text-ds-ink'
+          }`}
+        >
+          {t('designLayers')}
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            void onLoadPresets()
+            onTabChange('shapes')
+          }}
+          className={`flex-1 py-2 text-[12px] font-medium transition ${
+            sidebarTab === 'shapes'
+              ? 'border-b-2 border-accent text-accent'
+              : 'text-ds-faint hover:text-ds-ink'
+          }`}
+        >
+          {t('designShapeLibraryTab')}
+        </button>
+      </div>
+      <div className="min-h-0 flex-1">
+        {sidebarTab === 'assistant'
+          ? document && activePage
+            ? (
+                <DesignAssistantPanel
+                  key={designAssistantScopeKey(document.id, activePage.id)}
+                  document={document}
+                  page={activePage}
+                  workspaceRoot={workspaceRoot}
+                  selectedElementIds={selectedElementIds}
+                  commandNotice={assistantCommandNotice}
+                  disabled={restoring}
+                />
+              )
+            : null
+          : sidebarTab === 'properties'
+          ? <DesignPropertiesPanel />
+          : sidebarTab === 'layers'
+            ? <DesignLayersPanel />
+            : <DesignShapeLibraryPanel presetShapes={presetShapes} onInsertPreset={onInsertPreset} />}
+      </div>
+    </>
+  )
+}
+
+/** 底部页面导航条：显示页面缩略条 + 增删。模块级组件，避免每次渲染重建类型。 */
+function DesignPageBar({
+  document,
+  activePageId,
+  onAddPage,
+  onSelectPage,
+  onRemovePage
+}: {
+  document: DesignDocumentV1 | null
+  activePageId: string | null
+  onAddPage: () => void
+  onSelectPage: (id: string) => void
+  onRemovePage: () => void
+}): ReactElement {
+  const { t } = useTranslation('common')
+  const allPages = document?.pages ?? []
+  return (
+    <div className="flex h-10 shrink-0 items-center gap-1 border-t border-ds-border-muted bg-ds-card/95 px-2">
+      <button
+        type="button"
+        onClick={onAddPage}
+        className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-ds-faint transition hover:bg-ds-hover/60 hover:text-ds-ink"
+        title={t('designAddPage')}
+        aria-label={t('designAddPage')}
+      >
+        <Plus className="h-4 w-4" strokeWidth={1.85} />
+      </button>
+      <div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto">
+        {allPages.map((page, index) => (
+          <button
+            key={page.id}
+            type="button"
+            onClick={() => onSelectPage(page.id)}
+            className={`flex h-7 shrink-0 items-center gap-1 rounded-md px-2 text-[11.5px] transition ${
+              page.id === activePageId
+                ? 'bg-accent/15 text-accent'
+                : 'text-ds-faint hover:bg-ds-hover/50 hover:text-ds-ink'
+            }`}
+            title={page.name}
+          >
+            <span className="font-mono opacity-60">{index + 1}</span>
+            <span className="max-w-[80px] truncate">{page.name}</span>
+          </button>
+        ))}
+      </div>
+      {allPages.length > 1 ? (
+        <button
+          type="button"
+          onClick={onRemovePage}
+          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-ds-faint transition hover:bg-red-500/10 hover:text-red-600"
+          title={t('designRemovePage')}
+          aria-label={t('designRemovePage')}
+        >
+          <Trash2 className="h-3.5 w-3.5" strokeWidth={1.85} />
+        </button>
+      ) : null}
     </div>
   )
 }

@@ -16,7 +16,7 @@ Every new SVG project declares one deterministic route. Free-design, brand-only,
 
 **Zero-slot Layout**: A named Layout may contain no slots and no fixed Layout atoms. This is valid for a cover, poster, full-visual page, or other fixed composition. Do not manufacture an empty `utility` kind or full-page fake `object` slot.
 
-**Adaptive change**: Template `strict` preserves the selected prototype contract. `adaptive` retains the prototype Master and may create a new Layout identity only when fixed Layout atoms or slot topology/bounds change. Update the page mapping immediately while authoring the first such page; never mutate a reused key silently.
+**Adaptive change**: Template `strict` preserves the selected prototype contract. `adaptive` retains the prototype Master and may use a current or new Layout identity only when Strategist already declared it in the complete plan and lock. If construction proves that fixed Layout atoms or slot topology/bounds must change, stop and return upstream for Strategist to add or revise the definition and page mapping before authoring resumes; Executor never mutates a reused key or the lock.
 
 ## 2. Explicit PPTX Master / Layout / Placeholder Metadata
 
@@ -24,7 +24,7 @@ Every new SVG project declares one deterministic route. Free-design, brand-only,
 
 **Project lock**: A Master row is `<master_key>: <PowerPoint picker name>`. A unique Layout row is `<layout_key>: <master_key> | <PowerPoint picker name> | <prototype source>`, where the source is a generated `P<NN>` or installed `template:<basename>`. A page assignment is `P<NN>: <layout_key>` under `page_pptx_layouts`. The SVG root values MUST match the assigned definition. A Layout key belongs to exactly one Master and must be globally unique. Reuse one key only when prototypes share identical ordered Layout atoms and slot ids/types/effective indices/default bounds/binding modes. An unused Layout uses a template SVG source and remains registered without a published carrier slide. Every structured route requires numeric `spec_lock.md` typography `title` / `body` rows.
 
-**Template behavior**: Strict preserves the selected prototype's declared Master/Layout/slot contract. Adaptive retains its Master and may allocate a new Layout key/name only when fixed Layout atoms or slot topology/bounds change; update the lock during authoring. Mirror-created prototypes preserve validated source identity, literal paint, typography, effects, atomic geometry, and referenced assets in a new workspace. `standard` / `fidelity` never make source topology authoritative; mirror does not synthesize a replacement topology or fill missing facts.
+**Template behavior**: Strict preserves the selected prototype's declared Master/Layout/slot contract. Adaptive retains its Master and realizes the current or new Layout key/name declared by Strategist. A construction-discovered change to fixed Layout atoms or slot topology/bounds returns upstream for plan/lock repair, readback, and validation before authoring resumes. Mirror-created prototypes preserve validated source identity, literal paint, typography, effects, atomic geometry, and referenced assets in a new workspace. `standard` / `fidelity` never make source topology authoritative; mirror does not synthesize a replacement topology or fill missing facts.
 
 Imported inherited-shape visibility remains an immutable analysis fact until a
 structured mirror is materialized. The final mirror root carries that fact with
@@ -34,9 +34,9 @@ present. Authored `standard` / `fidelity` templates normally omit both and use
 the default `true`. See
 [`conversion.md`](../scripts/docs/conversion.md#import-compatibility-and-recovery-boundary).
 
-**Master text-style contract**: Flat and structured export map the
-locked `title` size to every `a:defRPr` in Master `p:titleStyle`. Level 1 in
-both `p:bodyStyle` and `p:otherStyle` uses the locked `body` size; levels 2–9
+**Master text-style contract**: Flat and structured export map the declared
+`title` anchor to every `a:defRPr` in Master `p:titleStyle`. Level 1 in both
+`p:bodyStyle` and `p:otherStyle` uses the declared `body` anchor; levels 2–9
 use a deterministic descending hierarchy from `15/16` through `8/16` of that
 size, rounded to 0.5 pt and floored at the smaller of 8 pt or the body size.
 Existing per-level indentation and bullet properties remain unchanged.
@@ -110,11 +110,10 @@ and visible-stroke rects also remain ordinary objects.
 | `object` | one text, image, basic SVG shape, or validated compact authored-preset `<g>` marked as carrier; alternatively the slot group declares `binding="proxy"` | `obj` |
 | `media` | one `<image>` or supported imported crop `<svg>`, marked as carrier | `media` |
 
-**Text slot carrier**: A multiline text placeholder must remain one
-native text frame. Use the default paragraph merge; `--no-merge` cannot supply
-several line shapes as one
-PowerPoint placeholder prototype/binding. Leave strict-line text Slide-local
-when separate frames are the required result.
+**Text slot carrier**: A multiline text placeholder must remain one native text
+frame. Default export and `--reflow-text` do; `--no-merge` cannot supply several
+line shapes as one PowerPoint placeholder prototype/binding. Leave strict-line
+text Slide-local when separate frames are required.
 
 For a materialized mirror, an imported text carrier may additionally keep the
 source shape's positive `data-pptx-frame="x y width height"`. That frame owns

@@ -45,7 +45,7 @@ skipIfNoScripts('C1 导出集成：svg_quality_checker 验证', () => {
     const svgPath = join(tempDir, `slide_${Date.now()}_${Math.random().toString(36).slice(2, 6)}.svg`)
     const reportPath = join(tempDir, `report_${Date.now()}_${Math.random().toString(36).slice(2, 6)}.json`)
     writeFileSync(svgPath, svgContent, 'utf8')
-    // PPT Master 4.0's default `final` stage validates a complete multi-page
+    // PPT Master 4.3's default `final` stage validates a complete multi-page
     // project roster. These cases intentionally validate one serializer page,
     // so use the documented partial-roster stage instead of relying on stale
     // pre-4.0 bytecode left in __pycache__.

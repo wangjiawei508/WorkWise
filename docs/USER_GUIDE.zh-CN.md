@@ -135,9 +135,9 @@ Design 是结构化 SVG 画板，适合制作报告配图、流程图、信息�
 - 在线 Skill 更新是可选动作；网络不可用时，WorkWise 会继续使用本地内置版本。
 - MCP 工具属于高级扩展，可接入外部系统、仓库、文档或企业工具，可能需要外部网络、授权、API Key 或本机运行环境。
 - WorkWise 已内置工程与基础设施智能体套件、地保监测、运营期监测和写作增强相关 Skills。
-- PPT Master 4.0.0 作为内置 Skill 出现在插件市场，可把 Markdown、报告、方案、网页或已有 PPTX 整理为原生可编辑 PowerPoint。
+- PPT Master 4.3.0 作为内置 Skill 出现在插件市场，可把 Markdown、报告、方案、网页或已有 PPTX 整理为原生可编辑 PowerPoint。
 
-PPT Master 使用固定上游提交的受控瘦身快照，不是完整官方仓库。它保留核心 `SKILL.md`、100 个文本参考、工作流、55 个顶层脚本及模块、76 个图表模板、5 个品牌、2 个 Deck、20 页通用布局、确认页和两个轻量示例；不包含大体积图标 SVG、AI 对比 PNG、用户真实 projects、生成 exports、backup 或私有 PPT 文件。正式客户端把预设图形、PPTX 导入和原生 PPTX 导出所需的 PPT Master 4.0.0 脚本封装在本地 sidecar 中，不要求用户另装 Python；上游的高级开发脚本、localhost 确认页和实时预览仍可能需要 Python 3.10+ 与 `flask`。WorkWise 不安装 Pandoc。
+PPT Master 使用固定上游提交的受控瘦身快照，不是完整官方仓库。它保留核心 `SKILL.md`、文本参考、工作流、64 个顶层脚本及模块、图表模板、品牌、Deck、通用布局、确认页和轻量示例；不包含大体积图标 SVG、AI 对比 PNG、用户真实 projects、生成 exports、backup 或私有 PPT 文件。正式客户端把预设图形、PPTX 导入和原生 PPTX 导出所需的 PPT Master 4.3.0 脚本封装在本地 sidecar 中，不要求用户另装 Python；上游的高级开发脚本、localhost 确认页和实时预览仍可能需要 Python 3.10+ 与 `flask`。WorkWise 不安装 Pandoc。
 
 ## 工作区权限、MCP 与 Git 保护
 

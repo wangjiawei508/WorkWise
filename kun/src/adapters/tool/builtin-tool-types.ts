@@ -1,5 +1,6 @@
 import { stat } from 'node:fs/promises'
 import type { LocalTool } from './local-tool-host.js'
+import type { PptMasterEnvLocalToolOptions, PptMasterLocalToolOptions } from './builtin-ppt-tool.js'
 
 export type FsStats = NonNullable<Awaited<ReturnType<typeof stat>>>
 
@@ -89,7 +90,16 @@ export type ReadClassification = {
 
 export const COMPACT_RESOURCE_FILE_NAMES = new Set(['AGENTS.md', 'AGENTS.MD', 'CLAUDE.md', 'CLAUDE.MD'])
 
-export type BuiltinToolName = 'read' | 'bash' | 'edit' | 'write' | 'grep' | 'find' | 'ls'
+export type BuiltinToolName =
+  | 'read'
+  | 'bash'
+  | 'edit'
+  | 'write'
+  | 'grep'
+  | 'find'
+  | 'ls'
+  | 'ppt_master'
+  | 'ppt_master_env'
 export const allBuiltinToolNames: Set<BuiltinToolName> = new Set([
   'read',
   'bash',
@@ -97,7 +107,9 @@ export const allBuiltinToolNames: Set<BuiltinToolName> = new Set([
   'write',
   'grep',
   'find',
-  'ls'
+  'ls',
+  'ppt_master',
+  'ppt_master_env'
 ])
 export type ToolName = BuiltinToolName
 export const allToolNames: Set<ToolName> = allBuiltinToolNames
@@ -181,6 +193,8 @@ export type BuiltinLocalToolsOptions = {
   grep?: GrepLocalToolOptions
   find?: FindLocalToolOptions
   ls?: LsLocalToolOptions
+  pptMaster?: PptMasterLocalToolOptions
+  pptMasterEnv?: PptMasterEnvLocalToolOptions
 }
 export type ToolsOptions = BuiltinLocalToolsOptions
 

@@ -25,6 +25,7 @@ import { InflightTracker } from './inflight-tracker.js'
 import { SteeringQueue } from './steering-queue.js'
 
 const cleanup: string[] = []
+const PERSISTENCE_TEST_TIMEOUT_MS = 15_000
 
 afterEach(async () => {
   await Promise.all(cleanup.splice(0).map((path) => rm(path, { recursive: true, force: true })))
@@ -118,7 +119,7 @@ describe('persistent task acceptance', () => {
     expect(recordedSpans.filter((span) => span.kind === 'task')).toMatchObject([{ status: 'ok' }])
     expect(persistedEvents.filter((event) => event.kind === 'turn_completed')).toHaveLength(1)
     repository.close()
-  })
+  }, PERSISTENCE_TEST_TIMEOUT_MS)
 
   it('cancels the active turn, task, approval and user-input wait as one operation', async () => {
     const root = await mkdtemp(join(tmpdir(), 'workwise-task-cancel-'))

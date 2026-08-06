@@ -7,7 +7,8 @@ import {
   inspectDesignSvgFidelity,
   PPTX_IMPORT_LIMITS,
   preflightPptxForDesignImport,
-  readImportedDesignImage
+  readImportedDesignImage,
+  shouldKeepVectorElements
 } from './design-import-service'
 
 const PNG_HEADER = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10])
@@ -192,5 +193,48 @@ describe('Design PPTX fidelity diagnostics', () => {
       'layout_approximation'
     ])
     expect(warnings.every((warning) => warning.pageId === 'page-2')).toBe(true)
+  })
+})
+
+describe('shouldKeepVectorElements', () => {
+  it('keeps pages with real text elements', () => {
+    expect(shouldKeepVectorElements({
+      id: 'p1',
+      name: 'Page 1',
+      width: 1280,
+      height: 720,
+      background: 'FFFFFF',
+      elements: [
+        { id: 'img', type: 'image', x: 0, y: 0, w: 1280, h: 720, rotation: 0, zIndex: 0 },
+        { id: 'txt', type: 'text', x: 100, y: 100, w: 200, h: 40, rotation: 0, text: '标题', zIndex: 1 }
+      ]
+    })).toBe(true)
+  })
+
+  it('keeps pages with visible filled shapes', () => {
+    expect(shouldKeepVectorElements({
+      id: 'p1',
+      name: 'Page 1',
+      width: 1280,
+      height: 720,
+      background: 'FFFFFF',
+      elements: [
+        { id: 'rect', type: 'rect', x: 10, y: 10, w: 100, h: 50, rotation: 0, fill: '1E3A5F', zIndex: 0 }
+      ]
+    })).toBe(true)
+  })
+
+  it('falls back for picture-only pages with invisible placeholder rects', () => {
+    expect(shouldKeepVectorElements({
+      id: 'p1',
+      name: 'Page 1',
+      width: 1280,
+      height: 720,
+      background: 'FFFFFF',
+      elements: [
+        { id: 'img', type: 'image', x: 0, y: 0, w: 1280, h: 720, rotation: 0, zIndex: 0 },
+        { id: 'r1', type: 'rect', x: 10, y: 10, w: 100, h: 50, rotation: 0, opacity: 0, zIndex: 1 }
+      ]
+    })).toBe(false)
   })
 })

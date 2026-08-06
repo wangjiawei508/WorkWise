@@ -98,6 +98,12 @@ The pipeline builds macOS arm64/x64 and Windows x64 artifacts, signs them, notar
 
 Alternative considered: upload manifests before all artifacts finish. Rejected because clients could observe an incomplete release.
 
+### 10. Final acceptance launches the packaged GUI
+
+Automated contract, Runtime, renderer, packaging, signing, and updater checks remain necessary but do not establish that the assembled desktop product is usable. Final acceptance therefore launches the exact signed package and performs evidence-backed interaction checks across the affected user journeys. Flow acceptance must confirm visible canvas nodes, not only persisted JSON; Write acceptance must paste a long instruction with a real attachment and inspect the rendered composer; Design acceptance must import a representative PPT and apply a targeted AI element change.
+
+Alternative considered: treat unit tests and static markup assertions as sufficient. Rejected because they did not detect a blank React Flow canvas or an impractically compressed Write composer in the published application.
+
 ## Risks / Trade-offs
 
 - [Flow scope is large for one release] → Keep Flow labeled Preview, ship core nodes fully executable, expose unavailable catalogue nodes honestly, and retain hard publication validation.

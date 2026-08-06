@@ -386,6 +386,14 @@ export async function startManagedRuntimeChild(
       WORKWISE_PPT_MASTER_SIDECAR: existsSync(pptMasterSidecarExecutable)
         ? pptMasterSidecarExecutable
         : '',
+      // Managed Python interpreter for full-access workspaces that need to run
+      // upstream PPT Master scripts directly (project_manager, quality checker).
+      WORKWISE_PPT_MASTER_PYTHON: join(
+        homedir(),
+        '.workwise',
+        'ppt-master-python',
+        process.platform === 'win32' ? 'Scripts/python.exe' : 'bin/python'
+      ),
       DEEPSEEK_API_KEY: runtime.apiKey || process.env.DEEPSEEK_API_KEY || ''
     },
     stdio: ['ignore', 'pipe', 'pipe'],

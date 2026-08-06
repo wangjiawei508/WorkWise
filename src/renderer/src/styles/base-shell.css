@@ -2917,6 +2917,29 @@ pre {
   }
 }
 
+/*
+ * Write assistant composer: the side panel is narrower than the 640px
+ * container-query breakpoint, which would otherwise stack the toolbar into
+ * two rows. When forceToolbarRow is set, keep "+" / model / send on one row.
+ */
+.ds-composer-toolbar-row .ds-composer-toolbar {
+  flex-direction: row !important;
+  align-items: center !important;
+  gap: 0.5rem !important;
+}
+
+.ds-composer-toolbar-row .ds-composer-toolbar > div {
+  width: auto !important;
+}
+
+.ds-composer-toolbar-row .ds-composer-toolbar > div:first-child {
+  overflow-x: auto;
+}
+
+.ds-composer-toolbar-row .ds-composer-toolbar > div:last-child {
+  justify-content: flex-end !important;
+}
+
 @container (max-width: 620px) {
   .ds-composer-usage-cost,
   .ds-composer-usage-cost-separator {

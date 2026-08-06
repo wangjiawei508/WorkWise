@@ -3,6 +3,8 @@
 ### Requirement: Composer accepts supported documents and images
 The composer SHALL allow up to eight attachments per turn and SHALL explicitly accept PDF, DOCX, XLSX, PPTX, TXT, MD, CSV, PNG, JPEG, and WebP with a 200 MiB per-file and 500 MiB per-batch limit.
 
+The Write assistant SHALL reuse the shared chat composer interaction model and SHALL present a multi-line writing surface that remains readable when long instructions and attachment cards are present.
+
 #### Scenario: User selects supported files
 - **WHEN** the user chooses “Add files or images” and selects supported files within the limits
 - **THEN** WorkWise creates attachment cards and begins managed import for each file
@@ -14,6 +16,10 @@ The composer SHALL allow up to eight attachments per turn and SHALL explicitly a
 #### Scenario: User pastes clipboard content
 - **WHEN** the clipboard contains an image
 - **THEN** WorkWise imports the image, while non-image clipboard files are not treated as document attachments
+
+#### Scenario: User enters a long writing instruction
+- **WHEN** the user pastes or types a multi-line tender-writing instruction in the Write assistant
+- **THEN** the composer starts with a practical multi-line height, expands up to its bounded maximum, scrolls internally beyond that maximum, and does not hide text behind attachment or action rows
 
 ### Requirement: Document import is streamed, contained, and format-verified
 The main process SHALL stream files into an application-managed directory and verify extension, MIME, file signature, Office archive structure, compression bounds, path containment, byte limits, and SHA-256 without JSON Base64 transport for large documents.

@@ -5,7 +5,6 @@ import {
   Clock3,
   LayoutGrid,
   Palette,
-  Workflow,
   Plus,
   Settings,
   Smartphone
@@ -143,22 +142,13 @@ export function Sidebar({
           onWriteOpen={onWriteOpen}
         />
 
-        {activeView === 'chat' ? (
-            <SidebarCommandRow
-              icon={<Plus className="h-4 w-4" strokeWidth={2} />}
-              label={t('newAgent')}
-              onClick={runtimeReady ? onNewChat : undefined}
-              disabled={!runtimeReady}
-              disabledHint={t('runtimeActionNeedsConnection')}
-              variant="accent"
-            />
-        ) : null}
         <SidebarCommandRow
-          icon={<Workflow className="h-4 w-4" strokeWidth={1.75} />}
-          label={t('flow')}
-          trailing={<span className="rounded bg-blue-50 px-1.5 py-0.5 text-[10px] font-medium text-blue-600 dark:bg-blue-400/10 dark:text-blue-300">Preview</span>}
-          onClick={onFlowOpen}
-          active={activeView === 'flow'}
+          icon={<Plus className="h-4 w-4" strokeWidth={2} />}
+          label={t('newAgent')}
+          onClick={runtimeReady ? onNewChat : undefined}
+          disabled={!runtimeReady}
+          disabledHint={t('runtimeActionNeedsConnection')}
+          variant="accent"
         />
         <SidebarCommandRow
           icon={<LayoutGrid className="h-4 w-4" strokeWidth={1.75} />}

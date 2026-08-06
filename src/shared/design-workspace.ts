@@ -8,6 +8,7 @@ export type DesignFidelityWarningCode =
   | 'missing_image'
   | 'font_substitution'
   | 'layout_approximation'
+  | 'reference_regions'
 
 export type DesignFidelityWarning = {
   code: DesignFidelityWarningCode

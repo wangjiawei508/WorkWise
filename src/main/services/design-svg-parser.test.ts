@@ -44,6 +44,55 @@ describe('parseSvgToPage - 基本', () => {
     expect(texts[0].fill).toBe('1A1A2E')
   })
 
+  it('保留 text 的字间距与 fill-opacity', () => {
+    const svg = `<svg viewBox="0 0 200 100">
+      <text x="20" y="40" font-size="16" fill="#FFFFFF" fill-opacity="0.7" letter-spacing="3">标题</text>
+    </svg>`
+    const page = parseSvgToPage(svg)!
+    const text = page.elements.find((element) => element.type === 'text')
+    expect(text?.opacity).toBe(0.7)
+    expect(text?.letterSpacing).toBe(3)
+  })
+
+  it('text-anchor=middle/end 转成元素盒左边缘坐标，画布居中/右对齐位置与 SVG 锚点一致', () => {
+    const svg = `<svg viewBox="0 0 200 100">
+      <text x="100" y="30" font-size="20" text-anchor="middle">居中</text>
+      <text x="180" y="60" font-size="20" text-anchor="end">右对齐</text>
+      <text x="10" y="90" font-size="20" text-anchor="start">左对齐</text>
+    </svg>`
+    const page = parseSvgToPage(svg)!
+    const texts = page.elements.filter((element) => element.type === 'text')
+    expect(texts).toHaveLength(3)
+
+    // 居中文本：x + w/2 应回到原始锚点 100
+    const centered = texts.find((element) => element.text === '居中')!
+    expect(centered.textAlign).toBe('center')
+    expect(centered.x + centered.w / 2).toBeCloseTo(100, 0)
+
+    // 右对齐文本：x + w 应回到原始锚点 180
+    const right = texts.find((element) => element.text === '右对齐')!
+    expect(right.textAlign).toBe('right')
+    expect(right.x + right.w).toBeCloseTo(180, 0)
+
+    // 左对齐文本：x 即原始锚点
+    const left = texts.find((element) => element.text === '左对齐')!
+    expect(left.textAlign).toBe('left')
+    expect(left.x).toBe(10)
+  })
+
+  it('保留 ellipse fill=none 为无填充，并解析线与箭头', () => {
+    const svg = `<svg viewBox="0 0 200 200">
+      <ellipse cx="50" cy="50" rx="20" ry="20" fill="none" stroke="#D97706" stroke-width="3"/>
+      <line x1="10" y1="10" x2="90" y2="90" stroke="#0F3D6E" stroke-width="2"/>
+      <path d="M 90 90 L 80 92 L 84 84 Z" fill="#0F3D6E"/>
+    </svg>`
+    const page = parseSvgToPage(svg)!
+    const ring = page.elements.find((element) => element.type === 'ellipse' && element.stroke === 'D97706')
+    expect(ring?.fill).toBeUndefined()
+    expect(page.elements.some((element) => element.type === 'line')).toBe(true)
+    expect(page.elements.some((element) => element.type === 'path')).toBe(true)
+  })
+
   it('解析 ellipse 元素', () => {
     const page = parseSvgToPage(SIMPLE_SVG)!
     const ellipses = page.elements.filter((e) => e.type === 'ellipse')
@@ -159,7 +208,7 @@ describe('parsePresetPathsFromSvg', () => {
 })
 
 // 用真实 example SVG 验证
-const EXAMPLE_SVG = join(process.cwd(), 'src', 'asset', 'skills', 'ppt-master', 'examples', 'ppt169_顶级咨询风_甘孜州经济财政分析', 'svg_final', 'slide_05_gdp_analysis.svg')
+const EXAMPLE_SVG = join(process.cwd(), 'src', 'asset', 'skills', 'ppt-master', 'examples', 'ppt169_kubernetes_blueprint_2026', 'svg_output', '01_cover.svg')
 const hasExample = existsSync(EXAMPLE_SVG)
 const skipOrNot = hasExample ? describe : describe.skip
 
@@ -194,8 +243,8 @@ skipOrNot('parseSvgToPage - 真实 PPT Master SVG', () => {
     const page = parseSvgToPage(svgContent)!
     const texts = page.elements.filter((e) => e.type === 'text')
     expect(texts.length).toBeGreaterThan(0)
-    // 至少有一个含中文文字
-    const hasChinese = texts.some((t) => /[\u4e00-\u9fff]/.test(t.text ?? ''))
-    expect(hasChinese).toBe(true)
+    // 至少有一段非空正文（英文示例封面含 "Kubernetes" 等标题）
+    const hasContent = texts.some((t) => (t.text ?? '').trim().length > 3)
+    expect(hasContent).toBe(true)
   })
 })

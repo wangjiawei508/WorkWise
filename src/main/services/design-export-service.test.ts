@@ -53,7 +53,7 @@ async function powerPointBytes(input?: {
   return zip.generateAsync({ type: 'nodebuffer' })
 }
 
-describe('PPT Master 4.0 export contract', () => {
+describe('PPT Master 4.3 export contract', () => {
   it('creates an explicit flat release lock', () => {
     const lock = createFlatPptMasterSpecLock({
       width: 1280,

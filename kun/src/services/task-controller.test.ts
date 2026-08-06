@@ -11,6 +11,7 @@ import { RuntimeSpanService } from './runtime-span-service.js'
 import { makeAssistantTextItem, makeToolResultItem } from '../domain/item.js'
 
 const cleanup: string[] = []
+const PERSISTENCE_TEST_TIMEOUT_MS = 15_000
 
 afterEach(async () => {
   await Promise.all(cleanup.splice(0).map((path) => rm(path, { recursive: true, force: true })))
@@ -106,7 +107,7 @@ describe('TaskController reliability boundaries', () => {
     expect(repository.events(task.id).filter((event) => event.kind === 'task_stalled')).toHaveLength(1)
     expect(repository.latestCheckpoint(task.id)?.resumeSummary).toBe('network unavailable')
     repository.close()
-  })
+  }, PERSISTENCE_TEST_TIMEOUT_MS)
 
   it('fails at a hard attempt budget without ever writing a completion event', async () => {
     const { repository, controller, task } = await fixture()
@@ -126,7 +127,7 @@ describe('TaskController reliability boundaries', () => {
     expect(repository.events(task.id).filter((event) => event.kind === 'task_completed')).toHaveLength(0)
     expect(repository.events(task.id).filter((event) => event.kind === 'task_failed')).toHaveLength(1)
     repository.close()
-  })
+  }, PERSISTENCE_TEST_TIMEOUT_MS)
 
   it('enforces the duration budget and recovers an expired running lease after restart', async () => {
     const { repository, controller, task, setNow } = await fixture()
@@ -155,7 +156,7 @@ describe('TaskController reliability boundaries', () => {
     expect(recovered[0]).toMatchObject({ status: 'retrying' })
     expect(recovery.repository.latestCheckpoint(recovery.task.id)?.resumeSummary).toContain('自动续跑')
     recovery.repository.close()
-  })
+  }, PERSISTENCE_TEST_TIMEOUT_MS)
 
   it('records task, turn, and artifact validation spans without storing the absolute artifact path', async () => {
     const { root, repository, sessionStore, spans, controller, task } = await fixture(

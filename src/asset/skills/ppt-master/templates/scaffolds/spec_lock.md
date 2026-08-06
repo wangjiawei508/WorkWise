@@ -6,6 +6,7 @@
 - format: {{CANVAS_NAME}}
 
 ## communication
+- primary_language: [fill]
 - audience:
 - objective:
 - core_message:
@@ -25,6 +26,8 @@
 
 ## typography
 - font_family: [fill]
+- title_family: [fill]
+- body_family: [fill]
 - body: [fill]
 - title: [fill]
 
@@ -39,6 +42,5 @@
 - mode: flat
 
 ## forbidden
-- Mixing icon libraries
 - `mask`, `<style>`, `class`, external CSS, `<foreignObject>`, `textPath`, `@font-face`, `<animate*>`, `<set>`, `<script>` / event attributes, `<iframe>`
 - HTML named entities in text; write typography as raw Unicode and escape XML reserved characters

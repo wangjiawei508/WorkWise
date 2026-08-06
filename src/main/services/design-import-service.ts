@@ -14,7 +14,12 @@ import {
 import { tmpdir } from 'node:os'
 import { basename, dirname, extname, isAbsolute, join, relative, resolve } from 'node:path'
 import { parseSvgStringsToDocument } from '../../shared/design-svg-parser'
-import { generateDesignElementId, type DesignDocumentV1 } from '../../shared/design-document'
+import {
+  generateDesignElementId,
+  type DesignDocumentV1,
+  type DesignElement,
+  type DesignPage
+} from '../../shared/design-document'
 import type { DesignFidelityWarning } from '../../shared/design-workspace'
 import { resolvePptMasterScript } from './design-ppt-master-paths'
 import {
@@ -431,16 +436,40 @@ export async function importPptxToDesign(pptxPath: string): Promise<DesignImport
     const preflight = await preflightPptxForDesignImport(stagedPptxPath)
     await mkdir(conversionDirectory, { recursive: true })
 
-    // 2. 正式包只使用随客户端分发的受限 sidecar。系统 Python 仅保留给
-    //    开发模式，避免已安装客户端受主机 Python/依赖环境影响。
+    // 2. 优先使用原生 PPTX 解析（python-pptx 直读形状/段落/字体），
+    //    失败或没有可编辑文字时回退到 pptx_to_svg。
+    let nativeSvgReady = false
     if (isPptMasterSidecarAvailable()) {
+      try {
+        await runPptMasterSidecar({
+          operation: 'ppt-master-import-pptx-native',
+          workspaceRoot: tempDir,
+          inputPath: stagedPptxPath,
+          outputDirectory: conversionDirectory
+        }, { timeoutMs: IMPORT_TIMEOUT_MS })
+        const probeSvgDir = join(conversionDirectory, 'svg')
+        if (existsSync(probeSvgDir)) {
+          const probeFiles = (await readdir(probeSvgDir))
+            .filter((name) => /^slide_\d+\.svg$/i.test(name))
+            .sort()
+          if (probeFiles.length > 0) {
+            const first = await readFile(join(probeSvgDir, probeFiles[0]), 'utf8')
+            nativeSvgReady = /<text\b/i.test(first)
+          }
+        }
+      } catch {
+        nativeSvgReady = false
+      }
+    }
+    if (!nativeSvgReady && isPptMasterSidecarAvailable()) {
       await runPptMasterSidecar({
         operation: 'ppt-master-import-pptx',
         workspaceRoot: tempDir,
         inputPath: stagedPptxPath,
         outputDirectory: conversionDirectory
       }, { timeoutMs: IMPORT_TIMEOUT_MS })
-    } else {
+    }
+    if (!nativeSvgReady && !isPptMasterSidecarAvailable()) {
       const developmentFallbackAllowed =
         process.env.NODE_ENV !== 'production' || process.defaultApp === true
       if (!developmentFallbackAllowed) {
@@ -495,65 +524,104 @@ export async function importPptxToDesign(pptxPath: string): Promise<DesignImport
       svgStrings.push(content)
     }
 
-    // 5. Preserve every slide as one self-contained visual reference. The old
-    //    element-by-element SVG decomposition was editable, but it silently lost
-    //    PowerPoint layout semantics (text wrapping, themes, clipping and effects),
-    //    producing unreadable pages. A flattened reference is readable and can be
-    //    selected or annotated; WorkWise keeps the editable conversion experimental
-    //    instead of presenting a broken approximation as the default.
+    // 5. Fidelity warnings from the raw SVG conversion.
     const warnings: DesignFidelityWarning[] = []
     for (let pageIndex = 0; pageIndex < svgStrings.length; pageIndex += 1) {
       const svg = svgStrings[pageIndex]
       warnings.push(...inspectDesignSvgFidelity(svg, pageIndex))
     }
 
-    // 6. Parse page geometry, then replace the lossy editable decomposition with a
-    //    full-page SVG reference. IPC rasterizes these self-contained SVGs to PNG
-    //    before persistence, so untrusted SVG never remains an active document asset.
+    // 6. Parse each slide into real Design elements. Pages with meaningful
+    //    vector content (text, paths, filled shapes) stay fully editable.
+    //    Only genuinely picture-only pages fall back to the locked full-page
+    //    reference + invisible hit-region model.
     const name = basename(pptxPath, '.pptx')
     const parsedDocument = parseSvgStringsToDocument(svgStrings, name)
-    const importedImages: ImportedDesignImage[] = svgStrings.map((svg, pageIndex) => {
+    const keepVector = parsedDocument.pages.map((page) => shouldKeepVectorElements(page))
+    const hasFallbackPages = keepVector.some((keep) => !keep)
+    const importedImages: ImportedDesignImage[] = []
+
+    // Every page gets a full-page visual reference so users can switch a page
+    // to “fidelity mode” (exact original look) at any time.
+    for (let pageIndex = 0; pageIndex < svgStrings.length; pageIndex += 1) {
       const page = parsedDocument.pages[pageIndex]
-      return {
-        provisionalId: `asset_import_slide_${pageIndex}`,
+      importedImages.push({
+        provisionalId: pageReferenceImageId(pageIndex),
         filename: `slide-${String(pageIndex + 1).padStart(3, '0')}.svg`,
         mimeType: 'image/svg+xml',
-        bytes: Buffer.from(svg, 'utf8'),
+        bytes: Buffer.from(svgStrings[pageIndex], 'utf8'),
         width: page?.width,
         height: page?.height
+      })
+    }
+
+    // Embedded raster images inside SVG <image> elements become real editable
+    // assets instead of being flattened into the page reference.
+    for (let pageIndex = 0; pageIndex < svgStrings.length; pageIndex += 1) {
+      let imageIndex = 0
+      for (const href of imageHrefs(svgStrings[pageIndex])) {
+        let bytes: Uint8Array | null = null
+        let mimeType: ImportedDesignImage['mimeType'] | null = null
+        const dataMatch = href.match(/^data:image\/(png|jpeg|webp|gif);base64,([A-Za-z0-9+/=]+)$/i)
+        if (dataMatch) {
+          bytes = Buffer.from(dataMatch[2], 'base64')
+          mimeType = `image/${dataMatch[1].toLowerCase()}` as ImportedDesignImage['mimeType']
+        } else if (/^media\/[^/]+$/.test(href)) {
+          try {
+            const read = await readImportedDesignImage(href, svgDir, tempDir)
+            bytes = read.bytes
+            mimeType = read.mimeType
+          } catch {
+            continue
+          }
+        } else {
+          continue
+        }
+        if (!bytes || bytes.byteLength === 0 || bytes.byteLength > MAX_IMPORTED_IMAGE_BYTES || !mimeType) continue
+        const extension = mimeType === 'image/jpeg' ? 'jpg' : mimeType.split('/')[1]
+        importedImages.push({
+          provisionalId: pageImageElementId(pageIndex, imageIndex),
+          filename: `slide-${String(pageIndex + 1).padStart(3, '0')}-img-${imageIndex + 1}.${extension}`,
+          mimeType,
+          bytes
+        })
+        imageIndex += 1
       }
+    }
+
+    const hrefToImageId: Array<Map<string, string>> = svgStrings.map(() => new Map())
+    for (let pageIndex = 0; pageIndex < svgStrings.length; pageIndex += 1) {
+      let imageIndex = 0
+      for (const href of imageHrefs(svgStrings[pageIndex])) {
+        if (href.startsWith('data:image/') || /^media\/[^/]+$/.test(href)) {
+          hrefToImageId[pageIndex].set(href, pageImageElementId(pageIndex, imageIndex))
+          imageIndex += 1
+        }
+      }
+    }
+
+    const parsedWithImages = parseSvgStringsToDocument(svgStrings, name, {
+      imageAssetIdForHref: (href, pageIndex) => hrefToImageId[pageIndex]?.get(href)
     })
     const document: DesignDocumentV1 = {
-      ...parsedDocument,
-      pages: parsedDocument.pages.map((page, pageIndex) => ({
-        ...page,
-        background: 'FFFFFF',
-        elements: [{
-          id: generateDesignElementId(),
-          type: 'image',
-          name: `Imported slide ${pageIndex + 1}${(() => {
-            const sourceText = page.elements
-              .filter((element) => element.type === 'text' && element.text?.trim())
-              .map((element) => element.text!.trim())
-              .join(' · ')
-              .slice(0, 400)
-            return sourceText ? ` · ${sourceText}` : ''
-          })()}`,
-          x: 0,
-          y: 0,
-          w: page.width,
-          h: page.height,
-          rotation: 0,
-          opacity: 1,
-          imageAssetId: importedImages[pageIndex].provisionalId,
-          zIndex: 0
-        }]
-      }))
+      ...parsedWithImages,
+      pages: parsedWithImages.pages.map((page, pageIndex) => {
+        const base = keepVector[pageIndex]
+          ? buildEditablePage(page)
+          : buildReferencePage(page, pageIndex)
+        return {
+          ...base,
+          fidelityImageAssetId: pageReferenceImageId(pageIndex),
+          displayMode: keepVector[pageIndex] ? 'editable' : 'fidelity'
+        }
+      })
     }
-    warnings.unshift({
-      code: 'layout_approximation',
-      message: 'Slides were imported as readable visual references. Add or select overlay elements for AI-assisted changes.'
-    })
+    if (hasFallbackPages) {
+      warnings.unshift({
+        code: 'reference_regions',
+        message: 'Some slides are picture-only and keep the original visual as a locked reference with selectable hit regions; pages with real vector content were imported as editable elements.'
+      })
+    }
 
     return { ok: true, document, images: importedImages, warnings: dedupeWarnings(warnings) }
   } catch (error) {
@@ -567,6 +635,106 @@ export async function importPptxToDesign(pptxPath: string): Promise<DesignImport
   } finally {
     await rm(tempDir, { recursive: true, force: true }).catch(() => undefined)
   }
+}
+
+function pageReferenceImageId(pageIndex: number): string {
+  return `asset_import_slide_${pageIndex + 1}`
+}
+
+function pageImageElementId(pageIndex: number, imageIndex: number): string {
+  return `asset_import_slide_${pageIndex + 1}_img_${imageIndex + 1}`
+}
+
+/**
+ * A page is worth keeping as real editable elements when it contains any
+ * meaningful vector content: text, paths, or visible shapes. Picture-only
+ * pages (full-page <image> plus empty placeholders) fall back to the locked
+ * visual-reference model instead.
+ */
+export function shouldKeepVectorElements(page: DesignPage): boolean {
+  return page.elements.some((element) => {
+    if (element.type === 'text') return Boolean(element.text?.trim())
+    if (element.type === 'path') return Boolean(element.pathData)
+    if (element.type === 'ellipse' || element.type === 'line') return true
+    if (element.type === 'rect') return Boolean(element.fill || element.stroke)
+    return false
+  })
+}
+
+function buildEditablePage(page: DesignPage): DesignPage {
+  return {
+    ...page,
+    background: page.background ?? 'FFFFFF',
+    elements: page.elements
+      .map((element, elementIndex) => ({
+        ...element,
+        zIndex: element.zIndex ?? elementIndex,
+        locked: false
+      }))
+      .filter((element) => !(element.type === 'image' && !element.imageAssetId))
+  }
+}
+
+function buildReferencePage(page: DesignPage, pageIndex: number): DesignPage {
+  const sourceText = page.elements
+    .filter((element) => element.type === 'text' && element.text?.trim())
+    .map((element) => element.text!.trim())
+    .join(' · ')
+    .slice(0, 400)
+  const reference: DesignElement = {
+    id: generateDesignElementId(),
+    type: 'image',
+    name: `幻灯片 ${pageIndex + 1} 参考图${sourceText ? ` · ${sourceText}` : ''}`,
+    x: 0,
+    y: 0,
+    w: page.width,
+    h: page.height,
+    rotation: 0,
+    opacity: 1,
+    imageAssetId: pageReferenceImageId(pageIndex),
+    zIndex: 0,
+    locked: true
+  }
+  const regions: DesignElement[] = page.elements.map((element, elementIndex) => ({
+    id: generateDesignElementId(),
+    type: 'rect',
+    name: designReferenceRegionName(element, elementIndex),
+    x: Math.round(element.x),
+    y: Math.round(element.y),
+    w: Math.max(1, Math.round(element.w || 1)),
+    h: Math.max(1, Math.round(element.h || 1)),
+    rotation: element.rotation ?? 0,
+    fill: 'FFFFFF',
+    stroke: 'FFFFFF',
+    opacity: 0,
+    locked: true,
+    zIndex: elementIndex + 1
+  }))
+  return {
+    ...page,
+    background: 'FFFFFF',
+    elements: [reference, ...regions]
+  }
+}
+
+const REFERENCE_REGION_LABELS: Record<string, string> = {
+  text: '文本',
+  rect: '形状',
+  ellipse: '椭圆',
+  line: '线条',
+  path: '图形',
+  image: '图片',
+  group: '组合',
+  preset: '预设形状'
+}
+
+function designReferenceRegionName(
+  element: Pick<DesignElement, 'type' | 'text'>,
+  index: number
+): string {
+  const label = REFERENCE_REGION_LABELS[element.type] ?? element.type ?? '元素'
+  const snippet = element.type === 'text' ? element.text?.trim().slice(0, 24) : ''
+  return snippet ? `${label} · ${snippet}` : `${label} ${index + 1}`
 }
 
 function imageHrefs(svg: string): string[] {

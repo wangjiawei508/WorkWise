@@ -221,6 +221,8 @@ export type DesignElement = {
   fontFamily?: string
   fontWeight?: string
   textAlign?: 'left' | 'center' | 'right'
+  /** 字间距（像素），对应 SVG letter-spacing */
+  letterSpacing?: number
 
   // type=image 特有
   /** 图片资源 id（指向 document.assets），不是直接路径 */
@@ -272,6 +274,10 @@ export type DesignPage = {
   elements: DesignElement[]
   /** 背景色（hex 无 #）。缺省透明或白 */
   background?: string
+  /** 整页参考图资源 id（导入 PPT 时生成），用于“视觉保真”模式 */
+  fidelityImageAssetId?: string
+  /** 页面显示模式：editable=矢量元素可编辑；fidelity=整页参考图（视觉保真） */
+  displayMode?: 'editable' | 'fidelity'
 }
 
 // ---------------------------------------------------------------------------
@@ -410,10 +416,11 @@ export function createDesignElement(
     base.fontSize = overrides.fontSize ?? 24
     base.fontFamily = overrides.fontFamily ?? "system-ui, 'Microsoft YaHei', sans-serif"
     base.fontWeight = overrides.fontWeight ?? 'normal'
-    base.fill = overrides.fill ?? '1A1A2E'
+    // 显式传入 undefined 表示“无填充”（例如 SVG fill="none"），不得回退默认色
+    base.fill = 'fill' in overrides ? overrides.fill : '1A1A2E'
   }
   if (type === 'ellipse') {
-    base.fill = overrides.fill ?? '4A90D9'
+    base.fill = 'fill' in overrides ? overrides.fill : '4A90D9'
   }
   if (type === 'line') {
     base.stroke = overrides.stroke ?? '1A1A2E'
@@ -761,13 +768,20 @@ export function normalizeDesignElement(input: Partial<DesignElement> | null | un
   ) return null
   if (!input.type || !DESIGN_ELEMENT_TYPES.includes(input.type as DesignElementType)) return null
 
+  const isLine = input.type === 'line'
   const element: DesignElement = {
     id: input.id,
     type: input.type as DesignElementType,
     x: typeof input.x === 'number' && Number.isFinite(input.x) ? input.x : 0,
     y: typeof input.y === 'number' && Number.isFinite(input.y) ? input.y : 0,
-    w: typeof input.w === 'number' && Number.isFinite(input.w) && input.w > 0 ? input.w : 100,
-    h: typeof input.h === 'number' && Number.isFinite(input.h) && input.h > 0 ? input.h : 100,
+    // 线条用带符号的 w/h 表达方向（向左/向上的线为负值），归一化时必须保留；
+    // 其他元素仍要求正尺寸，缺失或非法时回退默认值。
+    w: typeof input.w === 'number' && Number.isFinite(input.w) && (isLine ? input.w !== 0 : input.w > 0)
+      ? input.w
+      : 100,
+    h: typeof input.h === 'number' && Number.isFinite(input.h) && (isLine ? input.h !== 0 : input.h > 0)
+      ? input.h
+      : 100,
     rotation: typeof input.rotation === 'number' && Number.isFinite(input.rotation) ? input.rotation : 0,
     zIndex: typeof input.zIndex === 'number' && Number.isFinite(input.zIndex) ? input.zIndex : 0,
     ...(input.fill !== undefined ? { fill: isValidDesignColor(input.fill) ? input.fill : '000000' } : {}),
@@ -853,7 +867,13 @@ export function normalizeDesignDocument(input: Partial<DesignDocumentV1> | null 
         width: typeof page.width === 'number' && Number.isFinite(page.width) && page.width > 0 ? Math.round(page.width) : 1280,
         height: typeof page.height === 'number' && Number.isFinite(page.height) && page.height > 0 ? Math.round(page.height) : 720,
         elements,
-        ...(page.background !== undefined && isValidDesignColor(page.background) ? { background: page.background } : {})
+        ...(page.background !== undefined && isValidDesignColor(page.background) ? { background: page.background } : {}),
+        ...(typeof page.fidelityImageAssetId === 'string' && page.fidelityImageAssetId.trim()
+          ? { fidelityImageAssetId: page.fidelityImageAssetId.trim() }
+          : {}),
+        ...(page.displayMode === 'fidelity' || page.displayMode === 'editable'
+          ? { displayMode: page.displayMode }
+          : {})
       })
     }
   }

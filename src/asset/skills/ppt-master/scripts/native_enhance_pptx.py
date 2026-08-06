@@ -2,14 +2,14 @@
 """
 PPT Master - Native Enhance PPTX Entrypoint
 
-Public CLI wrapper for native enhancement of existing PPTX decks. V1 delegates
-to the narration/timings implementation while keeping the stable command name
-aligned with the native-enhance workflow.
+Public CLI wrapper for native enhancement of existing PPTX decks. It delegates
+to the shared native core for delivery checks, notes, narration, timings, and
+global or per-slide transitions while keeping the stable workflow command.
 
 Usage:
     python3 scripts/native_enhance_pptx.py init <source.pptx> [--name project_name]
     python3 scripts/native_enhance_pptx.py plan <project_path>
-    python3 scripts/native_enhance_pptx.py validate <project_path>
+    python3 scripts/native_enhance_pptx.py validate <project_path> [--materials {all,notes}]
     python3 scripts/native_enhance_pptx.py apply <project_path>
 
 Examples:

@@ -86,6 +86,7 @@ def call_ppt_master(operation: str, request: dict[str, Any]) -> dict[str, Any]:
     stderr = io.StringIO()
     started = time.monotonic()
     exit_code = 0
+    quality_check_payload: dict[str, Any] | None = None
 
     try:
         try:
@@ -171,6 +172,29 @@ def call_ppt_master(operation: str, request: dict[str, Any]) -> dict[str, Any]:
                         exit_code = int(module.main() or 0)
                     finally:
                         sys.argv = previous_argv
+                elif operation == "ppt-master-import-pptx-native":
+                    source = bounded_ppt_path(
+                        root, request.get("inputPath"), "inputPath", True
+                    )
+                    output = bounded_ppt_path(
+                        root,
+                        request.get("outputDirectory"),
+                        "outputDirectory",
+                        False,
+                    )
+                    if (
+                        source.suffix.lower() != ".pptx"
+                        or source.stat().st_size > MAX_INPUT_BYTES
+                    ):
+                        raise ValueError(
+                            "inputPath must be a PPTX no larger than 200 MiB"
+                        )
+                    output.mkdir(parents=True, exist_ok=True)
+                    module = load_script_module(
+                        "workwise_pptx_native_to_svg",
+                        scripts_root / "pptx_native_to_svg.py",
+                    )
+                    module.convert_pptx_to_svg(str(source), str(output))
                 elif operation == "ppt-master-export-pptx":
                     project = bounded_ppt_path(
                         root, request.get("projectPath"), "projectPath", True
@@ -207,6 +231,46 @@ def call_ppt_master(operation: str, request: dict[str, Any]) -> dict[str, Any]:
                         )
                         or 0
                     )
+                elif operation == "ppt-master-quality-check":
+                    project = bounded_ppt_path(
+                        root, request.get("projectPath"), "projectPath", True
+                    )
+                    stage = request.get("stage", "final")
+                    if stage not in {"first-page", "final"}:
+                        raise ValueError("quality-check stage must be first-page or final")
+                    module = load_script_module(
+                        "workwise_svg_quality_checker",
+                        scripts_root / "svg_quality_checker.py",
+                    )
+                    previous_argv = sys.argv
+                    try:
+                        sys.argv = [
+                            str(scripts_root / "svg_quality_checker.py"),
+                            str(project),
+                            "--stage",
+                            stage,
+                            "--json",
+                        ]
+                        exit_code = int(module.main() or 0)
+                    finally:
+                        sys.argv = previous_argv
+                    report_name = (
+                        "svg_quality_report.json"
+                        if stage == "final"
+                        else "svg_quality_first_page_report.json"
+                    )
+                    report_path = project / "validation" / report_name
+                    report: dict[str, Any] | None = None
+                    if report_path.is_file():
+                        try:
+                            report = json.loads(report_path.read_text("utf-8"))
+                        except Exception:
+                            report = None
+                    quality_check_payload = {
+                        "exitCode": exit_code,
+                        "reportPath": str(report_path.relative_to(root)),
+                        "report": report,
+                    }
                 else:
                     raise ValueError("unsupported PPT Master operation")
         except SystemExit as error:
@@ -218,7 +282,7 @@ def call_ppt_master(operation: str, request: dict[str, Any]) -> dict[str, Any]:
         except ValueError:
             pass
 
-    if exit_code != 0:
+    if exit_code != 0 and operation != "ppt-master-quality-check":
         raise ValueError(
             (stderr.getvalue().strip() or stdout.getvalue().strip() or "PPT Master failed")[
                 :1000
@@ -247,6 +311,8 @@ def call_ppt_master(operation: str, request: dict[str, Any]) -> dict[str, Any]:
                 root
             )
         )
+    if quality_check_payload is not None:
+        payload.update(quality_check_payload)
     return payload
 
 

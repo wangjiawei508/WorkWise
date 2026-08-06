@@ -46,6 +46,13 @@ import type {
   WorkspaceFileWriteResult
 } from './workspace-file'
 import type {
+  PptMasterDeliverableVerifyRequest,
+  PptMasterDeliverableVerifyResult,
+  PptMasterPythonEnvEnsureResult,
+  PptMasterPythonEnvProgress,
+  PptMasterPythonEnvStatus
+} from './ppt-master-services'
+import type {
   WriteInlineCompletionDebugEntry,
   WriteInlineCompletionRequest,
   WriteInlineCompletionResult
@@ -462,6 +469,14 @@ export type WorkWiseApi = {
     payload: WorkspaceClipboardImageSavePayload
   ) => Promise<WorkspaceClipboardImageSaveResult>
   readClipboardImage: () => Promise<ClipboardImageReadResult>
+  verifyPptMasterDeliverable: (
+    payload: PptMasterDeliverableVerifyRequest
+  ) => Promise<PptMasterDeliverableVerifyResult>
+  pptMasterPythonEnvStatus: () => Promise<PptMasterPythonEnvStatus>
+  pptMasterPythonEnsure: () => Promise<PptMasterPythonEnvEnsureResult>
+  onPptMasterPythonEnvProgress: (
+    callback: (progress: PptMasterPythonEnvProgress) => void
+  ) => () => void
   renameWorkspaceEntry: (
     payload: WorkspaceEntryRenamePayload
   ) => Promise<WorkspaceEntryRenameResult>

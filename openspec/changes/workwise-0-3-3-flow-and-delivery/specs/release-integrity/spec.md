@@ -7,6 +7,10 @@ WorkWise SHALL validate macOS arm64, macOS x64, and Windows x64 packages, their 
 - **WHEN** a release candidate is built from the committed tag
 - **THEN** all three supported packages, ZIP/EXE/blockmap files, `latest.yml`/`latest-mac.yml`, signatures, notarization evidence, versions, hashes, full downloads, and Range downloads pass verification before publication
 
+#### Scenario: Packaged GUI acceptance completes
+- **WHEN** a desktop release candidate reaches final acceptance
+- **THEN** maintainers launch the exact packaged application and visibly exercise Code/Write navigation, long-form Write composition with a real document attachment, Scheduled tasks, a newly created starter Flow, and Design PPT import plus targeted AI modification
+
 #### Scenario: Stable macOS candidate is unsigned or unnotarized
 - **WHEN** Developer ID signing, hardened runtime, notarization, or stapling verification is missing or invalid
 - **THEN** the release workflow fails and does not mark the macOS package as automatically installable

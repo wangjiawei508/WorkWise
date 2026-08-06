@@ -411,36 +411,49 @@ describe('skill-service', () => {
     expect(existsSync(join(installedRoot, 'scripts', 'confirm_ui', 'static', 'index.html'))).toBe(true)
     expect(existsSync(join(installedRoot, 'scripts', 'docs', 'confirm_ui.md'))).toBe(true)
     expect(existsSync(join(installedRoot, 'scripts', 'svg_editor', 'static', 'index.html'))).toBe(true)
-    // 保持 v4.0 官方目录结构；图标大包不分发，只保留说明。
+    // 保持 v4.3 官方目录结构；图标大包不分发，只保留说明。
     expect(existsSync(join(installedRoot, 'templates', 'charts', 'charts_index.json'))).toBe(true)
     expect(existsSync(join(installedRoot, 'templates', 'layouts', 'layouts_index.json'))).toBe(true)
     expect(existsSync(join(installedRoot, 'templates', 'icons', 'README.md'))).toBe(true)
     expect(existsSync(join(installedRoot, 'templates', 'icons', 'app-window.svg'))).toBe(false)
     expect(existsSync(join(installedRoot, 'projects', 'README.md'))).toBe(true)
     expect(existsSync(join(installedRoot, 'examples', 'README.md'))).toBe(true)
+    // 精选轻量示例：只保留设计规格、锁文件与 svg_output，排除 images/svg_final/exports/sources。
     expect(existsSync(join(
       installedRoot,
       'examples',
-      'ppt169_顶级咨询风_构建有效AI代理_Anthropic',
+      'ppt169_kubernetes_blueprint_2026',
       'design_spec.md'
     ))).toBe(true)
     expect(existsSync(join(
       installedRoot,
       'examples',
-      'ppt169_顶级咨询风_构建有效AI代理_Anthropic',
-      'exports'
+      'ppt169_kubernetes_blueprint_2026',
+      'svg_output'
+    ))).toBe(true)
+    expect(existsSync(join(
+      installedRoot,
+      'examples',
+      'ppt169_kubernetes_blueprint_2026',
+      'images'
     ))).toBe(false)
     expect(existsSync(join(
       installedRoot,
       'examples',
-      'ppt169_顶级咨询风_构建有效AI代理_Anthropic',
-      'svg_output'
+      'ppt169_kubernetes_blueprint_2026',
+      'svg_final'
+    ))).toBe(false)
+    expect(existsSync(join(
+      installedRoot,
+      'examples',
+      'ppt169_kubernetes_blueprint_2026',
+      'exports'
     ))).toBe(false)
     const source = JSON.parse(
       await readFile(join(installedRoot, '.workwise-skill-source.json'), 'utf8')
     ) as Record<string, unknown>
     expect(existsSync(join(installedRoot, '.workgpt-skill-source.json'))).toBe(false)
-    // v4.0 curated slim bundle: autoUpdate disabled, overlay preserved
+    // v4.3 curated slim bundle: autoUpdate disabled, overlay preserved
     expect(source).toMatchObject({
       type: 'github',
       owner: 'hugohe3',
@@ -456,15 +469,15 @@ describe('skill-service', () => {
     if (!result.ok) return
     expect(result.skills).toContainEqual(expect.objectContaining({
       id: 'ppt-master',
-      name: 'PPT Master 4.0.0',
+      name: 'PPT Master 4.3.0',
       description: expect.stringContaining('presentation workflow'),
       source: expect.objectContaining({
         type: 'github',
         owner: 'hugohe3',
         repo: 'ppt-master',
         path: 'skills/ppt-master',
-        ref: 'v4.0.0',
-        installedSha: '6636fb141077d73c43385fd8e88cb32309237300',
+        ref: 'v4.3.0',
+        installedSha: '51cb529d00638097e70fd3e9d865a0bf061b5e19',
         autoUpdate: false,
         overlaySkillId: 'ppt-master'
       })

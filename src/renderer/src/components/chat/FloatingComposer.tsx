@@ -90,6 +90,14 @@ export type { ComposerExecutionSettings } from './FloatingComposerExecutionPicke
 
 type Props = {
   variant?: 'default' | 'compact'
+  composerMinHeight?: number
+  composerMaxHeight?: number
+  /**
+   * Keep the toolbar on one row even in narrow containers. The Write assistant
+   * panel is narrower than the 640px container-query breakpoint that would
+   * otherwise stack the "+" button above the model/send controls.
+   */
+  forceToolbarRow?: boolean
   workspaceRootOverride?: string
   input: string
   setInput: (v: string) => void
@@ -479,6 +487,9 @@ export function formatGoalElapsedSeconds(seconds: number): string {
 
 export function FloatingComposer({
   variant = 'default',
+  composerMinHeight = 36,
+  composerMaxHeight = 176,
+  forceToolbarRow = false,
   workspaceRootOverride,
   input,
   setInput,
@@ -591,7 +602,10 @@ export function FloatingComposer({
   )
   const canPickAttachment = canCompose && attachmentUploadEnabled && !attachmentUploadBusy
   const showIntentToolbar = !compact && route === 'chat'
-  const showComposerMenuButton = showIntentToolbar || (compact && attachmentUploadEnabled)
+  // Attachments must stay reachable outside the chat route (e.g. the Write
+  // assistant panel), so any enabled attachment upload shows the "+" control
+  // regardless of the compact variant.
+  const showComposerMenuButton = showIntentToolbar || attachmentUploadEnabled
   const canTogglePlanMode = canCompose && Boolean(onPlanCommand)
   const canOpenGoalPanel = !compact && canCompose && route !== 'claw'
   const canRunReview = !compact && canCompose && route !== 'claw' && Boolean(onReviewCommand)
@@ -611,7 +625,12 @@ export function FloatingComposer({
   const hiddenChangedFileCount = Math.max(0, changedFiles.length - visibleChangedFiles.length)
   const stretchModelPicker =
     compact && modelPickerMode === 'combobox' && !showToolbarStartControls && !hideModelPicker
-  const draft = useComposerDraft({ input, canCompose: canEditComposer })
+  const draft = useComposerDraft({
+    input,
+    canCompose: canEditComposer,
+    minHeight: composerMinHeight,
+    maxHeight: composerMaxHeight
+  })
   const slashQuery = getSlashQuery(input)
   const [composerCursor, setComposerCursor] = useState(() => input.length)
   const [selectedCommandIndex, setSelectedCommandIndex] = useState(0)
@@ -1344,8 +1363,8 @@ export function FloatingComposer({
     <div
       ref={composerRootRef}
       className={compact
-        ? 'ds-floating-composer ds-no-drag pointer-events-auto w-full pb-0 pt-0'
-        : 'ds-floating-composer ds-no-drag ds-chat-column-inset pointer-events-auto w-full max-w-4xl pb-3 pt-0'}
+        ? `ds-floating-composer ds-no-drag pointer-events-auto w-full pb-0 pt-0${forceToolbarRow ? ' ds-composer-toolbar-row' : ''}`
+        : `ds-floating-composer ds-no-drag ds-chat-column-inset pointer-events-auto w-full max-w-4xl pb-3 pt-0${forceToolbarRow ? ' ds-composer-toolbar-row' : ''}`}
     >
       <FloatingComposerQueuedMessages
         messages={queuedMessages}

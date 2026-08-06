@@ -9,6 +9,7 @@ import { createBashLocalTool } from './builtin-bash-tool.js'
 import { createEditLocalTool, createWriteLocalTool } from './builtin-file-tools.js'
 import { createReadLocalTool } from './builtin-read-tool.js'
 import { createFindLocalTool, createGrepLocalTool, createLsLocalTool } from './builtin-search-tools.js'
+import { createPptMasterEnvLocalTool, createPptMasterLocalTool } from './builtin-ppt-tool.js'
 
 export * from './builtin-tool-types.js'
 export * from './builtin-tool-operations.js'
@@ -36,6 +37,10 @@ export function createBuiltinLocalTool(
       return createFindLocalTool(options.find)
     case 'ls':
       return createLsLocalTool(options.ls)
+    case 'ppt_master':
+      return createPptMasterLocalTool(options.pptMaster)
+    case 'ppt_master_env':
+      return createPptMasterEnvLocalTool(options.pptMasterEnv)
   }
 }
 
@@ -55,7 +60,9 @@ export function buildBuiltinLocalTools(options: BuiltinLocalToolsOptions = {}): 
     createWriteLocalTool(options.write),
     createGrepLocalTool(options.grep),
     createFindLocalTool(options.find),
-    createLsLocalTool(options.ls)
+    createLsLocalTool(options.ls),
+    createPptMasterLocalTool(options.pptMaster),
+    createPptMasterEnvLocalTool(options.pptMasterEnv)
   ]
 }
 
@@ -68,7 +75,9 @@ export function buildCodingBuiltinLocalTools(options: BuiltinLocalToolsOptions =
     createReadLocalTool(options.read),
     createBashLocalTool(options.bash),
     createEditLocalTool(options.edit),
-    createWriteLocalTool(options.write)
+    createWriteLocalTool(options.write),
+    createPptMasterLocalTool(options.pptMaster),
+    createPptMasterEnvLocalTool(options.pptMasterEnv)
   ]
 }
 
@@ -99,7 +108,9 @@ export function buildBuiltinLocalToolRecord(
     write: createWriteLocalTool(options.write),
     grep: createGrepLocalTool(options.grep),
     find: createFindLocalTool(options.find),
-    ls: createLsLocalTool(options.ls)
+    ls: createLsLocalTool(options.ls),
+    ppt_master: createPptMasterLocalTool(options.pptMaster),
+    ppt_master_env: createPptMasterEnvLocalTool(options.pptMasterEnv)
   }
 }
 

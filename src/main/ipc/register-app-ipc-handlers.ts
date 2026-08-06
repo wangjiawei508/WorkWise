@@ -106,7 +106,8 @@ import {
   writeInfographicPayloadSchema,
   writeInlineCompletionPayloadSchema,
   writeKnowledgeSearchPayloadSchema,
-  workspaceRootSchema
+  workspaceRootSchema,
+  pptMasterDeliverableVerifyPayloadSchema
 } from './app-ipc-schemas'
 import type { JsonSettingsStore } from '../settings-store'
 import type { ClawRuntime } from '../claw-runtime'
@@ -137,6 +138,11 @@ import {
   requestWriteInlineCompletion
 } from '../services/write-inline-completion-service'
 import { requestWriteInfographic } from '../services/write-infographic-service'
+import { verifyPptMasterDeliverable } from '../services/ppt-master-deliverable-verify'
+import {
+  ensurePptMasterPythonEnv,
+  getPptMasterPythonEnvStatus
+} from '../services/ppt-master-python-env'
 import { refreshWriteKnowledgeBase, searchWriteKnowledge } from '../services/write-knowledge-service'
 import { copyWriteDocumentAsRichText, exportWriteDocument } from '../services/write-export-service'
 import { exportDesignToPptx } from '../services/design-export-service'
@@ -1279,6 +1285,17 @@ export function registerAppIpcHandlers(options: RegisterAppIpcHandlersOptions): 
       parseIpcPayload('file:list-workspace-directory', workspaceDirectoryTargetPayloadSchema, payload)
     )
   )
+  ipcMain.handle('ppt:deliverable:verify', async (_, payload: unknown) =>
+    verifyPptMasterDeliverable(
+      parseIpcPayload('ppt:deliverable:verify', pptMasterDeliverableVerifyPayloadSchema, payload)
+    )
+  )
+  ipcMain.handle('ppt:python-env:status', () => getPptMasterPythonEnvStatus())
+  ipcMain.handle('ppt:python-env:ensure', async (event) =>
+    ensurePptMasterPythonEnv({
+      onProgress: (progress) => event.sender.send('ppt:python-env:progress', progress)
+    })
+  )
   ipcMain.handle('file:read-workspace', async (_, payload: unknown) =>
     readWorkspaceFile(
       parseIpcPayload('file:read-workspace', workspaceFileTargetPayloadSchema, payload)
@@ -1580,6 +1597,9 @@ export function registerAppIpcHandlers(options: RegisterAppIpcHandlersOptions): 
         assets,
         pages: imported.document.pages.map((page) => ({
           ...page,
+          ...(page.fidelityImageAssetId
+            ? { fidelityImageAssetId: idMap.get(page.fidelityImageAssetId) ?? page.fidelityImageAssetId }
+            : {}),
           elements: page.elements
             .map((element) =>
               element.type === 'image' && element.imageAssetId

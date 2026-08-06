@@ -17,7 +17,7 @@
             stage_design: "Stage 2 · Deck direction & visual system",
             stage_images: "Stage 3 · Resources & production",
             loading: "Loading…",
-            load_error: "Could not load recommendations.json. The AI must write it before launch.",
+            load_error: "Could not load the current recommendation stage. The AI must write it before launch.",
             btn_confirm: "Confirm",
             btn_confirm_contract: "Confirm contract & continue →",
             btn_confirm_solution: "Confirm solution & continue →",
@@ -39,8 +39,9 @@
             sec_type: "Typography",
             sec_images: "Image usage",
             sec_image_production: "Image production",
+            sec_proactive_execution: "Proactive execution",
             sec_mode: "Generation mode",
-            sec_refine: "Refine spec first",
+            sec_refine: "Review the Design Spec first",
             sec_design_directions: "Coherent design directions",
             design_directions_hint: "Each direction coordinates style, color, typography, icons, and generated-image rendering. You can fine-tune every field below.",
             sec_template_application: "Template application",
@@ -57,8 +58,9 @@
             placeholder_audience_outcome: "What should the audience know, understand, believe, decide, or do afterward?",
             core_message: "Core message / decision ask / action",
             placeholder_core_message: "Which claims, requests, or actions must land even if little else is remembered?",
-            delivery_context: "Delivery context",
-            placeholder_delivery_context: "e.g. 20-minute leadership review with a presenter; recording shared afterward.",
+            delivery_context: "Delivery context (name the primary)",
+            delivery_context_hint: "Distinguish presenter-led, reader-led, hybrid, or recorded/self-running. For hybrid use, state which mode leads and what secondary use must still work.",
+            placeholder_delivery_context: "e.g. Primary: presenter-led 20-minute leadership review. Secondary: reader-led approval copy shared afterward.",
             artifact_afterlife: "Artifact afterlife",
             placeholder_artifact_afterlife: "e.g. approval, review, audit, archive, hand-off, or reuse; leave blank when no later use is expected.",
             stage1_current_value_hint: "Editable fields contain recommendations. Keep, revise, or clear them; confirmation saves the current text exactly, including blank values.",
@@ -78,12 +80,17 @@
             formula_policy: "Formula rendering policy",
             image_ai_path: "AI image source",
             image_strategy: "Generated image style",
-            image_strategy_empty: "No generated-image style candidates were provided.",
+            image_strategy_empty: "No preset style references are available. You can still use a custom style.",
+            image_strategy_required: "Choose a generated-image preset or describe a custom style.",
+            image_strategy_invalid: "The selected generated-image preset is not available.",
+            image_strategy_select_placeholder: "Choose a generated-image preset…",
+            image_strategy_recommended_group: "Recommended for this deck",
+            image_strategy_all_group: "All preset styles",
             image_strategy_rendering: "Rendering",
             image_strategy_visual: "Visual",
             image_strategy_mood: "Mood",
             image_strategy_ai_custom: "AI custom proposal",
-            image_strategy_ai_custom_desc: "A complete out-of-catalog rendering proposal. Select it to edit.",
+            image_strategy_ai_custom_desc: "A novel or multi-reference rendering proposal. Select it to edit.",
             image_strategy_custom_placeholder: "Describe the exact generated-image direction, subjects, composition, style cues, or things to avoid.",
             image_strategy_reference_hint: "Reference images show rendering only. Final AI images inherit the deck color scheme selected above.",
             image_strategy_no_reference: "No reference image for this custom choice.",
@@ -93,8 +100,22 @@
             image_usage_notes_placeholder: "e.g. realistic handwashing scenes; avoid cartoon germs; keep product photos untouched.",
             image_usage_required: "Select at least one image usage option.",
             image_usage_none_exclusive: "No images cannot be combined with other image options.",
+            proactive_execution_hint: "These defaults apply only when you have not explicitly instructed otherwise. Your latest explicit instruction always takes priority.",
+            proactive_speaker_notes: "Proactively generate speaker notes",
+            proactive_speaker_notes_desc: "On by default. The agent generates speaker notes without a separate request.",
+            proactive_custom_animations: "Proactively create custom animations",
+            proactive_custom_animations_desc: "Off by default. Strategist motion suggestions remain available; turn this on to have the agent create custom animations without a separate request.",
+            proactive_narration_audio: "Proactively generate narration audio",
+            proactive_narration_audio_desc: "Off by default. This raw choice does not rewrite the speaker-notes toggle; the Strategist resolves narration's effective notes dependency in the Design Spec.",
             font_heading: "Heading",
             font_body: "Body",
+            font_selection: "Font selection",
+            primary_language_font: "Primary-language font",
+            english_font: "English font",
+            font_picker_hint: "Choosing a recommendation fills these selectors. Changing any font marks the typography as customized.",
+            other_installed_font: "Other installed font…",
+            other_font_placeholder: "Exact installed font name",
+            customized: "Customized",
             font_body_size: "Body baseline size",
             font_body_size_hint: "All type sizes derive from this body baseline.",
             body_size_unit_relation: "SVG px to PPT pt: 1px = 0.75pt.",
@@ -110,7 +131,7 @@
             size_role_subtitle: "subtitle",
             size_role_annotation: "annotation",
             custom_typography: "Custom typography",
-            custom_typography_placeholder: "Type your font plan, e.g. Heading: Georgia + KaiTi; Body: Microsoft YaHei + Arial…",
+            custom_typography_repair: "Complete the concrete font names required for this project to continue.",
             custom_color: "Custom color",
             custom_color_placeholder: "Describe your colors in words, e.g. deep navy primary, warm orange accent, white background — or paste HEX values…",
             role_background: "bg",
@@ -141,8 +162,8 @@
             preview_point_3_text: "The combination should stay readable at presentation scale.",
             mode_continuous_desc: "Generate the whole deck in one pass.",
             mode_split_desc: "Stop after the spec; resume SVG generation in a fresh window.",
-            refine_off_desc: "Spec is written in one go; the pipeline auto-proceeds.",
-            refine_on_desc: "Stop after the spec for review/revision before any generation.",
+            refine_off_desc: "Write the Design Spec and execution lock in sequence, then auto-proceed.",
+            refine_on_desc: "Stop after the Design Spec. Revise any part in chat; approval then creates the execution lock and continues generation.",
             off_default: "Off",
             on: "On",
             option_prefix: "Option",
@@ -155,7 +176,7 @@
             stage_design: "ステージ 2 · 全体方針とビジュアルシステム",
             stage_images: "ステージ 3 · リソースと制作",
             loading: "読み込み中…",
-            load_error: "recommendations.json を読み込めませんでした。起動前にAIが書き込む必要があります。",
+            load_error: "現在の推奨ステージを読み込めませんでした。起動前にAIが書き込む必要があります。",
             btn_confirm: "確定",
             btn_confirm_contract: "契約内容を確定して次へ →",
             btn_confirm_solution: "全体方針を確定して次へ →",
@@ -177,8 +198,9 @@
             sec_type: "タイポグラフィ",
             sec_images: "画像の使用",
             sec_image_production: "画像制作",
+            sec_proactive_execution: "能動的な実行",
             sec_mode: "生成モード",
-            sec_refine: "先に設計仕様を精査",
+            sec_refine: "先に設計仕様を確認",
             sec_design_directions: "統合デザイン方針",
             design_directions_hint: "各案はスタイル、配色、書体、アイコン、生成画像のレンダリングを一体で提案します。下の各項目で微調整できます。",
             sec_template_application: "テンプレートの適用方法",
@@ -195,8 +217,9 @@
             placeholder_audience_outcome: "終了後、聴衆は何を知り、理解し、信じ、決め、行動できる状態になるべきですか？",
             core_message: "中核メッセージ／意思決定の依頼／行動",
             placeholder_core_message: "ほかの内容が忘れられても、必ず残すべき主張・依頼・行動は何ですか？",
-            delivery_context: "利用状況",
-            placeholder_delivery_context: "例：発表者付きの20分経営レビュー。終了後に録画も共有。",
+            delivery_context: "利用状況（主モードを明記）",
+            delivery_context_hint: "発表者主導、読者主導、ハイブリッド、録画／自動再生を区別してください。ハイブリッドでは主モードと、維持すべき副用途を明記します。",
+            placeholder_delivery_context: "例：主は発表者付き20分の経営レビュー。副は会議後に単独で読む承認資料。",
             artifact_afterlife: "資料の利用後",
             placeholder_artifact_afterlife: "例：承認、レビュー、監査、保管、引き継ぎ、再利用。後続利用がなければ空欄で構いません。",
             stage1_current_value_hint: "編集可能な欄には提案が入っています。そのまま使う・修正する・空にすることができ、確定時の現在値を空欄も含めてそのまま保存します。",
@@ -216,12 +239,17 @@
             formula_policy: "数式レンダリング方針",
             image_ai_path: "AI画像の生成元",
             image_strategy: "生成画像のスタイル",
-            image_strategy_empty: "生成画像スタイルの候補がまだありません。",
+            image_strategy_empty: "プリセットのスタイル見本を利用できません。カスタムスタイルは引き続き使用できます。",
+            image_strategy_required: "生成画像のプリセットを選ぶか、カスタムスタイルを記述してください。",
+            image_strategy_invalid: "選択した生成画像プリセットは利用できません。",
+            image_strategy_select_placeholder: "生成画像のプリセットを選択…",
+            image_strategy_recommended_group: "この資料へのおすすめ",
+            image_strategy_all_group: "すべてのプリセットスタイル",
             image_strategy_rendering: "レンダリング",
             image_strategy_visual: "ビジュアル",
             image_strategy_mood: "ムード",
             image_strategy_ai_custom: "AIカスタム案",
-            image_strategy_ai_custom_desc: "カタログ外の完全なレンダリング案です。選択後に編集できます。",
+            image_strategy_ai_custom_desc: "新規または複数の既存表現を統合したレンダリング案です。選択後に編集できます。",
             image_strategy_custom_placeholder: "生成画像の方向性、被写体、構図、スタイル要素、避けたい要素を具体的に入力してください。",
             image_strategy_reference_hint: "参照画像はレンダリングのみを示します。最終AI画像の色は上で選んだデッキ配色を継承します。",
             image_strategy_no_reference: "このカスタム選択には参照画像がありません。",
@@ -231,8 +259,22 @@
             image_usage_notes_placeholder: "例：リアルな手洗いシーンを優先、漫画調の菌のイラストは避ける、製品写真はそのまま使う。",
             image_usage_required: "画像の使用方法を少なくとも1つ選択してください。",
             image_usage_none_exclusive: "「画像なし」は他の画像オプションと同時に選択できません。",
+            proactive_execution_hint: "これらの初期設定は、明示的な指示がない場合にのみ適用されます。最新の明示的な指示が常に優先されます。",
+            proactive_speaker_notes: "発表者ノートを能動的に生成",
+            proactive_speaker_notes_desc: "初期設定はオンです。個別の依頼がなくても発表者ノートを生成します。",
+            proactive_custom_animations: "カスタムアニメーションを能動的に作成",
+            proactive_custom_animations_desc: "初期設定はオフです。ストラテジストの動きの提案は維持され、オンにすると個別の依頼がなくてもカスタムアニメーションを作成します。",
+            proactive_narration_audio: "ナレーション音声を能動的に生成",
+            proactive_narration_audio_desc: "初期設定はオフです。この選択は発表者ノートの設定を書き換えません。ナレーションに必要なノートの有効状態は、ストラテジストが設計仕様で解決します。",
             font_heading: "見出し",
             font_body: "本文",
+            font_selection: "フォント選択",
+            primary_language_font: "主要言語のフォント",
+            english_font: "英語フォント",
+            font_picker_hint: "提案を選ぶと下の選択欄に反映されます。いずれかのフォントを変更するとカスタマイズ済みになります。",
+            other_installed_font: "その他のインストール済みフォント…",
+            other_font_placeholder: "インストール済みフォントの正確な名前",
+            customized: "カスタマイズ済み",
             font_body_size: "本文の基準サイズ",
             font_body_size_hint: "すべての文字サイズはこの本文基準から導出されます。",
             body_size_unit_relation: "SVG px と PPT pt の換算：1px = 0.75pt。",
@@ -248,7 +290,7 @@
             size_role_subtitle: "サブタイトル",
             size_role_annotation: "注釈",
             custom_typography: "カスタムタイポグラフィ",
-            custom_typography_placeholder: "フォント案を入力 — 例：見出し：Georgia + 游明朝 / 本文：游ゴシック + Arial…",
+            custom_typography_repair: "続行するには、このプロジェクトに必要な具体的な書体名を入力してください。",
             custom_color: "カスタム配色",
             custom_color_placeholder: "配色を言葉で説明 — 例：濃紺をメインに暖色オレンジのアクセント、背景は白 — またはHEX値を貼り付け…",
             role_background: "背景",
@@ -279,8 +321,8 @@
             preview_point_3_text: "投影時にも読みやすい組み合わせかを判断します。",
             mode_continuous_desc: "デッキ全体を一気に生成します。",
             mode_split_desc: "設計仕様の作成後に停止し、別ウィンドウでSVG生成を再開します。",
-            refine_off_desc: "設計仕様を一度で書き上げ、パイプラインは自動で進みます。",
-            refine_on_desc: "設計仕様の作成後に停止し、生成前にレビュー・修正できます。",
+            refine_off_desc: "設計仕様と実行ロックを順番に作成し、そのまま自動で進みます。",
+            refine_on_desc: "設計仕様の作成後に停止します。チャットで任意の箇所を修正し、承認後に実行ロックを作成して生成を続けます。",
             off_default: "オフ",
             on: "オン",
             option_prefix: "案",
@@ -315,8 +357,9 @@
             sec_type: "字体方案",
             sec_images: "图片使用",
             sec_image_production: "图片生产",
+            sec_proactive_execution: "主动执行",
             sec_mode: "生成模式",
-            sec_refine: "先精修设计规范",
+            sec_refine: "先审核设计规范",
             sec_design_directions: "成套设计方向",
             design_directions_hint: "每套方向会一起协调风格、配色、字体、图标和生成图渲染；你仍可在下方逐项微调。",
             sec_template_application: "模板应用方式",
@@ -333,8 +376,9 @@
             placeholder_audience_outcome: "结束后，受众应该知道、理解、相信、决定或采取什么行动？",
             core_message: "核心信息 / 决策请求 / 行动",
             placeholder_core_message: "即使其他内容没有被记住，受众至少需要接住哪些主张、请求或行动？",
-            delivery_context: "使用情境",
-            placeholder_delivery_context: "例如：管理层现场评审 20 分钟，有主讲；会后分享录屏。",
+            delivery_context: "传递场景（明确主要模式）",
+            delivery_context_hint: "区分演讲者主导、读者主导、混合、录制/自动播放；混合场景要说明哪一种主导，以及还要兼顾什么次要用途。",
+            placeholder_delivery_context: "例如：主要为有主讲的 20 分钟管理层现场评审；次要为会后独立阅读的审批材料。",
             artifact_afterlife: "演示后的成果用途",
             placeholder_artifact_afterlife: "例如：审批、评审、审计、留档、交接或复用；没有后续用途时可留空。",
             stage1_current_value_hint: "可编辑字段中是推荐内容。你可以保留、修改或清空；确认时会按当前内容原样保存，空白也会保持为空。",
@@ -354,12 +398,17 @@
             formula_policy: "公式渲染策略",
             image_ai_path: "生成配图来源",
             image_strategy: "生成图风格",
-            image_strategy_empty: "还没有提供生成图风格候选。",
+            image_strategy_empty: "当前没有可用的预设风格参考，仍可使用自定义风格。",
+            image_strategy_required: "请选择一种生成图预设，或填写自定义风格。",
+            image_strategy_invalid: "所选生成图预设当前不可用。",
+            image_strategy_select_placeholder: "选择生成图预设…",
+            image_strategy_recommended_group: "本项目推荐",
+            image_strategy_all_group: "全部预设风格",
             image_strategy_rendering: "渲染风格",
             image_strategy_visual: "视觉",
             image_strategy_mood: "情绪",
             image_strategy_ai_custom: "AI 自定义方案",
-            image_strategy_ai_custom_desc: "一套完整的目录外渲染方案；选择后可以编辑。",
+            image_strategy_ai_custom_desc: "一套全新或综合多个已有风格的渲染方案；选择后可以编辑。",
             image_strategy_custom_placeholder: "描述生成图的具体方向、主体、构图、风格关键词或需要避免的内容。",
             image_strategy_reference_hint: "参考图只展示渲染风格；最终 AI 图片直接继承上方已选的整套 PPT 配色。",
             image_strategy_no_reference: "自定义选择没有参考图。",
@@ -369,8 +418,22 @@
             image_usage_notes_placeholder: "例如：优先真实洗手场景；不要卡通病菌；产品照片保持原样。",
             image_usage_required: "请至少选择一种图片使用方式。",
             image_usage_none_exclusive: "「不使用图片」不能和其它图片选项同时选择。",
+            proactive_execution_hint: "这些默认开关只在你没有明确要求时生效；你最新的明确指令始终优先。",
+            proactive_speaker_notes: "主动生成演讲者备注",
+            proactive_speaker_notes_desc: "默认开启。无需另行要求，Agent 也会生成演讲者备注。",
+            proactive_custom_animations: "主动生成自定义动画",
+            proactive_custom_animations_desc: "默认关闭。策略师的动画建议仍会保留；开启后，Agent 可在没有另行要求时实际制作自定义动画。",
+            proactive_narration_audio: "主动生成旁白音频",
+            proactive_narration_audio_desc: "默认关闭。这里保留原始选择，不改写演讲者备注开关；策略师会在设计规范中解析旁白所需的最终备注状态。",
             font_heading: "标题",
             font_body: "正文",
+            font_selection: "字体选择",
+            primary_language_font: "主要语言字体",
+            english_font: "英文字体",
+            font_picker_hint: "选择推荐方案会同步下方字体；修改任一下拉或手动字体后会标记为已自定义。",
+            other_installed_font: "其他已安装字体…",
+            other_font_placeholder: "输入精确的已安装字体名称",
+            customized: "已自定义",
             font_body_size: "正文基准字号",
             font_body_size_hint: "所有字号按这个正文基准推导。",
             body_size_unit_relation: "SVG px 与 PPT pt 的换算：1px = 0.75pt。",
@@ -386,7 +449,7 @@
             size_role_subtitle: "副标题",
             size_role_annotation: "注释",
             custom_typography: "自定义字体方案",
-            custom_typography_placeholder: "输入字体方案，如：标题用楷体；正文用微软雅黑…",
+            custom_typography_repair: "请补全当前项目所需的具体字体名称后继续。",
             custom_color: "自定义配色",
             custom_color_placeholder: "用文字描述配色，如：深蓝主色、暖橙强调、白色背景——或直接粘贴 HEX 值…",
             role_background: "背景",
@@ -417,8 +480,8 @@
             preview_point_3_text: "组合效果需要在演示场景下保持清晰可读。",
             mode_continuous_desc: "一次性连续生成整份演示文稿。",
             mode_split_desc: "写完设计规范后停止，另开窗口继续生成页面。",
-            refine_off_desc: "设计规范一次写完，流程自动继续。",
-            refine_on_desc: "写完设计规范后停下供你审阅或修改，再开始生成。",
+            refine_off_desc: "依次生成设计规范和执行锁，然后自动继续。",
+            refine_on_desc: "生成设计规范后暂停；你可在聊天中修改任何部分，明确确认后再生成执行锁并继续制作。",
             off_default: "关",
             on: "开",
             option_prefix: "方案",
@@ -548,8 +611,9 @@
 
     // ---- state -----------------------------------------------------------
     var CAT = null;     // catalogs.json — finite option universe
-    var REC = null;     // recommendations.json — AI picks + candidates
+    var REC = null;     // current recommendation stage — AI picks + candidates
     var ICON_PREVIEWS = {};  // /api/icon-previews — real SVG samples from templates/icons
+    var AI_IMAGE_COMPARISON = {};  // /api/ai-image-comparison — preset rendering catalog
     var STATE = {};
     var REC_ALIASES = {
         icons: {
@@ -739,6 +803,13 @@
         return (REC && REC.recommend && REC.recommend[field]) || legacyRecId(field);
     }
 
+    function booleanRecommendation(field, fallback) {
+        if (!REC || !Object.prototype.hasOwnProperty.call(REC, field)) return fallback;
+        var spec = REC[field];
+        var value = spec && typeof spec === "object" ? spec.value : spec;
+        return typeof value === "boolean" ? value : fallback;
+    }
+
     function recommendationFieldLocked(field) {
         return !!(REC && REC[field] && typeof REC[field] === "object" && REC[field].locked === true);
     }
@@ -788,6 +859,7 @@
 
         var allChips = [];
         var customInput = el(aiCustom ? "textarea" : "input", "text-input custom-input");
+        setNaturalInputDirection(customInput);
         if (opts2.inputClass) customInput.classList.add(opts2.inputClass);
         if (aiCustom) customInput.rows = aiCustom.rows || 4;
         else customInput.type = "text";
@@ -942,6 +1014,7 @@
     function textField(parent, getVal, setVal, placeholderKey, numeric) {
         var input = el("input", numeric ? "num-input" : "text-input");
         input.type = "text";
+        if (!numeric) setNaturalInputDirection(input);
         input.value = getVal() || "";
         input.placeholder = t(placeholderKey);
         input.addEventListener("input", function () { setVal(input.value); });
@@ -950,6 +1023,7 @@
 
     function textareaField(parent, getVal, setVal, placeholderKey, rows) {
         var input = el("textarea", "text-input");
+        setNaturalInputDirection(input);
         input.rows = rows || 2;
         input.value = getVal() || "";
         input.placeholder = t(placeholderKey);
@@ -992,41 +1066,197 @@
         return collect(c);
     }
 
+    function recommendationLanguage() {
+        // `lang` controls the Confirm UI language; it is not evidence of the
+        // deck's content language. New staged files carry `primary_language`.
+        var raw = REC && (REC.primary_language || REC.content_language || REC.language);
+        if (raw && typeof raw === "object") {
+            raw = raw.value || raw.id || raw.code || "";
+        }
+        // The API is the single normalizer; the browser consumes its canonical
+        // value instead of maintaining a second alias table.
+        return String(raw || "und").trim().replace(/_/g, "-");
+    }
+
+    function isEnglishProject() {
+        return /^en(?:-|$)/i.test(recommendationLanguage());
+    }
+
+    function setEnglishLanguageAttributes(node) {
+        node.lang = "en";
+        node.dir = "ltr";
+    }
+
+    function setUiLanguageAttributes(node) {
+        node.lang = LANG === "zh" ? "zh-CN" : (LANG === "ja" ? "ja-JP" : "en-US");
+        node.dir = "ltr";
+    }
+
+    function setNaturalInputDirection(node) {
+        node.dir = "auto";
+    }
+
+    function stringList(value) {
+        if (Array.isArray(value)) return value.map(String);
+        if (value == null || value === "") return [];
+        return [String(value)];
+    }
+
+    function normalizedFontToken(value) {
+        return String(value || "").trim().toLowerCase().replace(/[_\s]+/g, "-");
+    }
+
+    function fontScriptTokens(language) {
+        var parts = normalizedFontToken(language).split("-");
+        var base = parts[0];
+        if (!base || base === "und") return [];
+        var explicitScript = parts.filter(function (part) {
+            return /^[a-z]{4}$/.test(part);
+        })[0];
+        if (explicitScript) return [explicitScript];
+        if (base === "en") return ["latin", "latn", "english"];
+        if (base === "zh") {
+            if (parts.indexOf("cn") >= 0 || parts.indexOf("sg") >= 0) {
+                return ["han", "hans", "cjk", "chinese", "zh"];
+            }
+            if (parts.indexOf("tw") >= 0 || parts.indexOf("hk") >= 0 ||
+                    parts.indexOf("mo") >= 0) {
+                return ["han", "hant", "cjk", "chinese", "zh"];
+            }
+            return ["han", "hans", "cjk", "chinese", "zh"];
+        }
+        if (base === "ja") return ["han", "jpan", "kana", "hiragana", "katakana", "cjk", "japanese", "ja"];
+        if (base === "ko") return ["hangul", "kore", "han", "cjk", "korean", "ko"];
+        if (["ru", "uk", "bg", "sr", "mk"].indexOf(base) >= 0) return ["cyrl", "cyrillic"];
+        if (["ar", "fa", "ur"].indexOf(base) >= 0) return ["arab", "arabic"];
+        if (base === "he" || base === "iw") return ["hebr", "hebrew"];
+        if (base === "el") return ["grek", "greek"];
+        if (base === "th") return ["thai"];
+        if (base === "hi" || base === "mr" || base === "ne") return ["deva", "devanagari"];
+        // Most remaining presentation locales use Latin script. Locale metadata
+        // still wins before this fallback.
+        return ["latin", "latn"];
+    }
+
+    function fontSupportsLanguage(font, language) {
+        var target = normalizedFontToken(language);
+        var targetBase = target.split("-")[0];
+        var locales = stringList(font && font.locales).map(normalizedFontToken);
+        if (locales.some(function (locale) {
+            return locale === "*" || locale === target ||
+                (target !== targetBase && locale === targetBase);
+        })) return true;
+
+        var supportedScripts = stringList(font && font.scripts).map(normalizedFontToken);
+        var wantedScripts = fontScriptTokens(language);
+        if (supportedScripts.some(function (script) {
+            return wantedScripts.indexOf(script) >= 0;
+        })) return true;
+
+        // A catalog entry without language metadata remains usable. Once either
+        // metadata field is present, filtering follows it.
+        return !locales.length && !supportedScripts.length;
+    }
+
+    function fontCatalogEntries(field) {
+        var fonts = (CAT && Array.isArray(CAT.fonts)) ? CAT.fonts : [];
+        var language = field === "english" ? "en" : recommendationLanguage();
+        if (field === "primary" && language === "und") {
+            return fonts.filter(function (font) { return font && font.id; });
+        }
+        var matching = fonts.filter(function (font) {
+            return font && font.id && fontSupportsLanguage(font, language);
+        });
+        return matching;
+    }
+
+    function findFontCatalogEntry(id) {
+        var fonts = (CAT && Array.isArray(CAT.fonts)) ? CAT.fonts : [];
+        var target = String(id || "").trim().toLowerCase();
+        for (var i = 0; i < fonts.length; i += 1) {
+            if (String(fonts[i].id || "").trim().toLowerCase() === target) return fonts[i];
+        }
+        return null;
+    }
+
+    function derivedFontCss(font) {
+        var primary = findFontCatalogEntry(font && font.primary);
+        return String((primary && primary.css) || "sans-serif").trim() ||
+            "sans-serif";
+    }
+
+    function normalizedFontRole(font, samples) {
+        font = (font && typeof font === "object") ? Object.assign({}, font) : {};
+        samples = samples || {};
+        var primary = font.primary;
+        var english = font.english;
+        if (isEnglishProject()) {
+            primary = primary || font.latin || font.cjk || "";
+            english = "";
+        } else {
+            primary = primary || font.cjk || "";
+            english = english || font.latin || "";
+        }
+        font.primary = primary;
+        if (isEnglishProject()) delete font.english;
+        else font.english = english;
+        font.sample_primary = font.sample_primary ||
+            (isEnglishProject() ? font.sample_latin : font.sample_cjk) ||
+            samples.primary || "";
+        if (isEnglishProject()) {
+            delete font.sample_english;
+        } else {
+            font.sample_english = font.sample_english || font.sample_latin ||
+                samples.english || "";
+        }
+        delete font.cjk;
+        delete font.latin;
+        delete font.sample_cjk;
+        delete font.sample_latin;
+        if (!String(font.css || "").trim()) font.css = derivedFontCss(font);
+        return font;
+    }
+
     function normTypography(c) {
         c = c || {};
-        if (c.heading && typeof c.heading === "object" && c.body && typeof c.body === "object") {
-            return Object.assign({}, c, {
-                body_size: typographyBodySize(c),
-                heading: Object.assign({}, c.heading, {
-                    sample_cjk: c.heading.sample_cjk || c.sample_heading || "",
-                    sample_latin: c.heading.sample_latin || c.sample_heading_latin || ""
-                }),
-                body: Object.assign({}, c.body, {
-                    sample_cjk: c.body.sample_cjk || c.sample_body || "",
-                    sample_latin: c.body.sample_latin || c.sample_body_latin || ""
-                })
-            });
-        }
-        return {
-            name: c.name || "",
-            note: c.note || "",
-            custom: c.custom || "",
-            body_size: typographyBodySize(c),
-            heading: {
-                cjk: c.heading || "",
-                latin: c.heading_latin || "",
-                css: c.heading_css || "",
-                sample_cjk: c.sample_heading || "",
-                sample_latin: c.sample_heading_latin || ""
-            },
-            body: {
-                cjk: c.body || "",
-                latin: c.body_latin || "",
-                css: c.body_css || "",
-                sample_cjk: c.sample_body || "",
-                sample_latin: c.sample_body_latin || ""
-            }
+        var normalized = Object.assign({}, c);
+        var objectShape = c.heading && typeof c.heading === "object" &&
+            c.body && typeof c.body === "object";
+        var heading = objectShape ? c.heading : {
+            primary: isEnglishProject() ? (c.heading_latin || c.heading || "") : (c.heading || ""),
+            english: isEnglishProject() ? "" : (c.heading_latin || ""),
+            css: c.heading_css || ""
         };
+        var body = objectShape ? c.body : {
+            primary: isEnglishProject() ? (c.body_latin || c.body || "") : (c.body || ""),
+            english: isEnglishProject() ? "" : (c.body_latin || ""),
+            css: c.body_css || ""
+        };
+        normalized.name = c.name || "";
+        normalized.note = c.note || "";
+        normalized.custom = c.custom || "";
+        normalized.body_size = typographyBodySize(c);
+        normalized.heading = normalizedFontRole(heading, {
+            primary: isEnglishProject()
+                ? (c.sample_heading_latin || c.sample_heading || "")
+                : (c.sample_heading || ""),
+            english: c.sample_heading_latin || ""
+        });
+        normalized.body = normalizedFontRole(body, {
+            primary: isEnglishProject()
+                ? (c.sample_body_latin || c.sample_body || "")
+                : (c.sample_body || ""),
+            english: c.sample_body_latin || ""
+        });
+        delete normalized.heading_latin;
+        delete normalized.body_latin;
+        delete normalized.heading_css;
+        delete normalized.body_css;
+        delete normalized.sample_heading;
+        delete normalized.sample_heading_latin;
+        delete normalized.sample_body;
+        delete normalized.sample_body_latin;
+        return normalized;
     }
 
     function typographyBodySize(c) {
@@ -1129,6 +1359,23 @@
         }).slice(0, 3);
     }
 
+    function imageStrategyCatalogCandidates() {
+        var items = AI_IMAGE_COMPARISON && AI_IMAGE_COMPARISON.rendering;
+        if (!Array.isArray(items)) return [];
+        return items.map(function (item) {
+            return item && item.id ? { rendering: item.id } : null;
+        }).filter(Boolean);
+    }
+
+    function imageStrategySelectableCandidates() {
+        var recommended = imageStrategyRecommendationCandidates();
+        var seen = {};
+        recommended.forEach(function (candidate) { seen[candidate.rendering] = true; });
+        return recommended.concat(imageStrategyCatalogCandidates().filter(function (candidate) {
+            return !seen[candidate.rendering];
+        }));
+    }
+
     function imageStrategyCustomCandidate() {
         var candidate = customCandidateSpec("image_strategy");
         if (!customCandidateBehavior("image_strategy")) {
@@ -1136,10 +1383,9 @@
                 return item && item.rendering === "custom";
             })[0] || {};
         }
-        if (!candidate || typeof candidate !== "object") return null;
+        if (!candidate || typeof candidate !== "object") candidate = {};
         candidate = Object.assign({}, candidate, { rendering: "custom" });
-        var normalized = normalizedImageStrategy(candidate);
-        return String(normalized.behavior || "").trim() ? normalized : null;
+        return normalizedImageStrategy(candidate);
     }
 
     function normalizedImageStrategy(candidate) {
@@ -1270,7 +1516,7 @@
         labeledTextarea(sec, "delivery_context",
             function () { return STATE.delivery_context; },
             function (v) { STATE.delivery_context = v; },
-            "placeholder_delivery_context", null, 2);
+            "placeholder_delivery_context", "delivery_context_hint", 2);
         labeledTextarea(sec, "artifact_afterlife",
             function () { return STATE.artifact_afterlife; },
             function (v) { STATE.artifact_afterlife = v; },
@@ -1608,7 +1854,14 @@
 
     function normalizeTypographyForSubmit(payload) {
         if (!payload.typography || typeof payload.typography !== "object") return;
-        var typ = payload.typography;
+        var typ = normTypography(payload.typography);
+        payload.typography = typ;
+        if (isEnglishProject()) {
+            ["heading", "body"].forEach(function (role) {
+                delete typ[role].english;
+                delete typ[role].sample_english;
+            });
+        }
         var body = parseFloat(typ.body_size);
         if (!isFinite(body)) {
             // Cleared / invalid body field — fall back so role sizes never submit
@@ -1625,6 +1878,7 @@
                 if (isFinite(raw)) typ.sizes[role] = roundSize(raw);
             });
         }
+        if (typographyFamiliesComplete(typ)) delete typ.custom;
         // delivery_purpose is PPT-only; drop it on non-PPT canvases where it has
         // no meaning and was never shown.
         if (!isPptCanvas(payload.canvas)) delete payload.delivery_purpose;
@@ -1651,6 +1905,7 @@
             });
         }
         var customInput = el("textarea", "text-input custom-color-input");
+        setNaturalInputDirection(customInput);
         customInput.rows = 2;
         customInput.placeholder = t("custom_color_placeholder");
         customInput.style.display = "none";
@@ -1773,32 +2028,139 @@
         return primary + ", " + fallback;
     }
 
-    function sampleText(role, script) {
-        if (role === "heading") return t(script === "latin" ? "preview_latin_title" : "preview_big_title");
-        return t(script === "latin" ? "preview_latin_body" : "preview_body_intro");
+    function typographyFamiliesComplete(typography) {
+        typography = normTypography(typography || {});
+        return ["heading", "body"].every(function (role) {
+            var font = typography[role] || {};
+            var fields = isEnglishProject() ? ["primary", "css"] :
+                ["primary", "english", "css"];
+            return fields.every(function (field) {
+                return !!String(font[field] || "").trim();
+            });
+        });
+    }
+
+    function typographyNeedsConcreteRepair() {
+        return !!(STATE.typography && STATE.typography.name === "custom" &&
+            !typographyFamiliesComplete(STATE.typography));
+    }
+
+    function sampleText(role, field) {
+        // Keep comparison copy stable: choices change visual treatment, not content.
+        var useEnglish = field === "english" || isEnglishProject();
+        if (role === "heading") {
+            return t(useEnglish ? "preview_latin_title" : "preview_big_title");
+        }
+        return t(useEnglish ? "preview_latin_body" : "preview_body_intro");
     }
 
     function fontSample(box, slot, css, role) {
         var line = el("div", "font-sample-line");
-        var cjk = el("span", "fs-cjk", sampleText(role, "cjk"));
-        var lat = el("span", "fs-latin", sampleText(role, "latin"));
-        var cjkStack = previewFontStack(slot.cjk, css);
-        var latinStack = previewFontStack(slot.latin, css);
-        if (cjkStack) cjk.style.fontFamily = cjkStack;
-        if (latinStack) lat.style.fontFamily = latinStack;
-        if (cjkStack) cjk.title = cjkStack;
-        if (latinStack) lat.title = latinStack;
-        line.appendChild(cjk); line.appendChild(lat); box.appendChild(line);
+        var primary = el("span", "fs-primary", sampleText(role, "primary"));
+        setUiLanguageAttributes(primary);
+        var primaryStack = previewFontStack(slot.primary, css);
+        if (primaryStack) primary.style.fontFamily = primaryStack;
+        if (primaryStack) primary.title = primaryStack;
+        line.appendChild(primary);
+        if (!isEnglishProject()) {
+            var english = el("span", "fs-english", sampleText(role, "english"));
+            setEnglishLanguageAttributes(english);
+            var englishStack = previewFontStack(slot.english, css);
+            if (englishStack) english.style.fontFamily = englishStack;
+            if (englishStack) english.title = englishStack;
+            line.appendChild(english);
+        }
+        box.appendChild(line);
+    }
+
+    function fontChoiceLabel(font) {
+        var label = localized(font, "label") || font.id;
+        if (String(label).toLowerCase() === String(font.id).toLowerCase()) {
+            return String(font.id);
+        }
+        return label + " · " + font.id;
+    }
+
+    function typographyFieldLabel(field) {
+        if (field === "english") return t("english_font");
+        return t("primary_language_font");
+    }
+
+    function typographyChoiceConfigs() {
+        var configs = [];
+        ["heading", "body"].forEach(function (role) {
+            configs.push([role, "primary"]);
+            if (!isEnglishProject()) configs.push([role, "english"]);
+        });
+        return configs;
+    }
+
+    function typographySignature(typography) {
+        typography = normTypography(typography || {});
+        var fields = isEnglishProject() ? ["primary"] : ["primary", "english"];
+        var values = [];
+        ["heading", "body"].forEach(function (role) {
+            fields.forEach(function (field) {
+                values.push(String((typography[role] || {})[field] || "")
+                    .trim().toLowerCase());
+            });
+        });
+        return values.join("\u0000");
     }
 
     function renderTypography(host) {
-        var cands = typographyRecommendationCandidates();
+        var cands = typographyRecommendationCandidates().filter(typographyFamiliesComplete);
         var sec = section(7, "sec_type");
+        if (stageNumber(REC) >= 3 && typographyNeedsConcreteRepair()) {
+            setSectionNote(sec, t("custom_typography_repair"));
+        }
         var grid = el("div", "font-grid");
-        var customInput = el("textarea", "text-input custom-typography-input");
-        customInput.rows = 2;
-        customInput.placeholder = t("custom_typography_placeholder");
-        customInput.style.display = "none";
+        var customFields = el("div", "custom-typography-fields font-picker-fields");
+        var customInputs = {};
+        var customLegacyNote = el("div", "toggle-desc custom-typography-legacy");
+        var pickerHead = el("div", "font-picker-head");
+        pickerHead.appendChild(el("span", "subfield-label", t("font_selection")));
+        var customStatus = el("span", "font-custom-status", t("customized"));
+        pickerHead.appendChild(customStatus);
+        customFields.appendChild(pickerHead);
+        customFields.appendChild(el("div", "toggle-desc font-picker-hint", t("font_picker_hint")));
+        customFields.appendChild(customLegacyNote);
+
+        function syncCustomInputs() {
+            var typography = STATE.typography || {};
+            customLegacyNote.textContent = String(typography.custom || "").trim();
+            customLegacyNote.style.display = customLegacyNote.textContent ? "block" : "none";
+            customStatus.style.display = typography.name === "custom" ? "inline-flex" : "none";
+            typographyChoiceConfigs().forEach(function (config) {
+                var role = config[0], field = config[1];
+                var control = customInputs[role + "_" + field];
+                if (!control) return;
+                var value = String((typography[role] || {})[field] || "");
+                var matchingFont = control.options.filter(function (font) {
+                    return String(font.id).toLowerCase() === value.toLowerCase();
+                })[0];
+                control.select.value = matchingFont ? matchingFont.id : "__other__";
+                control.other.value = matchingFont ? "" : value;
+                control.other.style.display = matchingFont ? "none" : "block";
+            });
+        }
+
+        function markCustomTypography() {
+            if (!STATE.typography) {
+                STATE.typography = { name: "custom", heading: {}, body: {} };
+            }
+            STATE.typography.name = "custom";
+            grid.querySelectorAll(".font-card").forEach(function (card) {
+                card.classList.remove("selected");
+            });
+            customCard.classList.add("selected");
+            customStatus.style.display = "inline-flex";
+        }
+
+        function updateRoleCss(role) {
+            if (!STATE.typography[role]) STATE.typography[role] = {};
+            STATE.typography[role].css = derivedFontCss(STATE.typography[role]);
+        }
 
         function selectFont(idx) {
             var c = normTypography(cands[idx] || {});
@@ -1814,26 +2176,23 @@
                 sizes: Object.assign({}, prev.sizes || {})
             };
             if (sizeInput) sizeInput.value = STATE.typography.body_size || "";
-            customInput.style.display = "none";
             grid.querySelectorAll(".font-card").forEach(function (card, i) { card.classList.toggle("selected", i === idx); });
+            syncCustomInputs();
             refreshSizeInputs();   // fill any role with no value yet; never overwrites existing values
             refreshStylePreview();
         }
 
         function selectCustomTypography() {
             var prev = STATE.typography || {};
-            STATE.typography = {
-                name: "custom",
-                custom: customInput.value || "",
-                heading: {},
-                body: {},
-                body_size: prev.body_size || "",
-                sizes: Object.assign({}, prev.sizes || {})   // switching font family must not drop sizes
-            };
-            grid.querySelectorAll(".font-card").forEach(function (card) { card.classList.remove("selected"); });
-            customCard.classList.add("selected");
-            customInput.style.display = "block";
-            customInput.focus();
+            STATE.typography = normTypography(prev);
+            STATE.typography.name = "custom";
+            STATE.typography.body_size = prev.body_size || "";
+            // Switching font family must not drop any explicit size.
+            STATE.typography.sizes = Object.assign({}, prev.sizes || {});
+            markCustomTypography();
+            syncCustomInputs();
+            var firstControl = customInputs.heading_primary;
+            if (firstControl) firstControl.select.focus();
             refreshSizeInputs();
             refreshStylePreview();
         }
@@ -1844,8 +2203,13 @@
             var card = el("div", "font-card");
             var top = el("div", "font-card-head");
             top.appendChild(el("span", "font-card-name", localized(c, "name") || (t("option_prefix") + " " + (idx + 1))));
-            var meta = t("font_heading") + " " + t("cjk") + ":" + (head.cjk || "—") + " / " + t("latin") + ":" + (head.latin || "—")
-                + "  ·  " + t("font_body") + " " + t("cjk") + ":" + (body.cjk || "—") + " / " + t("latin") + ":" + (body.latin || "—");
+            var metaFields = isEnglishProject() ? ["primary"] : ["primary", "english"];
+            var meta = ["heading", "body"].map(function (role) {
+                var slot = role === "heading" ? head : body;
+                return t("font_" + role) + " " + metaFields.map(function (field) {
+                    return typographyFieldLabel(field) + ": " + (slot[field] || "—");
+                }).join(" / ");
+            }).join("  ·  ");
             top.appendChild(el("span", "font-card-meta", meta));
             card.appendChild(top);
             var hbox = el("div", "font-sample-heading-box"); fontSample(hbox, head, head.css, "heading"); card.appendChild(hbox);
@@ -1859,12 +2223,63 @@
         customCard.addEventListener("click", selectCustomTypography);
         grid.appendChild(customCard);
         sec.appendChild(grid);
-        customInput.addEventListener("input", function () {
-            if (!STATE.typography || STATE.typography.name !== "custom") selectCustomTypography();
-            STATE.typography.custom = customInput.value;
-            refreshStylePreview();
+        typographyChoiceConfigs().forEach(function (config) {
+            var role = config[0], fieldName = config[1];
+            var field = el("label", "custom-typography-field");
+            field.appendChild(el("span", "hex-cell-label",
+                t("font_" + role) + " · " + typographyFieldLabel(fieldName)));
+            var options = fontCatalogEntries(fieldName);
+            var select = el("select", "font-select");
+            options.forEach(function (font) {
+                var option = document.createElement("option");
+                option.value = font.id;
+                option.textContent = fontChoiceLabel(font);
+                select.appendChild(option);
+            });
+            var otherOption = document.createElement("option");
+            otherOption.value = "__other__";
+            otherOption.textContent = t("other_installed_font");
+            select.appendChild(otherOption);
+            var input = el("input", "text-input other-font-input");
+            input.type = "text";
+            input.placeholder = t("other_font_placeholder");
+            select.addEventListener("change", function () {
+                markCustomTypography();
+                if (!STATE.typography[role]) {
+                    STATE.typography[role] = { css: "sans-serif" };
+                }
+                if (select.value === "__other__") {
+                    input.value = "";
+                    input.style.display = "block";
+                    STATE.typography[role][fieldName] = "";
+                    input.focus();
+                } else {
+                    input.value = "";
+                    input.style.display = "none";
+                    STATE.typography[role][fieldName] = select.value;
+                }
+                updateRoleCss(role);
+                refreshStylePreview();
+            });
+            input.addEventListener("input", function () {
+                markCustomTypography();
+                if (!STATE.typography[role]) {
+                    STATE.typography[role] = { css: "sans-serif" };
+                }
+                STATE.typography[role][fieldName] = input.value;
+                updateRoleCss(role);
+                refreshStylePreview();
+            });
+            customInputs[role + "_" + fieldName] = {
+                select: select,
+                other: input,
+                options: options
+            };
+            field.appendChild(select);
+            field.appendChild(input);
+            customFields.appendChild(field);
         });
-        sec.appendChild(customInput);
+        sec.appendChild(customFields);
 
         var sizeField = el("div", "subfield");
         sizeField.appendChild(el("div", "subfield-label", t("font_body_size")));
@@ -1992,14 +2407,21 @@
         host.appendChild(sec);
 
         var selIdx = -1;
-        if (STATE.typography && STATE.typography.name) cands.forEach(function (c, i) {
-            if ((localized(c, "name") || c.name) === STATE.typography.name) selIdx = i;
+        var stateSignature = typographySignature(STATE.typography || {});
+        if (STATE.typography && STATE.typography.name !== "custom") cands.forEach(function (c, i) {
+            var sameName = (localized(c, "name") || c.name) === STATE.typography.name;
+            if (sameName || typographySignature(c) === stateSignature) selIdx = i;
         });
         if (selIdx >= 0) selectFont(selIdx);
         else if (STATE.typography && STATE.typography.name === "custom") {
-            customInput.value = STATE.typography.custom || "";
+            ["heading", "body"].forEach(function (role) {
+                if (!STATE.typography[role]) STATE.typography[role] = {};
+                if (!STATE.typography[role].css) updateRoleCss(role);
+            });
             customCard.classList.add("selected");
-            customInput.style.display = "block";
+            syncCustomInputs();
+        } else {
+            syncCustomInputs();
         }
     }
 
@@ -2026,15 +2448,17 @@
         var card = el("div", "style-preview-card");
         var textcol = el("div", "sp-textcol");
         var title = el("div", "sp-title");
-        var titleCjk = el("span", "sp-title-cjk");
-        var titleLat = el("span", "sp-title-lat");
-        title.appendChild(titleCjk); title.appendChild(titleLat);
+        var titlePrimary = el("span", "sp-title-primary");
+        var titleEnglish = el("span", "sp-title-english");
+        title.appendChild(titlePrimary); title.appendChild(titleEnglish);
         var bodyRow = el("div", "sp-body");
         var accentBar = el("span", "sp-accent-bar");
         var bodyWrap = el("div", "sp-body-wrap");
-        var bodyCjk = el("span", "sp-body-cjk");
-        var bodyLat = el("span", "sp-body-lat");
-        bodyWrap.appendChild(bodyCjk); bodyWrap.appendChild(bodyLat);
+        var bodyPrimary = el("span", "sp-body-primary");
+        var bodyEnglish = el("span", "sp-body-english");
+        setEnglishLanguageAttributes(titleEnglish);
+        setEnglishLanguageAttributes(bodyEnglish);
+        bodyWrap.appendChild(bodyPrimary); bodyWrap.appendChild(bodyEnglish);
         bodyRow.appendChild(accentBar); bodyRow.appendChild(bodyWrap);
         textcol.appendChild(title); textcol.appendChild(bodyRow);
         var content = el("div", "sp-content");
@@ -2062,33 +2486,38 @@
             // body_size is px everywhere — preview it directly, no conversion.
             var rawSize = parseFloat(typ.body_size) || (isPptCanvas(STATE.canvas) ? 24 : 18);
             var bodyPx = Math.max(12, Math.min(34, rawSize));
-            var headStack = previewFontStack(head.cjk, head.css);
-            var headLatStack = previewFontStack(head.latin, head.css);
-            var bodyStack = previewFontStack(body.cjk, body.css);
-            var bodyLatStack = previewFontStack(body.latin, body.css);
+            var headPrimaryStack = previewFontStack(head.primary, head.css);
+            var headEnglishStack = previewFontStack(head.english, head.css);
+            var bodyPrimaryStack = previewFontStack(body.primary, body.css);
+            var bodyEnglishStack = previewFontStack(body.english, body.css);
 
             card.style.background = bg;
-            titleCjk.textContent = t("preview_big_title");
-            titleLat.textContent = t("preview_section_title");
+            titlePrimary.textContent = sampleText("heading", "primary");
+            setUiLanguageAttributes(titlePrimary);
+            titleEnglish.textContent = sampleText("heading", "english");
             title.style.color = pri;
             title.style.fontSize = Math.round(bodyPx * 1.7) + "px";
-            titleCjk.style.fontFamily = headStack || "";
-            titleLat.style.fontFamily = headLatStack || "";
-            // CJK and Latin previewed with their own stacks (mirrors the title
-            // and the per-card font samples) so each script's font is visible.
-            bodyCjk.textContent = t("preview_body_intro");
-            bodyLat.textContent = "";
+            titlePrimary.style.fontFamily = headPrimaryStack || "";
+            titleEnglish.style.fontFamily = headEnglishStack || "";
+            bodyPrimary.textContent = sampleText("body", "primary");
+            setUiLanguageAttributes(bodyPrimary);
+            bodyEnglish.textContent = sampleText("body", "english");
             bodyWrap.style.color = txt;
             bodyWrap.style.fontSize = bodyPx + "px";
-            bodyCjk.style.fontFamily = bodyStack || "";
-            bodyLat.style.fontFamily = bodyLatStack || "";
+            bodyPrimary.style.fontFamily = bodyPrimaryStack || "";
+            bodyEnglish.style.fontFamily = bodyEnglishStack || "";
+            titleEnglish.style.display = isEnglishProject() ? "none" : "";
+            bodyEnglish.style.display = isEnglishProject() ? "none" : "";
             accentBar.style.background = acc;
             content.style.color = txt;
+            content.style.fontFamily = bodyPrimaryStack || "";
             content.innerHTML = stylePreviewContentMarkup(STATE.icons);
+            setUiLanguageAttributes(content);
             chip.style.background = sbg;
             chipDot.style.background = sacc;
             chipLabel.textContent = t("role_secondary_bg");
             chipLabel.style.color = txt;
+            chipLabel.style.fontFamily = bodyPrimaryStack || "";
         }
         refreshStylePreview = paint;
         paint();
@@ -2119,8 +2548,13 @@
             visual.innerHTML = "";
             var row = appendImageStrategyPreviews(visual, strategy);
             visual.classList.toggle("image-strategy-preview-empty", !row);
-            if (!row) visual.appendChild(el("div", "toggle-desc", t("image_strategy_no_reference")));
-            title.textContent = strategy.name || t("image_strategy_ai_custom");
+            if (!row) visual.appendChild(el("div", "toggle-desc",
+                strategy.rendering === "custom" ? t("image_strategy_no_reference") :
+                    t("image_strategy_select_placeholder")));
+            title.textContent = strategy.name ||
+                (strategy.rendering === "custom" ? t("image_strategy_ai_custom") :
+                    (strategy.rendering ? comparisonValueLabel("rendering", strategy.rendering) :
+                        t("image_strategy_select_placeholder")));
             var parts = [];
             if (strategy.rendering) {
                 parts.push(t("image_strategy_rendering") + ": " +
@@ -2186,6 +2620,7 @@
         var usageNote = el("div", "subfield");
         usageNote.appendChild(el("div", "subfield-label", t("image_usage_notes")));
         var usageNoteInput = el("textarea", "text-input image-usage-notes-input");
+        setNaturalInputDirection(usageNoteInput);
         usageNoteInput.placeholder = t("image_usage_notes_placeholder");
         usageNoteInput.value = STATE.image_notes || "";
         usageNoteInput.addEventListener("input", function () { STATE.image_notes = usageNoteInput.value; });
@@ -2194,22 +2629,21 @@
         var strategySub = el("div", "subfield image-strategy-subfield");
         strategySub.appendChild(el("div", "subfield-label", t("image_strategy")));
         strategySub.appendChild(el("div", "toggle-desc", t("image_strategy_reference_hint")));
-        var strategyGrid = el("div", "font-grid image-strategy-grid");
-        var strategyCands = imageStrategyRecommendationCandidates();
+        var recommendedStrategies = imageStrategyRecommendationCandidates();
+        var strategyCands = imageStrategySelectableCandidates();
+        var hasRecommendedStrategies = recommendedStrategies.length > 0;
         var customStrategy = STATE.image_strategy_custom || imageStrategyCustomCandidate();
+        var presetPicker = el("div", "image-strategy-picker");
+        var presetSelect = el("select", "font-select image-strategy-select");
         var customCard = null;
         var syncCustomStrategy = function () {};
         var selectCustomImageStrategy = function () {};
 
-        function markStrategyCard(selectedCard) {
-            strategyGrid.querySelectorAll(".font-card").forEach(function (card) {
-                card.classList.toggle("selected", card === selectedCard);
-            });
-        }
-
-        function selectImageStrategy(idx, selectedCard) {
+        function selectImageStrategy(idx) {
+            if (!strategyCands[idx]) return;
             STATE.image_strategy = normalizedImageStrategy(strategyCands[idx]);
-            markStrategyCard(selectedCard || strategyGrid.querySelector('[data-strategy-index="' + idx + '"]'));
+            presetSelect.value = String(idx);
+            if (customCard) customCard.classList.remove("selected");
             syncCustomStrategy(false);
             refreshImageStrategyPreview();
         }
@@ -2222,28 +2656,44 @@
             return -1;
         }
 
-        strategyCands.forEach(function (candidate, idx) {
-            var card = el("div", "font-card");
-            card.setAttribute("data-strategy-index", String(idx));
-            var top = el("div", "font-card-head");
-            top.appendChild(el("span", "font-card-name",
-                localized(candidate, "name") || (t("option_prefix") + " " + (idx + 1))));
-            if (candidate.rendering) {
-                top.appendChild(el("span", "font-card-meta",
-                    t("image_strategy_rendering") + ": " + comparisonValueLabel("rendering", candidate.rendering)));
+        function strategyOptionLabel(candidate, idx) {
+            var renderingLabel = comparisonValueLabel("rendering", candidate.rendering);
+            var candidateName = localized(candidate, "name") || renderingLabel ||
+                (t("option_prefix") + " " + (idx + 1));
+            return candidateName !== renderingLabel ?
+                candidateName + " · " + renderingLabel : candidateName;
+        }
+
+        function appendStrategyOptions(label, start, end) {
+            if (start >= end) return;
+            var group = document.createElement("optgroup");
+            group.label = label;
+            for (var idx = start; idx < end; idx += 1) {
+                var option = document.createElement("option");
+                option.value = String(idx);
+                option.textContent = strategyOptionLabel(strategyCands[idx], idx);
+                group.appendChild(option);
             }
-            card.appendChild(top);
-            appendImageStrategyPreviews(card, candidate);
-            [
-                ["image_strategy_visual", localized(candidate, "visual")],
-                ["image_strategy_mood", localized(candidate, "mood")]
-            ].forEach(function (row) {
-                if (row[1]) card.appendChild(el("div", "color-note", t(row[0]) + "：" + row[1]));
-            });
-            card.addEventListener("click", function () { selectImageStrategy(idx, card); });
-            strategyGrid.appendChild(card);
+            presetSelect.appendChild(group);
+        }
+
+        var placeholderOption = document.createElement("option");
+        placeholderOption.value = "";
+        placeholderOption.textContent = t("image_strategy_select_placeholder");
+        placeholderOption.disabled = true;
+        placeholderOption.selected = true;
+        presetSelect.appendChild(placeholderOption);
+        appendStrategyOptions(t("image_strategy_recommended_group"), 0, recommendedStrategies.length);
+        appendStrategyOptions(t("image_strategy_all_group"), recommendedStrategies.length, strategyCands.length);
+        presetSelect.disabled = !strategyCands.length;
+        presetSelect.addEventListener("change", function () {
+            selectImageStrategy(parseInt(presetSelect.value, 10));
         });
-        if (!strategyCands.length) strategyGrid.appendChild(el("div", "toggle-desc", t("image_strategy_empty")));
+        presetPicker.appendChild(presetSelect);
+        if (!strategyCands.length) {
+            presetPicker.appendChild(el("div", "toggle-desc", t("image_strategy_empty")));
+        }
+        strategySub.appendChild(presetPicker);
 
         if (customStrategy) {
             customStrategy = normalizedImageStrategy(customStrategy);
@@ -2260,9 +2710,11 @@
             ].forEach(function (row) {
                 if (row[1]) customCard.appendChild(el("div", "color-note", t(row[0]) + "：" + row[1]));
             });
-            var customCopy = el("div", "ai-custom-candidate-copy", customStrategy.behavior);
+            var customCopy = el("div", "ai-custom-candidate-copy",
+                customStrategy.behavior || t("image_strategy_custom_placeholder"));
             customCard.appendChild(customCopy);
             var customInput = el("textarea", "text-input image-strategy-custom-input");
+            setNaturalInputDirection(customInput);
             customInput.rows = 4;
             customInput.placeholder = t("image_strategy_custom_placeholder");
             customInput.value = customStrategy.behavior;
@@ -2270,7 +2722,7 @@
             customCard.appendChild(customInput);
 
             syncCustomStrategy = function (selected) {
-                customCopy.textContent = customStrategy.behavior || "";
+                customCopy.textContent = customStrategy.behavior || t("image_strategy_custom_placeholder");
                 customCopy.style.display = selected ? "none" : "block";
                 customInput.style.display = selected ? "block" : "none";
                 if (selected && customInput.value !== customStrategy.behavior) {
@@ -2280,7 +2732,8 @@
 
             selectCustomImageStrategy = function () {
                 STATE.image_strategy = normalizedImageStrategy(customStrategy);
-                markStrategyCard(customCard);
+                presetSelect.value = "";
+                customCard.classList.add("selected");
                 syncCustomStrategy(true);
                 refreshImageStrategyPreview();
             };
@@ -2296,9 +2749,8 @@
                 customInput.focus();
             });
             syncCustomStrategy(false);
-            strategyGrid.appendChild(customCard);
+            strategySub.appendChild(customCard);
         }
-        strategySub.appendChild(strategyGrid);
 
         var recommendedIds = selectedImageUsageIds(recValue("image_usage"));
         if (!recommendedIds.length) recommendedIds = [defaultImageUsageId()];
@@ -2349,10 +2801,9 @@
             selectCustomImageStrategy();
         } else if (STATE.image_strategy && imageStrategyCandidateIndex(STATE.image_strategy) >= 0) {
             selectImageStrategy(imageStrategyCandidateIndex(STATE.image_strategy));
-        } else if (strategyCands.length) {
+        } else if (needsGeneratedImagesForUsage(STATE.image_usage) &&
+                hasRecommendedStrategies && strategyCands.length) {
             selectImageStrategy(imageStrategySelectedIndex());
-        } else if (customCard) {
-            selectCustomImageStrategy();
         }
         refreshUsageChips();
         host.appendChild(sec);
@@ -2391,6 +2842,44 @@
         host.appendChild(sec);
     }
 
+    function renderProactiveExecution(host) {
+        var sec = section("A", "sec_proactive_execution", t("proactive_execution_hint"));
+        var opts = [{ id: "off", label: t("off_default") }, { id: "on", label: t("on") }];
+
+        function addToggle(labelKey, descKey, stateKey, fallback) {
+            var field = el("div", "subfield");
+            field.appendChild(el("div", "subfield-label", t(labelKey)));
+            field.appendChild(el("div", "toggle-desc", t(descKey)));
+            var recommended = booleanRecommendation(stateKey, fallback);
+            enumField(field, opts, recommended ? "on" : "off",
+                function () { return STATE[stateKey] ? "on" : "off"; },
+                function (value) {
+                    STATE[stateKey] = value === "on";
+                });
+            sec.appendChild(field);
+        }
+
+        addToggle(
+            "proactive_speaker_notes",
+            "proactive_speaker_notes_desc",
+            "proactive_speaker_notes",
+            true
+        );
+        addToggle(
+            "proactive_custom_animations",
+            "proactive_custom_animations_desc",
+            "proactive_custom_animations",
+            false
+        );
+        addToggle(
+            "proactive_narration_audio",
+            "proactive_narration_audio_desc",
+            "proactive_narration_audio",
+            false
+        );
+        host.appendChild(sec);
+    }
+
     function renderRefine(host) {
         var sec = section("R", "sec_refine");
         var opts = [{ id: "off", label: t("off_default") }, { id: "on", label: t("on") }];
@@ -2407,7 +2896,7 @@
     // Stage of the staged confirm flow:
     // 1 = communication contract, 2 = complete deck direction,
     // 3 = resources + production execution,
-    // "all" = legacy single-pass (recommendations.json carried no stage).
+    // "all" = legacy single-pass (the recommendation payload carried no stage).
     var STAGE = 1;
 
     function stageNumber(data) {
@@ -2470,9 +2959,16 @@
             if (previewHost) renderStylePreview(previewHost);
             if (previewHost) renderImageStrategyPreview(previewHost);
             // Stage 3 contains production mechanics only. It summarizes the
-            // confirmed image source but does not reopen aesthetic decisions.
+            // confirmed image source and reopens typography only to repair a
+            // legacy prose-only Custom result that cannot be final as-is.
+            if (typographyNeedsConcreteRepair()) {
+                var repairStyleGroup = el("div", "style-group");
+                renderTypography(repairStyleGroup);
+                host.appendChild(repairStyleGroup);
+            }
             renderImageProduction(host);
             renderFormulaPolicy(host);
+            renderProactiveExecution(host);
             renderMode(host);
             renderRefine(host);
         } else {
@@ -2495,6 +2991,7 @@
             renderImageDirection(host);
             renderImageProduction(host);
             renderFormulaPolicy(host);
+            renderProactiveExecution(host);
             renderMode(host);
             renderRefine(host);
         }
@@ -2539,6 +3036,7 @@
     }
 
     function initStage1State() {
+        STATE.primary_language = recommendationLanguage();
         STATE.canvas = pick("canvas", CAT.canvas);
         STATE.audience = (REC.audience && REC.audience.value) || "";
         STATE.communication_intent = (REC.communication_intent && REC.communication_intent.value) || "";
@@ -2550,10 +3048,24 @@
     }
 
     // Stage-2 fields are (re-)read from the recommendations. At boot they come from
-    // whatever recommendations.json carried; after a stage-1 confirm enterStage()
-    // calls this again with the newly authored candidates. Stage-1 STATE is preserved
+    // the active stage file; after a stage-1 confirm enterStage() calls this again
+    // with the newly authored candidates. Stage-1 STATE is preserved
     // across the single-session transition — this never resets the contract.
     function initStage2State() {
+        [
+            "audience",
+            "communication_intent",
+            "audience_outcome",
+            "core_message",
+            "delivery_context",
+            "artifact_afterlife",
+            "content_divergence"
+        ].forEach(function (field) {
+            var value = recValue(field);
+            if (value && typeof value === "object") value = value.value;
+            if (value != null) STATE[field] = String(value);
+        });
+        STATE.primary_language = recommendationLanguage();
         resetTypographySizeOverrides();
         var templateApplication = templateApplicationRecommendation();
         if (templateApplication != null) {
@@ -2590,6 +3102,7 @@
             body_size: t0.body_size || typographyBodySize(REC.typography),
             sizes: Object.assign({}, t0.sizes || {})
         };
+        if (t0.custom) STATE.typography.custom = t0.custom;
 
         // Guarantee a body baseline even when a candidate omitted body_size, on
         // any canvas (PPT → px default by purpose, non-PPT → px from canvas height),
@@ -2621,14 +3134,15 @@
             );
         } else if (directionStrategy) {
             STATE.image_strategy = normalizedImageStrategy(directionStrategy);
-        } else if (STATE.image_strategy_custom) {
-            STATE.image_strategy = normalizedImageStrategy(STATE.image_strategy_custom);
         }
     }
 
     function initStage3State() {
         STATE.formula_policy = pick("formula_policy", CAT.formula_policy);
         STATE.image_ai_path = pick("image_ai_path", CAT.image_ai_path);
+        STATE.proactive_speaker_notes = booleanRecommendation("proactive_speaker_notes", true);
+        STATE.proactive_custom_animations = booleanRecommendation("proactive_custom_animations", false);
+        STATE.proactive_narration_audio = booleanRecommendation("proactive_narration_audio", false);
 
         STATE.generation_mode = pick("generation_mode", CAT.generation_mode);
         STATE.refine_spec = !!((REC.refine_spec && REC.refine_spec.value) || (REC.recommend && REC.recommend.refine_spec));
@@ -2650,7 +3164,7 @@
 
     // ---- staged submit + next-stage transitions -------------------------
     function communicationPayload() {
-        return {
+        var payload = {
             canvas: STATE.canvas,
             audience: STATE.audience,
             communication_intent: STATE.communication_intent,
@@ -2660,6 +3174,10 @@
             artifact_afterlife: STATE.artifact_afterlife,
             content_divergence: STATE.content_divergence
         };
+        if (STATE.primary_language && STATE.primary_language !== "und") {
+            payload.primary_language = STATE.primary_language;
+        }
+        return payload;
     }
 
     function stage1Payload() {
@@ -2698,6 +3216,24 @@
         return !!valid;
     }
 
+    function imageStrategyValid(payload) {
+        if (!needsGeneratedImagesForUsage(payload.image_usage)) return true;
+        var imageStrategy = payload.image_strategy || {};
+        var rendering = String(imageStrategy.rendering || "").trim();
+        if (!rendering) {
+            document.getElementById("confirm-status").textContent = t("image_strategy_required");
+            return false;
+        }
+        var presetIds = imageStrategyCatalogCandidates().map(function (candidate) {
+            return candidate.rendering;
+        });
+        if (rendering !== "custom" && presetIds.length && presetIds.indexOf(rendering) < 0) {
+            document.getElementById("confirm-status").textContent = t("image_strategy_invalid");
+            return false;
+        }
+        return true;
+    }
+
     function positiveNumber(value) {
         var number = parseFloat(value);
         return isFinite(number) && number > 0;
@@ -2712,22 +3248,14 @@
         var customPalette = color.name === "custom" && String(color.custom || "").trim();
 
         var typography = payload.typography || {};
-        var completeFontRole = function (role) {
-            var font = typography[role] || {};
-            return ["cjk", "latin", "css"].every(function (field) {
-                return !!String(font[field] || "").trim();
-            });
-        };
-        var completeFamilies = completeFontRole("heading") && completeFontRole("body");
-        var customFamilies = typography.name === "custom" &&
-            String(typography.custom || "").trim();
+        var completeFamilies = typographyFamiliesComplete(typography);
         var sizes = typography.sizes || {};
         var completeSizes = positiveNumber(typography.body_size) &&
             ["title", "subtitle", "annotation"].every(function (role) {
                 return positiveNumber(sizes[role]);
             });
         var valid = (completePalette || customPalette) &&
-            (completeFamilies || customFamilies) && completeSizes;
+            completeFamilies && completeSizes;
         if (!valid) {
             document.getElementById("confirm-status").textContent = t("design_system_required");
         }
@@ -2796,6 +3324,7 @@
     function submitStage2() {
         var payload = stage2Payload();
         if (!imageUsageValid(payload.image_usage)) return;
+        if (!imageStrategyValid(payload)) return;
         if (!designSystemValid(payload)) return;
         if (!customSelectionsValid(payload)) return;
         submitStage(payload, 3);
@@ -2809,9 +3338,9 @@
         l.style.display = "block";
     }
 
-    // Poll session state first. It is derived from recommendations.json and
-    // result.json, so a recovered server can tell the existing page exactly when
-    // the next once-authored stage is ready.
+    // Poll session state first. It is derived from recommendation stage files
+    // and result.json, so a recovered server can tell the existing page exactly when
+    // the next stage is ready.
     function pollForStage(nextStage) {
         fetchJson("/api/session", "session")
             .then(function (session) {
@@ -2862,6 +3391,7 @@
             payload.image_strategy = normalizedImageStrategy(payload.image_strategy);
         }
         normalizeCreativePayload(payload);
+        if (!imageStrategyValid(payload)) return;
         if (!designSystemValid(payload)) return;
         if (!customSelectionsValid(payload)) return;
         btn.disabled = true;
@@ -2918,6 +3448,11 @@
 
     function loadIconPreviews() {
         return fetchJson("/api/icon-previews", "icon previews")
+            .catch(function () { return {}; });
+    }
+
+    function loadAiImageComparison() {
+        return fetchJson("/api/ai-image-comparison", "AI image comparison")
             .catch(function () { return {}; });
     }
 
@@ -3006,11 +3541,13 @@
         Promise.all([
             loadCatalogs(),
             fetchJson("/api/recommendations", "recommendations"),
-            loadIconPreviews()
+            loadIconPreviews(),
+            loadAiImageComparison()
         ]).then(function (res) {
             CAT = res[0];
             REC = res[1];
             ICON_PREVIEWS = res[2] || {};
+            AI_IMAGE_COMPARISON = res[3] || {};
             if (REC.lang === "zh" || REC.lang === "en" || REC.lang === "ja") {
                 var hasStored = false;
                 try { hasStored = !!window.localStorage.getItem("ppt_lang"); } catch (e) { /* ignore */ }
