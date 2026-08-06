@@ -117,7 +117,7 @@ export function FlowWorkspaceView({ leftSidebarCollapsed, onToggleLeftSidebar, f
       void flowInstance.fitView({ padding: 0.2, minZoom: 0.4, maxZoom: 1.2, duration: 0 })
     })
     return () => window.cancelAnimationFrame(frame)
-  }, [draft?.id, flowInstance, nodes.length])
+  }, [draft, flowInstance, nodes.length])
 
   const onNodesChange = (changes: NodeChange<Node<FlowNodeData>>[]) => { if (!draft) return; const changed = applyNodeChanges(changes, nodes); setDraft({ ...draft, nodes: draft.nodes.map((node) => ({ ...node, position: changed.find((item) => item.id === node.id)?.position ?? node.position })) }) }
   const onEdgesChange = (changes: EdgeChange<Edge>[]) => { if (!draft) return; const changed = applyEdgeChanges(changes, edges); setDraft({ ...draft, edges: changed.map((edge) => ({ id: edge.id, sourceNodeId: edge.source, sourcePortId: edge.sourceHandle ?? 'output', targetNodeId: edge.target, targetPortId: edge.targetHandle ?? 'input', branch: 'normal' })) }) }

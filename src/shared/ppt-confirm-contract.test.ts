@@ -37,6 +37,7 @@ describe('ppt confirm contract', () => {
       SAMPLE_RECOMMENDATIONS,
       { visual_style: { id: 'swiss-minimal', label: '瑞士极简' }, page_count: 16 },
       '/work/deck',
+      'final',
       '2026-08-05T00:00:00.000Z'
     )
     expect(result.stage).toBe('final')

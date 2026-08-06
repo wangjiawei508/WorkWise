@@ -11,6 +11,7 @@ export type PptMasterSidecarOperation =
   | 'ppt-master-list-presets'
   | 'ppt-master-render-preset'
   | 'ppt-master-import-pptx'
+  | 'ppt-master-import-pptx-native'
   | 'ppt-master-export-pptx'
 
 export type PptMasterSidecarRequest = {

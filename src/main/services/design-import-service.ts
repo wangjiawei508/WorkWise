@@ -17,7 +17,8 @@ import { parseSvgStringsToDocument } from '../../shared/design-svg-parser'
 import {
   generateDesignElementId,
   type DesignDocumentV1,
-  type DesignElement
+  type DesignElement,
+  type DesignPage
 } from '../../shared/design-document'
 import type { DesignFidelityWarning } from '../../shared/design-workspace'
 import { resolvePptMasterScript } from './design-ppt-master-paths'

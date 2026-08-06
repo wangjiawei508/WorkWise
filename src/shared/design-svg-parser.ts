@@ -928,7 +928,7 @@ function createTextElements(
       fontFamily,
       fontWeight,
       fill: fill === undefined ? '000000' : (fill ?? undefined),
-      stroke,
+      stroke: stroke ?? undefined,
       opacity,
       letterSpacing,
       textAlign,
@@ -964,7 +964,7 @@ function createTextElements(
       fill: tAttrs.fill !== undefined
         ? (resolvePaint(tAttrs.fill, gradients) ?? undefined)
         : (fill === undefined ? '000000' : (fill ?? undefined)),
-      stroke: tAttrs.stroke !== undefined ? (resolvePaint(tAttrs.stroke, gradients) ?? undefined) : stroke,
+      stroke: tAttrs.stroke !== undefined ? (resolvePaint(tAttrs.stroke, gradients) ?? undefined) : (stroke ?? undefined),
       opacity: tAttrs.opacity !== undefined
         ? parseOpacity(tAttrs.opacity)
         : tAttrs['fill-opacity'] !== undefined
