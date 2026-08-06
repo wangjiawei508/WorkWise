@@ -768,13 +768,20 @@ export function normalizeDesignElement(input: Partial<DesignElement> | null | un
   ) return null
   if (!input.type || !DESIGN_ELEMENT_TYPES.includes(input.type as DesignElementType)) return null
 
+  const isLine = input.type === 'line'
   const element: DesignElement = {
     id: input.id,
     type: input.type as DesignElementType,
     x: typeof input.x === 'number' && Number.isFinite(input.x) ? input.x : 0,
     y: typeof input.y === 'number' && Number.isFinite(input.y) ? input.y : 0,
-    w: typeof input.w === 'number' && Number.isFinite(input.w) && input.w > 0 ? input.w : 100,
-    h: typeof input.h === 'number' && Number.isFinite(input.h) && input.h > 0 ? input.h : 100,
+    // 线条用带符号的 w/h 表达方向（向左/向上的线为负值），归一化时必须保留；
+    // 其他元素仍要求正尺寸，缺失或非法时回退默认值。
+    w: typeof input.w === 'number' && Number.isFinite(input.w) && (isLine ? input.w !== 0 : input.w > 0)
+      ? input.w
+      : 100,
+    h: typeof input.h === 'number' && Number.isFinite(input.h) && (isLine ? input.h !== 0 : input.h > 0)
+      ? input.h
+      : 100,
     rotation: typeof input.rotation === 'number' && Number.isFinite(input.rotation) ? input.rotation : 0,
     zIndex: typeof input.zIndex === 'number' && Number.isFinite(input.zIndex) ? input.zIndex : 0,
     ...(input.fill !== undefined ? { fill: isValidDesignColor(input.fill) ? input.fill : '000000' } : {}),

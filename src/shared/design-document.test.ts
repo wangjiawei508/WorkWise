@@ -285,6 +285,67 @@ describe('normalizeDesignElement - 防御性归一化', () => {
     expect(result?.h).toBe(100)
   })
 
+  it('line 元素的负 w/h（向左/向上的方向）原样保留', () => {
+    const result = normalizeDesignElement({
+      id: 'el_line_up',
+      type: 'line',
+      x: 290,
+      y: 530,
+      w: 250,
+      h: -50,
+      stroke: '0F3D6E',
+      strokeWidth: 2,
+      rotation: 0,
+      zIndex: 59
+    })
+    expect(result).not.toBeNull()
+    expect(result?.w).toBe(250)
+    expect(result?.h).toBe(-50)
+
+    const leftward = normalizeDesignElement({
+      id: 'el_line_left',
+      type: 'line',
+      x: 1000,
+      y: 320,
+      w: -260,
+      h: 110,
+      stroke: '0F3D6E',
+      strokeWidth: 2,
+      rotation: 0,
+      zIndex: 71
+    })
+    expect(leftward?.w).toBe(-260)
+    expect(leftward?.h).toBe(110)
+  })
+
+  it('line 元素 w/h 为 0 或非有限值时回退默认值', () => {
+    const zero = normalizeDesignElement({
+      id: 'el_line_zero',
+      type: 'line',
+      x: 0,
+      y: 0,
+      w: 0,
+      h: 0,
+      rotation: 0,
+      zIndex: 0
+    })
+    expect(zero?.w).toBe(100)
+    expect(zero?.h).toBe(100)
+
+    const nan = normalizeDesignElement({
+      id: 'el_line_nan',
+      type: 'line',
+      x: 0,
+      y: 0,
+      w: Number.NaN,
+      h: Number.POSITIVE_INFINITY,
+      rotation: 0,
+      zIndex: 0
+    })
+    expect(nan?.w).toBe(100)
+    expect(nan?.h).toBe(100)
+  })
+
   it('预设多路径保留顺序、颜色与显式 none', () => {
     const result = normalizeDesignElement({
       id: 'el_1',
