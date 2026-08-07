@@ -501,6 +501,84 @@ describe('MarketplaceCatalogService', () => {
     await expect(service.getSnapshot('invalid-package')).resolves.toBeNull()
   })
 
+  it('validates bundled runtimes, disabled hooks, signatures, and configuration fields', async () => {
+    const rootDirectory = await tempRoot()
+    const path = join(rootDirectory, 'plugin-fields.json')
+    const item = catalogPackage('plugin-fields')
+    item.components = [{
+      id: 'example-skill',
+      name: 'Example Skill',
+      type: 'skill',
+      sourceId: item.source.id,
+      runtime: { kind: 'bundled', entrypoint: 'skills/example' },
+      skillNames: ['example']
+    }]
+    item.permissions = [{
+      id: 'hook-process',
+      kind: 'process',
+      access: 'execute',
+      default: 'review',
+      reviewRequired: true,
+      description: 'Run an explicitly reviewed hook.'
+    }]
+    item.hooks = [{
+      id: 'post-tool-use',
+      event: 'PostToolUse',
+      matcher: 'Write|Edit',
+      command: './scripts/check.sh',
+      enabledByDefault: false,
+      execution: 'disabled-pending-review',
+      permissionIds: ['hook-process']
+    }]
+    item.signature = { status: 'unsigned' }
+    item.configuration = [{
+      key: 'ROOT',
+      type: 'directory',
+      title: 'Root directory',
+      required: true,
+      sensitive: false,
+      multiple: false,
+      defaultValue: '/tmp/example'
+    }]
+    await writeSnapshot(path, snapshot('plugin-fields', 'r1', [item]))
+    const service = new MarketplaceCatalogService({ rootDirectory, now: () => new Date(NOW) })
+    await service.upsertSource(localSource('plugin-fields', path))
+
+    await expect(service.syncSource('plugin-fields')).resolves.toMatchObject({ status: 'synced' })
+
+    const unsafe = structuredClone(item)
+    unsafe.components[0]!.runtime = { kind: 'bundled', entrypoint: '../outside' }
+    unsafe.hooks![0]!.enabledByDefault = true as false
+    await writeSnapshot(path, snapshot('plugin-fields', 'r2', [unsafe]))
+    await expect(service.syncSource('plugin-fields')).resolves.toMatchObject({
+      status: 'failed',
+      error: expect.stringMatching(/path traversal|disabled/i),
+      stale: true
+    })
+
+    const selfVerifiedPublisher = structuredClone(item)
+    selfVerifiedPublisher.publisher.verified = true
+    await writeSnapshot(path, snapshot('plugin-fields', 'r3', [selfVerifiedPublisher]))
+    await expect(service.syncSource('plugin-fields')).resolves.toMatchObject({
+      status: 'failed',
+      error: expect.stringMatching(/cannot claim verified/i),
+      stale: true
+    })
+
+    const selfVerifiedArtifact = structuredClone(item)
+    selfVerifiedArtifact.signature = {
+      status: 'verified',
+      algorithm: 'ed25519',
+      keyId: 'self-reported-key'
+    }
+    await writeSnapshot(path, snapshot('plugin-fields', 'r4', [selfVerifiedArtifact]))
+    await expect(service.syncSource('plugin-fields')).resolves.toMatchObject({
+      status: 'failed',
+      error: expect.stringMatching(/verified after download/i),
+      stale: true
+    })
+  })
+
   it('rejects project paths that escape through an intermediate symbolic link', async () => {
     if (process.platform === 'win32') return
     const rootDirectory = await tempRoot()

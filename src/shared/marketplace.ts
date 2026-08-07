@@ -163,6 +163,7 @@ export type RemotePackageRuntimeV1 = {
   kind: 'remote'
   transport: 'streamable-http' | 'sse'
   endpoint: string
+  oauthResource?: string
 }
 
 export type NpmPackageRuntimeV1 = {
@@ -208,11 +209,19 @@ export type SystemPackageRuntimeV1 = {
   capability: string
 }
 
+export type BundledPackageRuntimeV1 = {
+  kind: 'bundled'
+  entrypoint: string
+  executable?: string
+  args?: string[]
+}
+
 export type PackageRuntimeV1 =
   | RemotePackageRuntimeV1
   | NpmPackageRuntimeV1
   | GithubPackageRuntimeV1
   | UvPackageRuntimeV1
+  | BundledPackageRuntimeV1
   | SystemPackageRuntimeV1
 
 type MarketplaceComponentBaseV1 = {
@@ -227,6 +236,7 @@ export type McpComponentV1 = MarketplaceComponentBaseV1 & {
     | RemotePackageRuntimeV1
     | NpmPackageRuntimeV1
     | UvPackageRuntimeV1
+    | BundledPackageRuntimeV1
     | SystemPackageRuntimeV1
 }
 
@@ -236,12 +246,17 @@ export type CliComponentV1 = MarketplaceComponentBaseV1 & {
     | NpmPackageRuntimeV1
     | GithubPackageRuntimeV1
     | UvPackageRuntimeV1
+    | BundledPackageRuntimeV1
     | SystemPackageRuntimeV1
 }
 
 export type SkillComponentV1 = MarketplaceComponentBaseV1 & {
   type: 'skill'
-  runtime: NpmPackageRuntimeV1 | GithubPackageRuntimeV1 | SystemPackageRuntimeV1
+  runtime:
+    | NpmPackageRuntimeV1
+    | GithubPackageRuntimeV1
+    | BundledPackageRuntimeV1
+    | SystemPackageRuntimeV1
   skillNames: string[]
 }
 
@@ -334,6 +349,42 @@ export type PackageInstallationV1 =
       reinstallable: false
     }
 
+export type PackageHookV1 = {
+  id: string
+  event: string
+  matcher?: string
+  command: string
+  enabledByDefault: false
+  execution: 'disabled-pending-review'
+  permissionIds: string[]
+}
+
+export type PackageSignatureV1 =
+  | { status: 'unsigned' }
+  | {
+      status: 'verified'
+      algorithm: 'ed25519'
+      keyId: string
+      signer?: string
+    }
+  | {
+      status: 'untrusted'
+      algorithm: 'ed25519'
+      keyId: string
+      reason: string
+    }
+
+export type PackageConfigurationFieldV1 = {
+  key: string
+  type: 'string' | 'number' | 'boolean' | 'directory' | 'file'
+  title: string
+  description?: string
+  required: boolean
+  sensitive: boolean
+  multiple: boolean
+  defaultValue?: string | number | boolean | string[]
+}
+
 export type MarketplacePackageV1 = {
   schemaVersion: 1
   id: string
@@ -351,6 +402,9 @@ export type MarketplacePackageV1 = {
   auth: PackageAuthV1
   licenseEvidence: PackageLicenseEvidenceV1[]
   dependencies: PackageDependencyV1[]
+  hooks?: PackageHookV1[]
+  signature?: PackageSignatureV1
+  configuration?: PackageConfigurationFieldV1[]
   updatePolicy: PackageUpdatePolicyV1
   compatibility: PackageCompatibilityV1
   availability: PackageAvailabilityV1

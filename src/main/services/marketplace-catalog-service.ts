@@ -234,6 +234,27 @@ function assertNonEmptyStrings(value: unknown, label: string): string[] {
   return items as string[]
 }
 
+function assertPortablePackagePath(value: unknown, label: string): string {
+  const path = requiredString(value, label)
+  if (path.includes('\0') || path.includes('\\') || path.startsWith('/') || /^[A-Za-z]:/.test(path)) {
+    throw new Error(label + ' must be a portable relative path.')
+  }
+  const segments = path.split('/')
+  if (segments.length > 24 ||
+      segments.some((segment) => !segment || segment === '.' || segment === '..')) {
+    throw new Error(label + ' contains path traversal or excessive depth.')
+  }
+  for (const segment of segments) {
+    const base = segment.split('.')[0]?.toLowerCase() ?? ''
+    const containsControl = [...segment].some((character) => character.charCodeAt(0) <= 31)
+    if (/[<>:"|?*]/.test(segment) || containsControl || /[. ]$/.test(segment) ||
+        new Set(['con', 'prn', 'aux', 'nul']).has(base) || /^(?:com|lpt)[1-9]$/.test(base)) {
+      throw new Error(label + ' is not portable across supported platforms.')
+    }
+  }
+  return path
+}
+
 function assertSourceShape(source: CatalogSourceV1, allowLoopbackHttp: boolean): void {
   requiredString(source.id, 'Catalog source id')
   requiredString(source.name, 'Catalog source name')
@@ -376,9 +397,9 @@ function assertRuntimeShape(
   const runtime = requiredRecord(value, packageId + ' component runtime')
   const kind = requiredString(runtime.kind, packageId + ' component runtime kind')
   const allowedByType: Record<string, Set<string>> = {
-    mcp: new Set(['remote', 'npm', 'uv', 'system']),
-    cli: new Set(['npm', 'github', 'uv', 'system']),
-    skill: new Set(['npm', 'github', 'system'])
+    mcp: new Set(['remote', 'npm', 'uv', 'bundled', 'system']),
+    cli: new Set(['npm', 'github', 'uv', 'bundled', 'system']),
+    skill: new Set(['npm', 'github', 'bundled', 'system'])
   }
   if (!allowedByType[componentType]?.has(kind)) {
     throw new Error(packageId + ' component runtime is incompatible with its type.')
@@ -388,8 +409,30 @@ function assertRuntimeShape(
       throw new Error(packageId + ' remote transport is invalid.')
     }
     const endpoint = requiredString(runtime.endpoint, packageId + ' remote endpoint')
+    if (runtime.oauthResource !== undefined) {
+      const oauthResource = requiredString(runtime.oauthResource, packageId + ' OAuth resource')
+      try {
+        assertSafeHttpsUrl(oauthResource, false)
+      } catch (error) {
+        throw new Error(packageId + ' OAuth resource is invalid: ' + errorMessage(error))
+      }
+    }
     if (componentSource.kind !== 'remote' || componentSource.location !== endpoint) {
       throw new Error(packageId + ' remote runtime endpoint must match its component source.')
+    }
+  } else if (kind === 'bundled') {
+    assertPortablePackagePath(runtime.entrypoint, packageId + ' bundled entrypoint')
+    if (runtime.executable !== undefined) {
+      const executable = requiredString(runtime.executable, packageId + ' bundled executable')
+      if (executable.includes('\0') || /[\r\n]/.test(executable) || executable.startsWith('-')) {
+        throw new Error(packageId + ' bundled executable is invalid.')
+      }
+    }
+    if (runtime.args !== undefined) {
+      const args = requiredArray(runtime.args, packageId + ' bundled args')
+      if (args.some((arg) => typeof arg !== 'string' || arg.includes('\0'))) {
+        throw new Error(packageId + ' bundled args must be safe strings.')
+      }
     }
   } else if (kind === 'system') {
     requiredString(runtime.provider, packageId + ' system provider')
@@ -499,7 +542,8 @@ function assertAuthShape(value: unknown, packageId: string): void {
 function assertPackageShape(
   rawPackage: unknown,
   expectedSourceId: string,
-  packageIds: Set<string>
+  packageIds: Set<string>,
+  allowVerifiedPublisher: boolean
 ): MarketplacePackageV1 {
   const value = requiredRecord(rawPackage, 'Catalog package')
   if (value.schemaVersion !== 1) throw new Error('Catalog package schemaVersion must be 1.')
@@ -519,6 +563,9 @@ function assertPackageShape(
   requiredString(publisher.id, id + ' publisher id')
   requiredString(publisher.name, id + ' publisher name')
   if (typeof publisher.verified !== 'boolean') throw new Error(id + ' publisher verified is required.')
+  if (publisher.verified && !allowVerifiedPublisher) {
+    throw new Error(id + ' publisher cannot claim verified status from this catalog source.')
+  }
   if (publisher.url !== undefined) {
     const publisherUrl = requiredString(publisher.url, id + ' publisher URL')
     try {
@@ -572,8 +619,12 @@ function assertPackageShape(
     }
   }
 
+  const permissionIds = new Set<string>()
   for (const permission of requiredArray(value.permissions, id + ' permissions')) {
     assertPermissionShape(permission, id)
+    const permissionId = String((permission as Record<string, unknown>).id)
+    if (permissionIds.has(permissionId)) throw new Error(id + ' contains duplicate permission IDs.')
+    permissionIds.add(permissionId)
   }
   assertAuthShape(value.auth, id)
   for (const rawEvidence of requiredArray(value.licenseEvidence, id + ' licenseEvidence')) {
@@ -597,6 +648,74 @@ function assertPackageShape(
     if (dependency.managedBy !== undefined &&
         !new Set(['workwise', 'system', 'user']).has(String(dependency.managedBy))) {
       throw new Error(id + ' dependency manager is invalid.')
+    }
+  }
+  if (value.hooks !== undefined) {
+    const hookIds = new Set<string>()
+    for (const rawHook of requiredArray(value.hooks, id + ' hooks')) {
+      const hook = requiredRecord(rawHook, id + ' hook')
+      const hookId = requiredString(hook.id, id + ' hook id')
+      if (hookIds.has(hookId)) throw new Error(id + ' contains duplicate hook IDs.')
+      hookIds.add(hookId)
+      requiredString(hook.event, id + ' hook event')
+      if (hook.matcher !== undefined) requiredString(hook.matcher, id + ' hook matcher')
+      const command = requiredString(hook.command, id + ' hook command')
+      if (command.includes('\0')) throw new Error(id + ' hook command is invalid.')
+      if (hook.enabledByDefault !== false || hook.execution !== 'disabled-pending-review') {
+        throw new Error(id + ' hooks must remain disabled pending review.')
+      }
+      const references = assertNonEmptyStrings(hook.permissionIds, id + ' hook permissionIds')
+      if (references.some((permissionId) => !permissionIds.has(permissionId))) {
+        throw new Error(id + ' hook references an unknown permission.')
+      }
+    }
+  }
+  if (value.signature !== undefined) {
+    const signature = requiredRecord(value.signature, id + ' signature')
+    if (signature.status === 'unsigned') {
+      // Unsigned packages carry no signer-controlled trust metadata.
+    } else if (signature.status === 'untrusted') {
+      if (signature.algorithm !== 'ed25519') throw new Error(id + ' signature algorithm is invalid.')
+      requiredString(signature.keyId, id + ' signature keyId')
+      requiredString(signature.reason, id + ' signature reason')
+    } else if (signature.status === 'verified') {
+      throw new Error(id + ' artifact signature must be verified after download.')
+    } else {
+      throw new Error(id + ' signature status is invalid.')
+    }
+  }
+  if (value.configuration !== undefined) {
+    const configurationKeys = new Set<string>()
+    for (const rawField of requiredArray(value.configuration, id + ' configuration')) {
+      const field = requiredRecord(rawField, id + ' configuration field')
+      const key = requiredString(field.key, id + ' configuration key')
+      if (configurationKeys.has(key)) throw new Error(id + ' contains duplicate configuration keys.')
+      configurationKeys.add(key)
+      const type = requiredString(field.type, id + ' configuration type')
+      if (!new Set(['string', 'number', 'boolean', 'directory', 'file']).has(type)) {
+        throw new Error(id + ' configuration type is invalid.')
+      }
+      requiredString(field.title, id + ' configuration title')
+      if (field.description !== undefined) {
+        requiredString(field.description, id + ' configuration description')
+      }
+      if (typeof field.required !== 'boolean' || typeof field.sensitive !== 'boolean' ||
+          typeof field.multiple !== 'boolean') {
+        throw new Error(id + ' configuration flags are invalid.')
+      }
+      if (field.multiple && type !== 'string' && type !== 'directory' && type !== 'file') {
+        throw new Error(id + ' multiple configuration is only supported for string and path values.')
+      }
+      if (field.defaultValue !== undefined) {
+        const validDefault = field.multiple
+          ? Array.isArray(field.defaultValue) && field.defaultValue.every((item) => typeof item === 'string')
+          : type === 'number'
+            ? typeof field.defaultValue === 'number' && Number.isFinite(field.defaultValue)
+            : type === 'boolean'
+              ? typeof field.defaultValue === 'boolean'
+              : typeof field.defaultValue === 'string'
+        if (!validDefault) throw new Error(id + ' configuration defaultValue does not match its type.')
+      }
     }
   }
   const updatePolicy = requiredRecord(value.updatePolicy, id + ' updatePolicy')
@@ -639,7 +758,11 @@ function assertPackageShape(
   return clone(value as unknown as MarketplacePackageV1)
 }
 
-function assertSnapshot(value: unknown, expectedSourceId: string): CatalogSnapshotV1 {
+function assertSnapshot(
+  value: unknown,
+  expectedSourceId: string,
+  allowVerifiedPublisher = false
+): CatalogSnapshotV1 {
   if (!isRecord(value) || value.schemaVersion !== 1 || value.sourceId !== expectedSourceId) {
     throw new Error('Catalog snapshot sourceId must match ' + expectedSourceId + '.')
   }
@@ -663,7 +786,7 @@ function assertSnapshot(value: unknown, expectedSourceId: string): CatalogSnapsh
 
   const packageIds = new Set<string>()
   const packages = value.packages.map((item) =>
-    assertPackageShape(item, expectedSourceId, packageIds)
+    assertPackageShape(item, expectedSourceId, packageIds, allowVerifiedPublisher)
   )
   return clone({ ...value, packages } as unknown as CatalogSnapshotV1)
 }
@@ -681,15 +804,17 @@ function adaptCatalogValue(
   source: CatalogSourceV1,
   context: { revision: string; generatedAt?: string; commit?: string }
 ): CatalogSnapshotV1 {
+  const allowVerifiedPublisher = source.trust === 'system' ||
+    source.trust === 'official' || source.trust === 'verified'
   if (isRecord(value) && value.schemaVersion !== undefined) {
-    return assertSnapshot(value, source.id)
+    return assertSnapshot(value, source.id, allowVerifiedPublisher)
   }
   return assertSnapshot(adaptCodexMarketplace(value, {
     source,
     revision: context.revision,
     ...(context.generatedAt ? { generatedAt: context.generatedAt } : {}),
     ...(context.commit ? { commit: context.commit } : {})
-  }), source.id)
+  }), source.id, allowVerifiedPublisher)
 }
 
 function parseCatalogText(
@@ -1108,7 +1233,12 @@ export class MarketplaceCatalogService {
         if (snapshotDigest(text) !== pointer.sha256) {
           throw new Error('Marketplace snapshot digest does not match its manifest pointer.')
         }
-        const snapshot = assertSnapshot(parseJsonText(text), sourceId)
+        const source = sources.find((entry) => entry.id === sourceId)
+        const snapshot = assertSnapshot(
+          parseJsonText(text),
+          sourceId,
+          source?.trust === 'system' || source?.trust === 'official' || source?.trust === 'verified'
+        )
         if (snapshot.revision !== pointer.revision) {
           throw new Error('Marketplace snapshot revision does not match its manifest pointer.')
         }
