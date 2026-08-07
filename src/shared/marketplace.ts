@@ -20,6 +20,7 @@ export type CatalogSourceSyncV1 = {
   installedByDefault: boolean
   lastSyncedAt?: string
   etag?: string
+  lastModified?: string
   commit?: string
   error?: string
 }
@@ -353,6 +354,41 @@ export type MarketplacePackageV1 = {
   compatibility: PackageCompatibilityV1
   availability: PackageAvailabilityV1
   installation: PackageInstallationV1
+}
+
+export type CatalogSnapshotV1 = {
+  schemaVersion: 1
+  sourceId: string
+  revision: string
+  generatedAt?: string
+  commit?: string
+  packages: MarketplacePackageV1[]
+}
+
+export type MarketplaceCatalogPackageEntryV1 = {
+  key: string
+  sourceId: string
+  package: MarketplacePackageV1
+  conflicted: boolean
+}
+
+export type MarketplaceCatalogConflictV1 = {
+  packageId: string
+  sourceIds: string[]
+  keys: string[]
+}
+
+export type MarketplaceCatalogPackagesResultV1 = {
+  packages: MarketplaceCatalogPackageEntryV1[]
+  conflicts: MarketplaceCatalogConflictV1[]
+}
+
+export type MarketplaceCatalogSyncResultV1 = {
+  sourceId: string
+  status: 'synced' | 'unchanged' | 'offline' | 'failed'
+  stale: boolean
+  snapshot: CatalogSnapshotV1 | null
+  error?: string
 }
 
 export type InstalledPackagePermissionV1 = {

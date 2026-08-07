@@ -1,0 +1,1365 @@
+import { createHash } from 'node:crypto'
+import { constants } from 'node:fs'
+import { lstat, mkdir, open, realpath, rm } from 'node:fs/promises'
+import { homedir } from 'node:os'
+import { basename, isAbsolute, join, relative, resolve } from 'node:path'
+import type {
+  CatalogSnapshotV1,
+  CatalogSourceV1,
+  MarketplaceCatalogPackagesResultV1,
+  MarketplaceCatalogSyncResultV1,
+  MarketplacePackageV1
+} from '../../shared/marketplace'
+import { atomicWriteFile, readRecoveredFile, runSerialized } from './durable-file'
+import {
+  getMarketplaceCatalogSources,
+  getOfficialMarketplaceCatalog
+} from './official-marketplace-catalog'
+
+const SOURCE_MANIFEST_SCHEMA = 'workwise.marketplace-sources'
+const SOURCE_MANIFEST_VERSION = 1
+const MAX_CATALOG_JSON_BYTES = 10 * 1024 * 1024
+const MAX_CATALOG_PACKAGES = 5_000
+const IMMUTABLE_COMMIT = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/i
+
+type SourceManifestV1 = {
+  schema: typeof SOURCE_MANIFEST_SCHEMA
+  version: typeof SOURCE_MANIFEST_VERSION
+  sources: CatalogSourceV1[]
+  snapshots?: Record<string, SnapshotPointerV1>
+}
+
+type SnapshotPointerV1 = {
+  file: string
+  revision: string
+  sha256: string
+}
+
+type FileSourcePath = {
+  lexicalPath: string
+  realPath: string
+  device: number
+  inode: number
+}
+
+export type MarketplaceCatalogServiceOptions = {
+  rootDirectory?: string
+  workspaceRoot?: string
+  fetch?: typeof fetch
+  now?: () => Date
+  allowLoopbackHttp?: boolean
+  beforePersistSources?: (sources: readonly CatalogSourceV1[]) => Promise<void>
+  fetchTimeoutMs?: number
+  resolveSecret?: (secretKey: string) => Promise<string | null>
+  fileSourceReadHook?: (phase: 'resolved' | 'opened', path: string) => Promise<void>
+}
+
+function clone<T>(value: T): T {
+  return structuredClone(value)
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
+}
+
+function sourceCacheName(sourceId: string, sha256: string): string {
+  return createHash('sha256').update(sourceId).digest('hex') + '-' + sha256 + '.json'
+}
+
+function snapshotContent(snapshot: CatalogSnapshotV1): string {
+  return JSON.stringify(snapshot, null, 2) + '\n'
+}
+
+function snapshotDigest(content: string): string {
+  return createHash('sha256').update(content).digest('hex')
+}
+
+function sourceIdentity(source: CatalogSourceV1): string {
+  const base = {
+    type: source.type,
+    scope: source.scope,
+    location: source.location,
+    trust: source.trust,
+    auth: source.auth
+  }
+  if (source.type === 'git') return canonicalJson({ ...base, defaultBranch: source.defaultBranch })
+  if (source.type === 'github') {
+    return canonicalJson({
+      ...base,
+      owner: source.owner,
+      repository: source.repository,
+      defaultBranch: source.defaultBranch
+    })
+  }
+  if (source.type === 'mcp-registry') {
+    return canonicalJson({ ...base, registry: source.registry })
+  }
+  return canonicalJson(base)
+}
+
+function resetServiceOwnedSync(source: CatalogSourceV1): CatalogSourceV1 {
+  return {
+    ...source,
+    sync: {
+      mode: source.sync.mode,
+      state: 'idle',
+      mirroredByDefault: source.sync.mirroredByDefault,
+      installedByDefault: source.sync.installedByDefault
+    }
+  }
+}
+
+function sanitizeAuth(source: CatalogSourceV1): CatalogSourceV1['auth'] {
+  if (!isRecord(source) || !isRecord(source.auth)) {
+    throw new Error('Catalog source authentication metadata is invalid.')
+  }
+  if (source.auth.type === 'token') {
+    return { type: 'token', secretKey: source.auth.secretKey }
+  }
+  if (source.auth.type === 'oauth') {
+    return {
+      type: 'oauth',
+      provider: source.auth.provider,
+      discovery: source.auth.discovery
+    }
+  }
+  if (source.auth.type === 'none') return { type: 'none' }
+  throw new Error('Catalog source auth type is invalid.')
+}
+
+function sanitizeSource(source: CatalogSourceV1): CatalogSourceV1 {
+  if (!isRecord(source) || !isRecord(source.sync)) {
+    throw new Error('Catalog source metadata is invalid.')
+  }
+  const rawSync = source.sync
+  const sync = {
+    mode: rawSync.mode,
+    state: rawSync.state,
+    mirroredByDefault: rawSync.mirroredByDefault,
+    installedByDefault: rawSync.installedByDefault,
+    ...(typeof rawSync.lastSyncedAt === 'string' ? { lastSyncedAt: rawSync.lastSyncedAt } : {}),
+    ...(typeof rawSync.etag === 'string' ? { etag: rawSync.etag } : {}),
+    ...(typeof rawSync.lastModified === 'string' ? { lastModified: rawSync.lastModified } : {}),
+    ...(typeof rawSync.commit === 'string' ? { commit: rawSync.commit } : {}),
+    ...(typeof rawSync.error === 'string' ? { error: rawSync.error } : {})
+  } as CatalogSourceV1['sync']
+  const base = {
+    schemaVersion: source.schemaVersion,
+    id: source.id,
+    name: source.name,
+    scope: source.scope,
+    location: source.location,
+    trust: source.trust,
+    searchable: source.searchable,
+    auth: sanitizeAuth(source),
+    sync
+  }
+  if (source.type === 'built-in') return clone({ ...base, type: 'built-in' }) as CatalogSourceV1
+  if (source.type === 'local') return clone({ ...base, type: 'local' }) as CatalogSourceV1
+  if (source.type === 'project') return clone({ ...base, type: 'project' }) as CatalogSourceV1
+  if (source.type === 'git') {
+    return clone({ ...base, type: 'git', defaultBranch: source.defaultBranch }) as CatalogSourceV1
+  }
+  if (source.type === 'github') {
+    return clone({
+      ...base,
+      type: 'github',
+      owner: source.owner,
+      repository: source.repository,
+      defaultBranch: source.defaultBranch
+    }) as CatalogSourceV1
+  }
+  if (source.type === 'https') return clone({ ...base, type: 'https' }) as CatalogSourceV1
+  if (source.type === 'mcp-registry') {
+    return clone({ ...base, type: 'mcp-registry', registry: source.registry }) as CatalogSourceV1
+  }
+  throw new Error('Catalog source type is invalid.')
+}
+
+function assertSafeHttpsUrl(value: string, allowLoopbackHttp: boolean): void {
+  let parsed: URL
+  try {
+    parsed = new URL(value)
+  } catch {
+    throw new Error('Catalog location must be a valid URL.')
+  }
+  if (parsed.username || parsed.password) {
+    throw new Error('Catalog URLs must not contain credentials.')
+  }
+  const hostname = parsed.hostname.replace(/^\[|\]$/g, '')
+  const loopback = hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1'
+  if (parsed.protocol !== 'https:' &&
+      !(allowLoopbackHttp && parsed.protocol === 'http:' && loopback)) {
+    throw new Error('Catalog URLs must use HTTPS.')
+  }
+}
+
+function assertNonEmptyStrings(value: unknown, label: string): string[] {
+  const items = requiredArray(value, label)
+  if (items.some((item) => typeof item !== 'string' || !item.trim())) {
+    throw new Error(label + ' must contain non-empty strings.')
+  }
+  if (new Set(items).size !== items.length) throw new Error(label + ' must not contain duplicates.')
+  return items as string[]
+}
+
+function assertSourceShape(source: CatalogSourceV1, allowLoopbackHttp: boolean): void {
+  requiredString(source.id, 'Catalog source id')
+  requiredString(source.name, 'Catalog source name')
+  if (source.schemaVersion !== 1) throw new Error('Catalog source schemaVersion must be 1.')
+  const types = new Set(['built-in', 'local', 'project', 'git', 'github', 'https', 'mcp-registry'])
+  if (!types.has(source.type)) throw new Error('Catalog source type is invalid.')
+  const scopes = new Set(['user', 'workspace', 'team', 'system'])
+  if (!scopes.has(source.scope)) throw new Error('Catalog source scope is invalid.')
+  const trusts = new Set(['system', 'official', 'verified', 'community', 'external', 'unverified'])
+  if (!trusts.has(source.trust)) throw new Error('Catalog source trust is invalid.')
+  if (typeof source.searchable !== 'boolean') throw new Error('Catalog source searchable is required.')
+  requiredString(source.location, 'Catalog source location')
+  const sync = requiredRecord(source.sync, 'Catalog source sync')
+  if (!new Set(['bundled', 'watched', 'search-on-demand', 'manual']).has(String(sync.mode)) ||
+      !new Set(['idle', 'syncing', 'synced', 'error']).has(String(sync.state)) ||
+      typeof sync.mirroredByDefault !== 'boolean' ||
+      typeof sync.installedByDefault !== 'boolean') {
+    throw new Error('Catalog source sync metadata is invalid.')
+  }
+  for (const field of ['lastSyncedAt', 'etag', 'lastModified', 'error']) {
+    if (sync[field] !== undefined && typeof sync[field] !== 'string') {
+      throw new Error('Catalog source sync metadata is invalid.')
+    }
+  }
+  if (sync.commit !== undefined &&
+      (typeof sync.commit !== 'string' || !IMMUTABLE_COMMIT.test(sync.commit))) {
+    throw new Error('Catalog source sync commit must be immutable.')
+  }
+  const auth = requiredRecord(source.auth, 'Catalog source auth')
+  if (auth.type === 'token') requiredString(auth.secretKey, 'Catalog token secretKey')
+  else if (auth.type === 'oauth') {
+    requiredString(auth.provider, 'Catalog OAuth provider')
+    if (auth.discovery !== 'ready' && auth.discovery !== 'pending') {
+      throw new Error('Catalog OAuth discovery state is invalid.')
+    }
+  } else if (auth.type !== 'none') {
+    throw new Error('Catalog source auth type is invalid.')
+  }
+  if (source.type === 'https') assertSafeHttpsUrl(source.location, allowLoopbackHttp)
+  if (source.type === 'git' || source.type === 'github' || source.type === 'mcp-registry') {
+    assertSafeHttpsUrl(source.location, false)
+  }
+  if (source.type === 'github') {
+    requiredString(source.owner, 'GitHub catalog owner')
+    requiredString(source.repository, 'GitHub catalog repository')
+    requiredString(source.defaultBranch, 'GitHub catalog default branch')
+  }
+  if (source.type === 'git') requiredString(source.defaultBranch, 'Git catalog default branch')
+  if (source.type === 'mcp-registry') requiredString(source.registry, 'MCP Registry name')
+  if ((source.type === 'built-in' || source.type === 'local' || source.type === 'project') &&
+      source.auth.type !== 'none') {
+    throw new Error('Built-in and file catalog sources cannot declare authentication.')
+  }
+  if (source.type === 'project' && source.scope !== 'workspace') {
+    throw new Error('Project catalog sources require workspace scope.')
+  }
+  if (source.type === 'built-in' && source.scope !== 'system') {
+    throw new Error('Built-in catalog sources require system scope.')
+  }
+}
+
+function requiredString(value: unknown, label: string): string {
+  if (typeof value !== 'string' || !value.trim()) throw new Error(label + ' is required.')
+  return value
+}
+
+function requiredRecord(value: unknown, label: string): Record<string, unknown> {
+  if (!isRecord(value)) throw new Error(label + ' must be an object.')
+  return value
+}
+
+function requiredArray(value: unknown, label: string): unknown[] {
+  if (!Array.isArray(value)) throw new Error(label + ' must be an array.')
+  return value
+}
+
+function canonicalJson(value: unknown): string {
+  if (Array.isArray(value)) return '[' + value.map(canonicalJson).join(',') + ']'
+  if (!isRecord(value)) return JSON.stringify(value)
+  return '{' + Object.keys(value).sort().map((key) =>
+    JSON.stringify(key) + ':' + canonicalJson(value[key])
+  ).join(',') + '}'
+}
+
+function assertPackageSourceShape(value: unknown, packageId: string, expectedSourceId: string): string {
+  const source = requiredRecord(value, packageId + ' source')
+  const id = requiredString(source.id, packageId + ' source id')
+  if (source.catalogSourceId !== expectedSourceId) {
+    throw new Error(packageId + ' source catalogSourceId must match ' + expectedSourceId + '.')
+  }
+  requiredString(source.location, packageId + ' source location')
+  const kind = requiredString(source.kind, packageId + ' source kind')
+  const allowedKinds = new Set([
+    'npm',
+    'pypi',
+    'github',
+    'git',
+    'built-in',
+    'local',
+    'project',
+    'https',
+    'mcp-registry',
+    'remote',
+    'system'
+  ])
+  if (!allowedKinds.has(kind)) throw new Error(packageId + ' source kind is unsupported.')
+  if (kind === 'npm' || kind === 'pypi') {
+    requiredString(source.packageName, packageId + ' source packageName')
+    requiredString(source.version, packageId + ' source version')
+    requiredString(source.resolvedRef, packageId + ' source resolvedRef')
+    const digest = requiredRecord(source.digest, packageId + ' source digest')
+    const expectedAlgorithm = kind === 'npm' ? 'sha512-sri' : 'sha256'
+    if (digest.algorithm !== expectedAlgorithm) {
+      throw new Error(packageId + ' source digest algorithm is invalid.')
+    }
+    requiredString(digest.value, packageId + ' source digest value')
+  }
+  if (kind === 'github' || kind === 'git') {
+    const resolvedRef = requiredString(source.resolvedRef, packageId + ' source resolvedRef')
+    if (!IMMUTABLE_COMMIT.test(resolvedRef)) {
+      throw new Error(packageId + ' Git source must use an immutable commit.')
+    }
+  }
+  if (kind === 'github') {
+    requiredString(source.owner, packageId + ' GitHub source owner')
+    requiredString(source.repository, packageId + ' GitHub source repository')
+    requiredString(source.defaultBranch, packageId + ' GitHub source defaultBranch')
+  }
+  if (kind === 'git') requiredString(source.defaultBranch, packageId + ' Git source defaultBranch')
+  return id
+}
+
+function assertRuntimeShape(
+  value: unknown,
+  packageId: string,
+  componentType: string,
+  componentSource: Record<string, unknown>
+): void {
+  const runtime = requiredRecord(value, packageId + ' component runtime')
+  const kind = requiredString(runtime.kind, packageId + ' component runtime kind')
+  const allowedByType: Record<string, Set<string>> = {
+    mcp: new Set(['remote', 'npm', 'uv', 'system']),
+    cli: new Set(['npm', 'github', 'uv', 'system']),
+    skill: new Set(['npm', 'github', 'system'])
+  }
+  if (!allowedByType[componentType]?.has(kind)) {
+    throw new Error(packageId + ' component runtime is incompatible with its type.')
+  }
+  if (kind === 'remote') {
+    if (runtime.transport !== 'streamable-http' && runtime.transport !== 'sse') {
+      throw new Error(packageId + ' remote transport is invalid.')
+    }
+    const endpoint = requiredString(runtime.endpoint, packageId + ' remote endpoint')
+    if (componentSource.kind !== 'remote' || componentSource.location !== endpoint) {
+      throw new Error(packageId + ' remote runtime endpoint must match its component source.')
+    }
+  } else if (kind === 'system') {
+    requiredString(runtime.provider, packageId + ' system provider')
+    requiredString(runtime.capability, packageId + ' system capability')
+    if (componentSource.kind !== 'system') {
+      throw new Error(packageId + ' system runtime must use a system component source.')
+    }
+  } else if (kind === 'github') {
+    const repository = requiredString(runtime.repository, packageId + ' GitHub repository')
+    const commit = requiredString(runtime.resolvedCommit, packageId + ' GitHub resolvedCommit')
+    if (!IMMUTABLE_COMMIT.test(commit)) throw new Error(packageId + ' GitHub commit is mutable.')
+    const install = requiredRecord(runtime.install, packageId + ' GitHub install')
+    if (install.strategy !== 'managed-git' || install.verifyBeforeActivation !== true) {
+      throw new Error(packageId + ' GitHub install verification is invalid.')
+    }
+    if (componentSource.kind !== 'github' ||
+        componentSource.location !== repository ||
+        componentSource.resolvedRef !== commit ||
+        componentSource.subpath !== runtime.subpath) {
+      throw new Error(packageId + ' GitHub runtime must match its component source.')
+    }
+  } else {
+    const packageName = requiredString(runtime.packageName, packageId + ' runtime packageName')
+    const version = requiredString(runtime.version, packageId + ' runtime version')
+    requiredString(runtime.executable, packageId + ' runtime executable')
+    const args = requiredArray(runtime.args, packageId + ' runtime args')
+    if (args.some((arg) => typeof arg !== 'string')) {
+      throw new Error(packageId + ' runtime args must be strings.')
+    }
+    const install = requiredRecord(runtime.install, packageId + ' runtime install')
+    if (kind === 'npm') {
+      if (install.strategy !== 'managed-download' ||
+          install.verify !== 'sri-before-activation' ||
+          install.digestSource !== 'component-source') {
+        throw new Error(packageId + ' npm install verification is invalid.')
+      }
+      if (componentSource.kind !== 'npm' ||
+          componentSource.packageName !== packageName ||
+          componentSource.version !== version) {
+        throw new Error(packageId + ' npm runtime packageName and version must match its component source.')
+      }
+    } else {
+      const digest = requiredRecord(install.digest, packageId + ' wheel install digest')
+      if (install.strategy !== 'managed-wheel' ||
+          install.verify !== 'sha256-before-activation' ||
+          digest.algorithm !== 'sha256') {
+        throw new Error(packageId + ' wheel install verification is invalid.')
+      }
+      requiredString(digest.value, packageId + ' wheel install digest value')
+      if (componentSource.kind !== 'pypi' ||
+          componentSource.packageName !== packageName ||
+          componentSource.version !== version ||
+          canonicalJson(componentSource.digest) !== canonicalJson(digest)) {
+        throw new Error(packageId + ' uv runtime package, version, and digest must match its component source.')
+      }
+    }
+  }
+}
+
+function assertPermissionShape(value: unknown, packageId: string): void {
+  const permission = requiredRecord(value, packageId + ' permission')
+  requiredString(permission.id, packageId + ' permission id')
+  if (!new Set(['filesystem', 'network', 'browser', 'database', 'process', 'credentials'])
+    .has(String(permission.kind))) {
+    throw new Error(packageId + ' permission kind is invalid.')
+  }
+  if (!new Set(['read', 'write', 'execute', 'connect', 'control', 'authenticate'])
+    .has(String(permission.access))) {
+    throw new Error(packageId + ' permission access is invalid.')
+  }
+  if (!new Set(['granted', 'denied', 'review']).has(String(permission.default)) ||
+      typeof permission.reviewRequired !== 'boolean') {
+    throw new Error(packageId + ' permission decision is invalid.')
+  }
+  requiredString(permission.description, packageId + ' permission description')
+  if (permission.resources !== undefined) {
+    assertNonEmptyStrings(permission.resources, packageId + ' permission resources')
+  }
+}
+
+function assertAuthShape(value: unknown, packageId: string): void {
+  const auth = requiredRecord(value, packageId + ' auth')
+  if (auth.type === 'none') return
+  if (auth.type === 'token') {
+    requiredString(auth.provider, packageId + ' token provider')
+    const variables = requiredArray(auth.environmentVariables, packageId + ' token environmentVariables')
+    if (variables.some((item) => typeof item !== 'string')) {
+      throw new Error(packageId + ' token environmentVariables must be strings.')
+    }
+    return
+  }
+  if (auth.type === 'tool-managed') {
+    requiredString(auth.provider, packageId + ' managed auth provider')
+    return
+  }
+  if (auth.type === 'oauth') {
+    requiredString(auth.provider, packageId + ' OAuth provider')
+    if (auth.discovery !== 'ready' && auth.discovery !== 'pending') {
+      throw new Error(packageId + ' OAuth discovery state is invalid.')
+    }
+    if (auth.scopes !== undefined) assertNonEmptyStrings(auth.scopes, packageId + ' OAuth scopes')
+    return
+  }
+  throw new Error(packageId + ' auth type is invalid.')
+}
+
+function assertPackageShape(
+  rawPackage: unknown,
+  expectedSourceId: string,
+  packageIds: Set<string>
+): MarketplacePackageV1 {
+  const value = requiredRecord(rawPackage, 'Catalog package')
+  if (value.schemaVersion !== 1) throw new Error('Catalog package schemaVersion must be 1.')
+  const id = requiredString(value.id, 'Catalog package id')
+  if (packageIds.has(id)) throw new Error('Catalog snapshot contains duplicate package ID: ' + id)
+  packageIds.add(id)
+  requiredString(value.name, id + ' name')
+  requiredString(value.summary, id + ' summary')
+  requiredString(value.version, id + ' version')
+  if (value.tier !== 'recommended' && value.tier !== 'advanced') {
+    throw new Error(id + ' tier is invalid.')
+  }
+  const publisher = requiredRecord(value.publisher, id + ' publisher')
+  requiredString(publisher.id, id + ' publisher id')
+  requiredString(publisher.name, id + ' publisher name')
+  if (typeof publisher.verified !== 'boolean') throw new Error(id + ' publisher verified is required.')
+  if (publisher.url !== undefined) {
+    const publisherUrl = requiredString(publisher.url, id + ' publisher URL')
+    try {
+      assertSafeHttpsUrl(publisherUrl, false)
+    } catch (error) {
+      throw new Error(id + ' publisher URL is invalid: ' + errorMessage(error))
+    }
+  }
+  if (value.license !== null && typeof value.license !== 'string') {
+    throw new Error(id + ' license must be a string or null.')
+  }
+
+  const rawSources = requiredArray(value.sources, id + ' sources')
+  if (rawSources.length === 0) throw new Error(id + ' sources must not be empty.')
+  const sourceIds = new Set<string>()
+  for (const rawSource of rawSources) {
+    const sourceId = assertPackageSourceShape(rawSource, id, expectedSourceId)
+    if (sourceIds.has(sourceId)) throw new Error(id + ' contains duplicate package source IDs.')
+    sourceIds.add(sourceId)
+  }
+  const primary = requiredRecord(value.source, id + ' primary source')
+  const primaryId = assertPackageSourceShape(primary, id, expectedSourceId)
+  const matchingSource = rawSources.find((source) =>
+    isRecord(source) && source.id === primaryId
+  )
+  if (!matchingSource || canonicalJson(primary) !== canonicalJson(matchingSource)) {
+    throw new Error(id + ' primary source provenance conflicts with sources.')
+  }
+  if (!sourceIds.has(String(primary.id))) throw new Error(id + ' primary source is missing from sources.')
+
+  for (const rawComponent of requiredArray(value.components, id + ' components')) {
+    const component = requiredRecord(rawComponent, id + ' component')
+    requiredString(component.id, id + ' component id')
+    requiredString(component.name, id + ' component name')
+    const type = requiredString(component.type, id + ' component type')
+    if (type !== 'mcp' && type !== 'cli' && type !== 'skill') {
+      throw new Error(id + ' component type is invalid.')
+    }
+    const sourceId = requiredString(component.sourceId, id + ' component sourceId')
+    if (!sourceIds.has(sourceId)) throw new Error(id + ' component references an unknown source.')
+    const componentSource = rawSources.find((source) => isRecord(source) && source.id === sourceId)
+    if (!componentSource || !isRecord(componentSource)) {
+      throw new Error(id + ' component source is invalid.')
+    }
+    assertRuntimeShape(component.runtime, id, type, componentSource)
+    if (type === 'skill') {
+      const names = requiredArray(component.skillNames, id + ' skillNames')
+      if (names.some((name) => typeof name !== 'string' || !name.trim())) {
+        throw new Error(id + ' skillNames must be non-empty strings.')
+      }
+    }
+  }
+
+  for (const permission of requiredArray(value.permissions, id + ' permissions')) {
+    assertPermissionShape(permission, id)
+  }
+  assertAuthShape(value.auth, id)
+  for (const rawEvidence of requiredArray(value.licenseEvidence, id + ' licenseEvidence')) {
+    const evidence = requiredRecord(rawEvidence, id + ' license evidence')
+    const sourceId = requiredString(evidence.sourceId, id + ' license evidence sourceId')
+    if (!sourceIds.has(sourceId)) throw new Error(id + ' license evidence references an unknown source.')
+    requiredString(evidence.license, id + ' license evidence license')
+    requiredString(evidence.path, id + ' license evidence path')
+    if (evidence.includeInInstall !== true || evidence.required !== true) {
+      throw new Error(id + ' license evidence must be required for installation.')
+    }
+  }
+  for (const rawDependency of requiredArray(value.dependencies, id + ' dependencies')) {
+    const dependency = requiredRecord(rawDependency, id + ' dependency')
+    requiredString(dependency.id, id + ' dependency id')
+    if (!new Set(['package', 'runtime', 'system']).has(String(dependency.kind)) ||
+        typeof dependency.optional !== 'boolean') {
+      throw new Error(id + ' dependency metadata is invalid.')
+    }
+    requiredString(dependency.requirement, id + ' dependency requirement')
+    if (dependency.managedBy !== undefined &&
+        !new Set(['workwise', 'system', 'user']).has(String(dependency.managedBy))) {
+      throw new Error(id + ' dependency manager is invalid.')
+    }
+  }
+  const updatePolicy = requiredRecord(value.updatePolicy, id + ' updatePolicy')
+  if (!new Set(['pinned', 'manual', 'system-managed']).has(String(updatePolicy.strategy)) ||
+      !new Set(['stable', 'preview', 'managed']).has(String(updatePolicy.channel)) ||
+      typeof updatePolicy.allowMajor !== 'boolean') {
+    throw new Error(id + ' update policy is invalid.')
+  }
+  const compatibility = requiredRecord(value.compatibility, id + ' compatibility')
+  requiredString(compatibility.workwise, id + ' compatibility workwise')
+  const platforms = requiredArray(compatibility.platforms, id + ' compatibility platforms')
+  const architectures = requiredArray(compatibility.architectures, id + ' compatibility architectures')
+  if (platforms.some((item) => !new Set(['darwin', 'win32', 'linux']).has(String(item))) ||
+      architectures.some((item) => !new Set(['arm64', 'x64']).has(String(item)))) {
+    throw new Error(id + ' compatibility values are invalid.')
+  }
+  const availability = requiredRecord(value.availability, id + ' availability')
+  if (availability.status === 'managed') requiredString(availability.managedBy, id + ' managedBy')
+  else if (availability.status === 'unavailable') {
+    requiredString(availability.reasonCode, id + ' availability reasonCode')
+    requiredString(availability.message, id + ' availability message')
+  } else if (availability.status !== 'available') {
+    throw new Error(id + ' availability status is invalid.')
+  }
+  const installation = requiredRecord(value.installation, id + ' installation')
+  if (!new Set(['direct-mirror', 'external', 'system-managed']).has(String(installation.mode)) ||
+      typeof installation.installedByDefault !== 'boolean' ||
+      typeof installation.reinstallable !== 'boolean') {
+    throw new Error(id + ' installation metadata is invalid.')
+  }
+  if (installation.mode === 'direct-mirror' && installation.reinstallable !== true) {
+    throw new Error(id + ' direct mirror packages must be reinstallable.')
+  }
+  if (installation.mode === 'external' && (installation.installedByDefault || installation.reinstallable)) {
+    throw new Error(id + ' external packages cannot be installed by default.')
+  }
+  if (installation.mode === 'system-managed' && installation.reinstallable) {
+    throw new Error(id + ' system-managed packages cannot be reinstallable.')
+  }
+  return clone(value as unknown as MarketplacePackageV1)
+}
+
+function assertSnapshot(value: unknown, expectedSourceId: string): CatalogSnapshotV1 {
+  if (!isRecord(value) || value.schemaVersion !== 1 || value.sourceId !== expectedSourceId) {
+    throw new Error('Catalog snapshot sourceId must match ' + expectedSourceId + '.')
+  }
+  if (typeof value.revision !== 'string' || !value.revision.trim()) {
+    throw new Error('Catalog snapshot revision is required.')
+  }
+  if (value.generatedAt !== undefined &&
+      (typeof value.generatedAt !== 'string' ||
+       Number.isNaN(Date.parse(value.generatedAt)) ||
+       new Date(value.generatedAt).toISOString() !== value.generatedAt)) {
+    throw new Error('Catalog snapshot generatedAt must be an ISO timestamp.')
+  }
+  if (value.commit !== undefined &&
+      (typeof value.commit !== 'string' || !IMMUTABLE_COMMIT.test(value.commit))) {
+    throw new Error('Catalog snapshot commit must be an immutable SHA.')
+  }
+  if (!Array.isArray(value.packages)) throw new Error('Catalog snapshot packages must be an array.')
+  if (value.packages.length > MAX_CATALOG_PACKAGES) {
+    throw new Error('Catalog snapshot exceeds the 5,000 packages limit.')
+  }
+
+  const packageIds = new Set<string>()
+  const packages = value.packages.map((item) =>
+    assertPackageShape(item, expectedSourceId, packageIds)
+  )
+  return clone({ ...value, packages } as unknown as CatalogSnapshotV1)
+}
+
+function parseSnapshotText(text: string, expectedSourceId: string): CatalogSnapshotV1 {
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(text)
+  } catch (error) {
+    throw new Error('Catalog JSON is malformed: ' + errorMessage(error))
+  }
+  return assertSnapshot(parsed, expectedSourceId)
+}
+
+function builtInSnapshot(): CatalogSnapshotV1 {
+  return {
+    schemaVersion: 1,
+    sourceId: 'workwise-official',
+    revision: 'official-v1',
+    packages: getOfficialMarketplaceCatalog()
+  }
+}
+
+function abortError(signal: AbortSignal): Error {
+  return signal.reason instanceof Error ? signal.reason : new Error('Catalog request was aborted.')
+}
+
+async function readWithAbort(
+  reader: ReadableStreamDefaultReader<Uint8Array>,
+  signal: AbortSignal
+): Promise<ReadableStreamReadResult<Uint8Array>> {
+  if (signal.aborted) throw abortError(signal)
+  return new Promise((resolveRead, rejectRead) => {
+    const onAbort = (): void => rejectRead(abortError(signal))
+    signal.addEventListener('abort', onAbort, { once: true })
+    void reader.read().then(resolveRead, rejectRead).finally(() => {
+      signal.removeEventListener('abort', onAbort)
+    })
+  })
+}
+
+async function resolveWithAbort<T>(operation: Promise<T>, signal: AbortSignal): Promise<T> {
+  if (signal.aborted) throw abortError(signal)
+  return new Promise((resolveOperation, rejectOperation) => {
+    const cleanup = (): void => signal.removeEventListener('abort', onAbort)
+    const onAbort = (): void => {
+      cleanup()
+      rejectOperation(abortError(signal))
+    }
+    signal.addEventListener('abort', onAbort, { once: true })
+    void operation.then(
+      (value) => {
+        cleanup()
+        resolveOperation(value)
+      },
+      (error) => {
+        cleanup()
+        rejectOperation(error)
+      }
+    )
+  })
+}
+
+async function readBoundedResponse(response: Response, signal: AbortSignal): Promise<string> {
+  const declaredBytes = Number(response.headers.get('content-length') ?? '0')
+  if (Number.isFinite(declaredBytes) && declaredBytes > MAX_CATALOG_JSON_BYTES) {
+    await response.body?.cancel('Catalog JSON exceeds the 10 MiB limit.')
+    throw new Error('Catalog JSON exceeds the 10 MiB limit.')
+  }
+  if (!response.body) return ''
+  const reader = response.body.getReader()
+  const chunks: Buffer[] = []
+  let totalBytes = 0
+  try {
+    while (true) {
+      const result = await readWithAbort(reader, signal)
+      if (result.done) break
+      const chunk = Buffer.from(result.value)
+      totalBytes += chunk.byteLength
+      if (totalBytes > MAX_CATALOG_JSON_BYTES) {
+        await reader.cancel('Catalog JSON exceeds the 10 MiB limit.')
+        throw new Error('Catalog JSON exceeds the 10 MiB limit.')
+      }
+      chunks.push(chunk)
+    }
+  } catch (error) {
+    await reader.cancel(error).catch(() => undefined)
+    throw error
+  } finally {
+    reader.releaseLock()
+  }
+  return Buffer.concat(chunks, totalBytes).toString('utf8')
+}
+
+async function cancelResponse(response: Response, reason: string): Promise<void> {
+  await response.body?.cancel(reason).catch(() => undefined)
+}
+
+function retryableHttpStatus(status: number): boolean {
+  return status === 408 || status === 429 || status >= 500
+}
+
+export class MarketplaceCatalogService {
+  private readonly rootDirectory: string
+  private readonly sourcesPath: string
+  private readonly snapshotDirectory: string
+  private readonly workspaceRoot?: string
+  private readonly fetchImpl: typeof fetch
+  private readonly now: () => Date
+  private readonly allowLoopbackHttp: boolean
+  private readonly beforePersistSources?: (sources: readonly CatalogSourceV1[]) => Promise<void>
+  private readonly fetchTimeoutMs: number
+  private readonly resolveSecret?: (secretKey: string) => Promise<string | null>
+  private readonly fileSourceReadHook?: (
+    phase: 'resolved' | 'opened',
+    path: string
+  ) => Promise<void>
+  private readonly sources: CatalogSourceV1[] = []
+  private readonly snapshots = new Map<string, CatalogSnapshotV1>()
+  private readonly snapshotPointers = new Map<string, SnapshotPointerV1>()
+  private initializePromise: Promise<void> | null = null
+
+  constructor(options: MarketplaceCatalogServiceOptions = {}) {
+    this.rootDirectory = resolve(options.rootDirectory ?? join(homedir(), '.workwise', 'marketplace'))
+    this.sourcesPath = join(this.rootDirectory, 'sources.json')
+    this.snapshotDirectory = join(this.rootDirectory, 'snapshots')
+    this.workspaceRoot = options.workspaceRoot ? resolve(options.workspaceRoot) : undefined
+    this.fetchImpl = options.fetch ?? globalThis.fetch
+    this.now = options.now ?? (() => new Date())
+    this.allowLoopbackHttp = options.allowLoopbackHttp ?? false
+    this.beforePersistSources = options.beforePersistSources
+    this.fetchTimeoutMs = Math.min(Math.max(options.fetchTimeoutMs ?? 30_000, 1_000), 120_000)
+    this.resolveSecret = options.resolveSecret
+    this.fileSourceReadHook = options.fileSourceReadHook
+  }
+
+  async listSources(): Promise<CatalogSourceV1[]> {
+    await this.ensureInitialized()
+    await this.refreshStateFromDisk()
+    return clone(this.sources)
+  }
+
+  async getSnapshot(sourceId: string): Promise<CatalogSnapshotV1 | null> {
+    await this.ensureInitialized()
+    await this.refreshStateFromDisk()
+    return clone(this.snapshots.get(sourceId) ?? null)
+  }
+
+  async listPackages(): Promise<MarketplaceCatalogPackagesResultV1> {
+    await this.ensureInitialized()
+    await this.refreshStateFromDisk()
+    const ordered = this.sources.flatMap((source) =>
+      (this.snapshots.get(source.id)?.packages ?? []).map((item) => ({
+        key: source.id + ':' + item.id,
+        sourceId: source.id,
+        package: clone(item),
+        conflicted: false
+      }))
+    )
+    const byPackageId = new Map<string, typeof ordered>()
+    for (const entry of ordered) {
+      const matches = byPackageId.get(entry.package.id) ?? []
+      matches.push(entry)
+      byPackageId.set(entry.package.id, matches)
+    }
+    const conflicts: MarketplaceCatalogPackagesResultV1['conflicts'] = []
+    for (const [packageId, matches] of byPackageId) {
+      if (matches.length < 2) continue
+      for (const match of matches) match.conflicted = true
+      conflicts.push({
+        packageId,
+        sourceIds: matches.map((entry) => entry.sourceId),
+        keys: matches.map((entry) => entry.key)
+      })
+    }
+    return clone({ packages: ordered, conflicts })
+  }
+
+  async upsertSource(input: CatalogSourceV1): Promise<CatalogSourceV1> {
+    await this.ensureInitialized()
+    const requested = sanitizeSource(input)
+    assertSourceShape(requested, this.allowLoopbackHttp)
+    if (requested.type === 'built-in' || requested.scope === 'system' ||
+        requested.trust === 'system' || requested.trust === 'official') {
+      throw new Error('Privileged and reserved catalog sources cannot be created by users.')
+    }
+    return runSerialized('catalog-sync:' + this.rootDirectory + ':' + requested.id, () =>
+      runSerialized('catalog-manifest:' + this.rootDirectory, async () => {
+        await this.reloadStateFromDisk()
+        const index = this.sources.findIndex((entry) => entry.id === requested.id)
+        const current = index >= 0 ? this.sources[index]! : null
+        if (current && (current.type === 'built-in' || current.scope === 'system')) {
+          throw new Error('System and built-in catalog sources cannot be modified.')
+        }
+        const identityChanged = Boolean(current && sourceIdentity(current) !== sourceIdentity(requested))
+        const source = current && !identityChanged
+          ? this.preserveServiceSync(requested, current)
+          : resetServiceOwnedSync(requested)
+        const previousPointer = this.snapshotPointers.get(source.id)
+        if (index >= 0) this.sources[index] = source
+        else this.sources.push(source)
+        if (identityChanged) {
+          this.snapshots.delete(source.id)
+          this.snapshotPointers.delete(source.id)
+        }
+        try {
+          await this.persistSources()
+        } catch (error) {
+          await this.reloadStateFromDisk()
+          throw error
+        }
+        if (identityChanged && previousPointer) {
+          await rm(this.snapshotPath(source.id, previousPointer), { force: true }).catch(() => undefined)
+        }
+        return clone(source)
+      })
+    )
+  }
+
+  async removeSource(sourceId: string): Promise<void> {
+    await this.ensureInitialized()
+    await runSerialized('catalog-sync:' + this.rootDirectory + ':' + sourceId, () =>
+      runSerialized('catalog-manifest:' + this.rootDirectory, async () => {
+        await this.reloadStateFromDisk()
+        const index = this.sources.findIndex((entry) => entry.id === sourceId)
+        if (index < 0) return
+        const source = this.sources[index]!
+        if (source.type === 'built-in' || source.scope === 'system') {
+          throw new Error('System and built-in catalog sources cannot be removed.')
+        }
+        const pointer = this.snapshotPointers.get(sourceId)
+        this.sources.splice(index, 1)
+        this.snapshots.delete(sourceId)
+        this.snapshotPointers.delete(sourceId)
+        try {
+          await this.persistSources()
+        } catch (error) {
+          await this.reloadStateFromDisk()
+          throw error
+        }
+        if (pointer) {
+          await rm(this.snapshotPath(sourceId, pointer), { force: true }).catch(() => undefined)
+        }
+      })
+    )
+  }
+
+  async syncSource(sourceId: string): Promise<MarketplaceCatalogSyncResultV1> {
+    await this.ensureInitialized()
+    return runSerialized('catalog-sync:' + this.rootDirectory + ':' + sourceId, async () => {
+      await this.refreshStateFromDisk()
+      if (!this.sources.some((entry) => entry.id === sourceId)) {
+        throw new Error('Catalog source was not found: ' + sourceId)
+      }
+      await this.recordSyncing(sourceId)
+      const currentSource = this.sources.find((entry) => entry.id === sourceId)
+      if (!currentSource) throw new Error('Catalog source was removed during synchronization.')
+      if (currentSource.type === 'built-in') return this.syncBuiltIn(currentSource)
+      if (currentSource.type === 'local' || currentSource.type === 'project') return this.syncFile(currentSource)
+      if (currentSource.type === 'https') return this.syncHttps(currentSource)
+      return this.recordFailure(
+        currentSource.id,
+        'Catalog source type ' + currentSource.type + ' is not supported yet.',
+        false
+      )
+    })
+  }
+
+  private async ensureInitialized(): Promise<void> {
+    if (!this.initializePromise) {
+      this.initializePromise = runSerialized('catalog-manifest:' + this.rootDirectory, async () => {
+        await mkdir(this.snapshotDirectory, { recursive: true })
+        await this.reloadStateFromDisk()
+        const official = builtInSnapshot()
+        const pointer = await this.persistSnapshot(official)
+        this.snapshots.set(official.sourceId, official)
+        this.snapshotPointers.set(official.sourceId, pointer)
+        await this.persistSources()
+      })
+    }
+    await this.initializePromise
+  }
+
+  private snapshotPath(sourceId: string, pointer: SnapshotPointerV1): string {
+    const expected = sourceCacheName(sourceId, pointer.sha256)
+    if (pointer.file !== expected || basename(pointer.file) !== pointer.file) {
+      throw new Error('Marketplace snapshot pointer is invalid.')
+    }
+    return join(this.snapshotDirectory, pointer.file)
+  }
+
+  private async readPersistedManifest(): Promise<SourceManifestV1 | null> {
+    try {
+      const text = await readRecoveredFile(this.sourcesPath)
+      const parsed = JSON.parse(text) as Partial<SourceManifestV1>
+      if (parsed.schema !== SOURCE_MANIFEST_SCHEMA ||
+          parsed.version !== SOURCE_MANIFEST_VERSION ||
+          !Array.isArray(parsed.sources)) {
+        throw new Error('Marketplace source manifest is invalid.')
+      }
+      if (parsed.snapshots !== undefined && !isRecord(parsed.snapshots)) {
+        throw new Error('Marketplace snapshot manifest is invalid.')
+      }
+      return parsed as SourceManifestV1
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null
+      throw error
+    }
+  }
+
+  private parseSnapshotPointer(sourceId: string, value: unknown): SnapshotPointerV1 {
+    const pointer = requiredRecord(value, 'Marketplace snapshot pointer')
+    const file = requiredString(pointer.file, 'Marketplace snapshot file')
+    const revision = requiredString(pointer.revision, 'Marketplace snapshot revision')
+    const sha256 = requiredString(pointer.sha256, 'Marketplace snapshot SHA-256')
+    if (!/^[0-9a-f]{64}$/i.test(sha256) ||
+        file !== sourceCacheName(sourceId, sha256) ||
+        basename(file) !== file) {
+      throw new Error('Marketplace snapshot pointer is invalid.')
+    }
+    return { file, revision, sha256: sha256.toLowerCase() }
+  }
+
+  private mergeSources(persisted: CatalogSourceV1[] | null): CatalogSourceV1[] {
+    const defaults = getMarketplaceCatalogSources().map(sanitizeSource)
+    if (!persisted) return defaults
+    const seen = new Set<string>()
+    const systemMetadata = new Map<string, CatalogSourceV1>()
+    const userSources: CatalogSourceV1[] = []
+    const defaultsById = new Map(defaults.map((source) => [source.id, source]))
+    for (const input of persisted) {
+      const source = sanitizeSource(input)
+      assertSourceShape(source, this.allowLoopbackHttp)
+      if (seen.has(source.id)) throw new Error('Marketplace source manifest has duplicate source IDs.')
+      seen.add(source.id)
+      const defaultSource = defaultsById.get(source.id)
+      if (defaultSource) {
+        if (source.type === defaultSource.type &&
+            source.scope === defaultSource.scope &&
+            source.location === defaultSource.location) {
+          systemMetadata.set(source.id, source)
+        }
+        continue
+      }
+      if (source.type === 'built-in' || source.scope === 'system' ||
+          source.trust === 'system' || source.trust === 'official') {
+        throw new Error('Persisted manifest contains a privileged or reserved user source.')
+      }
+      userSources.push(source)
+    }
+    return [
+      ...defaults.map((source) => {
+        const persistedDefault = systemMetadata.get(source.id)
+        return persistedDefault ? { ...source, sync: persistedDefault.sync } : source
+      }),
+      ...userSources
+    ]
+  }
+
+  private async refreshStateFromDisk(): Promise<void> {
+    await runSerialized('catalog-manifest:' + this.rootDirectory, () => this.reloadStateFromDisk())
+  }
+
+  private async reloadStateFromDisk(): Promise<void> {
+    const manifest = await this.readPersistedManifest()
+    const sources = this.mergeSources(manifest?.sources ?? null)
+    const snapshots = new Map<string, CatalogSnapshotV1>()
+    const pointers = new Map<string, SnapshotPointerV1>()
+    const official = builtInSnapshot()
+    snapshots.set(official.sourceId, official)
+    const sourceIds = new Set(sources.map((source) => source.id))
+    for (const [sourceId, rawPointer] of Object.entries(manifest?.snapshots ?? {})) {
+      if (!sourceIds.has(sourceId)) continue
+      try {
+        const pointer = this.parseSnapshotPointer(sourceId, rawPointer)
+        const text = await readRecoveredFile(this.snapshotPath(sourceId, pointer))
+        if (snapshotDigest(text) !== pointer.sha256) {
+          throw new Error('Marketplace snapshot digest does not match its manifest pointer.')
+        }
+        const snapshot = parseSnapshotText(text, sourceId)
+        if (snapshot.revision !== pointer.revision) {
+          throw new Error('Marketplace snapshot revision does not match its manifest pointer.')
+        }
+        if (sourceId === official.sourceId &&
+            pointer.sha256 !== snapshotDigest(snapshotContent(official))) {
+          continue
+        }
+        snapshots.set(sourceId, sourceId === official.sourceId ? official : snapshot)
+        pointers.set(sourceId, pointer)
+      } catch {
+        // An invalid cache is ignored. Only the manifest-addressed, verified snapshot is trusted.
+      }
+    }
+    this.sources.splice(0, this.sources.length, ...sources)
+    this.snapshots.clear()
+    this.snapshotPointers.clear()
+    for (const [sourceId, snapshot] of snapshots) this.snapshots.set(sourceId, snapshot)
+    for (const [sourceId, pointer] of pointers) this.snapshotPointers.set(sourceId, pointer)
+  }
+
+  private async persistSources(): Promise<void> {
+    const manifest: SourceManifestV1 = {
+      schema: SOURCE_MANIFEST_SCHEMA,
+      version: SOURCE_MANIFEST_VERSION,
+      sources: this.sources.map(sanitizeSource),
+      snapshots: Object.fromEntries(
+        [...this.snapshotPointers].filter(([sourceId]) =>
+          this.sources.some((source) => source.id === sourceId)
+        )
+      )
+    }
+    await this.beforePersistSources?.(clone(this.sources))
+    await atomicWriteFile(this.sourcesPath, JSON.stringify(manifest, null, 2) + '\n')
+  }
+
+  private async recordSyncing(sourceId: string): Promise<void> {
+    await runSerialized('catalog-manifest:' + this.rootDirectory, async () => {
+      await this.reloadStateFromDisk()
+      const source = this.sources.find((entry) => entry.id === sourceId)
+      if (!source) throw new Error('Catalog source was removed during synchronization.')
+      source.sync = { ...source.sync, state: 'syncing' }
+      delete source.sync.error
+      try {
+        await this.persistSources()
+      } catch (error) {
+        await this.reloadStateFromDisk()
+        throw error
+      }
+    })
+  }
+
+  private async persistSnapshot(snapshot: CatalogSnapshotV1): Promise<SnapshotPointerV1> {
+    const content = snapshotContent(snapshot)
+    const sha256 = snapshotDigest(content)
+    const pointer = {
+      file: sourceCacheName(snapshot.sourceId, sha256),
+      revision: snapshot.revision,
+      sha256
+    }
+    await atomicWriteFile(this.snapshotPath(snapshot.sourceId, pointer), content)
+    return pointer
+  }
+
+  private async syncBuiltIn(source: CatalogSourceV1): Promise<MarketplaceCatalogSyncResultV1> {
+    const snapshot = builtInSnapshot()
+    await this.acceptSnapshot(source, snapshot, {}, false)
+    return clone({ sourceId: source.id, status: 'synced', stale: false, snapshot })
+  }
+
+  private async resolveFileSource(source: CatalogSourceV1): Promise<FileSourcePath> {
+    const target = source.type === 'project'
+      ? resolve(this.workspaceRoot ?? '', source.location)
+      : resolve(source.location)
+    if (source.type === 'project' && !this.workspaceRoot) {
+      throw new Error('Project catalogs require a configured workspace root.')
+    }
+    const separator = process.platform === 'win32' ? '\\' : '/'
+    if (source.type === 'project') {
+      const rel = relative(this.workspaceRoot!, target)
+      if (rel === '..' || rel.startsWith('..' + separator) || isAbsolute(rel)) {
+        throw new Error('Project catalog path escapes the workspace root.')
+      }
+    }
+    const lexicalInfo = await lstat(target)
+    if (lexicalInfo.isSymbolicLink()) {
+      throw new Error('Catalog files must not be symbolic links.')
+    }
+    const realTarget = await realpath(target)
+    if (source.type === 'project') {
+      const realWorkspace = await realpath(this.workspaceRoot!)
+      const realRelative = relative(realWorkspace, realTarget)
+      if (realRelative === '..' ||
+          realRelative.startsWith('..' + separator) ||
+          isAbsolute(realRelative)) {
+        throw new Error('Project catalog path escapes the workspace through a symbolic link.')
+      }
+    }
+    await this.fileSourceReadHook?.('resolved', realTarget)
+    const resolvedInfo = await lstat(realTarget)
+    if (!resolvedInfo.isFile()) throw new Error('Catalog location must be a regular file.')
+    return {
+      lexicalPath: target,
+      realPath: realTarget,
+      device: lexicalInfo.dev,
+      inode: lexicalInfo.ino
+    }
+  }
+
+  private async syncFile(source: CatalogSourceV1): Promise<MarketplaceCatalogSyncResultV1> {
+    try {
+      const sourcePath = await this.resolveFileSource(source)
+      const flags = constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0)
+      const handle = await open(sourcePath.realPath, flags)
+      let text: string
+      try {
+        await this.fileSourceReadHook?.('opened', sourcePath.realPath)
+        const before = await handle.stat()
+        if (!before.isFile() || before.dev !== sourcePath.device || before.ino !== sourcePath.inode) {
+          throw new Error('Catalog path changed before it could be read safely.')
+        }
+        if (before.size > MAX_CATALOG_JSON_BYTES) {
+          throw new Error('Catalog JSON exceeds the 10 MiB limit.')
+        }
+        text = await handle.readFile('utf8')
+        const after = await handle.stat()
+        const lexicalInfo = await lstat(sourcePath.lexicalPath)
+        const currentRealPath = await realpath(sourcePath.lexicalPath)
+        if (lexicalInfo.isSymbolicLink() || currentRealPath !== sourcePath.realPath ||
+            lexicalInfo.dev !== after.dev || lexicalInfo.ino !== after.ino ||
+            after.dev !== before.dev || after.ino !== before.ino ||
+            after.size !== before.size || after.mtimeMs !== before.mtimeMs) {
+          throw new Error('Catalog path changed while it was being read.')
+        }
+      } finally {
+        await handle.close()
+      }
+      if (Buffer.byteLength(text) > MAX_CATALOG_JSON_BYTES) {
+        throw new Error('Catalog JSON exceeds the 10 MiB limit.')
+      }
+      const snapshot = parseSnapshotText(text, source.id)
+      await this.acceptSnapshot(source, snapshot, { commit: snapshot.commit })
+      return clone({ sourceId: source.id, status: 'synced', stale: false, snapshot })
+    } catch (error) {
+      return this.recordFailure(source.id, errorMessage(error), false)
+    }
+  }
+
+  private async syncHttps(source: CatalogSourceV1): Promise<MarketplaceCatalogSyncResultV1> {
+    const headers = new Headers({ accept: 'application/json' })
+    if (source.sync.etag) headers.set('if-none-match', source.sync.etag)
+    if (source.sync.lastModified) headers.set('if-modified-since', source.sync.lastModified)
+    const controller = new AbortController()
+    const timeoutError = new Error('Catalog request timed out.')
+    const timeout = setTimeout(() => controller.abort(timeoutError), this.fetchTimeoutMs)
+    try {
+      let response: Response
+      let networkStarted = false
+      try {
+        if (source.auth.type === 'token') {
+          if (!this.resolveSecret) {
+            return this.recordFailure(source.id, 'Catalog token resolver is unavailable.', false)
+          }
+          const token = await resolveWithAbort(
+            this.resolveSecret(source.auth.secretKey),
+            controller.signal
+          )
+          if (!token) return this.recordFailure(source.id, 'Catalog token is unavailable.', false)
+          headers.set('authorization', 'Bearer ' + token)
+        }
+        networkStarted = true
+        response = await this.fetchImpl(source.location, {
+          headers,
+          redirect: 'error',
+          signal: controller.signal
+        })
+      } catch (error) {
+        return this.recordFailure(
+          source.id,
+          controller.signal.aborted ? timeoutError.message : errorMessage(error),
+          controller.signal.aborted || networkStarted
+        )
+      }
+      if (response.status === 304) {
+        await cancelResponse(response, 'Catalog response was not modified.')
+        const snapshot = this.snapshots.get(source.id)
+        if (!snapshot) {
+          return this.recordFailure(source.id, 'Catalog returned 304 without a trusted cache.', false)
+        }
+        await this.recordSuccess(source.id, {
+          etag: response.headers.get('etag') ?? undefined,
+          lastModified: response.headers.get('last-modified') ?? undefined
+        })
+        return clone({ sourceId: source.id, status: 'unchanged', stale: false, snapshot })
+      }
+      if (!response.ok) {
+        await cancelResponse(response, 'Catalog request failed.')
+        return this.recordFailure(
+          source.id,
+          'Catalog request failed (' + response.status + ').',
+          retryableHttpStatus(response.status)
+        )
+      }
+      let text: string
+      try {
+        text = await readBoundedResponse(response, controller.signal)
+      } catch (error) {
+        const message = controller.signal.aborted ? timeoutError.message : errorMessage(error)
+        return this.recordFailure(source.id, message, !/10 MiB/i.test(message))
+      }
+      let snapshot: CatalogSnapshotV1
+      try {
+        snapshot = parseSnapshotText(text, source.id)
+      } catch (error) {
+        return this.recordFailure(source.id, errorMessage(error), false)
+      }
+      const headerCommit = response.headers.get('x-workwise-catalog-commit') ?? undefined
+      if (headerCommit && !IMMUTABLE_COMMIT.test(headerCommit)) {
+        throw new Error('Catalog response commit must be an immutable SHA.')
+      }
+      if (headerCommit && snapshot.commit && headerCommit !== snapshot.commit) {
+        throw new Error('Catalog response commit conflicts with the snapshot commit.')
+      }
+      await this.acceptSnapshot(source, snapshot, {
+        etag: response.headers.get('etag') ?? undefined,
+        lastModified: response.headers.get('last-modified') ?? undefined,
+        commit: headerCommit ?? snapshot.commit
+      })
+      return clone({ sourceId: source.id, status: 'synced', stale: false, snapshot })
+    } catch (error) {
+      return this.recordFailure(source.id, errorMessage(error), false)
+    } finally {
+      clearTimeout(timeout)
+    }
+  }
+
+  private async acceptSnapshot(
+    source: CatalogSourceV1,
+    snapshot: CatalogSnapshotV1,
+    metadata: { etag?: string; lastModified?: string; commit?: string },
+    replaceValidators = true
+  ): Promise<void> {
+    const pointer = await this.persistSnapshot(snapshot)
+    let previousPointer: SnapshotPointerV1 | undefined
+    await runSerialized('catalog-manifest:' + this.rootDirectory, async () => {
+      await this.reloadStateFromDisk()
+      const current = this.sources.find((entry) => entry.id === source.id)
+      if (!current) throw new Error('Catalog source was removed during synchronization.')
+      previousPointer = this.snapshotPointers.get(source.id)
+      this.applySuccessMetadata(current, metadata, replaceValidators)
+      this.snapshots.set(source.id, snapshot)
+      this.snapshotPointers.set(source.id, pointer)
+      try {
+        await this.persistSources()
+      } catch (error) {
+        await this.reloadStateFromDisk()
+        throw error
+      }
+    })
+    if (previousPointer && previousPointer.file !== pointer.file) {
+      await rm(this.snapshotPath(source.id, previousPointer), { force: true }).catch(() => undefined)
+    }
+  }
+
+  private async recordSuccess(
+    sourceId: string,
+    metadata: { etag?: string; lastModified?: string; commit?: string } = {},
+    replaceValidators = false
+  ): Promise<void> {
+    await runSerialized('catalog-manifest:' + this.rootDirectory, async () => {
+      await this.reloadStateFromDisk()
+      const source = this.sources.find((entry) => entry.id === sourceId)
+      if (!source) throw new Error('Catalog source was removed during synchronization.')
+      this.applySuccessMetadata(source, metadata, replaceValidators)
+      try {
+        await this.persistSources()
+      } catch (error) {
+        await this.reloadStateFromDisk()
+        throw error
+      }
+    })
+  }
+
+  private applySuccessMetadata(
+    source: CatalogSourceV1,
+    metadata: { etag?: string; lastModified?: string; commit?: string },
+    replaceValidators: boolean
+  ): void {
+    const nextSync = {
+      ...source.sync,
+      state: 'synced' as const,
+      lastSyncedAt: this.now().toISOString()
+    }
+    delete nextSync.error
+    if (replaceValidators) {
+      delete nextSync.etag
+      delete nextSync.lastModified
+      delete nextSync.commit
+    }
+    if (metadata.etag !== undefined) nextSync.etag = metadata.etag
+    if (metadata.lastModified !== undefined) nextSync.lastModified = metadata.lastModified
+    if (metadata.commit !== undefined) nextSync.commit = metadata.commit
+    source.sync = nextSync
+  }
+
+  private preserveServiceSync(requested: CatalogSourceV1, current: CatalogSourceV1): CatalogSourceV1 {
+    return {
+      ...requested,
+      sync: {
+        mode: requested.sync.mode,
+        state: current.sync.state,
+        mirroredByDefault: requested.sync.mirroredByDefault,
+        installedByDefault: requested.sync.installedByDefault,
+        ...(current.sync.lastSyncedAt ? { lastSyncedAt: current.sync.lastSyncedAt } : {}),
+        ...(current.sync.etag ? { etag: current.sync.etag } : {}),
+        ...(current.sync.lastModified ? { lastModified: current.sync.lastModified } : {}),
+        ...(current.sync.commit ? { commit: current.sync.commit } : {}),
+        ...(current.sync.error ? { error: current.sync.error } : {})
+      }
+    }
+  }
+
+  private async recordFailure(
+    sourceId: string,
+    message: string,
+    offlineCandidate: boolean
+  ): Promise<MarketplaceCatalogSyncResultV1> {
+    let snapshot: CatalogSnapshotV1 | null = null
+    await runSerialized('catalog-manifest:' + this.rootDirectory, async () => {
+      await this.reloadStateFromDisk()
+      snapshot = this.snapshots.get(sourceId) ?? null
+      const source = this.sources.find((entry) => entry.id === sourceId)
+      if (!source) return
+      source.sync = { ...source.sync, state: 'error', error: message }
+      try {
+        await this.persistSources()
+      } catch (error) {
+        await this.reloadStateFromDisk()
+        throw error
+      }
+    })
+    const offline = offlineCandidate && Boolean(snapshot)
+    return clone({
+      sourceId,
+      status: offline ? 'offline' : 'failed',
+      stale: Boolean(snapshot),
+      snapshot,
+      error: message
+    })
+  }
+}
