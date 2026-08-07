@@ -5,6 +5,7 @@ import {
   buildMcpToolProviders,
   isMcpServerTrusted,
   normalizeMcpToolName,
+  resolveMcpSecrets,
   type McpClientLike
 } from '../src/adapters/tool/mcp-tool-provider.js'
 import { REDACTED_SECRET } from '../src/config/secret-redaction.js'
@@ -52,6 +53,27 @@ function fakeClient(): McpClientLike {
     }
   }
 }
+
+describe('MCP secret references', () => {
+  it('resolves only exact environment placeholders at transport creation time', () => {
+    const previous = process.env.WORKWISE_MCP_SECRET_TEST
+    process.env.WORKWISE_MCP_SECRET_TEST = 'runtime-secret'
+    try {
+      expect(resolveMcpSecrets({
+        Authorization: '${WORKWISE_MCP_SECRET_TEST}',
+        Literal: 'prefix-${WORKWISE_MCP_SECRET_TEST}',
+        Missing: '${WORKWISE_MCP_SECRET_MISSING}'
+      })).toEqual({
+        Authorization: 'runtime-secret',
+        Literal: 'prefix-${WORKWISE_MCP_SECRET_TEST}',
+        Missing: ''
+      })
+    } finally {
+      if (previous === undefined) delete process.env.WORKWISE_MCP_SECRET_TEST
+      else process.env.WORKWISE_MCP_SECRET_TEST = previous
+    }
+  })
+})
 
 describe('MCP tool provider', () => {
   it('normalizes stable MCP tool names', () => {

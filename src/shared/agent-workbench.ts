@@ -183,6 +183,7 @@ export type McpServerConfigV2 = {
   timeoutMs: number
   source: 'user' | 'skill' | 'managed-tool' | 'migration'
   credentialRef?: McpCredentialReferenceV1
+  credentialEnvironmentVariables?: string[]
   oauth?: {
     resource?: string
     authorizationUrl?: string

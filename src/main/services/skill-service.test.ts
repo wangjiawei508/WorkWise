@@ -3,6 +3,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import type { InstalledPackageV1 } from '../../shared/marketplace'
 import {
   defaultClawSettings,
   defaultKeyboardShortcuts,
@@ -12,7 +13,13 @@ import {
   defaultWriteSettings,
   type AppSettingsV1
 } from '../../shared/app-settings'
-import { installBundledSkill, installGithubSkill, listGuiSkills } from './skill-service'
+import {
+  discoverInstalledPluginSkillRoots,
+  installBundledSkill,
+  installGithubSkill,
+  listGuiSkills
+} from './skill-service'
+import { inspectPackageDirectory } from './package-installation-service'
 
 const originalFetch = globalThis.fetch
 const originalCodexHome = process.env.CODEX_HOME
@@ -64,6 +71,27 @@ describe('skill-service', () => {
       description: 'Implement tasks from an OpenSpec change.',
       scope: 'project'
     }))
+  })
+
+  it('discovers only integrity-verified Skills from installed WorkWise plugins', async () => {
+    const pluginRoot = join(tempRoot, 'installed-plugin')
+    const skillRoot = join(pluginRoot, 'skills', 'market-skill')
+    await mkdir(skillRoot, { recursive: true })
+    await writeFile(join(skillRoot, 'SKILL.md'), '# Marketplace Skill\n')
+    await writeFile(join(pluginRoot, 'workwise.catalog.json'), JSON.stringify({
+      components: [{ type: 'skill' }]
+    }))
+    const inspection = await inspectPackageDirectory(pluginRoot)
+    const record = {
+      artifact: { location: pluginRoot, sha256: inspection.sha256 }
+    } as InstalledPackageV1
+
+    await expect(discoverInstalledPluginSkillRoots([record])).resolves.toEqual([
+      join(pluginRoot, 'skills')
+    ])
+
+    await writeFile(join(skillRoot, 'SKILL.md'), '# Tampered Marketplace Skill\n')
+    await expect(discoverInstalledPluginSkillRoots([record])).resolves.toEqual([])
   })
 
   it('discovers trusted Codex template plugins with bounded reference presentations', async () => {

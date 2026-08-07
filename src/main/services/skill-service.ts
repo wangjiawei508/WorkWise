@@ -4,6 +4,7 @@ import { randomUUID } from 'node:crypto'
 import { homedir } from 'node:os'
 import { basename, dirname, join, resolve } from 'node:path'
 import type { AppSettingsV1 } from '../../shared/app-settings'
+import type { InstalledPackageV1 } from '../../shared/marketplace'
 import type {
   BundledSkillInstallResult,
   BundledSkillSource,
@@ -16,6 +17,7 @@ import { systemFetch } from './system-network'
 import { expandHomePath, normalizeSkillFolderName } from './workspace-service'
 import { LEGACY_SKILL_SOURCE_METADATA_FILE } from '../compat/legacy-metadata'
 import { resolveContainedPath } from './canonical-containment'
+import { inspectPackageDirectory, PackageInstallationService } from './package-installation-service'
 import {
   BUNDLED_SKILL_LIMITS,
   SKILL_PACKAGE_LIMITS,
@@ -104,6 +106,7 @@ export async function guiSkillRootsForRuntime(
     join(homedir(), '.kun', 'skills')
   ]
   const codexPluginRoots = await discoverCodexPluginSkillRoots()
+  const workwisePluginRoots = await discoverInstalledPluginSkillRoots()
   const configuredExtraRoots = [
     ...(settings?.claw.skills.extraDirs ?? []),
     ...(settings?.schedule.skills.extraDirs ?? [])
@@ -117,6 +120,9 @@ export async function guiSkillRootsForRuntime(
       .filter((root) => existsSync(root))
       .map((path) => ({ path, scope: 'global' as const, validation: 'strict' as const })),
     ...codexPluginRoots
+      .filter((root) => existsSync(root))
+      .map((path) => ({ path, scope: 'global' as const, validation: 'trusted-plugin' as const })),
+    ...workwisePluginRoots
       .filter((root) => existsSync(root))
       .map((path) => ({ path, scope: 'global' as const, validation: 'trusted-plugin' as const })),
     ...configuredExtraRoots
@@ -338,6 +344,63 @@ async function discoverCodexPluginSkillRoots(): Promise<string[]> {
   const codexHome = normalizeSkillRootPath(process.env.CODEX_HOME || join(homedir(), '.codex'))
   await collectSkillRoots(join(codexHome, 'plugins', 'cache'), roots, 0, 5)
   return roots
+}
+
+async function readOptionalJson(path: string): Promise<Record<string, unknown> | null> {
+  try {
+    const info = await lstat(path)
+    if (info.isSymbolicLink() || !info.isFile() || info.size > 1024 * 1024) return null
+    const parsed = JSON.parse(await readFile(path, 'utf8')) as unknown
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+      ? parsed as Record<string, unknown>
+      : null
+  } catch {
+    return null
+  }
+}
+
+async function installedPackageContainsSkills(root: string): Promise<boolean> {
+  const catalog = await readOptionalJson(join(root, 'workwise.catalog.json'))
+  const nativeManifest = catalog ?? await readOptionalJson(join(root, 'workwise.plugin.json'))
+  if (nativeManifest && Array.isArray(nativeManifest.components)) {
+    return nativeManifest.components.some((component) =>
+      component && typeof component === 'object' && !Array.isArray(component) &&
+      (component as Record<string, unknown>).type === 'skill'
+    )
+  }
+  const codex = await readOptionalJson(join(root, '.codex-plugin', 'plugin.json'))
+  return typeof codex?.skills === 'string' && codex.skills.trim().length > 0
+}
+
+export async function discoverInstalledPluginSkillRoots(
+  records?: InstalledPackageV1[]
+): Promise<string[]> {
+  const installed = records ?? await new PackageInstallationService().list().catch(() => [])
+  const roots: string[] = []
+  for (const record of installed) {
+    if (!await installedPackageContainsSkills(record.artifact.location)) continue
+    const inspection = await inspectPackageDirectory(record.artifact.location).catch(() => null)
+    if (!inspection || inspection.sha256 !== record.artifact.sha256) continue
+    await collectInstalledSkillRoots(record.artifact.location, roots, 0, 6)
+  }
+  return uniqueStrings(roots)
+}
+
+async function collectInstalledSkillRoots(
+  root: string,
+  roots: string[],
+  depth: number,
+  maxDepth: number
+): Promise<void> {
+  if (depth > maxDepth || !existsSync(root)) return
+  if (skillRootHasPackages(root)) {
+    roots.push(root)
+    return
+  }
+  const entries = await readdir(root, { withFileTypes: true }).catch(() => [])
+  await Promise.all(entries
+    .filter((entry) => entry.isDirectory() && entry.name !== 'node_modules')
+    .map((entry) => collectInstalledSkillRoots(join(root, entry.name), roots, depth + 1, maxDepth)))
 }
 
 async function collectSkillRoots(root: string, roots: string[], depth: number, maxDepth: number): Promise<void> {

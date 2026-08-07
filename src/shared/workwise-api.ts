@@ -350,6 +350,7 @@ export type WorkWiseApi = {
     deviceCode: string
   ) => Promise<ClawImInstallPollResult>
   pickWorkspaceDirectory: (defaultPath?: string) => Promise<WorkspacePickResult>
+  pickPluginPackage: (mode: 'file' | 'directory') => Promise<WorkspacePickResult>
   confirmDialog: (options: ConfirmDialogOptions) => Promise<boolean>
   listCatalogSources: () => Promise<CatalogSourceV1[]>
   listCatalogPackages: () => Promise<MarketplaceCatalogPackagesResultV1>
@@ -363,12 +364,17 @@ export type WorkWiseApi = {
     format?: 'wwx' | 'codex' | 'mcpb'
     catalogSourceId?: string
   }) => Promise<PreparedPluginImportV1>
+  prepareCatalogPlugin: (request: {
+    sourceId: string
+    packageId: string
+  }) => Promise<PreparedPluginImportV1>
   cancelPluginImport: (preparedId: string) => Promise<boolean>
   installPreparedPlugin: (request: {
     preparedId: string
     reviewSha256: string
     expectedCurrentVersion: string | null
     scope: 'user' | 'workspace' | 'team'
+    workspaceRoot?: string
     permissions: InstalledPackagePermissionV1[]
     idempotencyKey: string
   }) => Promise<InstalledPackageV1>

@@ -65,7 +65,7 @@ export type PreparePluginArchiveOptionsV1 = Omit<ParsePluginPackageOptionsV1, 'd
 
 export type PreparedPluginPackageV1 = {
   schemaVersion: 1
-  format: PluginPackageFormatV1
+  format: PluginPackageFormatV1 | 'catalog'
   package: MarketplacePackageV1
   preparedDirectory: string
   archiveSha256?: string

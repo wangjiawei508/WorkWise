@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import JSZip from 'jszip'
 import { afterEach, describe, expect, it } from 'vitest'
+import type { MarketplacePackageV1 } from '../../shared/marketplace'
 import { PackageInstallationService } from './package-installation-service'
 import { PluginManagementService } from './plugin-management-service'
 
@@ -63,6 +64,69 @@ function createService(root: string, now?: () => Date): PluginManagementService 
 }
 
 describe('PluginManagementService', () => {
+  it('prepares catalog packages through the same private review transaction', async () => {
+    const root = await tempRoot('catalog')
+    const source = {
+      id: 'catalog-source',
+      catalogSourceId: 'workwise-official',
+      kind: 'built-in' as const,
+      location: 'workwise://fixture'
+    }
+    const item: MarketplacePackageV1 = {
+      schemaVersion: 1,
+      id: 'catalog-fixture',
+      name: 'Catalog Fixture',
+      summary: 'Catalog preparation fixture.',
+      tier: 'recommended',
+      version: '1.0.0',
+      publisher: { id: 'workwise', name: 'WorkWise', verified: true },
+      license: 'MIT',
+      source,
+      sources: [source],
+      components: [],
+      permissions: [],
+      auth: { type: 'none' },
+      licenseEvidence: [],
+      dependencies: [],
+      updatePolicy: { strategy: 'pinned', channel: 'stable', allowMajor: false },
+      compatibility: {
+        workwise: '>=0.3.5',
+        platforms: [process.platform as 'darwin' | 'win32' | 'linux'],
+        architectures: [process.arch as 'arm64' | 'x64']
+      },
+      availability: { status: 'available' },
+      installation: { mode: 'direct-mirror', installedByDefault: false, reinstallable: true }
+    }
+    const service = new PluginManagementService({
+      rootDirectory: join(root, 'imports'),
+      installationService: new PackageInstallationService({ rootDirectory: join(root, 'installed') }),
+      catalogMaterializer: async (_item, targetDirectory) => {
+        await mkdir(targetDirectory, { recursive: true })
+        await writeFile(join(targetDirectory, 'LICENSE'), 'MIT License\n')
+        await writeFile(join(targetDirectory, 'payload.txt'), 'verified catalog payload\n')
+      }
+    })
+
+    const prepared = await service.prepareCatalogPackage(item)
+    expect(prepared).toMatchObject({
+      format: 'catalog',
+      package: { id: item.id, version: item.version },
+      compatibility: { workwiseCompatible: true }
+    })
+    expect(prepared).not.toHaveProperty('preparedDirectory')
+
+    const installed = await service.installPrepared({
+      preparedId: prepared.id,
+      reviewSha256: prepared.reviewSha256,
+      expectedCurrentVersion: null,
+      scope: 'user',
+      permissions: [],
+      idempotencyKey: 'install-catalog-fixture'
+    })
+    await expect(readFile(join(installed.artifact.location, 'payload.txt'), 'utf8'))
+      .resolves.toBe('verified catalog payload\n')
+  })
+
   it('keeps private staging paths out of the renderer contract and installs by prepared ID', async () => {
     const root = await tempRoot('install')
     const sourcePath = join(root, 'fixture.wwx')

@@ -78,6 +78,11 @@ export type SetMcpServerCredentialRequest = {
   idempotencyKey: string
 }
 
+export type McpRuntimeSnapshotV1 = {
+  servers: Record<string, Record<string, unknown>>
+  environment: Record<string, string>
+}
+
 function emptyManifest(): McpManifestV2 {
   return {
     schema: 'workwise.mcp-servers',
@@ -90,6 +95,11 @@ function emptyManifest(): McpManifestV2 {
 
 function base64Url(value: Buffer): string {
   return value.toString('base64').replaceAll('+', '-').replaceAll('/', '_').replace(/=+$/g, '')
+}
+
+function runtimeCredentialVariable(serverId: string, key: string): string {
+  const digest = createHash('sha256').update(`${serverId}\0${key}`).digest('hex').slice(0, 24)
+  return `WORKWISE_MCP_SECRET_${digest.toUpperCase()}`
 }
 
 function defaultEncryption(): EncryptionAdapter {
@@ -205,6 +215,51 @@ export class McpConfigService {
     return manifest.servers.filter((server) =>
       server.scope === 'global' || (canonicalWorkspace && server.workspaceRoot === canonicalWorkspace)
     )
+  }
+
+  async runtimeSnapshot(): Promise<McpRuntimeSnapshotV1> {
+    const manifest = await this.read()
+    const servers: Record<string, Record<string, unknown>> = {}
+    const environment: Record<string, string> = {}
+    for (const server of manifest.servers) {
+      const credential = await this.readCredential(server.credentialRef)
+      const trust = server.scope === 'workspace' && server.workspaceRoot
+        ? { trustScope: 'workspace', trustedWorkspaceRoots: [server.workspaceRoot] }
+        : { trustScope: 'user', trustedWorkspaceRoots: [] }
+      if (server.transport === 'stdio') {
+        const env: Record<string, string> = {}
+        for (const key of server.credentialEnvironmentVariables ?? []) {
+          const variable = runtimeCredentialVariable(server.id, key)
+          env[key] = `\${${variable}}`
+          if (credential) environment[variable] = credential.accessToken
+        }
+        servers[server.id] = {
+          enabled: server.enabled,
+          transport: 'stdio',
+          command: server.command,
+          args: server.args ?? [],
+          env,
+          ...trust,
+          timeoutMs: server.timeoutMs
+        }
+        continue
+      }
+      const headers: Record<string, string> = {}
+      if (credential) {
+        const variable = runtimeCredentialVariable(server.id, 'authorization')
+        headers.Authorization = `\${${variable}}`
+        environment[variable] = `${credential.tokenType ?? 'Bearer'} ${credential.accessToken}`
+      }
+      servers[server.id] = {
+        enabled: server.enabled,
+        transport: 'streamable-http',
+        url: server.url,
+        headers,
+        ...trust,
+        timeoutMs: server.timeoutMs
+      }
+    }
+    return { servers, environment }
   }
 
   async save(request: SaveMcpServerRequest): Promise<McpServerConfigV2> {

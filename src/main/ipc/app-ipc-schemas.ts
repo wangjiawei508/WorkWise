@@ -1274,6 +1274,7 @@ const mcpServerConfigV2Schema = z.object({
     id: trimmedString(256),
     storage: z.enum(['keychain', 'dpapi', 'safe-storage', 'session'])
   }).strict().optional(),
+  credentialEnvironmentVariables: z.array(trimmedString(128)).max(32).optional(),
   oauth: z.object({
     resource: optionalTrimmedString(MAX_URL_LENGTH),
     authorizationUrl: optionalTrimmedString(MAX_URL_LENGTH),
@@ -1367,6 +1368,15 @@ export const pluginPrepareImportPayloadSchema = z.object({
   catalogSourceId: optionalTrimmedString(128)
 }).strict()
 
+export const pluginPrepareCatalogPayloadSchema = z.object({
+  sourceId: trimmedString(128),
+  packageId: trimmedString(128)
+}).strict()
+
+export const pluginPackagePickerPayloadSchema = z.object({
+  mode: z.enum(['file', 'directory'])
+}).strict()
+
 export const pluginPreparedIdPayloadSchema = z.object({
   preparedId: trimmedString(128)
 }).strict()
@@ -1381,6 +1391,7 @@ export const pluginInstallPayloadSchema = z.object({
   reviewSha256: z.string().regex(/^[0-9a-f]{64}$/i),
   expectedCurrentVersion: z.string().trim().min(1).max(256).nullable(),
   scope: z.enum(['user', 'workspace', 'team']),
+  workspaceRoot: optionalTrimmedString(MAX_PATH_LENGTH),
   permissions: z.array(installedPermissionDecisionSchema).max(128),
   idempotencyKey: trimmedString(MAX_ID_LENGTH)
 }).strict()

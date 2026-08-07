@@ -185,6 +185,23 @@ describe('MarketplaceCatalogService', () => {
     expect(result.snapshot?.revision).toBe('revision-1')
   })
 
+  it('resolves project catalog paths from the current workspace provider', async () => {
+    const rootDirectory = await tempRoot()
+    const workspaceRoot = await tempRoot('workwise-project-provider-')
+    await writeSnapshot(join(workspaceRoot, 'catalog.json'), snapshot('project-provider'))
+    const service = new MarketplaceCatalogService({
+      rootDirectory,
+      resolveWorkspaceRoot: async () => workspaceRoot,
+      now: () => new Date(NOW)
+    })
+    await service.upsertSource(localSource('project-provider', 'catalog.json', 'project'))
+
+    await expect(service.syncSource('project-provider')).resolves.toMatchObject({
+      status: 'synced',
+      snapshot: { sourceId: 'project-provider' }
+    })
+  })
+
   it('sends the saved ETag and keeps the snapshot unchanged for HTTP 304', async () => {
     const rootDirectory = await tempRoot()
     let currentTime = NOW

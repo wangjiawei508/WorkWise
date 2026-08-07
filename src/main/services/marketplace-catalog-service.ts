@@ -61,6 +61,7 @@ type CatalogSyncMetadata = {
 export type MarketplaceCatalogServiceOptions = {
   rootDirectory?: string
   workspaceRoot?: string
+  resolveWorkspaceRoot?: () => Promise<string | undefined>
   fetch?: typeof fetch
   now?: () => Date
   allowLoopbackHttp?: boolean
@@ -958,6 +959,7 @@ export class MarketplaceCatalogService {
   private readonly sourcesPath: string
   private readonly snapshotDirectory: string
   private readonly workspaceRoot?: string
+  private readonly resolveWorkspaceRoot?: () => Promise<string | undefined>
   private readonly fetchImpl: typeof fetch
   private readonly now: () => Date
   private readonly allowLoopbackHttp: boolean
@@ -979,6 +981,7 @@ export class MarketplaceCatalogService {
     this.sourcesPath = join(this.rootDirectory, 'sources.json')
     this.snapshotDirectory = join(this.rootDirectory, 'snapshots')
     this.workspaceRoot = options.workspaceRoot ? resolve(options.workspaceRoot) : undefined
+    this.resolveWorkspaceRoot = options.resolveWorkspaceRoot
     this.fetchImpl = options.fetch ?? globalThis.fetch
     this.now = options.now ?? (() => new Date())
     this.allowLoopbackHttp = options.allowLoopbackHttp ?? false
@@ -1309,15 +1312,17 @@ export class MarketplaceCatalogService {
   }
 
   private async resolveFileSource(source: CatalogSourceV1): Promise<FileSourcePath> {
+    const workspaceRoot = this.workspaceRoot ??
+      (this.resolveWorkspaceRoot ? await this.resolveWorkspaceRoot().then((value) => value ? resolve(value) : undefined) : undefined)
     const target = source.type === 'project'
-      ? resolve(this.workspaceRoot ?? '', source.location)
+      ? resolve(workspaceRoot ?? '', source.location)
       : resolve(source.location)
-    if (source.type === 'project' && !this.workspaceRoot) {
+    if (source.type === 'project' && !workspaceRoot) {
       throw new Error('Project catalogs require a configured workspace root.')
     }
     const separator = process.platform === 'win32' ? '\\' : '/'
     if (source.type === 'project') {
-      const rel = relative(this.workspaceRoot!, target)
+      const rel = relative(workspaceRoot!, target)
       if (rel === '..' || rel.startsWith('..' + separator) || isAbsolute(rel)) {
         throw new Error('Project catalog path escapes the workspace root.')
       }
@@ -1328,7 +1333,7 @@ export class MarketplaceCatalogService {
     }
     const realTarget = await realpath(target)
     if (source.type === 'project') {
-      const realWorkspace = await realpath(this.workspaceRoot!)
+      const realWorkspace = await realpath(workspaceRoot!)
       const realRelative = relative(realWorkspace, realTarget)
       if (realRelative === '..' ||
           realRelative.startsWith('..' + separator) ||

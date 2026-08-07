@@ -451,7 +451,7 @@ export type PreparedPluginImportV1 = {
   id: string
   createdAt: string
   expiresAt: string
-  format: 'wwx' | 'codex' | 'mcpb'
+  format: 'wwx' | 'codex' | 'mcpb' | 'catalog'
   package: MarketplacePackageV1
   archiveSha256?: string
   contentSha256: string

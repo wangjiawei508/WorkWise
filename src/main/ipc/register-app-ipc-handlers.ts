@@ -65,6 +65,8 @@ import {
   catalogSourceIdPayloadSchema,
   catalogSourcePayloadSchema,
   pluginInstallPayloadSchema,
+  pluginPackagePickerPayloadSchema,
+  pluginPrepareCatalogPayloadSchema,
   pluginPreparedIdPayloadSchema,
   pluginPrepareImportPayloadSchema,
   pluginRollbackPayloadSchema,
@@ -191,6 +193,7 @@ import { WorkspacePreviewService } from '../services/workspace-preview-service'
 import { GitCheckpointService } from '../services/git-checkpoint-service'
 import { RepoMapService } from '../services/repo-map-service'
 import { McpConfigService } from '../services/mcp-config-service'
+import { activatePluginPackage } from '../services/plugin-activation-service'
 import { MarketplaceCatalogService } from '../services/marketplace-catalog-service'
 import { PluginManagementService } from '../services/plugin-management-service'
 import type { CatalogSourceV1 } from '../../shared/marketplace'
@@ -234,6 +237,7 @@ type RegisterAppIpcHandlersOptions = {
   logError: (category: string, message: string, detail?: unknown) => void
   marketplaceCatalogService?: MarketplaceCatalogService
   pluginManagementService?: PluginManagementService
+  mcpConfigService?: McpConfigService
 }
 
 function parseIpcPayload<T>(channel: string, schema: z.ZodType<T>, payload: unknown): T {
@@ -591,8 +595,10 @@ export function registerAppIpcHandlers(options: RegisterAppIpcHandlersOptions): 
   })
   const gitCheckpointService = new GitCheckpointService()
   const repoMapService = new RepoMapService()
-  const mcpConfigService = new McpConfigService()
-  const marketplaceCatalogService = options.marketplaceCatalogService ?? new MarketplaceCatalogService()
+  const mcpConfigService = options.mcpConfigService ?? new McpConfigService()
+  const marketplaceCatalogService = options.marketplaceCatalogService ?? new MarketplaceCatalogService({
+    resolveWorkspaceRoot: async () => (await store.load()).workspaceRoot
+  })
   const pluginManagementService = options.pluginManagementService ?? new PluginManagementService()
   let skillCatalogGeneration = 1
 
@@ -847,9 +853,39 @@ export function registerAppIpcHandlers(options: RegisterAppIpcHandlersOptions): 
     return marketplaceCatalogService.syncSource(request.sourceId)
   })
   ipcMain.handle('plugin:list-installed', async () => pluginManagementService.listInstalled())
+  ipcMain.handle('plugin:pick-package', async (_, payload: unknown): Promise<WorkspacePickResult> => {
+    const request = parseIpcPayload('plugin:pick-package', pluginPackagePickerPayloadSchema, payload)
+    const options: Electron.OpenDialogOptions = request.mode === 'file'
+      ? {
+          title: 'Import WorkWise plugin package',
+          filters: [{ name: 'Plugin packages', extensions: ['wwx', 'mcpb', 'zip'] }],
+          properties: ['openFile', 'dontAddToRecent']
+        }
+      : {
+          title: 'Import Codex plugin directory',
+          properties: ['openDirectory', 'dontAddToRecent']
+        }
+    const mainWindow = getMainWindow()
+    const result = mainWindow
+      ? await dialog.showOpenDialog(mainWindow, options)
+      : await dialog.showOpenDialog(options)
+    return {
+      canceled: result.canceled,
+      path: result.canceled ? null : (result.filePaths[0] ?? null)
+    }
+  })
   ipcMain.handle('plugin:prepare-import', async (_, payload: unknown) => {
     const request = parseIpcPayload('plugin:prepare-import', pluginPrepareImportPayloadSchema, payload)
     return pluginManagementService.prepareImport(request)
+  })
+  ipcMain.handle('plugin:prepare-catalog', async (_, payload: unknown) => {
+    const request = parseIpcPayload('plugin:prepare-catalog', pluginPrepareCatalogPayloadSchema, payload)
+    const catalog = await marketplaceCatalogService.listPackages()
+    const entry = catalog.packages.find((candidate) =>
+      candidate.sourceId === request.sourceId && candidate.package.id === request.packageId
+    )
+    if (!entry) throw new Error('Catalog package was not found.')
+    return pluginManagementService.prepareCatalogPackage(entry.package)
   })
   ipcMain.handle('plugin:cancel-import', async (_, payload: unknown) => {
     const request = parseIpcPayload('plugin:cancel-import', pluginPreparedIdPayloadSchema, payload)
@@ -857,7 +893,18 @@ export function registerAppIpcHandlers(options: RegisterAppIpcHandlersOptions): 
   })
   ipcMain.handle('plugin:install', async (_, payload: unknown) => {
     const request = parseIpcPayload('plugin:install', pluginInstallPayloadSchema, payload)
-    return pluginManagementService.installPrepared(request)
+    const installed = await pluginManagementService.installPrepared(
+      request,
+      async (record, item) => activatePluginPackage({
+        item,
+        installed: record,
+        workspaceRoot: request.workspaceRoot,
+        mcpConfigService,
+        idempotencyKey: request.idempotencyKey
+      })
+    )
+    notifySkillsChanged()
+    return installed
   })
   ipcMain.handle('plugin:rollback', async (_, payload: unknown) => {
     const request = parseIpcPayload('plugin:rollback', pluginRollbackPayloadSchema, payload)

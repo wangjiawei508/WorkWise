@@ -88,6 +88,7 @@ const api = {
     ipcRenderer.invoke('claw:im-install:poll', { provider, deviceCode }),
   pickWorkspaceDirectory: (defaultPath) =>
     ipcRenderer.invoke('workspace:pick-directory', defaultPath),
+  pickPluginPackage: (mode) => ipcRenderer.invoke('plugin:pick-package', { mode }),
   confirmDialog: (options) =>
     ipcRenderer.invoke('dialog:confirm', options),
   listCatalogSources: () => ipcRenderer.invoke('catalog:list-sources'),
@@ -98,6 +99,7 @@ const api = {
   syncCatalogSource: (sourceId) => ipcRenderer.invoke('catalog:sync-source', { sourceId }),
   listInstalledPlugins: () => ipcRenderer.invoke('plugin:list-installed'),
   preparePluginImport: (request) => ipcRenderer.invoke('plugin:prepare-import', request),
+  prepareCatalogPlugin: (request) => ipcRenderer.invoke('plugin:prepare-catalog', request),
   cancelPluginImport: (preparedId) => ipcRenderer.invoke('plugin:cancel-import', { preparedId }),
   installPreparedPlugin: (request) => ipcRenderer.invoke('plugin:install', request),
   rollbackPlugin: (request) => ipcRenderer.invoke('plugin:rollback', request),

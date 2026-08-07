@@ -45,6 +45,41 @@ function config(overrides: Partial<McpServerConfigV2> = {}): Omit<McpServerConfi
 }
 
 describe('McpConfigService', () => {
+  it('exports credentials only as process environment values with placeholder config references', async () => {
+    const key = 0x2a
+    const service = new McpConfigService({
+      manifestPath: join(root, 'mcp-v2.json'),
+      credentialRoot: join(root, 'credentials'),
+      encryption: {
+        available: () => true,
+        encrypt: (value) => Buffer.from([...Buffer.from(value)].map((byte) => byte ^ key)),
+        decrypt: (value) => Buffer.from([...value].map((byte) => byte ^ key)).toString('utf8'),
+        storage: 'keychain'
+      }
+    })
+    const saved = await service.save({
+      config: config({ credentialEnvironmentVariables: ['DOCS_API_TOKEN'] }),
+      expectedRevision: 0,
+      idempotencyKey: 'save-runtime-export'
+    })
+    await service.setCredential({
+      serverId: saved.id,
+      workspaceRoot: workspace,
+      accessToken: 'runtime-only-secret',
+      expectedRevision: saved.revision,
+      idempotencyKey: 'credential-runtime-export'
+    })
+
+    const snapshot = await service.runtimeSnapshot()
+    const serialized = JSON.stringify(snapshot.servers)
+    expect(serialized).not.toContain('runtime-only-secret')
+    expect(snapshot.servers.docs).toMatchObject({
+      transport: 'stdio',
+      env: { DOCS_API_TOKEN: expect.stringMatching(/^\$\{WORKWISE_MCP_SECRET_[A-F0-9]+\}$/) }
+    })
+    expect(Object.values(snapshot.environment)).toContain('runtime-only-secret')
+  })
+
   it('persists scoped V2 config with revision and idempotency', async () => {
     const service = new McpConfigService({
       manifestPath: join(root, 'mcp-v2.json'),
