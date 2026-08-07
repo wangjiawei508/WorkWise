@@ -62,7 +62,6 @@ type GithubContentEntry = {
   path?: string
   type?: string
   size?: number
-  download_url?: string | null
 }
 
 type GithubCommitResponse = {
@@ -185,7 +184,7 @@ export async function installGithubSkill(
       repo: source.repo.trim(),
       path: normalizeGithubPath(source.path),
       ref,
-      autoUpdate: source.autoUpdate !== false,
+      autoUpdate: false,
       ...(normalizeGithubIncludePaths(source.includePaths).length
         ? { includePaths: normalizeGithubIncludePaths(source.includePaths) }
         : {}),
@@ -211,7 +210,7 @@ export async function installGithubSkill(
     await mkdir(root, { recursive: true })
     const tempDir = await mkdtemp(join(root, `.workwise-install-${skillName}-`))
     try {
-      await downloadGithubSkillDirectory(requestedSource, tempDir)
+      await downloadGithubSkillDirectory({ ...requestedSource, ref: latestSha }, tempDir)
       await writeSkillSourceMetadata(tempDir, {
         ...requestedSource,
         installedSha: latestSha,
@@ -510,7 +509,7 @@ async function readSkillSourceMetadata(root: string): Promise<SkillSourceMetadat
       path: normalizeGithubPath(stringValue(record.path)),
       ref: normalizeGithubRef(stringValue(record.ref)),
       ...(stringValue(record.installedSha) ? { installedSha: stringValue(record.installedSha) } : {}),
-      autoUpdate: record.autoUpdate !== false,
+      autoUpdate: false,
       ...(normalizeGithubIncludePaths(arrayStringValue(record.includePaths)).length
         ? { includePaths: normalizeGithubIncludePaths(arrayStringValue(record.includePaths)) }
         : {}),
@@ -586,7 +585,9 @@ async function fetchGithubCommitSha(source: GithubSkillSourceMetadata): Promise<
   const url = `https://api.github.com/repos/${encodeURIComponent(source.owner)}/${encodeURIComponent(source.repo)}/commits/${encodeURIComponent(source.ref)}`
   const commit = await fetchGithubJson<GithubCommitResponse>(url)
   const sha = stringValue(commit.sha)
-  if (!sha) throw new Error(`GitHub commit was not found for ${source.owner}/${source.repo}@${source.ref}.`)
+  if (!/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/i.test(sha)) {
+    throw new Error(`GitHub commit SHA is invalid for ${source.owner}/${source.repo}@${source.ref}.`)
+  }
   return sha
 }
 
@@ -629,7 +630,7 @@ async function downloadGithubEntry(
   if (entry.type !== 'file') {
     throw new Error(`GitHub path is not a file or directory: ${githubPath || '/'}`)
   }
-  await downloadGithubFile(entry, destination, state)
+  await downloadGithubFile(source, entry, destination, state)
 }
 
 async function downloadGithubDirectory(
@@ -659,18 +660,21 @@ async function downloadGithubDirectory(
     if (entry.type !== 'file') {
       throw new Error(`GitHub Skill contains an unsupported entry type: ${entryPath}.`)
     }
-    await downloadGithubFile(entry, join(destination, entryName), state)
+    await downloadGithubFile(source, entry, join(destination, entryName), state)
   }
 }
 
 async function downloadGithubFile(
+  source: GithubSkillSourceMetadata,
   entry: GithubContentEntry,
   destination: string,
   state: { files: number; bytes: number }
 ): Promise<void> {
   const entryPath = normalizeGithubPath(stringValue(entry.path))
-  const downloadUrl = stringValue(entry.download_url)
-  if (!downloadUrl) throw new Error(`GitHub file cannot be downloaded: ${entryPath}`)
+  const token = githubToken()
+  const downloadUrl = token
+    ? githubContentsUrl(source, entryPath)
+    : githubRawFileUrl(source, entryPath)
   state.files += 1
   if (state.files > MAX_GITHUB_SKILL_FILES) {
     throw new Error(`GitHub Skill has too many files; limit is ${MAX_GITHUB_SKILL_FILES}.`)
@@ -683,7 +687,9 @@ async function downloadGithubFile(
   if (state.bytes > MAX_GITHUB_SKILL_BYTES) {
     throw new Error(`GitHub Skill is too large; limit is ${Math.round(MAX_GITHUB_SKILL_BYTES / 1024 / 1024)}MB.`)
   }
-  const bytes = await fetchGithubBytes(downloadUrl)
+  const bytes = await fetchGithubBytes(downloadUrl, token
+    ? { ...githubHeaders(), Accept: 'application/vnd.github.raw+json' }
+    : { 'User-Agent': 'WorkWise' })
   if (bytes.length > SKILL_PACKAGE_LIMITS.maxFileBytes) {
     throw new Error(`GitHub Skill file exceeds 1 MiB: ${entryPath}.`)
   }
@@ -737,25 +743,35 @@ function githubContentsUrl(source: GithubSkillSourceMetadata, githubPath: string
   return `https://api.github.com/repos/${encodeURIComponent(source.owner)}/${encodeURIComponent(source.repo)}/contents${encodedPath}?ref=${encodeURIComponent(source.ref)}`
 }
 
+function githubRawFileUrl(source: GithubSkillSourceMetadata, githubPath: string): string {
+  const path = normalizeGithubPath(githubPath)
+  if (!path) throw new Error('GitHub file path is required.')
+  return `https://raw.githubusercontent.com/${encodeURIComponent(source.owner)}/${encodeURIComponent(source.repo)}/${encodeURIComponent(source.ref)}/${encodeGithubPath(path)}`
+}
+
 async function fetchGithubJson<T>(url: string): Promise<T> {
   const response = await systemFetch(url, { headers: githubHeaders() })
   if (!response.ok) throw await githubResponseError(response)
   return await response.json() as T
 }
 
-async function fetchGithubBytes(url: string): Promise<Buffer> {
-  const response = await systemFetch(url, { headers: githubHeaders() })
+async function fetchGithubBytes(url: string, headers = githubHeaders()): Promise<Buffer> {
+  const response = await systemFetch(url, { headers })
   if (!response.ok) throw await githubResponseError(response)
   return Buffer.from(await response.arrayBuffer())
 }
 
 function githubHeaders(): Record<string, string> {
-  const token = (process.env.GITHUB_TOKEN || process.env.GH_TOKEN || '').trim()
+  const token = githubToken()
   return {
     Accept: 'application/vnd.github+json',
     'User-Agent': 'WorkWise',
     ...(token ? { Authorization: `Bearer ${token}` } : {})
   }
+}
+
+function githubToken(): string {
+  return (process.env.GITHUB_TOKEN || process.env.GH_TOKEN || '').trim()
 }
 
 async function githubResponseError(response: Response): Promise<Error> {

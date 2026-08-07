@@ -16,6 +16,8 @@ import { installBundledSkill, installGithubSkill, listGuiSkills } from './skill-
 
 const originalFetch = globalThis.fetch
 const originalCodexHome = process.env.CODEX_HOME
+const originalGithubToken = process.env.GITHUB_TOKEN
+const originalGhToken = process.env.GH_TOKEN
 
 describe('skill-service', () => {
   let tempRoot = ''
@@ -23,12 +25,18 @@ describe('skill-service', () => {
   beforeEach(async () => {
     tempRoot = await mkdtemp(join(tmpdir(), 'gui-skills-'))
     process.env.CODEX_HOME = join(tempRoot, 'codex-home')
+    delete process.env.GITHUB_TOKEN
+    delete process.env.GH_TOKEN
   })
 
   afterEach(async () => {
     globalThis.fetch = originalFetch
     if (originalCodexHome === undefined) delete process.env.CODEX_HOME
     else process.env.CODEX_HOME = originalCodexHome
+    if (originalGithubToken === undefined) delete process.env.GITHUB_TOKEN
+    else process.env.GITHUB_TOKEN = originalGithubToken
+    if (originalGhToken === undefined) delete process.env.GH_TOKEN
+    else process.env.GH_TOKEN = originalGhToken
     vi.restoreAllMocks()
     await rm(tempRoot, { recursive: true, force: true })
   })
@@ -157,7 +165,7 @@ describe('skill-service', () => {
     expect(projectSkills.map((skill) => skill.id)).not.toContain('skill')
   })
 
-  it('includes WorkWise source metadata when listing managed skills', async () => {
+  it('downgrades untrusted legacy source metadata that requests automatic updates', async () => {
     const workspaceRoot = join(tempRoot, 'workspace-managed')
     const skillRoot = join(workspaceRoot, '.agents', 'skills', 'di-bao-monitoring')
     await mkdir(skillRoot, { recursive: true })
@@ -192,7 +200,41 @@ describe('skill-service', () => {
         path: 'skill/di-bao-monitoring',
         ref: 'main',
         installedSha: 'abc123',
-        autoUpdate: true
+        autoUpdate: false
+      }
+    }))
+  })
+
+  it('defaults migrated third-party GitHub sources to manual updates and preserves source metadata', async () => {
+    const workspaceRoot = join(tempRoot, 'workspace-migrated-manual-update')
+    const skillRoot = join(workspaceRoot, '.agents', 'skills', 'third-party-skill')
+    await mkdir(skillRoot, { recursive: true })
+    await writeFile(join(skillRoot, 'SKILL.md'), '# Third-party Skill\n', 'utf8')
+    await writeFile(join(skillRoot, '.workgpt-skill-source.json'), JSON.stringify({
+      type: 'github',
+      owner: 'third-party',
+      repo: 'third-party-skill',
+      path: 'skills/third-party',
+      ref: 'release',
+      installedSha: 'abc123',
+      includePaths: ['SKILL.md', 'references']
+    }), 'utf8')
+
+    const result = await listGuiSkills(createSettings(workspaceRoot), workspaceRoot)
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.skills).toContainEqual(expect.objectContaining({
+      id: 'third-party-skill',
+      source: {
+        type: 'github',
+        owner: 'third-party',
+        repo: 'third-party-skill',
+        path: 'skills/third-party',
+        ref: 'release',
+        installedSha: 'abc123',
+        autoUpdate: false,
+        includePaths: ['SKILL.md', 'references']
       }
     }))
   })
@@ -346,7 +388,7 @@ describe('skill-service', () => {
     }))
   })
 
-  it('installs bundled GitHub-managed writing skills with update metadata', async () => {
+  it('installs bundled GitHub-managed writing skills with automatic updates disabled', async () => {
     const workspaceRoot = join(tempRoot, 'workspace-bundled-writing')
     const skillInstallRoot = join(workspaceRoot, '.agents', 'skills')
 
@@ -369,7 +411,7 @@ describe('skill-service', () => {
       repo: 'ai-flavor-remover',
       path: '',
       ref: 'main',
-      autoUpdate: true,
+      autoUpdate: false,
       includePaths: ['README.md'],
       overlaySkillId: 'ai-flavor-remover'
     })
@@ -553,30 +595,31 @@ describe('skill-service', () => {
       '# Di-bao'
     ].join('\n')
     const referenceMarkdown = '# Reference\n'
+    const commitSha = 'b'.repeat(40)
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input)
       if (url.includes('/commits/main')) {
-        return jsonResponse({ sha: 'sha-new' })
+        return jsonResponse({ sha: commitSha })
       }
-      if (url.includes('/contents/skill/di-bao-monitoring/references')) {
+      if (url === `https://api.github.com/repos/railwise-cn/di-bao-monitoring-skill/contents/skill/di-bao-monitoring/references?ref=${commitSha}`) {
         return jsonResponse([
           {
             name: 'guide.md',
             path: 'skill/di-bao-monitoring/references/guide.md',
             type: 'file',
             size: referenceMarkdown.length,
-            download_url: 'https://raw.test/guide.md'
+            download_url: 'https://evil.example/guide.md'
           }
         ])
       }
-      if (url.includes('/contents/skill/di-bao-monitoring')) {
+      if (url === `https://api.github.com/repos/railwise-cn/di-bao-monitoring-skill/contents/skill/di-bao-monitoring?ref=${commitSha}`) {
         return jsonResponse([
           {
             name: 'SKILL.md',
             path: 'skill/di-bao-monitoring/SKILL.md',
             type: 'file',
             size: skillMarkdown.length,
-            download_url: 'https://raw.test/SKILL.md'
+            download_url: 'https://evil.example/SKILL.md'
           },
           {
             name: 'references',
@@ -585,10 +628,10 @@ describe('skill-service', () => {
           }
         ])
       }
-      if (url === 'https://raw.test/SKILL.md') {
+      if (url === `https://raw.githubusercontent.com/railwise-cn/di-bao-monitoring-skill/${commitSha}/skill/di-bao-monitoring/SKILL.md`) {
         return new Response(skillMarkdown)
       }
-      if (url === 'https://raw.test/guide.md') {
+      if (url === `https://raw.githubusercontent.com/railwise-cn/di-bao-monitoring-skill/${commitSha}/skill/di-bao-monitoring/references/guide.md`) {
         return new Response(referenceMarkdown)
       }
       return new Response('not found', { status: 404, statusText: 'Not Found' })
@@ -606,7 +649,7 @@ describe('skill-service', () => {
     expect(installed).toEqual({
       ok: true,
       path: join(skillInstallRoot, 'di-bao-monitoring', 'SKILL.md'),
-      sha: 'sha-new',
+      sha: commitSha,
       updated: true
     })
     expect(await readFile(join(skillInstallRoot, 'di-bao-monitoring', 'references', 'guide.md'), 'utf8'))
@@ -620,8 +663,66 @@ describe('skill-service', () => {
       repo: 'di-bao-monitoring-skill',
       path: 'skill/di-bao-monitoring',
       ref: 'main',
-      installedSha: 'sha-new',
-      autoUpdate: true
+      installedSha: commitSha,
+      autoUpdate: false
+    })
+    const requestedUrls = fetchMock.mock.calls.map(([input]) => String(input))
+    expect(requestedUrls[0]).toContain('/commits/main')
+    expect(requestedUrls.slice(1).length).toBeGreaterThan(0)
+    expect(requestedUrls.slice(1).every((url) => url.includes(commitSha))).toBe(true)
+    expect(requestedUrls.slice(1).every((url) => !url.includes('/main/'))).toBe(true)
+  })
+
+  it.each([
+    ['omitted', undefined],
+    ['explicitly requested', true]
+  ] as const)('forces third-party GitHub Skill automatic updates off when autoUpdate is %s', async (_policy, autoUpdate) => {
+    const workspaceRoot = join(tempRoot, 'workspace-github-manual-update')
+    const skillInstallRoot = join(workspaceRoot, '.agents', 'skills')
+    const skillMarkdown = '# Manual update Skill\n'
+    const commitSha = 'c'.repeat(40)
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input)
+      if (url.includes('/commits/main')) {
+        return jsonResponse({ sha: commitSha })
+      }
+      if (url === `https://api.github.com/repos/third-party/manual-update-skill/contents/skills/manual-update?ref=${commitSha}`) {
+        return jsonResponse([
+          {
+            name: 'SKILL.md',
+            path: 'skills/manual-update/SKILL.md',
+            type: 'file',
+            size: skillMarkdown.length,
+            download_url: 'https://evil.example/SKILL.md'
+          }
+        ])
+      }
+      if (url === `https://raw.githubusercontent.com/third-party/manual-update-skill/${commitSha}/skills/manual-update/SKILL.md`) {
+        return new Response(skillMarkdown)
+      }
+      return new Response('not found', { status: 404, statusText: 'Not Found' })
+    })
+    globalThis.fetch = fetchMock as unknown as typeof fetch
+
+    const installed = await installGithubSkill(skillInstallRoot, {
+      owner: 'third-party',
+      repo: 'manual-update-skill',
+      path: 'skills/manual-update',
+      ref: 'main',
+      ...(autoUpdate === undefined ? {} : { autoUpdate })
+    })
+
+    expect(installed.ok).toBe(true)
+    const source = JSON.parse(
+      await readFile(join(skillInstallRoot, 'manual-update', '.workwise-skill-source.json'), 'utf8')
+    ) as Record<string, unknown>
+    expect(source).toMatchObject({
+      type: 'github',
+      owner: 'third-party',
+      repo: 'manual-update-skill',
+      ref: 'main',
+      installedSha: commitSha,
+      autoUpdate: false
     })
   })
 
@@ -629,21 +730,22 @@ describe('skill-service', () => {
     const workspaceRoot = join(tempRoot, 'workspace-github-overlay')
     const skillInstallRoot = join(workspaceRoot, '.agents', 'skills')
     const readmeMarkdown = '# AI 味去除\n'
+    const commitSha = 'd'.repeat(40)
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input)
       if (url.includes('/commits/main')) {
-        return jsonResponse({ sha: 'sha-overlay' })
+        return jsonResponse({ sha: commitSha })
       }
-      if (url.includes('/contents/README.md')) {
+      if (url === `https://api.github.com/repos/hylarucoder/ai-flavor-remover/contents/README.md?ref=${commitSha}`) {
         return jsonResponse({
           name: 'README.md',
           path: 'README.md',
           type: 'file',
           size: readmeMarkdown.length,
-          download_url: 'https://raw.test/README.md'
+          download_url: 'https://evil.example/README.md'
         })
       }
-      if (url === 'https://raw.test/README.md') {
+      if (url === `https://raw.githubusercontent.com/hylarucoder/ai-flavor-remover/${commitSha}/README.md`) {
         return new Response(readmeMarkdown)
       }
       return new Response('not found', { status: 404, statusText: 'Not Found' })
@@ -664,7 +766,7 @@ describe('skill-service', () => {
     expect(installed).toEqual({
       ok: true,
       path: join(skillInstallRoot, 'ai-flavor-remover', 'SKILL.md'),
-      sha: 'sha-overlay',
+      sha: commitSha,
       updated: true
     })
     expect(await readFile(join(skillInstallRoot, 'ai-flavor-remover', 'README.md'), 'utf8'))
@@ -680,11 +782,77 @@ describe('skill-service', () => {
       repo: 'ai-flavor-remover',
       path: '',
       ref: 'main',
-      installedSha: 'sha-overlay',
-      autoUpdate: true,
+      installedSha: commitSha,
+      autoUpdate: false,
       includePaths: ['README.md'],
       overlaySkillId: 'ai-flavor-remover'
     })
+  })
+
+  it('downloads GitHub files through the pinned Contents API raw media endpoint', async () => {
+    const workspaceRoot = join(tempRoot, 'workspace-github-private')
+    const skillInstallRoot = join(workspaceRoot, '.agents', 'skills')
+    const commitSha = 'a'.repeat(40)
+    const skillMarkdown = '# Private Skill\n'
+    process.env.GITHUB_TOKEN = 'private-token'
+    const requests: Array<{ url: string; init?: RequestInit }> = []
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      requests.push({ url, init })
+      if (url.includes('/commits/main')) return jsonResponse({ sha: commitSha })
+      if (url === `https://api.github.com/repos/private-owner/private-repo/contents/skills/private-skill?ref=${commitSha}`) {
+        return jsonResponse([{
+          name: 'SKILL.md',
+          path: 'skills/private-skill/SKILL.md',
+          type: 'file',
+          size: skillMarkdown.length,
+          download_url: 'https://evil.example/private-skill/SKILL.md'
+        }])
+      }
+      if (url === `https://api.github.com/repos/private-owner/private-repo/contents/skills/private-skill/SKILL.md?ref=${commitSha}`) {
+        return new Response(skillMarkdown, { status: 200 })
+      }
+      return new Response('not found', { status: 404, statusText: 'Not Found' })
+    })
+    globalThis.fetch = fetchMock as unknown as typeof fetch
+
+    const installed = await installGithubSkill(skillInstallRoot, {
+      owner: 'private-owner',
+      repo: 'private-repo',
+      path: 'skills/private-skill',
+      ref: 'main'
+    })
+
+    expect(installed).toMatchObject({ ok: true, sha: commitSha, updated: true })
+    expect(await readFile(join(skillInstallRoot, 'private-skill', 'SKILL.md'), 'utf8')).toBe(skillMarkdown)
+    const fileRequest = requests.find((request) => request.url.endsWith(`/contents/skills/private-skill/SKILL.md?ref=${commitSha}`))
+    expect(fileRequest).toBeDefined()
+    expect(new Headers(fileRequest?.init?.headers).get('Accept')).toBe('application/vnd.github.raw+json')
+    expect(new Headers(fileRequest?.init?.headers).get('Authorization')).toBe('Bearer private-token')
+    expect(requests.every((request) => request.url.startsWith('https://api.github.com/'))).toBe(true)
+  })
+
+  it('rejects a malformed GitHub commit response before downloading Skill files', async () => {
+    const workspaceRoot = join(tempRoot, 'workspace-github-invalid-sha')
+    const skillInstallRoot = join(workspaceRoot, '.agents', 'skills')
+    const requests: string[] = []
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input)
+      requests.push(url)
+      if (url.includes('/commits/main')) return jsonResponse({ sha: 'sha-not-immutable' })
+      return new Response('unexpected file request', { status: 500, statusText: 'Unexpected' })
+    })
+    globalThis.fetch = fetchMock as unknown as typeof fetch
+
+    const installed = await installGithubSkill(skillInstallRoot, {
+      owner: 'owner',
+      repo: 'repo',
+      path: 'skills/example',
+      ref: 'main'
+    })
+
+    expect(installed).toMatchObject({ ok: false })
+    expect(requests).toHaveLength(1)
   })
 
   function createSettings(workspaceRoot: string): AppSettingsV1 {
