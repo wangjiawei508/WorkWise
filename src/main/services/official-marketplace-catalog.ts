@@ -1,0 +1,1104 @@
+import type {
+  CatalogSourceV1,
+  GithubPackageSourceV1,
+  MarketplaceComponentV1,
+  MarketplacePackageV1,
+  NpmPackageRuntimeV1,
+  NpmPackageSourceV1,
+  PackageCompatibilityV1,
+  PackageDependencyV1,
+  PackageInstallationV1,
+  PackageLicenseEvidenceV1,
+  PackagePermissionV1,
+  PackagePublisherV1,
+  PackageSourceV1,
+  PypiPackageSourceV1,
+  SimplePackageSourceKindV1,
+  SimplePackageSourceV1,
+  UvPackageRuntimeV1
+} from '../../shared/marketplace'
+import { evaluateMarketplaceLicense } from '../../shared/marketplace'
+
+const OFFICIAL_CATALOG_SOURCE_ID = 'workwise-official'
+const SHA1_COMMIT = /^[0-9a-f]{40}$/
+
+const PINNED_UPDATE = {
+  strategy: 'pinned',
+  channel: 'stable',
+  allowMajor: false
+} as const
+
+const MANUAL_UPDATE = {
+  strategy: 'manual',
+  channel: 'stable',
+  allowMajor: false
+} as const
+
+const SYSTEM_UPDATE = {
+  strategy: 'system-managed',
+  channel: 'managed',
+  allowMajor: false
+} as const
+
+const COMPATIBILITY: PackageCompatibilityV1 = {
+  workwise: '>=0.3.5',
+  platforms: ['darwin', 'win32', 'linux'],
+  architectures: ['arm64', 'x64']
+}
+
+const NODE_DEPENDENCY: PackageDependencyV1 = {
+  id: 'node',
+  kind: 'runtime',
+  requirement: '>=22.22.0',
+  optional: false,
+  managedBy: 'workwise'
+}
+
+const UV_DEPENDENCY: PackageDependencyV1 = {
+  id: 'uv',
+  kind: 'runtime',
+  requirement: 'managed',
+  optional: false,
+  managedBy: 'workwise'
+}
+
+const PYTHON_310_DEPENDENCY: PackageDependencyV1 = {
+  id: 'python',
+  kind: 'runtime',
+  requirement: '>=3.10',
+  optional: false,
+  managedBy: 'workwise'
+}
+
+const DIRECT_MIRROR_INSTALL: PackageInstallationV1 = {
+  mode: 'direct-mirror',
+  installedByDefault: false,
+  reinstallable: true
+}
+
+const EXTERNAL_INSTALL: PackageInstallationV1 = {
+  mode: 'external',
+  installedByDefault: false,
+  reinstallable: false
+}
+
+const SYSTEM_MANAGED_INSTALL: Extract<
+  PackageInstallationV1,
+  { mode: 'system-managed' }
+> = {
+  mode: 'system-managed',
+  installedByDefault: false,
+  reinstallable: false
+}
+
+const NETWORK_PERMISSION: PackagePermissionV1 = {
+  id: 'network.connect',
+  kind: 'network',
+  access: 'connect',
+  default: 'review',
+  reviewRequired: true,
+  description: 'Connect to the service endpoints declared by this package.'
+}
+
+const FILESYSTEM_READ_PERMISSION: PackagePermissionV1 = {
+  id: 'filesystem.read',
+  kind: 'filesystem',
+  access: 'read',
+  default: 'review',
+  reviewRequired: true,
+  description: 'Read files under roots explicitly selected by the user.'
+}
+
+const FILESYSTEM_WRITE_PERMISSION: PackagePermissionV1 = {
+  id: 'filesystem.write',
+  kind: 'filesystem',
+  access: 'write',
+  default: 'denied',
+  reviewRequired: true,
+  description: 'Modify files under roots explicitly selected by the user.'
+}
+
+const PROCESS_EXECUTE_PERMISSION: PackagePermissionV1 = {
+  id: 'process.execute',
+  kind: 'process',
+  access: 'execute',
+  default: 'review',
+  reviewRequired: true,
+  description: 'Execute the package process for repositories selected by the user.'
+}
+
+const DATABASE_READ_PERMISSION: PackagePermissionV1 = {
+  id: 'database.read',
+  kind: 'database',
+  access: 'read',
+  default: 'review',
+  reviewRequired: true,
+  description: 'Read data from databases selected by the user.'
+}
+
+const DATABASE_WRITE_PERMISSION: PackagePermissionV1 = {
+  id: 'database.write',
+  kind: 'database',
+  access: 'write',
+  default: 'denied',
+  reviewRequired: true,
+  description: 'Modify data in databases selected by the user.'
+}
+
+const catalogSources: CatalogSourceV1[] = [
+  {
+    schemaVersion: 1,
+    id: OFFICIAL_CATALOG_SOURCE_ID,
+    name: 'WorkWise Official Catalog',
+    type: 'built-in',
+    scope: 'system',
+    location: 'workwise://marketplace/official-v1',
+    trust: 'system',
+    searchable: true,
+    auth: { type: 'none' },
+    sync: {
+      mode: 'bundled',
+      state: 'synced',
+      mirroredByDefault: false,
+      installedByDefault: false
+    }
+  },
+  externalCatalogSource('openai-plugins', 'OpenAI Plugins', 'https://github.com/openai/plugins'),
+  externalCatalogSource(
+    'github-awesome-copilot',
+    'GitHub Awesome Copilot',
+    'https://github.com/github/awesome-copilot'
+  ),
+  externalCatalogSource('wshobson-agents', 'wshobson Agents', 'https://github.com/wshobson/agents'),
+  externalCatalogSource(
+    'terminalskills-skills',
+    'TerminalSkills Skills',
+    'https://github.com/TerminalSkills/skills'
+  ),
+  externalCatalogSource(
+    'vercel-labs-skills',
+    'Vercel Labs Skills',
+    'https://github.com/vercel-labs/skills'
+  )
+]
+
+type SourceDefinition<T extends PackageSourceV1 = PackageSourceV1> =
+  T extends PackageSourceV1 ? Omit<T, 'id' | 'catalogSourceId'> : never
+
+type ComponentDefinition<T extends MarketplaceComponentV1 = MarketplaceComponentV1> =
+  T extends MarketplaceComponentV1 ? Omit<T, 'sourceId'> & { sourceId?: string } : never
+
+type PackageDefinition = Omit<
+  MarketplacePackageV1,
+  | 'schemaVersion'
+  | 'compatibility'
+  | 'dependencies'
+  | 'source'
+  | 'sources'
+  | 'components'
+  | 'licenseEvidence'
+> & {
+  compatibility?: PackageCompatibilityV1
+  dependencies?: PackageDependencyV1[]
+  licenseEvidence?: PackageLicenseEvidenceV1[]
+  source: SourceDefinition
+  additionalSources?: SourceDefinition[]
+  components: ComponentDefinition[]
+}
+
+type NpmArtifact = {
+  packageName: string
+  version: string
+  integrity: string
+  executable: string
+}
+
+type WheelArtifact = {
+  packageName: string
+  version: string
+  sha256: string
+  executable: string
+}
+
+const NPM_ARTIFACTS = {
+  playwrightMcp: {
+    packageName: '@playwright/mcp',
+    version: '0.0.79',
+    integrity: 'sha512-VpqD4a3vFyGQMY9sh3UJiO6wjcurggkljKfAyCHL0QWGY5m6Ehr3MNsAAHPDHO//n13g0PCjpHatAOiulrqdZQ==',
+    executable: 'playwright-mcp'
+  },
+  playwrightCli: {
+    packageName: '@playwright/cli',
+    version: '0.1.18',
+    integrity: 'sha512-ggNfYYH+GsZTGUiBEL8f6N5j0seYEUE52v+fIWqK/A36QG36cL0EJ79qWTXYO2uZMUU7vm+jk3x0fKCPL6UuIw==',
+    executable: 'playwright-cli'
+  },
+  context7: {
+    packageName: '@upstash/context7-mcp',
+    version: '4.0.0',
+    integrity: 'sha512-7TlB85xbKbSHzI4G//3Qm+g8ryW11WZLd7PAOFdH5IxzAv1Yk+lcSBgDM4lDoYHXltzSwK7iUciiFNbFj7493Q==',
+    executable: 'context7-mcp'
+  },
+  dbhub: {
+    packageName: '@bytebase/dbhub',
+    version: '1.2.0',
+    integrity: 'sha512-EaSkcaDpVTF8zOjOGEZlowSTt8jjvLG8pxJ06J1ib46mdl63ryxz4Ga+xhPR2Z6opMf7G5F2d9CWgwG53QlRSQ==',
+    executable: 'dbhub'
+  },
+  antvChart: {
+    packageName: '@antv/mcp-server-chart',
+    version: '0.9.10',
+    integrity: 'sha512-km14tIp6xoTw2whXpFvmm9dVlC+8G+W+uORb0xcRan+0zos8GgQl7D2Vxn+D6OEQZmSHd/vNbRP9/4vaXiBfLQ==',
+    executable: 'mcp-server-chart'
+  },
+  filesystem: {
+    packageName: '@modelcontextprotocol/server-filesystem',
+    version: '2026.7.10',
+    integrity: 'sha512-Mmjg4anFBD5OzbPnGJOA0jPPN8645ERhQk38HQLpSenx1ox9bfdPkmAzUnNjeQtqQGFLtKe13J20RtLBmUKMZA==',
+    executable: 'mcp-server-filesystem'
+  },
+  memory: {
+    packageName: '@modelcontextprotocol/server-memory',
+    version: '2026.7.4',
+    integrity: 'sha512-D+NNzChsOHN72y58ngDmO+TzjJijGi/sSY/gBydhB3TJCcm1XQEozVWwEpruHeXt/HSkMV3Z/BpHDhdt1MLD5w==',
+    executable: 'mcp-server-memory'
+  },
+  sequentialThinking: {
+    packageName: '@modelcontextprotocol/server-sequential-thinking',
+    version: '2026.7.4',
+    integrity: 'sha512-tmR/ieGaeweffLNBrDp1H1w4sn4M6TN5yWSbMS+YMfS+0GDyPjnNKzqCl2uqfdRiX3D44PJUhwiDGqtJp6tFhw==',
+    executable: 'mcp-server-sequential-thinking'
+  },
+  mongodb: {
+    packageName: 'mongodb-mcp-server',
+    version: '2.0.0',
+    integrity: 'sha512-5G1m202mFTfYRpIxYYkdRWzjerB48GEQIdgQOYUy9jeXUEwHakWN4vY+Aayyz/r7PChYf0fM3Ei02FcKIhEyIg==',
+    executable: 'mongodb-mcp-server'
+  }
+} as const satisfies Record<string, NpmArtifact>
+
+const WHEEL_ARTIFACTS = {
+  redis: {
+    packageName: 'redis-mcp-server',
+    version: '0.5.1',
+    sha256: '335d9089d4c87a055b362effa7fd718334ccd88b2545d93c4ed9bc2b738b3ed8',
+    executable: 'redis-mcp-server'
+  },
+  docling: {
+    packageName: 'docling-mcp',
+    version: '3.0.0',
+    sha256: '595da70b9de2265f1f14e575fad65ff4213c5c7e2dbb255184d606505fa49f23',
+    executable: 'docling-mcp-server'
+  },
+  fetch: {
+    packageName: 'mcp-server-fetch',
+    version: '2026.7.10',
+    sha256: '6991b9a8133726b9f0b76d8c5e9607c8207e19e7c3a47c9e174a8b2e0742fc70',
+    executable: 'mcp-server-fetch'
+  },
+  git: {
+    packageName: 'mcp-server-git',
+    version: '2026.7.10',
+    sha256: '6eb8bb2cca00f39e7bf9752472268c2a037579d59d1373b2fb89cc606060fad5',
+    executable: 'mcp-server-git'
+  },
+  time: {
+    packageName: 'mcp-server-time',
+    version: '2026.7.10',
+    sha256: 'b99cb0ecfe94ec8e05d4abb65c617b591a21e61a17a084ac782af0fa9e82c944',
+    executable: 'mcp-server-time'
+  }
+} as const satisfies Record<string, WheelArtifact>
+
+function externalCatalogSource(id: string, name: string, location: string): CatalogSourceV1 {
+  const [owner, repository] = location.replace('https://github.com/', '').split('/')
+  if (!owner || !repository) throw new Error(`Invalid GitHub catalog location: ${location}`)
+  return {
+    schemaVersion: 1,
+    id,
+    name,
+    type: 'github',
+    scope: 'system',
+    location,
+    owner,
+    repository,
+    defaultBranch: 'main',
+    trust: 'external',
+    searchable: true,
+    auth: { type: 'none' },
+    sync: {
+      mode: 'search-on-demand',
+      state: 'idle',
+      mirroredByDefault: false,
+      installedByDefault: false
+    }
+  }
+}
+
+function definePackage(definition: PackageDefinition): MarketplacePackageV1 {
+  const {
+    compatibility = COMPATIBILITY,
+    dependencies = [],
+    source: primaryDefinition,
+    additionalSources = [],
+    components: componentDefinitions,
+    licenseEvidence = [],
+    ...metadata
+  } = definition
+  const sources = [primaryDefinition, ...additionalSources].map((sourceDefinition, index) => ({
+    ...sourceDefinition,
+    id: `${metadata.id}-source-${index + 1}`,
+    catalogSourceId: OFFICIAL_CATALOG_SOURCE_ID
+  })) as PackageSourceV1[]
+  const source = sources[0]
+  if (!source) throw new Error(`${metadata.id} must declare a primary source.`)
+
+  const components = componentDefinitions.map((component) => ({
+    ...component,
+    sourceId: component.sourceId ?? source.id
+  })) as MarketplaceComponentV1[]
+
+  return {
+    schemaVersion: 1,
+    ...metadata,
+    source,
+    sources,
+    components,
+    licenseEvidence,
+    dependencies,
+    compatibility
+  }
+}
+
+function publisher(
+  id: string,
+  name: string,
+  url: string,
+  verified = false
+): PackagePublisherV1 {
+  return { id, name, url, verified }
+}
+
+function simpleSource(
+  kind: SimplePackageSourceKindV1,
+  location: string
+): SourceDefinition<SimplePackageSourceV1> {
+  return { kind, location }
+}
+
+function npmSource(artifact: NpmArtifact): SourceDefinition<NpmPackageSourceV1> {
+  return {
+    kind: 'npm',
+    location: `https://www.npmjs.com/package/${artifact.packageName}/v/${artifact.version}`,
+    packageName: artifact.packageName,
+    version: artifact.version,
+    resolvedRef: artifact.version,
+    digest: { algorithm: 'sha512-sri', value: artifact.integrity }
+  }
+}
+
+function npmRuntime(artifact: NpmArtifact, args: string[] = []): NpmPackageRuntimeV1 {
+  return {
+    kind: 'npm',
+    packageName: artifact.packageName,
+    version: artifact.version,
+    executable: artifact.executable,
+    args,
+    install: {
+      strategy: 'managed-download',
+      verify: 'sri-before-activation',
+      digestSource: 'component-source'
+    }
+  }
+}
+
+function pypiSource(
+  artifact: WheelArtifact,
+  location = `https://pypi.org/project/${artifact.packageName}/${artifact.version}/`
+): SourceDefinition<PypiPackageSourceV1> {
+  return {
+    kind: 'pypi',
+    location,
+    packageName: artifact.packageName,
+    version: artifact.version,
+    resolvedRef: artifact.version,
+    digest: { algorithm: 'sha256', value: artifact.sha256 }
+  }
+}
+
+function mcpServersLicenseSource(
+  commit: string
+): SourceDefinition<GithubPackageSourceV1> {
+  return {
+    kind: 'github',
+    location: 'https://github.com/modelcontextprotocol/servers',
+    owner: 'modelcontextprotocol',
+    repository: 'servers',
+    defaultBranch: 'main',
+    requestedRef: commit,
+    resolvedRef: commit
+  }
+}
+
+function wheelRuntime(artifact: WheelArtifact): UvPackageRuntimeV1 {
+  return {
+    kind: 'uv',
+    packageName: artifact.packageName,
+    version: artifact.version,
+    executable: artifact.executable,
+    args: [],
+    install: {
+      strategy: 'managed-wheel',
+      verify: 'sha256-before-activation',
+      digest: { algorithm: 'sha256', value: artifact.sha256 }
+    }
+  }
+}
+
+const officialPackages: MarketplacePackageV1[] = [
+  definePackage({
+    id: 'github-mcp',
+    name: 'GitHub MCP',
+    summary: 'Use the official GitHub-hosted MCP service.',
+    tier: 'recommended',
+    version: 'remote',
+    publisher: publisher('github', 'GitHub', 'https://github.com', true),
+    license: 'MIT',
+    source: simpleSource('remote', 'https://api.githubcopilot.com/mcp/'),
+    components: [{
+      id: 'github-mcp-server',
+      name: 'GitHub MCP Server',
+      type: 'mcp',
+      runtime: {
+        kind: 'remote',
+        transport: 'streamable-http',
+        endpoint: 'https://api.githubcopilot.com/mcp/'
+      }
+    }],
+    permissions: [NETWORK_PERMISSION],
+    auth: { type: 'oauth', provider: 'github', discovery: 'ready' },
+    updatePolicy: MANUAL_UPDATE,
+    availability: { status: 'available' },
+    installation: EXTERNAL_INSTALL
+  }),
+  npmMcpPackage({
+    id: 'playwright-mcp',
+    name: 'Playwright MCP',
+    summary: 'Automate and inspect real browsers through Playwright.',
+    artifact: NPM_ARTIFACTS.playwrightMcp,
+    publisher: publisher('microsoft', 'Microsoft', 'https://github.com/microsoft', true),
+    license: 'Apache-2.0',
+    permissions: [{
+      id: 'browser.control',
+      kind: 'browser',
+      access: 'control',
+      default: 'review',
+      reviewRequired: true,
+      description: 'Control browser pages and sessions selected by the user.'
+    }]
+  }),
+  definePackage({
+    id: 'playwright-cli-skills',
+    name: 'Playwright CLI + Skills',
+    summary: 'Run the pinned Playwright CLI with its official agent Skills.',
+    tier: 'recommended',
+    version: NPM_ARTIFACTS.playwrightCli.version,
+    publisher: publisher('microsoft', 'Microsoft', 'https://github.com/microsoft', true),
+    license: 'Apache-2.0',
+    source: npmSource(NPM_ARTIFACTS.playwrightCli),
+    components: [
+      {
+        id: 'playwright-cli',
+        name: 'Playwright CLI',
+        type: 'cli',
+        runtime: npmRuntime(NPM_ARTIFACTS.playwrightCli)
+      },
+      {
+        id: 'playwright-cli-skills-bundle',
+        name: 'Playwright CLI Skills',
+        type: 'skill',
+        skillNames: ['playwright-cli'],
+        runtime: npmRuntime(NPM_ARTIFACTS.playwrightCli)
+      }
+    ],
+    permissions: [{
+      id: 'browser.control',
+      kind: 'browser',
+      access: 'control',
+      default: 'review',
+      reviewRequired: true,
+      description: 'Control browser pages and sessions selected by the user.'
+    }],
+    auth: { type: 'none' },
+    dependencies: [NODE_DEPENDENCY],
+    updatePolicy: PINNED_UPDATE,
+    availability: { status: 'available' },
+    installation: DIRECT_MIRROR_INSTALL
+  }),
+  npmMcpPackage({
+    id: 'context7-mcp',
+    name: 'Context7',
+    summary: 'Retrieve current library documentation for coding work.',
+    artifact: NPM_ARTIFACTS.context7,
+    publisher: publisher('upstash', 'Upstash', 'https://github.com/upstash', true),
+    license: 'MIT',
+    permissions: [NETWORK_PERMISSION]
+  }),
+  npmMcpPackage({
+    id: 'dbhub',
+    name: 'DBHub',
+    summary: 'Connect to supported databases through the maintained DBHub MCP server.',
+    artifact: NPM_ARTIFACTS.dbhub,
+    publisher: publisher('bytebase', 'Bytebase', 'https://github.com/bytebase', true),
+    license: 'MIT',
+    permissions: [DATABASE_READ_PERMISSION, DATABASE_WRITE_PERMISSION],
+    auth: { type: 'tool-managed', provider: 'database' }
+  }),
+  npmMcpPackage({
+    id: 'antv-chart-mcp',
+    name: 'AntV Chart MCP',
+    summary: 'Generate data visualizations with the AntV chart MCP server.',
+    artifact: NPM_ARTIFACTS.antvChart,
+    publisher: publisher('antv', 'AntV', 'https://github.com/antvis', true),
+    license: 'MIT'
+  }),
+  definePackage({
+    id: 'antv-chart-skill',
+    name: 'AntV Chart Skill',
+    summary: 'Guide agents in selecting and producing AntV charts.',
+    tier: 'recommended',
+    version: 'b47f2feae59b1e792462d0edd8d1a7ea87c9bdfc',
+    publisher: publisher('antv', 'AntV', 'https://github.com/antvis', true),
+    license: 'MIT',
+    source: {
+      kind: 'github',
+      location: 'https://github.com/antvis/chart-visualization-skills',
+      owner: 'antvis',
+      repository: 'chart-visualization-skills',
+      defaultBranch: 'master',
+      requestedRef: 'master',
+      resolvedRef: 'b47f2feae59b1e792462d0edd8d1a7ea87c9bdfc',
+      subpath: 'skills/chart-visualization'
+    },
+    components: [{
+      id: 'antv-chart-skill',
+      name: 'AntV Chart Skill',
+      type: 'skill',
+      skillNames: ['chart-visualization'],
+      runtime: {
+        kind: 'github',
+        repository: 'https://github.com/antvis/chart-visualization-skills',
+        resolvedCommit: 'b47f2feae59b1e792462d0edd8d1a7ea87c9bdfc',
+        subpath: 'skills/chart-visualization',
+        install: { strategy: 'managed-git', verifyBeforeActivation: true }
+      }
+    }],
+    permissions: [],
+    auth: { type: 'none' },
+    updatePolicy: PINNED_UPDATE,
+    availability: { status: 'available' },
+    installation: DIRECT_MIRROR_INSTALL
+  }),
+  definePackage({
+    id: 'superpowers',
+    name: 'Superpowers',
+    summary: 'Add the Superpowers development workflow Skills.',
+    tier: 'recommended',
+    version: '44c9b2d6e889982ac18c27d05a19fefe335194e1',
+    publisher: publisher('obra', 'Jesse Vincent', 'https://github.com/obra', true),
+    license: 'MIT',
+    source: {
+      kind: 'github',
+      location: 'https://github.com/obra/superpowers',
+      owner: 'obra',
+      repository: 'superpowers',
+      defaultBranch: 'main',
+      requestedRef: 'main',
+      resolvedRef: '44c9b2d6e889982ac18c27d05a19fefe335194e1',
+      subpath: 'skills'
+    },
+    components: [{
+      id: 'superpowers-skills',
+      name: 'Superpowers Skills',
+      type: 'skill',
+      skillNames: ['superpowers'],
+      runtime: {
+        kind: 'github',
+        repository: 'https://github.com/obra/superpowers',
+        resolvedCommit: '44c9b2d6e889982ac18c27d05a19fefe335194e1',
+        subpath: 'skills',
+        install: { strategy: 'managed-git', verifyBeforeActivation: true }
+      }
+    }],
+    permissions: [],
+    auth: { type: 'none' },
+    updatePolicy: PINNED_UPDATE,
+    availability: { status: 'available' },
+    installation: DIRECT_MIRROR_INSTALL
+  }),
+  npmMcpPackage({
+    id: 'filesystem-mcp',
+    name: 'Filesystem MCP',
+    summary: 'Provide explicitly scoped local filesystem access.',
+    artifact: NPM_ARTIFACTS.filesystem,
+    publisher: publisher(
+      'model-context-protocol',
+      'Model Context Protocol',
+      'https://github.com/modelcontextprotocol',
+      true
+    ),
+    license: 'MIT',
+    permissions: [FILESYSTEM_READ_PERMISSION, FILESYSTEM_WRITE_PERMISSION],
+    args: ['${workspaceRoot}'],
+    licenseEvidenceCommit: '9a96ea6e5913736f92b88345bf51caeaaa8e719f'
+  }),
+  npmMcpPackage({
+    id: 'memory-mcp',
+    name: 'Memory MCP',
+    summary: 'Store and retrieve a local knowledge graph.',
+    artifact: NPM_ARTIFACTS.memory,
+    publisher: publisher(
+      'model-context-protocol',
+      'Model Context Protocol',
+      'https://github.com/modelcontextprotocol',
+      true
+    ),
+    license: 'MIT',
+    permissions: [FILESYSTEM_READ_PERMISSION, FILESYSTEM_WRITE_PERMISSION],
+    licenseEvidenceCommit: '6dd0a683e198783e30feabf7abaf42f925bd18b1'
+  }),
+  npmMcpPackage({
+    id: 'sequential-thinking-mcp',
+    name: 'Sequential Thinking MCP',
+    summary: 'Support structured step-by-step reasoning workflows.',
+    artifact: NPM_ARTIFACTS.sequentialThinking,
+    publisher: publisher(
+      'model-context-protocol',
+      'Model Context Protocol',
+      'https://github.com/modelcontextprotocol',
+      true
+    ),
+    license: 'MIT',
+    licenseEvidenceCommit: '6dd0a683e198783e30feabf7abaf42f925bd18b1'
+  }),
+  managedPackage(
+    'lark-cli',
+    'Lark CLI',
+    'Official Lark CLI and its companion Skills, managed outside the marketplace installer.',
+    'Lark',
+    'https://github.com/larksuite/cli',
+    'MIT',
+    false,
+    true
+  ),
+  managedPackage(
+    'officecli',
+    'OfficeCLI',
+    'Office document CLI and Skills, managed outside the marketplace installer.',
+    'iOfficeAI',
+    'https://github.com/iOfficeAI/OfficeCLI',
+    'Apache-2.0',
+    false,
+    true
+  ),
+  managedPackage(
+    'ego-browser',
+    'Ego Browser',
+    'External browser integration discovered and managed by WorkWise.',
+    'Cintro Labs',
+    'https://lite.ego.app/',
+    null,
+    false
+  ),
+  managedPackage(
+    'markitdown',
+    'MarkItDown',
+    'Bundled local document conversion runtime.',
+    'Microsoft',
+    'https://github.com/microsoft/markitdown',
+    'MIT',
+    true,
+    true
+  ),
+  wheelMcpPackage({
+    id: 'git-mcp',
+    name: 'Git MCP',
+    summary: 'Git repository inspection and operations.',
+    artifact: WHEEL_ARTIFACTS.git,
+    publisher: publisher(
+      'model-context-protocol',
+      'Model Context Protocol',
+      'https://github.com/modelcontextprotocol',
+      true
+    ),
+    license: 'MIT',
+    permissions: [
+      FILESYSTEM_READ_PERMISSION,
+      FILESYSTEM_WRITE_PERMISSION,
+      PROCESS_EXECUTE_PERMISSION
+    ],
+    dependencies: [UV_DEPENDENCY, PYTHON_310_DEPENDENCY]
+  }),
+  wheelMcpPackage({
+    id: 'fetch-mcp',
+    name: 'Fetch MCP',
+    summary: 'Retrieve web resources through managed uv.',
+    artifact: WHEEL_ARTIFACTS.fetch,
+    publisher: publisher(
+      'model-context-protocol',
+      'Model Context Protocol',
+      'https://github.com/modelcontextprotocol',
+      true
+    ),
+    license: 'MIT',
+    permissions: [NETWORK_PERMISSION],
+    dependencies: [UV_DEPENDENCY, PYTHON_310_DEPENDENCY]
+  }),
+  wheelMcpPackage({
+    id: 'time-mcp',
+    name: 'Time MCP',
+    summary: 'Timezone and current-time utilities.',
+    artifact: WHEEL_ARTIFACTS.time,
+    publisher: publisher(
+      'model-context-protocol',
+      'Model Context Protocol',
+      'https://github.com/modelcontextprotocol',
+      true
+    ),
+    license: 'MIT',
+    permissions: [],
+    dependencies: [UV_DEPENDENCY, PYTHON_310_DEPENDENCY]
+  }),
+  definePackage({
+    id: 'lark-openapi-mcp',
+    name: 'Lark OpenAPI MCP',
+    summary: 'Use Lark OpenAPI capabilities exposed by the managed Lark toolchain.',
+    tier: 'advanced',
+    version: 'managed',
+    publisher: publisher('lark', 'Lark', 'https://open.larksuite.com', true),
+    license: 'Apache-2.0',
+    source: simpleSource('system', 'workwise://managed-tools/lark-openapi-mcp'),
+    components: [{
+      id: 'lark-openapi-mcp-server',
+      name: 'Lark OpenAPI MCP Server',
+      type: 'mcp',
+      runtime: { kind: 'system', provider: 'lark-cli', capability: 'openapi-mcp' }
+    }],
+    permissions: [NETWORK_PERMISSION],
+    auth: { type: 'tool-managed', provider: 'lark-cli' },
+    dependencies: [{
+      id: 'lark-cli',
+      kind: 'package',
+      requirement: 'managed',
+      optional: false,
+      managedBy: 'workwise'
+    }],
+    updatePolicy: SYSTEM_UPDATE,
+    availability: { status: 'managed', managedBy: 'WorkWise' },
+    installation: SYSTEM_MANAGED_INSTALL
+  }),
+  wheelMcpPackage({
+    id: 'docling-mcp',
+    name: 'Docling MCP',
+    summary: 'Parse complex local documents with Docling.',
+    artifact: WHEEL_ARTIFACTS.docling,
+    publisher: publisher(
+      'docling-project',
+      'Docling Project',
+      'https://github.com/docling-project/docling-mcp',
+      true
+    ),
+    license: 'MIT',
+    permissions: [FILESYSTEM_READ_PERMISSION],
+    dependencies: [UV_DEPENDENCY, PYTHON_310_DEPENDENCY]
+  }),
+  wheelMcpPackage({
+    id: 'redis-mcp',
+    name: 'Redis MCP',
+    summary: 'Connect to Redis data stores.',
+    artifact: WHEEL_ARTIFACTS.redis,
+    publisher: publisher('redis', 'Redis', 'https://pypi.org/project/redis-mcp-server/', true),
+    license: 'MIT',
+    permissions: [DATABASE_READ_PERMISSION, DATABASE_WRITE_PERMISSION],
+    auth: { type: 'tool-managed', provider: 'redis-mcp' }
+  }),
+  npmMcpPackage({
+    id: 'mongodb-mcp',
+    name: 'MongoDB MCP',
+    summary: 'Connect to MongoDB data stores.',
+    artifact: NPM_ARTIFACTS.mongodb,
+    publisher: publisher('mongodb', 'MongoDB', 'https://www.mongodb.com', true),
+    license: 'Apache-2.0',
+    permissions: [DATABASE_READ_PERMISSION, DATABASE_WRITE_PERMISSION],
+    auth: { type: 'tool-managed', provider: 'mongodb-mcp' },
+    tier: 'advanced'
+  }),
+  pendingOauthRemote(
+    'notion-mcp',
+    'Notion MCP',
+    'Notion',
+    'https://mcp.notion.com/mcp',
+    'https://www.notion.so'
+  ),
+  pendingOauthRemote(
+    'linear-mcp',
+    'Linear MCP',
+    'Linear',
+    'https://mcp.linear.app/mcp',
+    'https://linear.app'
+  )
+]
+
+function npmMcpPackage(options: {
+  id: string
+  name: string
+  summary: string
+  artifact: NpmArtifact
+  publisher: PackagePublisherV1
+  license: string
+  permissions?: PackagePermissionV1[]
+  auth?: MarketplacePackageV1['auth']
+  args?: string[]
+  tier?: MarketplacePackageV1['tier']
+  licenseEvidenceCommit?: string
+}): MarketplacePackageV1 {
+  const licenseSourceId = `${options.id}-source-2`
+  return definePackage({
+    id: options.id,
+    name: options.name,
+    summary: options.summary,
+    tier: options.tier ?? 'recommended',
+    version: options.artifact.version,
+    publisher: options.publisher,
+    license: options.license,
+    source: npmSource(options.artifact),
+    additionalSources: options.licenseEvidenceCommit
+      ? [mcpServersLicenseSource(options.licenseEvidenceCommit)]
+      : [],
+    components: [{
+      id: `${options.id}-server`,
+      name: `${options.name} Server`,
+      type: 'mcp',
+      runtime: npmRuntime(options.artifact, options.args)
+    }],
+    permissions: options.permissions ?? [],
+    auth: options.auth ?? { type: 'none' },
+    licenseEvidence: options.licenseEvidenceCommit
+      ? [{
+          license: options.license,
+          sourceId: licenseSourceId,
+          path: 'LICENSE',
+          includeInInstall: true,
+          required: true
+        }]
+      : [],
+    dependencies: [NODE_DEPENDENCY],
+    updatePolicy: PINNED_UPDATE,
+    availability: { status: 'available' },
+    installation: DIRECT_MIRROR_INSTALL
+  })
+}
+
+function wheelMcpPackage(options: {
+  id: string
+  name: string
+  summary: string
+  artifact: WheelArtifact
+  publisher: PackagePublisherV1
+  license: string
+  permissions: PackagePermissionV1[]
+  auth?: MarketplacePackageV1['auth']
+  dependencies?: PackageDependencyV1[]
+}): MarketplacePackageV1 {
+  return definePackage({
+    id: options.id,
+    name: options.name,
+    summary: options.summary,
+    tier: 'advanced',
+    version: options.artifact.version,
+    publisher: options.publisher,
+    license: options.license,
+    source: pypiSource(options.artifact),
+    components: [{
+      id: `${options.id}-server`,
+      name: `${options.name} Server`,
+      type: 'mcp',
+      runtime: wheelRuntime(options.artifact)
+    }],
+    permissions: options.permissions,
+    auth: options.auth ?? { type: 'none' },
+    dependencies: options.dependencies ?? [UV_DEPENDENCY],
+    updatePolicy: PINNED_UPDATE,
+    availability: { status: 'available' },
+    installation: DIRECT_MIRROR_INSTALL
+  })
+}
+
+function managedPackage(
+  id: string,
+  name: string,
+  summary: string,
+  publisherName: string,
+  location: string,
+  license: string | null,
+  installedByDefault: boolean,
+  publisherVerified = false
+): MarketplacePackageV1 {
+  return definePackage({
+    id,
+    name,
+    summary,
+    tier: 'recommended',
+    version: 'managed',
+    publisher: publisher(id, publisherName, location, publisherVerified),
+    license,
+    source: simpleSource('system', location),
+    components: [{
+      id: `${id}-managed-component`,
+      name,
+      type: 'cli',
+      runtime: { kind: 'system', provider: 'workwise', capability: id }
+    }],
+    permissions: [],
+    auth: { type: 'tool-managed', provider: id },
+    updatePolicy: SYSTEM_UPDATE,
+    availability: { status: 'managed', managedBy: 'WorkWise' },
+    installation: { ...SYSTEM_MANAGED_INSTALL, installedByDefault }
+  })
+}
+
+function pendingOauthRemote(
+  id: string,
+  name: string,
+  publisherName: string,
+  endpoint: string,
+  publisherUrl: string
+): MarketplacePackageV1 {
+  return definePackage({
+    id,
+    name,
+    summary: `${name} is disabled until OAuth discovery is supported.`,
+    tier: 'advanced',
+    version: 'remote',
+    publisher: publisher(id, publisherName, publisherUrl),
+    license: null,
+    source: simpleSource('remote', endpoint),
+    components: [{
+      id: `${id}-server`,
+      name: `${name} Server`,
+      type: 'mcp',
+      runtime: { kind: 'remote', transport: 'streamable-http', endpoint }
+    }],
+    permissions: [NETWORK_PERMISSION],
+    auth: { type: 'oauth', provider: id, discovery: 'pending' },
+    updatePolicy: MANUAL_UPDATE,
+    availability: {
+      status: 'unavailable',
+      reasonCode: 'oauth-discovery-pending',
+      message: 'OAuth discovery is not available in WorkWise yet.'
+    },
+    installation: EXTERNAL_INSTALL
+  })
+}
+
+function assertUnique(label: string, ids: string[]): void {
+  if (new Set(ids).size !== ids.length) throw new Error(`Duplicate ${label} ID in marketplace catalog.`)
+}
+
+function assertCatalogInvariants(): void {
+  assertUnique('catalog source', catalogSources.map((source) => source.id))
+  assertUnique('package', officialPackages.map((item) => item.id))
+  assertUnique(
+    'component',
+    officialPackages.flatMap((item) => item.components.map((component) => component.id))
+  )
+
+  for (const item of officialPackages) {
+    assertUnique(`${item.id} source`, item.sources.map((source) => source.id))
+    if (!item.sources.some((source) => source.id === item.source.id)) {
+      throw new Error(`${item.id} primary source is absent from sources.`)
+    }
+
+    for (const source of item.sources) {
+      if ((source.kind === 'github' || source.kind === 'git') &&
+          !SHA1_COMMIT.test(source.resolvedRef)) {
+        throw new Error(`${item.id} Git source is not pinned to an immutable commit.`)
+      }
+    }
+
+    for (const evidence of item.licenseEvidence) {
+      const source = item.sources.find((candidate) => candidate.id === evidence.sourceId)
+      if (!source ||
+          (source.kind !== 'github' && source.kind !== 'git') ||
+          !SHA1_COMMIT.test(source.resolvedRef) ||
+          evidence.license !== item.license ||
+          !evidence.includeInInstall ||
+          !evidence.required) {
+        throw new Error(`${item.id} license evidence is incomplete or mutable.`)
+      }
+    }
+
+    for (const component of item.components) {
+      const source = item.sources.find((candidate) => candidate.id === component.sourceId)
+      if (!source) throw new Error(`${item.id}/${component.id} has no matching source.`)
+
+      if (component.runtime.kind === 'npm') {
+        if (source.kind !== 'npm' ||
+            source.packageName !== component.runtime.packageName ||
+            source.version !== component.runtime.version ||
+            source.digest.algorithm !== 'sha512-sri' ||
+            component.runtime.install.digestSource !== 'component-source' ||
+            item.version !== component.runtime.version) {
+          throw new Error(`${item.id}/${component.id} npm provenance is incoherent.`)
+        }
+      }
+      if (component.runtime.kind === 'uv' && source.kind === 'pypi') {
+        if (source.packageName !== component.runtime.packageName ||
+            source.version !== component.runtime.version ||
+            source.digest.value !== component.runtime.install.digest.value ||
+            item.version !== component.runtime.version) {
+          throw new Error(`${item.id}/${component.id} wheel provenance is incoherent.`)
+        }
+      }
+      if (component.runtime.kind === 'github') {
+        if (source.kind !== 'github' ||
+            source.resolvedRef !== component.runtime.resolvedCommit ||
+            item.version !== component.runtime.resolvedCommit) {
+          throw new Error(`${item.id}/${component.id} Git provenance is incoherent.`)
+        }
+      }
+    }
+
+    const installationMode = item.installation.mode
+    if (installationMode === 'direct-mirror') {
+      if (item.availability.status !== 'available' ||
+          evaluateMarketplaceLicense(item.license).disposition !== 'direct-mirror') {
+        throw new Error(`${item.id} is not eligible for direct mirroring.`)
+      }
+      if (item.components.some((component) =>
+        component.runtime.kind === 'remote' ||
+        component.runtime.kind === 'system'
+      )) {
+        throw new Error(`${item.id} has an install mode inconsistent with its runtime.`)
+      }
+    } else if (item.installation.reinstallable) {
+      throw new Error(`${item.id} cannot be reinstallable in ${installationMode} mode.`)
+    }
+
+    if (item.installation.mode === 'system-managed' &&
+        (item.availability.status !== 'managed' ||
+         item.components.some((component) => component.runtime.kind !== 'system'))) {
+      throw new Error(`${item.id} has inconsistent system-managed metadata.`)
+    }
+  }
+}
+
+assertCatalogInvariants()
+
+export function getMarketplaceCatalogSources(): CatalogSourceV1[] {
+  return structuredClone(catalogSources)
+}
+
+export function getOfficialMarketplaceCatalog(): MarketplacePackageV1[] {
+  return structuredClone(officialPackages)
+}
