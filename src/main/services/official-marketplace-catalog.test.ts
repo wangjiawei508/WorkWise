@@ -572,6 +572,23 @@ describe('official marketplace catalog', () => {
     }
   })
 
+  it('registers the official MCP Registry as a watched non-mirroring source', () => {
+    expect(getMarketplaceCatalogSources()).toContainEqual(expect.objectContaining({
+      id: 'mcp-official-registry',
+      type: 'mcp-registry',
+      scope: 'system',
+      location: 'https://registry.modelcontextprotocol.io/v0.1/servers',
+      registry: 'official',
+      trust: 'official',
+      searchable: true,
+      sync: expect.objectContaining({
+        mode: 'watched',
+        mirroredByDefault: false,
+        installedByDefault: false
+      })
+    }))
+  })
+
   it('keeps pending OAuth remotes unavailable and database writes denied pending review', () => {
     const packages = getOfficialMarketplaceCatalog()
 

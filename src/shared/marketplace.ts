@@ -340,6 +340,7 @@ export type MarketplacePackageV1 = {
   name: string
   summary: string
   tier: 'recommended' | 'advanced'
+  categories?: string[]
   version: string
   publisher: PackagePublisherV1
   license: string | null

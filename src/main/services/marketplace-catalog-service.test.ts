@@ -70,7 +70,7 @@ function httpsSource(id: string, location = `https://${id}.catalog.test/v1.json`
     type: 'https',
     scope: 'team',
     location,
-    trust: 'verified',
+    trust: 'unverified',
     searchable: true,
     auth: { type: 'none' },
     sync: {
@@ -742,7 +742,8 @@ describe('MarketplaceCatalogService', () => {
       { ...localSource('fake-built-in', '/tmp/catalog.json'), type: 'built-in', scope: 'system' },
       { ...localSource('fake-system', '/tmp/catalog.json'), scope: 'system' },
       { ...localSource('fake-official', '/tmp/catalog.json'), trust: 'official' },
-      { ...localSource('fake-system-trust', '/tmp/catalog.json'), trust: 'system' }
+      { ...localSource('fake-system-trust', '/tmp/catalog.json'), trust: 'system' },
+      { ...localSource('fake-verified', '/tmp/catalog.json'), trust: 'verified' }
     ]
 
     for (const source of attempts) {

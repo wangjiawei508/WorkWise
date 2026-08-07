@@ -163,6 +163,24 @@ const catalogSources: CatalogSourceV1[] = [
       installedByDefault: false
     }
   },
+  {
+    schemaVersion: 1,
+    id: 'mcp-official-registry',
+    name: 'Official MCP Registry',
+    type: 'mcp-registry',
+    scope: 'system',
+    location: 'https://registry.modelcontextprotocol.io/v0.1/servers',
+    registry: 'official',
+    trust: 'official',
+    searchable: true,
+    auth: { type: 'none' },
+    sync: {
+      mode: 'watched',
+      state: 'idle',
+      mirroredByDefault: false,
+      installedByDefault: false
+    }
+  },
   externalCatalogSource('openai-plugins', 'OpenAI Plugins', 'https://github.com/openai/plugins'),
   externalCatalogSource(
     'github-awesome-copilot',

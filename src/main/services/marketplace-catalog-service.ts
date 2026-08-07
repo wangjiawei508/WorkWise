@@ -1,8 +1,10 @@
 import { createHash } from 'node:crypto'
+import { execFile as execFileCallback } from 'node:child_process'
 import { constants } from 'node:fs'
 import { lstat, mkdir, open, realpath, rm } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { basename, isAbsolute, join, relative, resolve } from 'node:path'
+import { promisify } from 'node:util'
 import type {
   CatalogSnapshotV1,
   CatalogSourceV1,
@@ -12,6 +14,11 @@ import type {
 } from '../../shared/marketplace'
 import { atomicWriteFile, readRecoveredFile, runSerialized } from './durable-file'
 import {
+  adaptCodexMarketplace,
+  mergeMcpRegistryDelta,
+  parseMcpRegistryPage
+} from './marketplace-catalog-adapters'
+import {
   getMarketplaceCatalogSources,
   getOfficialMarketplaceCatalog
 } from './official-marketplace-catalog'
@@ -20,7 +27,9 @@ const SOURCE_MANIFEST_SCHEMA = 'workwise.marketplace-sources'
 const SOURCE_MANIFEST_VERSION = 1
 const MAX_CATALOG_JSON_BYTES = 10 * 1024 * 1024
 const MAX_CATALOG_PACKAGES = 5_000
+const MAX_REGISTRY_PAGES = 100
 const IMMUTABLE_COMMIT = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/i
+const execFile = promisify(execFileCallback)
 
 type SourceManifestV1 = {
   schema: typeof SOURCE_MANIFEST_SCHEMA
@@ -42,6 +51,13 @@ type FileSourcePath = {
   inode: number
 }
 
+type CatalogSyncMetadata = {
+  etag?: string
+  lastModified?: string
+  commit?: string
+  syncedAt?: string
+}
+
 export type MarketplaceCatalogServiceOptions = {
   rootDirectory?: string
   workspaceRoot?: string
@@ -52,6 +68,7 @@ export type MarketplaceCatalogServiceOptions = {
   fetchTimeoutMs?: number
   resolveSecret?: (secretKey: string) => Promise<string | null>
   fileSourceReadHook?: (phase: 'resolved' | 'opened', path: string) => Promise<void>
+  runGit?: (args: string[]) => Promise<string>
 }
 
 function clone<T>(value: T): T {
@@ -198,6 +215,16 @@ function assertSafeHttpsUrl(value: string, allowLoopbackHttp: boolean): void {
   }
 }
 
+function assertGithubRepositoryLocation(source: Extract<CatalogSourceV1, { type: 'github' }>): void {
+  const parsed = new URL(source.location)
+  const repositoryPath = parsed.pathname.replace(/\.git\/?$/, '').replace(/\/$/, '')
+  const expectedPath = `/${source.owner}/${source.repository}`
+  if (parsed.hostname.toLowerCase() !== 'github.com' || repositoryPath !== expectedPath ||
+      parsed.search || parsed.hash) {
+    throw new Error('GitHub catalog location must match its owner and repository.')
+  }
+}
+
 function assertNonEmptyStrings(value: unknown, label: string): string[] {
   const items = requiredArray(value, label)
   if (items.some((item) => typeof item !== 'string' || !item.trim())) {
@@ -253,6 +280,7 @@ function assertSourceShape(source: CatalogSourceV1, allowLoopbackHttp: boolean):
     requiredString(source.owner, 'GitHub catalog owner')
     requiredString(source.repository, 'GitHub catalog repository')
     requiredString(source.defaultBranch, 'GitHub catalog default branch')
+    assertGithubRepositoryLocation(source)
   }
   if (source.type === 'git') requiredString(source.defaultBranch, 'Git catalog default branch')
   if (source.type === 'mcp-registry') requiredString(source.registry, 'MCP Registry name')
@@ -484,6 +512,9 @@ function assertPackageShape(
   if (value.tier !== 'recommended' && value.tier !== 'advanced') {
     throw new Error(id + ' tier is invalid.')
   }
+  if (value.categories !== undefined) {
+    assertNonEmptyStrings(value.categories, id + ' categories')
+  }
   const publisher = requiredRecord(value.publisher, id + ' publisher')
   requiredString(publisher.id, id + ' publisher id')
   requiredString(publisher.name, id + ' publisher name')
@@ -637,14 +668,56 @@ function assertSnapshot(value: unknown, expectedSourceId: string): CatalogSnapsh
   return clone({ ...value, packages } as unknown as CatalogSnapshotV1)
 }
 
-function parseSnapshotText(text: string, expectedSourceId: string): CatalogSnapshotV1 {
-  let parsed: unknown
+function parseJsonText(text: string): unknown {
   try {
-    parsed = JSON.parse(text)
+    return JSON.parse(text)
   } catch (error) {
     throw new Error('Catalog JSON is malformed: ' + errorMessage(error))
   }
-  return assertSnapshot(parsed, expectedSourceId)
+}
+
+function adaptCatalogValue(
+  value: unknown,
+  source: CatalogSourceV1,
+  context: { revision: string; generatedAt?: string; commit?: string }
+): CatalogSnapshotV1 {
+  if (isRecord(value) && value.schemaVersion !== undefined) {
+    return assertSnapshot(value, source.id)
+  }
+  return assertSnapshot(adaptCodexMarketplace(value, {
+    source,
+    revision: context.revision,
+    ...(context.generatedAt ? { generatedAt: context.generatedAt } : {}),
+    ...(context.commit ? { commit: context.commit } : {})
+  }), source.id)
+}
+
+function parseCatalogText(
+  text: string,
+  source: CatalogSourceV1,
+  context: { revision?: string; generatedAt?: string; commit?: string } = {}
+): CatalogSnapshotV1 {
+  return adaptCatalogValue(parseJsonText(text), source, {
+    revision: context.revision ?? snapshotDigest(text),
+    ...(context.generatedAt ? { generatedAt: context.generatedAt } : {}),
+    ...(context.commit ? { commit: context.commit } : {})
+  })
+}
+
+function decodeGithubContents(value: unknown): unknown {
+  const response = requiredRecord(value, 'GitHub contents response')
+  if (response.type !== 'file' || response.encoding !== 'base64') {
+    throw new Error('GitHub marketplace content must be a base64-encoded file.')
+  }
+  const encoded = requiredString(response.content, 'GitHub marketplace content').replace(/\s/g, '')
+  if (!/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(encoded)) {
+    throw new Error('GitHub marketplace content is not valid base64.')
+  }
+  const decoded = Buffer.from(encoded, 'base64')
+  if (decoded.byteLength > MAX_CATALOG_JSON_BYTES) {
+    throw new Error('Catalog JSON exceeds the 10 MiB limit.')
+  }
+  return parseJsonText(decoded.toString('utf8'))
 }
 
 function builtInSnapshot(): CatalogSnapshotV1 {
@@ -735,6 +808,26 @@ function retryableHttpStatus(status: number): boolean {
   return status === 408 || status === 429 || status >= 500
 }
 
+class CatalogRequestError extends Error {
+  readonly offlineCandidate: boolean
+
+  constructor(message: string, offlineCandidate: boolean) {
+    super(message)
+    this.name = 'CatalogRequestError'
+    this.offlineCandidate = offlineCandidate
+  }
+}
+
+async function runGitCommand(args: string[]): Promise<string> {
+  const result = await execFile('git', args, {
+    encoding: 'utf8',
+    maxBuffer: MAX_CATALOG_JSON_BYTES,
+    timeout: 120_000,
+    windowsHide: true
+  })
+  return String(result.stdout)
+}
+
 export class MarketplaceCatalogService {
   private readonly rootDirectory: string
   private readonly sourcesPath: string
@@ -750,6 +843,7 @@ export class MarketplaceCatalogService {
     phase: 'resolved' | 'opened',
     path: string
   ) => Promise<void>
+  private readonly runGit: (args: string[]) => Promise<string>
   private readonly sources: CatalogSourceV1[] = []
   private readonly snapshots = new Map<string, CatalogSnapshotV1>()
   private readonly snapshotPointers = new Map<string, SnapshotPointerV1>()
@@ -767,6 +861,7 @@ export class MarketplaceCatalogService {
     this.fetchTimeoutMs = Math.min(Math.max(options.fetchTimeoutMs ?? 30_000, 1_000), 120_000)
     this.resolveSecret = options.resolveSecret
     this.fileSourceReadHook = options.fileSourceReadHook
+    this.runGit = options.runGit ?? runGitCommand
   }
 
   async listSources(): Promise<CatalogSourceV1[]> {
@@ -816,7 +911,8 @@ export class MarketplaceCatalogService {
     const requested = sanitizeSource(input)
     assertSourceShape(requested, this.allowLoopbackHttp)
     if (requested.type === 'built-in' || requested.scope === 'system' ||
-        requested.trust === 'system' || requested.trust === 'official') {
+        requested.trust === 'system' || requested.trust === 'official' ||
+        requested.trust === 'verified') {
       throw new Error('Privileged and reserved catalog sources cannot be created by users.')
     }
     return runSerialized('catalog-sync:' + this.rootDirectory + ':' + requested.id, () =>
@@ -893,11 +989,10 @@ export class MarketplaceCatalogService {
       if (currentSource.type === 'built-in') return this.syncBuiltIn(currentSource)
       if (currentSource.type === 'local' || currentSource.type === 'project') return this.syncFile(currentSource)
       if (currentSource.type === 'https') return this.syncHttps(currentSource)
-      return this.recordFailure(
-        currentSource.id,
-        'Catalog source type ' + currentSource.type + ' is not supported yet.',
-        false
-      )
+      if (currentSource.type === 'github') return this.syncGithub(currentSource)
+      if (currentSource.type === 'git') return this.syncGit(currentSource)
+      if (currentSource.type === 'mcp-registry') return this.syncMcpRegistry(currentSource)
+      throw new Error('Catalog source type is not supported: ' + sourceId)
     })
   }
 
@@ -978,7 +1073,8 @@ export class MarketplaceCatalogService {
         continue
       }
       if (source.type === 'built-in' || source.scope === 'system' ||
-          source.trust === 'system' || source.trust === 'official') {
+          source.trust === 'system' || source.trust === 'official' ||
+          source.trust === 'verified') {
         throw new Error('Persisted manifest contains a privileged or reserved user source.')
       }
       userSources.push(source)
@@ -1012,7 +1108,7 @@ export class MarketplaceCatalogService {
         if (snapshotDigest(text) !== pointer.sha256) {
           throw new Error('Marketplace snapshot digest does not match its manifest pointer.')
         }
-        const snapshot = parseSnapshotText(text, sourceId)
+        const snapshot = assertSnapshot(parseJsonText(text), sourceId)
         if (snapshot.revision !== pointer.revision) {
           throw new Error('Marketplace snapshot revision does not match its manifest pointer.')
         }
@@ -1152,11 +1248,270 @@ export class MarketplaceCatalogService {
       if (Buffer.byteLength(text) > MAX_CATALOG_JSON_BYTES) {
         throw new Error('Catalog JSON exceeds the 10 MiB limit.')
       }
-      const snapshot = parseSnapshotText(text, source.id)
+      const snapshot = parseCatalogText(text, source, { generatedAt: this.now().toISOString() })
       await this.acceptSnapshot(source, snapshot, { commit: snapshot.commit })
       return clone({ sourceId: source.id, status: 'synced', stale: false, snapshot })
     } catch (error) {
       return this.recordFailure(source.id, errorMessage(error), false)
+    }
+  }
+
+  private async requestJson(
+    source: CatalogSourceV1,
+    url: string,
+    initialHeaders: HeadersInit = {}
+  ): Promise<{ value: unknown; headers: Headers }> {
+    const headers = new Headers(initialHeaders)
+    headers.set('accept', 'application/json')
+    const controller = new AbortController()
+    const timeoutError = new Error('Catalog request timed out.')
+    const timeout = setTimeout(() => controller.abort(timeoutError), this.fetchTimeoutMs)
+    let networkStarted = false
+    try {
+      if (source.auth.type === 'token') {
+        if (!this.resolveSecret) {
+          throw new CatalogRequestError('Catalog token resolver is unavailable.', false)
+        }
+        const token = await resolveWithAbort(
+          this.resolveSecret(source.auth.secretKey),
+          controller.signal
+        )
+        if (!token) throw new CatalogRequestError('Catalog token is unavailable.', false)
+        headers.set('authorization', 'Bearer ' + token)
+      }
+      networkStarted = true
+      let response: Response
+      try {
+        response = await this.fetchImpl(url, {
+          headers,
+          redirect: 'error',
+          signal: controller.signal
+        })
+      } catch (error) {
+        throw new CatalogRequestError(
+          controller.signal.aborted ? timeoutError.message : errorMessage(error),
+          true
+        )
+      }
+      if (!response.ok) {
+        await cancelResponse(response, 'Catalog request failed.')
+        throw new CatalogRequestError(
+          'Catalog request failed (' + response.status + ').',
+          retryableHttpStatus(response.status)
+        )
+      }
+      let text: string
+      try {
+        text = await readBoundedResponse(response, controller.signal)
+      } catch (error) {
+        const message = controller.signal.aborted ? timeoutError.message : errorMessage(error)
+        throw new CatalogRequestError(message, !/10 MiB/i.test(message))
+      }
+      try {
+        return { value: JSON.parse(text), headers: response.headers }
+      } catch (error) {
+        throw new CatalogRequestError('Catalog JSON is malformed: ' + errorMessage(error), false)
+      }
+    } catch (error) {
+      if (error instanceof CatalogRequestError) throw error
+      throw new CatalogRequestError(
+        controller.signal.aborted ? timeoutError.message : errorMessage(error),
+        controller.signal.aborted || networkStarted
+      )
+    } finally {
+      clearTimeout(timeout)
+    }
+  }
+
+  private async syncGithub(source: CatalogSourceV1): Promise<MarketplaceCatalogSyncResultV1> {
+    if (source.type !== 'github') throw new Error('GitHub source type is required.')
+    try {
+      const commitApi = `https://api.github.com/repos/${encodeURIComponent(source.owner)}/` +
+        `${encodeURIComponent(source.repository)}/commits/${encodeURIComponent(source.defaultBranch)}`
+      const commitResponse = await this.requestJson(source, commitApi, {
+        accept: 'application/vnd.github+json'
+      })
+      const commitRecord = requiredRecord(commitResponse.value, 'GitHub commit response')
+      const commit = requiredString(commitRecord.sha, 'GitHub commit SHA')
+      if (!IMMUTABLE_COMMIT.test(commit)) throw new Error('GitHub returned a mutable commit reference.')
+      const cached = this.snapshots.get(source.id)
+      if (source.sync.commit === commit && cached) {
+        await this.recordSuccess(source.id, { commit })
+        return clone({ sourceId: source.id, status: 'unchanged', stale: false, snapshot: cached })
+      }
+      const marketplaceUrl = source.auth.type === 'token'
+        ? `https://api.github.com/repos/${encodeURIComponent(source.owner)}/` +
+          `${encodeURIComponent(source.repository)}/contents/.agents/plugins/marketplace.json?` +
+          `ref=${encodeURIComponent(commit)}`
+        : `https://raw.githubusercontent.com/${encodeURIComponent(source.owner)}/` +
+          `${encodeURIComponent(source.repository)}/${commit}/.agents/plugins/marketplace.json`
+      const marketplace = await this.requestJson(source, marketplaceUrl, source.auth.type === 'token'
+        ? { accept: 'application/vnd.github+json' }
+        : {})
+      const marketplaceValue = source.auth.type === 'token'
+        ? decodeGithubContents(marketplace.value)
+        : marketplace.value
+      const snapshot = adaptCatalogValue(marketplaceValue, source, {
+        revision: commit,
+        commit,
+        generatedAt: this.now().toISOString()
+      })
+      await this.acceptSnapshot(source, snapshot, { commit })
+      return clone({ sourceId: source.id, status: 'synced', stale: false, snapshot })
+    } catch (error) {
+      return this.recordFailure(
+        source.id,
+        errorMessage(error),
+        error instanceof CatalogRequestError && error.offlineCandidate
+      )
+    }
+  }
+
+  private async syncGit(source: CatalogSourceV1): Promise<MarketplaceCatalogSyncResultV1> {
+    if (source.type !== 'git') throw new Error('Git source type is required.')
+    if (source.auth.type !== 'none') {
+      return this.recordFailure(
+        source.id,
+        'Authenticated generic Git catalogs are not supported without a credential helper.',
+        false
+      )
+    }
+    const repositoryDirectory = join(
+      this.rootDirectory,
+      'git',
+      createHash('sha256').update(source.id).digest('hex')
+    )
+    try {
+      await mkdir(repositoryDirectory, { recursive: true })
+      await this.runGit(['init', '--bare', repositoryDirectory])
+      await this.runGit(['--git-dir', repositoryDirectory, 'remote', 'remove', 'origin'])
+        .catch(() => undefined)
+      await this.runGit([
+        '--git-dir', repositoryDirectory,
+        'remote', 'add', 'origin', source.location
+      ])
+    } catch (error) {
+      return this.recordFailure(source.id, errorMessage(error), false)
+    }
+    try {
+      await this.runGit([
+        '--git-dir', repositoryDirectory,
+        'fetch', '--depth=1', 'origin', `refs/heads/${source.defaultBranch}`
+      ])
+    } catch (error) {
+      return this.recordFailure(source.id, errorMessage(error), true)
+    }
+    let commit: string
+    try {
+      commit = (await this.runGit([
+        '--git-dir', repositoryDirectory,
+        'rev-parse', 'FETCH_HEAD'
+      ])).trim()
+    } catch (error) {
+      return this.recordFailure(source.id, errorMessage(error), false)
+    }
+    if (!IMMUTABLE_COMMIT.test(commit)) {
+      return this.recordFailure(source.id, 'Git returned a mutable commit reference.', false)
+    }
+    const cached = this.snapshots.get(source.id)
+    if (source.sync.commit === commit && cached) {
+      await this.recordSuccess(source.id, { commit })
+      return clone({ sourceId: source.id, status: 'unchanged', stale: false, snapshot: cached })
+    }
+    let text: string
+    try {
+      text = await this.runGit([
+        '--git-dir', repositoryDirectory,
+        'show', `${commit}:.agents/plugins/marketplace.json`
+      ])
+    } catch (error) {
+      return this.recordFailure(source.id, errorMessage(error), false)
+    }
+    try {
+      if (Buffer.byteLength(text) > MAX_CATALOG_JSON_BYTES) {
+        throw new Error('Catalog JSON exceeds the 10 MiB limit.')
+      }
+      const snapshot = parseCatalogText(text, source, {
+        revision: commit,
+        commit,
+        generatedAt: this.now().toISOString()
+      })
+      await this.acceptSnapshot(source, snapshot, { commit })
+      return clone({ sourceId: source.id, status: 'synced', stale: false, snapshot })
+    } catch (error) {
+      return this.recordFailure(source.id, errorMessage(error), false)
+    }
+  }
+
+  private async syncMcpRegistry(source: CatalogSourceV1): Promise<MarketplaceCatalogSyncResultV1> {
+    if (source.type !== 'mcp-registry') throw new Error('MCP Registry source type is required.')
+    const syncWatermark = this.now().toISOString()
+    try {
+      const cachedSnapshot = this.snapshots.get(source.id)
+      const incrementalSince = cachedSnapshot ? source.sync.lastSyncedAt : undefined
+      const deltas = []
+      const seenCursors = new Set<string>()
+      let cursor: string | undefined
+      let updateCount = 0
+      for (let pageNumber = 0; pageNumber < MAX_REGISTRY_PAGES; pageNumber += 1) {
+        if (cursor) {
+          if (seenCursors.has(cursor)) throw new Error('MCP Registry cursor loop detected.')
+          seenCursors.add(cursor)
+        }
+        const url = new URL(source.location)
+        url.searchParams.set('limit', '100')
+        if (incrementalSince) {
+          url.searchParams.set('updated_since', incrementalSince)
+          url.searchParams.set('include_deleted', 'true')
+        } else {
+          url.searchParams.set('version', 'latest')
+        }
+        if (cursor) url.searchParams.set('cursor', cursor)
+        const response = await this.requestJson(source, url.toString())
+        const delta = parseMcpRegistryPage(response.value, {
+          sourceId: source.id,
+          registryUrl: source.location
+        })
+        updateCount += delta.upserts.length + delta.removals.length
+        if (updateCount > MAX_CATALOG_PACKAGES) {
+          throw new Error('MCP Registry update exceeds the 5,000 packages limit.')
+        }
+        deltas.push(delta)
+        cursor = delta.nextCursor
+        if (!cursor) break
+        if (pageNumber === MAX_REGISTRY_PAGES - 1) {
+          throw new Error('MCP Registry pagination exceeds the 100 page limit.')
+        }
+      }
+      const generatedAt = this.now().toISOString()
+      const existing = incrementalSince ? cachedSnapshot?.packages ?? [] : []
+      const snapshot = mergeMcpRegistryDelta(existing, deltas, {
+        sourceId: source.id,
+        revision: 'pending',
+        generatedAt
+      })
+      snapshot.revision = 'registry-' + createHash('sha256')
+        .update(canonicalJson(snapshot.packages))
+        .digest('hex')
+      const validatedSnapshot = assertSnapshot(snapshot, source.id)
+      if (cachedSnapshot &&
+          canonicalJson(cachedSnapshot.packages) === canonicalJson(validatedSnapshot.packages)) {
+        await this.recordSuccess(source.id, { syncedAt: syncWatermark })
+        return clone({
+          sourceId: source.id,
+          status: 'unchanged',
+          stale: false,
+          snapshot: cachedSnapshot
+        })
+      }
+      await this.acceptSnapshot(source, validatedSnapshot, { syncedAt: syncWatermark }, false)
+      return clone({ sourceId: source.id, status: 'synced', stale: false, snapshot: validatedSnapshot })
+    } catch (error) {
+      return this.recordFailure(
+        source.id,
+        errorMessage(error),
+        error instanceof CatalogRequestError && error.offlineCandidate
+      )
     }
   }
 
@@ -1222,15 +1577,19 @@ export class MarketplaceCatalogService {
         const message = controller.signal.aborted ? timeoutError.message : errorMessage(error)
         return this.recordFailure(source.id, message, !/10 MiB/i.test(message))
       }
-      let snapshot: CatalogSnapshotV1
-      try {
-        snapshot = parseSnapshotText(text, source.id)
-      } catch (error) {
-        return this.recordFailure(source.id, errorMessage(error), false)
-      }
       const headerCommit = response.headers.get('x-workwise-catalog-commit') ?? undefined
       if (headerCommit && !IMMUTABLE_COMMIT.test(headerCommit)) {
         throw new Error('Catalog response commit must be an immutable SHA.')
+      }
+      let snapshot: CatalogSnapshotV1
+      try {
+        snapshot = parseCatalogText(text, source, {
+          revision: headerCommit ?? snapshotDigest(text),
+          generatedAt: this.now().toISOString(),
+          ...(headerCommit ? { commit: headerCommit } : {})
+        })
+      } catch (error) {
+        return this.recordFailure(source.id, errorMessage(error), false)
       }
       if (headerCommit && snapshot.commit && headerCommit !== snapshot.commit) {
         throw new Error('Catalog response commit conflicts with the snapshot commit.')
@@ -1251,7 +1610,7 @@ export class MarketplaceCatalogService {
   private async acceptSnapshot(
     source: CatalogSourceV1,
     snapshot: CatalogSnapshotV1,
-    metadata: { etag?: string; lastModified?: string; commit?: string },
+    metadata: CatalogSyncMetadata,
     replaceValidators = true
   ): Promise<void> {
     const pointer = await this.persistSnapshot(snapshot)
@@ -1278,7 +1637,7 @@ export class MarketplaceCatalogService {
 
   private async recordSuccess(
     sourceId: string,
-    metadata: { etag?: string; lastModified?: string; commit?: string } = {},
+    metadata: CatalogSyncMetadata = {},
     replaceValidators = false
   ): Promise<void> {
     await runSerialized('catalog-manifest:' + this.rootDirectory, async () => {
@@ -1297,13 +1656,13 @@ export class MarketplaceCatalogService {
 
   private applySuccessMetadata(
     source: CatalogSourceV1,
-    metadata: { etag?: string; lastModified?: string; commit?: string },
+    metadata: CatalogSyncMetadata,
     replaceValidators: boolean
   ): void {
     const nextSync = {
       ...source.sync,
       state: 'synced' as const,
-      lastSyncedAt: this.now().toISOString()
+      lastSyncedAt: metadata.syncedAt ?? this.now().toISOString()
     }
     delete nextSync.error
     if (replaceValidators) {
