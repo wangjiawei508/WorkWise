@@ -415,12 +415,25 @@ export type PackageProvenanceSnapshotV1 = {
   components: InstalledComponentSourceV1[]
 }
 
+export type InstalledPackageArtifactV1 = {
+  sha256: string
+  location: string
+  fileCount: number
+  totalBytes: number
+}
+
 export type PackageRollbackV1 =
   | { available: false }
   | ({
       available: true
       version: string
       createdAt?: string
+      license: string | null
+      reviewSha256: string
+      artifact: InstalledPackageArtifactV1
+      permissions: InstalledPackagePermissionV1[]
+      updatePolicy: PackageUpdatePolicyV1
+      health: PackageHealthV1
     } & PackageProvenanceSnapshotV1)
 
 export type PackageHealthV1 = {
@@ -433,7 +446,10 @@ export type InstalledPackageV1 = PackageProvenanceSnapshotV1 & {
   schemaVersion: 1
   packageId: string
   version: string
+  license: string | null
+  reviewSha256: string
   scope: 'user' | 'workspace' | 'team' | 'system'
+  artifact: InstalledPackageArtifactV1
   permissions: InstalledPackagePermissionV1[]
   timestamps: PackageInstallTimestampsV1
   updatePolicy: PackageUpdatePolicyV1

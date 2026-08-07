@@ -214,7 +214,15 @@ describe('marketplace V1 contracts', () => {
         sourceId: component.sourceId
       })),
       version: marketplacePackage.version,
+      license: marketplacePackage.license,
+      reviewSha256: 'c'.repeat(64),
       scope: 'workspace',
+      artifact: {
+        sha256: 'a'.repeat(64),
+        location: '/plugins/example/versions/current',
+        fileCount: 2,
+        totalBytes: 1024
+      },
       permissions: [{ permissionId: permission.id, decision: 'granted' }],
       timestamps: {
         installedAt: '2026-08-07T00:00:00.000Z',
@@ -231,7 +239,18 @@ describe('marketplace V1 contracts', () => {
           componentId: component.id,
           sourceId: component.sourceId
         })),
-        createdAt: '2026-08-07T01:00:00.000Z'
+        createdAt: '2026-08-07T01:00:00.000Z',
+        license: marketplacePackage.license,
+        reviewSha256: 'd'.repeat(64),
+        artifact: {
+          sha256: 'b'.repeat(64),
+          location: '/plugins/example/versions/previous',
+          fileCount: 2,
+          totalBytes: 1000
+        },
+        permissions: [{ permissionId: permission.id, decision: 'granted' }],
+        updatePolicy: marketplacePackage.updatePolicy,
+        health: { status: 'healthy', checkedAt: '2026-08-07T01:00:00.000Z' }
       },
       health: {
         status: 'healthy',
