@@ -851,8 +851,7 @@ async function parseCodex(context: ParseContext): Promise<ParsedPackage> {
   const uniqueTokens = [...new Set(tokenVariables)]
   if (oauthProvider && uniqueTokens.length > 0) reasons.push('mixed-auth-unsupported')
   if (oauthProvider) {
-    auth = { type: 'oauth', provider: oauthProvider, discovery: 'pending' }
-    reasons.push('oauth-runtime-pending')
+    auth = { type: 'oauth', provider: oauthProvider, discovery: 'ready' }
   } else if (uniqueTokens.length > 0) {
     auth = { type: 'token', provider: id, environmentVariables: uniqueTokens }
     ensurePermission(permissions, {

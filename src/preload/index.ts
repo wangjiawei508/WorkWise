@@ -90,6 +90,17 @@ const api = {
     ipcRenderer.invoke('workspace:pick-directory', defaultPath),
   confirmDialog: (options) =>
     ipcRenderer.invoke('dialog:confirm', options),
+  listCatalogSources: () => ipcRenderer.invoke('catalog:list-sources'),
+  listCatalogPackages: () => ipcRenderer.invoke('catalog:list-packages'),
+  getCatalogSnapshot: (sourceId) => ipcRenderer.invoke('catalog:get-snapshot', { sourceId }),
+  upsertCatalogSource: (source) => ipcRenderer.invoke('catalog:upsert-source', source),
+  removeCatalogSource: (sourceId) => ipcRenderer.invoke('catalog:remove-source', { sourceId }),
+  syncCatalogSource: (sourceId) => ipcRenderer.invoke('catalog:sync-source', { sourceId }),
+  listInstalledPlugins: () => ipcRenderer.invoke('plugin:list-installed'),
+  preparePluginImport: (request) => ipcRenderer.invoke('plugin:prepare-import', request),
+  cancelPluginImport: (preparedId) => ipcRenderer.invoke('plugin:cancel-import', { preparedId }),
+  installPreparedPlugin: (request) => ipcRenderer.invoke('plugin:install', request),
+  rollbackPlugin: (request) => ipcRenderer.invoke('plugin:rollback', request),
   listSkills: (workspaceRoot) =>
     ipcRenderer.invoke('skill:list', { workspaceRoot }),
   refreshSkills: (workspaceRoot) =>
@@ -137,6 +148,7 @@ const api = {
   saveMcpServer: (request) => ipcRenderer.invoke('mcp-server:save', request),
   testMcpServer: (serverId, workspaceRoot) => ipcRenderer.invoke('mcp-server:test', { serverId, workspaceRoot }),
   authorizeMcpServer: (request) => ipcRenderer.invoke('mcp-server:authorize', request),
+  setMcpServerCredential: (request) => ipcRenderer.invoke('mcp-server:set-credential', request),
   listDocumentEngines: () => ipcRenderer.invoke('document-engine:list'),
   installDocumentEngine: (id) => ipcRenderer.invoke('document-engine:install', id),
   diagnoseDocumentEngine: (id) => ipcRenderer.invoke('document-engine:diagnose', id),

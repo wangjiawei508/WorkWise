@@ -211,6 +211,83 @@ describe('registerAppIpcHandlers', () => {
     expect(managedToolMocks.remove).toHaveBeenCalledWith('officecli')
   })
 
+  it('routes unified catalog and plugin operations through validated IPC payloads', async () => {
+    const { registerAppIpcHandlers } = await import('./register-app-ipc-handlers')
+    const catalogService = {
+      listSources: vi.fn(async () => []),
+      listPackages: vi.fn(async () => ({ packages: [], conflicts: [] })),
+      getSnapshot: vi.fn(async () => null),
+      upsertSource: vi.fn(async (source) => source),
+      removeSource: vi.fn(async () => undefined),
+      syncSource: vi.fn(async (sourceId: string) => ({ sourceId, status: 'synced', stale: false }))
+    }
+    const pluginService = {
+      listInstalled: vi.fn(async () => []),
+      prepareImport: vi.fn(async (request) => ({ id: 'prepared-1', ...request })),
+      cancelPrepared: vi.fn(async () => true),
+      installPrepared: vi.fn(async (request) => ({ packageId: 'example', request })),
+      rollback: vi.fn(async (request) => ({ packageId: request.packageId }))
+    }
+    registerAppIpcHandlers(registerOptions({
+      marketplaceCatalogService: catalogService as never,
+      pluginManagementService: pluginService as never
+    }))
+
+    for (const channel of [
+      'catalog:list-sources',
+      'catalog:list-packages',
+      'catalog:get-snapshot',
+      'catalog:upsert-source',
+      'catalog:remove-source',
+      'catalog:sync-source',
+      'plugin:list-installed',
+      'plugin:prepare-import',
+      'plugin:cancel-import',
+      'plugin:install',
+      'plugin:rollback'
+    ]) {
+      expect(handlers.get(channel), channel).toBeTypeOf('function')
+    }
+
+    await expect(handlers.get('catalog:list-packages')?.({})).resolves.toEqual({
+      packages: [],
+      conflicts: []
+    })
+    await expect(handlers.get('plugin:prepare-import')?.({}, {
+      sourcePath: '/tmp/example.wwx',
+      format: 'wwx'
+    })).resolves.toMatchObject({ id: 'prepared-1', format: 'wwx' })
+    expect(pluginService.prepareImport).toHaveBeenCalledWith({
+      sourcePath: '/tmp/example.wwx',
+      format: 'wwx',
+      catalogSourceId: undefined
+    })
+
+    await expect(handlers.get('plugin:install')?.({}, {
+      preparedId: 'prepared-1',
+      reviewSha256: 'invalid',
+      expectedCurrentVersion: null,
+      scope: 'user',
+      permissions: [],
+      idempotencyKey: 'install-1'
+    })).rejects.toThrow(/Invalid payload for plugin:install/)
+    expect(pluginService.installPrepared).not.toHaveBeenCalled()
+
+    await expect(handlers.get('catalog:upsert-source')?.({}, {
+      schemaVersion: 1,
+      id: 'unsafe',
+      name: 'Unsafe',
+      type: 'https',
+      scope: 'team',
+      location: 'https://plugins.example.com/catalog.json',
+      trust: 'unverified',
+      searchable: true,
+      auth: { type: 'token', secretKey: 'catalog.token', token: 'plaintext' },
+      sync: { mode: 'manual', state: 'idle', mirroredByDefault: false, installedByDefault: false }
+    })).rejects.toThrow(/Invalid payload for catalog:upsert-source/)
+    expect(catalogService.upsertSource).not.toHaveBeenCalled()
+  })
+
   it('saves generated files to a user-selected path', async () => {
     const { dialog } = await import('electron')
     const { registerAppIpcHandlers } = await import('./register-app-ipc-handlers')

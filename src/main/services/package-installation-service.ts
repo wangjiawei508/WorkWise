@@ -398,6 +398,30 @@ export function inspectPackageDirectory(
   return scanPackageTree({ sourceDirectory })
 }
 
+export async function stagePackageDirectory(
+  sourceDirectory: string,
+  destinationDirectory: string
+): Promise<PackageTreeInspectionV1> {
+  if (await pathExists(destinationDirectory)) {
+    throw new Error('Package staging destination must not already exist.')
+  }
+  try {
+    const copied = await scanPackageTree({ sourceDirectory, destinationDirectory })
+    const sourceAfterCopy = await scanPackageTree({ sourceDirectory })
+    if (canonicalJson(sourceAfterCopy) !== canonicalJson(copied)) {
+      throw new Error('Package source changed after it was staged.')
+    }
+    const staged = await scanPackageTree({ sourceDirectory: destinationDirectory })
+    if (canonicalJson(staged) !== canonicalJson(copied)) {
+      throw new Error('Staged package content does not match its verified source.')
+    }
+    return staged
+  } catch (error) {
+    await rm(destinationDirectory, { recursive: true, force: true }).catch(() => undefined)
+    throw error
+  }
+}
+
 function emptyManifest(): InstallationManifestV1 {
   return {
     schema: INSTALL_MANIFEST_SCHEMA,

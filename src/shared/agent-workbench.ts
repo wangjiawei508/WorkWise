@@ -184,11 +184,20 @@ export type McpServerConfigV2 = {
   source: 'user' | 'skill' | 'managed-tool' | 'migration'
   credentialRef?: McpCredentialReferenceV1
   oauth?: {
-    authorizationUrl: string
-    tokenUrl: string
-    clientId: string
+    resource?: string
+    authorizationUrl?: string
+    tokenUrl?: string
+    registrationUrl?: string
+    clientId?: string
     redirectUri: string
     scopes: string[]
+    discovery?: {
+      protectedResourceMetadataUrl?: string
+      authorizationServer?: string
+      authorizationServerMetadataUrl?: string
+      codeChallengeMethodsSupported: string[]
+      clientRegistration: 'static' | 'dynamic'
+    }
   }
   toolPolicy: Record<string, 'allow' | 'ask' | 'deny'>
   enabled: boolean

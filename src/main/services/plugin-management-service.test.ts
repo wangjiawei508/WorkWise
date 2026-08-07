@@ -1,0 +1,175 @@
+import { access, mkdir, mkdtemp, readFile, rm, utimes, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import JSZip from 'jszip'
+import { afterEach, describe, expect, it } from 'vitest'
+import { PackageInstallationService } from './package-installation-service'
+import { PluginManagementService } from './plugin-management-service'
+
+const roots: string[] = []
+
+afterEach(async () => {
+  await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })))
+})
+
+async function tempRoot(label: string): Promise<string> {
+  const root = await mkdtemp(join(tmpdir(), `workwise-plugin-management-${label}-`))
+  roots.push(root)
+  return root
+}
+
+function manifest(): Record<string, unknown> {
+  return {
+    schemaVersion: 1,
+    id: 'managed-import',
+    name: 'Managed Import',
+    description: 'Plugin management fixture.',
+    version: '1.0.0',
+    publisher: { id: 'example', name: 'Example' },
+    license: 'MIT',
+    components: [{
+      id: 'fixture-skill',
+      name: 'Fixture Skill',
+      type: 'skill',
+      runtime: { kind: 'bundled', entrypoint: 'skills/fixture' },
+      skillNames: ['fixture']
+    }],
+    permissions: [{
+      id: 'workspace-read',
+      kind: 'filesystem',
+      access: 'read',
+      default: 'review',
+      reviewRequired: true,
+      description: 'Read selected workspace files.',
+      resources: ['workspace']
+    }]
+  }
+}
+
+async function writeArchive(path: string, skill = '# Original\n'): Promise<void> {
+  const zip = new JSZip()
+  zip.file('workwise.plugin.json', JSON.stringify(manifest()))
+  zip.file('skills/fixture/SKILL.md', skill)
+  zip.file('LICENSE', 'MIT License\n')
+  await writeFile(path, await zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' }))
+}
+
+function createService(root: string, now?: () => Date): PluginManagementService {
+  return new PluginManagementService({
+    rootDirectory: join(root, 'imports'),
+    installationService: new PackageInstallationService({ rootDirectory: join(root, 'installed') }),
+    now
+  })
+}
+
+describe('PluginManagementService', () => {
+  it('keeps private staging paths out of the renderer contract and installs by prepared ID', async () => {
+    const root = await tempRoot('install')
+    const sourcePath = join(root, 'fixture.wwx')
+    await writeArchive(sourcePath)
+    const service = createService(root)
+
+    const prepared = await service.prepareImport({ sourcePath })
+    expect(prepared).toMatchObject({
+      format: 'wwx',
+      package: { id: 'managed-import', availability: { status: 'available' } }
+    })
+    expect(prepared).not.toHaveProperty('preparedDirectory')
+    expect(JSON.stringify(prepared)).not.toContain(join(root, 'imports', 'staging'))
+
+    const installed = await service.installPrepared({
+      preparedId: prepared.id,
+      reviewSha256: prepared.reviewSha256,
+      expectedCurrentVersion: null,
+      scope: 'user',
+      permissions: [{ permissionId: 'workspace-read', decision: 'granted' }],
+      idempotencyKey: 'install-managed-import'
+    })
+    expect(installed).toMatchObject({ packageId: 'managed-import', version: '1.0.0' })
+    await expect(readFile(join(installed.artifact.location, 'skills/fixture/SKILL.md'), 'utf8'))
+      .resolves.toBe('# Original\n')
+    await expect(service.cancelPrepared(prepared.id)).resolves.toBe(false)
+  })
+
+  it('stages directory imports as immutable snapshots before review', async () => {
+    const root = await tempRoot('directory')
+    const source = join(root, 'codex-plugin')
+    await mkdir(join(source, 'skills', 'fixture'), { recursive: true })
+    await mkdir(join(source, '.codex-plugin'), { recursive: true })
+    await writeFile(join(source, '.codex-plugin', 'plugin.json'), JSON.stringify({
+      name: 'directory-plugin',
+      version: '1.0.0',
+      description: 'Directory fixture.',
+      author: { name: 'Example' },
+      license: 'MIT',
+      skills: './skills/'
+    }))
+    await writeFile(join(source, 'skills', 'fixture', 'SKILL.md'), '# Before review\n')
+    await writeFile(join(source, 'LICENSE'), 'MIT License\n')
+    const service = createService(root)
+
+    const prepared = await service.prepareImport({ sourcePath: source })
+    await writeFile(join(source, 'skills', 'fixture', 'SKILL.md'), '# Changed after review\n')
+    const installed = await service.installPrepared({
+      preparedId: prepared.id,
+      reviewSha256: prepared.reviewSha256,
+      expectedCurrentVersion: null,
+      scope: 'user',
+      permissions: [],
+      idempotencyKey: 'install-directory-plugin'
+    })
+
+    await expect(readFile(join(installed.artifact.location, 'skills/fixture/SKILL.md'), 'utf8'))
+      .resolves.toBe('# Before review\n')
+  })
+
+  it('rejects stale review hashes and expires abandoned private staging', async () => {
+    const root = await tempRoot('expiry')
+    const sourcePath = join(root, 'fixture.wwx')
+    await writeArchive(sourcePath)
+    let time = Date.parse('2026-08-08T00:00:00.000Z')
+    const service = createService(root, () => new Date(time))
+    const prepared = await service.prepareImport({ sourcePath })
+
+    await expect(service.installPrepared({
+      preparedId: prepared.id,
+      reviewSha256: '0'.repeat(64),
+      expectedCurrentVersion: null,
+      scope: 'user',
+      permissions: [{ permissionId: 'workspace-read', decision: 'granted' }],
+      idempotencyKey: 'stale-review'
+    })).rejects.toThrow(/review changed/i)
+
+    time += 31 * 60_000
+    await expect(service.installPrepared({
+      preparedId: prepared.id,
+      reviewSha256: prepared.reviewSha256,
+      expectedCurrentVersion: null,
+      scope: 'user',
+      permissions: [{ permissionId: 'workspace-read', decision: 'granted' }],
+      idempotencyKey: 'expired-review'
+    })).rejects.toThrow(/expired/i)
+    await expect(service.cancelPrepared(prepared.id)).resolves.toBe(false)
+  })
+
+  it('removes expired UUID staging directories left by a previous process', async () => {
+    const root = await tempRoot('orphan')
+    const sourcePath = join(root, 'fixture.wwx')
+    await writeArchive(sourcePath)
+    const orphan = join(
+      root,
+      'imports',
+      'staging',
+      '123e4567-e89b-42d3-a456-426614174000'
+    )
+    await mkdir(orphan, { recursive: true })
+    await writeFile(join(orphan, 'payload.txt'), 'stale')
+    const old = new Date('2026-08-07T22:00:00.000Z')
+    await utimes(orphan, old, old)
+    const service = createService(root, () => new Date('2026-08-08T00:00:00.000Z'))
+
+    await service.prepareImport({ sourcePath })
+
+    await expect(access(orphan)).rejects.toMatchObject({ code: 'ENOENT' })
+  })
+})

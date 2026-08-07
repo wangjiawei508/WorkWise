@@ -446,6 +446,23 @@ export type MarketplaceCatalogSyncResultV1 = {
   error?: string
 }
 
+export type PreparedPluginImportV1 = {
+  schemaVersion: 1
+  id: string
+  createdAt: string
+  expiresAt: string
+  format: 'wwx' | 'codex' | 'mcpb'
+  package: MarketplacePackageV1
+  archiveSha256?: string
+  contentSha256: string
+  reviewSha256: string
+  warnings: string[]
+  compatibility: {
+    workwiseCompatible: boolean
+    reasons: string[]
+  }
+}
+
 export type InstalledPackagePermissionV1 = {
   permissionId: string
   decision: 'granted' | 'denied'

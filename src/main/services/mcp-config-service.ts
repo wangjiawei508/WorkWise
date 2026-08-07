@@ -1,6 +1,6 @@
 import { createHash, randomBytes } from 'node:crypto'
 import { execFile } from 'node:child_process'
-import { mkdir } from 'node:fs/promises'
+import { mkdir, rm } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { promisify } from 'node:util'
@@ -10,10 +10,12 @@ import type {
   McpServerConfigV2,
   McpServerStatusV1
 } from '../../shared/agent-workbench'
-import { atomicWriteFile, readRecoveredFile } from './durable-file'
+import { atomicWriteFile, readRecoveredFile, runSerialized } from './durable-file'
 import { canonicalizeContainmentRoot, resolveContainedPath } from './canonical-containment'
 
 const execFileAsync = promisify(execFile)
+const MAX_OAUTH_RESPONSE_BYTES = 1024 * 1024
+const OAUTH_REQUEST_TIMEOUT_MS = 15_000
 
 type McpManifestV2 = {
   schema: 'workwise.mcp-servers'
@@ -44,6 +46,16 @@ type PendingOAuth = {
   createdAt: number
 }
 
+type McpOAuthConfig = NonNullable<McpServerConfigV2['oauth']>
+
+type OAuthDiscoveryResult = {
+  authorizationUrl: string
+  tokenUrl: string
+  registrationUrl?: string
+  scopes: string[]
+  discovery: NonNullable<McpOAuthConfig['discovery']>
+}
+
 export type SaveMcpServerRequest = {
   config: Omit<McpServerConfigV2, 'revision'> & { revision?: number }
   expectedRevision: number
@@ -55,6 +67,15 @@ export type AuthorizeMcpServerRequest = {
   workspaceRoot?: string
   state?: string
   authorizationCode?: string
+}
+
+export type SetMcpServerCredentialRequest = {
+  serverId: string
+  workspaceRoot?: string
+  accessToken: string
+  tokenType?: string
+  expectedRevision: number
+  idempotencyKey: string
 }
 
 function emptyManifest(): McpManifestV2 {
@@ -87,6 +108,7 @@ function defaultEncryption(): EncryptionAdapter {
 }
 
 function assertHttpUrl(value: string, label: string): URL {
+  if (value.length > 4_096) throw Object.assign(new Error(`${label} is too long.`), { code: 'unsafe_url' })
   const parsed = new URL(value)
   if (parsed.username || parsed.password) throw Object.assign(new Error(`${label} must not contain URL credentials.`), { code: 'unsafe_url' })
   const loopback = parsed.hostname === 'localhost' || parsed.hostname === '127.0.0.1' || parsed.hostname === '::1'
@@ -100,6 +122,41 @@ function assertRedirectUri(value: string): URL {
   const parsed = new URL(value)
   if (parsed.protocol === 'workwise:') return parsed
   return assertHttpUrl(value, 'OAuth redirect URL')
+}
+
+function record(value: unknown, label: string): Record<string, unknown> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error(label + ' must be a JSON object.')
+  }
+  return value as Record<string, unknown>
+}
+
+function requiredString(value: unknown, label: string): string {
+  if (typeof value !== 'string' || !value.trim()) throw new Error(label + ' is required.')
+  return value.trim()
+}
+
+function stringArray(value: unknown, label: string): string[] {
+  if (value === undefined) return []
+  if (!Array.isArray(value) || value.length > 256 ||
+      value.some((entry) => typeof entry !== 'string' || !entry.trim() || entry.length > 4_096)) {
+    throw new Error(label + ' must contain strings.')
+  }
+  return [...new Set(value.map((entry) => String(entry).trim()))]
+}
+
+function sameOAuthIdentifier(left: string, right: string): boolean {
+  return left.replace(/\/$/, '') === right.replace(/\/$/, '')
+}
+
+function wellKnownUrls(value: string, name: string): string[] {
+  const parsed = assertHttpUrl(value, 'OAuth discovery resource')
+  const path = parsed.pathname === '/' ? '' : parsed.pathname.replace(/\/$/, '')
+  const withPath = new URL(parsed.origin)
+  withPath.pathname = `/.well-known/${name}${path}`
+  const root = new URL(parsed.origin)
+  root.pathname = `/.well-known/${name}`
+  return path ? [withPath.toString(), root.toString()] : [root.toString()]
 }
 
 function normalizedManifest(value: unknown): McpManifestV2 {
@@ -120,6 +177,9 @@ export class McpConfigService {
   private readonly legacyPath: string
   private readonly credentialRoot: string
   private readonly encryption: EncryptionAdapter
+  private readonly fetchImpl: typeof fetch
+  private readonly now: () => Date
+  private readonly oauthResponseTimers = new WeakMap<Response, ReturnType<typeof setTimeout>>()
   private readonly sessionCredentials = new Map<string, CredentialPayload>()
   private readonly pendingOAuth = new Map<string, PendingOAuth>()
 
@@ -128,11 +188,15 @@ export class McpConfigService {
     legacyPath?: string
     credentialRoot?: string
     encryption?: EncryptionAdapter
+    fetch?: typeof fetch
+    now?: () => Date
   } = {}) {
     this.manifestPath = resolve(options.manifestPath ?? join(homedir(), '.workwise', 'mcp-v2.json'))
     this.legacyPath = resolve(options.legacyPath ?? join(dirname(this.manifestPath), 'mcp.json'))
     this.credentialRoot = resolve(options.credentialRoot ?? join(homedir(), '.workwise', 'credentials', 'mcp'))
     this.encryption = options.encryption ?? defaultEncryption()
+    this.fetchImpl = options.fetch ?? ((input, init) => globalThis.fetch(input, init))
+    this.now = options.now ?? (() => new Date())
   }
 
   async list(workspaceRoot?: string): Promise<McpServerConfigV2[]> {
@@ -144,52 +208,57 @@ export class McpConfigService {
   }
 
   async save(request: SaveMcpServerRequest): Promise<McpServerConfigV2> {
-    const manifest = await this.read()
-    const previousId = manifest.mutationKeys[request.idempotencyKey]
-    if (previousId) {
-      const previous = manifest.servers.find((server) => server.id === previousId)
-      if (previous) return previous
-    }
-    const index = manifest.servers.findIndex((server) => server.id === request.config.id)
-    const current = index >= 0 ? manifest.servers[index]! : null
-    const revision = current?.revision ?? 0
-    if (revision !== request.expectedRevision) {
-      throw Object.assign(new Error('MCP server revision conflict.'), { code: 'stale_request' })
-    }
-    const workspaceRoot = request.config.scope === 'workspace'
-      ? await canonicalizeContainmentRoot(request.config.workspaceRoot ?? '')
-      : undefined
-    let canonicalCwd: string | undefined
-    if (request.config.transport === 'stdio') {
-      if (!request.config.command?.trim()) throw Object.assign(new Error('stdio MCP server requires a command.'), { code: 'invalid_state' })
-      if (request.config.cwd) {
-        if (!workspaceRoot) throw Object.assign(new Error('stdio cwd requires workspace scope.'), { code: 'unsafe_path' })
-        canonicalCwd = await canonicalizeContainmentRoot(request.config.cwd)
-        await resolveContainedPath({ root: workspaceRoot, target: canonicalCwd, allowRoot: true, mustExist: true, expect: 'directory' })
+    return runSerialized('mcp-config:' + this.manifestPath, async () => {
+      const manifest = await this.read()
+      const previousId = manifest.mutationKeys[request.idempotencyKey]
+      if (previousId) {
+        const previous = manifest.servers.find((server) => server.id === previousId)
+        if (previous) return previous
       }
-    } else {
-      if (!request.config.url) throw Object.assign(new Error('HTTP MCP server requires a URL.'), { code: 'invalid_state' })
-      assertHttpUrl(request.config.url, 'MCP server URL')
-    }
-    if (request.config.oauth) {
-      assertHttpUrl(request.config.oauth.authorizationUrl, 'OAuth authorization URL')
-      assertHttpUrl(request.config.oauth.tokenUrl, 'OAuth token URL')
-      assertRedirectUri(request.config.oauth.redirectUri)
-    }
-    const next: McpServerConfigV2 = {
-      ...request.config,
-      ...(workspaceRoot ? { workspaceRoot } : {}),
-      ...(canonicalCwd ? { cwd: canonicalCwd } : {}),
-      timeoutMs: Math.min(Math.max(request.config.timeoutMs, 1_000), 120_000),
-      revision: revision + 1
-    }
-    const servers = [...manifest.servers]
-    if (index >= 0) servers[index] = next
-    else servers.push(next)
-    const mutationKeys = { ...manifest.mutationKeys, [request.idempotencyKey]: next.id }
-    const trimmedKeys = Object.fromEntries(Object.entries(mutationKeys).slice(-256))
-    await this.write({ ...manifest, revision: manifest.revision + 1, servers, mutationKeys: trimmedKeys })
-    return next
+      const index = manifest.servers.findIndex((server) => server.id === request.config.id)
+      const current = index >= 0 ? manifest.servers[index]! : null
+      const revision = current?.revision ?? 0
+      if (revision !== request.expectedRevision) {
+        throw Object.assign(new Error('MCP server revision conflict.'), { code: 'stale_request' })
+      }
+      const workspaceRoot = request.config.scope === 'workspace'
+        ? await canonicalizeContainmentRoot(request.config.workspaceRoot ?? '')
+        : undefined
+      let canonicalCwd: string | undefined
+      if (request.config.transport === 'stdio') {
+        if (!request.config.command?.trim()) throw Object.assign(new Error('stdio MCP server requires a command.'), { code: 'invalid_state' })
+        if (request.config.cwd) {
+          if (!workspaceRoot) throw Object.assign(new Error('stdio cwd requires workspace scope.'), { code: 'unsafe_path' })
+          canonicalCwd = await canonicalizeContainmentRoot(request.config.cwd)
+          await resolveContainedPath({
+            root: workspaceRoot,
+            target: canonicalCwd,
+            allowRoot: true,
+            mustExist: true,
+            expect: 'directory'
+          })
+        }
+      } else {
+        if (!request.config.url) throw Object.assign(new Error('HTTP MCP server requires a URL.'), { code: 'invalid_state' })
+        assertHttpUrl(request.config.url, 'MCP server URL')
+      }
+      const oauth = request.config.oauth ? await this.resolveOAuth(request.config.oauth) : undefined
+      const next: McpServerConfigV2 = {
+        ...request.config,
+        ...(oauth ? { oauth } : {}),
+        ...(workspaceRoot ? { workspaceRoot } : {}),
+        ...(canonicalCwd ? { cwd: canonicalCwd } : {}),
+        timeoutMs: Math.min(Math.max(request.config.timeoutMs, 1_000), 120_000),
+        revision: revision + 1
+      }
+      const servers = [...manifest.servers]
+      if (index >= 0) servers[index] = next
+      else servers.push(next)
+      const mutationKeys = { ...manifest.mutationKeys, [request.idempotencyKey]: next.id }
+      const trimmedKeys = Object.fromEntries(Object.entries(mutationKeys).slice(-256))
+      await this.write({ ...manifest, revision: manifest.revision + 1, servers, mutationKeys: trimmedKeys })
+      return next
+    })
   }
 
   async test(serverId: string, workspaceRoot?: string): Promise<McpServerStatusV1> {
@@ -238,7 +307,15 @@ export class McpConfigService {
       const verifier = base64Url(randomBytes(48))
       const challenge = base64Url(createHash('sha256').update(verifier).digest())
       const state = base64Url(randomBytes(24))
-      this.pendingOAuth.set(state, { serverId: server.id, state, verifier, createdAt: Date.now() })
+      if (!server.oauth.authorizationUrl || !server.oauth.clientId) {
+        return { id: server.id, state: 'error', authorized: false, message: 'OAuth discovery is incomplete.' }
+      }
+      this.pendingOAuth.set(state, {
+        serverId: server.id,
+        state,
+        verifier,
+        createdAt: this.now().getTime()
+      })
       const authorizationUrl = new URL(server.oauth.authorizationUrl)
       authorizationUrl.searchParams.set('response_type', 'code')
       authorizationUrl.searchParams.set('client_id', server.oauth.clientId)
@@ -247,6 +324,7 @@ export class McpConfigService {
       authorizationUrl.searchParams.set('code_challenge_method', 'S256')
       authorizationUrl.searchParams.set('state', state)
       if (server.oauth.scopes.length > 0) authorizationUrl.searchParams.set('scope', server.oauth.scopes.join(' '))
+      if (server.oauth.resource) authorizationUrl.searchParams.set('resource', server.oauth.resource)
       return {
         id: server.id,
         state: 'needs_authorization',
@@ -257,8 +335,11 @@ export class McpConfigService {
       }
     }
     const pending = request.state ? this.pendingOAuth.get(request.state) : undefined
-    if (!pending || pending.serverId !== server.id || Date.now() - pending.createdAt > 10 * 60_000) {
+    if (!pending || pending.serverId !== server.id || this.now().getTime() - pending.createdAt > 10 * 60_000) {
       return { id: server.id, state: 'error', authorized: false, message: 'OAuth state is missing or expired.' }
+    }
+    if (!server.oauth.tokenUrl || !server.oauth.clientId) {
+      return { id: server.id, state: 'error', authorized: false, message: 'OAuth discovery is incomplete.' }
     }
     const body = new URLSearchParams({
       grant_type: 'authorization_code',
@@ -267,32 +348,331 @@ export class McpConfigService {
       redirect_uri: server.oauth.redirectUri,
       code_verifier: pending.verifier
     })
-    const response = await fetch(server.oauth.tokenUrl, {
+    if (server.oauth.resource) body.set('resource', server.oauth.resource)
+    const response = await this.fetchOAuth(server.oauth.tokenUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Accept-Encoding': 'identity' },
       body
     })
-    if (!response.ok) return { id: server.id, state: 'error', authorized: false, message: `OAuth token exchange failed (${response.status}).` }
-    const value = await response.json() as Record<string, unknown>
-    if (typeof value.access_token !== 'string') return { id: server.id, state: 'error', authorized: false, message: 'OAuth response did not contain an access token.' }
+    if (!response.ok) {
+      await response.body?.cancel().catch(() => undefined)
+      this.releaseOAuthResponse(response)
+      return { id: server.id, state: 'error', authorized: false, message: `OAuth token exchange failed (${response.status}).` }
+    }
+    const value = await this.readOAuthJson(response, 'OAuth token response')
+    if (typeof value.access_token !== 'string' || value.access_token.length > 64 * 1024) {
+      return { id: server.id, state: 'error', authorized: false, message: 'OAuth response did not contain a valid access token.' }
+    }
+    if (typeof value.refresh_token === 'string' && value.refresh_token.length > 64 * 1024) {
+      return { id: server.id, state: 'error', authorized: false, message: 'OAuth refresh token exceeds its safety limit.' }
+    }
     const credential: CredentialPayload = {
       accessToken: value.access_token,
       ...(typeof value.refresh_token === 'string' ? { refreshToken: value.refresh_token } : {}),
       ...(typeof value.token_type === 'string' ? { tokenType: value.token_type } : {}),
-      ...(typeof value.expires_in === 'number' ? { expiresAt: new Date(Date.now() + value.expires_in * 1000).toISOString() } : {})
+      ...(typeof value.expires_in === 'number'
+        ? { expiresAt: new Date(this.now().getTime() + value.expires_in * 1000).toISOString() }
+        : {})
     }
     const credentialRef = await this.writeCredential(server.id, credential)
-    await this.save({
-      config: { ...server, credentialRef },
-      expectedRevision: server.revision,
-      idempotencyKey: `oauth:${server.id}:${pending.state}`
-    })
+    let saved: McpServerConfigV2
+    try {
+      saved = await this.save({
+        config: { ...server, credentialRef },
+        expectedRevision: server.revision,
+        idempotencyKey: `oauth:${server.id}:${pending.state}`
+      })
+    } catch (error) {
+      await this.removeCredential(credentialRef)
+      throw error
+    }
+    if (saved.credentialRef?.id !== credentialRef.id) {
+      await this.removeCredential(credentialRef)
+    } else if (server.credentialRef && server.credentialRef.id !== credentialRef.id) {
+      await this.removeCredential(server.credentialRef)
+    }
     this.pendingOAuth.delete(pending.state)
     return { id: server.id, state: 'connected', authorized: true, message: 'Authorization completed.' }
   }
 
+  async setCredential(request: SetMcpServerCredentialRequest): Promise<McpServerConfigV2> {
+    const manifest = await this.read()
+    const replayId = manifest.mutationKeys[request.idempotencyKey]
+    if (replayId) {
+      if (replayId !== request.serverId) {
+        throw new Error('MCP credential idempotency key was used for another server.')
+      }
+      const replay = manifest.servers.find((entry) => entry.id === replayId)
+      if (replay) return replay
+    }
+    const server = (await this.list(request.workspaceRoot)).find((entry) => entry.id === request.serverId)
+    if (!server) throw new Error('MCP server was not found.')
+    if (server.revision !== request.expectedRevision) {
+      throw Object.assign(new Error('MCP server revision conflict.'), { code: 'stale_request' })
+    }
+    const accessToken = request.accessToken.trim()
+    if (!accessToken || accessToken.includes('\0') || accessToken.length > 64 * 1024) {
+      throw new Error('MCP credential token is invalid or exceeds 64 KiB.')
+    }
+    const tokenType = request.tokenType?.trim() || 'Bearer'
+    if (!/^[A-Za-z][A-Za-z0-9._-]{0,63}$/.test(tokenType)) {
+      throw new Error('MCP credential token type is invalid.')
+    }
+    const credentialRef = await this.writeCredential(server.id, { accessToken, tokenType })
+    let saved: McpServerConfigV2
+    try {
+      saved = await this.save({
+        config: { ...server, credentialRef },
+        expectedRevision: request.expectedRevision,
+        idempotencyKey: request.idempotencyKey
+      })
+    } catch (error) {
+      await this.removeCredential(credentialRef)
+      throw error
+    }
+    if (saved.credentialRef?.id !== credentialRef.id) {
+      await this.removeCredential(credentialRef)
+    } else if (server.credentialRef && server.credentialRef.id !== credentialRef.id) {
+      await this.removeCredential(server.credentialRef)
+    }
+    return saved
+  }
+
+  private async resolveOAuth(input: McpOAuthConfig): Promise<McpOAuthConfig> {
+    const redirectUri = assertRedirectUri(requiredString(input.redirectUri, 'OAuth redirect URL')).toString()
+    const resource = input.resource
+      ? assertHttpUrl(input.resource, 'OAuth protected resource').toString()
+      : undefined
+    let authorizationUrl = input.authorizationUrl
+      ? assertHttpUrl(input.authorizationUrl, 'OAuth authorization URL').toString()
+      : undefined
+    let tokenUrl = input.tokenUrl
+      ? assertHttpUrl(input.tokenUrl, 'OAuth token URL').toString()
+      : undefined
+    let registrationUrl = input.registrationUrl
+      ? assertHttpUrl(input.registrationUrl, 'OAuth registration URL').toString()
+      : undefined
+    let scopes = [...new Set(input.scopes)]
+    let discovery = input.discovery
+
+    if (resource && (!authorizationUrl || !tokenUrl || !input.clientId)) {
+      const discovered = await this.discoverOAuth(resource)
+      authorizationUrl ??= discovered.authorizationUrl
+      tokenUrl ??= discovered.tokenUrl
+      registrationUrl ??= discovered.registrationUrl
+      if (scopes.length === 0) scopes = discovered.scopes
+      discovery = discovered.discovery
+    }
+    if (!authorizationUrl || !tokenUrl) {
+      throw new Error('OAuth authorization and token endpoints are required or must be discoverable.')
+    }
+    if (discovery?.codeChallengeMethodsSupported.length &&
+        !discovery.codeChallengeMethodsSupported.includes('S256')) {
+      throw new Error('OAuth authorization server does not support S256 PKCE.')
+    }
+
+    let clientId = input.clientId?.trim()
+    let clientRegistration: 'static' | 'dynamic' = clientId ? 'static' : 'dynamic'
+    if (!clientId) {
+      if (!registrationUrl) throw new Error('OAuth client ID is missing and dynamic registration is unavailable.')
+      clientId = await this.registerOAuthClient(registrationUrl, redirectUri)
+    }
+    if (discovery) clientRegistration = discovery.clientRegistration === 'static' && input.clientId
+      ? 'static'
+      : clientRegistration
+    return {
+      ...(resource ? { resource } : {}),
+      authorizationUrl,
+      tokenUrl,
+      ...(registrationUrl ? { registrationUrl } : {}),
+      clientId,
+      redirectUri,
+      scopes,
+      ...(discovery ? {
+        discovery: { ...discovery, clientRegistration }
+      } : {})
+    }
+  }
+
+  private async discoverOAuth(resource: string): Promise<OAuthDiscoveryResult> {
+    const protectedResult = await this.firstOAuthMetadata(
+      wellKnownUrls(resource, 'oauth-protected-resource'),
+      'OAuth protected resource metadata'
+    )
+    const protectedMetadata = protectedResult.value
+    if (protectedMetadata.resource !== undefined &&
+        !sameOAuthIdentifier(requiredString(protectedMetadata.resource, 'OAuth metadata resource'), resource)) {
+      throw new Error('OAuth protected resource metadata does not match the requested resource.')
+    }
+    const authorizationServers = stringArray(
+      protectedMetadata.authorization_servers,
+      'OAuth authorization_servers'
+    )
+    if (authorizationServers.length === 0) {
+      throw new Error('OAuth protected resource metadata has no authorization server.')
+    }
+    const authorizationServer = assertHttpUrl(
+      authorizationServers[0]!,
+      'OAuth authorization server'
+    ).toString()
+    const authorizationResult = await this.firstOAuthMetadata(
+      [
+        ...wellKnownUrls(authorizationServer, 'oauth-authorization-server'),
+        ...wellKnownUrls(authorizationServer, 'openid-configuration')
+      ],
+      'OAuth authorization server metadata'
+    )
+    const metadata = authorizationResult.value
+    if (metadata.issuer !== undefined &&
+        !sameOAuthIdentifier(requiredString(metadata.issuer, 'OAuth issuer'), authorizationServer)) {
+      throw new Error('OAuth authorization server metadata issuer does not match discovery.')
+    }
+    const authorizationUrl = assertHttpUrl(
+      requiredString(metadata.authorization_endpoint, 'OAuth authorization_endpoint'),
+      'OAuth authorization endpoint'
+    ).toString()
+    const tokenUrl = assertHttpUrl(
+      requiredString(metadata.token_endpoint, 'OAuth token_endpoint'),
+      'OAuth token endpoint'
+    ).toString()
+    const registrationUrl = metadata.registration_endpoint === undefined
+      ? undefined
+      : assertHttpUrl(
+        requiredString(metadata.registration_endpoint, 'OAuth registration_endpoint'),
+        'OAuth registration endpoint'
+      ).toString()
+    const codeChallengeMethodsSupported = stringArray(
+      metadata.code_challenge_methods_supported,
+      'OAuth code_challenge_methods_supported'
+    )
+    if (codeChallengeMethodsSupported.length > 0 && !codeChallengeMethodsSupported.includes('S256')) {
+      throw new Error('OAuth authorization server does not support S256 PKCE.')
+    }
+    return {
+      authorizationUrl,
+      tokenUrl,
+      ...(registrationUrl ? { registrationUrl } : {}),
+      scopes: stringArray(metadata.scopes_supported, 'OAuth scopes_supported'),
+      discovery: {
+        protectedResourceMetadataUrl: protectedResult.url,
+        authorizationServer,
+        authorizationServerMetadataUrl: authorizationResult.url,
+        codeChallengeMethodsSupported,
+        clientRegistration: 'dynamic'
+      }
+    }
+  }
+
+  private async registerOAuthClient(registrationUrl: string, redirectUri: string): Promise<string> {
+    const response = await this.fetchOAuth(registrationUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+      body: JSON.stringify({
+        client_name: 'WorkWise',
+        redirect_uris: [redirectUri],
+        grant_types: ['authorization_code', 'refresh_token'],
+        response_types: ['code'],
+        token_endpoint_auth_method: 'none'
+      })
+    })
+    if (!response.ok) {
+      await response.body?.cancel().catch(() => undefined)
+      this.releaseOAuthResponse(response)
+      throw new Error(`OAuth dynamic client registration failed (${response.status}).`)
+    }
+    const value = await this.readOAuthJson(response, 'OAuth client registration response')
+    const method = value.token_endpoint_auth_method
+    if (method !== undefined && method !== 'none') {
+      throw new Error('OAuth dynamic registration requires an unsupported client secret.')
+    }
+    const clientId = requiredString(value.client_id, 'OAuth dynamic client ID')
+    if (clientId.length > 512) throw new Error('OAuth dynamic client ID is too long.')
+    return clientId
+  }
+
+  private async firstOAuthMetadata(
+    urls: string[],
+    label: string
+  ): Promise<{ url: string; value: Record<string, unknown> }> {
+    let lastStatus = 0
+    for (const url of [...new Set(urls)]) {
+      const response = await this.fetchOAuth(url, { headers: { Accept: 'application/json' } })
+      if (response.ok) return { url, value: await this.readOAuthJson(response, label) }
+      lastStatus = response.status
+      await response.body?.cancel().catch(() => undefined)
+      this.releaseOAuthResponse(response)
+      if (response.status !== 404 && response.status !== 400) {
+        throw new Error(`${label} request failed (${response.status}).`)
+      }
+    }
+    throw new Error(`${label} was not found (${lastStatus}).`)
+  }
+
+  private async fetchOAuth(url: string, init: RequestInit): Promise<Response> {
+    assertHttpUrl(url, 'OAuth request URL')
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), OAUTH_REQUEST_TIMEOUT_MS)
+    try {
+      const response = await this.fetchImpl(url, {
+        ...init,
+        redirect: 'manual',
+        signal: controller.signal
+      })
+      this.oauthResponseTimers.set(response, timer)
+      return response
+    } catch (error) {
+      clearTimeout(timer)
+      throw error
+    }
+  }
+
+  private releaseOAuthResponse(response: Response): void {
+    const timer = this.oauthResponseTimers.get(response)
+    if (timer) clearTimeout(timer)
+    this.oauthResponseTimers.delete(response)
+  }
+
+  private async readOAuthJson(response: Response, label: string): Promise<Record<string, unknown>> {
+    const declared = Number(response.headers.get('content-length') ?? '0')
+    if (Number.isFinite(declared) && declared > MAX_OAUTH_RESPONSE_BYTES) {
+      await response.body?.cancel().catch(() => undefined)
+      this.releaseOAuthResponse(response)
+      throw new Error(label + ' exceeds 1 MiB.')
+    }
+    if (!response.body) {
+      this.releaseOAuthResponse(response)
+      throw new Error(label + ' is empty.')
+    }
+    const reader = response.body.getReader()
+    const chunks: Buffer[] = []
+    let total = 0
+    try {
+      while (true) {
+        const result = await reader.read()
+        if (result.done) break
+        const chunk = Buffer.from(result.value)
+        total += chunk.byteLength
+        if (total > MAX_OAUTH_RESPONSE_BYTES) {
+          await reader.cancel(label + ' exceeds 1 MiB.')
+          throw new Error(label + ' exceeds 1 MiB.')
+        }
+        chunks.push(chunk)
+      }
+    } finally {
+      reader.releaseLock()
+      this.releaseOAuthResponse(response)
+    }
+    try {
+      return record(JSON.parse(Buffer.concat(chunks, total).toString('utf8')), label)
+    } catch (error) {
+      if (error instanceof SyntaxError) throw new Error(label + ' is not valid JSON.')
+      throw error
+    }
+  }
+
   private async writeCredential(serverId: string, credential: CredentialPayload): Promise<McpCredentialReferenceV1> {
-    const id = `mcp_${createHash('sha256').update(serverId).digest('hex').slice(0, 24)}`
+    const id = `mcp_${createHash('sha256').update(serverId).digest('hex').slice(0, 16)}_` +
+      base64Url(randomBytes(9))
     if (!this.encryption.available()) {
       this.sessionCredentials.set(id, credential)
       return { id, storage: 'session' }
@@ -301,6 +681,13 @@ export class McpConfigService {
     const encrypted = this.encryption.encrypt(JSON.stringify(credential)).toString('base64')
     await atomicWriteFile(join(this.credentialRoot, `${id}.json`), `${JSON.stringify({ version: 1, encrypted })}\n`)
     return { id, storage: this.encryption.storage }
+  }
+
+  private async removeCredential(reference: McpCredentialReferenceV1): Promise<void> {
+    this.sessionCredentials.delete(reference.id)
+    if (reference.storage !== 'session') {
+      await rm(join(this.credentialRoot, `${reference.id}.json`), { force: true }).catch(() => undefined)
+    }
   }
 
   private async readCredential(reference?: McpCredentialReferenceV1): Promise<CredentialPayload | null> {

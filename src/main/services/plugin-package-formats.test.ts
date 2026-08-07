@@ -277,7 +277,7 @@ describe('plugin package formats', () => {
     expect(prepared.package.availability.status).toBe('available')
   })
 
-  it('marks connector-only Codex plugins and OAuth MCP as unavailable with explicit reasons', async () => {
+  it('marks connector-only Codex plugins unavailable while accepting discoverable OAuth MCP', async () => {
     const connector = await prepare({
       '.codex-plugin/plugin.json': json({
         name: 'connector-only',
@@ -313,8 +313,9 @@ describe('plugin package formats', () => {
 
     expect(connector.compatibility.reasons).toContain('codex-app-connector-required')
     expect(connector.package.availability.status).toBe('unavailable')
-    expect(oauth.compatibility.reasons).toContain('oauth-runtime-pending')
-    expect(oauth.package.auth).toMatchObject({ type: 'oauth', discovery: 'pending' })
+    expect(oauth.compatibility).toEqual({ workwiseCompatible: true, reasons: [] })
+    expect(oauth.package.availability.status).toBe('available')
+    expect(oauth.package.auth).toMatchObject({ type: 'oauth', discovery: 'ready' })
   })
 
   it('adapts MCPB v0.3 configuration and blocks v0.4 uv until its managed runtime exists', async () => {

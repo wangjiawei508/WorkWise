@@ -62,8 +62,15 @@ import {
   logErrorPayloadSchema,
   lspRequestPayloadSchema,
   managedToolIdSchema,
+  catalogSourceIdPayloadSchema,
+  catalogSourcePayloadSchema,
+  pluginInstallPayloadSchema,
+  pluginPreparedIdPayloadSchema,
+  pluginPrepareImportPayloadSchema,
+  pluginRollbackPayloadSchema,
   mcpServerActionPayloadSchema,
   mcpServerAuthorizePayloadSchema,
+  mcpServerCredentialPayloadSchema,
   mcpServerListPayloadSchema,
   mcpServerSavePayloadSchema,
   notificationPayloadSchema,
@@ -184,6 +191,9 @@ import { WorkspacePreviewService } from '../services/workspace-preview-service'
 import { GitCheckpointService } from '../services/git-checkpoint-service'
 import { RepoMapService } from '../services/repo-map-service'
 import { McpConfigService } from '../services/mcp-config-service'
+import { MarketplaceCatalogService } from '../services/marketplace-catalog-service'
+import { PluginManagementService } from '../services/plugin-management-service'
+import type { CatalogSourceV1 } from '../../shared/marketplace'
 
 type GuiUpdaterModule = typeof import('../gui-updater')
 
@@ -222,6 +232,8 @@ type RegisterAppIpcHandlersOptions = {
   loadGuiUpdaterModule: () => Promise<GuiUpdaterModule>
   resolveLogDirectory: () => string
   logError: (category: string, message: string, detail?: unknown) => void
+  marketplaceCatalogService?: MarketplaceCatalogService
+  pluginManagementService?: PluginManagementService
 }
 
 function parseIpcPayload<T>(channel: string, schema: z.ZodType<T>, payload: unknown): T {
@@ -580,6 +592,8 @@ export function registerAppIpcHandlers(options: RegisterAppIpcHandlersOptions): 
   const gitCheckpointService = new GitCheckpointService()
   const repoMapService = new RepoMapService()
   const mcpConfigService = new McpConfigService()
+  const marketplaceCatalogService = options.marketplaceCatalogService ?? new MarketplaceCatalogService()
+  const pluginManagementService = options.pluginManagementService ?? new PluginManagementService()
   let skillCatalogGeneration = 1
 
   const notifySkillsChanged = (): number => {
@@ -809,6 +823,45 @@ export function registerAppIpcHandlers(options: RegisterAppIpcHandlersOptions): 
   ipcMain.handle('mcp-server:authorize', async (_, payload: unknown) => {
     const request = parseIpcPayload('mcp-server:authorize', mcpServerAuthorizePayloadSchema, payload)
     return mcpConfigService.authorize(request)
+  })
+  ipcMain.handle('mcp-server:set-credential', async (_, payload: unknown) => {
+    const request = parseIpcPayload('mcp-server:set-credential', mcpServerCredentialPayloadSchema, payload)
+    return mcpConfigService.setCredential(request)
+  })
+  ipcMain.handle('catalog:list-sources', async () => marketplaceCatalogService.listSources())
+  ipcMain.handle('catalog:list-packages', async () => marketplaceCatalogService.listPackages())
+  ipcMain.handle('catalog:get-snapshot', async (_, payload: unknown) => {
+    const request = parseIpcPayload('catalog:get-snapshot', catalogSourceIdPayloadSchema, payload)
+    return marketplaceCatalogService.getSnapshot(request.sourceId)
+  })
+  ipcMain.handle('catalog:upsert-source', async (_, payload: unknown) => {
+    const source = parseIpcPayload('catalog:upsert-source', catalogSourcePayloadSchema, payload)
+    return marketplaceCatalogService.upsertSource(source as CatalogSourceV1)
+  })
+  ipcMain.handle('catalog:remove-source', async (_, payload: unknown) => {
+    const request = parseIpcPayload('catalog:remove-source', catalogSourceIdPayloadSchema, payload)
+    await marketplaceCatalogService.removeSource(request.sourceId)
+  })
+  ipcMain.handle('catalog:sync-source', async (_, payload: unknown) => {
+    const request = parseIpcPayload('catalog:sync-source', catalogSourceIdPayloadSchema, payload)
+    return marketplaceCatalogService.syncSource(request.sourceId)
+  })
+  ipcMain.handle('plugin:list-installed', async () => pluginManagementService.listInstalled())
+  ipcMain.handle('plugin:prepare-import', async (_, payload: unknown) => {
+    const request = parseIpcPayload('plugin:prepare-import', pluginPrepareImportPayloadSchema, payload)
+    return pluginManagementService.prepareImport(request)
+  })
+  ipcMain.handle('plugin:cancel-import', async (_, payload: unknown) => {
+    const request = parseIpcPayload('plugin:cancel-import', pluginPreparedIdPayloadSchema, payload)
+    return pluginManagementService.cancelPrepared(request.preparedId)
+  })
+  ipcMain.handle('plugin:install', async (_, payload: unknown) => {
+    const request = parseIpcPayload('plugin:install', pluginInstallPayloadSchema, payload)
+    return pluginManagementService.installPrepared(request)
+  })
+  ipcMain.handle('plugin:rollback', async (_, payload: unknown) => {
+    const request = parseIpcPayload('plugin:rollback', pluginRollbackPayloadSchema, payload)
+    return pluginManagementService.rollback(request)
   })
   ipcMain.handle('document-engine:list', async () => {
     const settings = await store.load()
