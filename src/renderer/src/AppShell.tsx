@@ -39,7 +39,7 @@ export default function AppShell(): React.ReactElement {
   }, [boot])
 
   return (
-    <div className={hasDesktopTitleBar ? 'ds-windows-app-frame flex h-full min-h-0 flex-col bg-ds-main' : 'flex h-full min-h-0 flex-col bg-transparent'}>
+    <div className={hasDesktopTitleBar ? 'ds-app-frame ds-windows-app-frame flex h-full min-h-0 flex-col' : 'ds-app-frame flex h-full min-h-0 flex-col bg-transparent'}>
       {hasDesktopTitleBar ? <WindowsTitleBar platform={platform} /> : null}
       <div className="flex min-h-0 flex-1 flex-col">
         <Suspense fallback={<RouteFallback />}>

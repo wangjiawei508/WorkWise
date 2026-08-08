@@ -108,6 +108,7 @@ import type {
   MarketplaceCatalogSyncResultV1,
   PreparedPluginImportV1
 } from './marketplace'
+import type { WindowAppearanceV1 } from './window-appearance'
 import type {
   GitCheckpointV1,
   GitRollbackPreviewV1,
@@ -310,6 +311,8 @@ export type ApplicationMenuAction =
 
 export type WorkWiseApi = {
   platform: string
+  windowAppearance: WindowAppearanceV1
+  onWindowAppearanceChanged: (handler: (appearance: WindowAppearanceV1) => void) => () => void
   onApplicationMenuAction: (handler: (action: ApplicationMenuAction) => void) => () => void
   getSettings: () => Promise<WorkWiseSettingsV2>
   setSettings: (partial: AppSettingsPatch, expectedRevision?: number) => Promise<WorkWiseSettingsV2>

@@ -1,5 +1,6 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import type { WorkWiseApi } from '../shared/workwise-api'
+import { parseWindowAppearanceArguments } from '../shared/window-appearance'
 import {
   RUNTIME_TASKS_PATH,
   RUNTIME_SHELL_SESSIONS_PATH,
@@ -42,6 +43,15 @@ async function runtimeJson<T>(path: string, method = 'GET', body?: unknown): Pro
 
 const api = {
   platform: process.platform,
+  windowAppearance: parseWindowAppearanceArguments(process.argv),
+  onWindowAppearanceChanged: (handler) => {
+    const wrapped = (
+      _event: Electron.IpcRendererEvent,
+      appearance: Parameters<typeof handler>[0]
+    ): void => handler(appearance)
+    ipcRenderer.on('window:appearance-changed', wrapped)
+    return () => ipcRenderer.removeListener('window:appearance-changed', wrapped)
+  },
   onApplicationMenuAction: (handler) => {
     const wrapped = (
       _event: Electron.IpcRendererEvent,

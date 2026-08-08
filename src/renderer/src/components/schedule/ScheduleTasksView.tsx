@@ -391,7 +391,7 @@ export function ScheduleTasksView({
   }
 
   return (
-    <div className="ds-drag flex h-full min-h-0 flex-col bg-ds-main">
+    <div className="ds-opaque-work-surface ds-drag flex h-full min-h-0 flex-col bg-ds-main">
       <div className="ds-stage-inset shrink-0">
         <header className="ds-topbar-surface relative z-10 mt-3 flex min-h-[46px] w-full items-stretch overflow-visible rounded-[24px]">
           <div className="grid w-full min-w-0 items-center gap-2.5 px-3 py-2 sm:px-4 md:pl-5 md:pr-2">
