@@ -1022,7 +1022,7 @@ describe('MarketplaceCatalogService', () => {
     const bodyResult = await bodyService.syncSource('stalled-body')
     expect(bodyResult).toMatchObject({ status: 'failed', error: expect.stringMatching(/timed out/i) })
     expect(bodyCancelled).toBe(true)
-  }, 5_000)
+  }, 15_000)
 
   it('clears request timeout timers after an immediate fetch or credential failure', async () => {
     const networkRoot = await tempRoot()

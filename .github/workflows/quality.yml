@@ -47,7 +47,8 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run typecheck
-      - run: >-
+      - name: Run core Windows security tests
+        run: >-
           npm test -- --run
           src/main/services/canonical-containment.test.ts
           src/main/services/safe-spawn.test.ts
@@ -63,6 +64,9 @@ jobs:
           src/main/services/office-archive-security.test.ts
           src/main/services/workspace-preview-service.test.ts
           src/main/services/bounded-response.test.ts
+      - name: Run plugin Windows security tests
+        run: >-
+          npm test -- --run
           src/main/services/package-installation-service.test.ts
           src/main/services/plugin-archive-security.test.ts
           src/main/services/plugin-package-formats.test.ts

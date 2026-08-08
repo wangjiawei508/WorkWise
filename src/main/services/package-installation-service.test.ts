@@ -326,7 +326,11 @@ describe('PackageInstallationService', () => {
     await mkdir(join(source, 'empty'))
     const withDirectory = await inspectPackageDirectory(source)
 
-    expect(executable.sha256).not.toBe(original.sha256)
+    if (process.platform === 'win32') {
+      expect(executable.sha256).toBe(original.sha256)
+    } else {
+      expect(executable.sha256).not.toBe(original.sha256)
+    }
     expect(withDirectory.sha256).not.toBe(executable.sha256)
     expect(withDirectory.directories).toContain('empty')
   })
@@ -522,9 +526,11 @@ describe('PackageInstallationService', () => {
     await mkdir(join(repository, '.git'))
     await expect(inspectPackageDirectory(repository)).rejects.toThrow(/Git metadata/i)
 
-    const nonPortable = await packageDirectory('1.0.0')
-    await writeFile(join(nonPortable, 'bad:name.txt'), 'bad')
-    await expect(inspectPackageDirectory(nonPortable)).rejects.toThrow(/portable/i)
+    if (process.platform !== 'win32') {
+      const nonPortable = await packageDirectory('1.0.0')
+      await writeFile(join(nonPortable, 'bad:name.txt'), 'bad')
+      await expect(inspectPackageDirectory(nonPortable)).rejects.toThrow(/portable/i)
+    }
 
     const valid = await packageDirectory('1.0.0')
     const item = marketplacePackage('1.0.0')

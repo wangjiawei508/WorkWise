@@ -146,6 +146,15 @@ describe('materializePypiPackage', () => {
     const target = join(root, 'target')
     const uvPath = join(root, 'uv')
     const managedPython = join(root, 'managed-python')
+    const virtualEnvPython = process.platform === 'win32'
+      ? join(target, '.venv', 'Scripts', 'python.exe')
+      : join(target, '.venv', 'bin', 'python')
+    const virtualEnvSitePackages = process.platform === 'win32'
+      ? join(target, '.venv', 'Lib', 'site-packages')
+      : join(target, '.venv', 'lib', 'python3.12', 'site-packages')
+    const portableSitePackages = process.platform === 'win32'
+      ? '.venv/Lib/site-packages'
+      : '.venv/lib/python3.12/site-packages'
     await writeFile(uvPath, 'uv')
     await writeFile(managedPython, 'python')
     const bytes = await wheel()
@@ -188,16 +197,15 @@ describe('materializePypiPackage', () => {
         return { stdout: '' }
       }
       if (executable === uvPath && args[0] === 'venv') {
-        await mkdir(join(target, '.venv', 'bin'), { recursive: true })
-        await writeFile(join(target, '.venv', 'bin', 'python'), 'venv-python')
+        await mkdir(join(virtualEnvPython, '..'), { recursive: true })
+        await writeFile(virtualEnvPython, 'venv-python')
         return { stdout: '' }
       }
       if (executable === uvPath && args[0] === 'pip' && args[1] === 'sync') return { stdout: '' }
-      if (executable === join(target, '.venv', 'bin', 'python')) {
+      if (executable === virtualEnvPython) {
         if (args.join(' ').includes('sysconfig')) {
-          const sitePackages = join(target, '.venv', 'lib', 'python3.12', 'site-packages')
-          await mkdir(sitePackages, { recursive: true })
-          return { stdout: `${sitePackages}\n` }
+          await mkdir(virtualEnvSitePackages, { recursive: true })
+          return { stdout: `${virtualEnvSitePackages}\n` }
         }
         return { stdout: JSON.stringify({ name: 'fixture-package', version: '1.0.0', entrypoints: ['fixture-mcp'] }) }
       }
@@ -225,7 +233,7 @@ describe('materializePypiPackage', () => {
       entrypoints: ['fixture-mcp'],
       uvVersion: '0.12.3',
       pythonVersion: '3.12.12',
-      sitePackages: '.venv/lib/python3.12/site-packages'
+      sitePackages: portableSitePackages
     })
     expect(run).toHaveBeenCalledWith(uvPath, expect.arrayContaining([
       'pip', 'compile', '--generate-hashes', '--exclude-newer', '2026-08-01T12:00:00.000Z'
