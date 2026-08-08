@@ -1412,6 +1412,15 @@ export const pluginRollbackPayloadSchema = z.object({
   idempotencyKey: trimmedString(MAX_ID_LENGTH)
 }).strict()
 
+export const pluginPermissionsUpdatePayloadSchema = z.object({
+  packageId: trimmedString(256),
+  expectedCurrentVersion: trimmedString(256),
+  reviewSha256: z.string().regex(/^[0-9a-f]{64}$/i),
+  permissions: z.array(installedPermissionDecisionSchema).max(128),
+  workspaceRoot: optionalTrimmedString(MAX_PATH_LENGTH),
+  idempotencyKey: trimmedString(MAX_ID_LENGTH)
+}).strict()
+
 export const documentEngineIdSchema = z.enum(['markitdown', 'mineru-local', 'mineru-private'])
 
 export const documentParsePayloadSchema = z.object({

@@ -633,6 +633,8 @@
   "pluginUnifiedCancel": "取消",
   "pluginUnifiedInstall": "安装",
   "pluginUnifiedInstalled": "已安装 {{name}}。",
+  "pluginUnifiedPermissionsUpdated": "已更新 {{name}} 的权限。",
+  "pluginUnifiedApplyPermissions": "应用",
   "pluginUnifiedRollback": "回滚",
   "pluginUnifiedRolledBack": "已回滚 {{name}}。",
   "pluginUnifiedPackageInfo": "插件包",

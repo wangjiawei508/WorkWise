@@ -16,10 +16,15 @@ import type {
   InstalledPackagePermissionV1,
   InstalledPackageV1,
   MarketplacePackageV1,
+  PackageSourceV1,
   PackageHealthV1
 } from '../../shared/marketplace'
 import { evaluateMarketplaceLicense } from '../../shared/marketplace'
-import { isCanonicalPathContained, recheckContainedParent } from './canonical-containment'
+import {
+  canonicalizeContainmentRoot,
+  isCanonicalPathContained,
+  recheckContainedParent
+} from './canonical-containment'
 import { atomicWriteFile, readRecoveredFile, runSerialized } from './durable-file'
 
 const INSTALL_MANIFEST_SCHEMA = 'workwise.installed-packages'
@@ -31,12 +36,28 @@ const MAX_INSTALLED_PACKAGES = 1_000
 const MAX_MUTATION_KEYS = 128
 const MAX_IDENTIFIER_LENGTH = 256
 
-export const PACKAGE_INSTALL_LIMITS = Object.freeze({
+export type PackageInstallLimitsV1 = Readonly<{
+  maxFiles: number
+  maxEntries: number
+  maxTotalBytes: number
+  maxFileBytes: number
+  maxDepth: number
+}>
+
+export const PACKAGE_INSTALL_LIMITS: PackageInstallLimitsV1 = Object.freeze({
   maxFiles: 4_096,
   maxEntries: 8_192,
   maxTotalBytes: 128 * 1024 * 1024,
   maxFileBytes: 32 * 1024 * 1024,
   maxDepth: 24
+})
+
+export const MANAGED_PYPI_INSTALL_LIMITS: PackageInstallLimitsV1 = Object.freeze({
+  maxFiles: 50_000,
+  maxEntries: 75_000,
+  maxTotalBytes: 1024 * 1024 * 1024,
+  maxFileBytes: 128 * 1024 * 1024,
+  maxDepth: 64
 })
 
 export type PackageTreeInspectionV1 = {
@@ -47,7 +68,9 @@ export type PackageTreeInspectionV1 = {
   directories: string[]
 }
 
-type StoredInstalledPackageV1 = Omit<InstalledPackageV1, 'rollback'>
+type StoredInstalledPackageV1 = Omit<InstalledPackageV1, 'rollback'> & {
+  reviewedPackage?: MarketplacePackageV1
+}
 
 type StoredPackageRecordV1 = {
   current: StoredInstalledPackageV1
@@ -56,7 +79,7 @@ type StoredPackageRecordV1 = {
 
 type InstallationMutationV1 = {
   packageId: string
-  action: 'install' | 'rollback'
+  action: 'install' | 'rollback' | 'permissions'
   version: string
 }
 
@@ -75,6 +98,7 @@ export type InstallPackageRequestV1 = {
   expectedCurrentVersion: string | null
   reviewSha256: string
   scope: InstalledPackageV1['scope']
+  workspaceRoot?: string
   permissions: InstalledPackagePermissionV1[]
   idempotencyKey: string
 }
@@ -82,6 +106,25 @@ export type InstallPackageRequestV1 = {
 export type RollbackPackageRequestV1 = {
   packageId: string
   expectedCurrentVersion: string
+  idempotencyKey: string
+}
+
+export type CompensateFailedInstallRequestV1 = {
+  packageId: string
+  failedVersion: string
+  failedReviewSha256: string
+  failedArtifactSha256: string
+  installIdempotencyKey: string
+}
+
+export type UpdatePackagePermissionsRequestV1 = {
+  package: MarketplacePackageV1
+  packageId: string
+  expectedCurrentVersion: string
+  reviewSha256: string
+  workspaceRoot?: string
+  declaredPermissionIds: string[]
+  permissions: InstalledPackagePermissionV1[]
   idempotencyKey: string
 }
 
@@ -115,6 +158,29 @@ function canonicalJson(value: unknown): string {
   return '{' + Object.keys(record).sort().map((key) =>
     JSON.stringify(key) + ':' + canonicalJson(record[key])
   ).join(',') + '}'
+}
+
+export function marketplacePackagePermissionUpdateIdentity(item: MarketplacePackageV1): string {
+  return canonicalJson({
+    schemaVersion: item.schemaVersion,
+    id: item.id,
+    version: item.version,
+    publisher: item.publisher,
+    license: item.license,
+    source: item.source,
+    sources: item.sources,
+    components: item.components,
+    auth: item.auth,
+    licenseEvidence: item.licenseEvidence,
+    dependencies: item.dependencies,
+    hooks: item.hooks,
+    signature: item.signature,
+    configuration: item.configuration,
+    updatePolicy: item.updatePolicy,
+    compatibility: item.compatibility,
+    availability: item.availability,
+    installation: item.installation
+  })
 }
 
 function requiredString(value: unknown, label: string): string {
@@ -249,7 +315,9 @@ async function scanPackageTree(options: {
   sourceDirectory: string
   destinationDirectory?: string
   fileCopyHook?: PackageInstallationServiceOptions['fileCopyHook']
+  limits?: PackageInstallLimitsV1
 }): Promise<PackageTreeInspectionV1> {
+  const limits = options.limits ?? PACKAGE_INSTALL_LIMITS
   const lexicalRoot = resolve(options.sourceDirectory)
   const lexicalInfo = await lstat(lexicalRoot)
   if (lexicalInfo.isSymbolicLink() || !lexicalInfo.isDirectory()) {
@@ -270,8 +338,8 @@ async function scanPackageTree(options: {
   let totalBytes = 0
 
   const visit = async (directory: string, relativeDirectory: string, depth: number): Promise<void> => {
-    if (depth > PACKAGE_INSTALL_LIMITS.maxDepth) {
-      throw new Error(`Package directory depth exceeds ${PACKAGE_INSTALL_LIMITS.maxDepth}.`)
+    if (depth > limits.maxDepth) {
+      throw new Error(`Package directory depth exceeds ${limits.maxDepth}.`)
     }
     const beforeDirectory = await lstat(directory)
     if (beforeDirectory.isSymbolicLink() || !beforeDirectory.isDirectory()) {
@@ -288,8 +356,8 @@ async function scanPackageTree(options: {
       const collisionKey = portablePath.normalize('NFC').toLowerCase()
       if (collisions.has(collisionKey)) throw new Error(`Package path collision at ${portablePath}.`)
       collisions.add(collisionKey)
-      if (collisions.size > PACKAGE_INSTALL_LIMITS.maxEntries) {
-        throw new Error(`Package entry count exceeds ${PACKAGE_INSTALL_LIMITS.maxEntries}.`)
+      if (collisions.size > limits.maxEntries) {
+        throw new Error(`Package entry count exceeds ${limits.maxEntries}.`)
       }
 
       const sourcePath = join(directory, entry.name)
@@ -307,15 +375,15 @@ async function scanPackageTree(options: {
         continue
       }
       if (!pathInfo.isFile()) throw new Error(`Package special file is not allowed: ${portablePath}.`)
-      if (files.length + 1 > PACKAGE_INSTALL_LIMITS.maxFiles) {
-        throw new Error(`Package file count exceeds ${PACKAGE_INSTALL_LIMITS.maxFiles}.`)
+      if (files.length + 1 > limits.maxFiles) {
+        throw new Error(`Package file count exceeds ${limits.maxFiles}.`)
       }
-      if (pathInfo.size > PACKAGE_INSTALL_LIMITS.maxFileBytes) {
-        throw new Error(`Package file exceeds ${PACKAGE_INSTALL_LIMITS.maxFileBytes} bytes: ${portablePath}.`)
+      if (pathInfo.size > limits.maxFileBytes) {
+        throw new Error(`Package file exceeds ${limits.maxFileBytes} bytes: ${portablePath}.`)
       }
       totalBytes += pathInfo.size
-      if (totalBytes > PACKAGE_INSTALL_LIMITS.maxTotalBytes) {
-        throw new Error(`Package expands beyond ${PACKAGE_INSTALL_LIMITS.maxTotalBytes} bytes.`)
+      if (totalBytes > limits.maxTotalBytes) {
+        throw new Error(`Package expands beyond ${limits.maxTotalBytes} bytes.`)
       }
 
       await assertNoLinkedAncestors(root, sourcePath)
@@ -393,25 +461,37 @@ export function marketplacePackageReviewSha256(item: MarketplacePackageV1): stri
 }
 
 export function inspectPackageDirectory(
-  sourceDirectory: string
+  sourceDirectory: string,
+  limits: PackageInstallLimitsV1 = PACKAGE_INSTALL_LIMITS
 ): Promise<PackageTreeInspectionV1> {
-  return scanPackageTree({ sourceDirectory })
+  return scanPackageTree({ sourceDirectory, limits })
+}
+
+export function packageInstallLimitsForSource(source: PackageSourceV1): PackageInstallLimitsV1 {
+  return source.kind === 'pypi' && source.catalogSourceId === 'workwise-official'
+    ? MANAGED_PYPI_INSTALL_LIMITS
+    : PACKAGE_INSTALL_LIMITS
+}
+
+export function packageInstallLimitsFor(item: MarketplacePackageV1): PackageInstallLimitsV1 {
+  return packageInstallLimitsForSource(item.source)
 }
 
 export async function stagePackageDirectory(
   sourceDirectory: string,
-  destinationDirectory: string
+  destinationDirectory: string,
+  limits: PackageInstallLimitsV1 = PACKAGE_INSTALL_LIMITS
 ): Promise<PackageTreeInspectionV1> {
   if (await pathExists(destinationDirectory)) {
     throw new Error('Package staging destination must not already exist.')
   }
   try {
-    const copied = await scanPackageTree({ sourceDirectory, destinationDirectory })
-    const sourceAfterCopy = await scanPackageTree({ sourceDirectory })
+    const copied = await scanPackageTree({ sourceDirectory, destinationDirectory, limits })
+    const sourceAfterCopy = await scanPackageTree({ sourceDirectory, limits })
     if (canonicalJson(sourceAfterCopy) !== canonicalJson(copied)) {
       throw new Error('Package source changed after it was staged.')
     }
-    const staged = await scanPackageTree({ sourceDirectory: destinationDirectory })
+    const staged = await scanPackageTree({ sourceDirectory: destinationDirectory, limits })
     if (canonicalJson(staged) !== canonicalJson(copied)) {
       throw new Error('Staged package content does not match its verified source.')
     }
@@ -433,8 +513,9 @@ function emptyManifest(): InstallationManifestV1 {
 }
 
 function installedPackage(record: StoredPackageRecordV1): InstalledPackageV1 {
+  const { reviewedPackage: _reviewedPackage, ...current } = record.current
   return clone({
-    ...record.current,
+    ...current,
     rollback: record.rollback
       ? {
           available: true,
@@ -488,8 +569,21 @@ export class PackageInstallationService {
     })
   }
 
+  async getReviewedPackage(packageId: string): Promise<MarketplacePackageV1 | null> {
+    return runSerialized(this.manifestQueue(), async () => {
+      await this.ensureRoot()
+      const record = (await this.readManifest()).records.find((item) =>
+        item.current.packageId === packageId
+      )
+      return record?.current.reviewedPackage ? clone(record.current.reviewedPackage) : null
+    })
+  }
+
   async install(request: InstallPackageRequestV1): Promise<InstalledPackageV1> {
     this.assertInstallRequest(request)
+    const workspaceRoot = request.scope === 'workspace'
+      ? await canonicalizeContainmentRoot(request.workspaceRoot!)
+      : undefined
     return runSerialized(this.packageQueue(request.package.id), async () => {
       await this.ensureRoot()
       const replay = await this.findMutation(request.idempotencyKey)
@@ -502,24 +596,26 @@ export class PackageInstallationService {
       )
 
       const staging = join(this.rootDirectory, 'staging', randomUUID())
+      const limits = packageInstallLimitsFor(request.package)
       let activatedNew = false
       let versionLocation = ''
       try {
         const copied = await scanPackageTree({
           sourceDirectory: request.sourceDirectory,
           destinationDirectory: staging,
-          fileCopyHook: this.fileCopyHook
+          fileCopyHook: this.fileCopyHook,
+          limits
         })
         if (copied.sha256 !== request.expectedContentSha256.toLowerCase()) {
           throw new Error('Package content SHA-256 verification failed.')
         }
-        const sourceAfterCopy = await scanPackageTree({ sourceDirectory: request.sourceDirectory })
+        const sourceAfterCopy = await scanPackageTree({ sourceDirectory: request.sourceDirectory, limits })
         if (canonicalJson(sourceAfterCopy) !== canonicalJson(copied)) {
           throw new Error('Package source changed after it was staged.')
         }
         this.assertLicenseFiles(request.package, copied.paths)
 
-        const staged = await scanPackageTree({ sourceDirectory: staging })
+        const staged = await scanPackageTree({ sourceDirectory: staging, limits })
         if (canonicalJson(staged) !== canonicalJson(copied)) {
           throw new Error('Staged package content does not match its verified source.')
         }
@@ -527,7 +623,7 @@ export class PackageInstallationService {
         await mkdir(dirname(versionLocation), { recursive: true, mode: 0o700 })
         await recheckContainedParent(this.rootDirectory, versionLocation)
         if (await pathExists(versionLocation)) {
-          const existing = await scanPackageTree({ sourceDirectory: versionLocation })
+          const existing = await scanPackageTree({ sourceDirectory: versionLocation, limits })
           if (existing.sha256 !== copied.sha256) {
             throw new Error('Existing package version directory failed integrity verification.')
           }
@@ -538,7 +634,7 @@ export class PackageInstallationService {
           await syncPackageDirectories(versionLocation, copied.directories)
         }
 
-        const beforeHealth = await scanPackageTree({ sourceDirectory: versionLocation })
+        const beforeHealth = await scanPackageTree({ sourceDirectory: versionLocation, limits })
         if (beforeHealth.sha256 !== copied.sha256) {
           throw new Error('Activated package failed integrity verification.')
         }
@@ -550,7 +646,7 @@ export class PackageInstallationService {
         if (health.status === 'unhealthy') {
           throw new Error(health.message ?? 'Package health check failed.')
         }
-        const afterHealth = await scanPackageTree({ sourceDirectory: versionLocation })
+        const afterHealth = await scanPackageTree({ sourceDirectory: versionLocation, limits })
         if (canonicalJson(afterHealth) !== canonicalJson(beforeHealth)) {
           throw new Error('Package content changed during its health check.')
         }
@@ -561,7 +657,10 @@ export class PackageInstallationService {
           fileCount: copied.fileCount,
           totalBytes: copied.totalBytes
         }
-        const result = await this.commitInstall(request, artifact, health)
+        const result = await this.commitInstall({
+          ...request,
+          ...(workspaceRoot ? { workspaceRoot } : {})
+        }, artifact, health)
         activatedNew = false
         return result
       } catch (error) {
@@ -573,6 +672,48 @@ export class PackageInstallationService {
         await this.removeContainedDirectory(staging).catch(() => undefined)
       }
     })
+  }
+
+  async compensateFailedInstall(
+    request: CompensateFailedInstallRequestV1
+  ): Promise<InstalledPackageV1 | null> {
+    requiredString(request.packageId, 'Package ID')
+    requiredString(request.failedVersion, 'Failed package version')
+    mutationKey(request.installIdempotencyKey)
+    if (!CONTENT_SHA256.test(request.failedReviewSha256) ||
+        !CONTENT_SHA256.test(request.failedArtifactSha256)) {
+      throw new Error('Failed package compensation metadata is invalid.')
+    }
+    let failedLocation: string | undefined
+    const restored = await runSerialized(this.packageQueue(request.packageId), async () =>
+      runSerialized(this.manifestQueue(), async () => {
+        await this.ensureRoot()
+        const manifest = await this.readManifest()
+        const index = manifest.records.findIndex((item) => item.current.packageId === request.packageId)
+        if (index < 0) return null
+        const record = manifest.records[index]!
+        if (record.current.version !== request.failedVersion ||
+            record.current.reviewSha256 !== request.failedReviewSha256.toLowerCase() ||
+            record.current.artifact.sha256 !== request.failedArtifactSha256.toLowerCase()) {
+          throw new Error('Installed package changed before failed activation could be compensated.')
+        }
+        failedLocation = record.current.artifact.location
+        if (record.rollback) manifest.records[index] = { current: record.rollback }
+        else manifest.records.splice(index, 1)
+        const mutation = manifest.mutationKeys[request.installIdempotencyKey]
+        if (mutation?.packageId === request.packageId && mutation.action === 'install' &&
+            mutation.version === request.failedVersion) {
+          delete manifest.mutationKeys[request.installIdempotencyKey]
+        }
+        manifest.revision += 1
+        await this.persistManifest(manifest)
+        return record.rollback ? installedPackage({ current: record.rollback }) : null
+      })
+    )
+    if (failedLocation && restored?.artifact.location !== failedLocation) {
+      await this.removeContainedDirectory(failedLocation).catch(() => undefined)
+    }
+    return restored
   }
 
   async rollback(request: RollbackPackageRequestV1): Promise<InstalledPackageV1> {
@@ -601,7 +742,11 @@ export class PackageInstallationService {
           throw new Error('Installed package version changed before rollback.')
         }
         if (!record.rollback) throw new Error('No package rollback is available.')
-        const inspected = await scanPackageTree({ sourceDirectory: record.rollback.artifact.location })
+        const limits = packageInstallLimitsForSource(record.rollback.source)
+        const inspected = await scanPackageTree({
+          sourceDirectory: record.rollback.artifact.location,
+          limits
+        })
         if (inspected.sha256 !== record.rollback.artifact.sha256 ||
             inspected.fileCount !== record.rollback.artifact.fileCount ||
             inspected.totalBytes !== record.rollback.artifact.totalBytes) {
@@ -614,7 +759,10 @@ export class PackageInstallationService {
           record.rollback.artifact.location
         )
         if (health.status === 'unhealthy') throw new Error(health.message ?? 'Rollback health check failed.')
-        const afterHealth = await scanPackageTree({ sourceDirectory: record.rollback.artifact.location })
+        const afterHealth = await scanPackageTree({
+          sourceDirectory: record.rollback.artifact.location,
+          limits
+        })
         if (canonicalJson(afterHealth) !== canonicalJson(inspected)) {
           throw new Error('Rollback package content changed during its health check.')
         }
@@ -634,6 +782,106 @@ export class PackageInstallationService {
           packageId: request.packageId,
           action: 'rollback',
           version: nextCurrent.version
+        })
+        await this.persistManifest(manifest)
+        return installedPackage(manifest.records[index]!)
+      })
+    )
+  }
+
+  async updatePermissions(request: UpdatePackagePermissionsRequestV1): Promise<InstalledPackageV1> {
+    requiredString(request.packageId, 'Package ID')
+    requiredString(request.expectedCurrentVersion, 'Expected package version')
+    if (!CONTENT_SHA256.test(request.reviewSha256)) throw new Error('Package review SHA-256 is invalid.')
+    if (marketplacePackageReviewSha256(request.package) !== request.reviewSha256.toLowerCase()) {
+      throw new Error('Package review is stale; review the package again.')
+    }
+    mutationKey(request.idempotencyKey)
+    if (!Array.isArray(request.declaredPermissionIds) || request.declaredPermissionIds.length > 128) {
+      throw new Error('Package permission declarations exceed the safety limit.')
+    }
+    const declared = new Set(request.declaredPermissionIds)
+    if (declared.size !== request.declaredPermissionIds.length ||
+        [...declared].some((permissionId) => !permissionId || permissionId.length > 128)) {
+      throw new Error('Package permission declarations are invalid.')
+    }
+    const packageDeclared = new Set(request.package.permissions.map((permission) => permission.id))
+    if (packageDeclared.size !== request.package.permissions.length ||
+        packageDeclared.size !== declared.size ||
+        [...packageDeclared].some((permissionId) => !declared.has(permissionId))) {
+      throw new Error('Package permission declarations do not match the reviewed package.')
+    }
+    if (!Array.isArray(request.permissions) || request.permissions.length !== declared.size) {
+      throw new Error('Every package permission must be reviewed.')
+    }
+    const decisions = new Map<string, InstalledPackagePermissionV1>()
+    for (const permission of request.permissions) {
+      if (!declared.has(permission.permissionId) || decisions.has(permission.permissionId) ||
+          (permission.decision !== 'granted' && permission.decision !== 'denied')) {
+        throw new Error('Package permission decisions are invalid.')
+      }
+      decisions.set(permission.permissionId, clone(permission))
+    }
+    if (decisions.size !== declared.size) throw new Error('Every package permission must be reviewed.')
+    return runSerialized(this.packageQueue(request.packageId), async () =>
+      runSerialized(this.manifestQueue(), async () => {
+        await this.ensureRoot()
+        const manifest = await this.readManifest()
+        const replay = manifest.mutationKeys[request.idempotencyKey]
+        if (replay) {
+          if (replay.packageId !== request.packageId || replay.action !== 'permissions') {
+            throw new Error('Idempotency key was already used for another package mutation.')
+          }
+          const replayed = manifest.records.find((item) => item.current.packageId === request.packageId)
+          if (!replayed || replayed.current.version !== replay.version) {
+            throw new Error('Idempotent permission update result is no longer available.')
+          }
+          return installedPackage(replayed)
+        }
+        const index = manifest.records.findIndex((item) => item.current.packageId === request.packageId)
+        if (index < 0) throw new Error('Package is not installed.')
+        const record = manifest.records[index]!
+        if (record.current.version !== request.expectedCurrentVersion) {
+          throw new Error('Installed package version changed before permissions could be updated.')
+        }
+        if (request.package.id !== record.current.packageId ||
+            request.package.version !== record.current.version ||
+            request.package.source.id !== record.current.source.id) {
+          throw new Error('Package metadata does not match the installed package.')
+        }
+        if (record.current.reviewedPackage &&
+            marketplacePackagePermissionUpdateIdentity(record.current.reviewedPackage) !==
+              marketplacePackagePermissionUpdateIdentity(request.package)) {
+          throw new Error('Package runtime metadata changed without a version update.')
+        }
+        if (record.current.scope === 'workspace') {
+          const workspaceRoot = request.workspaceRoot
+            ? await canonicalizeContainmentRoot(request.workspaceRoot)
+            : undefined
+          if (!record.current.workspaceRoot || workspaceRoot !== record.current.workspaceRoot) {
+            throw new Error('Workspace package permissions must be updated from their installed workspace.')
+          }
+        } else if (request.workspaceRoot !== undefined) {
+          throw new Error('Only workspace-scoped packages may use a workspace root.')
+        }
+        const now = this.now().toISOString()
+        const current: StoredInstalledPackageV1 = {
+          ...record.current,
+          reviewSha256: request.reviewSha256.toLowerCase(),
+          reviewedPackage: clone(request.package),
+          permissions: [...decisions.values()],
+          timestamps: {
+            ...record.current.timestamps,
+            updatedAt: now,
+            ...(this.healthCheck ? { lastCheckedAt: now } : {})
+          }
+        }
+        manifest.records[index] = { ...record, current }
+        manifest.revision += 1
+        this.recordMutation(manifest, request.idempotencyKey, {
+          packageId: request.packageId,
+          action: 'permissions',
+          version: current.version
         })
         await this.persistManifest(manifest)
         return installedPackage(manifest.records[index]!)
@@ -671,6 +919,7 @@ export class PackageInstallationService {
           sourceId: component.sourceId
         })),
         scope: request.scope,
+        ...(request.scope === 'workspace' ? { workspaceRoot: resolve(request.workspaceRoot!) } : {}),
         artifact: clone(artifact),
         permissions: clone(request.permissions),
         timestamps: {
@@ -679,6 +928,7 @@ export class PackageInstallationService {
           ...(this.healthCheck ? { lastCheckedAt: now } : {})
         },
         updatePolicy: clone(request.package.updatePolicy),
+        reviewedPackage: clone(request.package),
         health: clone(health)
       }
       if (currentRecord?.rollback &&
@@ -718,6 +968,13 @@ export class PackageInstallationService {
     }
     if (!new Set(['user', 'workspace', 'team', 'system']).has(request.scope)) {
       throw new Error('Package installation scope is invalid.')
+    }
+    if (request.scope === 'workspace') {
+      if (!request.workspaceRoot?.trim() || request.workspaceRoot.includes('\0')) {
+        throw new Error('Workspace-scoped package installation requires a workspace root.')
+      }
+    } else if (request.workspaceRoot !== undefined) {
+      throw new Error('Only workspace-scoped packages may use a workspace root.')
     }
     if (!Array.isArray(item.sources) || item.sources.length === 0 || item.sources.length > 64 ||
         !Array.isArray(item.components) || item.components.length > 128 ||
@@ -889,8 +1146,24 @@ export class PackageInstallationService {
     if (!new Set(['user', 'workspace', 'team', 'system']).has(String(item.scope))) {
       throw new Error('Installed package scope is invalid.')
     }
+    if ((item.scope === 'workspace' &&
+        (typeof item.workspaceRoot !== 'string' || resolve(item.workspaceRoot) !== item.workspaceRoot)) ||
+        (item.scope !== 'workspace' && item.workspaceRoot !== undefined)) {
+      throw new Error('Installed package workspace root is invalid.')
+    }
+    let reviewedPackage: MarketplacePackageV1 | undefined
+    if (item.reviewedPackage !== undefined) {
+      const value = requiredRecord(item.reviewedPackage, 'Installed reviewed package metadata')
+      reviewedPackage = clone(value as unknown as MarketplacePackageV1)
+      if (marketplacePackageReviewSha256(reviewedPackage) !== reviewSha256.toLowerCase() ||
+          reviewedPackage.id !== packageId || reviewedPackage.version !== item.version ||
+          reviewedPackage.source?.id !== (item.source as { id?: unknown }).id) {
+        throw new Error('Installed reviewed package metadata is invalid.')
+      }
+    }
     return clone({
       ...item,
+      ...(reviewedPackage ? { reviewedPackage } : {}),
       artifact: this.parseArtifact(item.artifact, packageId)
     } as unknown as StoredInstalledPackageV1)
   }
@@ -943,7 +1216,9 @@ export class PackageInstallationService {
       mutationKey(key)
       const mutation = requiredRecord(value, 'Installed package mutation')
       const action = mutation.action
-      if (action !== 'install' && action !== 'rollback') throw new Error('Package mutation action is invalid.')
+      if (action !== 'install' && action !== 'rollback' && action !== 'permissions') {
+        throw new Error('Package mutation action is invalid.')
+      }
       mutationKeys[key] = {
         packageId: boundedString(mutation.packageId, 'Package mutation ID'),
         action,

@@ -318,7 +318,7 @@ describe('plugin package formats', () => {
     expect(oauth.package.auth).toMatchObject({ type: 'oauth', discovery: 'ready' })
   })
 
-  it('adapts MCPB v0.3 configuration and blocks v0.4 uv until its managed runtime exists', async () => {
+  it('adapts MCPB v0.3 configuration and binds v0.4 uv to the managed runtime', async () => {
     const node = await prepare({
       'manifest.json': json({
         manifest_version: '0.3',
@@ -372,6 +372,8 @@ describe('plugin package formats', () => {
         }
       }),
       'server/main.py': 'print("ready")\n',
+      'pyproject.toml': '[project]\nname = "uv-mcpb"\nversion = "1.0.0"\n',
+      'uv.lock': 'version = 1\nrevision = 1\nrequires-python = ">=3.12"\n',
       LICENSE: 'ISC License\n'
     }, 'mcpb-uv')
 
@@ -382,8 +384,12 @@ describe('plugin package formats', () => {
       compatibility: { platforms: ['darwin', 'win32'] }
     })
     expect(node.package.configuration?.map((field) => field.key)).toEqual(['API_TOKEN', 'ROOT'])
-    expect(uv.compatibility.reasons).toContain('managed-uv-runtime-required')
-    expect(uv.package.availability.status).toBe('unavailable')
+    expect(uv.compatibility.reasons).toEqual([])
+    expect(uv.package).toMatchObject({
+      availability: { status: 'available' },
+      components: [{ runtime: { kind: 'bundled', managedRuntime: 'uv' } }],
+      dependencies: [{ id: 'uv-runtime', managedBy: 'workwise' }]
+    })
   })
 
   it('does not claim runtime compatibility when an MCP environment contains uncaptured fixed values', async () => {

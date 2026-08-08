@@ -220,6 +220,7 @@ export type BundledPackageRuntimeV1 = {
   entrypoint: string
   executable?: string
   args?: string[]
+  managedRuntime?: 'uv'
 }
 
 export type PackageRuntimeV1 =
@@ -430,6 +431,7 @@ export type MarketplaceCatalogPackageEntryV1 = {
   key: string
   sourceId: string
   package: MarketplacePackageV1
+  reviewSha256?: string
   conflicted: boolean
 }
 
@@ -526,6 +528,7 @@ export type InstalledPackageV1 = PackageProvenanceSnapshotV1 & {
   license: string | null
   reviewSha256: string
   scope: 'user' | 'workspace' | 'team' | 'system'
+  workspaceRoot?: string
   artifact: InstalledPackageArtifactV1
   permissions: InstalledPackagePermissionV1[]
   timestamps: PackageInstallTimestampsV1

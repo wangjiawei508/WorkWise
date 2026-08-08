@@ -390,6 +390,14 @@ export type WorkWiseApi = {
     expectedCurrentVersion: string
     idempotencyKey: string
   }) => Promise<InstalledPackageV1>
+  updatePluginPermissions: (request: {
+    packageId: string
+    expectedCurrentVersion: string
+    reviewSha256: string
+    permissions: InstalledPackagePermissionV1[]
+    workspaceRoot?: string
+    idempotencyKey: string
+  }) => Promise<InstalledPackageV1>
   listSkills: (workspaceRoot?: string) => Promise<SkillListResult>
   refreshSkills: (workspaceRoot?: string) => Promise<SkillListResult>
   onSkillsChanged: (listener: (generation: number) => void) => () => void

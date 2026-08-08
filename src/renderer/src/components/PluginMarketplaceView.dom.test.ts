@@ -114,7 +114,7 @@ const DOCUMENTS = catalogPackage('document-tools', '1.0.0')
 const INSTALLED: InstalledPackageV1 = {
   schemaVersion: 1,
   packageId: BROWSER.id,
-  version: '1.0.0',
+  version: BROWSER.version,
   license: 'MIT',
   reviewSha256: 'a'.repeat(64),
   source: BROWSER.source,
@@ -179,7 +179,13 @@ beforeEach(async () => {
       listCatalogCredentialStatuses: vi.fn(async () => []),
       listCatalogPackages: vi.fn(async () => ({
         packages: [
-          { key: `${SOURCE.id}:${BROWSER.id}`, sourceId: SOURCE.id, package: BROWSER, conflicted: false },
+          {
+            key: `${SOURCE.id}:${BROWSER.id}`,
+            sourceId: SOURCE.id,
+            package: BROWSER,
+            reviewSha256: 'd'.repeat(64),
+            conflicted: false
+          },
           { key: `${SOURCE.id}:${DOCUMENTS.id}`, sourceId: SOURCE.id, package: DOCUMENTS, conflicted: false }
         ],
         conflicts: []
@@ -201,7 +207,20 @@ beforeEach(async () => {
         warnings: [],
         compatibility: { workwiseCompatible: true, reasons: [] }
       })),
+      prepareCatalogPlugin: vi.fn(async (): Promise<PreparedPluginImportV1> => ({
+        schemaVersion: 1,
+        id: 'prepared-browser-review',
+        createdAt: '2026-08-08T00:00:00.000Z',
+        expiresAt: '2026-08-08T00:30:00.000Z',
+        format: 'catalog',
+        package: BROWSER,
+        contentSha256: 'c'.repeat(64),
+        reviewSha256: 'd'.repeat(64),
+        warnings: [],
+        compatibility: { workwiseCompatible: true, reasons: [] }
+      })),
       installPreparedPlugin: installPrepared,
+      updatePluginPermissions: vi.fn(async () => INSTALLED),
       cancelPluginImport: vi.fn(async () => true),
       upsertCatalogSource: vi.fn(async (source: CatalogSourceV1) => source),
       setCatalogSourceCredential: vi.fn(async (sourceId: string) => ({ sourceId, configured: true, storage: 'keychain' as const })),
@@ -234,6 +253,48 @@ describe('PluginMarketplaceView unified catalog', () => {
     await act(async () => button('Updates').click())
     expect(container.textContent).toContain('Browser Tools')
     expect(container.textContent).not.toContain('Document Tools')
+  })
+
+  it('reviews same-version catalog changes through the permission transaction', async () => {
+    await act(async () => button('Review update').click())
+    await settle()
+    expect(container.textContent).toContain('Review Browser Tools')
+    await act(async () => button('Apply').click())
+    await settle()
+
+    expect(window.workwise.updatePluginPermissions).toHaveBeenCalledWith({
+      packageId: BROWSER.id,
+      expectedCurrentVersion: BROWSER.version,
+      reviewSha256: 'd'.repeat(64),
+      permissions: [{ permissionId: 'browser.control', decision: 'denied' }],
+      idempotencyKey: expect.any(String)
+    })
+    expect(installPrepared).not.toHaveBeenCalled()
+  })
+
+  it('labels the installed direct-mirror action as permission management', async () => {
+    vi.mocked(window.workwise.listCatalogPackages).mockResolvedValue({
+      packages: [
+        {
+          key: `${SOURCE.id}:${BROWSER.id}`,
+          sourceId: SOURCE.id,
+          package: BROWSER,
+          reviewSha256: INSTALLED.reviewSha256,
+          conflicted: false
+        },
+        { key: `${SOURCE.id}:${DOCUMENTS.id}`, sourceId: SOURCE.id, package: DOCUMENTS, conflicted: false }
+      ],
+      conflicts: []
+    })
+
+    await act(async () => iconButton('Refresh').click())
+    await settle()
+
+    const permissions = exactButton('Permissions')
+    expect(permissions.querySelector('.lucide-sliders-horizontal')).not.toBeNull()
+    await act(async () => permissions.click())
+    await settle()
+    expect(container.textContent).toContain('Review Browser Tools')
   })
 
   it('imports a package through review and installs with explicit permission decisions', async () => {

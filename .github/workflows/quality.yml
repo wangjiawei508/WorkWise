@@ -47,7 +47,31 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run typecheck
-      - run: npm test -- --run src/main/services/canonical-containment.test.ts src/main/services/safe-spawn.test.ts src/main/services/durable-file.test.ts src/main/services/git-service.test.ts src/main/services/workspace-trust-service.test.ts src/main/services/mcp-config-service.test.ts src/main/services/git-checkpoint-service.test.ts src/main/services/repo-map-service.test.ts src/main/services/mineru-installer-service.test.ts src/main/services/document-engine-service.test.ts src/main/services/pdf-document-service.test.ts src/main/services/office-archive-security.test.ts src/main/services/workspace-preview-service.test.ts src/main/ipc/agent-workbench-api-contract.test.ts
+      - run: >-
+          npm test -- --run
+          src/main/services/canonical-containment.test.ts
+          src/main/services/safe-spawn.test.ts
+          src/main/services/durable-file.test.ts
+          src/main/services/git-service.test.ts
+          src/main/services/workspace-trust-service.test.ts
+          src/main/services/mcp-config-service.test.ts
+          src/main/services/git-checkpoint-service.test.ts
+          src/main/services/repo-map-service.test.ts
+          src/main/services/mineru-installer-service.test.ts
+          src/main/services/document-engine-service.test.ts
+          src/main/services/pdf-document-service.test.ts
+          src/main/services/office-archive-security.test.ts
+          src/main/services/workspace-preview-service.test.ts
+          src/main/services/bounded-response.test.ts
+          src/main/services/package-installation-service.test.ts
+          src/main/services/plugin-archive-security.test.ts
+          src/main/services/plugin-package-formats.test.ts
+          src/main/services/plugin-activation-service.test.ts
+          src/main/services/plugin-management-service.test.ts
+          src/main/services/managed-uv-runtime-service.test.ts
+          src/main/services/pypi-package-materializer.test.ts
+          src/main/services/marketplace-catalog-service.test.ts
+          src/main/ipc/agent-workbench-api-contract.test.ts
       - run: npm --prefix kun test -- --run tests/atomic-write.test.ts tests/builtin-tools.test.ts src/services/task-run-repository.test.ts src/services/task-controller.test.ts src/services/runtime-span-service.test.ts src/loop/task-run-recovery.test.ts
 
   electron-smoke:

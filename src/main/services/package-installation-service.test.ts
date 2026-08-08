@@ -5,6 +5,7 @@ import {
   mkdtemp,
   mkdir,
   readFile,
+  realpath,
   rename,
   rm,
   symlink,
@@ -19,8 +20,11 @@ import type {
 } from '../../shared/marketplace'
 import {
   PackageInstallationService,
+  MANAGED_PYPI_INSTALL_LIMITS,
+  PACKAGE_INSTALL_LIMITS,
   inspectPackageDirectory,
-  marketplacePackageReviewSha256
+  marketplacePackageReviewSha256,
+  packageInstallLimitsFor
 } from './package-installation-service'
 
 const roots: string[] = []
@@ -105,6 +109,33 @@ function permissionDecisions(item: MarketplacePackageV1): InstalledPackagePermis
   }))
 }
 
+function pypiMarketplacePackage(version: string): MarketplacePackageV1 {
+  const item = marketplacePackage(version, { id: 'managed-python-plugin' })
+  const source = {
+    id: 'managed-python-source',
+    catalogSourceId: 'workwise-official',
+    kind: 'pypi' as const,
+    location: `https://pypi.org/project/managed-python-plugin/${version}/`,
+    packageName: 'managed-python-plugin',
+    version,
+    resolvedRef: version,
+    digest: { algorithm: 'sha256' as const, value: 'a'.repeat(64) }
+  }
+  return { ...item, source, sources: [source] }
+}
+
+async function deepPackageDirectory(version: string): Promise<string> {
+  const root = await tempRoot('deep-python-package')
+  await writeFile(join(root, 'LICENSE'), 'MIT License\n')
+  let current = root
+  for (let index = 0; index < PACKAGE_INSTALL_LIMITS.maxDepth + 2; index += 1) {
+    current = join(current, `level-${index}`)
+    await mkdir(current)
+  }
+  await writeFile(join(current, 'plugin.txt'), `version=${version}\n`)
+  return root
+}
+
 async function install(
   service: PackageInstallationService,
   item: MarketplacePackageV1,
@@ -112,7 +143,7 @@ async function install(
   expectedCurrentVersion: string | null,
   idempotencyKey: string
 ) {
-  const inspection = await inspectPackageDirectory(sourceDirectory)
+  const inspection = await inspectPackageDirectory(sourceDirectory, packageInstallLimitsFor(item))
   return service.install({
     package: item,
     sourceDirectory,
@@ -126,6 +157,27 @@ async function install(
 }
 
 describe('PackageInstallationService', () => {
+  it('uses bounded extended limits for official managed PyPI installs and rollback', async () => {
+    const installRoot = await tempRoot('managed-python-install')
+    const source1 = await deepPackageDirectory('1.0.0')
+    const source2 = await deepPackageDirectory('2.0.0')
+    const item1 = pypiMarketplacePackage('1.0.0')
+    const item2 = pypiMarketplacePackage('2.0.0')
+    const service = new PackageInstallationService({ rootDirectory: installRoot })
+
+    expect(MANAGED_PYPI_INSTALL_LIMITS.maxTotalBytes).toBeGreaterThan(PACKAGE_INSTALL_LIMITS.maxTotalBytes)
+    await expect(inspectPackageDirectory(source1)).rejects.toThrow(/depth/i)
+    await install(service, item1, source1, null, 'install-python-v1')
+    const second = await install(service, item2, source2, '1.0.0', 'install-python-v2')
+    const rolledBack = await service.rollback({
+      packageId: second.packageId,
+      expectedCurrentVersion: second.version,
+      idempotencyKey: 'rollback-python-v2'
+    })
+
+    expect(rolledBack.version).toBe('1.0.0')
+  })
+
   it('stages, verifies, activates, persists, and reloads an installation', async () => {
     const installRoot = await tempRoot('package-install')
     const source = await packageDirectory('1.0.0')
@@ -156,6 +208,114 @@ describe('PackageInstallationService', () => {
     const persisted = await readFile(join(installRoot, 'installed.json'), 'utf8')
     expect(persisted).toContain('test-catalog')
     expect(persisted).not.toContain('version=1.0.0')
+  })
+
+  it('updates reviewed permissions atomically and replays the idempotent result', async () => {
+    const installRoot = await tempRoot('permission-update')
+    const source = await packageDirectory('1.0.0')
+    const item = marketplacePackage('1.0.0')
+    const service = new PackageInstallationService({ rootDirectory: installRoot })
+    const installed = await install(service, item, source, null, 'install-permission-update')
+    const request = {
+      package: item,
+      packageId: item.id,
+      expectedCurrentVersion: installed.version,
+      reviewSha256: marketplacePackageReviewSha256(item),
+      declaredPermissionIds: item.permissions.map((permission) => permission.id),
+      permissions: [{ permissionId: 'network.connect', decision: 'denied' as const }],
+      idempotencyKey: 'update-permission'
+    }
+
+    const updated = await service.updatePermissions(request)
+    expect(updated).toMatchObject({
+      version: '1.0.0',
+      reviewSha256: request.reviewSha256,
+      permissions: [{ permissionId: 'network.connect', decision: 'denied' }]
+    })
+    await expect(service.updatePermissions(request)).resolves.toEqual(updated)
+    await expect(service.updatePermissions({
+      ...request,
+      idempotencyKey: 'unknown-permission',
+      permissions: [{ permissionId: 'filesystem.write', decision: 'granted' }]
+    })).rejects.toThrow(/invalid|reviewed/i)
+
+    const expandedPermissions = {
+      ...item,
+      permissions: item.permissions.map((permission) => ({
+        ...permission,
+        resources: ['https://example.test', 'https://api.example.test']
+      }))
+    }
+    const expandedReview = marketplacePackageReviewSha256(expandedPermissions)
+    await expect(service.updatePermissions({
+      ...request,
+      package: expandedPermissions,
+      reviewSha256: expandedReview,
+      idempotencyKey: 'expanded-permission-review'
+    })).resolves.toMatchObject({ reviewSha256: expandedReview })
+    await expect(service.getReviewedPackage(item.id)).resolves.toEqual(expandedPermissions)
+    expect(await service.list()).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ reviewedPackage: expect.anything() })
+    ]))
+
+    const changedRuntime = {
+      ...expandedPermissions,
+      auth: { type: 'token' as const, provider: 'example', environmentVariables: ['EXAMPLE_TOKEN'] }
+    }
+    await expect(service.updatePermissions({
+      ...request,
+      package: changedRuntime,
+      reviewSha256: marketplacePackageReviewSha256(changedRuntime),
+      idempotencyKey: 'same-version-runtime-change'
+    })).rejects.toThrow(/runtime metadata changed.*version/i)
+  })
+
+  it('binds workspace-scoped permission changes to the installed workspace root', async () => {
+    const installRoot = await tempRoot('workspace-permissions')
+    const workspaceRoot = await tempRoot('workspace-root')
+    const otherWorkspace = await tempRoot('other-workspace')
+    const source = await packageDirectory('1.0.0')
+    const item = marketplacePackage('1.0.0')
+    const inspection = await inspectPackageDirectory(source)
+    const service = new PackageInstallationService({ rootDirectory: installRoot })
+    const baseRequest = {
+      package: item,
+      sourceDirectory: source,
+      expectedContentSha256: inspection.sha256,
+      expectedCurrentVersion: null,
+      reviewSha256: marketplacePackageReviewSha256(item),
+      scope: 'workspace' as const,
+      permissions: permissionDecisions(item)
+    }
+
+    await expect(service.install({
+      ...baseRequest,
+      idempotencyKey: 'missing-workspace-root'
+    })).rejects.toThrow(/workspace root/i)
+    const installed = await service.install({
+      ...baseRequest,
+      workspaceRoot,
+      idempotencyKey: 'workspace-install'
+    })
+    expect(installed.workspaceRoot).toBe(await realpath(workspaceRoot))
+    const permissionRequest = {
+      package: item,
+      packageId: item.id,
+      expectedCurrentVersion: item.version,
+      reviewSha256: marketplacePackageReviewSha256(item),
+      declaredPermissionIds: item.permissions.map((permission) => permission.id),
+      permissions: [{ permissionId: 'network.connect', decision: 'denied' as const }]
+    }
+    await expect(service.updatePermissions({
+      ...permissionRequest,
+      workspaceRoot: otherWorkspace,
+      idempotencyKey: 'wrong-workspace'
+    })).rejects.toThrow(/installed workspace/i)
+    await expect(service.updatePermissions({
+      ...permissionRequest,
+      workspaceRoot,
+      idempotencyKey: 'correct-workspace'
+    })).resolves.toMatchObject({ workspaceRoot: await realpath(workspaceRoot) })
   })
 
   it('binds content hashes to file paths, executable bits, and empty directories', async () => {
@@ -201,6 +361,33 @@ describe('PackageInstallationService', () => {
     expect(rolledBack.rollback).toMatchObject({ available: true, version: '3.0.0' })
     await expect(readFile(join(rolledBack.artifact.location, 'plugin.txt'), 'utf8'))
       .resolves.toBe('version=2.0.0\n')
+  })
+
+  it('restores the previous manifest when post-install activation fails', async () => {
+    const installRoot = await tempRoot('activation-compensation')
+    const service = new PackageInstallationService({ rootDirectory: installRoot })
+    const source1 = await packageDirectory('1.0.0')
+    const source2 = await packageDirectory('2.0.0')
+    const first = await install(service, marketplacePackage('1.0.0'), source1, null, 'install-v1')
+    const second = await install(service, marketplacePackage('2.0.0'), source2, first.version, 'install-v2')
+
+    const restored = await service.compensateFailedInstall({
+      packageId: second.packageId,
+      failedVersion: second.version,
+      failedReviewSha256: second.reviewSha256,
+      failedArtifactSha256: second.artifact.sha256,
+      installIdempotencyKey: 'install-v2'
+    })
+
+    expect(restored).toMatchObject({ version: '1.0.0', rollback: { available: false } })
+    await expect(lstat(second.artifact.location)).rejects.toMatchObject({ code: 'ENOENT' })
+    await expect(install(
+      service,
+      marketplacePackage('2.0.0'),
+      source2,
+      first.version,
+      'install-v2'
+    )).resolves.toMatchObject({ version: '2.0.0' })
   })
 
   it('does not replace the current version when health or manifest persistence fails', async () => {

@@ -71,6 +71,7 @@ import {
   pluginPreparedIdPayloadSchema,
   pluginPrepareImportPayloadSchema,
   pluginRollbackPayloadSchema,
+  pluginPermissionsUpdatePayloadSchema,
   mcpServerActionPayloadSchema,
   mcpServerAuthorizationStatePayloadSchema,
   mcpServerAuthorizePayloadSchema,
@@ -960,7 +961,7 @@ export function registerAppIpcHandlers(options: RegisterAppIpcHandlersOptions): 
       async (record, item) => activatePluginPackage({
         item,
         installed: record,
-        workspaceRoot: request.workspaceRoot,
+        workspaceRoot: record.workspaceRoot,
         mcpConfigService,
         idempotencyKey: request.idempotencyKey
       })
@@ -970,7 +971,40 @@ export function registerAppIpcHandlers(options: RegisterAppIpcHandlersOptions): 
   })
   ipcMain.handle('plugin:rollback', async (_, payload: unknown) => {
     const request = parseIpcPayload('plugin:rollback', pluginRollbackPayloadSchema, payload)
-    return pluginManagementService.rollback(request)
+    const installed = await pluginManagementService.rollback(
+      request,
+      async (record, item) => activatePluginPackage({
+        item,
+        installed: record,
+        workspaceRoot: record.workspaceRoot,
+        mcpConfigService,
+        idempotencyKey: `${request.idempotencyKey}:activate`
+      })
+    )
+    notifySkillsChanged()
+    return installed
+  })
+  ipcMain.handle('plugin:update-permissions', async (_, payload: unknown) => {
+    const request = parseIpcPayload('plugin:update-permissions', pluginPermissionsUpdatePayloadSchema, payload)
+    const installed = (await pluginManagementService.listInstalled())
+      .find((record) => record.packageId === request.packageId)
+    if (!installed) throw new Error('Package is not installed.')
+    const catalog = await marketplaceCatalogService.listPackages()
+    const entry = catalog.packages.find((candidate) =>
+      candidate.package.id === request.packageId && candidate.package.source.id === installed.source.id
+    )
+    if (!entry) throw new Error('Installed package is not available in the current catalog.')
+    return pluginManagementService.updatePermissions(
+      entry.package,
+      request,
+      async (record, item) => activatePluginPackage({
+        item,
+        installed: record,
+        workspaceRoot: record.workspaceRoot,
+        mcpConfigService,
+        idempotencyKey: `${request.idempotencyKey}:activate`
+      })
+    )
   })
   ipcMain.handle('document-engine:list', async () => {
     const settings = await store.load()

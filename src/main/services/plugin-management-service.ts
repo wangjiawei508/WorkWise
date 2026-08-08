@@ -15,8 +15,11 @@ import { isCanonicalPathContained } from './canonical-containment'
 import {
   PackageInstallationService,
   inspectPackageDirectory,
+  marketplacePackagePermissionUpdateIdentity,
   marketplacePackageReviewSha256,
-  stagePackageDirectory
+  packageInstallLimitsFor,
+  stagePackageDirectory,
+  type UpdatePackagePermissionsRequestV1
 } from './package-installation-service'
 import { PLUGIN_ARCHIVE_LIMITS } from './plugin-archive-security'
 import {
@@ -27,8 +30,11 @@ import {
   type PreparedPluginPackageV1,
   type TrustedPluginSigningKeyV1
 } from './plugin-package-formats'
+import { materializePypiPackage } from './pypi-package-materializer'
+import { parseCatalogPackageArtifact } from './marketplace-catalog-service'
 
 const PREPARED_IMPORT_TTL_MS = 30 * 60_000
+const MAX_CATALOG_ARTIFACT_BYTES = 10 * 1024 * 1024
 const UUID_DIRECTORY = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 const execFileAsync = promisify(execFile)
 const EXEC_MAX_BUFFER = 8 * 1024 * 1024
@@ -74,6 +80,17 @@ function requiredString(value: unknown, label: string): string {
   return value.trim()
 }
 
+function rethrowAfterCompensation(
+  error: unknown,
+  compensationErrors: unknown[],
+  message: string
+): never {
+  if (compensationErrors.length > 0) {
+    throw new AggregateError([error, ...compensationErrors], message)
+  }
+  throw error
+}
+
 export class PluginManagementService {
   private readonly rootDirectory: string
   private readonly stagingDirectory: string
@@ -113,7 +130,10 @@ export class PluginManagementService {
         `${JSON.stringify(item, null, 2)}\n`,
         { mode: 0o600 }
       )
-      const inspection = await inspectPackageDirectory(targetDirectory)
+      const inspection = await inspectPackageDirectory(
+        targetDirectory,
+        packageInstallLimitsFor(item)
+      )
       const value: PreparedPluginPackageV1 = {
         schemaVersion: 1,
         format: 'catalog',
@@ -200,11 +220,32 @@ export class PluginManagementService {
       {
         expectedCurrentVersion: request.expectedCurrentVersion,
         scope: request.scope,
+        workspaceRoot: request.workspaceRoot,
         permissions: request.permissions,
         idempotencyKey: request.idempotencyKey
       }
     )
-    await afterInstall?.(installed, clone(current.value.package))
+    try {
+      await afterInstall?.(installed, clone(current.value.package))
+    } catch (error) {
+      const compensationErrors: unknown[] = []
+      try {
+        await this.installationService.compensateFailedInstall({
+          packageId: installed.packageId,
+          failedVersion: installed.version,
+          failedReviewSha256: installed.reviewSha256,
+          failedArtifactSha256: installed.artifact.sha256,
+          installIdempotencyKey: request.idempotencyKey
+        })
+      } catch (failedCompensation) {
+        compensationErrors.push(failedCompensation)
+      }
+      rethrowAfterCompensation(
+        error,
+        compensationErrors,
+        'Plugin activation failed and its installation compensation was incomplete.'
+      )
+    }
     this.prepared.delete(preparedId)
     await rm(current.value.preparedDirectory, { recursive: true, force: true }).catch(() => undefined)
     return installed
@@ -219,12 +260,89 @@ export class PluginManagementService {
     return true
   }
 
-  rollback(request: {
+  async rollback(request: {
     packageId: string
     expectedCurrentVersion: string
     idempotencyKey: string
-  }): Promise<InstalledPackageV1> {
-    return this.installationService.rollback(request)
+  }, afterRollback?: (
+    installed: InstalledPackageV1,
+    item: MarketplacePackageV1
+  ) => Promise<void>): Promise<InstalledPackageV1> {
+    const installed = await this.installationService.rollback(request)
+    try {
+      const item = await this.reviewedPackageFor(installed)
+      await afterRollback?.(installed, item)
+    } catch (error) {
+      const compensationErrors: unknown[] = []
+      try {
+        await this.installationService.rollback({
+          packageId: installed.packageId,
+          expectedCurrentVersion: installed.version,
+          idempotencyKey: `rollback-compensation:${randomUUID()}`
+        })
+      } catch (failedCompensation) {
+        compensationErrors.push(failedCompensation)
+      }
+      rethrowAfterCompensation(
+        error,
+        compensationErrors,
+        'Plugin rollback activation failed and its manifest compensation was incomplete.'
+      )
+    }
+    return installed
+  }
+
+  async updatePermissions(
+    item: MarketplacePackageV1,
+    request: Omit<UpdatePackagePermissionsRequestV1, 'declaredPermissionIds' | 'package'>,
+    afterUpdate?: (installed: InstalledPackageV1, item: MarketplacePackageV1) => Promise<void>
+  ): Promise<InstalledPackageV1> {
+    const current = await this.installationService.get(request.packageId)
+    if (!current) throw new Error('Package is not installed.')
+    if (item.id !== current.packageId || item.version !== current.version ||
+        item.source.id !== current.source.id) {
+      throw new Error('Package metadata does not match the installed package.')
+    }
+    const reviewSha256 = marketplacePackageReviewSha256(item)
+    if (request.reviewSha256.toLowerCase() !== reviewSha256) {
+      throw new Error('Package review is stale; review the package again.')
+    }
+    const previous = await this.reviewedPackageFor(current)
+    if (marketplacePackagePermissionUpdateIdentity(previous) !==
+        marketplacePackagePermissionUpdateIdentity(item)) {
+      throw new Error('Package runtime metadata changed without a version update.')
+    }
+    const installed = await this.installationService.updatePermissions({
+      ...request,
+      package: clone(item),
+      reviewSha256,
+      declaredPermissionIds: item.permissions.map((permission) => permission.id)
+    })
+    try {
+      await afterUpdate?.(installed, clone(item))
+    } catch (error) {
+      const compensationErrors: unknown[] = []
+      try {
+        await this.installationService.updatePermissions({
+          package: previous,
+          packageId: current.packageId,
+          expectedCurrentVersion: current.version,
+          reviewSha256: current.reviewSha256,
+          ...(current.workspaceRoot ? { workspaceRoot: current.workspaceRoot } : {}),
+          declaredPermissionIds: previous.permissions.map((permission) => permission.id),
+          permissions: current.permissions,
+          idempotencyKey: `permission-compensation:${randomUUID()}`
+        })
+      } catch (failedCompensation) {
+        compensationErrors.push(failedCompensation)
+      }
+      rethrowAfterCompensation(
+        error,
+        compensationErrors,
+        'Plugin permission activation failed and its manifest compensation was incomplete.'
+      )
+    }
+    return installed
   }
 
   private async readArchive(path: string, initial: Awaited<ReturnType<typeof lstat>>): Promise<Buffer> {
@@ -250,6 +368,78 @@ export class PluginManagementService {
     } finally {
       await handle.close()
     }
+  }
+
+  private async restoreReviewedPackage(installed: InstalledPackageV1): Promise<MarketplacePackageV1> {
+    const catalogPath = join(installed.artifact.location, 'workwise.catalog.json')
+    let item: MarketplacePackageV1
+    try {
+      const initial = await lstat(catalogPath)
+      if (initial.isSymbolicLink() || !initial.isFile() || initial.size > MAX_CATALOG_ARTIFACT_BYTES) {
+        throw new Error('Installed catalog metadata is invalid or exceeds 10 MiB.')
+      }
+      const handle = await open(catalogPath, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0))
+      try {
+        const before = await handle.stat()
+        if (!before.isFile() || before.dev !== initial.dev || before.ino !== initial.ino ||
+            before.size !== initial.size) {
+          throw new Error('Installed catalog metadata changed before it could be read.')
+        }
+        const bytes = await handle.readFile()
+        const after = await handle.stat()
+        const current = await lstat(catalogPath)
+        if (!after.isFile() || after.dev !== before.dev || after.ino !== before.ino ||
+            after.size !== before.size || after.mtimeMs !== before.mtimeMs ||
+            current.isSymbolicLink() || current.dev !== after.dev || current.ino !== after.ino) {
+          throw new Error('Installed catalog metadata changed while it was read.')
+        }
+        let parsed: unknown
+        try {
+          parsed = JSON.parse(bytes.toString('utf8'))
+        } catch {
+          throw new Error('Installed catalog metadata is malformed.')
+        }
+        item = parseCatalogPackageArtifact(parsed, installed.source.catalogSourceId)
+      } finally {
+        await handle.close()
+      }
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+      const sourceKind = installed.source.kind
+      if (sourceKind !== 'local' && sourceKind !== 'project' && sourceKind !== 'https') {
+        throw new Error('Installed plugin does not contain recoverable reviewed metadata.')
+      }
+      const prepared = await parsePreparedPluginDirectory({
+        directory: installed.artifact.location,
+        catalogSourceId: installed.source.catalogSourceId,
+        sourceLocation: installed.source.location,
+        sourceKind,
+        ...(installed.source.digest?.algorithm === 'sha256'
+          ? { archiveSha256: installed.source.digest.value }
+          : {}),
+        trustedSigningKeys: this.trustedSigningKeys
+      })
+      item = prepared.package
+    }
+
+    if (item.id !== installed.packageId || item.version !== installed.version ||
+        item.source.id !== installed.source.id || item.license !== installed.license ||
+        marketplacePackageReviewSha256(item) !== installed.reviewSha256) {
+      throw new Error('Rollback package metadata does not match its reviewed installation record.')
+    }
+    return item
+  }
+
+  private async reviewedPackageFor(installed: InstalledPackageV1): Promise<MarketplacePackageV1> {
+    const persisted = await this.installationService.getReviewedPackage(installed.packageId)
+    if (persisted) {
+      if (persisted.id !== installed.packageId || persisted.version !== installed.version ||
+          marketplacePackageReviewSha256(persisted) !== installed.reviewSha256) {
+        throw new Error('Installed reviewed package metadata is inconsistent.')
+      }
+      return persisted
+    }
+    return this.restoreReviewedPackage(installed)
   }
 
   private async cleanupExpired(): Promise<void> {
@@ -448,7 +638,8 @@ export async function materializeCatalogPackage(
     return
   }
   if (item.source.kind === 'pypi') {
-    throw new Error('Python catalog installation requires a complete managed uv lock and is not available yet.')
+    await materializePypiPackage(item, targetDirectory)
+    return
   }
   throw new Error(`Catalog source kind is not directly installable: ${item.source.kind}.`)
 }

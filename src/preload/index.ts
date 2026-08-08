@@ -118,6 +118,7 @@ const api = {
   cancelPluginImport: (preparedId) => ipcRenderer.invoke('plugin:cancel-import', { preparedId }),
   installPreparedPlugin: (request) => ipcRenderer.invoke('plugin:install', request),
   rollbackPlugin: (request) => ipcRenderer.invoke('plugin:rollback', request),
+  updatePluginPermissions: (request) => ipcRenderer.invoke('plugin:update-permissions', request),
   listSkills: (workspaceRoot) =>
     ipcRenderer.invoke('skill:list', { workspaceRoot }),
   refreshSkills: (workspaceRoot) =>

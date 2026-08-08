@@ -22,6 +22,7 @@ import {
   getMarketplaceCatalogSources,
   getOfficialMarketplaceCatalog
 } from './official-marketplace-catalog'
+import { marketplacePackageReviewSha256 } from './package-installation-service'
 
 const SOURCE_MANIFEST_SCHEMA = 'workwise.marketplace-sources'
 const SOURCE_MANIFEST_VERSION = 1
@@ -423,6 +424,9 @@ function assertRuntimeShape(
     }
   } else if (kind === 'bundled') {
     assertPortablePackagePath(runtime.entrypoint, packageId + ' bundled entrypoint')
+    if (runtime.managedRuntime !== undefined && runtime.managedRuntime !== 'uv') {
+      throw new Error(packageId + ' bundled managed runtime is invalid.')
+    }
     if (runtime.executable !== undefined) {
       const executable = requiredString(runtime.executable, packageId + ' bundled executable')
       if (executable.includes('\0') || /[\r\n]/.test(executable) || executable.startsWith('-')) {
@@ -759,6 +763,13 @@ function assertPackageShape(
   return clone(value as unknown as MarketplacePackageV1)
 }
 
+export function parseCatalogPackageArtifact(
+  value: unknown,
+  expectedSourceId: string
+): MarketplacePackageV1 {
+  return assertPackageShape(value, expectedSourceId, new Set(), true)
+}
+
 function assertSnapshot(
   value: unknown,
   expectedSourceId: string,
@@ -1012,6 +1023,7 @@ export class MarketplaceCatalogService {
         key: source.id + ':' + item.id,
         sourceId: source.id,
         package: clone(item),
+        reviewSha256: marketplacePackageReviewSha256(item),
         conflicted: false
       }))
     )

@@ -254,7 +254,8 @@ describe('registerAppIpcHandlers', () => {
       'plugin:prepare-import',
       'plugin:cancel-import',
       'plugin:install',
-      'plugin:rollback'
+      'plugin:rollback',
+      'plugin:update-permissions'
     ]) {
       expect(handlers.get(channel), channel).toBeTypeOf('function')
     }
@@ -323,6 +324,128 @@ describe('registerAppIpcHandlers', () => {
     await expect(handlers.get('catalog:clear-credential')?.({}, { sourceId: 'private' }))
       .resolves.toEqual({ sourceId: 'private', configured: false })
     expect(catalogCredentialService.remove).toHaveBeenCalledWith('catalog.private.token')
+  })
+
+  it('reactivates MCP V2 after rollback and reviewed permission changes', async () => {
+    const { registerAppIpcHandlers } = await import('./register-app-ipc-handlers')
+    const source = {
+      id: 'remote-source',
+      catalogSourceId: 'workwise-official',
+      kind: 'remote',
+      location: 'https://mcp.example.test/'
+    }
+    const item = {
+      schemaVersion: 1,
+      id: 'remote-plugin',
+      name: 'Remote Plugin',
+      summary: 'IPC activation fixture.',
+      tier: 'recommended',
+      version: '1.0.0',
+      publisher: { id: 'example', name: 'Example', verified: true },
+      license: 'MIT',
+      source,
+      sources: [source],
+      components: [{
+        id: 'remote-mcp',
+        name: 'Remote MCP',
+        type: 'mcp',
+        sourceId: source.id,
+        runtime: {
+          kind: 'remote',
+          transport: 'streamable-http',
+          endpoint: source.location
+        }
+      }],
+      permissions: [{
+        id: 'network-connect',
+        kind: 'network',
+        access: 'connect',
+        default: 'review',
+        reviewRequired: true,
+        description: 'Connect to the remote MCP.'
+      }],
+      auth: { type: 'none' },
+      licenseEvidence: [],
+      dependencies: [],
+      updatePolicy: { strategy: 'pinned', channel: 'stable', allowMajor: false },
+      compatibility: {
+        workwise: '>=0.3.5',
+        platforms: ['darwin', 'win32', 'linux'],
+        architectures: ['arm64', 'x64']
+      },
+      availability: { status: 'available' },
+      installation: { mode: 'direct-mirror', installedByDefault: false, reinstallable: true }
+    }
+    const installed = {
+      schemaVersion: 1,
+      packageId: item.id,
+      version: item.version,
+      license: item.license,
+      reviewSha256: 'a'.repeat(64),
+      source,
+      sources: [source],
+      components: [{ componentId: 'remote-mcp', sourceId: source.id }],
+      scope: 'user',
+      artifact: { sha256: 'b'.repeat(64), location: '/tmp/plugin', fileCount: 1, totalBytes: 1 },
+      permissions: [{ permissionId: 'network-connect', decision: 'granted' }],
+      timestamps: { installedAt: '2026-08-08T00:00:00.000Z' },
+      updatePolicy: item.updatePolicy,
+      rollback: { available: false },
+      health: { status: 'healthy' }
+    }
+    const rollback = vi.fn(async (request, afterRollback) => {
+      await afterRollback(installed, item)
+      return installed
+    })
+    const updatePermissions = vi.fn(async (_catalogItem, _request, afterUpdate) => {
+      await afterUpdate(installed, item)
+      return installed
+    })
+    const pluginService = {
+      listInstalled: vi.fn(async () => [installed]),
+      rollback,
+      updatePermissions
+    }
+    const save = vi.fn(async ({ config }) => ({ ...config, revision: 1 }))
+    registerAppIpcHandlers(registerOptions({
+      marketplaceCatalogService: {
+        listPackages: vi.fn(async () => ({
+          packages: [{ key: 'official:remote-plugin', sourceId: 'workwise-official', package: item, conflicted: false }],
+          conflicts: []
+        }))
+      } as never,
+      pluginManagementService: pluginService as never,
+      mcpConfigService: { list: vi.fn(async () => []), save, dispose: vi.fn() } as never
+    }))
+
+    await expect(handlers.get('plugin:rollback')?.({}, {
+      packageId: item.id,
+      expectedCurrentVersion: item.version,
+      idempotencyKey: 'rollback-remote-plugin'
+    })).resolves.toEqual(installed)
+    await expect(handlers.get('plugin:update-permissions')?.({}, {
+      packageId: item.id,
+      expectedCurrentVersion: item.version,
+      reviewSha256: 'a'.repeat(64),
+      permissions: [{ permissionId: 'network-connect', decision: 'granted' }],
+      idempotencyKey: 'permissions-remote-plugin'
+    })).resolves.toEqual(installed)
+
+    expect(rollback).toHaveBeenCalledWith(expect.objectContaining({ packageId: item.id }), expect.any(Function))
+    expect(updatePermissions).toHaveBeenCalledWith(
+      item,
+      expect.objectContaining({ reviewSha256: 'a'.repeat(64) }),
+      expect.any(Function)
+    )
+    expect(save).toHaveBeenCalledTimes(2)
+    expect(save).toHaveBeenLastCalledWith(expect.objectContaining({
+      config: expect.objectContaining({
+        id: 'remote-mcp',
+        transport: 'http',
+        url: source.location,
+        enabled: true
+      })
+    }))
   })
 
   it('saves generated files to a user-selected path', async () => {

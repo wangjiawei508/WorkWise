@@ -633,6 +633,8 @@
   "pluginUnifiedCancel": "Cancel",
   "pluginUnifiedInstall": "Install",
   "pluginUnifiedInstalled": "{{name}} installed.",
+  "pluginUnifiedPermissionsUpdated": "{{name}} permissions updated.",
+  "pluginUnifiedApplyPermissions": "Apply",
   "pluginUnifiedRollback": "Rollback",
   "pluginUnifiedRolledBack": "{{name}} rolled back.",
   "pluginUnifiedPackageInfo": "Package",

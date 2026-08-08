@@ -97,8 +97,13 @@ function isInstalled(
   return installed.has(item.id) || isManagedInstalled(item) || Boolean(installedServerForPackage(item, servers))
 }
 
-function hasUpdate(item: MarketplacePackageV1, record: InstalledPackageV1 | undefined): boolean {
-  return Boolean(record && item.availability.status === 'available' && record.version !== item.version)
+function hasUpdate(
+  item: MarketplacePackageV1,
+  record: InstalledPackageV1 | undefined,
+  reviewSha256?: string
+): boolean {
+  return Boolean(record && item.availability.status === 'available' &&
+    (record.version !== item.version || (reviewSha256 && record.reviewSha256 !== reviewSha256)))
 }
 
 function needsConfiguration(
@@ -114,10 +119,15 @@ function needsConfiguration(
   return Boolean(item.configuration?.some((field) => field.required && field.defaultValue === undefined))
 }
 
-function permissionExpanded(item: MarketplacePackageV1, record: InstalledPackageV1 | undefined): boolean {
+function permissionExpanded(
+  item: MarketplacePackageV1,
+  record: InstalledPackageV1 | undefined,
+  reviewSha256?: string
+): boolean {
   if (!record) return false
   const reviewed = new Set(record.permissions.map((permission) => permission.permissionId))
-  return item.permissions.some((permission) => !reviewed.has(permission.id))
+  return Boolean((reviewSha256 && record.reviewSha256 !== reviewSha256) ||
+    item.permissions.some((permission) => !reviewed.has(permission.id)))
 }
 
 function defaultPermissions(item: MarketplacePackageV1): PermissionSelections {
@@ -125,6 +135,19 @@ function defaultPermissions(item: MarketplacePackageV1): PermissionSelections {
     permission.id,
     permission.default === 'granted'
   ]))
+}
+
+function reviewedPermissions(
+  item: MarketplacePackageV1,
+  record: InstalledPackageV1 | undefined
+): PermissionSelections {
+  const selections = defaultPermissions(item)
+  for (const permission of record?.permissions ?? []) {
+    if (permission.permissionId in selections) {
+      selections[permission.permissionId] = permission.decision === 'granted'
+    }
+  }
+  return selections
 }
 
 function catalogSourceFromDraft(draft: SourceDraft): CatalogSourceV1 {
@@ -282,7 +305,7 @@ export function PluginMarketplaceView(): ReactElement {
       if (categoryFilter !== 'all' && !(item.categories ?? []).includes(categoryFilter)) return false
       if (statusFilter === 'recommended' && item.tier !== 'recommended') return false
       if (statusFilter === 'installed' && !added) return false
-      if (statusFilter === 'updates' && !hasUpdate(item, record)) return false
+      if (statusFilter === 'updates' && !hasUpdate(item, record, entry.reviewSha256)) return false
       if (statusFilter === 'configuration' && !needsConfiguration(item, record, server)) return false
       if (!needle) return true
       return [
@@ -310,12 +333,15 @@ export function PluginMarketplaceView(): ReactElement {
   }, [selectedKey, visibleEntries])
 
   const openPrepared = useCallback((value: PreparedPluginImportV1): void => {
+    const current = installed.get(value.package.id)
     setPrepared(value)
-    setPermissions(defaultPermissions(value.package))
-    setScope(workspaceRoot ? 'workspace' : 'user')
+    setPermissions(reviewedPermissions(value.package, current))
+    setScope(current?.scope === 'workspace' || current?.scope === 'team' || current?.scope === 'user'
+      ? current.scope
+      : workspaceRoot ? 'workspace' : 'user')
     setImportOpen(false)
     setDetailsOpen(false)
-  }, [workspaceRoot])
+  }, [installed, workspaceRoot])
 
   const prepareCatalog = async (entry: MarketplaceCatalogPackageEntryV1): Promise<void> => {
     const key = packageKey(entry)
@@ -360,20 +386,42 @@ export function PluginMarketplaceView(): ReactElement {
     setBusy(`prepared:${prepared.id}`)
     try {
       const current = installed.get(prepared.package.id)
-      await window.workwise.installPreparedPlugin({
-        preparedId: prepared.id,
-        reviewSha256: prepared.reviewSha256,
-        expectedCurrentVersion: current?.version ?? null,
-        scope,
-        ...(scope === 'workspace' && workspaceRoot ? { workspaceRoot } : {}),
-        permissions: prepared.package.permissions.map((permission): InstalledPackagePermissionV1 => ({
-          permissionId: permission.id,
-          decision: permissions[permission.id] ? 'granted' : 'denied'
-        })),
-        idempotencyKey: uuid()
-      })
+      if (current?.version === prepared.package.version && prepared.format === 'catalog') {
+        await window.workwise.updatePluginPermissions({
+          packageId: prepared.package.id,
+          expectedCurrentVersion: current.version,
+          reviewSha256: prepared.reviewSha256,
+          ...(current.workspaceRoot ? { workspaceRoot: current.workspaceRoot } : {}),
+          permissions: prepared.package.permissions.map((permission): InstalledPackagePermissionV1 => ({
+            permissionId: permission.id,
+            decision: permissions[permission.id] ? 'granted' : 'denied'
+          })),
+          idempotencyKey: uuid()
+        })
+      } else {
+        await window.workwise.installPreparedPlugin({
+          preparedId: prepared.id,
+          reviewSha256: prepared.reviewSha256,
+          expectedCurrentVersion: current?.version ?? null,
+          scope,
+          ...(scope === 'workspace' && workspaceRoot ? { workspaceRoot } : {}),
+          permissions: prepared.package.permissions.map((permission): InstalledPackagePermissionV1 => ({
+            permissionId: permission.id,
+            decision: permissions[permission.id] ? 'granted' : 'denied'
+          })),
+          idempotencyKey: uuid()
+        })
+      }
+      await window.workwise.cancelPluginImport(prepared.id).catch(() => false)
       setPrepared(null)
-      setNotice({ tone: 'success', message: text('pluginUnifiedInstalled', '{{name}} installed.', { name: prepared.package.name }) })
+      setNotice({
+        tone: 'success',
+        message: text(
+          current?.version === prepared.package.version ? 'pluginUnifiedPermissionsUpdated' : 'pluginUnifiedInstalled',
+          current?.version === prepared.package.version ? '{{name}} permissions updated.' : '{{name}} installed.',
+          { name: prepared.package.name }
+        )
+      })
       await refresh()
     } catch (error) {
       setNotice({ tone: 'error', message: friendlyMarketplaceError(error instanceof Error ? error.message : String(error), t) })
@@ -610,6 +658,7 @@ export function PluginMarketplaceView(): ReactElement {
                 entry={entry}
                 source={sourceMap.get(entry.sourceId)}
                 installed={installed.get(entry.package.id)}
+                reviewSha256={entry.reviewSha256}
                 server={installedServerForPackage(entry.package, mcpServers)}
                 busy={busy === packageKey(entry) || busy === `connect:${entry.package.id}`}
                 text={text}
@@ -756,6 +805,7 @@ export function PluginMarketplaceView(): ReactElement {
           prepared={prepared}
           selections={permissions}
           scope={scope}
+          permissionUpdate={installed.get(prepared.package.id)?.version === prepared.package.version}
           workspaceAvailable={Boolean(workspaceRoot)}
           busy={busy === `prepared:${prepared.id}`}
           text={text}
@@ -838,13 +888,14 @@ function ComponentBadge({ type }: { type: string }): ReactElement {
   return <span className="inline-flex h-5 items-center gap-1 rounded px-1.5 text-[10px] font-semibold uppercase text-ds-muted ring-1 ring-inset ring-ds-border">{icon}{type}</span>
 }
 
-function PackageStatus({ item, installed, server, text }: {
+function PackageStatus({ item, installed, server, reviewSha256, text }: {
   item: MarketplacePackageV1
   installed?: InstalledPackageV1
   server?: McpServerConfigV2
+  reviewSha256?: string
   text: Text
 }): ReactElement {
-  if (hasUpdate(item, installed)) return <span className="text-[11px] font-semibold text-amber-700 dark:text-amber-300">{permissionExpanded(item, installed) ? text('pluginUnifiedReviewUpdate', 'Review update') : text('pluginUnifiedUpdateAvailable', 'Update available')}</span>
+  if (hasUpdate(item, installed, reviewSha256)) return <span className="text-[11px] font-semibold text-amber-700 dark:text-amber-300">{permissionExpanded(item, installed, reviewSha256) ? text('pluginUnifiedReviewUpdate', 'Review update') : text('pluginUnifiedUpdateAvailable', 'Update available')}</span>
   if (needsConfiguration(item, installed, server)) return <span className="text-[11px] font-semibold text-amber-700 dark:text-amber-300">{text('pluginUnifiedNeedsConfig', 'Needs configuration')}</span>
   if (installed || server || isManagedInstalled(item)) return <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-700 dark:text-emerald-300"><CheckCircle2 className="h-3.5 w-3.5" />{text('pluginFilterInstalled', 'Installed')}</span>
   if (item.availability.status === 'unavailable') return <span className="text-[11px] font-medium text-ds-faint">{text('pluginUnifiedUnavailable', 'Unavailable')}</span>
@@ -852,38 +903,42 @@ function PackageStatus({ item, installed, server, text }: {
   return <span className="text-[11px] font-medium text-ds-faint">{item.version}</span>
 }
 
-function PrimaryAction({ item, installed, server, busy, text, onClick }: {
+function PrimaryAction({ item, installed, server, reviewSha256, busy, text, onClick }: {
   item: MarketplacePackageV1
   installed?: InstalledPackageV1
   server?: McpServerConfigV2
+  reviewSha256?: string
   busy: boolean
   text: Text
   onClick: () => void
 }): ReactElement | null {
   const added = Boolean(installed || server || isManagedInstalled(item))
-  const update = hasUpdate(item, installed)
+  const update = hasUpdate(item, installed, reviewSha256)
+  const managesPermissions = item.installation.mode === 'direct-mirror' && added && !update
   const remote = item.components.some((component) => component.type === 'mcp' && component.runtime.kind === 'remote')
   const canAct = item.installation.mode === 'direct-mirror' || remote || isHttpUrl(item.source.location)
   if (!canAct) return null
   const label = update
-    ? permissionExpanded(item, installed) ? text('pluginUnifiedReviewUpdate', 'Review update') : text('pluginUnifiedUpdate', 'Update')
+    ? permissionExpanded(item, installed, reviewSha256) ? text('pluginUnifiedReviewUpdate', 'Review update') : text('pluginUnifiedUpdate', 'Update')
     : item.installation.mode === 'direct-mirror' && !added ? text('pluginUnifiedReviewInstall', 'Review install')
     : remote && !added ? text('pluginUnifiedConnect', 'Connect')
     : item.installation.mode === 'system-managed' ? text('pluginUnifiedManaged', 'Managed')
+    : managesPermissions ? text('pluginUnifiedPermissions', 'Permissions')
     : text('pluginOpenSource', 'Open source')
   return (
     <button type="button" disabled={busy || (item.availability.status === 'unavailable' && !isHttpUrl(item.source.location))} onClick={(event) => { event.stopPropagation(); onClick() }} className="inline-flex h-8 min-w-[92px] items-center justify-center gap-1.5 rounded-md border border-ds-border bg-ds-card px-3 text-[11px] font-semibold hover:bg-ds-hover disabled:cursor-not-allowed disabled:opacity-50">
-      {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : item.installation.mode === 'external' ? <ExternalLink className="h-3.5 w-3.5" /> : update ? <RefreshCw className="h-3.5 w-3.5" /> : <Download className="h-3.5 w-3.5" />}
+      {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : item.installation.mode === 'external' ? <ExternalLink className="h-3.5 w-3.5" /> : update ? <RefreshCw className="h-3.5 w-3.5" /> : managesPermissions ? <SlidersHorizontal className="h-3.5 w-3.5" /> : <Download className="h-3.5 w-3.5" />}
       {label}
     </button>
   )
 }
 
-function PluginRow({ entry, source, installed, server, busy, text, onSelect, onAction }: {
+function PluginRow({ entry, source, installed, server, reviewSha256, busy, text, onSelect, onAction }: {
   entry: MarketplaceCatalogPackageEntryV1
   source?: CatalogSourceV1
   installed?: InstalledPackageV1
   server?: McpServerConfigV2
+  reviewSha256?: string
   busy: boolean
   text: Text
   onSelect: () => void
@@ -904,8 +959,8 @@ function PluginRow({ entry, source, installed, server, busy, text, onSelect, onA
         </div>
       </div>
       <div className="flex items-center gap-3">
-        <div className="hidden min-w-[108px] text-right sm:block"><PackageStatus item={item} installed={installed} server={server} text={text} /></div>
-        <PrimaryAction item={item} installed={installed} server={server} busy={busy} text={text} onClick={onAction} />
+        <div className="hidden min-w-[108px] text-right sm:block"><PackageStatus item={item} installed={installed} server={server} reviewSha256={reviewSha256} text={text} /></div>
+        <PrimaryAction item={item} installed={installed} server={server} reviewSha256={reviewSha256} busy={busy} text={text} onClick={onAction} />
         <ChevronRight className="h-4 w-4 text-ds-faint" />
       </div>
     </div>
@@ -949,7 +1004,7 @@ function DetailsDrawer({ entry, source, installed, server, busy, text, onClose, 
         <div className="flex flex-wrap gap-1.5">{componentTypes(item).map((type) => <ComponentBadge key={type} type={type} />)}</div>
         <p className="mt-3 text-[13px] leading-5 text-ds-muted">{item.summary}</p>
         <div className="mt-4 flex flex-wrap items-center gap-2">
-          <PrimaryAction item={item} installed={installed} server={server} busy={busy === packageKey(entry) || busy === `connect:${item.id}`} text={text} onClick={onAction} />
+          <PrimaryAction item={item} installed={installed} server={server} reviewSha256={entry.reviewSha256} busy={busy === packageKey(entry) || busy === `connect:${item.id}`} text={text} onClick={onAction} />
           {installed?.rollback.available ? (
             <button type="button" disabled={busy === `rollback:${item.id}`} onClick={() => onRollback(installed)} className="inline-flex h-8 items-center gap-1.5 rounded-md border border-ds-border px-3 text-[11px] font-semibold hover:bg-ds-hover disabled:opacity-50">
               <RotateCcw className="h-3.5 w-3.5" />{text('pluginUnifiedRollback', 'Rollback')}
@@ -1086,10 +1141,11 @@ function ImportChoice({ icon, title, description, busy, onClick }: { icon: React
   return <button type="button" disabled={busy} onClick={onClick} className="min-h-[120px] rounded-md border border-ds-border p-4 text-left hover:bg-ds-hover disabled:opacity-50"><div className="text-ds-muted">{busy ? <Loader2 className="h-5 w-5 animate-spin" /> : icon}</div><div className="mt-3 text-[13px] font-semibold">{title}</div><p className="mt-1 text-[11px] leading-4 text-ds-muted">{description}</p></button>
 }
 
-function ReviewModal({ prepared, selections, scope, workspaceAvailable, busy, text, onSelection, onScope, onClose, onInstall }: {
+function ReviewModal({ prepared, selections, scope, permissionUpdate, workspaceAvailable, busy, text, onSelection, onScope, onClose, onInstall }: {
   prepared: PreparedPluginImportV1
   selections: PermissionSelections
   scope: 'user' | 'workspace' | 'team'
+  permissionUpdate: boolean
   workspaceAvailable: boolean
   busy: boolean
   text: Text
@@ -1104,9 +1160,9 @@ function ReviewModal({ prepared, selections, scope, workspaceAvailable, busy, te
       <div className="flex items-start gap-3 rounded-md border border-ds-border bg-ds-subtle p-3"><ShieldCheck className="mt-0.5 h-5 w-5 shrink-0 text-emerald-600" /><div><div className="text-[12px] font-semibold">{text('pluginUnifiedVerifiedReview', 'Content and metadata review')}</div><p className="mt-1 break-all text-[10px] leading-4 text-ds-muted">SHA-256 {prepared.contentSha256}</p></div></div>
       {!prepared.compatibility.workwiseCompatible ? <div className="mt-3 flex gap-2 rounded-md border border-red-300 bg-red-50 p-3 text-[12px] text-red-800 dark:border-red-900 dark:bg-red-950/30 dark:text-red-200"><CircleAlert className="h-4 w-4 shrink-0" /><span>{prepared.compatibility.reasons.join(' ')}</span></div> : null}
       <div className="mt-4"><h3 className="text-[11px] font-semibold uppercase text-ds-faint">{text('pluginUnifiedPermissions', 'Permissions')}</h3><div className="mt-2 max-h-[230px] space-y-2 overflow-y-auto">{item.permissions.length ? item.permissions.map((permission) => <label key={permission.id} className="flex cursor-pointer items-start gap-3 rounded-md border border-ds-border p-3"><input type="checkbox" checked={Boolean(selections[permission.id])} onChange={(event) => onSelection(permission.id, event.target.checked)} className="mt-0.5 h-4 w-4" /><div><div className="text-[12px] font-medium">{permission.kind} · {permission.access}</div><p className="mt-0.5 text-[11px] leading-4 text-ds-muted">{permission.description}</p></div></label>) : <p className="text-[12px] text-ds-faint">{text('pluginUnifiedNoPermissions', 'No additional permissions declared.')}</p>}</div></div>
-      <div className="mt-4"><h3 className="text-[11px] font-semibold uppercase text-ds-faint">{text('pluginUnifiedScope', 'Install scope')}</h3><div className="mt-2 inline-flex rounded-md bg-ds-subtle p-1">{(['user', 'workspace', 'team'] as const).map((value) => <button key={value} type="button" disabled={value === 'workspace' && !workspaceAvailable} onClick={() => onScope(value)} className={`h-8 rounded px-3 text-[11px] font-medium ${scope === value ? 'bg-ds-card shadow-sm' : 'text-ds-muted'} disabled:opacity-40`}>{text(`pluginUnifiedScope${value[0]!.toUpperCase()}${value.slice(1)}`, value)}</button>)}</div></div>
+      <div className="mt-4"><h3 className="text-[11px] font-semibold uppercase text-ds-faint">{text('pluginUnifiedScope', 'Install scope')}</h3><div className="mt-2 inline-flex rounded-md bg-ds-subtle p-1">{(['user', 'workspace', 'team'] as const).map((value) => <button key={value} type="button" disabled={permissionUpdate || (value === 'workspace' && !workspaceAvailable)} onClick={() => onScope(value)} className={`h-8 rounded px-3 text-[11px] font-medium ${scope === value ? 'bg-ds-card shadow-sm' : 'text-ds-muted'} disabled:opacity-40`}>{text(`pluginUnifiedScope${value[0]!.toUpperCase()}${value.slice(1)}`, value)}</button>)}</div></div>
       {prepared.warnings.length ? <div className="mt-4 text-[11px] leading-4 text-amber-700 dark:text-amber-300">{prepared.warnings.join(' ')}</div> : null}
-      <div className="mt-5 flex justify-end gap-2"><button type="button" onClick={onClose} className="h-9 rounded-md border border-ds-border px-3 text-[12px] font-medium hover:bg-ds-hover">{text('pluginUnifiedCancel', 'Cancel')}</button><button type="button" disabled={busy || !prepared.compatibility.workwiseCompatible} onClick={onInstall} className="inline-flex h-9 min-w-[96px] items-center justify-center gap-2 rounded-md bg-ds-userbubble px-3 text-[12px] font-semibold text-ds-userbubbleFg disabled:opacity-50">{busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <><Check className="h-4 w-4" />{text('pluginUnifiedInstall', 'Install')}</>}</button></div>
+      <div className="mt-5 flex justify-end gap-2"><button type="button" onClick={onClose} className="h-9 rounded-md border border-ds-border px-3 text-[12px] font-medium hover:bg-ds-hover">{text('pluginUnifiedCancel', 'Cancel')}</button><button type="button" disabled={busy || !prepared.compatibility.workwiseCompatible} onClick={onInstall} className="inline-flex h-9 min-w-[96px] items-center justify-center gap-2 rounded-md bg-ds-userbubble px-3 text-[12px] font-semibold text-ds-userbubbleFg disabled:opacity-50">{busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <><Check className="h-4 w-4" />{permissionUpdate ? text('pluginUnifiedApplyPermissions', 'Apply') : text('pluginUnifiedInstall', 'Install')}</>}</button></div>
     </Modal>
   )
 }

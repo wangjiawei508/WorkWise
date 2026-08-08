@@ -82,6 +82,7 @@ export type PreparedPluginPackageV1 = {
 export type InstallPreparedPluginPackageOptionsV1 = {
   expectedCurrentVersion: string | null
   scope: InstalledPackageV1['scope']
+  workspaceRoot?: string
   permissions: InstalledPackagePermissionV1[]
   idempotencyKey: string
 }
@@ -379,7 +380,7 @@ function compatibility(value: unknown): MarketplacePackageV1['compatibility'] {
     throw new Error('Package compatibility contains an unsupported platform or architecture.')
   }
   return {
-    workwise: optionalString(item.workwise, 'WorkWise compatibility') ?? '>=0.3.5',
+    workwise: optionalString(item.workwise, 'WorkWise compatibility') ?? '>=0.4.0',
     platforms: platforms as MarketplacePackageV1['compatibility']['platforms'],
     architectures: architectures as MarketplacePackageV1['compatibility']['architectures']
   }
@@ -953,7 +954,18 @@ async function parseMcpb(context: ParseContext): Promise<ParsedPackage> {
   const args = stringArray(mcpConfig.args, 'MCPB server args')
   const warnings: string[] = []
   const reasons: string[] = []
-  if (serverType === 'uv') reasons.push('managed-uv-runtime-required')
+  if (serverType === 'uv') {
+    const executable = command.replaceAll('\\', '/').split('/').at(-1)?.toLowerCase()
+    const expectedEntrypoint = `\${__dirname}/${entrypoint}`
+    const configuredEntrypoint = args[1]?.replaceAll('\\', '/')
+    if ((executable !== 'uv' && executable !== 'uv.exe') ||
+        args[0] !== 'run' || configuredEntrypoint !== expectedEntrypoint) {
+      reasons.push('mcpb-uv-command-unsupported')
+    }
+    if (!context.paths.has('pyproject.toml') || !context.paths.has('uv.lock')) {
+      reasons.push('mcpb-uv-lock-required')
+    }
+  }
   if (mcpConfig.platform_overrides !== undefined &&
       Object.keys(record(mcpConfig.platform_overrides, 'MCPB platform_overrides')).length > 0) {
     warnings.push('MCPB platform overrides are preserved but require runtime selection during activation.')
@@ -966,6 +978,15 @@ async function parseMcpb(context: ParseContext): Promise<ParsedPackage> {
     reviewRequired: true,
     description: 'Run the bundled MCP server process.'
   }]
+  if (serverType === 'uv') permissions.push({
+    id: 'python-package-index',
+    kind: 'network',
+    access: 'connect',
+    default: 'review',
+    reviewRequired: true,
+    description: 'Resolve locked Python wheels from the package index.',
+    resources: ['https://pypi.org', 'https://files.pythonhosted.org']
+  })
   const configuration = mcpbConfiguration(manifest.user_config, permissions)
   const environmentVariables = configurationFromEnvironment(
     mcpConfig.env,
@@ -1000,7 +1021,13 @@ async function parseMcpb(context: ParseContext): Promise<ParsedPackage> {
         name: optionalString(manifest.display_name, 'MCPB display_name') ?? id,
         type: 'mcp',
         sourceId: context.source.id,
-        runtime: { kind: 'bundled', entrypoint, executable: command, args }
+        runtime: {
+          kind: 'bundled',
+          entrypoint,
+          executable: command,
+          args,
+          ...(serverType === 'uv' ? { managedRuntime: 'uv' as const } : {})
+        }
       }],
       permissions,
       auth: credentialKeys.length > 0
@@ -1177,6 +1204,7 @@ export function installPreparedPluginPackage(
     expectedCurrentVersion: options.expectedCurrentVersion,
     reviewSha256: prepared.reviewSha256,
     scope: options.scope,
+    ...(options.scope === 'workspace' ? { workspaceRoot: options.workspaceRoot } : {}),
     permissions: options.permissions,
     idempotencyKey: options.idempotencyKey
   })

@@ -21,6 +21,7 @@ import { evaluateMarketplaceLicense } from '../../shared/marketplace'
 
 const OFFICIAL_CATALOG_SOURCE_ID = 'workwise-official'
 const SHA1_COMMIT = /^[0-9a-f]{40}$/
+const MCP_SERVERS_PYTHON_LICENSE_COMMIT = '76d64c822f5125032f89eb71dbdb94e42b434821'
 
 const PINNED_UPDATE = {
   strategy: 'pinned',
@@ -41,7 +42,7 @@ const SYSTEM_UPDATE = {
 } as const
 
 const COMPATIBILITY: PackageCompatibilityV1 = {
-  workwise: '>=0.3.5',
+  workwise: '>=0.4.0',
   platforms: ['darwin', 'win32', 'linux'],
   architectures: ['arm64', 'x64']
 }
@@ -755,7 +756,8 @@ const officialPackages: MarketplacePackageV1[] = [
       FILESYSTEM_WRITE_PERMISSION,
       PROCESS_EXECUTE_PERMISSION
     ],
-    dependencies: [UV_DEPENDENCY, PYTHON_310_DEPENDENCY]
+    dependencies: [UV_DEPENDENCY, PYTHON_310_DEPENDENCY],
+    licenseEvidenceCommit: MCP_SERVERS_PYTHON_LICENSE_COMMIT
   }),
   wheelMcpPackage({
     id: 'fetch-mcp',
@@ -770,7 +772,8 @@ const officialPackages: MarketplacePackageV1[] = [
     ),
     license: 'MIT',
     permissions: [NETWORK_PERMISSION],
-    dependencies: [UV_DEPENDENCY, PYTHON_310_DEPENDENCY]
+    dependencies: [UV_DEPENDENCY, PYTHON_310_DEPENDENCY],
+    licenseEvidenceCommit: MCP_SERVERS_PYTHON_LICENSE_COMMIT
   }),
   wheelMcpPackage({
     id: 'time-mcp',
@@ -785,7 +788,8 @@ const officialPackages: MarketplacePackageV1[] = [
     ),
     license: 'MIT',
     permissions: [],
-    dependencies: [UV_DEPENDENCY, PYTHON_310_DEPENDENCY]
+    dependencies: [UV_DEPENDENCY, PYTHON_310_DEPENDENCY],
+    licenseEvidenceCommit: MCP_SERVERS_PYTHON_LICENSE_COMMIT
   }),
   definePackage({
     id: 'lark-openapi-mcp',
@@ -927,7 +931,9 @@ function wheelMcpPackage(options: {
   permissions: PackagePermissionV1[]
   auth?: MarketplacePackageV1['auth']
   dependencies?: PackageDependencyV1[]
+  licenseEvidenceCommit?: string
 }): MarketplacePackageV1 {
+  const licenseSourceId = `${options.id}-source-2`
   return definePackage({
     id: options.id,
     name: options.name,
@@ -937,6 +943,9 @@ function wheelMcpPackage(options: {
     publisher: options.publisher,
     license: options.license,
     source: pypiSource(options.artifact),
+    additionalSources: options.licenseEvidenceCommit
+      ? [mcpServersLicenseSource(options.licenseEvidenceCommit)]
+      : [],
     components: [{
       id: `${options.id}-server`,
       name: `${options.name} Server`,
@@ -945,6 +954,15 @@ function wheelMcpPackage(options: {
     }],
     permissions: options.permissions,
     auth: options.auth ?? { type: 'none' },
+    licenseEvidence: options.licenseEvidenceCommit
+      ? [{
+          license: options.license,
+          sourceId: licenseSourceId,
+          path: 'LICENSE',
+          includeInInstall: true,
+          required: true
+        }]
+      : [],
     dependencies: options.dependencies ?? [UV_DEPENDENCY],
     updatePolicy: PINNED_UPDATE,
     availability: { status: 'available' },

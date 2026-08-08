@@ -396,11 +396,14 @@ describe('official marketplace catalog', () => {
     })
   })
 
-  it('retains immutable root MIT license evidence for official MCP server tarballs', () => {
+  it('retains immutable root MIT license evidence for official MCP server artifacts', () => {
     const expectedCommits = new Map([
       ['filesystem-mcp', '9a96ea6e5913736f92b88345bf51caeaaa8e719f'],
       ['memory-mcp', '6dd0a683e198783e30feabf7abaf42f925bd18b1'],
-      ['sequential-thinking-mcp', '6dd0a683e198783e30feabf7abaf42f925bd18b1']
+      ['sequential-thinking-mcp', '6dd0a683e198783e30feabf7abaf42f925bd18b1'],
+      ['git-mcp', '76d64c822f5125032f89eb71dbdb94e42b434821'],
+      ['fetch-mcp', '76d64c822f5125032f89eb71dbdb94e42b434821'],
+      ['time-mcp', '76d64c822f5125032f89eb71dbdb94e42b434821']
     ])
 
     for (const [id, commit] of expectedCommits) {

@@ -10,7 +10,7 @@ import type {
 
 const IMMUTABLE_COMMIT = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/i
 const COMPATIBILITY: MarketplacePackageV1['compatibility'] = {
-  workwise: '>=0.3.5',
+  workwise: '>=0.4.0',
   platforms: ['darwin', 'win32', 'linux'],
   architectures: ['arm64', 'x64']
 }
