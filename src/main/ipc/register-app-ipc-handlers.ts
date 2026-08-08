@@ -62,6 +62,7 @@ import {
   logErrorPayloadSchema,
   lspRequestPayloadSchema,
   managedToolIdSchema,
+  catalogSourceCredentialPayloadSchema,
   catalogSourceIdPayloadSchema,
   catalogSourcePayloadSchema,
   pluginInstallPayloadSchema,
@@ -71,6 +72,7 @@ import {
   pluginPrepareImportPayloadSchema,
   pluginRollbackPayloadSchema,
   mcpServerActionPayloadSchema,
+  mcpServerAuthorizationStatePayloadSchema,
   mcpServerAuthorizePayloadSchema,
   mcpServerCredentialPayloadSchema,
   mcpServerListPayloadSchema,
@@ -193,6 +195,7 @@ import { WorkspacePreviewService } from '../services/workspace-preview-service'
 import { GitCheckpointService } from '../services/git-checkpoint-service'
 import { RepoMapService } from '../services/repo-map-service'
 import { McpConfigService } from '../services/mcp-config-service'
+import { CatalogCredentialService } from '../services/catalog-credential-service'
 import { activatePluginPackage } from '../services/plugin-activation-service'
 import { MarketplaceCatalogService } from '../services/marketplace-catalog-service'
 import { PluginManagementService } from '../services/plugin-management-service'
@@ -236,6 +239,7 @@ type RegisterAppIpcHandlersOptions = {
   resolveLogDirectory: () => string
   logError: (category: string, message: string, detail?: unknown) => void
   marketplaceCatalogService?: MarketplaceCatalogService
+  catalogCredentialService?: CatalogCredentialService
   pluginManagementService?: PluginManagementService
   mcpConfigService?: McpConfigService
 }
@@ -596,10 +600,13 @@ export function registerAppIpcHandlers(options: RegisterAppIpcHandlersOptions): 
   const gitCheckpointService = new GitCheckpointService()
   const repoMapService = new RepoMapService()
   const mcpConfigService = options.mcpConfigService ?? new McpConfigService()
+  const catalogCredentialService = options.catalogCredentialService ?? new CatalogCredentialService()
   const marketplaceCatalogService = options.marketplaceCatalogService ?? new MarketplaceCatalogService({
-    resolveWorkspaceRoot: async () => (await store.load()).workspaceRoot
+    resolveWorkspaceRoot: async () => (await store.load()).workspaceRoot,
+    resolveSecret: async (secretKey) => (await catalogCredentialService.resolve(secretKey)) ?? null
   })
   const pluginManagementService = options.pluginManagementService ?? new PluginManagementService()
+  ;(app as typeof app & { once?: typeof app.once }).once?.('before-quit', () => mcpConfigService.dispose())
   let skillCatalogGeneration = 1
 
   const notifySkillsChanged = (): number => {
@@ -830,6 +837,22 @@ export function registerAppIpcHandlers(options: RegisterAppIpcHandlersOptions): 
     const request = parseIpcPayload('mcp-server:authorize', mcpServerAuthorizePayloadSchema, payload)
     return mcpConfigService.authorize(request)
   })
+  ipcMain.handle('mcp-server:wait-authorization', async (_, payload: unknown) => {
+    const request = parseIpcPayload(
+      'mcp-server:wait-authorization',
+      mcpServerAuthorizationStatePayloadSchema,
+      payload
+    )
+    return mcpConfigService.waitForAuthorization(request)
+  })
+  ipcMain.handle('mcp-server:cancel-authorization', async (_, payload: unknown) => {
+    const request = parseIpcPayload(
+      'mcp-server:cancel-authorization',
+      mcpServerAuthorizationStatePayloadSchema,
+      payload
+    )
+    return mcpConfigService.cancelAuthorization(request)
+  })
   ipcMain.handle('mcp-server:set-credential', async (_, payload: unknown) => {
     const request = parseIpcPayload('mcp-server:set-credential', mcpServerCredentialPayloadSchema, payload)
     return mcpConfigService.setCredential(request)
@@ -842,11 +865,50 @@ export function registerAppIpcHandlers(options: RegisterAppIpcHandlersOptions): 
   })
   ipcMain.handle('catalog:upsert-source', async (_, payload: unknown) => {
     const source = parseIpcPayload('catalog:upsert-source', catalogSourcePayloadSchema, payload)
-    return marketplaceCatalogService.upsertSource(source as CatalogSourceV1)
+    const previous = (await marketplaceCatalogService.listSources())
+      .find((candidate) => candidate.id === source.id)
+    const saved = await marketplaceCatalogService.upsertSource(source as CatalogSourceV1)
+    if (previous?.auth.type === 'token' &&
+        (saved.auth.type !== 'token' || saved.auth.secretKey !== previous.auth.secretKey)) {
+      await catalogCredentialService.remove(previous.auth.secretKey)
+    }
+    return saved
+  })
+  ipcMain.handle('catalog:list-credential-statuses', async () => {
+    const sources = await marketplaceCatalogService.listSources()
+    return Promise.all(sources
+      .filter((source) => source.auth.type === 'token')
+      .map((source) => catalogCredentialService.status(source.id, source.auth.type === 'token'
+        ? source.auth.secretKey
+        : '')))
+  })
+  ipcMain.handle('catalog:set-credential', async (_, payload: unknown) => {
+    const request = parseIpcPayload(
+      'catalog:set-credential',
+      catalogSourceCredentialPayloadSchema,
+      payload
+    )
+    const source = (await marketplaceCatalogService.listSources())
+      .find((candidate) => candidate.id === request.sourceId)
+    if (!source) throw new Error('Catalog source was not found.')
+    if (source.auth.type !== 'token') throw new Error('Catalog source does not use token authentication.')
+    const storage = await catalogCredentialService.set(source.auth.secretKey, request.accessToken)
+    return { sourceId: source.id, configured: true, storage }
+  })
+  ipcMain.handle('catalog:clear-credential', async (_, payload: unknown) => {
+    const request = parseIpcPayload('catalog:clear-credential', catalogSourceIdPayloadSchema, payload)
+    const source = (await marketplaceCatalogService.listSources())
+      .find((candidate) => candidate.id === request.sourceId)
+    if (!source) throw new Error('Catalog source was not found.')
+    if (source.auth.type === 'token') await catalogCredentialService.remove(source.auth.secretKey)
+    return { sourceId: source.id, configured: false }
   })
   ipcMain.handle('catalog:remove-source', async (_, payload: unknown) => {
     const request = parseIpcPayload('catalog:remove-source', catalogSourceIdPayloadSchema, payload)
+    const source = (await marketplaceCatalogService.listSources())
+      .find((candidate) => candidate.id === request.sourceId)
     await marketplaceCatalogService.removeSource(request.sourceId)
+    if (source?.auth.type === 'token') await catalogCredentialService.remove(source.auth.secretKey)
   })
   ipcMain.handle('catalog:sync-source', async (_, payload: unknown) => {
     const request = parseIpcPayload('catalog:sync-source', catalogSourceIdPayloadSchema, payload)

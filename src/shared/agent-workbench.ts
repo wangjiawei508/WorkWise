@@ -213,6 +213,8 @@ export type McpServerStatusV1 = {
   message?: string
   authorizationUrl?: string
   authorizationState?: string
+  authorizationCallback?: 'loopback' | 'manual'
+  authorizationExpiresAt?: string
 }
 
 export type ShellSessionV1 = {

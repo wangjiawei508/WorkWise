@@ -1,6 +1,7 @@
 import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { createServer } from 'node:net'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { McpServerConfigV2 } from '../../shared/agent-workbench'
 import { McpConfigService } from './mcp-config-service'
@@ -42,6 +43,27 @@ function config(overrides: Partial<McpServerConfigV2> = {}): Omit<McpServerConfi
     enabled: true,
     ...overrides
   }
+}
+
+async function freeLoopbackPort(): Promise<number> {
+  const server = createServer()
+  await new Promise<void>((resolve, reject) => {
+    server.once('error', reject)
+    server.listen(0, '127.0.0.1', resolve)
+  })
+  const address = server.address()
+  const port = typeof address === 'object' && address ? address.port : 0
+  await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()))
+  return port
+}
+
+async function assertLoopbackPortAvailable(port: number): Promise<void> {
+  const server = createServer()
+  await new Promise<void>((resolve, reject) => {
+    server.once('error', reject)
+    server.listen(port, '127.0.0.1', resolve)
+  })
+  await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()))
 }
 
 describe('McpConfigService', () => {
@@ -171,6 +193,165 @@ describe('McpConfigService', () => {
     const credentialFile = await readFile(join(root, 'credentials', `${saved.credentialRef!.id}.json`), 'utf8')
     expect(credentialFile).not.toContain('super-secret-token')
     expect(credentialFile).not.toContain('refresh-secret')
+  })
+
+  it('captures a validated loopback callback and completes OAuth without exposing the code to the renderer', async () => {
+    const port = await freeLoopbackPort()
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      expect(init?.method).toBe('POST')
+      const body = new URLSearchParams(String(init?.body))
+      expect(body.get('code')).toBe('loopback-code')
+      expect(body.get('code_verifier')).toBeTruthy()
+      return new Response(JSON.stringify({ access_token: 'loopback-secret', token_type: 'Bearer' }), {
+        status: 200
+      })
+    })
+    const service = new McpConfigService({
+      manifestPath: join(root, 'mcp-v2.json'),
+      credentialRoot: join(root, 'credentials'),
+      fetch: fetchMock as typeof fetch,
+      oauthCallbackTimeoutMs: 5_000
+    })
+    await service.save({
+      config: config({
+        transport: 'http',
+        command: undefined,
+        args: undefined,
+        cwd: undefined,
+        url: 'https://mcp.example.com/api',
+        oauth: {
+          authorizationUrl: 'https://auth.example.com/authorize',
+          tokenUrl: 'https://auth.example.com/token',
+          clientId: 'workwise-client',
+          redirectUri: `http://127.0.0.1:${port}/oauth/callback`,
+          scopes: ['mcp.tools']
+        }
+      }),
+      expectedRevision: 0,
+      idempotencyKey: 'save-loopback-oauth'
+    })
+
+    const started = await service.authorize({
+      serverId: 'docs',
+      workspaceRoot: workspace,
+      useLocalCallback: true
+    })
+    expect(started.authorizationCallback).toBe('loopback')
+    const wait = service.waitForAuthorization({
+      serverId: 'docs',
+      state: started.authorizationState!
+    })
+    const callback = new URL(`http://127.0.0.1:${port}/oauth/callback`)
+    callback.searchParams.set('code', 'loopback-code')
+    callback.searchParams.set('state', started.authorizationState!)
+    const callbackResponse = await fetch(callback)
+    expect(callbackResponse.status).toBe(200)
+    expect(await callbackResponse.text()).not.toContain('loopback-code')
+    await expect(wait).resolves.toMatchObject({ state: 'connected', authorized: true })
+    expect(JSON.stringify(await service.list(workspace))).not.toContain('loopback-secret')
+  })
+
+  it('rejects mismatched callback state and supports explicit cancellation', async () => {
+    const port = await freeLoopbackPort()
+    const service = new McpConfigService({
+      manifestPath: join(root, 'mcp-v2.json'),
+      credentialRoot: join(root, 'credentials'),
+      oauthCallbackTimeoutMs: 5_000
+    })
+    await service.save({
+      config: config({
+        transport: 'http',
+        command: undefined,
+        args: undefined,
+        cwd: undefined,
+        url: 'https://mcp.example.com/api',
+        oauth: {
+          authorizationUrl: 'https://auth.example.com/authorize',
+          tokenUrl: 'https://auth.example.com/token',
+          clientId: 'workwise-client',
+          redirectUri: `http://127.0.0.1:${port}/oauth/callback`,
+          scopes: []
+        }
+      }),
+      expectedRevision: 0,
+      idempotencyKey: 'save-cancel-oauth'
+    })
+    const started = await service.authorize({ serverId: 'docs', workspaceRoot: workspace, useLocalCallback: true })
+    const invalid = await fetch(`http://127.0.0.1:${port}/oauth/callback?code=secret&state=wrong`)
+    expect(invalid.status).toBe(400)
+    const wait = service.waitForAuthorization({ serverId: 'docs', state: started.authorizationState! })
+    expect(service.cancelAuthorization({ serverId: 'docs', state: started.authorizationState! })).toBe(true)
+    await expect(wait).resolves.toMatchObject({ state: 'error', message: expect.stringMatching(/cancelled/i) })
+  })
+
+  it('releases the loopback listener after an authorization timeout', async () => {
+    const port = await freeLoopbackPort()
+    const service = new McpConfigService({
+      manifestPath: join(root, 'mcp-v2.json'),
+      credentialRoot: join(root, 'credentials'),
+      oauthCallbackTimeoutMs: 20
+    })
+    await service.save({
+      config: config({
+        transport: 'http',
+        command: undefined,
+        args: undefined,
+        cwd: undefined,
+        url: 'https://mcp.example.com/api',
+        oauth: {
+          authorizationUrl: 'https://auth.example.com/authorize',
+          tokenUrl: 'https://auth.example.com/token',
+          clientId: 'workwise-client',
+          redirectUri: `http://127.0.0.1:${port}/oauth/callback`,
+          scopes: []
+        }
+      }),
+      expectedRevision: 0,
+      idempotencyKey: 'save-timeout-oauth'
+    })
+
+    const started = await service.authorize({ serverId: 'docs', workspaceRoot: workspace, useLocalCallback: true })
+    await expect(service.waitForAuthorization({
+      serverId: 'docs',
+      state: started.authorizationState!
+    })).resolves.toMatchObject({ state: 'error', message: expect.stringMatching(/timed out/i) })
+    await assertLoopbackPortAvailable(port)
+  })
+
+  it('settles waiting OAuth callers and releases listeners when disposed', async () => {
+    const port = await freeLoopbackPort()
+    const service = new McpConfigService({
+      manifestPath: join(root, 'mcp-v2.json'),
+      credentialRoot: join(root, 'credentials'),
+      oauthCallbackTimeoutMs: 5_000
+    })
+    await service.save({
+      config: config({
+        transport: 'http',
+        command: undefined,
+        args: undefined,
+        cwd: undefined,
+        url: 'https://mcp.example.com/api',
+        oauth: {
+          authorizationUrl: 'https://auth.example.com/authorize',
+          tokenUrl: 'https://auth.example.com/token',
+          clientId: 'workwise-client',
+          redirectUri: `http://127.0.0.1:${port}/oauth/callback`,
+          scopes: []
+        }
+      }),
+      expectedRevision: 0,
+      idempotencyKey: 'save-dispose-oauth'
+    })
+
+    const started = await service.authorize({ serverId: 'docs', workspaceRoot: workspace, useLocalCallback: true })
+    const waiting = service.waitForAuthorization({ serverId: 'docs', state: started.authorizationState! })
+    service.dispose()
+    await expect(waiting).resolves.toMatchObject({
+      state: 'error',
+      message: expect.stringMatching(/WorkWise is closing/i)
+    })
+    await assertLoopbackPortAvailable(port)
   })
 
   it('discovers protected resource metadata and dynamically registers a public PKCE client', async () => {

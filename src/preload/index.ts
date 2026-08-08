@@ -105,6 +105,11 @@ const api = {
   listCatalogPackages: () => ipcRenderer.invoke('catalog:list-packages'),
   getCatalogSnapshot: (sourceId) => ipcRenderer.invoke('catalog:get-snapshot', { sourceId }),
   upsertCatalogSource: (source) => ipcRenderer.invoke('catalog:upsert-source', source),
+  listCatalogCredentialStatuses: () => ipcRenderer.invoke('catalog:list-credential-statuses'),
+  setCatalogSourceCredential: (sourceId, accessToken) =>
+    ipcRenderer.invoke('catalog:set-credential', { sourceId, accessToken }),
+  clearCatalogSourceCredential: (sourceId) =>
+    ipcRenderer.invoke('catalog:clear-credential', { sourceId }),
   removeCatalogSource: (sourceId) => ipcRenderer.invoke('catalog:remove-source', { sourceId }),
   syncCatalogSource: (sourceId) => ipcRenderer.invoke('catalog:sync-source', { sourceId }),
   listInstalledPlugins: () => ipcRenderer.invoke('plugin:list-installed'),
@@ -160,6 +165,10 @@ const api = {
   saveMcpServer: (request) => ipcRenderer.invoke('mcp-server:save', request),
   testMcpServer: (serverId, workspaceRoot) => ipcRenderer.invoke('mcp-server:test', { serverId, workspaceRoot }),
   authorizeMcpServer: (request) => ipcRenderer.invoke('mcp-server:authorize', request),
+  waitForMcpAuthorization: (serverId, state) =>
+    ipcRenderer.invoke('mcp-server:wait-authorization', { serverId, state }),
+  cancelMcpAuthorization: (serverId, state) =>
+    ipcRenderer.invoke('mcp-server:cancel-authorization', { serverId, state }),
   setMcpServerCredential: (request) => ipcRenderer.invoke('mcp-server:set-credential', request),
   listDocumentEngines: () => ipcRenderer.invoke('document-engine:list'),
   installDocumentEngine: (id) => ipcRenderer.invoke('document-engine:install', id),

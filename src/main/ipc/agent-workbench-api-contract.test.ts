@@ -8,6 +8,8 @@ import {
   gitCheckpointCreatePayloadSchema,
   gitRollbackApplyPayloadSchema,
   gitRollbackPreviewPayloadSchema,
+  mcpServerAuthorizationStatePayloadSchema,
+  mcpServerAuthorizePayloadSchema,
   mcpServerSavePayloadSchema,
   pluginInstallPayloadSchema,
   pluginPrepareImportPayloadSchema,
@@ -108,6 +110,17 @@ describe('0.3.0 Agent workbench public API contracts', () => {
       permissions: [],
       idempotencyKey: 'install-1'
     })).toThrow()
+  })
+
+  it('accepts automatic loopback OAuth intent without accepting callback secrets in unrelated payloads', () => {
+    expect(mcpServerAuthorizePayloadSchema.parse({
+      serverId: 'notion',
+      useLocalCallback: true
+    })).toEqual({ serverId: 'notion', useLocalCallback: true })
+    expect(mcpServerAuthorizationStatePayloadSchema.parse({
+      serverId: 'notion',
+      state: 'oauth-state'
+    })).toEqual({ serverId: 'notion', state: 'oauth-state' })
   })
 
   it('accepts V2 settings envelopes while retaining the 0.2.x patch compatibility shape', () => {

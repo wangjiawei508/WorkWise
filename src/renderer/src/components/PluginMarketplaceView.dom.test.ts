@@ -31,6 +31,24 @@ const SOURCE: CatalogSourceV1 = {
   }
 }
 
+const PRIVATE_SOURCE: CatalogSourceV1 = {
+  schemaVersion: 1,
+  id: 'private-team',
+  name: 'Private Team',
+  type: 'https',
+  scope: 'team',
+  location: 'https://plugins.example.com/marketplace.json',
+  trust: 'community',
+  searchable: true,
+  auth: { type: 'token', secretKey: 'catalog.private-team.token' },
+  sync: {
+    mode: 'manual',
+    state: 'synced',
+    mirroredByDefault: false,
+    installedByDefault: false
+  }
+}
+
 function catalogPackage(id: string, version: string): MarketplacePackageV1 {
   const source = {
     id: `${id}-source`,
@@ -130,6 +148,26 @@ function button(text: string): HTMLButtonElement {
   return result
 }
 
+function exactButton(text: string): HTMLButtonElement {
+  const result = [...container.querySelectorAll('button')]
+    .find((candidate) => candidate.textContent?.trim() === text)
+  if (!(result instanceof HTMLButtonElement)) throw new Error(`Button not found: ${text}`)
+  return result
+}
+
+function iconButton(label: string): HTMLButtonElement {
+  const result = container.querySelector(`button[aria-label="${label}"]`)
+  if (!(result instanceof HTMLButtonElement)) throw new Error(`Icon button not found: ${label}`)
+  return result
+}
+
+function setInput(input: HTMLInputElement, value: string): void {
+  const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set
+  if (!setter) throw new Error('HTML input value setter is unavailable.')
+  setter.call(input, value)
+  input.dispatchEvent(new Event('input', { bubbles: true }))
+}
+
 beforeEach(async () => {
   await i18n.changeLanguage('en')
   useChatStore.setState({ workspaceRoot: '/tmp/workwise-marketplace-qa' })
@@ -138,6 +176,7 @@ beforeEach(async () => {
     configurable: true,
     value: {
       listCatalogSources: vi.fn(async () => [SOURCE]),
+      listCatalogCredentialStatuses: vi.fn(async () => []),
       listCatalogPackages: vi.fn(async () => ({
         packages: [
           { key: `${SOURCE.id}:${BROWSER.id}`, sourceId: SOURCE.id, package: BROWSER, conflicted: false },
@@ -164,6 +203,11 @@ beforeEach(async () => {
       })),
       installPreparedPlugin: installPrepared,
       cancelPluginImport: vi.fn(async () => true),
+      upsertCatalogSource: vi.fn(async (source: CatalogSourceV1) => source),
+      setCatalogSourceCredential: vi.fn(async (sourceId: string) => ({ sourceId, configured: true, storage: 'keychain' as const })),
+      clearCatalogSourceCredential: vi.fn(async (sourceId: string) => ({ sourceId, configured: false })),
+      removeCatalogSource: vi.fn(async () => undefined),
+      syncCatalogSource: vi.fn(async (sourceId: string) => ({ sourceId, status: 'synced' as const, stale: false })),
       openExternal: vi.fn(async () => undefined)
     } as unknown as typeof window.workwise
   })
@@ -205,5 +249,61 @@ describe('PluginMarketplaceView unified catalog', () => {
       scope: 'workspace',
       permissions: []
     }))
+  })
+
+  it('adds a private catalog without putting its token in catalog metadata', async () => {
+    await act(async () => iconButton('Catalog sources').click())
+    await act(async () => exactButton('Add source').click())
+    const name = container.querySelector('input[placeholder="Catalog name"]')
+    const location = container.querySelector('input[placeholder="https://..."]')
+    const privateToggle = [...container.querySelectorAll('label')]
+      .find((label) => label.textContent?.includes('Private catalog'))
+      ?.querySelector('input[type="checkbox"]')
+    if (!(name instanceof HTMLInputElement) || !(location instanceof HTMLInputElement) ||
+        !(privateToggle instanceof HTMLInputElement)) throw new Error('Private source inputs were not rendered.')
+    await act(async () => setInput(name, 'Internal Catalog'))
+    await act(async () => setInput(location, 'https://github.com/acme/internal-plugins'))
+    await act(async () => privateToggle.click())
+    const token = container.querySelector('input[placeholder="Access token"]')
+    if (!(token instanceof HTMLInputElement)) throw new Error('Private source token input was not rendered.')
+    await act(async () => setInput(token, 'private-renderer-token'))
+    await act(async () => exactButton('Add').click())
+    await settle()
+
+    const upsert = vi.mocked(window.workwise.upsertCatalogSource)
+    const savedSource = upsert.mock.calls[0]?.[0]
+    expect(savedSource?.auth).toMatchObject({ type: 'token' })
+    expect(JSON.stringify(savedSource)).not.toContain('private-renderer-token')
+    expect(window.workwise.setCatalogSourceCredential).toHaveBeenCalledWith(
+      savedSource?.id,
+      'private-renderer-token'
+    )
+    expect(window.workwise.syncCatalogSource).toHaveBeenCalledWith(savedSource?.id)
+  })
+
+  it('updates and clears an existing private catalog credential', async () => {
+    vi.mocked(window.workwise.listCatalogSources).mockResolvedValue([SOURCE, PRIVATE_SOURCE])
+    vi.mocked(window.workwise.listCatalogCredentialStatuses).mockResolvedValue([{
+      sourceId: PRIVATE_SOURCE.id,
+      configured: true,
+      storage: 'keychain'
+    }])
+    await act(async () => iconButton('Refresh').click())
+    await settle()
+    await act(async () => iconButton('Catalog sources').click())
+    expect(container.textContent).toContain('Credential configured')
+
+    await act(async () => iconButton('Configure credential').click())
+    const token = container.querySelector('input[placeholder="Access token"]')
+    if (!(token instanceof HTMLInputElement)) throw new Error('Credential editor was not rendered.')
+    await act(async () => setInput(token, 'rotated-token'))
+    await act(async () => exactButton('Save').click())
+    await settle()
+    expect(window.workwise.setCatalogSourceCredential).toHaveBeenCalledWith(PRIVATE_SOURCE.id, 'rotated-token')
+
+    await act(async () => iconButton('Configure credential').click())
+    await act(async () => exactButton('Clear').click())
+    await settle()
+    expect(window.workwise.clearCatalogSourceCredential).toHaveBeenCalledWith(PRIVATE_SOURCE.id)
   })
 })

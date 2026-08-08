@@ -13,6 +13,12 @@ export type CatalogSourceAuthV1 =
   | { type: 'token'; secretKey: string }
   | { type: 'oauth'; provider: string; discovery: 'ready' | 'pending' }
 
+export type CatalogCredentialStatusV1 = {
+  sourceId: string
+  configured: boolean
+  storage?: 'keychain' | 'dpapi' | 'safe-storage' | 'session'
+}
+
 export type CatalogSourceSyncV1 = {
   mode: 'bundled' | 'watched' | 'search-on-demand' | 'manual'
   state: 'idle' | 'syncing' | 'synced' | 'error'

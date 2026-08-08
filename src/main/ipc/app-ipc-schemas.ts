@@ -1309,7 +1309,13 @@ export const mcpServerActionPayloadSchema = z.object({
 
 export const mcpServerAuthorizePayloadSchema = mcpServerActionPayloadSchema.extend({
   state: optionalTrimmedString(512),
-  authorizationCode: optionalTrimmedString(8_192)
+  authorizationCode: optionalTrimmedString(8_192),
+  useLocalCallback: z.boolean().optional()
+}).strict()
+
+export const mcpServerAuthorizationStatePayloadSchema = z.object({
+  serverId: trimmedString(128),
+  state: trimmedString(512)
 }).strict()
 
 export const mcpServerCredentialPayloadSchema = mcpServerActionPayloadSchema.extend({
@@ -1360,6 +1366,10 @@ export const catalogSourcePayloadSchema = z.object({
 
 export const catalogSourceIdPayloadSchema = z.object({
   sourceId: trimmedString(128)
+}).strict()
+
+export const catalogSourceCredentialPayloadSchema = catalogSourceIdPayloadSchema.extend({
+  accessToken: z.string().trim().min(1).max(64 * 1024)
 }).strict()
 
 export const pluginPrepareImportPayloadSchema = z.object({

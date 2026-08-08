@@ -228,8 +228,15 @@ describe('registerAppIpcHandlers', () => {
       installPrepared: vi.fn(async (request) => ({ packageId: 'example', request })),
       rollback: vi.fn(async (request) => ({ packageId: request.packageId }))
     }
+    const catalogCredentialService = {
+      status: vi.fn(async (sourceId: string) => ({ sourceId, configured: true, storage: 'keychain' })),
+      set: vi.fn(async () => 'keychain'),
+      remove: vi.fn(async () => undefined),
+      resolve: vi.fn(async () => undefined)
+    }
     registerAppIpcHandlers(registerOptions({
       marketplaceCatalogService: catalogService as never,
+      catalogCredentialService: catalogCredentialService as never,
       pluginManagementService: pluginService as never
     }))
 
@@ -238,6 +245,9 @@ describe('registerAppIpcHandlers', () => {
       'catalog:list-packages',
       'catalog:get-snapshot',
       'catalog:upsert-source',
+      'catalog:list-credential-statuses',
+      'catalog:set-credential',
+      'catalog:clear-credential',
       'catalog:remove-source',
       'catalog:sync-source',
       'plugin:list-installed',
@@ -286,6 +296,33 @@ describe('registerAppIpcHandlers', () => {
       sync: { mode: 'manual', state: 'idle', mirroredByDefault: false, installedByDefault: false }
     })).rejects.toThrow(/Invalid payload for catalog:upsert-source/)
     expect(catalogService.upsertSource).not.toHaveBeenCalled()
+
+    const privateSource = {
+      schemaVersion: 1,
+      id: 'private',
+      name: 'Private',
+      type: 'https',
+      scope: 'team',
+      location: 'https://plugins.example.com/catalog.json',
+      trust: 'unverified',
+      searchable: true,
+      auth: { type: 'token', secretKey: 'catalog.private.token' },
+      sync: { mode: 'manual', state: 'idle', mirroredByDefault: false, installedByDefault: false }
+    }
+    catalogService.listSources.mockResolvedValue([privateSource] as never)
+    await expect(handlers.get('catalog:set-credential')?.({}, {
+      sourceId: 'private',
+      accessToken: 'renderer-secret'
+    })).resolves.toEqual({ sourceId: 'private', configured: true, storage: 'keychain' })
+    expect(catalogCredentialService.set).toHaveBeenCalledWith('catalog.private.token', 'renderer-secret')
+    await expect(handlers.get('catalog:list-credential-statuses')?.({})).resolves.toEqual([{
+      sourceId: 'private',
+      configured: true,
+      storage: 'keychain'
+    }])
+    await expect(handlers.get('catalog:clear-credential')?.({}, { sourceId: 'private' }))
+      .resolves.toEqual({ sourceId: 'private', configured: false })
+    expect(catalogCredentialService.remove).toHaveBeenCalledWith('catalog.private.token')
   })
 
   it('saves generated files to a user-selected path', async () => {

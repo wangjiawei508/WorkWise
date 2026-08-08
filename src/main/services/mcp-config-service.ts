@@ -1,5 +1,6 @@
 import { createHash, randomBytes } from 'node:crypto'
 import { execFile } from 'node:child_process'
+import { createServer, type Server } from 'node:http'
 import { mkdir, rm } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
@@ -16,6 +17,9 @@ import { canonicalizeContainmentRoot, resolveContainedPath } from './canonical-c
 const execFileAsync = promisify(execFile)
 const MAX_OAUTH_RESPONSE_BYTES = 1024 * 1024
 const OAUTH_REQUEST_TIMEOUT_MS = 15_000
+const OAUTH_STATE_TTL_MS = 10 * 60_000
+const OAUTH_CALLBACK_TIMEOUT_MS = 5 * 60_000
+const OAUTH_COMPLETION_RETENTION_MS = 60_000
 
 type McpManifestV2 = {
   schema: 'workwise.mcp-servers'
@@ -44,6 +48,13 @@ type PendingOAuth = {
   state: string
   verifier: string
   createdAt: number
+  callbackServer?: Server
+  callbackTimer?: ReturnType<typeof setTimeout>
+  cleanupTimer?: ReturnType<typeof setTimeout>
+  completion?: Promise<McpServerStatusV1>
+  resolveCompletion?: (status: McpServerStatusV1) => void
+  completed?: McpServerStatusV1
+  processing?: boolean
 }
 
 type McpOAuthConfig = NonNullable<McpServerConfigV2['oauth']>
@@ -67,6 +78,12 @@ export type AuthorizeMcpServerRequest = {
   workspaceRoot?: string
   state?: string
   authorizationCode?: string
+  useLocalCallback?: boolean
+}
+
+export type McpAuthorizationStateRequest = {
+  serverId: string
+  state: string
 }
 
 export type SetMcpServerCredentialRequest = {
@@ -189,6 +206,7 @@ export class McpConfigService {
   private readonly encryption: EncryptionAdapter
   private readonly fetchImpl: typeof fetch
   private readonly now: () => Date
+  private readonly oauthCallbackTimeoutMs: number
   private readonly oauthResponseTimers = new WeakMap<Response, ReturnType<typeof setTimeout>>()
   private readonly sessionCredentials = new Map<string, CredentialPayload>()
   private readonly pendingOAuth = new Map<string, PendingOAuth>()
@@ -200,6 +218,7 @@ export class McpConfigService {
     encryption?: EncryptionAdapter
     fetch?: typeof fetch
     now?: () => Date
+    oauthCallbackTimeoutMs?: number
   } = {}) {
     this.manifestPath = resolve(options.manifestPath ?? join(homedir(), '.workwise', 'mcp-v2.json'))
     this.legacyPath = resolve(options.legacyPath ?? join(dirname(this.manifestPath), 'mcp.json'))
@@ -207,6 +226,7 @@ export class McpConfigService {
     this.encryption = options.encryption ?? defaultEncryption()
     this.fetchImpl = options.fetch ?? ((input, init) => globalThis.fetch(input, init))
     this.now = options.now ?? (() => new Date())
+    this.oauthCallbackTimeoutMs = options.oauthCallbackTimeoutMs ?? OAUTH_CALLBACK_TIMEOUT_MS
   }
 
   async list(workspaceRoot?: string): Promise<McpServerConfigV2[]> {
@@ -365,12 +385,24 @@ export class McpConfigService {
       if (!server.oauth.authorizationUrl || !server.oauth.clientId) {
         return { id: server.id, state: 'error', authorized: false, message: 'OAuth discovery is incomplete.' }
       }
-      this.pendingOAuth.set(state, {
+      this.cancelPendingForServer(server.id)
+      const pending: PendingOAuth = {
         serverId: server.id,
         state,
         verifier,
         createdAt: this.now().getTime()
-      })
+      }
+      this.pendingOAuth.set(state, pending)
+      let callback: McpServerStatusV1['authorizationCallback'] = 'manual'
+      if (request.useLocalCallback) {
+        try {
+          await this.startOAuthCallback(server, pending)
+          callback = 'loopback'
+        } catch (error) {
+          this.pendingOAuth.delete(state)
+          throw error
+        }
+      }
       const authorizationUrl = new URL(server.oauth.authorizationUrl)
       authorizationUrl.searchParams.set('response_type', 'code')
       authorizationUrl.searchParams.set('client_id', server.oauth.clientId)
@@ -386,25 +418,83 @@ export class McpConfigService {
         authorized: false,
         authorizationUrl: authorizationUrl.toString(),
         authorizationState: state,
-        message: 'Open the authorization URL and return the authorization code.'
+        authorizationCallback: callback,
+        authorizationExpiresAt: new Date(
+          pending.createdAt + (callback === 'loopback' ? this.oauthCallbackTimeoutMs : OAUTH_STATE_TTL_MS)
+        ).toISOString(),
+        message: callback === 'loopback'
+          ? 'Complete authorization in the browser. WorkWise is waiting for the local callback.'
+          : 'Open the authorization URL and return the authorization code.'
       }
     }
     const pending = request.state ? this.pendingOAuth.get(request.state) : undefined
-    if (!pending || pending.serverId !== server.id || this.now().getTime() - pending.createdAt > 10 * 60_000) {
+    if (!pending || pending.completed || pending.serverId !== server.id ||
+        this.now().getTime() - pending.createdAt > OAUTH_STATE_TTL_MS) {
       return { id: server.id, state: 'error', authorized: false, message: 'OAuth state is missing or expired.' }
     }
-    if (!server.oauth.tokenUrl || !server.oauth.clientId) {
+    const result = await this.completeAuthorization(server, pending, request.authorizationCode)
+    this.disposePendingOAuth(pending)
+    return result
+  }
+
+  async waitForAuthorization(request: McpAuthorizationStateRequest): Promise<McpServerStatusV1> {
+    const pending = this.pendingOAuth.get(request.state)
+    if (!pending || pending.serverId !== request.serverId) {
+      return { id: request.serverId, state: 'error', authorized: false, message: 'OAuth state is missing or expired.' }
+    }
+    if (!pending.completion) {
+      return { id: request.serverId, state: 'error', authorized: false, message: 'OAuth flow is waiting for a manual authorization code.' }
+    }
+    const result = await pending.completion
+    this.disposePendingOAuth(pending)
+    return result
+  }
+
+  cancelAuthorization(request: McpAuthorizationStateRequest): boolean {
+    const pending = this.pendingOAuth.get(request.state)
+    if (!pending || pending.serverId !== request.serverId) return false
+    this.settleOAuthCallback(pending, {
+      id: request.serverId,
+      state: 'error',
+      authorized: false,
+      message: 'OAuth authorization was cancelled.'
+    })
+    return true
+  }
+
+  dispose(): void {
+    for (const pending of this.pendingOAuth.values()) {
+      if (pending.callbackTimer) clearTimeout(pending.callbackTimer)
+      if (pending.cleanupTimer) clearTimeout(pending.cleanupTimer)
+      pending.callbackServer?.close()
+      pending.resolveCompletion?.({
+        id: pending.serverId,
+        state: 'error',
+        authorized: false,
+        message: 'OAuth authorization stopped because WorkWise is closing.'
+      })
+    }
+    this.pendingOAuth.clear()
+  }
+
+  private async completeAuthorization(
+    server: McpServerConfigV2,
+    pending: PendingOAuth,
+    authorizationCode: string
+  ): Promise<McpServerStatusV1> {
+    const oauth = server.oauth
+    if (!oauth?.tokenUrl || !oauth.clientId) {
       return { id: server.id, state: 'error', authorized: false, message: 'OAuth discovery is incomplete.' }
     }
     const body = new URLSearchParams({
       grant_type: 'authorization_code',
-      code: request.authorizationCode,
-      client_id: server.oauth.clientId,
-      redirect_uri: server.oauth.redirectUri,
+      code: authorizationCode,
+      client_id: oauth.clientId,
+      redirect_uri: oauth.redirectUri,
       code_verifier: pending.verifier
     })
-    if (server.oauth.resource) body.set('resource', server.oauth.resource)
-    const response = await this.fetchOAuth(server.oauth.tokenUrl, {
+    if (oauth.resource) body.set('resource', oauth.resource)
+    const response = await this.fetchOAuth(oauth.tokenUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Accept-Encoding': 'identity' },
       body
@@ -446,8 +536,137 @@ export class McpConfigService {
     } else if (server.credentialRef && server.credentialRef.id !== credentialRef.id) {
       await this.removeCredential(server.credentialRef)
     }
-    this.pendingOAuth.delete(pending.state)
     return { id: server.id, state: 'connected', authorized: true, message: 'Authorization completed.' }
+  }
+
+  private async startOAuthCallback(server: McpServerConfigV2, pending: PendingOAuth): Promise<void> {
+    const redirect = assertRedirectUri(server.oauth!.redirectUri)
+    const hostname = redirect.hostname.replace(/^\[|\]$/g, '')
+    if (redirect.protocol !== 'http:' || !new Set(['127.0.0.1', '::1']).has(hostname) || !redirect.port) {
+      throw new Error('Automatic OAuth callback requires an explicit 127.0.0.1 or ::1 HTTP port.')
+    }
+    const port = Number.parseInt(redirect.port, 10)
+    if (!Number.isInteger(port) || port < 1 || port > 65_535) {
+      throw new Error('OAuth callback port is invalid.')
+    }
+
+    pending.completion = new Promise((resolve) => {
+      pending.resolveCompletion = resolve
+    })
+    const callbackServer = createServer((request, response) => {
+      if (request.method !== 'GET' || !request.url || request.url.length > 8_192) {
+        this.writeOAuthCallbackResponse(response, false)
+        return
+      }
+      let callbackUrl: URL
+      try {
+        callbackUrl = new URL(request.url, redirect.origin)
+      } catch {
+        this.writeOAuthCallbackResponse(response, false)
+        return
+      }
+      if (callbackUrl.pathname !== redirect.pathname || callbackUrl.searchParams.get('state') !== pending.state) {
+        this.writeOAuthCallbackResponse(response, false)
+        return
+      }
+      if (pending.processing || pending.completed) {
+        this.writeOAuthCallbackResponse(response, Boolean(pending.completed?.authorized))
+        return
+      }
+      const code = callbackUrl.searchParams.get('code')?.trim()
+      const denied = callbackUrl.searchParams.has('error')
+      if (!code || code.length > 8_192 || denied) {
+        const status = {
+          id: server.id,
+          state: 'error' as const,
+          authorized: false,
+          message: denied
+            ? 'OAuth authorization was denied by the provider.'
+            : 'OAuth callback did not contain a valid authorization code.'
+        }
+        this.writeOAuthCallbackResponse(response, false)
+        this.settleOAuthCallback(pending, status)
+        return
+      }
+      pending.processing = true
+      void this.completeAuthorization(server, pending, code)
+        .then((status) => {
+          this.writeOAuthCallbackResponse(response, status.authorized)
+          this.settleOAuthCallback(pending, status)
+        })
+        .catch((error) => {
+          this.writeOAuthCallbackResponse(response, false)
+          this.settleOAuthCallback(pending, {
+            id: server.id,
+            state: 'error',
+            authorized: false,
+            message: error instanceof Error ? error.message : String(error)
+          })
+        })
+    })
+    pending.callbackServer = callbackServer
+    await new Promise<void>((resolveListen, rejectListen) => {
+      const onError = (error: Error): void => rejectListen(error)
+      callbackServer.once('error', onError)
+      callbackServer.listen(port, hostname, () => {
+        callbackServer.removeListener('error', onError)
+        resolveListen()
+      })
+    }).catch((error) => {
+      callbackServer.close()
+      pending.callbackServer = undefined
+      throw new Error(
+        `Unable to start the local OAuth callback on ${hostname}:${port}: ${error instanceof Error ? error.message : String(error)}`
+      )
+    })
+    pending.callbackTimer = setTimeout(() => {
+      this.settleOAuthCallback(pending, {
+        id: server.id,
+        state: 'error',
+        authorized: false,
+        message: 'OAuth authorization timed out.'
+      })
+    }, this.oauthCallbackTimeoutMs)
+    pending.callbackTimer.unref?.()
+  }
+
+  private writeOAuthCallbackResponse(response: import('node:http').ServerResponse, ok: boolean): void {
+    response.statusCode = ok ? 200 : 400
+    response.setHeader('Content-Type', 'text/html; charset=utf-8')
+    response.setHeader('Cache-Control', 'no-store')
+    response.setHeader('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'")
+    response.end(`<!doctype html><html><head><meta charset="utf-8"><title>WorkWise</title><style>body{font:14px -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;margin:0;display:grid;min-height:100vh;place-items:center;background:#f5f7fa;color:#20242b}.message{max-width:360px;padding:28px;text-align:center}</style></head><body><main class="message"><h1>WorkWise</h1><p>${ok ? 'Authorization completed. You can return to WorkWise.' : 'Authorization could not be completed. Return to WorkWise for details.'}</p></main></body></html>`)
+  }
+
+  private settleOAuthCallback(pending: PendingOAuth, status: McpServerStatusV1): void {
+    if (pending.completed) return
+    pending.completed = status
+    if (pending.callbackTimer) clearTimeout(pending.callbackTimer)
+    pending.callbackTimer = undefined
+    pending.callbackServer?.close()
+    pending.callbackServer = undefined
+    pending.resolveCompletion?.(status)
+    pending.cleanupTimer = setTimeout(() => this.disposePendingOAuth(pending), OAUTH_COMPLETION_RETENTION_MS)
+    pending.cleanupTimer.unref?.()
+  }
+
+  private cancelPendingForServer(serverId: string): void {
+    for (const pending of this.pendingOAuth.values()) {
+      if (pending.serverId !== serverId) continue
+      this.settleOAuthCallback(pending, {
+        id: serverId,
+        state: 'error',
+        authorized: false,
+        message: 'OAuth authorization was replaced by a new request.'
+      })
+    }
+  }
+
+  private disposePendingOAuth(pending: PendingOAuth): void {
+    if (pending.callbackTimer) clearTimeout(pending.callbackTimer)
+    if (pending.cleanupTimer) clearTimeout(pending.cleanupTimer)
+    pending.callbackServer?.close()
+    if (this.pendingOAuth.get(pending.state) === pending) this.pendingOAuth.delete(pending.state)
   }
 
   async setCredential(request: SetMcpServerCredentialRequest): Promise<McpServerConfigV2> {

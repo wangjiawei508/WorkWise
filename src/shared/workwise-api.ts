@@ -102,6 +102,7 @@ import type {
 import type {
   CatalogSnapshotV1,
   CatalogSourceV1,
+  CatalogCredentialStatusV1,
   InstalledPackagePermissionV1,
   InstalledPackageV1,
   MarketplaceCatalogPackagesResultV1,
@@ -359,6 +360,9 @@ export type WorkWiseApi = {
   listCatalogPackages: () => Promise<MarketplaceCatalogPackagesResultV1>
   getCatalogSnapshot: (sourceId: string) => Promise<CatalogSnapshotV1 | null>
   upsertCatalogSource: (source: CatalogSourceV1) => Promise<CatalogSourceV1>
+  listCatalogCredentialStatuses: () => Promise<CatalogCredentialStatusV1[]>
+  setCatalogSourceCredential: (sourceId: string, accessToken: string) => Promise<CatalogCredentialStatusV1>
+  clearCatalogSourceCredential: (sourceId: string) => Promise<CatalogCredentialStatusV1>
   removeCatalogSource: (sourceId: string) => Promise<void>
   syncCatalogSource: (sourceId: string) => Promise<MarketplaceCatalogSyncResultV1>
   listInstalledPlugins: () => Promise<InstalledPackageV1[]>
@@ -432,7 +436,10 @@ export type WorkWiseApi = {
     workspaceRoot?: string
     state?: string
     authorizationCode?: string
+    useLocalCallback?: boolean
   }) => Promise<McpServerStatusV1>
+  waitForMcpAuthorization: (serverId: string, state: string) => Promise<McpServerStatusV1>
+  cancelMcpAuthorization: (serverId: string, state: string) => Promise<boolean>
   setMcpServerCredential: (request: {
     serverId: string
     workspaceRoot?: string

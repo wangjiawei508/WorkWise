@@ -11,6 +11,7 @@ import {
   ExternalLink,
   FolderOpen,
   Import,
+  KeyRound,
   Loader2,
   Package as PackageIcon,
   Plus,
@@ -26,6 +27,7 @@ import {
   X
 } from 'lucide-react'
 import type {
+  CatalogCredentialStatusV1,
   CatalogSourceV1,
   InstalledPackagePermissionV1,
   InstalledPackageV1,
@@ -51,6 +53,8 @@ type SourceDraft = {
   location: string
   scope: 'user' | 'workspace' | 'team'
   defaultBranch: string
+  requiresToken: boolean
+  token: string
 }
 
 function uuid(): string {
@@ -127,15 +131,18 @@ function catalogSourceFromDraft(draft: SourceDraft): CatalogSourceV1 {
   const idBase = draft.name.trim().toLowerCase()
     .replace(/[^a-z0-9._-]+/g, '-')
     .replace(/^-+|-+$/g, '') || 'catalog'
+  const id = `${idBase}-${uuid().slice(0, 8)}`
   const base = {
     schemaVersion: 1 as const,
-    id: `${idBase}-${uuid().slice(0, 8)}`,
+    id,
     name: draft.name.trim(),
     scope: draft.type === 'project' ? 'workspace' as const : draft.scope,
     location: draft.location.trim(),
     trust: draft.scope === 'team' ? 'community' as const : 'unverified' as const,
     searchable: true,
-    auth: { type: 'none' as const },
+    auth: draft.requiresToken
+      ? { type: 'token' as const, secretKey: `catalog.${id}.token` }
+      : { type: 'none' as const },
     sync: {
       mode: draft.type === 'local' || draft.type === 'project' ? 'watched' as const : 'manual' as const,
       state: 'idle' as const,
@@ -159,8 +166,8 @@ function catalogSourceFromDraft(draft: SourceDraft): CatalogSourceV1 {
   }
   if (draft.type === 'git') return { ...base, type: 'git', defaultBranch: draft.defaultBranch.trim() || 'main' }
   if (draft.type === 'https') return { ...base, type: 'https' }
-  if (draft.type === 'project') return { ...base, type: 'project', scope: 'workspace' }
-  return { ...base, type: 'local' }
+  if (draft.type === 'project') return { ...base, type: 'project', scope: 'workspace', auth: { type: 'none' } }
+  return { ...base, type: 'local', auth: { type: 'none' } }
 }
 
 function statusTone(tone: Notice['tone']): string {
@@ -177,6 +184,7 @@ export function PluginMarketplaceView(): ReactElement {
   }, [t])
   const workspaceRoot = normalizeWorkspaceRoot(useChatStore((state) => state.workspaceRoot))
   const [sources, setSources] = useState<CatalogSourceV1[]>([])
+  const [catalogCredentials, setCatalogCredentials] = useState<CatalogCredentialStatusV1[]>([])
   const [entries, setEntries] = useState<MarketplaceCatalogPackageEntryV1[]>([])
   const [installedPackages, setInstalledPackages] = useState<InstalledPackageV1[]>([])
   const [mcpServers, setMcpServers] = useState<McpServerConfigV2[]>([])
@@ -200,6 +208,7 @@ export function PluginMarketplaceView(): ReactElement {
     state: string
     url: string
     code: string
+    callback: 'loopback' | 'manual'
   } | null>(null)
 
   const installed = useMemo(
@@ -211,17 +220,19 @@ export function PluginMarketplaceView(): ReactElement {
   const refresh = useCallback(async (showSpinner = false): Promise<void> => {
     if (showSpinner) setLoading(true)
     try {
-      const [catalogSources, catalog, packageRecords, servers, skills] = await Promise.all([
+      const [catalogSources, catalog, packageRecords, servers, skills, credentialStatuses] = await Promise.all([
         window.workwise.listCatalogSources(),
         window.workwise.listCatalogPackages(),
         window.workwise.listInstalledPlugins(),
         window.workwise.listMcpServers(workspaceRoot || undefined),
-        window.workwise.listSkills(workspaceRoot || undefined).catch(() => null)
+        window.workwise.listSkills(workspaceRoot || undefined).catch(() => null),
+        window.workwise.listCatalogCredentialStatuses()
       ])
       setSources(catalogSources)
       setEntries(catalog.packages)
       setInstalledPackages(packageRecords)
       setMcpServers(servers)
+      setCatalogCredentials(credentialStatuses)
       if (skills?.ok) setSkillCount(skills.skills.length)
       if (catalog.conflicts.length > 0) {
         setNotice({
@@ -422,15 +433,33 @@ export function PluginMarketplaceView(): ReactElement {
         idempotencyKey: uuid()
       })
       if (item.auth.type === 'oauth') {
-        const authorization = await window.workwise.authorizeMcpServer({ serverId: saved.id })
+        const authorization = await window.workwise.authorizeMcpServer({
+          serverId: saved.id,
+          useLocalCallback: true
+        })
         if (authorization.authorizationUrl && authorization.authorizationState) {
           setOauth({
             serverId: saved.id,
             state: authorization.authorizationState,
             url: authorization.authorizationUrl,
-            code: ''
+            code: '',
+            callback: authorization.authorizationCallback ?? 'manual'
           })
           await window.workwise.openExternal(authorization.authorizationUrl)
+          if (authorization.authorizationCallback === 'loopback') {
+            const result = await window.workwise.waitForMcpAuthorization(
+              saved.id,
+              authorization.authorizationState
+            )
+            if (result.state !== 'connected') {
+              throw new Error(result.message || 'OAuth authorization failed.')
+            }
+            setOauth(null)
+          } else {
+            setNotice({ tone: 'info', message: authorization.message || text('pluginUnifiedOauthTitle', 'Complete authorization') })
+            await refresh()
+            return
+          }
         }
       }
       setNotice({ tone: 'success', message: text('pluginUnifiedConnected', '{{name}} connected to MCP V2.', { name: item.name }) })
@@ -615,6 +644,7 @@ export function PluginMarketplaceView(): ReactElement {
       {sourcesOpen ? (
         <SourceDrawer
           sources={sources}
+          credentialStatuses={catalogCredentials}
           busy={busy}
           text={text}
           onClose={() => setSourcesOpen(false)}
@@ -623,6 +653,14 @@ export function PluginMarketplaceView(): ReactElement {
             setBusy('source:add')
             try {
               const source = await window.workwise.upsertCatalogSource(catalogSourceFromDraft(draft))
+              if (source.auth.type === 'token') {
+                try {
+                  await window.workwise.setCatalogSourceCredential(source.id, draft.token)
+                } catch (error) {
+                  await window.workwise.removeCatalogSource(source.id).catch(() => undefined)
+                  throw error
+                }
+              }
               const result = await window.workwise.syncCatalogSource(source.id)
               setNotice({
                 tone: result.status === 'failed' ? 'error' : 'success',
@@ -650,6 +688,26 @@ export function PluginMarketplaceView(): ReactElement {
               await refresh()
             } catch (error) {
               setNotice({ tone: 'error', message: error instanceof Error ? error.message : String(error) })
+            } finally {
+              setBusy('')
+            }
+          }}
+          onCredential={async (source, token) => {
+            setBusy(`credential:${source.id}`)
+            try {
+              if (token.trim()) await window.workwise.setCatalogSourceCredential(source.id, token)
+              else await window.workwise.clearCatalogSourceCredential(source.id)
+              setNotice({
+                tone: 'success',
+                message: token.trim()
+                  ? text('pluginUnifiedCredentialSaved', '{{name}} credential saved securely.', { name: source.name })
+                  : text('pluginUnifiedCredentialCleared', '{{name}} credential cleared.', { name: source.name })
+              })
+              await refresh()
+              return true
+            } catch (error) {
+              setNotice({ tone: 'error', message: friendlyMarketplaceError(error instanceof Error ? error.message : String(error), t) })
+              return false
             } finally {
               setBusy('')
             }
@@ -709,23 +767,36 @@ export function PluginMarketplaceView(): ReactElement {
       ) : null}
 
       {oauth ? (
-        <Modal title={text('pluginUnifiedOauthTitle', 'Complete authorization')} onClose={() => setOauth(null)}>
-          <label className="block text-[12px] font-medium text-ds-muted">
-            {text('pluginUnifiedOauthCode', 'Authorization code')}
-            <input
-              autoFocus
-              value={oauth.code}
-              onChange={(event) => setOauth({ ...oauth, code: event.target.value })}
-              className="mt-2 h-10 w-full rounded-md border border-ds-border bg-ds-card px-3 text-[13px] text-ds-ink outline-none focus:border-accent/50"
-            />
-          </label>
+        <Modal title={text('pluginUnifiedOauthTitle', 'Complete authorization')} onClose={() => {
+          const current = oauth
+          setOauth(null)
+          if (current.callback === 'loopback') {
+            void window.workwise.cancelMcpAuthorization(current.serverId, current.state)
+          }
+        }}>
+          {oauth.callback === 'loopback' ? (
+            <div className="flex items-center gap-3 text-[12px] text-ds-muted">
+              <Loader2 className="h-4 w-4 shrink-0 animate-spin" />
+              <span>{text('pluginUnifiedOauthWaiting', 'Waiting for authorization in your browser...')}</span>
+            </div>
+          ) : (
+            <label className="block text-[12px] font-medium text-ds-muted">
+              {text('pluginUnifiedOauthCode', 'Authorization code')}
+              <input
+                autoFocus
+                value={oauth.code}
+                onChange={(event) => setOauth({ ...oauth, code: event.target.value })}
+                className="mt-2 h-10 w-full rounded-md border border-ds-border bg-ds-card px-3 text-[13px] text-ds-ink outline-none focus:border-accent/50"
+              />
+            </label>
+          )}
           <div className="mt-4 flex justify-end gap-2">
             <button type="button" onClick={() => void window.workwise.openExternal(oauth.url)} className="h-9 rounded-md border border-ds-border px-3 text-[12px] font-medium hover:bg-ds-hover">
               {text('pluginUnifiedOpenAuthorization', 'Open authorization page')}
             </button>
-            <button type="button" disabled={!oauth.code.trim() || busy === `oauth:${oauth.serverId}`} onClick={() => void finishOauth()} className="h-9 rounded-md bg-ds-userbubble px-3 text-[12px] font-semibold text-ds-userbubbleFg disabled:opacity-50">
+            {oauth.callback === 'manual' ? <button type="button" disabled={!oauth.code.trim() || busy === `oauth:${oauth.serverId}`} onClick={() => void finishOauth()} className="h-9 rounded-md bg-ds-userbubble px-3 text-[12px] font-semibold text-ds-userbubbleFg disabled:opacity-50">
               {busy === `oauth:${oauth.serverId}` ? <Loader2 className="h-4 w-4 animate-spin" /> : text('pluginUnifiedAuthorize', 'Authorize')}
-            </button>
+            </button> : null}
           </div>
         </Modal>
       ) : null}
@@ -923,8 +994,21 @@ function PermissionLine({ permission }: { permission: PackagePermissionV1 }): Re
   return <div className="flex items-start gap-2 text-[12px]"><ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-ds-faint" /><div><div className="font-medium">{permission.kind} · {permission.access}</div><p className="mt-0.5 leading-5 text-ds-muted">{permission.description}</p>{permission.resources?.length ? <p className="mt-0.5 break-all text-[10px] text-ds-faint">{permission.resources.join(', ')}</p> : null}</div></div>
 }
 
-function SourceDrawer({ sources, busy, text, workspaceAvailable, onClose, onSync, onAdd, onRemove }: {
+function emptySourceDraft(): SourceDraft {
+  return {
+    type: 'github',
+    name: '',
+    location: '',
+    scope: 'user',
+    defaultBranch: 'main',
+    requiresToken: false,
+    token: ''
+  }
+}
+
+function SourceDrawer({ sources, credentialStatuses, busy, text, workspaceAvailable, onClose, onSync, onAdd, onRemove, onCredential }: {
   sources: CatalogSourceV1[]
+  credentialStatuses: CatalogCredentialStatusV1[]
   busy: string
   text: Text
   workspaceAvailable: boolean
@@ -932,15 +1016,13 @@ function SourceDrawer({ sources, busy, text, workspaceAvailable, onClose, onSync
   onSync: (source: CatalogSourceV1) => void
   onAdd: (draft: SourceDraft) => Promise<boolean>
   onRemove: (source: CatalogSourceV1) => void
+  onCredential: (source: CatalogSourceV1, token: string) => Promise<boolean>
 }): ReactElement {
   const [adding, setAdding] = useState(false)
-  const [draft, setDraft] = useState<SourceDraft>({
-    type: 'github',
-    name: '',
-    location: '',
-    scope: 'user',
-    defaultBranch: 'main'
-  })
+  const [draft, setDraft] = useState<SourceDraft>(emptySourceDraft)
+  const [credentialSourceId, setCredentialSourceId] = useState('')
+  const [credentialToken, setCredentialToken] = useState('')
+  const credentialMap = new Map(credentialStatuses.map((status) => [status.sourceId, status]))
   return (
     <Drawer title={text('pluginUnifiedSources', 'Catalog sources')} onClose={onClose}>
       <div className="border-b border-ds-border px-5 py-4">
@@ -950,7 +1032,7 @@ function SourceDrawer({ sources, busy, text, workspaceAvailable, onClose, onSync
         {adding ? (
           <div className="mt-4 space-y-3">
             <div className="grid grid-cols-2 gap-2">
-              <Select value={draft.type} onChange={(value) => setDraft({ ...draft, type: value as SourceDraft['type'], scope: value === 'project' ? 'workspace' : draft.scope })} ariaLabel={text('pluginUnifiedSourceType', 'Source type')}>
+              <Select value={draft.type} onChange={(value) => setDraft({ ...draft, type: value as SourceDraft['type'], scope: value === 'project' ? 'workspace' : draft.scope, requiresToken: value === 'github' || value === 'https' ? draft.requiresToken : false, token: value === 'github' || value === 'https' ? draft.token : '' })} ariaLabel={text('pluginUnifiedSourceType', 'Source type')}>
                 <option value="github">GitHub</option><option value="git">Git</option><option value="https">HTTPS</option><option value="local">{text('pluginUnifiedLocalFile', 'Local file')}</option><option value="project" disabled={!workspaceAvailable}>{text('pluginUnifiedProjectFile', 'Project file')}</option>
               </Select>
               <Select value={draft.scope} onChange={(value) => setDraft({ ...draft, scope: value as SourceDraft['scope'] })} ariaLabel={text('pluginUnifiedScope', 'Scope')}>
@@ -960,7 +1042,14 @@ function SourceDrawer({ sources, busy, text, workspaceAvailable, onClose, onSync
             <input value={draft.name} onChange={(event) => setDraft({ ...draft, name: event.target.value })} placeholder={text('pluginUnifiedSourceName', 'Catalog name')} className="h-9 w-full rounded-md border border-ds-border bg-ds-card px-3 text-[12px] outline-none focus:border-accent/50" />
             <input value={draft.location} onChange={(event) => setDraft({ ...draft, location: event.target.value })} placeholder={draft.type === 'project' ? '.agents/plugins/marketplace.json' : draft.type === 'local' ? '/path/to/marketplace.json' : 'https://...'} className="h-9 w-full rounded-md border border-ds-border bg-ds-card px-3 text-[12px] outline-none focus:border-accent/50" />
             {draft.type === 'github' || draft.type === 'git' ? <input value={draft.defaultBranch} onChange={(event) => setDraft({ ...draft, defaultBranch: event.target.value })} placeholder={text('pluginUnifiedDefaultBranch', 'Default branch')} className="h-9 w-full rounded-md border border-ds-border bg-ds-card px-3 text-[12px] outline-none focus:border-accent/50" /> : null}
-            <div className="flex justify-end gap-2"><button type="button" onClick={() => setAdding(false)} className="h-8 rounded-md px-3 text-[11px] font-medium text-ds-muted hover:bg-ds-hover">{text('pluginUnifiedCancel', 'Cancel')}</button><button type="button" disabled={!draft.name.trim() || !draft.location.trim() || busy === 'source:add'} onClick={() => void onAdd(draft).then((added) => { if (added) setAdding(false) })} className="inline-flex h-8 min-w-[72px] items-center justify-center rounded-md bg-ds-userbubble px-3 text-[11px] font-semibold text-ds-userbubbleFg disabled:opacity-50">{busy === 'source:add' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : text('pluginUnifiedAdd', 'Add')}</button></div>
+            {draft.type === 'github' || draft.type === 'https' ? (
+              <label className="flex items-center gap-2 text-[11px] text-ds-muted">
+                <input type="checkbox" checked={draft.requiresToken} onChange={(event) => setDraft({ ...draft, requiresToken: event.target.checked, token: event.target.checked ? draft.token : '' })} />
+                {text('pluginUnifiedPrivateSource', 'Private catalog')}
+              </label>
+            ) : null}
+            {draft.requiresToken ? <input type="password" autoComplete="off" value={draft.token} onChange={(event) => setDraft({ ...draft, token: event.target.value })} placeholder={text('pluginUnifiedCatalogToken', 'Access token')} className="h-9 w-full rounded-md border border-ds-border bg-ds-card px-3 text-[12px] outline-none focus:border-accent/50" /> : null}
+            <div className="flex justify-end gap-2"><button type="button" onClick={() => { setAdding(false); setDraft(emptySourceDraft()) }} className="h-8 rounded-md px-3 text-[11px] font-medium text-ds-muted hover:bg-ds-hover">{text('pluginUnifiedCancel', 'Cancel')}</button><button type="button" disabled={!draft.name.trim() || !draft.location.trim() || (draft.requiresToken && !draft.token.trim()) || busy === 'source:add'} onClick={() => void onAdd(draft).then((added) => { if (added) { setAdding(false); setDraft(emptySourceDraft()) } })} className="inline-flex h-8 min-w-[72px] items-center justify-center rounded-md bg-ds-userbubble px-3 text-[11px] font-semibold text-ds-userbubbleFg disabled:opacity-50">{busy === 'source:add' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : text('pluginUnifiedAdd', 'Add')}</button></div>
           </div>
         ) : null}
       </div>
@@ -969,9 +1058,11 @@ function SourceDrawer({ sources, busy, text, workspaceAvailable, onClose, onSync
           <div key={source.id} className="px-5 py-4">
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0"><div className="truncate text-[13px] font-semibold">{source.name}</div><div className="mt-1 flex flex-wrap gap-1.5 text-[10px] text-ds-faint"><span>{source.type}</span><span>·</span><span>{source.trust}</span><span>·</span><span>{source.sync.state}</span></div></div>
-              <div className="flex gap-1">{source.sync.mode !== 'bundled' ? <IconButton label={text('pluginUnifiedSyncSource', 'Sync source')} disabled={busy === `source:${source.id}`} onClick={() => onSync(source)}>{busy === `source:${source.id}` ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}</IconButton> : null}{source.scope !== 'system' ? <IconButton label={text('pluginUnifiedRemoveSource', 'Remove source')} disabled={busy === `source:${source.id}`} onClick={() => onRemove(source)}><Trash2 className="h-4 w-4" /></IconButton> : null}</div>
+              <div className="flex gap-1">{source.auth.type === 'token' ? <IconButton label={text('pluginUnifiedConfigureCredential', 'Configure credential')} disabled={busy === `credential:${source.id}`} onClick={() => { setCredentialSourceId(source.id); setCredentialToken('') }}>{busy === `credential:${source.id}` ? <Loader2 className="h-4 w-4 animate-spin" /> : <KeyRound className="h-4 w-4" />}</IconButton> : null}{source.sync.mode !== 'bundled' ? <IconButton label={text('pluginUnifiedSyncSource', 'Sync source')} disabled={busy === `source:${source.id}`} onClick={() => onSync(source)}>{busy === `source:${source.id}` ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}</IconButton> : null}{source.scope !== 'system' ? <IconButton label={text('pluginUnifiedRemoveSource', 'Remove source')} disabled={busy === `source:${source.id}`} onClick={() => onRemove(source)}><Trash2 className="h-4 w-4" /></IconButton> : null}</div>
             </div>
             <p className="mt-2 break-all text-[11px] leading-4 text-ds-muted">{source.location}</p>
+            {source.auth.type === 'token' ? <p className="mt-1 text-[10px] text-ds-faint">{credentialMap.get(source.id)?.configured ? text('pluginUnifiedCredentialConfigured', 'Credential configured') : text('pluginUnifiedCredentialMissing', 'Credential required')}</p> : null}
+            {credentialSourceId === source.id ? <div className="mt-3 flex gap-2"><input type="password" autoFocus autoComplete="off" value={credentialToken} onChange={(event) => setCredentialToken(event.target.value)} placeholder={text('pluginUnifiedCatalogToken', 'Access token')} className="h-8 min-w-0 flex-1 rounded-md border border-ds-border bg-ds-card px-3 text-[11px] outline-none focus:border-accent/50" /><button type="button" disabled={!credentialToken.trim() || busy === `credential:${source.id}`} onClick={() => void onCredential(source, credentialToken).then((saved) => { if (saved) { setCredentialSourceId(''); setCredentialToken('') } })} className="h-8 rounded-md bg-ds-userbubble px-3 text-[11px] font-semibold text-ds-userbubbleFg disabled:opacity-50">{text('pluginUnifiedSave', 'Save')}</button>{credentialMap.get(source.id)?.configured ? <button type="button" disabled={busy === `credential:${source.id}`} onClick={() => void onCredential(source, '').then((saved) => { if (saved) { setCredentialSourceId(''); setCredentialToken('') } })} className="h-8 rounded-md border border-ds-border px-3 text-[11px] font-medium hover:bg-ds-hover">{text('pluginUnifiedClear', 'Clear')}</button> : null}</div> : null}
             {source.sync.error ? <p className="mt-2 text-[11px] text-red-700 dark:text-red-300">{source.sync.error}</p> : null}
           </div>
         ))}
