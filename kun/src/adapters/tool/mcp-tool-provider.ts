@@ -287,24 +287,34 @@ async function createSdkMcpClient(serverId: string, server: McpServerConfig): Pr
 }
 
 function createTransport(server: McpServerConfig): Transport {
+  const env = resolveMcpSecrets(server.env)
+  const headers = resolveMcpSecrets(server.headers)
   switch (server.transport) {
     case 'stdio':
       return new StdioClientTransport({
         command: server.command ?? '',
         args: server.args,
-        env: server.env,
+        env,
         stderr: 'pipe'
       })
     case 'streamable-http':
       return new StreamableHTTPClientTransport(new URL(server.url ?? ''), {
-        requestInit: { headers: server.headers }
+        requestInit: { headers }
       })
     case 'sse':
       return new SSEClientTransport(new URL(server.url ?? ''), {
-        requestInit: { headers: server.headers },
-        eventSourceInit: { fetch: fetchWithHeaders(server.headers) }
+        requestInit: { headers },
+        eventSourceInit: { fetch: fetchWithHeaders(headers) }
       })
   }
+}
+
+export function resolveMcpSecrets(values: Record<string, string>): Record<string, string> {
+  return Object.fromEntries(Object.entries(values).map(([key, value]) => {
+    const match = /^\$\{([A-Za-z_][A-Za-z0-9_]*)\}$/.exec(value)
+    if (!match) return [key, value]
+    return [key, process.env[match[1]!] ?? '']
+  }))
 }
 
 function fetchWithHeaders(headers: Record<string, string>): typeof fetch {

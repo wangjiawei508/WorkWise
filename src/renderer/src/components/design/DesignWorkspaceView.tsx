@@ -913,7 +913,7 @@ export function DesignWorkspaceView({
   const [sidebarTab, setSidebarTab] = useState<'assistant' | 'properties' | 'layers' | 'shapes'>('assistant')
 
   return (
-    <div className="ds-no-drag flex h-full min-h-0 flex-col bg-ds-main">
+    <div className="ds-opaque-work-surface ds-no-drag flex h-full min-h-0 flex-col bg-ds-main">
       {/* 顶栏 */}
       <header className="ds-drag flex h-12 shrink-0 items-center gap-2 border-b border-ds-border-muted px-3">
         {leftSidebarCollapsed ? (

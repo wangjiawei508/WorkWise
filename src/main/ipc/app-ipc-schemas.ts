@@ -1274,12 +1274,22 @@ const mcpServerConfigV2Schema = z.object({
     id: trimmedString(256),
     storage: z.enum(['keychain', 'dpapi', 'safe-storage', 'session'])
   }).strict().optional(),
+  credentialEnvironmentVariables: z.array(trimmedString(128)).max(32).optional(),
   oauth: z.object({
-    authorizationUrl: trimmedString(MAX_URL_LENGTH),
-    tokenUrl: trimmedString(MAX_URL_LENGTH),
-    clientId: trimmedString(512),
+    resource: optionalTrimmedString(MAX_URL_LENGTH),
+    authorizationUrl: optionalTrimmedString(MAX_URL_LENGTH),
+    tokenUrl: optionalTrimmedString(MAX_URL_LENGTH),
+    registrationUrl: optionalTrimmedString(MAX_URL_LENGTH),
+    clientId: optionalTrimmedString(512),
     redirectUri: trimmedString(MAX_URL_LENGTH),
-    scopes: z.array(trimmedString(512)).max(128)
+    scopes: z.array(trimmedString(512)).max(128),
+    discovery: z.object({
+      protectedResourceMetadataUrl: optionalTrimmedString(MAX_URL_LENGTH),
+      authorizationServer: optionalTrimmedString(MAX_URL_LENGTH),
+      authorizationServerMetadataUrl: optionalTrimmedString(MAX_URL_LENGTH),
+      codeChallengeMethodsSupported: z.array(trimmedString(128)).max(32),
+      clientRegistration: z.enum(['static', 'dynamic'])
+    }).strict().optional()
   }).strict().optional(),
   toolPolicy: z.record(trimmedString(512), z.enum(['allow', 'ask', 'deny'])),
   enabled: z.boolean(),
@@ -1299,7 +1309,116 @@ export const mcpServerActionPayloadSchema = z.object({
 
 export const mcpServerAuthorizePayloadSchema = mcpServerActionPayloadSchema.extend({
   state: optionalTrimmedString(512),
-  authorizationCode: optionalTrimmedString(8_192)
+  authorizationCode: optionalTrimmedString(8_192),
+  useLocalCallback: z.boolean().optional()
+}).strict()
+
+export const mcpServerAuthorizationStatePayloadSchema = z.object({
+  serverId: trimmedString(128),
+  state: trimmedString(512)
+}).strict()
+
+export const mcpServerCredentialPayloadSchema = mcpServerActionPayloadSchema.extend({
+  accessToken: z.string().trim().min(1).max(64 * 1024),
+  tokenType: z.string().trim().min(1).max(64).optional(),
+  expectedRevision: z.number().int().min(0),
+  idempotencyKey: trimmedString(MAX_ID_LENGTH)
+}).strict()
+
+const catalogAuthSchema = z.discriminatedUnion('type', [
+  z.object({ type: z.literal('none') }).strict(),
+  z.object({ type: z.literal('token'), secretKey: trimmedString(512) }).strict(),
+  z.object({
+    type: z.literal('oauth'),
+    provider: trimmedString(256),
+    discovery: z.enum(['ready', 'pending'])
+  }).strict()
+])
+
+const catalogSyncSchema = z.object({
+  mode: z.enum(['bundled', 'watched', 'search-on-demand', 'manual']),
+  state: z.enum(['idle', 'syncing', 'synced', 'error']),
+  mirroredByDefault: z.boolean(),
+  installedByDefault: z.boolean(),
+  lastSyncedAt: optionalTrimmedString(128),
+  etag: optionalTrimmedString(1_024),
+  lastModified: optionalTrimmedString(1_024),
+  commit: optionalTrimmedString(128),
+  error: z.string().max(8_192).optional()
+}).strict()
+
+export const catalogSourcePayloadSchema = z.object({
+  schemaVersion: z.literal(1),
+  id: trimmedString(128),
+  name: trimmedString(256),
+  type: z.enum(['built-in', 'local', 'project', 'git', 'github', 'https', 'mcp-registry']),
+  scope: z.enum(['user', 'workspace', 'team', 'system']),
+  location: trimmedString(MAX_PATH_LENGTH),
+  trust: z.enum(['system', 'official', 'verified', 'community', 'external', 'unverified']),
+  searchable: z.boolean(),
+  auth: catalogAuthSchema,
+  sync: catalogSyncSchema,
+  owner: optionalTrimmedString(256),
+  repository: optionalTrimmedString(256),
+  defaultBranch: optionalTrimmedString(256),
+  registry: optionalTrimmedString(512)
+}).strict()
+
+export const catalogSourceIdPayloadSchema = z.object({
+  sourceId: trimmedString(128)
+}).strict()
+
+export const catalogSourceCredentialPayloadSchema = catalogSourceIdPayloadSchema.extend({
+  accessToken: z.string().trim().min(1).max(64 * 1024)
+}).strict()
+
+export const pluginPrepareImportPayloadSchema = z.object({
+  sourcePath: trimmedString(MAX_PATH_LENGTH),
+  format: z.enum(['wwx', 'codex', 'mcpb']).optional(),
+  catalogSourceId: optionalTrimmedString(128)
+}).strict()
+
+export const pluginPrepareCatalogPayloadSchema = z.object({
+  sourceId: trimmedString(128),
+  packageId: trimmedString(128)
+}).strict()
+
+export const pluginPackagePickerPayloadSchema = z.object({
+  mode: z.enum(['file', 'directory'])
+}).strict()
+
+export const pluginPreparedIdPayloadSchema = z.object({
+  preparedId: trimmedString(128)
+}).strict()
+
+const installedPermissionDecisionSchema = z.object({
+  permissionId: trimmedString(128),
+  decision: z.enum(['granted', 'denied'])
+}).strict()
+
+export const pluginInstallPayloadSchema = z.object({
+  preparedId: trimmedString(128),
+  reviewSha256: z.string().regex(/^[0-9a-f]{64}$/i),
+  expectedCurrentVersion: z.string().trim().min(1).max(256).nullable(),
+  scope: z.enum(['user', 'workspace', 'team']),
+  workspaceRoot: optionalTrimmedString(MAX_PATH_LENGTH),
+  permissions: z.array(installedPermissionDecisionSchema).max(128),
+  idempotencyKey: trimmedString(MAX_ID_LENGTH)
+}).strict()
+
+export const pluginRollbackPayloadSchema = z.object({
+  packageId: trimmedString(256),
+  expectedCurrentVersion: trimmedString(256),
+  idempotencyKey: trimmedString(MAX_ID_LENGTH)
+}).strict()
+
+export const pluginPermissionsUpdatePayloadSchema = z.object({
+  packageId: trimmedString(256),
+  expectedCurrentVersion: trimmedString(256),
+  reviewSha256: z.string().regex(/^[0-9a-f]{64}$/i),
+  permissions: z.array(installedPermissionDecisionSchema).max(128),
+  workspaceRoot: optionalTrimmedString(MAX_PATH_LENGTH),
+  idempotencyKey: trimmedString(MAX_ID_LENGTH)
 }).strict()
 
 export const documentEngineIdSchema = z.enum(['markitdown', 'mineru-local', 'mineru-private'])

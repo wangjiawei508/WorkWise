@@ -3,11 +3,16 @@ import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import {
   agentProfileSavePayloadSchema,
+  catalogSourcePayloadSchema,
   documentParsePayloadSchema,
   gitCheckpointCreatePayloadSchema,
   gitRollbackApplyPayloadSchema,
   gitRollbackPreviewPayloadSchema,
+  mcpServerAuthorizationStatePayloadSchema,
+  mcpServerAuthorizePayloadSchema,
   mcpServerSavePayloadSchema,
+  pluginInstallPayloadSchema,
+  pluginPrepareImportPayloadSchema,
   repoMapBuildPayloadSchema,
   runtimeRequestPayloadSchema,
   settingsSetPayloadSchema,
@@ -63,6 +68,61 @@ describe('0.3.0 Agent workbench public API contracts', () => {
     })).toThrow(/Unrecognized key/)
   })
 
+  it('strictly validates catalog sources and one-time plugin installation requests', () => {
+    expect(catalogSourcePayloadSchema.parse({
+      schemaVersion: 1,
+      id: 'team-catalog',
+      name: 'Team Catalog',
+      type: 'https',
+      scope: 'team',
+      location: 'https://plugins.example.com/catalog.json',
+      trust: 'unverified',
+      searchable: true,
+      auth: { type: 'token', secretKey: 'catalog.team.token' },
+      sync: {
+        mode: 'manual',
+        state: 'idle',
+        mirroredByDefault: false,
+        installedByDefault: false
+      }
+    }).id).toBe('team-catalog')
+    expect(() => catalogSourcePayloadSchema.parse({
+      schemaVersion: 1,
+      id: 'unsafe',
+      name: 'Unsafe',
+      type: 'https',
+      scope: 'team',
+      location: 'https://plugins.example.com/catalog.json',
+      trust: 'unverified',
+      searchable: true,
+      auth: { type: 'token', secretKey: 'catalog.token', token: 'plaintext' },
+      sync: { mode: 'manual', state: 'idle', mirroredByDefault: false, installedByDefault: false }
+    })).toThrow(/Unrecognized key/)
+    expect(pluginPrepareImportPayloadSchema.parse({
+      sourcePath: '/tmp/example.wwx',
+      format: 'wwx'
+    }).format).toBe('wwx')
+    expect(() => pluginInstallPayloadSchema.parse({
+      preparedId: 'prepared-1',
+      reviewSha256: 'not-a-digest',
+      expectedCurrentVersion: null,
+      scope: 'user',
+      permissions: [],
+      idempotencyKey: 'install-1'
+    })).toThrow()
+  })
+
+  it('accepts automatic loopback OAuth intent without accepting callback secrets in unrelated payloads', () => {
+    expect(mcpServerAuthorizePayloadSchema.parse({
+      serverId: 'notion',
+      useLocalCallback: true
+    })).toEqual({ serverId: 'notion', useLocalCallback: true })
+    expect(mcpServerAuthorizationStatePayloadSchema.parse({
+      serverId: 'notion',
+      state: 'oauth-state'
+    })).toEqual({ serverId: 'notion', state: 'oauth-state' })
+  })
+
   it('accepts V2 settings envelopes while retaining the 0.2.x patch compatibility shape', () => {
     expect(settingsSetPayloadSchema.parse({
       patch: { conversation: { viewMode: 'concise' }, documents: { parsingMode: 'auto' } },
@@ -81,5 +141,7 @@ describe('0.3.0 Agent workbench public API contracts', () => {
     expect(preload).toContain(`contextBridge.exposeInMainWorld('${deprecatedApi}', api)`)
     expect(preload.match(new RegExp(`exposeInMainWorld\\('${deprecatedApi}'`, 'g'))).toHaveLength(1)
     expect(preload).toContain('Deprecated compatibility boundary for 0.2.x renderers')
+    expect(preload).toContain("ipcRenderer.invoke('catalog:list-packages')")
+    expect(preload).toContain("ipcRenderer.invoke('plugin:install', request)")
   })
 })

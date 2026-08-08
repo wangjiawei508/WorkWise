@@ -183,12 +183,22 @@ export type McpServerConfigV2 = {
   timeoutMs: number
   source: 'user' | 'skill' | 'managed-tool' | 'migration'
   credentialRef?: McpCredentialReferenceV1
+  credentialEnvironmentVariables?: string[]
   oauth?: {
-    authorizationUrl: string
-    tokenUrl: string
-    clientId: string
+    resource?: string
+    authorizationUrl?: string
+    tokenUrl?: string
+    registrationUrl?: string
+    clientId?: string
     redirectUri: string
     scopes: string[]
+    discovery?: {
+      protectedResourceMetadataUrl?: string
+      authorizationServer?: string
+      authorizationServerMetadataUrl?: string
+      codeChallengeMethodsSupported: string[]
+      clientRegistration: 'static' | 'dynamic'
+    }
   }
   toolPolicy: Record<string, 'allow' | 'ask' | 'deny'>
   enabled: boolean
@@ -203,6 +213,8 @@ export type McpServerStatusV1 = {
   message?: string
   authorizationUrl?: string
   authorizationState?: string
+  authorizationCallback?: 'loopback' | 'manual'
+  authorizationExpiresAt?: string
 }
 
 export type ShellSessionV1 = {

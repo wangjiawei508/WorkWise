@@ -14,8 +14,10 @@ import './styles/write-editor.css'
 import './styles/write-rich-editor.css'
 import App from './App'
 import './i18n'
+import { installWindowAppearanceBridge } from './lib/window-appearance'
 
 document.documentElement.dataset.platform = window.workwise?.platform ?? 'unknown'
+installWindowAppearanceBridge(window.workwise)
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>

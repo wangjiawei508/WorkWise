@@ -382,3 +382,120 @@
   border: 1px solid var(--ds-border-muted);
   box-shadow: var(--ds-shadow-chip);
 }
+
+/* Native window material is exposed by preload. Only chrome surfaces reveal it. */
+:root[data-window-transparency='disabled'] .ds-sidebar-shell,
+:root[data-window-transparency='disabled'] .ds-settings-sidebar {
+  background: var(--ds-bg-sidebar);
+  box-shadow: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+:root[data-window-transparency='disabled'] .ds-sidebar-shell::before {
+  content: none;
+}
+
+:root[data-window-transparency='enabled'] body {
+  background-color: transparent;
+}
+
+:root[data-window-transparency='enabled'] body::before,
+:root[data-window-transparency='enabled'] body::after {
+  background: transparent;
+  opacity: 0;
+}
+
+:root[data-window-transparency='enabled'] .ds-app-frame,
+:root[data-window-transparency='enabled'] .ds-windows-app-frame,
+:root[data-window-transparency='enabled'] .ds-workbench-shell,
+:root[data-window-transparency='enabled'] .ds-settings-shell {
+  background: transparent;
+}
+
+:root[data-window-transparency='enabled'] .ds-sidebar-shell,
+:root[data-window-transparency='enabled'] .ds-settings-sidebar {
+  border-color: color-mix(in srgb, var(--ds-sidebar-border) 72%, transparent);
+  background: rgba(241, 246, 251, 0.62);
+  box-shadow: inset -1px 0 0 rgba(255, 255, 255, 0.36);
+  backdrop-filter: blur(24px) saturate(135%);
+  -webkit-backdrop-filter: blur(24px) saturate(135%);
+}
+
+:root[data-window-transparency='enabled'] .ds-sidebar-shell::before {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.34), transparent 34%);
+  opacity: 0.72;
+}
+
+:root[data-window-transparency='enabled'][data-theme='dark'] .ds-sidebar-shell,
+:root[data-window-transparency='enabled'][data-theme='dark'] .ds-settings-sidebar {
+  background: rgba(18, 20, 23, 0.66);
+  box-shadow: inset -1px 0 0 rgba(255, 255, 255, 0.045);
+}
+
+:root[data-window-transparency='enabled'][data-theme='dark'] .ds-sidebar-shell::before {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.035), transparent 30%);
+}
+
+:root[data-window-transparency='enabled'] .ds-windows-titlebar {
+  background: rgba(245, 248, 252, 0.58);
+  backdrop-filter: blur(24px) saturate(135%);
+  -webkit-backdrop-filter: blur(24px) saturate(135%);
+}
+
+:root[data-window-transparency='enabled'][data-theme='dark'] .ds-windows-titlebar {
+  background: rgba(17, 18, 20, 0.62);
+}
+
+:root[data-window-transparency='enabled'] .ds-topbar-surface {
+  border: 1px solid rgba(255, 255, 255, 0.48);
+  background: rgba(255, 255, 255, 0.52);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.5), 0 10px 28px rgba(15, 23, 42, 0.05);
+  backdrop-filter: blur(18px) saturate(125%);
+  -webkit-backdrop-filter: blur(18px) saturate(125%);
+}
+
+:root[data-window-transparency='enabled'][data-theme='dark'] .ds-topbar-surface {
+  border-color: rgba(255, 255, 255, 0.07);
+  background: rgba(24, 25, 28, 0.58);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.045), 0 12px 30px rgba(0, 0, 0, 0.16);
+}
+
+:root[data-window-transparency='enabled'] .ds-chat-composer {
+  background: rgba(255, 255, 255, 0.76);
+  backdrop-filter: blur(22px) saturate(128%);
+  -webkit-backdrop-filter: blur(22px) saturate(128%);
+}
+
+:root[data-window-transparency='enabled'][data-theme='dark'] .ds-chat-composer {
+  background: rgba(24, 24, 26, 0.78);
+}
+
+.ds-opaque-work-surface,
+.write-codemirror-host,
+.write-markdown-preview,
+.ds-code-sidebar {
+  background-color: var(--ds-bg-canvas);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+@media (prefers-reduced-transparency: reduce), (forced-colors: active), (prefers-contrast: more) {
+  :root[data-window-transparency='enabled'] body,
+  :root[data-window-transparency='enabled'] .ds-app-frame,
+  :root[data-window-transparency='enabled'] .ds-workbench-shell,
+  :root[data-window-transparency='enabled'] .ds-settings-shell {
+    background: var(--ds-bg-main);
+  }
+
+  :root[data-window-transparency='enabled'] .ds-sidebar-shell,
+  :root[data-window-transparency='enabled'] .ds-settings-sidebar,
+  :root[data-window-transparency='enabled'] .ds-windows-titlebar,
+  :root[data-window-transparency='enabled'] .ds-topbar-surface,
+  :root[data-window-transparency='enabled'] .ds-chat-composer {
+    background: var(--ds-bg-sidebar);
+    box-shadow: none;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+}

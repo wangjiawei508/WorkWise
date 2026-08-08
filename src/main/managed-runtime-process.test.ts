@@ -642,6 +642,35 @@ describe('syncManagedRuntimeConfig', () => {
     })
   })
 
+  it('merges MCP V2 runtime snapshots without writing credential values to config', async () => {
+    if (!tempRoot) throw new Error('temp root not initialized')
+    const configPath = join(tempRoot, 'config.json')
+    const mcpConfigPath = join(tempRoot, 'mcp.json')
+    writeFileSync(mcpConfigPath, JSON.stringify({ servers: {} }), 'utf8')
+    const module = await import('./managed-runtime-process')
+
+    await module.syncManagedRuntimeConfig(tempRoot, defaultManagedRuntimeSettings(), {
+      mcpConfigPath,
+      mcpV2Servers: {
+        'secure-docs': {
+          enabled: true,
+          transport: 'streamable-http',
+          url: 'https://mcp.example.test/mcp',
+          headers: { Authorization: '${WORKWISE_MCP_SECRET_ABC123}' },
+          trustScope: 'user',
+          trustedWorkspaceRoots: [],
+          timeoutMs: 30_000
+        }
+      }
+    })
+
+    const content = readFileSync(configPath, 'utf8')
+    expect(content).not.toContain('runtime-only-secret')
+    expect(JSON.parse(content).capabilities.mcp.servers['secure-docs']).toMatchObject({
+      headers: { Authorization: '${WORKWISE_MCP_SECRET_ABC123}' }
+    })
+  })
+
   it('normalizes legacy recommended MCP configs before importing them into runtime capabilities', async () => {
     if (!tempRoot) throw new Error('temp root not initialized')
     const configPath = join(tempRoot, 'config.json')

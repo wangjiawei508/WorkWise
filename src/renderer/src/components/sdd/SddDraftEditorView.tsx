@@ -317,7 +317,7 @@ export function SddDraftEditorView({
 
       <div className="min-h-0 min-w-0 flex-1 overflow-hidden pb-3 pt-2">
         <div
-          className={`sdd-editor-card relative h-full min-h-0 overflow-hidden rounded-[18px] border border-ds-border bg-ds-card/88 shadow-[0_20px_56px_rgba(15,23,42,0.06)] ${
+          className={`sdd-editor-card ds-opaque-work-surface relative h-full min-h-0 overflow-hidden rounded-[18px] border border-ds-border bg-ds-card/88 shadow-[0_20px_56px_rgba(15,23,42,0.06)] ${
             upgrading ? 'is-upgrading' : ''
           }`}
         >

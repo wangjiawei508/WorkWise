@@ -1,5 +1,6 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import type { WorkWiseApi } from '../shared/workwise-api'
+import { parseWindowAppearanceArguments } from '../shared/window-appearance'
 import {
   RUNTIME_TASKS_PATH,
   RUNTIME_SHELL_SESSIONS_PATH,
@@ -42,6 +43,15 @@ async function runtimeJson<T>(path: string, method = 'GET', body?: unknown): Pro
 
 const api = {
   platform: process.platform,
+  windowAppearance: parseWindowAppearanceArguments(process.argv),
+  onWindowAppearanceChanged: (handler) => {
+    const wrapped = (
+      _event: Electron.IpcRendererEvent,
+      appearance: Parameters<typeof handler>[0]
+    ): void => handler(appearance)
+    ipcRenderer.on('window:appearance-changed', wrapped)
+    return () => ipcRenderer.removeListener('window:appearance-changed', wrapped)
+  },
   onApplicationMenuAction: (handler) => {
     const wrapped = (
       _event: Electron.IpcRendererEvent,
@@ -88,8 +98,27 @@ const api = {
     ipcRenderer.invoke('claw:im-install:poll', { provider, deviceCode }),
   pickWorkspaceDirectory: (defaultPath) =>
     ipcRenderer.invoke('workspace:pick-directory', defaultPath),
+  pickPluginPackage: (mode) => ipcRenderer.invoke('plugin:pick-package', { mode }),
   confirmDialog: (options) =>
     ipcRenderer.invoke('dialog:confirm', options),
+  listCatalogSources: () => ipcRenderer.invoke('catalog:list-sources'),
+  listCatalogPackages: () => ipcRenderer.invoke('catalog:list-packages'),
+  getCatalogSnapshot: (sourceId) => ipcRenderer.invoke('catalog:get-snapshot', { sourceId }),
+  upsertCatalogSource: (source) => ipcRenderer.invoke('catalog:upsert-source', source),
+  listCatalogCredentialStatuses: () => ipcRenderer.invoke('catalog:list-credential-statuses'),
+  setCatalogSourceCredential: (sourceId, accessToken) =>
+    ipcRenderer.invoke('catalog:set-credential', { sourceId, accessToken }),
+  clearCatalogSourceCredential: (sourceId) =>
+    ipcRenderer.invoke('catalog:clear-credential', { sourceId }),
+  removeCatalogSource: (sourceId) => ipcRenderer.invoke('catalog:remove-source', { sourceId }),
+  syncCatalogSource: (sourceId) => ipcRenderer.invoke('catalog:sync-source', { sourceId }),
+  listInstalledPlugins: () => ipcRenderer.invoke('plugin:list-installed'),
+  preparePluginImport: (request) => ipcRenderer.invoke('plugin:prepare-import', request),
+  prepareCatalogPlugin: (request) => ipcRenderer.invoke('plugin:prepare-catalog', request),
+  cancelPluginImport: (preparedId) => ipcRenderer.invoke('plugin:cancel-import', { preparedId }),
+  installPreparedPlugin: (request) => ipcRenderer.invoke('plugin:install', request),
+  rollbackPlugin: (request) => ipcRenderer.invoke('plugin:rollback', request),
+  updatePluginPermissions: (request) => ipcRenderer.invoke('plugin:update-permissions', request),
   listSkills: (workspaceRoot) =>
     ipcRenderer.invoke('skill:list', { workspaceRoot }),
   refreshSkills: (workspaceRoot) =>
@@ -137,6 +166,11 @@ const api = {
   saveMcpServer: (request) => ipcRenderer.invoke('mcp-server:save', request),
   testMcpServer: (serverId, workspaceRoot) => ipcRenderer.invoke('mcp-server:test', { serverId, workspaceRoot }),
   authorizeMcpServer: (request) => ipcRenderer.invoke('mcp-server:authorize', request),
+  waitForMcpAuthorization: (serverId, state) =>
+    ipcRenderer.invoke('mcp-server:wait-authorization', { serverId, state }),
+  cancelMcpAuthorization: (serverId, state) =>
+    ipcRenderer.invoke('mcp-server:cancel-authorization', { serverId, state }),
+  setMcpServerCredential: (request) => ipcRenderer.invoke('mcp-server:set-credential', request),
   listDocumentEngines: () => ipcRenderer.invoke('document-engine:list'),
   installDocumentEngine: (id) => ipcRenderer.invoke('document-engine:install', id),
   diagnoseDocumentEngine: (id) => ipcRenderer.invoke('document-engine:diagnose', id),

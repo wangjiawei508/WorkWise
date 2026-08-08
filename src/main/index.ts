@@ -1,6 +1,6 @@
-import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, Notification, powerSaveBlocker, shell, Tray, type MessageBoxOptions } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, nativeTheme, Notification, powerSaveBlocker, shell, Tray, type MessageBoxOptions } from 'electron'
 import { existsSync, openAsBlob } from 'node:fs'
-import { homedir } from 'node:os'
+import { homedir, release as osRelease } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import {
@@ -88,6 +88,23 @@ import {
   runGuiUpdaterAcceptance,
   type ActiveGuiUpdaterAcceptance
 } from './gui-updater-acceptance'
+import {
+  applyWindowMaterial,
+  isRemoteDesktopSession,
+  parseWindowsBuild,
+  resolveWindowAppearance,
+  windowMaterialOptions
+} from './window-appearance'
+import {
+  createSplashWindow,
+  splashProgressLabel,
+  type SplashWindowController
+} from './splash-window'
+import {
+  SOLID_WINDOW_APPEARANCE,
+  windowAppearanceArguments,
+  type WindowAppearanceV1
+} from '../shared/window-appearance'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 // 品牌升级为 WorkWise Runtime 后仍保留旧 AppUserModelId:它必须和 electron-builder
@@ -200,6 +217,9 @@ if (!runningClawScheduleMcpServer && process.platform === 'win32') {
 }
 
 let mainWindow: BrowserWindow | null = null
+let splashWindow: SplashWindowController | null = null
+let currentWindowAppearance: WindowAppearanceV1 = SOLID_WINDOW_APPEARANCE
+let currentWindowDark = false
 let store: JsonSettingsStore
 let logDir = ''
 let clawRuntime: ClawRuntime | null = null
@@ -211,6 +231,63 @@ let tray: Tray | null = null
 let currentLocale: AppSettingsV1['locale'] = 'en'
 let isQuitting = false
 let gracefulShutdownPromise: Promise<void> | null = null
+
+function gpuCompositingDisabled(): boolean {
+  if (
+    app.commandLine.hasSwitch('disable-gpu') ||
+    app.commandLine.hasSwitch('disable-gpu-compositing') ||
+    app.commandLine.hasSwitch('disable-software-rasterizer')
+  ) {
+    return true
+  }
+  try {
+    return app.getGPUFeatureStatus().gpu_compositing !== 'enabled'
+  } catch {
+    return false
+  }
+}
+
+function resolveCurrentWindowAppearance(): WindowAppearanceV1 {
+  return resolveWindowAppearance({
+    platform: process.platform,
+    windowsBuild: process.platform === 'win32' ? parseWindowsBuild(osRelease()) : undefined,
+    prefersReducedTransparency: nativeTheme.prefersReducedTransparency,
+    highContrast: nativeTheme.shouldUseHighContrastColors || nativeTheme.inForcedColorsMode,
+    gpuDisabled: gpuCompositingDisabled(),
+    remoteSession: isRemoteDesktopSession(process.env),
+    forcedSolid: process.env.WORKWISE_DISABLE_TRANSPARENCY === '1'
+  })
+}
+
+function refreshWindowAppearance(): void {
+  const next = resolveCurrentWindowAppearance()
+  const dark = nativeTheme.shouldUseDarkColors
+  const appearanceChanged =
+    next.material !== currentWindowAppearance.material ||
+    next.transparencyEnabled !== currentWindowAppearance.transparencyEnabled ||
+    next.reason !== currentWindowAppearance.reason
+  if (!appearanceChanged && dark === currentWindowDark) return
+  currentWindowAppearance = next
+  currentWindowDark = dark
+
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    try {
+      applyWindowMaterial(mainWindow, process.platform, next, dark)
+      if (appearanceChanged) mainWindow.webContents.send('window:appearance-changed', next)
+    } catch (error) {
+      logWarn('window-appearance', 'Failed to update the main window material.', {
+        message: error instanceof Error ? error.message : String(error)
+      })
+    }
+  }
+  try {
+    splashWindow?.applyAppearance(next, dark)
+  } catch (error) {
+    logWarn('window-appearance', 'Failed to update the splash window material.', {
+      message: error instanceof Error ? error.message : String(error)
+    })
+  }
+}
 
 type GuiUpdaterModule = typeof import('./gui-updater')
 
@@ -780,11 +857,13 @@ function createWindow(options: { suppressInitialShow?: boolean } = {}): void {
     trafficLightPosition: process.platform === 'darwin' ? { x: 31, y: 22 } : undefined,
     autoHideMenuBar: usesDesktopTitleBar,
     show: false,
+    ...windowMaterialOptions(currentWindowAppearance, nativeTheme.shouldUseDarkColors),
     webPreferences: {
       preload: preloadPath,
       contextIsolation: true,
       sandbox: true,
-      webviewTag: true
+      webviewTag: true,
+      additionalArguments: windowAppearanceArguments(currentWindowAppearance)
     }
   })
   if (usesDesktopTitleBar) {
@@ -802,9 +881,19 @@ function createWindow(options: { suppressInitialShow?: boolean } = {}): void {
   )
   const windowCancellationId = String(mainWindow.webContents.id)
   const showWindow = (): void => {
-    if (options.suppressInitialShow) return
+    if (options.suppressInitialShow) {
+      splashWindow?.close()
+      splashWindow = null
+      return
+    }
     if (!mainWindow || mainWindow.isDestroyed() || mainWindow.isVisible()) return
+    splashWindow?.update({
+      progress: 1,
+      label: splashProgressLabel(currentLocale, 'ready')
+    })
     mainWindow.show()
+    splashWindow?.close()
+    splashWindow = null
   }
   mainWindow.on('close', (event) => {
     if (isQuitting || !appBehavior.closeToTray) return
@@ -1002,8 +1091,25 @@ app.whenReady().then(async () => {
   syncApplicationMenu(initial)
   syncLoginItemSettings(initial)
   syncTray(initial)
+  currentWindowAppearance = resolveCurrentWindowAppearance()
+  currentWindowDark = nativeTheme.shouldUseDarkColors
+  const suppressInitialShow = shouldStartHidden(initial)
+  if (!suppressInitialShow) {
+    splashWindow = createSplashWindow({
+      appearance: currentWindowAppearance,
+      dark: currentWindowDark,
+      version: app.getVersion(),
+      locale: initial.locale,
+      logoDataUrl: appIcon.isEmpty() ? undefined : appIcon.toDataURL()
+    })
+  }
+  nativeTheme.on('updated', refreshWindowAppearance)
   await syncClawScheduleMcpConfig(initial, getClawScheduleMcpLaunchConfig()).catch((error) => {
     console.error('[claw-schedule-mcp] failed to sync config on startup:', error)
+  })
+  splashWindow?.update({
+    progress: 0.34,
+    label: splashProgressLabel(initial.locale, 'services')
   })
 
   logDir = resolveLogDirectory()
@@ -1043,6 +1149,10 @@ app.whenReady().then(async () => {
   })
   configureManagedWeixinBridgeUrlResolver(ensureWeixinBridgeRpcUrl)
   syncWeixinBridgeRuntime(initial)
+  splashWindow?.update({
+    progress: 0.58,
+    label: splashProgressLabel(initial.locale, 'extensions')
+  })
 
   traceStartup('ipc registration:start')
   const applySettingsPatch = async (
@@ -1157,8 +1267,12 @@ app.whenReady().then(async () => {
 
   registerRuntimeSseIpc({ ipcMain, store, ensureRuntime, logError })
   traceStartup('ipc registration:done')
+  splashWindow?.update({
+    progress: 0.82,
+    label: splashProgressLabel(initial.locale, 'interface')
+  })
 
-  createWindow({ suppressInitialShow: shouldStartHidden(initial) })
+  createWindow({ suppressInitialShow })
   traceStartup('createWindow:returned')
 
   void pruneOnStartup().catch((err) => {
@@ -1184,6 +1298,8 @@ app.whenReady().then(async () => {
 }).catch((error) => {
   const message = error instanceof Error ? error.message : String(error)
   console.error('[workwise] startup failed:', error)
+  splashWindow?.close()
+  splashWindow = null
   dialog.showErrorBox('WorkWise Runtime failed to start', message)
   app.quit()
 })

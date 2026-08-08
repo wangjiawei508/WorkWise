@@ -57,6 +57,7 @@ import { safeSpawn } from './services/safe-spawn'
 import { atomicWriteFile as durableWriteFile } from './services/durable-file'
 import { resolvePptMasterSidecarExecutable } from './services/ppt-master-sidecar'
 import { loadOrCreateFlowSecretStoreKey } from './services/flow-secret-store-key'
+import { McpConfigService } from './services/mcp-config-service'
 
 let child: ChildProcess | null = null
 let childLogCapture: RuntimeLogCapture | null = null
@@ -345,7 +346,9 @@ export async function startManagedRuntimeChild(
   const dataDir = resolveManagedRuntimeDataDir(runtime)
   await ensureBundledAgentPackForRuntime(options)
   await ensureBundledSpecialistSkillsForRuntime(options)
+  const mcpV2 = await new McpConfigService().runtimeSnapshot()
   await syncManagedRuntimeConfig(dataDir, runtime, {
+    mcpV2Servers: mcpV2.servers,
     scheduleMcp: {
       settings,
       launch: {
@@ -376,6 +379,7 @@ export async function startManagedRuntimeChild(
   child = await safeSpawn(resolution.command, args, {
     env: {
       ...process.env,
+      ...mcpV2.environment,
       [MCP_PATH_ENV_KEY]: resolveMcpToolPath(),
       ELECTRON_RUN_AS_NODE: '1',
       WORKWISE_RUNTIME_TOKEN: runtime.runtimeToken,
@@ -482,13 +486,15 @@ export async function syncManagedRuntimeConfig(
       launch: ClawScheduleMcpLaunchConfig
     }
     mcpConfigPath?: string
+    mcpV2Servers?: Record<string, Record<string, unknown>>
   }
 ): Promise<void> {
   const configPath = join(dataDir, 'config.json')
   const existing = sanitizeRuntimeConfigSections(await readJsonObjectIfExists(configPath))
-  const importedMcpServers = await readGuiManagedMcpServers(
-    options?.mcpConfigPath ?? resolveRuntimeMcpJsonPath()
-  )
+  const importedMcpServers = {
+    ...(await readGuiManagedMcpServers(options?.mcpConfigPath ?? resolveRuntimeMcpJsonPath())),
+    ...(options?.mcpV2Servers ?? {})
+  }
   const hasImportedEnabledMcpServer = Object.values(importedMcpServers).some(
     (server) => objectValue(server).enabled !== false
   )

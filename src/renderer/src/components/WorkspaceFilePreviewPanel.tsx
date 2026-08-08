@@ -225,7 +225,7 @@ export function WorkspaceFilePreviewPanel({
 
   return (
     <aside
-      className={`ds-no-drag ds-code-sidebar flex min-h-0 flex-col border-l border-ds-border-muted ${className ?? ''}`}
+      className={`ds-opaque-work-surface ds-no-drag ds-code-sidebar flex min-h-0 flex-col border-l border-ds-border-muted ${className ?? ''}`}
     >
       <div className="ds-code-sidebar-topbar">
         <button

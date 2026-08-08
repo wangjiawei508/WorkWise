@@ -62,8 +62,20 @@ import {
   logErrorPayloadSchema,
   lspRequestPayloadSchema,
   managedToolIdSchema,
+  catalogSourceCredentialPayloadSchema,
+  catalogSourceIdPayloadSchema,
+  catalogSourcePayloadSchema,
+  pluginInstallPayloadSchema,
+  pluginPackagePickerPayloadSchema,
+  pluginPrepareCatalogPayloadSchema,
+  pluginPreparedIdPayloadSchema,
+  pluginPrepareImportPayloadSchema,
+  pluginRollbackPayloadSchema,
+  pluginPermissionsUpdatePayloadSchema,
   mcpServerActionPayloadSchema,
+  mcpServerAuthorizationStatePayloadSchema,
   mcpServerAuthorizePayloadSchema,
+  mcpServerCredentialPayloadSchema,
   mcpServerListPayloadSchema,
   mcpServerSavePayloadSchema,
   notificationPayloadSchema,
@@ -184,6 +196,11 @@ import { WorkspacePreviewService } from '../services/workspace-preview-service'
 import { GitCheckpointService } from '../services/git-checkpoint-service'
 import { RepoMapService } from '../services/repo-map-service'
 import { McpConfigService } from '../services/mcp-config-service'
+import { CatalogCredentialService } from '../services/catalog-credential-service'
+import { activatePluginPackage } from '../services/plugin-activation-service'
+import { MarketplaceCatalogService } from '../services/marketplace-catalog-service'
+import { PluginManagementService } from '../services/plugin-management-service'
+import type { CatalogSourceV1 } from '../../shared/marketplace'
 
 type GuiUpdaterModule = typeof import('../gui-updater')
 
@@ -222,6 +239,10 @@ type RegisterAppIpcHandlersOptions = {
   loadGuiUpdaterModule: () => Promise<GuiUpdaterModule>
   resolveLogDirectory: () => string
   logError: (category: string, message: string, detail?: unknown) => void
+  marketplaceCatalogService?: MarketplaceCatalogService
+  catalogCredentialService?: CatalogCredentialService
+  pluginManagementService?: PluginManagementService
+  mcpConfigService?: McpConfigService
 }
 
 function parseIpcPayload<T>(channel: string, schema: z.ZodType<T>, payload: unknown): T {
@@ -579,7 +600,14 @@ export function registerAppIpcHandlers(options: RegisterAppIpcHandlersOptions): 
   })
   const gitCheckpointService = new GitCheckpointService()
   const repoMapService = new RepoMapService()
-  const mcpConfigService = new McpConfigService()
+  const mcpConfigService = options.mcpConfigService ?? new McpConfigService()
+  const catalogCredentialService = options.catalogCredentialService ?? new CatalogCredentialService()
+  const marketplaceCatalogService = options.marketplaceCatalogService ?? new MarketplaceCatalogService({
+    resolveWorkspaceRoot: async () => (await store.load()).workspaceRoot,
+    resolveSecret: async (secretKey) => (await catalogCredentialService.resolve(secretKey)) ?? null
+  })
+  const pluginManagementService = options.pluginManagementService ?? new PluginManagementService()
+  ;(app as typeof app & { once?: typeof app.once }).once?.('before-quit', () => mcpConfigService.dispose())
   let skillCatalogGeneration = 1
 
   const notifySkillsChanged = (): number => {
@@ -809,6 +837,174 @@ export function registerAppIpcHandlers(options: RegisterAppIpcHandlersOptions): 
   ipcMain.handle('mcp-server:authorize', async (_, payload: unknown) => {
     const request = parseIpcPayload('mcp-server:authorize', mcpServerAuthorizePayloadSchema, payload)
     return mcpConfigService.authorize(request)
+  })
+  ipcMain.handle('mcp-server:wait-authorization', async (_, payload: unknown) => {
+    const request = parseIpcPayload(
+      'mcp-server:wait-authorization',
+      mcpServerAuthorizationStatePayloadSchema,
+      payload
+    )
+    return mcpConfigService.waitForAuthorization(request)
+  })
+  ipcMain.handle('mcp-server:cancel-authorization', async (_, payload: unknown) => {
+    const request = parseIpcPayload(
+      'mcp-server:cancel-authorization',
+      mcpServerAuthorizationStatePayloadSchema,
+      payload
+    )
+    return mcpConfigService.cancelAuthorization(request)
+  })
+  ipcMain.handle('mcp-server:set-credential', async (_, payload: unknown) => {
+    const request = parseIpcPayload('mcp-server:set-credential', mcpServerCredentialPayloadSchema, payload)
+    return mcpConfigService.setCredential(request)
+  })
+  ipcMain.handle('catalog:list-sources', async () => marketplaceCatalogService.listSources())
+  ipcMain.handle('catalog:list-packages', async () => marketplaceCatalogService.listPackages())
+  ipcMain.handle('catalog:get-snapshot', async (_, payload: unknown) => {
+    const request = parseIpcPayload('catalog:get-snapshot', catalogSourceIdPayloadSchema, payload)
+    return marketplaceCatalogService.getSnapshot(request.sourceId)
+  })
+  ipcMain.handle('catalog:upsert-source', async (_, payload: unknown) => {
+    const source = parseIpcPayload('catalog:upsert-source', catalogSourcePayloadSchema, payload)
+    const previous = (await marketplaceCatalogService.listSources())
+      .find((candidate) => candidate.id === source.id)
+    const saved = await marketplaceCatalogService.upsertSource(source as CatalogSourceV1)
+    if (previous?.auth.type === 'token' &&
+        (saved.auth.type !== 'token' || saved.auth.secretKey !== previous.auth.secretKey)) {
+      await catalogCredentialService.remove(previous.auth.secretKey)
+    }
+    return saved
+  })
+  ipcMain.handle('catalog:list-credential-statuses', async () => {
+    const sources = await marketplaceCatalogService.listSources()
+    return Promise.all(sources
+      .filter((source) => source.auth.type === 'token')
+      .map((source) => catalogCredentialService.status(source.id, source.auth.type === 'token'
+        ? source.auth.secretKey
+        : '')))
+  })
+  ipcMain.handle('catalog:set-credential', async (_, payload: unknown) => {
+    const request = parseIpcPayload(
+      'catalog:set-credential',
+      catalogSourceCredentialPayloadSchema,
+      payload
+    )
+    const source = (await marketplaceCatalogService.listSources())
+      .find((candidate) => candidate.id === request.sourceId)
+    if (!source) throw new Error('Catalog source was not found.')
+    if (source.auth.type !== 'token') throw new Error('Catalog source does not use token authentication.')
+    const storage = await catalogCredentialService.set(source.auth.secretKey, request.accessToken)
+    return { sourceId: source.id, configured: true, storage }
+  })
+  ipcMain.handle('catalog:clear-credential', async (_, payload: unknown) => {
+    const request = parseIpcPayload('catalog:clear-credential', catalogSourceIdPayloadSchema, payload)
+    const source = (await marketplaceCatalogService.listSources())
+      .find((candidate) => candidate.id === request.sourceId)
+    if (!source) throw new Error('Catalog source was not found.')
+    if (source.auth.type === 'token') await catalogCredentialService.remove(source.auth.secretKey)
+    return { sourceId: source.id, configured: false }
+  })
+  ipcMain.handle('catalog:remove-source', async (_, payload: unknown) => {
+    const request = parseIpcPayload('catalog:remove-source', catalogSourceIdPayloadSchema, payload)
+    const source = (await marketplaceCatalogService.listSources())
+      .find((candidate) => candidate.id === request.sourceId)
+    await marketplaceCatalogService.removeSource(request.sourceId)
+    if (source?.auth.type === 'token') await catalogCredentialService.remove(source.auth.secretKey)
+  })
+  ipcMain.handle('catalog:sync-source', async (_, payload: unknown) => {
+    const request = parseIpcPayload('catalog:sync-source', catalogSourceIdPayloadSchema, payload)
+    return marketplaceCatalogService.syncSource(request.sourceId)
+  })
+  ipcMain.handle('plugin:list-installed', async () => pluginManagementService.listInstalled())
+  ipcMain.handle('plugin:pick-package', async (_, payload: unknown): Promise<WorkspacePickResult> => {
+    const request = parseIpcPayload('plugin:pick-package', pluginPackagePickerPayloadSchema, payload)
+    const options: Electron.OpenDialogOptions = request.mode === 'file'
+      ? {
+          title: 'Import WorkWise plugin package',
+          filters: [{ name: 'Plugin packages', extensions: ['wwx', 'mcpb', 'zip'] }],
+          properties: ['openFile', 'dontAddToRecent']
+        }
+      : {
+          title: 'Import Codex plugin directory',
+          properties: ['openDirectory', 'dontAddToRecent']
+        }
+    const mainWindow = getMainWindow()
+    const result = mainWindow
+      ? await dialog.showOpenDialog(mainWindow, options)
+      : await dialog.showOpenDialog(options)
+    return {
+      canceled: result.canceled,
+      path: result.canceled ? null : (result.filePaths[0] ?? null)
+    }
+  })
+  ipcMain.handle('plugin:prepare-import', async (_, payload: unknown) => {
+    const request = parseIpcPayload('plugin:prepare-import', pluginPrepareImportPayloadSchema, payload)
+    return pluginManagementService.prepareImport(request)
+  })
+  ipcMain.handle('plugin:prepare-catalog', async (_, payload: unknown) => {
+    const request = parseIpcPayload('plugin:prepare-catalog', pluginPrepareCatalogPayloadSchema, payload)
+    const catalog = await marketplaceCatalogService.listPackages()
+    const entry = catalog.packages.find((candidate) =>
+      candidate.sourceId === request.sourceId && candidate.package.id === request.packageId
+    )
+    if (!entry) throw new Error('Catalog package was not found.')
+    return pluginManagementService.prepareCatalogPackage(entry.package)
+  })
+  ipcMain.handle('plugin:cancel-import', async (_, payload: unknown) => {
+    const request = parseIpcPayload('plugin:cancel-import', pluginPreparedIdPayloadSchema, payload)
+    return pluginManagementService.cancelPrepared(request.preparedId)
+  })
+  ipcMain.handle('plugin:install', async (_, payload: unknown) => {
+    const request = parseIpcPayload('plugin:install', pluginInstallPayloadSchema, payload)
+    const installed = await pluginManagementService.installPrepared(
+      request,
+      async (record, item) => activatePluginPackage({
+        item,
+        installed: record,
+        workspaceRoot: record.workspaceRoot,
+        mcpConfigService,
+        idempotencyKey: request.idempotencyKey
+      })
+    )
+    notifySkillsChanged()
+    return installed
+  })
+  ipcMain.handle('plugin:rollback', async (_, payload: unknown) => {
+    const request = parseIpcPayload('plugin:rollback', pluginRollbackPayloadSchema, payload)
+    const installed = await pluginManagementService.rollback(
+      request,
+      async (record, item) => activatePluginPackage({
+        item,
+        installed: record,
+        workspaceRoot: record.workspaceRoot,
+        mcpConfigService,
+        idempotencyKey: `${request.idempotencyKey}:activate`
+      })
+    )
+    notifySkillsChanged()
+    return installed
+  })
+  ipcMain.handle('plugin:update-permissions', async (_, payload: unknown) => {
+    const request = parseIpcPayload('plugin:update-permissions', pluginPermissionsUpdatePayloadSchema, payload)
+    const installed = (await pluginManagementService.listInstalled())
+      .find((record) => record.packageId === request.packageId)
+    if (!installed) throw new Error('Package is not installed.')
+    const catalog = await marketplaceCatalogService.listPackages()
+    const entry = catalog.packages.find((candidate) =>
+      candidate.package.id === request.packageId && candidate.package.source.id === installed.source.id
+    )
+    if (!entry) throw new Error('Installed package is not available in the current catalog.')
+    return pluginManagementService.updatePermissions(
+      entry.package,
+      request,
+      async (record, item) => activatePluginPackage({
+        item,
+        installed: record,
+        workspaceRoot: record.workspaceRoot,
+        mcpConfigService,
+        idempotencyKey: `${request.idempotencyKey}:activate`
+      })
+    )
   })
   ipcMain.handle('document-engine:list', async () => {
     const settings = await store.load()

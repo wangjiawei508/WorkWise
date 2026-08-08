@@ -100,6 +100,17 @@ import type {
   WorkspaceTrustV1
 } from './agent-workbench'
 import type {
+  CatalogSnapshotV1,
+  CatalogSourceV1,
+  CatalogCredentialStatusV1,
+  InstalledPackagePermissionV1,
+  InstalledPackageV1,
+  MarketplaceCatalogPackagesResultV1,
+  MarketplaceCatalogSyncResultV1,
+  PreparedPluginImportV1
+} from './marketplace'
+import type { WindowAppearanceV1 } from './window-appearance'
+import type {
   GitCheckpointV1,
   GitRollbackPreviewV1,
   LspRequestV1,
@@ -301,6 +312,8 @@ export type ApplicationMenuAction =
 
 export type WorkWiseApi = {
   platform: string
+  windowAppearance: WindowAppearanceV1
+  onWindowAppearanceChanged: (handler: (appearance: WindowAppearanceV1) => void) => () => void
   onApplicationMenuAction: (handler: (action: ApplicationMenuAction) => void) => () => void
   getSettings: () => Promise<WorkWiseSettingsV2>
   setSettings: (partial: AppSettingsPatch, expectedRevision?: number) => Promise<WorkWiseSettingsV2>
@@ -341,7 +354,50 @@ export type WorkWiseApi = {
     deviceCode: string
   ) => Promise<ClawImInstallPollResult>
   pickWorkspaceDirectory: (defaultPath?: string) => Promise<WorkspacePickResult>
+  pickPluginPackage: (mode: 'file' | 'directory') => Promise<WorkspacePickResult>
   confirmDialog: (options: ConfirmDialogOptions) => Promise<boolean>
+  listCatalogSources: () => Promise<CatalogSourceV1[]>
+  listCatalogPackages: () => Promise<MarketplaceCatalogPackagesResultV1>
+  getCatalogSnapshot: (sourceId: string) => Promise<CatalogSnapshotV1 | null>
+  upsertCatalogSource: (source: CatalogSourceV1) => Promise<CatalogSourceV1>
+  listCatalogCredentialStatuses: () => Promise<CatalogCredentialStatusV1[]>
+  setCatalogSourceCredential: (sourceId: string, accessToken: string) => Promise<CatalogCredentialStatusV1>
+  clearCatalogSourceCredential: (sourceId: string) => Promise<CatalogCredentialStatusV1>
+  removeCatalogSource: (sourceId: string) => Promise<void>
+  syncCatalogSource: (sourceId: string) => Promise<MarketplaceCatalogSyncResultV1>
+  listInstalledPlugins: () => Promise<InstalledPackageV1[]>
+  preparePluginImport: (request: {
+    sourcePath: string
+    format?: 'wwx' | 'codex' | 'mcpb'
+    catalogSourceId?: string
+  }) => Promise<PreparedPluginImportV1>
+  prepareCatalogPlugin: (request: {
+    sourceId: string
+    packageId: string
+  }) => Promise<PreparedPluginImportV1>
+  cancelPluginImport: (preparedId: string) => Promise<boolean>
+  installPreparedPlugin: (request: {
+    preparedId: string
+    reviewSha256: string
+    expectedCurrentVersion: string | null
+    scope: 'user' | 'workspace' | 'team'
+    workspaceRoot?: string
+    permissions: InstalledPackagePermissionV1[]
+    idempotencyKey: string
+  }) => Promise<InstalledPackageV1>
+  rollbackPlugin: (request: {
+    packageId: string
+    expectedCurrentVersion: string
+    idempotencyKey: string
+  }) => Promise<InstalledPackageV1>
+  updatePluginPermissions: (request: {
+    packageId: string
+    expectedCurrentVersion: string
+    reviewSha256: string
+    permissions: InstalledPackagePermissionV1[]
+    workspaceRoot?: string
+    idempotencyKey: string
+  }) => Promise<InstalledPackageV1>
   listSkills: (workspaceRoot?: string) => Promise<SkillListResult>
   refreshSkills: (workspaceRoot?: string) => Promise<SkillListResult>
   onSkillsChanged: (listener: (generation: number) => void) => () => void
@@ -388,7 +444,18 @@ export type WorkWiseApi = {
     workspaceRoot?: string
     state?: string
     authorizationCode?: string
+    useLocalCallback?: boolean
   }) => Promise<McpServerStatusV1>
+  waitForMcpAuthorization: (serverId: string, state: string) => Promise<McpServerStatusV1>
+  cancelMcpAuthorization: (serverId: string, state: string) => Promise<boolean>
+  setMcpServerCredential: (request: {
+    serverId: string
+    workspaceRoot?: string
+    accessToken: string
+    tokenType?: string
+    expectedRevision: number
+    idempotencyKey: string
+  }) => Promise<McpServerConfigV2>
   listDocumentEngines: () => Promise<DocumentEngineStatusV1[]>
   installDocumentEngine: (id: DocumentEngineId) => Promise<DocumentEngineStatusV1>
   diagnoseDocumentEngine: (id: DocumentEngineId) => Promise<DocumentEngineStatusV1>

@@ -4,6 +4,7 @@ import { randomUUID } from 'node:crypto'
 import { homedir } from 'node:os'
 import { basename, dirname, join, resolve } from 'node:path'
 import type { AppSettingsV1 } from '../../shared/app-settings'
+import type { InstalledPackageV1 } from '../../shared/marketplace'
 import type {
   BundledSkillInstallResult,
   BundledSkillSource,
@@ -16,6 +17,7 @@ import { systemFetch } from './system-network'
 import { expandHomePath, normalizeSkillFolderName } from './workspace-service'
 import { LEGACY_SKILL_SOURCE_METADATA_FILE } from '../compat/legacy-metadata'
 import { resolveContainedPath } from './canonical-containment'
+import { inspectPackageDirectory, PackageInstallationService } from './package-installation-service'
 import {
   BUNDLED_SKILL_LIMITS,
   SKILL_PACKAGE_LIMITS,
@@ -62,7 +64,6 @@ type GithubContentEntry = {
   path?: string
   type?: string
   size?: number
-  download_url?: string | null
 }
 
 type GithubCommitResponse = {
@@ -105,6 +106,7 @@ export async function guiSkillRootsForRuntime(
     join(homedir(), '.kun', 'skills')
   ]
   const codexPluginRoots = await discoverCodexPluginSkillRoots()
+  const workwisePluginRoots = await discoverInstalledPluginSkillRoots()
   const configuredExtraRoots = [
     ...(settings?.claw.skills.extraDirs ?? []),
     ...(settings?.schedule.skills.extraDirs ?? [])
@@ -118,6 +120,9 @@ export async function guiSkillRootsForRuntime(
       .filter((root) => existsSync(root))
       .map((path) => ({ path, scope: 'global' as const, validation: 'strict' as const })),
     ...codexPluginRoots
+      .filter((root) => existsSync(root))
+      .map((path) => ({ path, scope: 'global' as const, validation: 'trusted-plugin' as const })),
+    ...workwisePluginRoots
       .filter((root) => existsSync(root))
       .map((path) => ({ path, scope: 'global' as const, validation: 'trusted-plugin' as const })),
     ...configuredExtraRoots
@@ -185,7 +190,7 @@ export async function installGithubSkill(
       repo: source.repo.trim(),
       path: normalizeGithubPath(source.path),
       ref,
-      autoUpdate: source.autoUpdate !== false,
+      autoUpdate: false,
       ...(normalizeGithubIncludePaths(source.includePaths).length
         ? { includePaths: normalizeGithubIncludePaths(source.includePaths) }
         : {}),
@@ -211,7 +216,7 @@ export async function installGithubSkill(
     await mkdir(root, { recursive: true })
     const tempDir = await mkdtemp(join(root, `.workwise-install-${skillName}-`))
     try {
-      await downloadGithubSkillDirectory(requestedSource, tempDir)
+      await downloadGithubSkillDirectory({ ...requestedSource, ref: latestSha }, tempDir)
       await writeSkillSourceMetadata(tempDir, {
         ...requestedSource,
         installedSha: latestSha,
@@ -339,6 +344,63 @@ async function discoverCodexPluginSkillRoots(): Promise<string[]> {
   const codexHome = normalizeSkillRootPath(process.env.CODEX_HOME || join(homedir(), '.codex'))
   await collectSkillRoots(join(codexHome, 'plugins', 'cache'), roots, 0, 5)
   return roots
+}
+
+async function readOptionalJson(path: string): Promise<Record<string, unknown> | null> {
+  try {
+    const info = await lstat(path)
+    if (info.isSymbolicLink() || !info.isFile() || info.size > 1024 * 1024) return null
+    const parsed = JSON.parse(await readFile(path, 'utf8')) as unknown
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+      ? parsed as Record<string, unknown>
+      : null
+  } catch {
+    return null
+  }
+}
+
+async function installedPackageContainsSkills(root: string): Promise<boolean> {
+  const catalog = await readOptionalJson(join(root, 'workwise.catalog.json'))
+  const nativeManifest = catalog ?? await readOptionalJson(join(root, 'workwise.plugin.json'))
+  if (nativeManifest && Array.isArray(nativeManifest.components)) {
+    return nativeManifest.components.some((component) =>
+      component && typeof component === 'object' && !Array.isArray(component) &&
+      (component as Record<string, unknown>).type === 'skill'
+    )
+  }
+  const codex = await readOptionalJson(join(root, '.codex-plugin', 'plugin.json'))
+  return typeof codex?.skills === 'string' && codex.skills.trim().length > 0
+}
+
+export async function discoverInstalledPluginSkillRoots(
+  records?: InstalledPackageV1[]
+): Promise<string[]> {
+  const installed = records ?? await new PackageInstallationService().list().catch(() => [])
+  const roots: string[] = []
+  for (const record of installed) {
+    if (!await installedPackageContainsSkills(record.artifact.location)) continue
+    const inspection = await inspectPackageDirectory(record.artifact.location).catch(() => null)
+    if (!inspection || inspection.sha256 !== record.artifact.sha256) continue
+    await collectInstalledSkillRoots(record.artifact.location, roots, 0, 6)
+  }
+  return uniqueStrings(roots)
+}
+
+async function collectInstalledSkillRoots(
+  root: string,
+  roots: string[],
+  depth: number,
+  maxDepth: number
+): Promise<void> {
+  if (depth > maxDepth || !existsSync(root)) return
+  if (skillRootHasPackages(root)) {
+    roots.push(root)
+    return
+  }
+  const entries = await readdir(root, { withFileTypes: true }).catch(() => [])
+  await Promise.all(entries
+    .filter((entry) => entry.isDirectory() && entry.name !== 'node_modules')
+    .map((entry) => collectInstalledSkillRoots(join(root, entry.name), roots, depth + 1, maxDepth)))
 }
 
 async function collectSkillRoots(root: string, roots: string[], depth: number, maxDepth: number): Promise<void> {
@@ -510,7 +572,7 @@ async function readSkillSourceMetadata(root: string): Promise<SkillSourceMetadat
       path: normalizeGithubPath(stringValue(record.path)),
       ref: normalizeGithubRef(stringValue(record.ref)),
       ...(stringValue(record.installedSha) ? { installedSha: stringValue(record.installedSha) } : {}),
-      autoUpdate: record.autoUpdate !== false,
+      autoUpdate: false,
       ...(normalizeGithubIncludePaths(arrayStringValue(record.includePaths)).length
         ? { includePaths: normalizeGithubIncludePaths(arrayStringValue(record.includePaths)) }
         : {}),
@@ -586,7 +648,9 @@ async function fetchGithubCommitSha(source: GithubSkillSourceMetadata): Promise<
   const url = `https://api.github.com/repos/${encodeURIComponent(source.owner)}/${encodeURIComponent(source.repo)}/commits/${encodeURIComponent(source.ref)}`
   const commit = await fetchGithubJson<GithubCommitResponse>(url)
   const sha = stringValue(commit.sha)
-  if (!sha) throw new Error(`GitHub commit was not found for ${source.owner}/${source.repo}@${source.ref}.`)
+  if (!/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/i.test(sha)) {
+    throw new Error(`GitHub commit SHA is invalid for ${source.owner}/${source.repo}@${source.ref}.`)
+  }
   return sha
 }
 
@@ -629,7 +693,7 @@ async function downloadGithubEntry(
   if (entry.type !== 'file') {
     throw new Error(`GitHub path is not a file or directory: ${githubPath || '/'}`)
   }
-  await downloadGithubFile(entry, destination, state)
+  await downloadGithubFile(source, entry, destination, state)
 }
 
 async function downloadGithubDirectory(
@@ -659,18 +723,21 @@ async function downloadGithubDirectory(
     if (entry.type !== 'file') {
       throw new Error(`GitHub Skill contains an unsupported entry type: ${entryPath}.`)
     }
-    await downloadGithubFile(entry, join(destination, entryName), state)
+    await downloadGithubFile(source, entry, join(destination, entryName), state)
   }
 }
 
 async function downloadGithubFile(
+  source: GithubSkillSourceMetadata,
   entry: GithubContentEntry,
   destination: string,
   state: { files: number; bytes: number }
 ): Promise<void> {
   const entryPath = normalizeGithubPath(stringValue(entry.path))
-  const downloadUrl = stringValue(entry.download_url)
-  if (!downloadUrl) throw new Error(`GitHub file cannot be downloaded: ${entryPath}`)
+  const token = githubToken()
+  const downloadUrl = token
+    ? githubContentsUrl(source, entryPath)
+    : githubRawFileUrl(source, entryPath)
   state.files += 1
   if (state.files > MAX_GITHUB_SKILL_FILES) {
     throw new Error(`GitHub Skill has too many files; limit is ${MAX_GITHUB_SKILL_FILES}.`)
@@ -683,7 +750,9 @@ async function downloadGithubFile(
   if (state.bytes > MAX_GITHUB_SKILL_BYTES) {
     throw new Error(`GitHub Skill is too large; limit is ${Math.round(MAX_GITHUB_SKILL_BYTES / 1024 / 1024)}MB.`)
   }
-  const bytes = await fetchGithubBytes(downloadUrl)
+  const bytes = await fetchGithubBytes(downloadUrl, token
+    ? { ...githubHeaders(), Accept: 'application/vnd.github.raw+json' }
+    : { 'User-Agent': 'WorkWise' })
   if (bytes.length > SKILL_PACKAGE_LIMITS.maxFileBytes) {
     throw new Error(`GitHub Skill file exceeds 1 MiB: ${entryPath}.`)
   }
@@ -737,25 +806,35 @@ function githubContentsUrl(source: GithubSkillSourceMetadata, githubPath: string
   return `https://api.github.com/repos/${encodeURIComponent(source.owner)}/${encodeURIComponent(source.repo)}/contents${encodedPath}?ref=${encodeURIComponent(source.ref)}`
 }
 
+function githubRawFileUrl(source: GithubSkillSourceMetadata, githubPath: string): string {
+  const path = normalizeGithubPath(githubPath)
+  if (!path) throw new Error('GitHub file path is required.')
+  return `https://raw.githubusercontent.com/${encodeURIComponent(source.owner)}/${encodeURIComponent(source.repo)}/${encodeURIComponent(source.ref)}/${encodeGithubPath(path)}`
+}
+
 async function fetchGithubJson<T>(url: string): Promise<T> {
   const response = await systemFetch(url, { headers: githubHeaders() })
   if (!response.ok) throw await githubResponseError(response)
   return await response.json() as T
 }
 
-async function fetchGithubBytes(url: string): Promise<Buffer> {
-  const response = await systemFetch(url, { headers: githubHeaders() })
+async function fetchGithubBytes(url: string, headers = githubHeaders()): Promise<Buffer> {
+  const response = await systemFetch(url, { headers })
   if (!response.ok) throw await githubResponseError(response)
   return Buffer.from(await response.arrayBuffer())
 }
 
 function githubHeaders(): Record<string, string> {
-  const token = (process.env.GITHUB_TOKEN || process.env.GH_TOKEN || '').trim()
+  const token = githubToken()
   return {
     Accept: 'application/vnd.github+json',
     'User-Agent': 'WorkWise',
     ...(token ? { Authorization: `Bearer ${token}` } : {})
   }
+}
+
+function githubToken(): string {
+  return (process.env.GITHUB_TOKEN || process.env.GH_TOKEN || '').trim()
 }
 
 async function githubResponseError(response: Response): Promise<Error> {

@@ -211,6 +211,243 @@ describe('registerAppIpcHandlers', () => {
     expect(managedToolMocks.remove).toHaveBeenCalledWith('officecli')
   })
 
+  it('routes unified catalog and plugin operations through validated IPC payloads', async () => {
+    const { registerAppIpcHandlers } = await import('./register-app-ipc-handlers')
+    const catalogService = {
+      listSources: vi.fn(async () => []),
+      listPackages: vi.fn(async () => ({ packages: [], conflicts: [] })),
+      getSnapshot: vi.fn(async () => null),
+      upsertSource: vi.fn(async (source) => source),
+      removeSource: vi.fn(async () => undefined),
+      syncSource: vi.fn(async (sourceId: string) => ({ sourceId, status: 'synced', stale: false }))
+    }
+    const pluginService = {
+      listInstalled: vi.fn(async () => []),
+      prepareImport: vi.fn(async (request) => ({ id: 'prepared-1', ...request })),
+      cancelPrepared: vi.fn(async () => true),
+      installPrepared: vi.fn(async (request) => ({ packageId: 'example', request })),
+      rollback: vi.fn(async (request) => ({ packageId: request.packageId }))
+    }
+    const catalogCredentialService = {
+      status: vi.fn(async (sourceId: string) => ({ sourceId, configured: true, storage: 'keychain' })),
+      set: vi.fn(async () => 'keychain'),
+      remove: vi.fn(async () => undefined),
+      resolve: vi.fn(async () => undefined)
+    }
+    registerAppIpcHandlers(registerOptions({
+      marketplaceCatalogService: catalogService as never,
+      catalogCredentialService: catalogCredentialService as never,
+      pluginManagementService: pluginService as never
+    }))
+
+    for (const channel of [
+      'catalog:list-sources',
+      'catalog:list-packages',
+      'catalog:get-snapshot',
+      'catalog:upsert-source',
+      'catalog:list-credential-statuses',
+      'catalog:set-credential',
+      'catalog:clear-credential',
+      'catalog:remove-source',
+      'catalog:sync-source',
+      'plugin:list-installed',
+      'plugin:prepare-import',
+      'plugin:cancel-import',
+      'plugin:install',
+      'plugin:rollback',
+      'plugin:update-permissions'
+    ]) {
+      expect(handlers.get(channel), channel).toBeTypeOf('function')
+    }
+
+    await expect(handlers.get('catalog:list-packages')?.({})).resolves.toEqual({
+      packages: [],
+      conflicts: []
+    })
+    await expect(handlers.get('plugin:prepare-import')?.({}, {
+      sourcePath: '/tmp/example.wwx',
+      format: 'wwx'
+    })).resolves.toMatchObject({ id: 'prepared-1', format: 'wwx' })
+    expect(pluginService.prepareImport).toHaveBeenCalledWith({
+      sourcePath: '/tmp/example.wwx',
+      format: 'wwx',
+      catalogSourceId: undefined
+    })
+
+    await expect(handlers.get('plugin:install')?.({}, {
+      preparedId: 'prepared-1',
+      reviewSha256: 'invalid',
+      expectedCurrentVersion: null,
+      scope: 'user',
+      permissions: [],
+      idempotencyKey: 'install-1'
+    })).rejects.toThrow(/Invalid payload for plugin:install/)
+    expect(pluginService.installPrepared).not.toHaveBeenCalled()
+
+    await expect(handlers.get('catalog:upsert-source')?.({}, {
+      schemaVersion: 1,
+      id: 'unsafe',
+      name: 'Unsafe',
+      type: 'https',
+      scope: 'team',
+      location: 'https://plugins.example.com/catalog.json',
+      trust: 'unverified',
+      searchable: true,
+      auth: { type: 'token', secretKey: 'catalog.token', token: 'plaintext' },
+      sync: { mode: 'manual', state: 'idle', mirroredByDefault: false, installedByDefault: false }
+    })).rejects.toThrow(/Invalid payload for catalog:upsert-source/)
+    expect(catalogService.upsertSource).not.toHaveBeenCalled()
+
+    const privateSource = {
+      schemaVersion: 1,
+      id: 'private',
+      name: 'Private',
+      type: 'https',
+      scope: 'team',
+      location: 'https://plugins.example.com/catalog.json',
+      trust: 'unverified',
+      searchable: true,
+      auth: { type: 'token', secretKey: 'catalog.private.token' },
+      sync: { mode: 'manual', state: 'idle', mirroredByDefault: false, installedByDefault: false }
+    }
+    catalogService.listSources.mockResolvedValue([privateSource] as never)
+    await expect(handlers.get('catalog:set-credential')?.({}, {
+      sourceId: 'private',
+      accessToken: 'renderer-secret'
+    })).resolves.toEqual({ sourceId: 'private', configured: true, storage: 'keychain' })
+    expect(catalogCredentialService.set).toHaveBeenCalledWith('catalog.private.token', 'renderer-secret')
+    await expect(handlers.get('catalog:list-credential-statuses')?.({})).resolves.toEqual([{
+      sourceId: 'private',
+      configured: true,
+      storage: 'keychain'
+    }])
+    await expect(handlers.get('catalog:clear-credential')?.({}, { sourceId: 'private' }))
+      .resolves.toEqual({ sourceId: 'private', configured: false })
+    expect(catalogCredentialService.remove).toHaveBeenCalledWith('catalog.private.token')
+  })
+
+  it('reactivates MCP V2 after rollback and reviewed permission changes', async () => {
+    const { registerAppIpcHandlers } = await import('./register-app-ipc-handlers')
+    const source = {
+      id: 'remote-source',
+      catalogSourceId: 'workwise-official',
+      kind: 'remote',
+      location: 'https://mcp.example.test/'
+    }
+    const item = {
+      schemaVersion: 1,
+      id: 'remote-plugin',
+      name: 'Remote Plugin',
+      summary: 'IPC activation fixture.',
+      tier: 'recommended',
+      version: '1.0.0',
+      publisher: { id: 'example', name: 'Example', verified: true },
+      license: 'MIT',
+      source,
+      sources: [source],
+      components: [{
+        id: 'remote-mcp',
+        name: 'Remote MCP',
+        type: 'mcp',
+        sourceId: source.id,
+        runtime: {
+          kind: 'remote',
+          transport: 'streamable-http',
+          endpoint: source.location
+        }
+      }],
+      permissions: [{
+        id: 'network-connect',
+        kind: 'network',
+        access: 'connect',
+        default: 'review',
+        reviewRequired: true,
+        description: 'Connect to the remote MCP.'
+      }],
+      auth: { type: 'none' },
+      licenseEvidence: [],
+      dependencies: [],
+      updatePolicy: { strategy: 'pinned', channel: 'stable', allowMajor: false },
+      compatibility: {
+        workwise: '>=0.3.5',
+        platforms: ['darwin', 'win32', 'linux'],
+        architectures: ['arm64', 'x64']
+      },
+      availability: { status: 'available' },
+      installation: { mode: 'direct-mirror', installedByDefault: false, reinstallable: true }
+    }
+    const installed = {
+      schemaVersion: 1,
+      packageId: item.id,
+      version: item.version,
+      license: item.license,
+      reviewSha256: 'a'.repeat(64),
+      source,
+      sources: [source],
+      components: [{ componentId: 'remote-mcp', sourceId: source.id }],
+      scope: 'user',
+      artifact: { sha256: 'b'.repeat(64), location: '/tmp/plugin', fileCount: 1, totalBytes: 1 },
+      permissions: [{ permissionId: 'network-connect', decision: 'granted' }],
+      timestamps: { installedAt: '2026-08-08T00:00:00.000Z' },
+      updatePolicy: item.updatePolicy,
+      rollback: { available: false },
+      health: { status: 'healthy' }
+    }
+    const rollback = vi.fn(async (request, afterRollback) => {
+      await afterRollback(installed, item)
+      return installed
+    })
+    const updatePermissions = vi.fn(async (_catalogItem, _request, afterUpdate) => {
+      await afterUpdate(installed, item)
+      return installed
+    })
+    const pluginService = {
+      listInstalled: vi.fn(async () => [installed]),
+      rollback,
+      updatePermissions
+    }
+    const save = vi.fn(async ({ config }) => ({ ...config, revision: 1 }))
+    registerAppIpcHandlers(registerOptions({
+      marketplaceCatalogService: {
+        listPackages: vi.fn(async () => ({
+          packages: [{ key: 'official:remote-plugin', sourceId: 'workwise-official', package: item, conflicted: false }],
+          conflicts: []
+        }))
+      } as never,
+      pluginManagementService: pluginService as never,
+      mcpConfigService: { list: vi.fn(async () => []), save, dispose: vi.fn() } as never
+    }))
+
+    await expect(handlers.get('plugin:rollback')?.({}, {
+      packageId: item.id,
+      expectedCurrentVersion: item.version,
+      idempotencyKey: 'rollback-remote-plugin'
+    })).resolves.toEqual(installed)
+    await expect(handlers.get('plugin:update-permissions')?.({}, {
+      packageId: item.id,
+      expectedCurrentVersion: item.version,
+      reviewSha256: 'a'.repeat(64),
+      permissions: [{ permissionId: 'network-connect', decision: 'granted' }],
+      idempotencyKey: 'permissions-remote-plugin'
+    })).resolves.toEqual(installed)
+
+    expect(rollback).toHaveBeenCalledWith(expect.objectContaining({ packageId: item.id }), expect.any(Function))
+    expect(updatePermissions).toHaveBeenCalledWith(
+      item,
+      expect.objectContaining({ reviewSha256: 'a'.repeat(64) }),
+      expect.any(Function)
+    )
+    expect(save).toHaveBeenCalledTimes(2)
+    expect(save).toHaveBeenLastCalledWith(expect.objectContaining({
+      config: expect.objectContaining({
+        id: 'remote-mcp',
+        transport: 'http',
+        url: source.location,
+        enabled: true
+      })
+    }))
+  })
+
   it('saves generated files to a user-selected path', async () => {
     const { dialog } = await import('electron')
     const { registerAppIpcHandlers } = await import('./register-app-ipc-handlers')
