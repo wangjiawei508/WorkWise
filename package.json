@@ -1,7 +1,7 @@
 {
   "name": "workwise",
   "productName": "WorkWise",
-  "version": "0.3.5",
+  "version": "0.4.0",
   "description": "AI workbench for engineering, infrastructure, and operations workflows",
   "license": "MIT",
   "engines": {
