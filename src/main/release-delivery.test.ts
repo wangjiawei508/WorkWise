@@ -247,4 +247,13 @@ describe('R2 release delivery gates', () => {
     expect(repair).toContain('/downloads/workwise/')
     expect(repair).not.toContain('rm -rf')
   })
+
+  it('requires final macOS DMG and ZIP artifacts to pass strict verification in CI', () => {
+    const packageJson = JSON.parse(readFileSync('package.json', 'utf8'))
+    expect(packageJson.scripts['verify:mac-release-artifacts']).toBe(
+      'node ./scripts/verify-mac-release-artifacts.cjs'
+    )
+    const workflow = readFileSync('.github/workflows/updater-acceptance-e2e.yml', 'utf8')
+    expect(workflow).toContain('node scripts/verify-mac-release-artifacts.cjs dist arm64 x64')
+  })
 })

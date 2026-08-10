@@ -46,6 +46,7 @@
     "r2:rollback": "node ./scripts/publish-r2.mjs rollback",
     "postinstall": "node ./scripts/postinstall.cjs",
     "verify:apple": "node ./scripts/verify-apple-signing.cjs",
+    "verify:mac-release-artifacts": "node ./scripts/verify-mac-release-artifacts.cjs",
     "verify:release-assets": "node ./scripts/verify-release-assets.cjs",
     "verify:packaged-asar": "node ./scripts/verify-packaged-asar.cjs",
     "verify:packaged-runtime-native": "node ./scripts/verify-packaged-runtime-native.cjs",

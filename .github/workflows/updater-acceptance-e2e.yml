@@ -239,6 +239,7 @@ jobs:
           set -euo pipefail
           npm run dist:mac:signed
           node scripts/generate-mac-latest.cjs dist
+          node scripts/verify-mac-release-artifacts.cjs dist arm64 x64
           node scripts/verify-packaged-markitdown.cjs dist mac
           node scripts/verify-packaged-runtime-native.cjs dist mac
           mkdir -p acceptance-artifacts/target-mac
