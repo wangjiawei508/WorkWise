@@ -69,6 +69,10 @@ export function GuiUpdateControl({
     title = t('guiUpdateCheckFailed')
     detail = error
     tone = 'error'
+  } else if (info?.ok && info.withdrawn && !info.hasUpdate) {
+    title = t('guiUpdateWithdrawnTitle', { version: info.withdrawnVersion ?? info.currentVersion })
+    detail = t('guiUpdateWithdrawnDesc')
+    tone = 'warn'
   } else if (info && !info.ok && info.code === 'not_configured') {
     title = t('guiUpdateNotConfiguredTitle')
     detail = t('guiUpdateErrNotConfigured')

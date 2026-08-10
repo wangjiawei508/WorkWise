@@ -540,4 +540,48 @@ describe('McpConfigService', () => {
     expect(migrated[0]).toMatchObject({ id: 'legacy', source: 'migration', transport: 'stdio' })
     expect(await readFile(manifestPath, 'utf8')).not.toContain('must-not-migrate')
   })
+
+  it('repairs stale migrated WorkWise paths from the preserved legacy config', async () => {
+    const legacyPath = join(root, 'mcp.json')
+    const manifestPath = join(root, 'mcp-v2.json')
+    const legacyCommand = '/Applications/WorkWise.app/Contents/Frameworks/WorkWise Helper.app/Contents/MacOS/WorkWise Helper'
+    const legacyArgs = [
+      '/Applications/WorkWise.app/Contents/Resources/app.asar/out/main/claw-schedule-mcp-node-entry.js',
+      '--gui-schedule-mcp-server'
+    ]
+    await writeFile(legacyPath, JSON.stringify({
+      servers: {
+        gui_schedule: { command: legacyCommand, args: legacyArgs, env: { ELECTRON_RUN_AS_NODE: '1' } }
+      }
+    }))
+    await writeFile(manifestPath, JSON.stringify({
+      schema: 'workwise.mcp-servers',
+      version: 2,
+      revision: 1,
+      servers: [{
+        id: 'gui_schedule',
+        name: 'gui_schedule',
+        scope: 'global',
+        transport: 'stdio',
+        command: '/private/tmp/WorkWise-0.3.4-gui-hotfix/dist/mac-arm64/WorkWise.app/Contents/Frameworks/WorkWise Helper.app/Contents/MacOS/WorkWise Helper',
+        args: ['/private/tmp/WorkWise-0.3.4-gui-hotfix/dist/mac-arm64/WorkWise.app/Contents/Resources/app.asar/out/main/claw-schedule-mcp-node-entry.js'],
+        timeoutMs: 30_000,
+        source: 'migration',
+        toolPolicy: {},
+        enabled: true,
+        revision: 1
+      }],
+      mutationKeys: {}
+    }))
+
+    const service = new McpConfigService({ manifestPath, legacyPath })
+    const repaired = await service.list()
+    expect(repaired[0]).toMatchObject({
+      id: 'gui_schedule',
+      command: legacyCommand,
+      args: legacyArgs
+    })
+    expect(await readFile(manifestPath, 'utf8')).toContain(legacyCommand)
+    expect(await readFile(legacyPath, 'utf8')).toContain(legacyCommand)
+  })
 })

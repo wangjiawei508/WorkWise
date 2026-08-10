@@ -1,4 +1,4 @@
-import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
+import { existsSync, lstatSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
@@ -15,6 +15,16 @@ function bundledTextFiles(root: string): Array<{ path: string; content: string }
     } catch {
       return []
     }
+  })
+}
+
+function bundledSymbolicLinks(root: string): string[] {
+  return readdirSync(root).flatMap((name) => {
+    const path = resolve(root, name)
+    const stats = lstatSync(path)
+    if (stats.isSymbolicLink()) return [path]
+    if (stats.isDirectory()) return bundledSymbolicLinks(path)
+    return []
   })
 }
 
@@ -55,5 +65,13 @@ describe('bundled specialist Skill source policy', () => {
           .not.toContain(marker)
       }
     }
+  })
+
+  it('keeps bundled Skills self-contained and disables third-party auto-update', () => {
+    expect(bundledSymbolicLinks(bundledRoot)).toEqual([])
+    const source = JSON.parse(readFileSync(resolve(bundledRoot, 'shuorenhua', '.workwise-skill-source.json'), 'utf8')) as {
+      autoUpdate?: unknown
+    }
+    expect(source.autoUpdate).toBe(false)
   })
 })

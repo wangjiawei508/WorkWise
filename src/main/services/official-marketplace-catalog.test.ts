@@ -128,19 +128,15 @@ describe('official marketplace catalog', () => {
   it('contains exactly the official recommended package set and tiers', () => {
     const expectedRecommendedIds = [
       'antv-chart-mcp',
-      'antv-chart-skill',
       'context7-mcp',
       'dbhub',
-      'ego-browser',
       'filesystem-mcp',
       'github-mcp',
       'lark-cli',
       'markitdown',
-      'memory-mcp',
       'officecli',
-      'playwright-cli-skills',
       'playwright-mcp',
-      'sequential-thinking-mcp',
+      'schedule',
       'superpowers'
     ]
     const packages = getOfficialMarketplaceCatalog()
@@ -157,14 +153,19 @@ describe('official marketplace catalog', () => {
 
   it('contains exactly the official advanced package set and tiers', () => {
     const expectedAdvancedIds = [
+      'antv-chart-skill',
       'docling-mcp',
+      'ego-browser',
       'fetch-mcp',
       'git-mcp',
       'lark-openapi-mcp',
       'linear-mcp',
+      'memory-mcp',
       'mongodb-mcp',
       'notion-mcp',
+      'playwright-cli-skills',
       'redis-mcp',
+      'sequential-thinking-mcp',
       'time-mcp'
     ]
     const packages = getOfficialMarketplaceCatalog()
@@ -176,6 +177,30 @@ describe('official marketplace catalog', () => {
     expect(actualAdvancedIds).toEqual([...expectedAdvancedIds].sort())
     for (const id of expectedAdvancedIds) {
       expect(packageById(id).tier, `${id} must be advanced`).toBe('advanced')
+    }
+  })
+
+  it('categorizes every package and only promotes distinct capabilities', () => {
+    const packages = getOfficialMarketplaceCatalog()
+    for (const item of packages) {
+      expect(item.categories?.length, `${item.id} must have a product category`).toBeGreaterThan(0)
+      expect(item.collections?.length, `${item.id} must have a user collection`).toBeGreaterThan(0)
+      expect(item.productType, `${item.id} must have a product-level type`).toBeTruthy()
+      expect(item.icon, `${item.id} must have a marketplace icon`).toBeDefined()
+    }
+
+    const recommended = new Set(
+      packages.filter((item) => item.tier === 'recommended').map((item) => item.id)
+    )
+    for (const duplicate of [
+      'playwright-cli-skills',
+      'antv-chart-skill',
+      'memory-mcp',
+      'sequential-thinking-mcp',
+      'ego-browser',
+      'docling-mcp'
+    ]) {
+      expect(recommended.has(duplicate), `${duplicate} must not be promoted beside its primary capability`).toBe(false)
     }
   })
 

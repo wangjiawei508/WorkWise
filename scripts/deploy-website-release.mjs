@@ -808,6 +808,19 @@ async function verifyPublic(flags) {
     await range.arrayBuffer()
     console.log(`Verified public HTTPS, Range and SHA-256: ${name}`)
   }
+  if (target === 'latest') {
+    for (const name of ['latest.json', 'latest.yml', 'latest-mac.yml']) {
+      const metadataUrl = new URL(name, urlBase)
+      const response = await fetch(metadataUrl, { method: 'HEAD', redirect: 'follow' })
+      if (!response.ok) throw new Error(`Public update metadata failed ${response.status}: ${name}`)
+      const cacheControl = response.headers.get('cache-control') || ''
+      const maxAge = cacheControl.match(/max-age\s*=\s*(\d+)/i)?.[1]
+      if (!/no-cache|no-store/i.test(cacheControl) && (!maxAge || Number(maxAge) > 60)) {
+        throw new Error(`Public update metadata cache policy is too long for ${name}: ${cacheControl || 'missing'}`)
+      }
+      console.log(`Verified short cache policy: ${name} (${cacheControl || 'no header'})`)
+    }
+  }
   const localLatest = await sha256File(resolve(sourceDir, 'latest.json'))
   if (!localLatest) throw new Error('latest.json hash verification failed.')
 }

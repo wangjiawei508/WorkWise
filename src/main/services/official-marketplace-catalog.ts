@@ -2,7 +2,10 @@ import type {
   CatalogSourceV1,
   GithubPackageSourceV1,
   MarketplaceComponentV1,
+  MarketplaceCollectionV1,
+  MarketplaceIconV1,
   MarketplacePackageV1,
+  MarketplaceProductTypeV1,
   NpmPackageRuntimeV1,
   NpmPackageSourceV1,
   PackageCompatibilityV1,
@@ -81,6 +84,55 @@ const EXTERNAL_INSTALL: PackageInstallationV1 = {
   mode: 'external',
   installedByDefault: false,
   reinstallable: false
+}
+
+const PACKAGE_ICON_OVERRIDES: Record<string, MarketplaceIconV1> = {
+  'github-mcp': { kind: 'monogram', value: 'GH', tone: 'blue', alt: 'GitHub' },
+  'playwright-mcp': { kind: 'monogram', value: 'PW', tone: 'orange', alt: 'Playwright' },
+  'playwright-cli-skills': { kind: 'monogram', value: 'PW', tone: 'orange', alt: 'Playwright' },
+  context7: { kind: 'monogram', value: 'C7', tone: 'teal', alt: 'Context7' },
+  dbhub: { kind: 'monogram', value: 'DB', tone: 'green', alt: 'DBHub' },
+  'antv-chart-mcp': { kind: 'monogram', value: 'AV', tone: 'red', alt: 'AntV' },
+  'antv-chart-skill': { kind: 'monogram', value: 'AV', tone: 'red', alt: 'AntV' },
+  superpowers: { kind: 'monogram', value: 'SP', tone: 'violet', alt: 'Superpowers' },
+  'filesystem-mcp': { kind: 'monogram', value: 'FS', tone: 'slate', alt: 'Filesystem' },
+  'memory-mcp': { kind: 'monogram', value: 'MM', tone: 'teal', alt: 'Memory' },
+  'sequential-thinking-mcp': { kind: 'monogram', value: 'ST', tone: 'violet', alt: 'Sequential Thinking' },
+  schedule: { kind: 'monogram', value: 'SC', tone: 'blue', alt: 'Schedule' },
+  'lark-cli': { kind: 'monogram', value: 'LK', tone: 'red', alt: 'Lark' },
+  officecli: { kind: 'monogram', value: 'OF', tone: 'blue', alt: 'OfficeCLI' },
+  markitdown: { kind: 'monogram', value: 'MD', tone: 'slate', alt: 'MarkItDown' }
+}
+
+function defaultPackageIcon(id: string, name: string): MarketplaceIconV1 {
+  const override = PACKAGE_ICON_OVERRIDES[id]
+  if (override) return override
+  const letters = name.replace(/[^A-Za-z0-9]+/g, '').slice(0, 2).toUpperCase() || id.slice(0, 2).toUpperCase()
+  return { kind: 'monogram', value: letters, tone: 'slate', alt: name }
+}
+
+function defaultCollections(categories: string[] | undefined): MarketplaceCollectionV1[] {
+  const mapping: Record<string, MarketplaceCollectionV1> = {
+    development: 'development',
+    browser: 'productivity',
+    'browser-automation': 'productivity',
+    'agent-workflows': 'development',
+    knowledge: 'development',
+    data: 'data',
+    visualization: 'data',
+    documents: 'documents',
+    collaboration: 'collaboration',
+    system: 'productivity'
+  }
+  const collections = [...new Set((categories ?? []).map((category) => mapping[category]).filter(Boolean))]
+  return collections.length ? collections : ['productivity']
+}
+
+function defaultProductType(components: ComponentDefinition[]): MarketplaceProductTypeV1 {
+  const types = new Set(components.map((component) => component.type))
+  if (types.has('skill')) return 'workflow'
+  if (types.has('cli')) return 'utility'
+  return 'connector'
 }
 
 const SYSTEM_MANAGED_INSTALL: Extract<
@@ -380,6 +432,9 @@ function definePackage(definition: PackageDefinition): MarketplacePackageV1 {
   return {
     schemaVersion: 1,
     ...metadata,
+    collections: metadata.collections ?? defaultCollections(metadata.categories),
+    productType: metadata.productType ?? defaultProductType(componentDefinitions),
+    icon: metadata.icon ?? defaultPackageIcon(metadata.id, metadata.name),
     source,
     sources,
     components,
@@ -480,6 +535,7 @@ const officialPackages: MarketplacePackageV1[] = [
     name: 'GitHub MCP',
     summary: 'Use the official GitHub-hosted MCP service.',
     tier: 'recommended',
+    categories: ['development'],
     version: 'remote',
     publisher: publisher('github', 'GitHub', 'https://github.com', true),
     license: 'MIT',
@@ -507,6 +563,7 @@ const officialPackages: MarketplacePackageV1[] = [
     artifact: NPM_ARTIFACTS.playwrightMcp,
     publisher: publisher('microsoft', 'Microsoft', 'https://github.com/microsoft', true),
     license: 'Apache-2.0',
+    categories: ['browser-automation'],
     permissions: [{
       id: 'browser.control',
       kind: 'browser',
@@ -520,7 +577,8 @@ const officialPackages: MarketplacePackageV1[] = [
     id: 'playwright-cli-skills',
     name: 'Playwright CLI + Skills',
     summary: 'Run the pinned Playwright CLI with its official agent Skills.',
-    tier: 'recommended',
+    tier: 'advanced',
+    categories: ['browser-automation'],
     version: NPM_ARTIFACTS.playwrightCli.version,
     publisher: publisher('microsoft', 'Microsoft', 'https://github.com/microsoft', true),
     license: 'Apache-2.0',
@@ -561,6 +619,7 @@ const officialPackages: MarketplacePackageV1[] = [
     artifact: NPM_ARTIFACTS.context7,
     publisher: publisher('upstash', 'Upstash', 'https://github.com/upstash', true),
     license: 'MIT',
+    categories: ['knowledge'],
     permissions: [NETWORK_PERMISSION]
   }),
   npmMcpPackage({
@@ -570,6 +629,7 @@ const officialPackages: MarketplacePackageV1[] = [
     artifact: NPM_ARTIFACTS.dbhub,
     publisher: publisher('bytebase', 'Bytebase', 'https://github.com/bytebase', true),
     license: 'MIT',
+    categories: ['data'],
     permissions: [DATABASE_READ_PERMISSION, DATABASE_WRITE_PERMISSION],
     auth: { type: 'tool-managed', provider: 'database' }
   }),
@@ -579,13 +639,15 @@ const officialPackages: MarketplacePackageV1[] = [
     summary: 'Generate data visualizations with the AntV chart MCP server.',
     artifact: NPM_ARTIFACTS.antvChart,
     publisher: publisher('antv', 'AntV', 'https://github.com/antvis', true),
-    license: 'MIT'
+    license: 'MIT',
+    categories: ['visualization']
   }),
   definePackage({
     id: 'antv-chart-skill',
     name: 'AntV Chart Skill',
     summary: 'Guide agents in selecting and producing AntV charts.',
-    tier: 'recommended',
+    tier: 'advanced',
+    categories: ['visualization'],
     version: 'b47f2feae59b1e792462d0edd8d1a7ea87c9bdfc',
     publisher: publisher('antv', 'AntV', 'https://github.com/antvis', true),
     license: 'MIT',
@@ -623,6 +685,7 @@ const officialPackages: MarketplacePackageV1[] = [
     name: 'Superpowers',
     summary: 'Add the Superpowers development workflow Skills.',
     tier: 'recommended',
+    categories: ['agent-workflows'],
     version: '44c9b2d6e889982ac18c27d05a19fefe335194e1',
     publisher: publisher('obra', 'Jesse Vincent', 'https://github.com/obra', true),
     license: 'MIT',
@@ -667,6 +730,7 @@ const officialPackages: MarketplacePackageV1[] = [
       true
     ),
     license: 'MIT',
+    categories: ['system'],
     permissions: [FILESYSTEM_READ_PERMISSION, FILESYSTEM_WRITE_PERMISSION],
     args: ['${workspaceRoot}'],
     licenseEvidenceCommit: '9a96ea6e5913736f92b88345bf51caeaaa8e719f'
@@ -683,6 +747,8 @@ const officialPackages: MarketplacePackageV1[] = [
       true
     ),
     license: 'MIT',
+    categories: ['knowledge'],
+    tier: 'advanced',
     permissions: [FILESYSTEM_READ_PERMISSION, FILESYSTEM_WRITE_PERMISSION],
     licenseEvidenceCommit: '6dd0a683e198783e30feabf7abaf42f925bd18b1'
   }),
@@ -698,8 +764,21 @@ const officialPackages: MarketplacePackageV1[] = [
       true
     ),
     license: 'MIT',
+    categories: ['agent-workflows'],
+    tier: 'advanced',
     licenseEvidenceCommit: '6dd0a683e198783e30feabf7abaf42f925bd18b1'
   }),
+  managedPackage(
+    'schedule',
+    'Schedule',
+    'WorkWise built-in scheduling and recurring task capability.',
+    'WorkWise',
+    'workwise://managed-tools/schedule',
+    null,
+    true,
+    true,
+    'system'
+  ),
   managedPackage(
     'lark-cli',
     'Lark CLI',
@@ -708,7 +787,8 @@ const officialPackages: MarketplacePackageV1[] = [
     'https://github.com/larksuite/cli',
     'MIT',
     false,
-    true
+    true,
+    'collaboration'
   ),
   managedPackage(
     'officecli',
@@ -718,7 +798,8 @@ const officialPackages: MarketplacePackageV1[] = [
     'https://github.com/iOfficeAI/OfficeCLI',
     'Apache-2.0',
     false,
-    true
+    true,
+    'documents'
   ),
   managedPackage(
     'ego-browser',
@@ -727,7 +808,11 @@ const officialPackages: MarketplacePackageV1[] = [
     'Cintro Labs',
     'https://lite.ego.app/',
     null,
-    false
+    false,
+    false,
+    'browser-automation',
+    'advanced',
+    'app'
   ),
   managedPackage(
     'markitdown',
@@ -737,7 +822,8 @@ const officialPackages: MarketplacePackageV1[] = [
     'https://github.com/microsoft/markitdown',
     'MIT',
     true,
-    true
+    true,
+    'documents'
   ),
   wheelMcpPackage({
     id: 'git-mcp',
@@ -751,6 +837,7 @@ const officialPackages: MarketplacePackageV1[] = [
       true
     ),
     license: 'MIT',
+    categories: ['development'],
     permissions: [
       FILESYSTEM_READ_PERMISSION,
       FILESYSTEM_WRITE_PERMISSION,
@@ -771,6 +858,7 @@ const officialPackages: MarketplacePackageV1[] = [
       true
     ),
     license: 'MIT',
+    categories: ['system'],
     permissions: [NETWORK_PERMISSION],
     dependencies: [UV_DEPENDENCY, PYTHON_310_DEPENDENCY],
     licenseEvidenceCommit: MCP_SERVERS_PYTHON_LICENSE_COMMIT
@@ -787,6 +875,7 @@ const officialPackages: MarketplacePackageV1[] = [
       true
     ),
     license: 'MIT',
+    categories: ['system'],
     permissions: [],
     dependencies: [UV_DEPENDENCY, PYTHON_310_DEPENDENCY],
     licenseEvidenceCommit: MCP_SERVERS_PYTHON_LICENSE_COMMIT
@@ -796,6 +885,7 @@ const officialPackages: MarketplacePackageV1[] = [
     name: 'Lark OpenAPI MCP',
     summary: 'Use Lark OpenAPI capabilities exposed by the managed Lark toolchain.',
     tier: 'advanced',
+    categories: ['collaboration'],
     version: 'managed',
     publisher: publisher('lark', 'Lark', 'https://open.larksuite.com', true),
     license: 'Apache-2.0',
@@ -831,6 +921,7 @@ const officialPackages: MarketplacePackageV1[] = [
       true
     ),
     license: 'MIT',
+    categories: ['documents'],
     permissions: [FILESYSTEM_READ_PERMISSION],
     dependencies: [UV_DEPENDENCY, PYTHON_310_DEPENDENCY]
   }),
@@ -841,6 +932,7 @@ const officialPackages: MarketplacePackageV1[] = [
     artifact: WHEEL_ARTIFACTS.redis,
     publisher: publisher('redis', 'Redis', 'https://pypi.org/project/redis-mcp-server/', true),
     license: 'MIT',
+    categories: ['data'],
     permissions: [DATABASE_READ_PERMISSION, DATABASE_WRITE_PERMISSION],
     auth: { type: 'tool-managed', provider: 'redis-mcp' }
   }),
@@ -851,6 +943,7 @@ const officialPackages: MarketplacePackageV1[] = [
     artifact: NPM_ARTIFACTS.mongodb,
     publisher: publisher('mongodb', 'MongoDB', 'https://www.mongodb.com', true),
     license: 'Apache-2.0',
+    categories: ['data'],
     permissions: [DATABASE_READ_PERMISSION, DATABASE_WRITE_PERMISSION],
     auth: { type: 'tool-managed', provider: 'mongodb-mcp' },
     tier: 'advanced'
@@ -860,14 +953,16 @@ const officialPackages: MarketplacePackageV1[] = [
     'Notion MCP',
     'Notion',
     'https://mcp.notion.com/mcp',
-    'https://www.notion.so'
+    'https://www.notion.so',
+    'collaboration'
   ),
   pendingOauthRemote(
     'linear-mcp',
     'Linear MCP',
     'Linear',
     'https://mcp.linear.app/mcp',
-    'https://linear.app'
+    'https://linear.app',
+    'collaboration'
   )
 ]
 
@@ -878,6 +973,7 @@ function npmMcpPackage(options: {
   artifact: NpmArtifact
   publisher: PackagePublisherV1
   license: string
+  categories: string[]
   permissions?: PackagePermissionV1[]
   auth?: MarketplacePackageV1['auth']
   args?: string[]
@@ -890,6 +986,7 @@ function npmMcpPackage(options: {
     name: options.name,
     summary: options.summary,
     tier: options.tier ?? 'recommended',
+    categories: options.categories,
     version: options.artifact.version,
     publisher: options.publisher,
     license: options.license,
@@ -928,6 +1025,7 @@ function wheelMcpPackage(options: {
   artifact: WheelArtifact
   publisher: PackagePublisherV1
   license: string
+  categories: string[]
   permissions: PackagePermissionV1[]
   auth?: MarketplacePackageV1['auth']
   dependencies?: PackageDependencyV1[]
@@ -939,6 +1037,7 @@ function wheelMcpPackage(options: {
     name: options.name,
     summary: options.summary,
     tier: 'advanced',
+    categories: options.categories,
     version: options.artifact.version,
     publisher: options.publisher,
     license: options.license,
@@ -978,13 +1077,18 @@ function managedPackage(
   location: string,
   license: string | null,
   installedByDefault: boolean,
-  publisherVerified = false
+  publisherVerified = false,
+  category = 'system',
+  tier: MarketplacePackageV1['tier'] = 'recommended',
+  productType: MarketplaceProductTypeV1 = 'utility'
 ): MarketplacePackageV1 {
   return definePackage({
     id,
     name,
     summary,
-    tier: 'recommended',
+    tier,
+    productType,
+    categories: [category],
     version: 'managed',
     publisher: publisher(id, publisherName, location, publisherVerified),
     license,
@@ -1008,13 +1112,15 @@ function pendingOauthRemote(
   name: string,
   publisherName: string,
   endpoint: string,
-  publisherUrl: string
+  publisherUrl: string,
+  category: string
 ): MarketplacePackageV1 {
   return definePackage({
     id,
     name,
     summary: `${name} is disabled until OAuth discovery is supported.`,
     tier: 'advanced',
+    categories: [category],
     version: 'remote',
     publisher: publisher(id, publisherName, publisherUrl),
     license: null,

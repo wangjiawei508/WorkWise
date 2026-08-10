@@ -153,6 +153,42 @@ describe('gui updater source helpers', () => {
     expect(module._internals.selectGithubRelease(releases, 'frontier')?.version).toBe('0.3.0-beta.1')
   })
 
+  it('does not select the withdrawn stable version', async () => {
+    const module = await import('./gui-updater')
+    const releases = [
+      {
+        tag_name: 'v0.4.0',
+        html_url: 'https://github.com/wangjiawei508/WorkWise/releases/tag/v0.4.0'
+      },
+      {
+        tag_name: 'v0.3.5',
+        html_url: 'https://github.com/wangjiawei508/WorkWise/releases/tag/v0.3.5'
+      }
+    ]
+
+    expect(module._internals.selectGithubRelease(releases, 'stable')?.version).toBe('0.3.5')
+  })
+
+  it('selects 0.4.1 as the stable repair over withdrawn 0.4.0', async () => {
+    const module = await import('./gui-updater')
+    const releases = [
+      {
+        tag_name: 'v0.4.1',
+        html_url: 'https://github.com/wangjiawei508/WorkWise/releases/tag/v0.4.1'
+      },
+      {
+        tag_name: 'v0.4.0',
+        html_url: 'https://github.com/wangjiawei508/WorkWise/releases/tag/v0.4.0'
+      },
+      {
+        tag_name: 'v0.3.5',
+        html_url: 'https://github.com/wangjiawei508/WorkWise/releases/tag/v0.3.5'
+      }
+    ]
+
+    expect(module._internals.selectGithubRelease(releases, 'stable')?.version).toBe('0.4.1')
+  })
+
   it('defaults to the official railwise.cn feed and keeps explicit enterprise overrides', async () => {
     const previous = {
       WORKWISE_UPDATE_PROVIDER: process.env.WORKWISE_UPDATE_PROVIDER,

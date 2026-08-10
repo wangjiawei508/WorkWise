@@ -2,7 +2,7 @@ import { existsSync, readdirSync } from 'node:fs'
 import { cp, lstat, mkdir, mkdtemp, readdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import { randomUUID } from 'node:crypto'
 import { homedir } from 'node:os'
-import { basename, dirname, join, resolve } from 'node:path'
+import { basename, dirname, join, resolve, sep } from 'node:path'
 import type { AppSettingsV1 } from '../../shared/app-settings'
 import type { InstalledPackageV1 } from '../../shared/marketplace'
 import type {
@@ -32,6 +32,8 @@ export type GuiSkillSummary = {
   id: string
   name: string
   description?: string
+  version?: string
+  updateSource?: string
   root: string
   entryPath: string
   scope: GuiSkillScope
@@ -103,7 +105,8 @@ export async function guiSkillRootsForRuntime(
     join(homedir(), '.codex', 'skills'),
     join(homedir(), '.agents', 'skills'),
     join(homedir(), '.workwise', 'skills'),
-    join(homedir(), '.kun', 'skills')
+    join(homedir(), '.kun', 'skills'),
+    ...bundledSkillRootCandidates()
   ]
   const codexPluginRoots = await discoverCodexPluginSkillRoots()
   const workwisePluginRoots = await discoverInstalledPluginSkillRoots()
@@ -459,7 +462,7 @@ async function loadSkillSummary(
         ? BUNDLED_SKILL_LIMITS
         : SKILL_PACKAGE_LIMITS
   )
-  const source = sourceForList(storedSource)
+  const source = sourceForList(storedSource, root)
   const manifestPath = join(root, 'skill.json')
   if (existsSync(manifestPath)) {
     const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as Record<string, unknown>
@@ -475,6 +478,12 @@ async function loadSkillSummary(
       id: slug(stringValue(manifest.id) || name || basename(root)),
       name,
       ...(stringValue(manifest.description) ? { description: stringValue(manifest.description) } : {}),
+      ...(stringValue(manifest.version) ? { version: stringValue(manifest.version) } : {}),
+      ...(source?.type === 'github'
+        ? { updateSource: `https://github.com/${source.owner}/${source.repo}` }
+        : source?.type === 'bundled'
+          ? { updateSource: 'WorkWise bundled assets' }
+          : { updateSource: 'Local folder' }),
       root,
       entryPath,
       scope,
@@ -491,6 +500,12 @@ async function loadSkillSummary(
     id: slug(frontmatter.id || basename(root)),
     name,
     ...(frontmatter.description ? { description: frontmatter.description } : {}),
+    ...(frontmatter.version ? { version: frontmatter.version } : {}),
+    ...(source?.type === 'github'
+      ? { updateSource: `https://github.com/${source.owner}/${source.repo}` }
+      : source?.type === 'bundled'
+        ? { updateSource: 'WorkWise bundled assets' }
+        : { updateSource: 'Local folder' }),
     root,
     entryPath,
     scope,
@@ -595,8 +610,14 @@ async function readSkillSourceMetadata(root: string): Promise<SkillSourceMetadat
   return undefined
 }
 
-function sourceForList(source: SkillSourceMetadata | undefined): GuiSkillSource | undefined {
-  if (!source) return undefined
+function sourceForList(source: SkillSourceMetadata | undefined, root?: string): GuiSkillSource | undefined {
+  if (!source) {
+    const bundledRoot = root && bundledSkillRootCandidates().find((candidate) =>
+      root === candidate || root.startsWith(candidate + sep))
+    return bundledRoot
+      ? { type: 'bundled', id: basename(root), autoUpdate: false }
+      : undefined
+  }
   if (source.type === 'github') {
     return {
       type: 'github',
@@ -909,13 +930,14 @@ export function resolveBundledSkillDirectory(bundleId: string): string | null {
   return null
 }
 
-function readFrontmatter(content: string): { id?: string; name?: string; description?: string } {
+function readFrontmatter(content: string): { id?: string; name?: string; description?: string; version?: string } {
   const match = /^---\r?\n([\s\S]*?)\r?\n---/.exec(content)
   if (!match) return { description: firstMarkdownParagraph(content) }
   const yaml = match[1] ?? ''
   return {
     id: frontmatterString(yaml, 'id'),
     name: frontmatterString(yaml, 'name'),
+    version: frontmatterString(yaml, 'version'),
     description: frontmatterString(yaml, 'description') || firstMarkdownParagraph(content.slice(match[0].length))
   }
 }

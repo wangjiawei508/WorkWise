@@ -8,7 +8,7 @@ import {
   defaultWriteSettings,
   type AppSettingsV1
 } from '@shared/app-settings'
-import { coerceRendererSettings, mergeSettingsPatches } from './settings-utils'
+import { coerceRendererSettings, guiUpdateFailureMessage, mergeSettingsPatches } from './settings-utils'
 
 function legacySettings(): AppSettingsV1 {
   return {
@@ -68,5 +68,29 @@ describe('settings utils', () => {
       write: { inlineCompletion: { enabled: false, maxTokens: 120 } },
       schedule: { tasks: [{ id: 'new' }] }
     })
+  })
+
+  it('localizes structured updater failures instead of exposing main-process English', () => {
+    const translations: Record<string, string> = {
+      guiUpdateErrUnsignedBuild: 'unsigned candidate',
+      guiUpdateErrManifestUnavailable: 'manifest unavailable',
+      guiUpdateErrNetwork: 'network unavailable',
+      guiUpdateErrSignatureInvalid: 'signature invalid',
+      guiUpdateErrWithdrawn: 'release withdrawn'
+    }
+    const t = (key: string): string => translations[key] ?? key
+    const failure = (code: 'unsigned_build' | 'manifest_unavailable' | 'network' | 'signature_invalid' | 'withdrawn') =>
+      guiUpdateFailureMessage({
+        ok: false,
+        currentVersion: '0.4.0',
+        code,
+        message: 'English main-process detail'
+      }, t)
+
+    expect(failure('unsigned_build')).toBe('unsigned candidate')
+    expect(failure('manifest_unavailable')).toBe('manifest unavailable')
+    expect(failure('network')).toBe('network unavailable')
+    expect(failure('signature_invalid')).toBe('signature invalid')
+    expect(failure('withdrawn')).toBe('release withdrawn')
   })
 })

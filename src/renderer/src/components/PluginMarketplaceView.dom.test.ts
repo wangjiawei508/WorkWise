@@ -9,6 +9,7 @@ import type {
   MarketplacePackageV1,
   PreparedPluginImportV1
 } from '@shared/marketplace'
+import type { SkillListItem } from '@shared/workwise-api'
 import i18n from '../i18n'
 import { useChatStore } from '../store/chat-store'
 import { PluginMarketplaceView } from './PluginMarketplaceView'
@@ -245,11 +246,60 @@ afterEach(async () => {
 })
 
 describe('PluginMarketplaceView unified catalog', () => {
+  it('keeps local Skill counts off the plugin surface and exposes installed product-level entries', () => {
+    expect(container.textContent).not.toContain('local Skills indexed')
+    expect(container.textContent).toContain('Installed')
+    expect(container.textContent).toContain('Connector')
+    expect(container.textContent).not.toContain('MCP')
+    expect(container.querySelector('button[aria-label="Browser Tools"]')).not.toBeNull()
+    expect(container.querySelector('button[aria-label="Filters"]')).not.toBeNull()
+    expect(container.textContent).not.toContain('Updates')
+    expect(container.querySelector('.ds-opaque-work-surface')).not.toBeNull()
+    expect(container.querySelector('.backdrop-blur-xl')).toBeNull()
+  })
+
+  it('indexes large local Skill sets without flattening them into the default marketplace view', async () => {
+    const indexedSkills = Array.from({ length: 200 }, (_, index): SkillListItem => ({
+      id: `skill-${index}`,
+      name: `Indexed Skill ${index}`,
+      description: `Capability ${index}`,
+      root: index < 180
+        ? `/Users/test/.codex/plugins/cache/example/skills/skill-${index}`
+        : `/Users/test/.codex/skills/skill-${index}`,
+      entryPath: index < 180
+        ? `/Users/test/.codex/plugins/cache/example/skills/skill-${index}/SKILL.md`
+        : `/Users/test/.codex/skills/skill-${index}/SKILL.md`,
+      scope: 'global',
+      legacy: false
+    }))
+    vi.mocked(window.workwise.listSkills).mockResolvedValue({
+      ok: true,
+      generation: 2,
+      skills: indexedSkills,
+      validationErrors: []
+    })
+
+    await act(async () => iconButton('Refresh').click())
+    await settle()
+    await act(async () => button('Skills').click())
+
+    expect(container.textContent).toContain('200 Skills indexed')
+    expect(container.textContent).not.toContain('Indexed Skill 199')
+    const search = container.querySelector(
+      'input[placeholder="Search indexed Skills by name or capability"]'
+    )
+    if (!(search instanceof HTMLInputElement)) throw new Error('Skill search input was not rendered.')
+    await act(async () => setInput(search, 'Indexed Skill 199'))
+    expect(container.textContent).toContain('Indexed Skill 199')
+    expect(container.textContent).toContain('1 matching Skills')
+  })
+
   it('uses main-process install state and isolates update results', async () => {
     expect(container.textContent).toContain('Browser Tools')
     expect(container.textContent).toContain('Document Tools')
     expect(container.textContent).toContain('Review update')
 
+    await act(async () => iconButton('Filters').click())
     await act(async () => button('Updates').click())
     expect(container.textContent).toContain('Browser Tools')
     expect(container.textContent).not.toContain('Document Tools')
@@ -298,11 +348,15 @@ describe('PluginMarketplaceView unified catalog', () => {
   })
 
   it('imports a package through review and installs with explicit permission decisions', async () => {
-    await act(async () => button('Import').click())
+    await act(async () => button('Add plugin').click())
     await act(async () => button('WWX or MCPB package').click())
     await settle()
     expect(container.textContent).toContain('Review Document Tools')
-    await act(async () => button('Install').click())
+    const installButtons = [...container.querySelectorAll('button')]
+      .filter((candidate) => candidate.textContent?.trim() === 'Install')
+    const reviewInstall = installButtons.at(-1)
+    if (!(reviewInstall instanceof HTMLButtonElement)) throw new Error('Review install button was not rendered.')
+    await act(async () => reviewInstall.click())
     await settle()
     expect(installPrepared).toHaveBeenCalledWith(expect.objectContaining({
       preparedId: 'prepared-1',

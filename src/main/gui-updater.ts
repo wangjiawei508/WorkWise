@@ -28,6 +28,12 @@ const DEFAULT_OFFICIAL_RELEASE_PREFIX = 'workwise'
 const DEFAULT_OFFICIAL_UPDATE_BASE_URL = 'https://www.railwise.cn/downloads'
 const DEFAULT_PRODUCT_PAGE_URL = 'https://www.railwise.cn/products/workwise/'
 const DEFAULT_GITHUB_REPO = 'wangjiawei508/WorkWise'
+const WITHDRAWN_STABLE_VERSIONS = new Set(
+  (process.env.WORKWISE_WITHDRAWN_STABLE_VERSIONS || '0.4.0')
+    .split(',')
+    .map((value) => value.trim())
+    .filter(Boolean)
+)
 const { autoUpdater } = electronUpdater
 
 let initialized = false
@@ -317,6 +323,7 @@ function selectGithubRelease(
     if (channel === 'stable' && release.prerelease === true) continue
     const version = versionFromGithubRelease(release, channel)
     if (!version) continue
+    if (channel === 'stable' && WITHDRAWN_STABLE_VERSIONS.has(version)) continue
     const htmlUrl = typeof release.html_url === 'string' ? release.html_url.trim() : ''
     if (!htmlUrl) continue
     return { release, version }
@@ -350,9 +357,9 @@ function macAutoUpdateAllowed(): boolean {
 
 function unsupportedMessage(): string {
   if (process.platform === 'darwin') {
-    return 'Automatic updates require a signed and notarized macOS build. Use the download page for this build.'
+    return 'This macOS build cannot update in the app because it is not signed and notarized.'
   }
-  return 'Automatic updates are not supported for this build. Use the download page instead.'
+  return 'This build cannot update in the app because its installer is not eligible for automatic updates.'
 }
 
 function extractHttpStatus(raw: string): number | null {
@@ -365,23 +372,23 @@ function extractHttpStatus(raw: string): number | null {
 function sanitizeUpdaterError(raw: string, channel: GuiUpdateChannel): string {
   const message = raw.trim()
   if (!message) {
-    return `Could not read GUI update metadata for the ${channel} channel. Open the download page instead.`
+    return `Could not read GUI update metadata for the ${channel} channel.`
   }
 
   if (/Invalid release object path\./i.test(message)) {
-    return `The ${channel} update feed is not published correctly yet. Open the download page instead.`
+    return `The ${channel} update feed is not published correctly yet.`
   }
 
   if (/Object not found\./i.test(message)) {
-    return `The ${channel} update feed is missing release metadata right now. Open the download page instead.`
+    return `The ${channel} update feed is missing release metadata right now.`
   }
 
   const status = extractHttpStatus(message)
   if (status === 400 || status === 404) {
-    return `The ${channel} update feed is not available right now. Open the download page instead.`
+    return `The ${channel} update feed is not available right now.`
   }
   if (status === 403) {
-    return `The ${channel} update feed denied this request. Open the download page instead.`
+    return `The ${channel} update feed denied this request.`
   }
   if (status === 429) {
     return `The ${channel} update feed is rate limited right now. Please try again later.`
@@ -393,18 +400,45 @@ function sanitizeUpdaterError(raw: string, channel: GuiUpdateChannel): string {
   return message.split(/\n(?:Headers:|Data:)/, 1)[0].trim() || message
 }
 
+function classifyUpdaterFailureCode(raw: string): GuiUpdateFailureCode {
+  if (/signature|code.?sign|not notarized|not signed|sha512|checksum/i.test(raw)) {
+    return 'signature_invalid'
+  }
+  const status = extractHttpStatus(raw)
+  if (status === 400 || status === 404 || /manifest|release metadata|object not found/i.test(raw)) {
+    return 'manifest_unavailable'
+  }
+  if (/econn|enotfound|timeout|network|fetch failed|unable to connect|socket/i.test(raw)) {
+    return 'network'
+  }
+  return 'unknown'
+}
+
+function isWithdrawnStableVersion(version: string, channel: GuiUpdateChannel): boolean {
+  return channel === 'stable' && WITHDRAWN_STABLE_VERSIONS.has(version.trim().replace(/^v/i, ''))
+}
+
 function toGuiInfo(updateInfo: UpdateInfo, hasUpdate: boolean, manualOnly = false): Extract<GuiUpdateInfo, { ok: true }> {
   const latestVersion = updateInfo.version.trim()
+  const currentVersion = app.getVersion()
+  const currentWithdrawn = isWithdrawnStableVersion(currentVersion, configuredChannel)
+  const candidateWithdrawn = isWithdrawnStableVersion(latestVersion, configuredChannel)
   return {
     ok: true,
-    currentVersion: app.getVersion(),
+    currentVersion,
     latestVersion,
-    hasUpdate,
+    hasUpdate: hasUpdate && !candidateWithdrawn,
     releaseUrl: releaseUrlForVersion(latestVersion),
     releaseDate: updateInfo.releaseDate,
     channel: configuredChannel,
     manualOnly,
-    downloaded
+    downloaded,
+    withdrawn: currentWithdrawn || candidateWithdrawn,
+    ...(currentWithdrawn
+      ? { withdrawnVersion: currentVersion }
+      : candidateWithdrawn
+        ? { withdrawnVersion: latestVersion }
+        : {})
   }
 }
 
@@ -523,6 +557,17 @@ async function checkManualUpdate(
   const currentVersion = app.getVersion()
   const releaseUrl = downloadPageUrl()
 
+  if (code === 'unsupported' || code === 'unsigned_build') {
+    return {
+      ok: false,
+      currentVersion,
+      code: 'unsigned_build',
+      message: unsupportedMessage(),
+      releaseUrl,
+      channel
+    }
+  }
+
   const githubFallback = async (): Promise<GuiUpdateInfo | null> => {
     if (!shouldFallbackToGithubUpdateProvider(channel)) return null
 
@@ -588,7 +633,14 @@ async function checkManualUpdate(
           typeof selected.release.published_at === 'string' ? selected.release.published_at : undefined,
         channel,
         manualOnly: true,
-        downloaded: false
+        downloaded: false,
+        withdrawn: isWithdrawnStableVersion(currentVersion, channel) ||
+          isWithdrawnStableVersion(selected.version, channel),
+        ...(isWithdrawnStableVersion(currentVersion, channel)
+          ? { withdrawnVersion: currentVersion }
+          : isWithdrawnStableVersion(selected.version, channel)
+            ? { withdrawnVersion: selected.version }
+            : {})
       }
       lastInfo = info
       emitGuiUpdateState(info.hasUpdate ? { status: 'available', info } : { status: 'not_available', info })
@@ -639,8 +691,8 @@ async function checkManualUpdate(
       return {
         ok: false,
         currentVersion,
-        code,
-        message: `${unsupportedMessage()} Update metadata returned ${res.status}.`,
+        code: 'manifest_unavailable',
+        message: `The ${channel} update feed returned HTTP ${res.status}.`,
         releaseUrl,
         channel
       }
@@ -653,8 +705,8 @@ async function checkManualUpdate(
       return {
         ok: false,
         currentVersion,
-        code,
-        message: `${unsupportedMessage()} Update metadata is missing a version.`,
+        code: 'manifest_unavailable',
+        message: `The ${channel} update feed is missing a version.`,
         releaseUrl,
         channel
       }
@@ -668,7 +720,14 @@ async function checkManualUpdate(
       releaseDate: parseYamlScalar(text, 'releaseDate'),
       channel,
       manualOnly: true,
-      downloaded: false
+      downloaded: false,
+      withdrawn: isWithdrawnStableVersion(currentVersion, channel) ||
+        isWithdrawnStableVersion(latestVersion, channel),
+      ...(isWithdrawnStableVersion(currentVersion, channel)
+        ? { withdrawnVersion: currentVersion }
+        : isWithdrawnStableVersion(latestVersion, channel)
+          ? { withdrawnVersion: latestVersion }
+          : {})
     }
     lastInfo = info
     emitGuiUpdateState(info.hasUpdate ? { status: 'available', info } : { status: 'not_available', info })
@@ -679,8 +738,8 @@ async function checkManualUpdate(
     return {
       ok: false,
       currentVersion,
-      code,
-      message: `${unsupportedMessage()} ${e instanceof Error ? e.message : String(e)}`,
+      code: classifyUpdaterFailureCode(e instanceof Error ? e.message : String(e)),
+      message: e instanceof Error ? e.message : String(e),
       releaseUrl,
       channel
     }
@@ -726,7 +785,7 @@ export function initializeGuiUpdater(
     }
     const info = toGuiInfo(updateInfo, true)
     lastInfo = info
-    emitGuiUpdateState({ status: 'available', info })
+    emitGuiUpdateState(info.hasUpdate ? { status: 'available', info } : { status: 'not_available', info })
   })
 
   autoUpdater.on('update-not-available', (updateInfo: UpdateInfo) => {
@@ -749,13 +808,24 @@ export function initializeGuiUpdater(
     }
     downloaded = true
     const info = toGuiInfo(event, true)
+    if (!info.hasUpdate) {
+      downloaded = false
+      lastInfo = info
+      emitGuiUpdateState({ status: 'not_available', info })
+      return
+    }
     lastInfo = info
     emitGuiUpdateState({ status: 'downloaded', info })
   })
 
   autoUpdater.on('error', (error) => {
     const message = error instanceof Error ? error.message : String(error)
-    emitGuiUpdateState({ status: 'error', info: lastInfo ?? undefined, message, code: 'unknown' })
+    emitGuiUpdateState({
+      status: 'error',
+      info: lastInfo ?? undefined,
+      message,
+      code: classifyUpdaterFailureCode(message)
+    })
   })
 
   nativeAutoUpdater?.on?.('before-quit-for-update', () => {
@@ -779,14 +849,23 @@ async function performGuiUpdateCheck(selectedChannel: GuiUpdateChannel): Promise
   }
 
   if (!macAutoUpdateAllowed()) {
-    return checkManualUpdate(selectedChannel, 'unsupported')
+    return checkManualUpdate(selectedChannel, 'unsigned_build')
   }
 
   emitGuiUpdateState({ status: 'checking', info: lastInfo ?? undefined })
   try {
     const result = await autoUpdater.checkForUpdates()
     if (!result) {
-      return checkManualUpdate(selectedChannel, 'not_configured')
+      const info: GuiUpdateInfo = {
+        ok: false,
+        currentVersion: app.getVersion(),
+        code: 'manifest_unavailable',
+        message: `The ${selectedChannel} update feed did not return update metadata.`,
+        releaseUrl: downloadPageUrl(),
+        channel: selectedChannel
+      }
+      emitGuiUpdateState({ status: 'error', info, message: info.message, code: info.code })
+      return info
     }
     const info = toGuiInfo(result.updateInfo, result.isUpdateAvailable)
     lastInfo = info
@@ -794,13 +873,12 @@ async function performGuiUpdateCheck(selectedChannel: GuiUpdateChannel): Promise
     return info
   } catch (e) {
     const message = sanitizeUpdaterError(e instanceof Error ? e.message : String(e), selectedChannel)
-    const manualInfo = await checkManualUpdate(selectedChannel, 'unknown')
-    if (manualInfo.ok || manualInfo.code !== 'not_configured') return manualInfo
+    const code = classifyUpdaterFailureCode(e instanceof Error ? e.message : String(e))
     const info: GuiUpdateInfo = {
       ok: false,
       currentVersion: app.getVersion(),
       message,
-      code: 'unknown',
+      code,
       releaseUrl: downloadPageUrl(),
       channel: selectedChannel
     }

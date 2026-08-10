@@ -172,6 +172,22 @@ function stringArray(value: unknown, label: string): string[] {
   return [...new Set(value.map((entry) => String(entry).trim()))]
 }
 
+function isObsoleteWorkWisePath(value: string): boolean {
+  return /(?:^|[\\/])(?:private[\\/]tmp[\\/]WorkWise-|tmp[\\/]workwise-|WorkWise-0\.\d+\.\d+)/i.test(value)
+}
+
+function legacyStdioLaunch(value: unknown): { command: string; args: string[] } | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+  const raw = value as Record<string, unknown>
+  const command = typeof raw.command === 'string' ? raw.command.trim() : ''
+  const args = Array.isArray(raw.args)
+    ? raw.args.filter((item): item is string => typeof item === 'string').slice(0, 256)
+    : []
+  if (!command || typeof raw.url === 'string' && raw.url.trim()) return null
+  if ([command, ...args].some(isObsoleteWorkWisePath)) return null
+  return { command, args }
+}
+
 function sameOAuthIdentifier(left: string, right: string): boolean {
   return left.replace(/\/$/, '') === right.replace(/\/$/, '')
 }
@@ -977,21 +993,54 @@ export class McpConfigService {
 
   private async read(): Promise<McpManifestV2> {
     try {
-      return normalizedManifest(JSON.parse(await readRecoveredFile(this.manifestPath)))
+      const manifest = normalizedManifest(JSON.parse(await readRecoveredFile(this.manifestPath)))
+      return this.repairObsoleteMigratedPaths(manifest)
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') return this.migrateLegacy()
       throw error
     }
   }
 
-  private async migrateLegacy(): Promise<McpManifestV2> {
-    let legacy: unknown
+  private async readLegacyObject(): Promise<Record<string, unknown> | null> {
     try {
-      legacy = JSON.parse(await readRecoveredFile(this.legacyPath))
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return emptyManifest()
-      return emptyManifest()
+      const parsed = JSON.parse(await readRecoveredFile(this.legacyPath)) as unknown
+      return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+        ? parsed as Record<string, unknown>
+        : null
+    } catch {
+      return null
     }
+  }
+
+  private async repairObsoleteMigratedPaths(manifest: McpManifestV2): Promise<McpManifestV2> {
+    const hasObsoletePath = manifest.servers.some((server) =>
+      server.transport === 'stdio' && [server.command ?? '', ...(server.args ?? [])].some(isObsoleteWorkWisePath)
+    )
+    if (!hasObsoletePath) return manifest
+
+    const legacy = await this.readLegacyObject()
+    const rawServers = legacy && legacy.servers && typeof legacy.servers === 'object' && !Array.isArray(legacy.servers)
+      ? legacy.servers as Record<string, unknown>
+      : {}
+    let changed = false
+    const servers = manifest.servers.map((server) => {
+      if (server.transport !== 'stdio' || ![server.command ?? '', ...(server.args ?? [])].some(isObsoleteWorkWisePath)) {
+        return server
+      }
+      const launch = legacyStdioLaunch(rawServers[server.id])
+      if (!launch) return server
+      changed = true
+      return { ...server, command: launch.command, args: launch.args }
+    })
+    if (!changed) return manifest
+    const repaired = { ...manifest, revision: manifest.revision + 1, servers }
+    await this.write(repaired)
+    return repaired
+  }
+
+  private async migrateLegacy(): Promise<McpManifestV2> {
+    const legacy = await this.readLegacyObject()
+    if (!legacy) return emptyManifest()
     const root = legacy && typeof legacy === 'object' ? legacy as Record<string, unknown> : {}
     const rawServers = root.mcpServers && typeof root.mcpServers === 'object'
       ? root.mcpServers as Record<string, unknown>
@@ -1002,7 +1051,8 @@ export class McpConfigService {
     for (const [id, value] of Object.entries(rawServers)) {
       if (!value || typeof value !== 'object') continue
       const raw = value as Record<string, unknown>
-      const command = typeof raw.command === 'string' ? raw.command.trim() : ''
+      const launch = legacyStdioLaunch(raw)
+      const command = launch?.command ?? ''
       const url = typeof raw.url === 'string' ? raw.url.trim() : ''
       if (!command && !url) continue
       if (url) {
@@ -1018,7 +1068,7 @@ export class McpConfigService {
         scope: 'global',
         transport: url ? 'http' : 'stdio',
         ...(command ? { command } : {}),
-        ...(Array.isArray(raw.args) ? { args: raw.args.filter((item): item is string => typeof item === 'string').slice(0, 256) } : {}),
+        ...(launch?.args.length ? { args: launch.args } : {}),
         ...(url ? { url } : {}),
         timeoutMs: typeof raw.timeoutMs === 'number' ? Math.min(Math.max(raw.timeoutMs, 1_000), 120_000) : 30_000,
         source: 'migration',

@@ -233,6 +233,8 @@ export type SkillListItem = {
   id: string
   name: string
   description?: string
+  version?: string
+  updateSource?: string
   root: string
   entryPath: string
   scope: 'project' | 'global'

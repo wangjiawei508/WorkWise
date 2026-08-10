@@ -191,6 +191,16 @@ export function guiUpdateFailureMessage(
       return t('guiUpdateErrNotConfigured')
     case 'unsupported':
       return t('guiUpdateErrUnsupported')
+    case 'unsigned_build':
+      return t('guiUpdateErrUnsignedBuild')
+    case 'manifest_unavailable':
+      return t('guiUpdateErrManifestUnavailable')
+    case 'network':
+      return t('guiUpdateErrNetwork')
+    case 'signature_invalid':
+      return t('guiUpdateErrSignatureInvalid')
+    case 'withdrawn':
+      return t('guiUpdateErrWithdrawn')
     case 'download_failed':
       return t('guiUpdateErrDownloadFailed', { message: info.message.trim() })
     case 'install_failed':

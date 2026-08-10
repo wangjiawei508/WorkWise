@@ -11,6 +11,11 @@ export function normalizeGuiUpdateChannel(value: unknown): GuiUpdateChannel {
 export type GuiUpdateFailureCode =
   | 'not_configured'
   | 'unsupported'
+  | 'unsigned_build'
+  | 'manifest_unavailable'
+  | 'network'
+  | 'signature_invalid'
+  | 'withdrawn'
   | 'download_failed'
   | 'install_failed'
   | 'github_repo_not_found'
@@ -38,6 +43,8 @@ export type GuiUpdateInfo =
       channel: GuiUpdateChannel
       manualOnly?: boolean
       downloaded?: boolean
+      withdrawn?: boolean
+      withdrawnVersion?: string
     }
   | {
       ok: false

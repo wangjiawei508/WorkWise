@@ -97,6 +97,32 @@ export type PackagePublisherV1 = {
   url?: string
 }
 
+export type MarketplaceIconToneV1 =
+  | 'blue'
+  | 'teal'
+  | 'green'
+  | 'orange'
+  | 'red'
+  | 'violet'
+  | 'slate'
+
+export type MarketplaceIconV1 = {
+  kind: 'monogram' | 'asset'
+  value: string
+  tone?: MarketplaceIconToneV1
+  alt?: string
+}
+
+export type MarketplaceProductTypeV1 = 'app' | 'connector' | 'workflow' | 'utility'
+
+export type MarketplaceCollectionV1 =
+  | 'development'
+  | 'productivity'
+  | 'documents'
+  | 'data'
+  | 'collaboration'
+  | 'engineering'
+
 export type PackageDigestV1 =
   | { algorithm: 'sha256'; value: string }
   | { algorithm: 'sha512-sri'; value: string }
@@ -399,6 +425,9 @@ export type MarketplacePackageV1 = {
   summary: string
   tier: 'recommended' | 'advanced'
   categories?: string[]
+  collections?: MarketplaceCollectionV1[]
+  productType?: MarketplaceProductTypeV1
+  icon?: MarketplaceIconV1
   version: string
   publisher: PackagePublisherV1
   license: string | null

@@ -564,6 +564,27 @@ function assertPackageShape(
   if (value.categories !== undefined) {
     assertNonEmptyStrings(value.categories, id + ' categories')
   }
+  if (value.collections !== undefined) {
+    const collections = assertNonEmptyStrings(value.collections, id + ' collections')
+    const allowedCollections = new Set(['development', 'productivity', 'documents', 'data', 'collaboration', 'engineering'])
+    if (collections.some((item) => !allowedCollections.has(item))) {
+      throw new Error(id + ' collection is invalid.')
+    }
+  }
+  if (value.productType !== undefined && !new Set(['app', 'connector', 'workflow', 'utility']).has(String(value.productType))) {
+    throw new Error(id + ' productType is invalid.')
+  }
+  if (value.icon !== undefined) {
+    const icon = requiredRecord(value.icon, id + ' icon')
+    if (icon.kind !== 'monogram' && icon.kind !== 'asset') throw new Error(id + ' icon kind is invalid.')
+    const iconValue = requiredString(icon.value, id + ' icon value')
+    if (icon.kind === 'asset' && (/^https?:/i.test(iconValue) || iconValue.includes('..'))) {
+      throw new Error(id + ' icon asset must be a local packaged path.')
+    }
+    if (icon.tone !== undefined && !new Set(['blue', 'teal', 'green', 'orange', 'red', 'violet', 'slate']).has(String(icon.tone))) {
+      throw new Error(id + ' icon tone is invalid.')
+    }
+  }
   const publisher = requiredRecord(value.publisher, id + ' publisher')
   requiredString(publisher.id, id + ' publisher id')
   requiredString(publisher.name, id + ' publisher name')

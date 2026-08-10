@@ -2594,69 +2594,24 @@ pre {
 }
 
 .ds-workbench-divider {
-  width: 5px;
-  flex: 0 0 5px;
+  width: 1px;
+  flex: 0 0 1px;
   isolation: isolate;
+  background: transparent;
 }
 
 .ds-workbench-divider::before {
   content: '';
   position: absolute;
-  inset: 0;
-  background:
-    linear-gradient(
-      180deg,
-      transparent 0%,
-      color-mix(in srgb, var(--ds-sidebar-divider) 20%, transparent) 10%,
-      color-mix(in srgb, var(--ds-sidebar-divider) 36%, transparent) 50%,
-      color-mix(in srgb, var(--ds-sidebar-divider) 20%, transparent) 90%,
-      transparent 100%
-    );
-  opacity: 0.72;
-  transition: opacity 160ms ease;
-  pointer-events: none;
+  inset-block: 0;
+  left: 50%;
+  width: 9px;
+  transform: translateX(-50%);
+  background: transparent;
 }
 
 .ds-workbench-divider::after {
-  content: '';
-  position: absolute;
-  top: 0.8rem;
-  bottom: 0.8rem;
-  left: 50%;
-  width: 1px;
-  transform: translateX(-50%);
-  background:
-    linear-gradient(
-      180deg,
-      transparent 0%,
-      color-mix(in srgb, var(--ds-sidebar-divider) 72%, transparent) 8%,
-      var(--ds-sidebar-divider) 50%,
-      color-mix(in srgb, var(--ds-sidebar-divider) 72%, transparent) 92%,
-      transparent 100%
-    );
-  box-shadow: 0 0 10px color-mix(in srgb, var(--ds-sidebar-divider) 20%, transparent);
-  transition:
-    background 160ms ease,
-    box-shadow 160ms ease,
-    opacity 160ms ease;
-  pointer-events: none;
-}
-
-.ds-workbench-divider:hover::before {
-  opacity: 0.96;
-}
-
-.ds-workbench-divider:hover::after {
-  background:
-    linear-gradient(
-      180deg,
-      transparent 0%,
-      color-mix(in srgb, var(--ds-accent) 14%, transparent) 8%,
-      color-mix(in srgb, var(--ds-accent) 22%, var(--ds-sidebar-divider)) 50%,
-      color-mix(in srgb, var(--ds-accent) 14%, transparent) 92%,
-      transparent 100%
-    );
-  box-shadow: 0 0 12px color-mix(in srgb, var(--ds-accent) 16%, transparent);
+  content: none;
 }
 
 .ds-stage-inset {
