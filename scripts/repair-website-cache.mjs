@@ -63,7 +63,24 @@ run_privileged() {
 }
 
 nginx_bin=""
-for candidate in openresty nginx /usr/local/openresty/nginx/sbin/nginx /www/server/nginx/sbin/nginx; do
+if command -v pgrep >/dev/null 2>&1 && command -v readlink >/dev/null 2>&1; then
+  for process_name in nginx openresty; do
+    while IFS= read -r pid; do
+      candidate="$(readlink -f "/proc/$pid/exe" 2>/dev/null || true)"
+      if [[ -n "$candidate" && -x "$candidate" ]]; then
+        nginx_bin="$candidate"
+        break 2
+      fi
+    done < <(pgrep -x "$process_name" || true)
+  done
+fi
+for candidate in \
+  openresty nginx \
+  /usr/sbin/nginx /usr/local/sbin/nginx /usr/local/nginx/sbin/nginx \
+  /usr/local/openresty/bin/openresty /usr/local/openresty/nginx/sbin/nginx \
+  /opt/openresty/bin/openresty /opt/openresty/nginx/sbin/nginx \
+  /opt/nginx/sbin/nginx /www/server/nginx/sbin/nginx; do
+  [[ -n "$nginx_bin" ]] && break
   if [[ "$candidate" == */* ]]; then
     if [[ -x "$candidate" ]]; then
       nginx_bin="$candidate"
