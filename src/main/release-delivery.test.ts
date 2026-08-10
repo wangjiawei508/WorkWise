@@ -181,4 +181,15 @@ describe('R2 release delivery gates', () => {
     expect(command).toContain('deploy-website-release.mjs cleanup-acceptance')
     expect(command).toContain('^[1-9][0-9]*$')
   })
+
+  it('keeps website cache repair scoped, backed up, and validated before reload', () => {
+    const repair = readFileSync('scripts/repair-website-cache.mjs', 'utf8')
+    expect(repair).toContain('WorkWise updater metadata cache policy')
+    expect(repair).toContain('workwise-cache-backup')
+    expect(repair).toContain('nginx_bin" -t')
+    expect(repair).toContain('apply=rolled_back')
+    expect(repair).toContain('nginx_bin" -s reload')
+    expect(repair).toContain('/downloads/workwise/')
+    expect(repair).not.toContain('rm -rf')
+  })
 })
