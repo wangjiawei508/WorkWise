@@ -63,6 +63,12 @@ run_privileged() {
 }
 
 nginx_bin=""
+if command -v ps >/dev/null 2>&1; then
+  candidate="$(ps -eo args= | awk '$0 ~ /(nginx|openresty):[[:space:]]+master[[:space:]]+process/ { for (i = 1; i <= NF; i++) if ($i ~ /^\/.+\/(nginx|openresty)$/) { print $i; exit } }')"
+  if [[ -n "$candidate" && -x "$candidate" ]]; then
+    nginx_bin="$candidate"
+  fi
+fi
 if command -v pgrep >/dev/null 2>&1 && command -v readlink >/dev/null 2>&1; then
   for process_name in nginx openresty; do
     while IFS= read -r pid; do
