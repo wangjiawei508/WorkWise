@@ -96,6 +96,18 @@ for candidate in \
 done
 if [[ -z "$nginx_bin" ]]; then
   printf '%s\n' 'nginx_binary=missing'
+  if command -v ps >/dev/null 2>&1; then
+    printf 'server_processes='
+    ps -eo comm= | awk '/^(nginx|openresty|caddy|httpd|apache2|traefik)$/ { print }' | sort -u | paste -sd, -
+    printf '\n'
+  fi
+  if command -v systemctl >/dev/null 2>&1; then
+    printf 'running_web_units='
+    systemctl list-units --type=service --state=running --no-legend --no-pager 2>/dev/null \
+      | awk '$1 ~ /(nginx|openresty|caddy|httpd|apache|traefik)/ { print $1 }' \
+      | sort -u | paste -sd, -
+    printf '\n'
+  fi
   exit 2
 fi
 
