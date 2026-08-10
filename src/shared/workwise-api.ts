@@ -314,6 +314,7 @@ export type ApplicationMenuAction =
 
 export type WorkWiseApi = {
   platform: string
+  initialLocale: 'en' | 'zh'
   windowAppearance: WindowAppearanceV1
   onWindowAppearanceChanged: (handler: (appearance: WindowAppearanceV1) => void) => () => void
   onApplicationMenuAction: (handler: (action: ApplicationMenuAction) => void) => () => void

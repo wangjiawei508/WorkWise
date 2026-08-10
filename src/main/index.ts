@@ -97,12 +97,14 @@ import {
 } from './window-appearance'
 import {
   createSplashWindow,
+  splashRemainingVisibleMs,
   splashProgressLabel,
   type SplashWindowController
 } from './splash-window'
 import {
   SOLID_WINDOW_APPEARANCE,
   windowAppearanceArguments,
+  windowLocaleArgument,
   type WindowAppearanceV1
 } from '../shared/window-appearance'
 
@@ -218,6 +220,7 @@ if (!runningClawScheduleMcpServer && process.platform === 'win32') {
 
 let mainWindow: BrowserWindow | null = null
 let splashWindow: SplashWindowController | null = null
+let splashOpenedAt = 0
 let currentWindowAppearance: WindowAppearanceV1 = SOLID_WINDOW_APPEARANCE
 let currentWindowDark = false
 let store: JsonSettingsStore
@@ -863,7 +866,10 @@ function createWindow(options: { suppressInitialShow?: boolean } = {}): void {
       contextIsolation: true,
       sandbox: true,
       webviewTag: true,
-      additionalArguments: windowAppearanceArguments(currentWindowAppearance)
+      additionalArguments: [
+        ...windowAppearanceArguments(currentWindowAppearance),
+        windowLocaleArgument(currentLocale)
+      ]
     }
   })
   if (usesDesktopTitleBar) {
@@ -880,13 +886,27 @@ function createWindow(options: { suppressInitialShow?: boolean } = {}): void {
     { parent: { scope: 'app', id: 'app' } }
   )
   const windowCancellationId = String(mainWindow.webContents.id)
+  let deferredShowTimer: ReturnType<typeof setTimeout> | null = null
   const showWindow = (): void => {
     if (options.suppressInitialShow) {
       splashWindow?.close()
       splashWindow = null
+      splashOpenedAt = 0
       return
     }
     if (!mainWindow || mainWindow.isDestroyed() || mainWindow.isVisible()) return
+    const remainingSplashMs = splashWindow
+      ? splashRemainingVisibleMs(splashOpenedAt, Date.now())
+      : 0
+    if (remainingSplashMs > 0) {
+      if (!deferredShowTimer) {
+        deferredShowTimer = setTimeout(() => {
+          deferredShowTimer = null
+          showWindow()
+        }, remainingSplashMs)
+      }
+      return
+    }
     splashWindow?.update({
       progress: 1,
       label: splashProgressLabel(currentLocale, 'ready')
@@ -894,6 +914,7 @@ function createWindow(options: { suppressInitialShow?: boolean } = {}): void {
     mainWindow.show()
     splashWindow?.close()
     splashWindow = null
+    splashOpenedAt = 0
   }
   mainWindow.on('close', (event) => {
     if (isQuitting || !appBehavior.closeToTray) return
@@ -901,6 +922,7 @@ function createWindow(options: { suppressInitialShow?: boolean } = {}): void {
     mainWindow?.hide()
   })
   mainWindow.on('closed', () => {
+    if (deferredShowTimer) clearTimeout(deferredShowTimer)
     void appCancellationRegistry.cancel(
       { scope: 'window', id: windowCancellationId },
       'window_destroyed'
@@ -1095,6 +1117,7 @@ app.whenReady().then(async () => {
   currentWindowDark = nativeTheme.shouldUseDarkColors
   const suppressInitialShow = shouldStartHidden(initial)
   if (!suppressInitialShow) {
+    splashOpenedAt = Date.now()
     splashWindow = createSplashWindow({
       appearance: currentWindowAppearance,
       dark: currentWindowDark,

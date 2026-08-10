@@ -14,10 +14,19 @@ import {
   S3Client
 } from '@aws-sdk/client-s3'
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner'
+import { NodeHttpHandler } from '@smithy/node-http-handler'
 
 const CHANNELS = new Set(['stable', 'frontier'])
 const SAFE_TOKEN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/
 const WEBSITE_ROOT_SUFFIX = '/downloads/workwise'
+const SSH_COMMAND_TIMEOUT_MS = 5 * 60_000
+
+function createR2RequestHandler() {
+  return new NodeHttpHandler({
+    connectionTimeout: 15_000,
+    requestTimeout: 5 * 60_000
+  })
+}
 
 function usage() {
   console.log(`Usage:
@@ -161,6 +170,10 @@ function sshOptions(config) {
     '-i', config.keyPath,
     '-o', 'BatchMode=yes',
     '-o', 'IdentitiesOnly=yes',
+    '-o', 'ConnectTimeout=15',
+    '-o', 'ConnectionAttempts=2',
+    '-o', 'ServerAliveInterval=15',
+    '-o', 'ServerAliveCountMax=3',
     '-o', 'StrictHostKeyChecking=yes',
     '-o', `UserKnownHostsFile=${config.knownHostsPath}`
   ]
@@ -171,7 +184,13 @@ function runRemote(config, script, args) {
   return execFileSync(
     'ssh',
     [...sshOptions(config), `${config.user}@${config.host}`, remote],
-    { input: script, encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 }
+    {
+      input: script,
+      encoding: 'utf8',
+      maxBuffer: 16 * 1024 * 1024,
+      timeout: SSH_COMMAND_TIMEOUT_MS,
+      killSignal: 'SIGKILL'
+    }
   )
 }
 
@@ -183,11 +202,13 @@ function copyDirectory(config, sourceDir, remoteDir) {
       '-i', config.keyPath,
       '-o', 'BatchMode=yes',
       '-o', 'IdentitiesOnly=yes',
+      '-o', 'ConnectTimeout=15',
+      '-o', 'ConnectionAttempts=2',
       '-o', 'StrictHostKeyChecking=yes',
       '-o', `UserKnownHostsFile=${config.knownHostsPath}`,
       '-r', `${sourceDir}/.`, `${config.user}@${config.host}:${remoteDir}/`
     ],
-    { stdio: 'inherit' }
+    { stdio: 'inherit', timeout: 15 * 60_000, killSignal: 'SIGKILL' }
   )
 }
 
@@ -199,12 +220,14 @@ function copyFile(config, sourcePath, remotePath) {
       '-i', config.keyPath,
       '-o', 'BatchMode=yes',
       '-o', 'IdentitiesOnly=yes',
+      '-o', 'ConnectTimeout=15',
+      '-o', 'ConnectionAttempts=2',
       '-o', 'StrictHostKeyChecking=yes',
       '-o', `UserKnownHostsFile=${config.knownHostsPath}`,
       sourcePath,
       `${config.user}@${config.host}:${remotePath}`
     ],
-    { stdio: 'inherit' }
+    { stdio: 'inherit', timeout: SSH_COMMAND_TIMEOUT_MS, killSignal: 'SIGKILL' }
   )
 }
 
@@ -227,7 +250,8 @@ function readR2TransportConfig() {
       region: 'auto',
       endpoint,
       credentials: { accessKeyId, secretAccessKey },
-      forcePathStyle: true
+      forcePathStyle: true,
+      requestHandler: createR2RequestHandler()
     })
   }
 }
@@ -903,6 +927,8 @@ export const _internals = {
   normalizeReleasePrefix,
   r2StagingPrefix,
   normalizeWebsiteRoot,
+  sshOptions,
+  createR2RequestHandler,
   parseVersion,
   validateSourceDirectory,
   INIT_STAGE_SCRIPT,

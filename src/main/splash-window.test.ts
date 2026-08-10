@@ -1,5 +1,10 @@
 import { describe, expect, it, vi } from 'vitest'
-import { buildSplashHtml, splashProgressLabel } from './splash-window'
+import {
+  buildSplashHtml,
+  SPLASH_MIN_VISIBLE_MS,
+  splashProgressLabel,
+  splashRemainingVisibleMs
+} from './splash-window'
 
 vi.mock('electron', () => ({ BrowserWindow: class BrowserWindow {} }))
 
@@ -50,5 +55,12 @@ describe('splash window document', () => {
     expect(html).toContain('&lt;unsafe&gt;')
     expect(html).toContain('&lt;ready&gt;')
     expect(splashProgressLabel('en', 'interface')).toBe('Opening workbench')
+  })
+
+  it('keeps a fast-starting splash visible long enough to be perceived', () => {
+    expect(SPLASH_MIN_VISIBLE_MS).toBe(1_200)
+    expect(splashRemainingVisibleMs(1_000, 1_450)).toBe(750)
+    expect(splashRemainingVisibleMs(1_000, 2_500)).toBe(0)
+    expect(splashRemainingVisibleMs(0, 100)).toBe(0)
   })
 })

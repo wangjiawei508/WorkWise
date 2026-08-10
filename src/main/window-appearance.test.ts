@@ -7,6 +7,8 @@ import {
 } from './window-appearance'
 import {
   parseWindowAppearanceArguments,
+  parseWindowLocaleArgument,
+  windowLocaleArgument,
   windowAppearanceArguments
 } from '../shared/window-appearance'
 
@@ -61,6 +63,8 @@ describe('window appearance', () => {
 
     const appearance = resolveWindowAppearance({ platform: 'darwin' })
     expect(parseWindowAppearanceArguments(windowAppearanceArguments(appearance))).toEqual(appearance)
+    expect(parseWindowLocaleArgument([windowLocaleArgument('zh')])).toBe('zh')
+    expect(parseWindowLocaleArgument(['--workwise-window-locale=unexpected'])).toBe('en')
   })
 
   it('only requests transparent BrowserWindow backgrounds for native materials', () => {

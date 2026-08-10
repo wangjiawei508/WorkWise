@@ -43,6 +43,12 @@ describe('R2 release delivery gates', () => {
       .toEqual(['v0.10.0', 'v0.3.10', 'v0.3.9', 'v0.2.8'])
   })
 
+  it('bounds R2 promotion concurrency and network requests', () => {
+    expect(_internals.R2_COPY_CONCURRENCY).toBe(3)
+    expect(String(_internals.createR2RequestHandler)).toContain('requestTimeout: 5 * 60_000')
+    expect(String(websiteDelivery.createR2RequestHandler)).toContain('connectionTimeout: 15_000')
+  })
+
   it('rejects non-three-part release tags and unknown channels', () => {
     expect(() => _internals.normalizeTag('v0.3.3.1')).toThrow(/vX.Y.Z/)
     expect(() => _internals.normalizeChannel('nightly')).toThrow(/frontier, stable/)
@@ -95,6 +101,11 @@ describe('R2 release delivery gates', () => {
     expect(websiteDelivery.PROMOTE_SCRIPT).toContain('sorted(versions, reverse=True)[3:]')
     expect(websiteDelivery.CLEANUP_ACCEPTANCE_SCRIPT).toContain('/acceptance/[1-9][0-9]*')
     expect(websiteDelivery.CLEANUP_ACCEPTANCE_SCRIPT).toContain('.r2-download.pid')
+    expect(websiteDelivery.sshOptions({
+      port: '22',
+      keyPath: '/tmp/key',
+      knownHostsPath: '/tmp/known-hosts'
+    })).toContain('ServerAliveCountMax=3')
   })
 
   it('rejects long, duplicate, or conflicting public metadata cache headers', () => {
@@ -180,6 +191,8 @@ describe('R2 release delivery gates', () => {
     expect(workflow.jobs['publish-test-feed'].env.WORKWISE_WEBSITE_SSH_PRIVATE_KEY)
       .toContain('secrets.WORKWISE_WEBSITE_SSH_PRIVATE_KEY')
     const publication = workflow.jobs['publish-test-feed'].steps.map((step: any) => step.run || '').join('\n')
+    const promotion = workflow.jobs['publish-test-feed'].steps.find((step: any) => step.name === 'Atomically promote isolated feed')
+    expect(promotion['timeout-minutes']).toBe(20)
     expect(publication).toContain('deploy-website-release.mjs stage')
     expect(publication).toContain('--transport r2')
     expect(publication).toContain('deploy-website-release.mjs promote')

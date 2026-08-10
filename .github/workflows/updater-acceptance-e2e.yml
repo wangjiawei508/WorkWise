@@ -442,6 +442,7 @@ jobs:
             --target release
 
       - name: Atomically promote isolated feed
+        timeout-minutes: 20
         shell: bash
         env:
           TARGET_TAG: v${{ inputs.target_version }}

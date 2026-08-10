@@ -32,6 +32,7 @@ export const SOLID_WINDOW_APPEARANCE: WindowAppearanceV1 = {
 const MATERIAL_ARGUMENT = '--workwise-window-material='
 const TRANSPARENCY_ARGUMENT = '--workwise-window-transparency='
 const REASON_ARGUMENT = '--workwise-window-appearance-reason='
+const LOCALE_ARGUMENT = '--workwise-window-locale='
 
 function lastArgumentValue(args: readonly string[], prefix: string): string | undefined {
   for (let index = args.length - 1; index >= 0; index -= 1) {
@@ -65,4 +66,12 @@ export function parseWindowAppearanceArguments(args: readonly string[]): WindowA
     transparencyEnabled,
     reason
   }
+}
+
+export function windowLocaleArgument(locale: 'en' | 'zh'): string {
+  return `${LOCALE_ARGUMENT}${locale}`
+}
+
+export function parseWindowLocaleArgument(args: readonly string[]): 'en' | 'zh' {
+  return lastArgumentValue(args, LOCALE_ARGUMENT) === 'zh' ? 'zh' : 'en'
 }

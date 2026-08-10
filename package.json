@@ -57,7 +57,6 @@
     "generate:icons": "npm run prepare:electron && electron ./scripts/generate-icons.mjs"
   },
   "dependencies": {
-    "axios": "^1.16.0",
     "@aws-sdk/client-s3": "^3.1049.0",
     "@aws-sdk/s3-request-presigner": "^3.1101.0",
     "@codemirror/commands": "^6.10.3",
@@ -68,8 +67,10 @@
     "@codemirror/view": "^6.43.0",
     "@larksuiteoapi/node-sdk": "^1.71.1",
     "@modelcontextprotocol/sdk": "^1.29.0",
+    "@smithy/node-http-handler": "4.7.6",
     "@tencent-weixin/openclaw-weixin": "2.4.3",
     "@xyflow/react": "^12.11.2",
+    "axios": "^1.16.0",
     "better-sqlite3": "^12.11.1",
     "diff": "^9.0.0",
     "docx": "^9.7.1",

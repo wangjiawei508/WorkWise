@@ -1,6 +1,9 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import type { WorkWiseApi } from '../shared/workwise-api'
-import { parseWindowAppearanceArguments } from '../shared/window-appearance'
+import {
+  parseWindowAppearanceArguments,
+  parseWindowLocaleArgument
+} from '../shared/window-appearance'
 import {
   RUNTIME_TASKS_PATH,
   RUNTIME_SHELL_SESSIONS_PATH,
@@ -43,6 +46,7 @@ async function runtimeJson<T>(path: string, method = 'GET', body?: unknown): Pro
 
 const api = {
   platform: process.platform,
+  initialLocale: parseWindowLocaleArgument(process.argv),
   windowAppearance: parseWindowAppearanceArguments(process.argv),
   onWindowAppearanceChanged: (handler) => {
     const wrapped = (

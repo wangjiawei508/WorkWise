@@ -7,6 +7,7 @@ import {
   PutObjectCommand,
   S3Client
 } from '@aws-sdk/client-s3'
+import { NodeHttpHandler } from '@smithy/node-http-handler'
 import { createHash } from 'node:crypto'
 import { createReadStream } from 'node:fs'
 import { readFileSync, existsSync } from 'node:fs'
@@ -15,6 +16,14 @@ import { basename, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const PRODUCT_NAME = 'WorkWise'
+const R2_COPY_CONCURRENCY = 3
+
+function createR2RequestHandler() {
+  return new NodeHttpHandler({
+    connectionTimeout: 15_000,
+    requestTimeout: 5 * 60_000
+  })
+}
 const DEFAULT_RELEASE_PREFIX = 'workwise'
 const DEFAULT_RELEASE_CHANNEL = 'frontier'
 const PLATFORMS = ['mac', 'win']
@@ -271,7 +280,8 @@ function readConfig({ dryRun = false } = {}) {
         region: 'auto',
         endpoint: resolvedEndpoint,
         credentials: { accessKeyId, secretAccessKey },
-        forcePathStyle: true
+        forcePathStyle: true,
+        requestHandler: createR2RequestHandler()
       })
 
   return { bucket, publicBaseUrl: normalizeBaseUrl(publicBaseUrl), prefix, client }
@@ -751,7 +761,7 @@ async function promoteRelease({ flags, dryRun }) {
   console.log(`Promoting ${PRODUCT_NAME} ${tag} to R2 ${channel} latest (${platforms.join(', ')})`)
   for (const target of latestTargets) {
     console.log(`Target: ${target.label}`)
-    for (const file of allFiles.values()) {
+    await runConcurrently([...allFiles.values()], R2_COPY_CONCURRENCY, async (file) => {
       const toKey = `${target.basePath}/latest/${file.fileName}`
       await copyObject({
         config,
@@ -761,7 +771,7 @@ async function promoteRelease({ flags, dryRun }) {
         dryRun
       })
       console.log(`  ${file.fileName}`)
-    }
+    })
   }
 
   const versions = new Set(platformManifests.map((manifest) => manifest.version))
@@ -860,5 +870,7 @@ export const _internals = {
   compareReleaseTagsDescending,
   acceptancePrefixForRunId,
   parseUpdateYml,
-  classifyDownload
+  classifyDownload,
+  createR2RequestHandler,
+  R2_COPY_CONCURRENCY
 }

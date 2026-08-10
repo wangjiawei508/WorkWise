@@ -7,6 +7,17 @@ export type SplashProgress = {
   label: string
 }
 
+export const SPLASH_MIN_VISIBLE_MS = 1_200
+
+export function splashRemainingVisibleMs(
+  openedAt: number,
+  now: number,
+  minimumVisibleMs = SPLASH_MIN_VISIBLE_MS
+): number {
+  if (!Number.isFinite(openedAt) || openedAt <= 0) return 0
+  return Math.max(0, minimumVisibleMs - Math.max(0, now - openedAt))
+}
+
 type SplashWindowOptions = {
   appearance: WindowAppearanceV1
   dark: boolean
