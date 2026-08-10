@@ -64,9 +64,17 @@ run_privileged() {
 
 nginx_bin=""
 for candidate in openresty nginx /usr/local/openresty/nginx/sbin/nginx /www/server/nginx/sbin/nginx; do
-  if [[ -x "$candidate" ]]; then
-    nginx_bin="$candidate"
-    break
+  if [[ "$candidate" == */* ]]; then
+    if [[ -x "$candidate" ]]; then
+      nginx_bin="$candidate"
+      break
+    fi
+  else
+    resolved="$(command -v "$candidate" || true)"
+    if [[ -n "$resolved" && -x "$resolved" ]]; then
+      nginx_bin="$resolved"
+      break
+    fi
   fi
 done
 if [[ -z "$nginx_bin" ]]; then
