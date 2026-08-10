@@ -23,10 +23,17 @@ function versionFromArtifactName(name) {
   return match[1]
 }
 
+function normalizeLipoArchitecture(architecture) {
+  if (architecture === 'x86_64') return 'x64'
+  return architecture
+}
+
 function assertAppArchitecture(appPath, expectedArch) {
-  const architectures = run('lipo', ['-archs', join(appPath, 'Contents', 'MacOS', 'WorkWise')], {
-    stdio: 'pipe'
-  }).trim().split(/\s+/).filter(Boolean)
+  const architectures = run(
+    'lipo',
+    ['-archs', join(appPath, 'Contents', 'MacOS', 'WorkWise')],
+    { stdio: 'pipe' }
+  ).trim().split(/\s+/).filter(Boolean).map(normalizeLipoArchitecture)
   if (architectures.length !== 1 || architectures[0] !== expectedArch) {
     throw new Error(`${appPath} contains ${architectures.join(', ') || 'no'} architectures; expected only ${expectedArch}.`)
   }
@@ -114,9 +121,16 @@ function main() {
   }
 }
 
-try {
-  main()
-} catch (error) {
-  console.error(`[verify-mac-release-artifacts] ${error.message}`)
-  process.exitCode = 1
+if (require.main === module) {
+  try {
+    main()
+  } catch (error) {
+    console.error(`[verify-mac-release-artifacts] ${error.message}`)
+    process.exitCode = 1
+  }
+}
+
+module.exports._internals = {
+  normalizeLipoArchitecture,
+  versionFromArtifactName
 }

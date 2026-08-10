@@ -16,6 +16,7 @@ const builderConfig = require('../../electron-builder.cjs')
 const beforePack = require('../../scripts/before-pack.cjs')
 const afterPack = require('../../scripts/after-pack.cjs')
 const packagedAsar = require('../../scripts/verify-packaged-asar.cjs')
+const macReleaseArtifacts = require('../../scripts/verify-mac-release-artifacts.cjs')
 const asar = require('@electron/asar')
 const macNotarize = require('../../scripts/mac-notarize.cjs')
 
@@ -92,6 +93,11 @@ afterEach(() => {
 })
 
 describe('electron-builder WorkWise packaging', () => {
+  it('normalizes the Intel architecture name reported by lipo', () => {
+    expect(macReleaseArtifacts._internals.normalizeLipoArchitecture('x86_64')).toBe('x64')
+    expect(macReleaseArtifacts._internals.normalizeLipoArchitecture('arm64')).toBe('arm64')
+  })
+
   it('includes WorkWise Runtime runtime dependencies in the packaged app', () => {
     expect(builderConfig.beforePack).toBe('./scripts/before-pack.cjs')
     expect(builderConfig.buildDependenciesFromSource).toBe(true)
