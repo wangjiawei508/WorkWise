@@ -62,6 +62,13 @@ run_privileged() {
   fi
 }
 
+privilege_mode=unavailable
+if [[ "$(id -u)" == 0 ]]; then
+  privilege_mode=root
+elif sudo -n true 2>/dev/null; then
+  privilege_mode=sudo
+fi
+
 nginx_bin=""
 if command -v ps >/dev/null 2>&1; then
   candidate="$(ps -eo args= | awk '$0 ~ /(nginx|openresty):[[:space:]]+master[[:space:]]+process/ { for (i = 1; i <= NF; i++) if ($i ~ /^\/.+\/(nginx|openresty)$/) { print $i; exit } }')"
@@ -88,7 +95,7 @@ for candidate in \
   /opt/nginx/sbin/nginx /www/server/nginx/sbin/nginx; do
   [[ -n "$nginx_bin" ]] && break
   if [[ "$candidate" == */* ]]; then
-    if [[ -x "$candidate" ]]; then
+    if [[ -x "$candidate" ]] || run_privileged test -x "$candidate" 2>/dev/null; then
       nginx_bin="$candidate"
       break
     fi
@@ -102,6 +109,7 @@ for candidate in \
 done
 if [[ -z "$nginx_bin" ]]; then
   printf '%s\n' 'nginx_binary=missing'
+  printf 'privilege_mode=%s\n' "$privilege_mode"
   if command -v ps >/dev/null 2>&1; then
     printf 'server_processes='
     ps -eo comm= | awk '/^(nginx|openresty|caddy|httpd|apache2|traefik)$/ { print }' | sort -u | paste -sd, -
