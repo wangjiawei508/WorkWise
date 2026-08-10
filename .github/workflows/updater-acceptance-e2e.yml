@@ -252,6 +252,28 @@ jobs:
           retention-days: 3
           path: acceptance-artifacts/target-mac/
 
+      - name: Upload Apple Silicon review package
+        uses: actions/upload-artifact@v4
+        with:
+          name: acceptance-review-darwin-arm64-${{ github.run_id }}
+          if-no-files-found: error
+          retention-days: 3
+          compression-level: 0
+          path: |
+            acceptance-artifacts/target-mac/*-mac-arm64.zip
+            acceptance-artifacts/target-mac/latest-mac.yml
+
+      - name: Upload Intel Mac review package
+        uses: actions/upload-artifact@v4
+        with:
+          name: acceptance-review-darwin-x64-${{ github.run_id }}
+          if-no-files-found: error
+          retention-days: 3
+          compression-level: 0
+          path: |
+            acceptance-artifacts/target-mac/*-mac-x64.zip
+            acceptance-artifacts/target-mac/latest-mac.yml
+
   build-windows:
     name: Build target Windows package
     needs: [prepare, build-document-sidecars]
@@ -299,6 +321,17 @@ jobs:
           if-no-files-found: error
           retention-days: 3
           path: acceptance-artifacts/target-win/
+
+      - name: Upload Windows review package
+        uses: actions/upload-artifact@v4
+        with:
+          name: acceptance-review-win32-x64-${{ github.run_id }}
+          if-no-files-found: error
+          retention-days: 3
+          compression-level: 0
+          path: |
+            acceptance-artifacts/target-win/*-win-x64.exe
+            acceptance-artifacts/target-win/latest.yml
 
   publish-test-feed:
     name: Publish isolated target Frontier feed
