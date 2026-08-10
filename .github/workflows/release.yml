@@ -409,6 +409,10 @@ jobs:
       - name: Generate macOS update metadata
         run: node ./scripts/generate-mac-latest.cjs dist
 
+      - name: Verify final signed macOS artifacts
+        if: steps.signing.outputs.enabled == 'true'
+        run: node scripts/verify-mac-release-artifacts.cjs dist arm64 x64
+
       - name: Upload macOS installers
         uses: actions/upload-artifact@v4
         with:

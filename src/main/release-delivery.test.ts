@@ -223,6 +223,7 @@ describe('R2 release delivery gates', () => {
     const macBuild = release.jobs['build-macos'].steps.map((step: any) => step.run || '').join('\n')
     expect(macBuild).toContain('tar -xzf')
     expect(macBuild).toContain('test -L')
+    expect(macBuild).toContain('verify-mac-release-artifacts.cjs dist arm64 x64')
   })
 
   it('provides an exact-scope cleanup workflow for canceled updater acceptance runs', () => {
