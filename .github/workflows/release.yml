@@ -36,6 +36,24 @@ on:
         required: false
         type: string
         default: ''
+      repair_website_cache:
+        description: 'Run only the scoped WorkWise updater metadata cache repair workflow.'
+        required: false
+        type: boolean
+        default: false
+      repair_website_cache_mode:
+        description: 'Inspect or apply the scoped OpenResty cache rule.'
+        required: false
+        type: choice
+        options:
+          - inspect
+          - apply
+        default: inspect
+      repair_website_cache_confirmation:
+        description: 'For apply, enter REPAIR-WORKWISE-METADATA-CACHE.'
+        required: false
+        type: string
+        default: ''
 
 permissions:
   contents: write
@@ -70,9 +88,56 @@ jobs:
       run_id: ${{ inputs.cleanup_acceptance_run_id }}
     secrets: inherit
 
+  repair-website-cache:
+    name: Repair website updater metadata cache
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.repair_website_cache == true && (inputs.repair_website_cache_mode == 'inspect' || inputs.repair_website_cache_confirmation == 'REPAIR-WORKWISE-METADATA-CACHE') }}
+    runs-on: ubuntu-latest
+    env:
+      WORKWISE_WEBSITE_SSH_HOST: ${{ secrets.WORKWISE_WEBSITE_SSH_HOST }}
+      WORKWISE_WEBSITE_SSH_PORT: ${{ secrets.WORKWISE_WEBSITE_SSH_PORT }}
+      WORKWISE_WEBSITE_SSH_USER: ${{ secrets.WORKWISE_WEBSITE_SSH_USER }}
+      WORKWISE_WEBSITE_SSH_PRIVATE_KEY: ${{ secrets.WORKWISE_WEBSITE_SSH_PRIVATE_KEY }}
+      WORKWISE_WEBSITE_SSH_KNOWN_HOSTS: ${{ secrets.WORKWISE_WEBSITE_SSH_KNOWN_HOSTS }}
+      WORKWISE_PUBLIC_BASE_URL: https://www.railwise.cn/downloads
+    steps:
+      - name: Check out requested branch
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.ref }}
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - name: Prepare pinned website SSH transport
+        shell: bash
+        run: |
+          set -euo pipefail
+          ssh_dir="${RUNNER_TEMP}/workwise-website-ssh"
+          install -d -m 700 "${ssh_dir}"
+          export SSH_KEY_PATH="${ssh_dir}/deploy-key"
+          export SSH_KNOWN_HOSTS_PATH="${ssh_dir}/known_hosts"
+          node - <<'NODE'
+          const fs = require('node:fs')
+          fs.writeFileSync(process.env.SSH_KEY_PATH, `${process.env.WORKWISE_WEBSITE_SSH_PRIVATE_KEY.trim()}\n`, { mode: 0o600 })
+          fs.writeFileSync(process.env.SSH_KNOWN_HOSTS_PATH, `${process.env.WORKWISE_WEBSITE_SSH_KNOWN_HOSTS.trim()}\n`, { mode: 0o600 })
+          NODE
+          {
+            echo "WORKWISE_WEBSITE_SSH_KEY_PATH=${SSH_KEY_PATH}"
+            echo "WORKWISE_WEBSITE_SSH_KNOWN_HOSTS_PATH=${SSH_KNOWN_HOSTS_PATH}"
+          } >> "${GITHUB_ENV}"
+      - name: Inspect or apply scoped OpenResty rule
+        env:
+          MODE: ${{ inputs.repair_website_cache_mode }}
+        run: node scripts/repair-website-cache.mjs "${MODE}"
+      - name: Verify public metadata headers after apply
+        if: ${{ inputs.repair_website_cache_mode == 'apply' }}
+        run: |
+          node scripts/deploy-website-release.mjs verify-metadata-cache \
+            --channel stable \
+            --release-prefix workwise
+
   prepare:
     name: Prepare release version
-    if: ${{ !(github.event_name == 'workflow_dispatch' && (inputs.run_updater_acceptance == true || inputs.cleanup_acceptance_run_id != '')) }}
+    if: ${{ !(github.event_name == 'workflow_dispatch' && (inputs.run_updater_acceptance == true || inputs.cleanup_acceptance_run_id != '' || inputs.repair_website_cache == true)) }}
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.version.outputs.version }}
