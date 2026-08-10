@@ -55,7 +55,8 @@ type AcceptanceInput = {
 
 type AcceptanceState = AcceptanceInput & {
   phase: 'checking' | 'installing'
-  probe: AcceptanceProbe
+  probeRequired?: boolean
+  probe?: AcceptanceProbe
   report: GuiUpdaterAcceptanceReport
 }
 
@@ -242,7 +243,7 @@ export async function prepareGuiUpdaterAcceptance(
       statePath,
       probePath,
       reportPath: input.reportPath,
-      state: { ...input, phase: 'checking', probe, report }
+      state: { ...input, phase: 'checking', probeRequired: true, probe, report }
     }
     try {
       await writeJsonAtomic(probePath, probe)
@@ -262,7 +263,6 @@ export async function prepareGuiUpdaterAcceptance(
   try {
     state = (await readJson(statePath)) as AcceptanceState
     input = parseInput(state)
-    state.probe = parseProbe(state.probe)
   } catch {
     await Promise.all([
       unlink(statePath).catch(() => undefined),
@@ -289,23 +289,57 @@ export async function prepareGuiUpdaterAcceptance(
   }
 
   stage(acceptance.state.report, 'target_relaunched', now(), options.currentVersion)
-  let persistedProbe: AcceptanceProbe
-  try {
-    persistedProbe = parseProbe(await readJson(probePath))
-  } catch (error) {
-    const detail = error instanceof Error ? error.message : String(error)
-    return failActive(acceptance, `User data preservation probe is missing or invalid: ${detail}`, now)
-  }
-  const expectedProbe = acceptance.state.probe
-  if (
-    persistedProbe.nonce !== expectedProbe.nonce ||
-    persistedProbe.baseVersion !== expectedProbe.baseVersion ||
-    persistedProbe.createdAt !== expectedProbe.createdAt
-  ) {
-    return failActive(acceptance, 'User data preservation probe does not match the baseline installation.', now)
+
+  // Releases before the nonce probe was introduced cannot retroactively create
+  // the new probe. Their installing state is still an independent user-data
+  // continuity record, so accept that legacy shape after validating its phase
+  // and version identity. New states remain fail-closed on probe corruption.
+  const strictProbe = acceptance.state.probeRequired === true || acceptance.state.probe !== undefined
+  let preservationDetail = acceptance.state.baseVersion
+  if (strictProbe) {
+    let expectedProbe: AcceptanceProbe
+    try {
+      expectedProbe = parseProbe(acceptance.state.probe)
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error)
+      return failActive(acceptance, `User data preservation probe is missing or invalid: ${detail}`, now)
+    }
+    let persistedProbe: AcceptanceProbe
+    try {
+      persistedProbe = parseProbe(await readJson(probePath))
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error)
+      return failActive(acceptance, `User data preservation probe is missing or invalid: ${detail}`, now)
+    }
+    if (
+      persistedProbe.nonce !== expectedProbe.nonce ||
+      persistedProbe.baseVersion !== expectedProbe.baseVersion ||
+      persistedProbe.createdAt !== expectedProbe.createdAt
+    ) {
+      return failActive(acceptance, 'User data preservation probe does not match the baseline installation.', now)
+    }
+    preservationDetail = persistedProbe.baseVersion
+  } else {
+    const report = acceptance.state.report
+    const stageNames = report.stages.map((item) => item.name)
+    if (
+      report.status !== 'running' ||
+      report.baseVersion !== acceptance.state.baseVersion ||
+      report.targetVersion !== acceptance.state.targetVersion ||
+      JSON.stringify(stageNames) !== JSON.stringify([
+        'base_started',
+        'update_available',
+        'download_completed',
+        'install_requested',
+        'target_relaunched'
+      ])
+    ) {
+      return failActive(acceptance, 'Legacy updater acceptance state is incomplete or inconsistent.', now)
+    }
+    preservationDetail = `legacy-state:${acceptance.state.baseVersion}`
   }
   acceptance.state.report.userDataPreserved = true
-  stage(acceptance.state.report, 'user_data_preserved', now(), persistedProbe.baseVersion)
+  stage(acceptance.state.report, 'user_data_preserved', now(), preservationDetail)
   acceptance.state.report.status = 'passed'
   acceptance.state.report.completedAt = now()
   try {

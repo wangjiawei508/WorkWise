@@ -170,7 +170,7 @@ describe('GUI updater native acceptance probe', () => {
       schemaVersion: 1,
       nonce: '22222222-2222-4222-8222-222222222222',
       baseVersion: '0.3.3',
-      createdAt: prepared.state.probe.createdAt
+      createdAt: prepared.state.probe!.createdAt
     }), 'utf8')
 
     await prepareGuiUpdaterAcceptance({
@@ -182,6 +182,38 @@ describe('GUI updater native acceptance probe', () => {
     expect(report.status).toBe('failed')
     expect(report.userDataPreserved).toBe(false)
     expect(report.failure).toContain('does not match the baseline installation')
+  })
+
+  it('accepts a legacy baseline state without a nonce probe', async () => {
+    const files = await fixture({ baseVersion: '0.3.5', targetVersion: '0.4.1' })
+    const prepared = await prepareGuiUpdaterAcceptance({
+      argv: [`--workwise-updater-acceptance=${files.configPath}`],
+      userDataPath: files.userDataPath,
+      currentVersion: '0.3.5'
+    }) as ActiveGuiUpdaterAcceptance
+    await runGuiUpdaterAcceptance(prepared, successfulUpdater('0.3.5', '0.4.1'))
+
+    const { probe: _probe, probeRequired: _probeRequired, ...legacyState } = prepared.state
+    await writeFile(prepared.statePath, JSON.stringify(legacyState), 'utf8')
+    await rm(prepared.probePath, { force: true })
+
+    const relaunched = await prepareGuiUpdaterAcceptance({
+      argv: [],
+      userDataPath: files.userDataPath,
+      currentVersion: '0.4.1'
+    })
+    expect(relaunched?.kind).toBe('terminal')
+    const report = await readReport(files.reportPath)
+    expect(report).toMatchObject({
+      status: 'passed',
+      baseVersion: '0.3.5',
+      targetVersion: '0.4.1',
+      userDataPreserved: true
+    })
+    expect(report.stages.at(-1)).toMatchObject({
+      name: 'user_data_preserved',
+      detail: 'legacy-state:0.3.5'
+    })
   })
 
   it('fails closed when the feed reports a different target version', async () => {
@@ -211,12 +243,12 @@ describe('GUI updater native acceptance probe', () => {
   })
 })
 
-function successfulUpdater() {
+function successfulUpdater(baseVersion = '0.3.3', targetVersion = '0.3.4') {
   return {
     checkGuiUpdate: vi.fn(async () => ({
       ok: true as const,
-      currentVersion: '0.3.3',
-      latestVersion: '0.3.4',
+      currentVersion: baseVersion,
+      latestVersion: targetVersion,
       hasUpdate: true,
       releaseUrl: 'https://updates.example.test/release',
       channel: 'frontier' as const,
