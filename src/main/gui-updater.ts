@@ -28,6 +28,10 @@ const DEFAULT_OFFICIAL_RELEASE_PREFIX = 'workwise'
 const DEFAULT_OFFICIAL_UPDATE_BASE_URL = 'https://www.railwise.cn/downloads'
 const DEFAULT_PRODUCT_PAGE_URL = 'https://www.railwise.cn/products/workwise/'
 const DEFAULT_GITHUB_REPO = 'wangjiawei508/WorkWise'
+const UPDATE_REQUEST_HEADERS = {
+  'Cache-Control': 'no-cache',
+  Pragma: 'no-cache'
+} as const
 const WITHDRAWN_STABLE_VERSIONS = new Set(
   (process.env.WORKWISE_WITHDRAWN_STABLE_VERSIONS || '0.4.0')
     .split(',')
@@ -546,6 +550,13 @@ function configureUpdaterChannel(channel: GuiUpdateChannel): void {
   emitGuiUpdateState({ status: 'idle' })
 }
 
+function configureUpdaterRequestHeaders(): void {
+  autoUpdater.requestHeaders = {
+    ...(autoUpdater.requestHeaders ?? {}),
+    ...UPDATE_REQUEST_HEADERS
+  }
+}
+
 export function setGuiUpdateChannel(channel: GuiUpdateChannel): void {
   configureUpdaterChannel(channel)
 }
@@ -576,6 +587,7 @@ async function checkManualUpdate(
 
     try {
       const res = await fetch(`https://api.github.com/repos/${repo}/releases`, {
+        cache: 'no-store',
         headers: {
           Accept: 'application/vnd.github+json',
           'User-Agent': `workwise/${currentVersion}`,
@@ -680,9 +692,11 @@ async function checkManualUpdate(
   try {
     const url = `${genericFeed}${platformManifestName()}`
     const res = await fetch(url, {
+      cache: 'no-store',
       headers: {
         Accept: 'application/x-yaml,text/yaml,text/plain,*/*',
-        'User-Agent': `workwise/${currentVersion}`
+        'User-Agent': `workwise/${currentVersion}`,
+        ...UPDATE_REQUEST_HEADERS
       }
     })
     if (!res.ok) {
@@ -761,6 +775,7 @@ export function initializeGuiUpdater(
 
   autoUpdater.autoDownload = false
   autoUpdater.autoInstallOnAppQuit = false
+  configureUpdaterRequestHeaders()
   configureUpdaterChannel(configuredChannel)
   if (!app.isPackaged) {
     autoUpdater.forceDevUpdateConfig = true
@@ -1004,5 +1019,6 @@ export const _internals = {
   downloadPageUrl,
   parseScheduledCheckAt,
   validateCandidateVersion,
-  shouldInstallSilently
+  shouldInstallSilently,
+  configureUpdaterRequestHeaders
 }

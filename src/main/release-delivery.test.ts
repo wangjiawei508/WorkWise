@@ -97,6 +97,30 @@ describe('R2 release delivery gates', () => {
     expect(websiteDelivery.CLEANUP_ACCEPTANCE_SCRIPT).toContain('.r2-download.pid')
   })
 
+  it('rejects long, duplicate, or conflicting public metadata cache headers', () => {
+    const valid = new Headers({
+      'cache-control': 'public, max-age=60, must-revalidate',
+      date: 'Mon, 10 Aug 2026 09:00:00 GMT',
+      expires: 'Mon, 10 Aug 2026 09:01:00 GMT',
+      etag: '"fixture"',
+      'last-modified': 'Mon, 10 Aug 2026 08:59:00 GMT',
+      'accept-ranges': 'bytes'
+    })
+    expect(websiteDelivery.assertMetadataCacheHeaders(valid, 'latest.json'))
+      .toBe('public, max-age=60, must-revalidate')
+
+    const duplicated = new Headers(valid)
+    duplicated.set('cache-control', 'max-age=604800, public, max-age=604800')
+    expect(() => websiteDelivery.assertMetadataCacheHeaders(duplicated, 'latest.yml'))
+      .toThrow(/cache policy is invalid/)
+
+    const staleExpires = new Headers(valid)
+    staleExpires.set('cache-control', 'no-cache, no-store, must-revalidate')
+    staleExpires.set('expires', 'Mon, 17 Aug 2026 09:00:00 GMT')
+    expect(() => websiteDelivery.assertMetadataCacheHeaders(staleExpires, 'latest-mac.yml'))
+      .toThrow(/Expires is too long/)
+  })
+
   it('parses updater metadata with SHA-512 and blockmap fields', () => {
     expect(_internals.parseUpdateYml([
       'version: 0.3.3',
@@ -125,6 +149,24 @@ describe('R2 release delivery gates', () => {
       'win32-x64'
     ])
     expect(workflow.env.WORKWISE_RELEASE_PREFIX).toContain('workwise/acceptance/')
+    const baselines = JSON.parse(
+      readFileSync('release/updater-acceptance-baselines.json', 'utf8')
+    ) as {
+      schemaVersion: number
+      versions: Record<string, Record<string, { name: string; sha256: string; size: number }>>
+    }
+    expect(baselines.schemaVersion).toBe(1)
+    expect(Object.keys(baselines.versions)).toEqual(['0.3.5', '0.4.0'])
+    expect(Object.keys(baselines.versions['0.4.0'])).toEqual([
+      'darwin-arm64',
+      'darwin-x64',
+      'win32-x64'
+    ])
+    for (const [key, asset] of Object.entries(baselines.versions['0.4.0'])) {
+      expect(asset.name, key).toContain('WorkWise-0.4.0-')
+      expect(asset.sha256, key).toMatch(/^[a-f0-9]{64}$/)
+      expect(asset.size, key).toBeGreaterThan(200_000_000)
+    }
     expect(workflow.jobs['build-macos'].env.MAC_CODESIGN_P12_BASE64).toContain('secrets.MAC_CODESIGN_P12_BASE64')
     const sidecarTransfer = workflow.jobs['build-document-sidecars'].steps.map((step: any) => step.run || '').join('\n')
     expect(sidecarTransfer).toContain('tar -czf')
@@ -132,6 +174,9 @@ describe('R2 release delivery gates', () => {
     expect(macBuild).toContain('tar -xzf')
     expect(macBuild).toContain('test -L')
     expect(macBuild).toContain('@napi-rs/canvas-darwin-x64@0.1.100')
+    expect(macBuild).not.toContain('acceptance-artifacts/base-mac')
+    const windowsBuild = workflow.jobs['build-windows'].steps.map((step: any) => step.run || '').join('\n')
+    expect(windowsBuild).not.toContain('acceptance-artifacts/base-win')
     expect(workflow.jobs['publish-test-feed'].env.WORKWISE_WEBSITE_SSH_PRIVATE_KEY)
       .toContain('secrets.WORKWISE_WEBSITE_SSH_PRIVATE_KEY')
     const publication = workflow.jobs['publish-test-feed'].steps.map((step: any) => step.run || '').join('\n')
@@ -139,8 +184,18 @@ describe('R2 release delivery gates', () => {
     expect(publication).toContain('--transport r2')
     expect(publication).toContain('deploy-website-release.mjs promote')
     expect(publication).toContain('deploy-website-release.mjs verify-public')
+    expect(publication).toContain('--metadata-cache deferred')
+    expect(publication).toContain('verify-metadata-cache')
+    expect(workflow.jobs['acceptance-gate'].needs).toContain('publish-test-feed')
+    const finalGate = workflow.jobs['acceptance-gate'].steps.map((step: any) => step.run || '').join('\n')
+    expect(finalGate).toContain('single short/no-cache policy')
     expect(workflow.jobs['cleanup-test-feed'].steps.at(-1).run).toContain('cleanup-acceptance')
     expect(workflow.jobs['cleanup-test-feed'].steps.at(-1).run).toContain('github.run_id')
+    const nativeUpdate = workflow.jobs['native-update'].steps.map((step: any) => step.run || '').join('\n')
+    expect(nativeUpdate).toContain('release/updater-acceptance-baselines.json')
+    expect(nativeUpdate).toContain('releases/download/v${{ inputs.base_version }}')
+    expect(nativeUpdate).toContain('EXPECTED_SHA256')
+    expect(nativeUpdate).toContain('EXPECTED_SIZE')
     const harness = readFileSync('scripts/run-native-updater-acceptance.mjs', 'utf8')
     expect(harness).toContain("'--env', 'WORKWISE_STARTUP_TRACE=1'")
     expect(harness).toContain("WORKWISE_STARTUP_TRACE: '1'")

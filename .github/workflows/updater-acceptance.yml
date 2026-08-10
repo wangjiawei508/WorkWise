@@ -4,31 +4,31 @@ on:
   workflow_dispatch:
     inputs:
       base_macos_arm64_url:
-        description: 'HTTPS URL of the signed WorkWise 0.3.3 Apple Silicon DMG.'
+        description: 'HTTPS URL of the signed baseline Apple Silicon DMG.'
         required: true
         type: string
       base_macos_x64_url:
-        description: 'HTTPS URL of the signed WorkWise 0.3.3 Intel DMG.'
+        description: 'HTTPS URL of the signed baseline Intel DMG.'
         required: true
         type: string
       base_windows_x64_url:
-        description: 'HTTPS URL of the WorkWise 0.3.3 Windows x64 NSIS installer.'
+        description: 'HTTPS URL of the baseline Windows x64 NSIS installer.'
         required: true
         type: string
       test_feed_url:
-        description: 'HTTPS generic updater feed whose latest manifest points to test version 0.3.4.'
+        description: 'HTTPS generic updater feed whose latest manifest points to the target version.'
         required: true
         type: string
       base_version:
         description: 'Installed version used to start the acceptance run.'
         required: true
         type: string
-        default: '0.3.3'
+        default: '0.4.0'
       target_version:
         description: 'Version expected after platform updater relaunch.'
         required: true
         type: string
-        default: '0.3.4'
+        default: '0.4.1'
       channel:
         description: 'Updater channel encoded in the test packages and manifest.'
         required: true
@@ -50,7 +50,7 @@ env:
 
 jobs:
   native-update:
-    name: ${{ matrix.label }} 0.3.3 → 0.3.4
+    name: ${{ matrix.label }} ${{ inputs.base_version }} -> ${{ inputs.target_version }}
     strategy:
       fail-fast: false
       matrix:

@@ -23,7 +23,8 @@ function usage() {
   console.log(`Usage:
   node scripts/deploy-website-release.mjs stage --source DIR --tag vX.Y.Z --channel stable|frontier --release-prefix workwise[/acceptance/RUN_ID] --deploy-id ID [--transport scp|r2]
   node scripts/deploy-website-release.mjs promote --tag vX.Y.Z --channel stable|frontier --release-prefix workwise[/acceptance/RUN_ID] --deploy-id ID
-  node scripts/deploy-website-release.mjs verify-public --source DIR --tag vX.Y.Z --channel stable|frontier --release-prefix workwise[/acceptance/RUN_ID] --target release|latest
+  node scripts/deploy-website-release.mjs verify-public --source DIR --tag vX.Y.Z --channel stable|frontier --release-prefix workwise[/acceptance/RUN_ID] --target release|latest [--metadata-cache strict|deferred]
+  node scripts/deploy-website-release.mjs verify-metadata-cache --channel stable|frontier --release-prefix workwise[/acceptance/RUN_ID]
   node scripts/deploy-website-release.mjs cleanup-acceptance --run-id RUN_ID
 
 SSH environment:
@@ -773,6 +774,10 @@ async function verifyPublic(flags) {
   const releasePrefix = normalizeReleasePrefix(requireFlag(flags, 'release-prefix'))
   const target = requireFlag(flags, 'target')
   if (!['release', 'latest'].includes(target)) throw new Error('--target must be release or latest.')
+  const metadataCache = String(flags.get('metadata-cache') || 'strict').trim()
+  if (!['strict', 'deferred'].includes(metadataCache)) {
+    throw new Error('--metadata-cache must be strict or deferred.')
+  }
   await validateSourceDirectory(sourceDir, tag)
 
   const publicBase = String(process.env.WORKWISE_PUBLIC_BASE_URL || 'https://www.railwise.cn/downloads')
@@ -809,20 +814,62 @@ async function verifyPublic(flags) {
     console.log(`Verified public HTTPS, Range and SHA-256: ${name}`)
   }
   if (target === 'latest') {
-    for (const name of ['latest.json', 'latest.yml', 'latest-mac.yml']) {
-      const metadataUrl = new URL(name, urlBase)
-      const response = await fetch(metadataUrl, { method: 'HEAD', redirect: 'follow' })
-      if (!response.ok) throw new Error(`Public update metadata failed ${response.status}: ${name}`)
-      const cacheControl = response.headers.get('cache-control') || ''
-      const maxAge = cacheControl.match(/max-age\s*=\s*(\d+)/i)?.[1]
-      if (!/no-cache|no-store/i.test(cacheControl) && (!maxAge || Number(maxAge) > 60)) {
-        throw new Error(`Public update metadata cache policy is too long for ${name}: ${cacheControl || 'missing'}`)
-      }
-      console.log(`Verified short cache policy: ${name} (${cacheControl || 'no header'})`)
+    try {
+      await verifyMetadataCacheAt(urlBase)
+    } catch (error) {
+      if (metadataCache === 'strict') throw error
+      console.warn(`[deploy-website-release] Deferred metadata cache gate: ${error instanceof Error ? error.message : String(error)}`)
     }
   }
   const localLatest = await sha256File(resolve(sourceDir, 'latest.json'))
   if (!localLatest) throw new Error('latest.json hash verification failed.')
+}
+
+function assertMetadataCacheHeaders(headers, name) {
+  const cacheControl = headers.get('cache-control') || ''
+  const maxAges = [...cacheControl.matchAll(/max-age\s*=\s*(\d+)/gi)].map((match) => Number(match[1]))
+  const disablesCache = /(?:^|,)\s*(?:no-cache|no-store)(?:\s*(?:=|,|$))/i.test(cacheControl)
+  if (
+    (!disablesCache && maxAges.length === 0) ||
+    maxAges.length > 1 ||
+    maxAges.some((value) => !Number.isFinite(value) || value > 60)
+  ) {
+    throw new Error(`Public update metadata cache policy is invalid for ${name}: ${cacheControl || 'missing'}`)
+  }
+
+  const responseDate = Date.parse(headers.get('date') || '')
+  const expires = Date.parse(headers.get('expires') || '')
+  if (Number.isFinite(responseDate) && Number.isFinite(expires) && expires - responseDate > 120_000) {
+    throw new Error(`Public update metadata Expires is too long for ${name}: ${headers.get('expires')}`)
+  }
+  if (!headers.get('etag')) throw new Error(`Public update metadata is missing ETag: ${name}`)
+  if (!headers.get('last-modified')) throw new Error(`Public update metadata is missing Last-Modified: ${name}`)
+  if (!/bytes/i.test(headers.get('accept-ranges') || '')) {
+    throw new Error(`Public update metadata is missing byte-range support: ${name}`)
+  }
+  return cacheControl
+}
+
+async function verifyMetadataCacheAt(urlBase) {
+  for (const name of ['latest.json', 'latest.yml', 'latest-mac.yml']) {
+    const metadataUrl = new URL(name, urlBase)
+    metadataUrl.searchParams.set('workwise_cache_probe', Date.now().toString(36))
+    const response = await fetch(metadataUrl, { method: 'HEAD', redirect: 'follow', cache: 'no-store' })
+    if (!response.ok) throw new Error(`Public update metadata failed ${response.status}: ${name}`)
+    const cacheControl = assertMetadataCacheHeaders(response.headers, name)
+    console.log(`Verified update metadata headers: ${name} (${cacheControl})`)
+  }
+}
+
+async function verifyMetadataCache(flags) {
+  const channel = normalizeChannel(requireFlag(flags, 'channel'))
+  const releasePrefix = normalizeReleasePrefix(requireFlag(flags, 'release-prefix'))
+  const publicBase = String(process.env.WORKWISE_PUBLIC_BASE_URL || 'https://www.railwise.cn/downloads')
+    .trim()
+    .replace(/\/+$/, '')
+  if (!publicBase.startsWith('https://')) throw new Error('Public verification requires HTTPS.')
+  const urlBase = `${publicBase}/${releasePrefix.prefix}/channels/${channel}/latest/`
+  await verifyMetadataCacheAt(urlBase)
 }
 
 async function main() {
@@ -834,6 +881,7 @@ async function main() {
   if (command === 'stage') return stageRelease(flags)
   if (command === 'promote') return promoteRelease(flags)
   if (command === 'verify-public') return verifyPublic(flags)
+  if (command === 'verify-metadata-cache') return verifyMetadataCache(flags)
   if (command === 'cleanup-acceptance') return cleanupAcceptance(flags)
   throw new Error(`Unknown command: ${command}`)
 }
@@ -851,6 +899,7 @@ export const _internals = {
   normalizeRunId,
   normalizeDeployId,
   normalizeTransport,
+  assertMetadataCacheHeaders,
   normalizeReleasePrefix,
   r2StagingPrefix,
   normalizeWebsiteRoot,

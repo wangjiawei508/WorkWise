@@ -1,0 +1,39 @@
+{
+  "schemaVersion": 1,
+  "versions": {
+    "0.3.5": {
+      "darwin-arm64": {
+        "name": "WorkWise-0.3.5-mac-Apple-Silicon.dmg",
+        "sha256": "a2017d724afba8325ae24a524f6caab34483eb2fcc637b2acc22014ffb7d81d7",
+        "size": 291293100
+      },
+      "darwin-x64": {
+        "name": "WorkWise-0.3.5-mac-Intel.dmg",
+        "sha256": "4baf30969e4661a654d1b46f0f0fb36199e8c9f29b758b61d019b53a9c244cba",
+        "size": 298784099
+      },
+      "win32-x64": {
+        "name": "WorkWise-0.3.5-win-x64.exe",
+        "sha256": "2b5405e9374351e23f135428c18f68b692764834eecf27dc994765aada96c763",
+        "size": 232775003
+      }
+    },
+    "0.4.0": {
+      "darwin-arm64": {
+        "name": "WorkWise-0.4.0-mac-Apple-Silicon.dmg",
+        "sha256": "9c0777d50dabac66b9e0e56b919d9fa4e9a0fa928d64863a8359f57a60e21883",
+        "size": 291359315
+      },
+      "darwin-x64": {
+        "name": "WorkWise-0.4.0-mac-Intel.dmg",
+        "sha256": "b8d28caaac0c1b62cac237d75a363e76fd329141fca092486c6ed8162ef57aad",
+        "size": 298871773
+      },
+      "win32-x64": {
+        "name": "WorkWise-0.4.0-win-x64.exe",
+        "sha256": "30d19b3c4e0841c3841a2f23027a200fb89dc7c889aae0a9d959877c8b59b282",
+        "size": 232833138
+      }
+    }
+  }
+}

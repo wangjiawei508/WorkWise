@@ -7,6 +7,7 @@ type MockUpdater = EventEmitter & {
   allowPrerelease: boolean
   forceDevUpdateConfig: boolean
   logger: unknown
+  requestHeaders: Record<string, string> | null
   setFeedURL: ReturnType<typeof vi.fn>
   checkForUpdates: ReturnType<typeof vi.fn>
   downloadUpdate: ReturnType<typeof vi.fn>
@@ -23,6 +24,7 @@ function createUpdater(): MockUpdater {
     allowPrerelease: false,
     forceDevUpdateConfig: false,
     logger: null,
+    requestHeaders: null,
     setFeedURL: vi.fn(),
     checkForUpdates: vi.fn(),
     downloadUpdate: vi.fn(),
@@ -116,6 +118,19 @@ describe('installGuiUpdate', () => {
 })
 
 describe('gui updater source helpers', () => {
+  it('forces update metadata revalidation without discarding existing request headers', async () => {
+    updater.requestHeaders = { Authorization: 'Bearer test-token' }
+    const module = await import('./gui-updater')
+
+    module.initializeGuiUpdater(() => null, () => 'stable')
+
+    expect(updater.requestHeaders).toEqual({
+      Authorization: 'Bearer test-token',
+      'Cache-Control': 'no-cache',
+      Pragma: 'no-cache'
+    })
+  })
+
   it('normalizes common GitHub repository URL forms', async () => {
     const module = await import('./gui-updater')
 

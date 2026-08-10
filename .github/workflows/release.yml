@@ -17,7 +17,7 @@ on:
         type: boolean
         default: false
       run_updater_acceptance:
-        description: 'Run only the isolated 0.3.3 → test 0.3.4 native updater acceptance workflow.'
+        description: 'Run only the isolated native updater acceptance workflow.'
         required: false
         type: boolean
         default: false
@@ -25,12 +25,12 @@ on:
         description: 'Installed baseline version for native updater acceptance.'
         required: false
         type: string
-        default: '0.3.3'
+        default: '0.4.0'
       acceptance_target_version:
         description: 'Temporary target version for native updater acceptance.'
         required: false
         type: string
-        default: '0.3.4'
+        default: '0.4.1'
       cleanup_acceptance_run_id:
         description: 'Cleanup only: exact updater acceptance run id to remove from R2 and the official website.'
         required: false

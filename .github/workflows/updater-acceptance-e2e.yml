@@ -4,7 +4,7 @@ on:
   workflow_call:
     inputs:
       base_version:
-        description: 'Installed baseline version built from this commit.'
+        description: 'Pinned official Release version installed as the baseline.'
         required: true
         type: string
       target_version:
@@ -14,15 +14,15 @@ on:
   workflow_dispatch:
     inputs:
       base_version:
-        description: 'Installed baseline version built from this commit.'
+        description: 'Pinned official Release version installed as the baseline.'
         required: true
         type: string
-        default: '0.3.3'
+        default: '0.4.0'
       target_version:
         description: 'Temporary target version published to the isolated Frontier feed.'
         required: true
         type: string
-        default: '0.3.4'
+        default: '0.4.1'
 
 permissions:
   contents: read
@@ -62,6 +62,7 @@ jobs:
           const base = process.env.BASE_VERSION
           const target = process.env.TARGET_VERSION
           const packageVersion = JSON.parse(fs.readFileSync('package.json', 'utf8')).version
+          const baselines = JSON.parse(fs.readFileSync('release/updater-acceptance-baselines.json', 'utf8'))
           const parse = (value, label) => {
             if (!/^\d+\.\d+\.\d+$/.test(value || '')) throw new Error(`${label} must be x.y.z`)
             return value.split('.').map(Number)
@@ -69,6 +70,13 @@ jobs:
           const left = parse(base, 'base_version')
           const right = parse(target, 'target_version')
           if (packageVersion !== target) throw new Error(`package.json is ${packageVersion}; expected target ${target}`)
+          if (!baselines.versions?.[base]) throw new Error(`base_version ${base} is not a pinned official acceptance baseline`)
+          for (const key of ['darwin-arm64', 'darwin-x64', 'win32-x64']) {
+            const asset = baselines.versions[base][key]
+            if (!asset || !asset.name?.startsWith(`WorkWise-${base}-`) || !/^[a-f0-9]{64}$/.test(asset.sha256) || !Number.isSafeInteger(asset.size)) {
+              throw new Error(`base_version ${base} has an invalid ${key} asset pin`)
+            }
+          }
           const newer = right.some((value, index) => value > left[index] && right.slice(0, index).every((part, i) => part === left[i]))
           if (!newer) throw new Error(`target_version ${target} must be newer than ${base}`)
           NODE
@@ -144,7 +152,7 @@ jobs:
           path: build/sidecars/${{ matrix.artifact }}/
 
   build-macos:
-    name: Build signed baseline and target macOS packages
+    name: Build signed target macOS packages
     needs: [prepare, build-document-sidecars]
     runs-on: macos-15
     env:
@@ -223,18 +231,6 @@ jobs:
           --issuer "${APPLE_API_ISSUER}"
           --check-notary
 
-      - name: Build signed and notarized baseline packages
-        shell: bash
-        env:
-          WORKWISE_APP_VERSION: ${{ inputs.base_version }}
-        run: |
-          set -euo pipefail
-          npm run dist:mac:signed
-          node scripts/generate-mac-latest.cjs dist
-          mkdir -p acceptance-artifacts/base-mac
-          cp dist/WorkWise-${WORKWISE_APP_VERSION}-mac-arm64.dmg acceptance-artifacts/base-mac/
-          cp dist/WorkWise-${WORKWISE_APP_VERSION}-mac-x64.dmg acceptance-artifacts/base-mac/
-
       - name: Build signed and notarized target packages
         shell: bash
         env:
@@ -251,19 +247,13 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: acceptance-base-mac
-          if-no-files-found: error
-          retention-days: 3
-          path: acceptance-artifacts/base-mac/
-      - uses: actions/upload-artifact@v4
-        with:
           name: acceptance-target-mac
           if-no-files-found: error
           retention-days: 3
           path: acceptance-artifacts/target-mac/
 
   build-windows:
-    name: Build 0.3.3 and 0.3.4 Windows packages
+    name: Build target Windows package
     needs: [prepare, build-document-sidecars]
     runs-on: windows-2022
     env:
@@ -287,16 +277,6 @@ jobs:
       - name: Verify Windows document sidecar
         run: node scripts/build-markitdown-sidecar.mjs --verify-only
 
-      - name: Build baseline installer
-        shell: pwsh
-        env:
-          WORKWISE_APP_VERSION: ${{ inputs.base_version }}
-        run: |
-          npm run dist:win
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          New-Item -ItemType Directory -Force -Path acceptance-artifacts/base-win | Out-Null
-          Copy-Item "dist/WorkWise-$env:WORKWISE_APP_VERSION-win-x64.exe" acceptance-artifacts/base-win/
-
       - name: Build target updater artifacts
         shell: pwsh
         env:
@@ -315,21 +295,17 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: acceptance-base-win
-          if-no-files-found: error
-          retention-days: 3
-          path: acceptance-artifacts/base-win/
-      - uses: actions/upload-artifact@v4
-        with:
           name: acceptance-target-win
           if-no-files-found: error
           retention-days: 3
           path: acceptance-artifacts/target-win/
 
   publish-test-feed:
-    name: Publish isolated 0.3.4 Frontier feed
+    name: Publish isolated target Frontier feed
     needs: [prepare, build-macos, build-windows]
     runs-on: ubuntu-latest
+    outputs:
+      metadata_cache_result: ${{ steps.metadata-cache.outcome }}
     env:
       R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
       R2_BUCKET: ${{ secrets.R2_BUCKET }}
@@ -448,7 +424,18 @@ jobs:
             --tag "${TARGET_TAG}" \
             --channel frontier \
             --release-prefix "${WORKWISE_RELEASE_PREFIX}" \
-            --target latest
+            --target latest \
+            --metadata-cache deferred
+
+      - name: Enforce public update metadata cache policy
+        id: metadata-cache
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -euo pipefail
+          node scripts/deploy-website-release.mjs verify-metadata-cache \
+            --channel frontier \
+            --release-prefix "${WORKWISE_RELEASE_PREFIX}"
 
       - name: Capture promoted feed evidence
         shell: bash
@@ -477,20 +464,14 @@ jobs:
             runner: macos-15
             platform: darwin
             arch: arm64
-            base_artifact: acceptance-base-mac
-            installer_name: WorkWise-${{ inputs.base_version }}-mac-arm64.dmg
           - label: macOS Intel
             runner: macos-15-intel
             platform: darwin
             arch: x64
-            base_artifact: acceptance-base-mac
-            installer_name: WorkWise-${{ inputs.base_version }}-mac-x64.dmg
           - label: Windows x64
             runner: windows-2022
             platform: win32
             arch: x64
-            base_artifact: acceptance-base-win
-            installer_name: WorkWise-${{ inputs.base_version }}-win-x64.exe
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 30
     steps:
@@ -498,10 +479,52 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: ${{ env.NODE_VERSION }}
-      - uses: actions/download-artifact@v4
-        with:
-          name: ${{ matrix.base_artifact }}
-          path: ${{ runner.temp }}/updater-base
+      - name: Resolve pinned official baseline asset
+        shell: bash
+        env:
+          BASE_VERSION: ${{ inputs.base_version }}
+          BASE_PLATFORM: ${{ matrix.platform }}
+          BASE_ARCH: ${{ matrix.arch }}
+        run: |
+          set -euo pipefail
+          node - <<'NODE'
+          const fs = require('node:fs')
+          const manifest = JSON.parse(fs.readFileSync('release/updater-acceptance-baselines.json', 'utf8'))
+          const key = `${process.env.BASE_PLATFORM}-${process.env.BASE_ARCH}`
+          const asset = manifest.versions?.[process.env.BASE_VERSION]?.[key]
+          if (!asset) throw new Error(`No pinned baseline for ${process.env.BASE_VERSION} ${key}`)
+          fs.appendFileSync(process.env.GITHUB_ENV, [
+            `INSTALLER_NAME=${asset.name}`,
+            `EXPECTED_SHA256=${asset.sha256}`,
+            `EXPECTED_SIZE=${asset.size}`
+          ].join('\n') + '\n')
+          NODE
+      - name: Download and verify immutable official baseline
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "${RUNNER_TEMP}/updater-base"
+          installer="${RUNNER_TEMP}/updater-base/${INSTALLER_NAME}"
+          url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/releases/download/v${{ inputs.base_version }}/${INSTALLER_NAME}"
+          curl --fail --silent --show-error --location --retry 4 --retry-all-errors \
+            --output "${installer}" "${url}"
+          export INSTALLER_PATH="${installer}"
+          node - <<'NODE'
+          const { createHash } = require('node:crypto')
+          const { createReadStream, statSync } = require('node:fs')
+          const expectedSize = Number(process.env.EXPECTED_SIZE)
+          const actualSize = statSync(process.env.INSTALLER_PATH).size
+          if (actualSize !== expectedSize) throw new Error(`Baseline size ${actualSize}; expected ${expectedSize}`)
+          const hash = createHash('sha256')
+          const stream = createReadStream(process.env.INSTALLER_PATH)
+          stream.on('data', (chunk) => hash.update(chunk))
+          stream.on('end', () => {
+            const actual = hash.digest('hex')
+            if (actual !== process.env.EXPECTED_SHA256) throw new Error(`Baseline SHA-256 ${actual}; expected ${process.env.EXPECTED_SHA256}`)
+            console.log(`Verified official baseline: ${process.env.INSTALLER_NAME}`)
+          })
+          stream.on('error', (error) => { throw error })
+          NODE
       - name: Create evidence directory
         shell: bash
         run: mkdir -p "${RUNNER_TEMP}/updater-evidence"
@@ -509,7 +532,7 @@ jobs:
         shell: bash
         run: >-
           node scripts/run-native-updater-acceptance.mjs
-          --installer="${RUNNER_TEMP}/updater-base/${{ matrix.installer_name }}"
+          --installer="${RUNNER_TEMP}/updater-base/${INSTALLER_NAME}"
           --feed-url="${WORKWISE_TEST_FEED_URL}"
           --base-version="${{ inputs.base_version }}"
           --target-version="${{ inputs.target_version }}"
@@ -528,7 +551,7 @@ jobs:
   acceptance-gate:
     name: All native updater paths passed
     if: always()
-    needs: native-update
+    needs: [native-update, publish-test-feed]
     runs-on: ubuntu-latest
     steps:
       - name: Require all three native jobs
@@ -537,6 +560,14 @@ jobs:
         run: |
           if [[ "${RESULT}" != "success" ]]; then
             echo "::error::macOS arm64, macOS x64, and Windows x64 updater acceptance must all pass."
+            exit 1
+          fi
+      - name: Require production-safe metadata cache headers
+        env:
+          RESULT: ${{ needs.publish-test-feed.outputs.metadata_cache_result }}
+        run: |
+          if [[ "${RESULT}" != "success" ]]; then
+            echo "::error::latest.json, latest.yml, and latest-mac.yml must use a single short/no-cache policy with ETag, Last-Modified, and Range support."
             exit 1
           fi
 
