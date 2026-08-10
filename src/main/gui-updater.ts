@@ -897,7 +897,7 @@ async function performGuiUpdateCheck(selectedChannel: GuiUpdateChannel): Promise
       releaseUrl: downloadPageUrl(),
       channel: selectedChannel
     }
-    emitGuiUpdateState({ status: 'error', info, message, code: 'unknown' })
+    emitGuiUpdateState({ status: 'error', info, message, code })
     return info
   }
 }

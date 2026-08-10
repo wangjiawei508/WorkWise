@@ -328,4 +328,16 @@ describe('gui updater source helpers', () => {
     expect(updater.checkForUpdates).toHaveBeenCalledTimes(1)
     delete process.env.WORKWISE_ALLOW_UNSIGNED_UPDATES
   })
+
+  it('keeps the classified failure code in the emitted update state', async () => {
+    process.env.WORKWISE_ALLOW_UNSIGNED_UPDATES = '1'
+    updater.checkForUpdates.mockRejectedValue(new Error('ETIMEDOUT: update feed network timeout'))
+    const module = await import('./gui-updater')
+
+    const result = await module.checkGuiUpdate('stable')
+
+    expect(result).toMatchObject({ ok: false, code: 'network' })
+    expect(module.getGuiUpdateState()).toMatchObject({ status: 'error', code: 'network' })
+    delete process.env.WORKWISE_ALLOW_UNSIGNED_UPDATES
+  })
 })
