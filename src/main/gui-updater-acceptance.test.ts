@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
+  _internals,
   isGuiUpdaterAcceptanceLaunch,
   prepareGuiUpdaterAcceptance,
   runGuiUpdaterAcceptance,
@@ -119,15 +120,68 @@ describe('GUI updater native acceptance probe', () => {
       targetVersion: '0.3.4',
       platform: 'darwin',
       arch: 'arm64',
-      browserOpened: false
+      browserOpened: false,
+      userDataPreserved: true
     })
     expect(report.stages.map((item) => item.name)).toEqual([
       'base_started',
       'update_available',
       'download_completed',
       'install_requested',
-      'target_relaunched'
+      'target_relaunched',
+      'user_data_preserved'
     ])
+    await expect(readFile(join(files.userDataPath, _internals.USER_DATA_PROBE_FILE), 'utf8'))
+      .rejects.toMatchObject({ code: 'ENOENT' })
+  })
+
+  it('fails closed when the user data probe is missing after the update relaunch', async () => {
+    const files = await fixture()
+    const prepared = await prepareGuiUpdaterAcceptance({
+      argv: [`--workwise-updater-acceptance=${files.configPath}`],
+      userDataPath: files.userDataPath,
+      currentVersion: '0.3.3'
+    }) as ActiveGuiUpdaterAcceptance
+    await runGuiUpdaterAcceptance(prepared, successfulUpdater())
+    await rm(join(files.userDataPath, _internals.USER_DATA_PROBE_FILE))
+
+    const relaunched = await prepareGuiUpdaterAcceptance({
+      argv: [],
+      userDataPath: files.userDataPath,
+      currentVersion: '0.3.4'
+    })
+    expect(relaunched?.kind).toBe('terminal')
+    const report = await readReport(files.reportPath)
+    expect(report.status).toBe('failed')
+    expect(report.userDataPreserved).toBe(false)
+    expect(report.failure).toContain('probe is missing or invalid')
+  })
+
+  it('fails closed when the user data probe is changed during the update', async () => {
+    const files = await fixture()
+    const prepared = await prepareGuiUpdaterAcceptance({
+      argv: [`--workwise-updater-acceptance=${files.configPath}`],
+      userDataPath: files.userDataPath,
+      currentVersion: '0.3.3',
+      nonce: () => '11111111-1111-4111-8111-111111111111'
+    }) as ActiveGuiUpdaterAcceptance
+    await runGuiUpdaterAcceptance(prepared, successfulUpdater())
+    await writeFile(join(files.userDataPath, _internals.USER_DATA_PROBE_FILE), JSON.stringify({
+      schemaVersion: 1,
+      nonce: '22222222-2222-4222-8222-222222222222',
+      baseVersion: '0.3.3',
+      createdAt: prepared.state.probe.createdAt
+    }), 'utf8')
+
+    await prepareGuiUpdaterAcceptance({
+      argv: [],
+      userDataPath: files.userDataPath,
+      currentVersion: '0.3.4'
+    })
+    const report = await readReport(files.reportPath)
+    expect(report.status).toBe('failed')
+    expect(report.userDataPreserved).toBe(false)
+    expect(report.failure).toContain('does not match the baseline installation')
   })
 
   it('fails closed when the feed reports a different target version', async () => {
@@ -156,3 +210,20 @@ describe('GUI updater native acceptance probe', () => {
     expect(report.failure).toContain('expected 0.3.4')
   })
 })
+
+function successfulUpdater() {
+  return {
+    checkGuiUpdate: vi.fn(async () => ({
+      ok: true as const,
+      currentVersion: '0.3.3',
+      latestVersion: '0.3.4',
+      hasUpdate: true,
+      releaseUrl: 'https://updates.example.test/release',
+      channel: 'frontier' as const,
+      manualOnly: false,
+      downloaded: false
+    })),
+    downloadGuiUpdate: vi.fn(async () => ({ ok: true as const, paths: ['/cache/WorkWise.zip'] })),
+    installGuiUpdate: vi.fn(async () => ({ ok: true as const }))
+  }
+}

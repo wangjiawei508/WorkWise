@@ -92,12 +92,16 @@ function validateReport(report, expected) {
     throw new Error(`Acceptance platform mismatch: ${report.platform}-${report.arch}, runner is ${process.platform}-${process.arch}`)
   }
   if (report.browserOpened !== false) throw new Error('Acceptance report did not prove the no-browser updater path.')
+  if (report.userDataPreserved !== true) {
+    throw new Error('Acceptance report did not prove that user data survived the native update.')
+  }
   const expectedStages = [
     'base_started',
     'update_available',
     'download_completed',
     'install_requested',
-    'target_relaunched'
+    'target_relaunched',
+    'user_data_preserved'
   ]
   const stages = report.stages?.map((stage) => stage.name)
   if (JSON.stringify(stages) !== JSON.stringify(expectedStages)) {

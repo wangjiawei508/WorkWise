@@ -199,6 +199,8 @@ describe('R2 release delivery gates', () => {
     const harness = readFileSync('scripts/run-native-updater-acceptance.mjs', 'utf8')
     expect(harness).toContain("'--env', 'WORKWISE_STARTUP_TRACE=1'")
     expect(harness).toContain("WORKWISE_STARTUP_TRACE: '1'")
+    expect(harness).toContain('report.userDataPreserved !== true')
+    expect(harness).toContain("'user_data_preserved'")
   })
 
   it('dispatches branch-only updater acceptance through the registered release workflow', () => {

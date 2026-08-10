@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import { existsSync } from 'node:fs'
 import { mkdir, readFile, rename, unlink, writeFile } from 'node:fs/promises'
 import { dirname, isAbsolute, join } from 'node:path'
@@ -10,6 +11,7 @@ import type {
 
 const ACCEPTANCE_ARG = '--workwise-updater-acceptance='
 const STATE_FILE = 'updater-acceptance-state.json'
+const USER_DATA_PROBE_FILE = 'updater-acceptance-user-data-probe.json'
 
 type AcceptanceStageName =
   | 'base_started'
@@ -17,6 +19,7 @@ type AcceptanceStageName =
   | 'download_completed'
   | 'install_requested'
   | 'target_relaunched'
+  | 'user_data_preserved'
 
 type AcceptanceStage = {
   name: AcceptanceStageName
@@ -37,6 +40,7 @@ export type GuiUpdaterAcceptanceReport = {
   completedAt?: string
   failure?: string
   browserOpened: false
+  userDataPreserved: boolean
   stages: AcceptanceStage[]
 }
 
@@ -51,12 +55,21 @@ type AcceptanceInput = {
 
 type AcceptanceState = AcceptanceInput & {
   phase: 'checking' | 'installing'
+  probe: AcceptanceProbe
   report: GuiUpdaterAcceptanceReport
+}
+
+type AcceptanceProbe = {
+  schemaVersion: 1
+  nonce: string
+  baseVersion: string
+  createdAt: string
 }
 
 export type ActiveGuiUpdaterAcceptance = {
   kind: 'active'
   statePath: string
+  probePath: string
   reportPath: string
   state: AcceptanceState
 }
@@ -81,6 +94,7 @@ type PrepareOptions = {
   platform?: NodeJS.Platform
   arch?: string
   now?: () => string
+  nonce?: () => string
 }
 
 type UpdaterApi = {
@@ -122,6 +136,25 @@ function parseInput(value: unknown): AcceptanceInput {
   }
 }
 
+function parseProbe(value: unknown): AcceptanceProbe {
+  if (!value || typeof value !== 'object') throw new Error('User data probe must be an object.')
+  const probe = value as Partial<AcceptanceProbe>
+  if (probe.schemaVersion !== 1) throw new Error('User data probe schemaVersion must be 1.')
+  if (typeof probe.nonce !== 'string' || !/^[0-9a-f-]{16,}$/i.test(probe.nonce)) {
+    throw new Error('User data probe nonce is invalid.')
+  }
+  const baseVersion = semver(probe.baseVersion, 'User data probe baseVersion')
+  if (typeof probe.createdAt !== 'string' || !Number.isFinite(Date.parse(probe.createdAt))) {
+    throw new Error('User data probe createdAt is invalid.')
+  }
+  return {
+    schemaVersion: 1,
+    nonce: probe.nonce,
+    baseVersion,
+    createdAt: probe.createdAt
+  }
+}
+
 async function writeJsonAtomic(path: string, value: unknown): Promise<void> {
   await mkdir(dirname(path), { recursive: true })
   const temporary = `${path}.tmp-${process.pid}`
@@ -151,8 +184,14 @@ async function failActive(
   acceptance.state.report.status = 'failed'
   acceptance.state.report.failure = message
   acceptance.state.report.completedAt = now()
-  await writeJsonAtomic(acceptance.reportPath, acceptance.state.report)
-  await unlink(acceptance.statePath).catch(() => undefined)
+  try {
+    await writeJsonAtomic(acceptance.reportPath, acceptance.state.report)
+  } finally {
+    await Promise.all([
+      unlink(acceptance.statePath).catch(() => undefined),
+      unlink(acceptance.probePath).catch(() => undefined)
+    ])
+  }
   return { kind: 'terminal', reportPath: acceptance.reportPath, report: acceptance.state.report }
 }
 
@@ -167,6 +206,7 @@ export async function prepareGuiUpdaterAcceptance(
 ): Promise<GuiUpdaterAcceptance | null> {
   const now = options.now ?? (() => new Date().toISOString())
   const statePath = join(options.userDataPath, STATE_FILE)
+  const probePath = join(options.userDataPath, USER_DATA_PROBE_FILE)
   const configArgument = options.argv.find((argument) => argument.startsWith(ACCEPTANCE_ARG))
 
   if (configArgument) {
@@ -177,6 +217,12 @@ export async function prepareGuiUpdaterAcceptance(
       throw new Error(`Updater acceptance expected base ${input.baseVersion}, got ${options.currentVersion}.`)
     }
     const startedAt = now()
+    const probe: AcceptanceProbe = {
+      schemaVersion: 1,
+      nonce: (options.nonce ?? randomUUID)(),
+      baseVersion: input.baseVersion,
+      createdAt: startedAt
+    }
     const report: GuiUpdaterAcceptanceReport = {
       schemaVersion: 1,
       status: 'running',
@@ -188,15 +234,26 @@ export async function prepareGuiUpdaterAcceptance(
       feedUrl: input.feedUrl,
       startedAt,
       browserOpened: false,
+      userDataPreserved: false,
       stages: [{ name: 'base_started', at: startedAt }]
     }
     const acceptance: ActiveGuiUpdaterAcceptance = {
       kind: 'active',
       statePath,
+      probePath,
       reportPath: input.reportPath,
-      state: { ...input, phase: 'checking', report }
+      state: { ...input, phase: 'checking', probe, report }
     }
-    await persistActive(acceptance)
+    try {
+      await writeJsonAtomic(probePath, probe)
+      await persistActive(acceptance)
+    } catch (error) {
+      await Promise.all([
+        unlink(statePath).catch(() => undefined),
+        unlink(probePath).catch(() => undefined)
+      ])
+      throw error
+    }
     return acceptance
   }
 
@@ -205,13 +262,18 @@ export async function prepareGuiUpdaterAcceptance(
   try {
     state = (await readJson(statePath)) as AcceptanceState
     input = parseInput(state)
+    state.probe = parseProbe(state.probe)
   } catch {
-    await unlink(statePath).catch(() => undefined)
+    await Promise.all([
+      unlink(statePath).catch(() => undefined),
+      unlink(probePath).catch(() => undefined)
+    ])
     return null
   }
   const acceptance: ActiveGuiUpdaterAcceptance = {
     kind: 'active',
     statePath,
+    probePath,
     reportPath: input.reportPath,
     state: { ...state, ...input }
   }
@@ -227,10 +289,33 @@ export async function prepareGuiUpdaterAcceptance(
   }
 
   stage(acceptance.state.report, 'target_relaunched', now(), options.currentVersion)
+  let persistedProbe: AcceptanceProbe
+  try {
+    persistedProbe = parseProbe(await readJson(probePath))
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error)
+    return failActive(acceptance, `User data preservation probe is missing or invalid: ${detail}`, now)
+  }
+  const expectedProbe = acceptance.state.probe
+  if (
+    persistedProbe.nonce !== expectedProbe.nonce ||
+    persistedProbe.baseVersion !== expectedProbe.baseVersion ||
+    persistedProbe.createdAt !== expectedProbe.createdAt
+  ) {
+    return failActive(acceptance, 'User data preservation probe does not match the baseline installation.', now)
+  }
+  acceptance.state.report.userDataPreserved = true
+  stage(acceptance.state.report, 'user_data_preserved', now(), persistedProbe.baseVersion)
   acceptance.state.report.status = 'passed'
   acceptance.state.report.completedAt = now()
-  await writeJsonAtomic(acceptance.reportPath, acceptance.state.report)
-  await unlink(statePath).catch(() => undefined)
+  try {
+    await writeJsonAtomic(acceptance.reportPath, acceptance.state.report)
+  } finally {
+    await Promise.all([
+      unlink(statePath).catch(() => undefined),
+      unlink(probePath).catch(() => undefined)
+    ])
+  }
   return { kind: 'terminal', reportPath: acceptance.reportPath, report: acceptance.state.report }
 }
 
@@ -276,4 +361,4 @@ export async function runGuiUpdaterAcceptance(
   }
 }
 
-export const _internals = { parseInput, STATE_FILE, ACCEPTANCE_ARG }
+export const _internals = { parseInput, parseProbe, STATE_FILE, USER_DATA_PROBE_FILE, ACCEPTANCE_ARG }
