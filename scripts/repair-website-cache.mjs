@@ -66,7 +66,7 @@ nginx_bin=""
 if command -v pgrep >/dev/null 2>&1 && command -v readlink >/dev/null 2>&1; then
   for process_name in nginx openresty; do
     while IFS= read -r pid; do
-      candidate="$(readlink -f "/proc/$pid/exe" 2>/dev/null || true)"
+      candidate="$(run_privileged readlink -f "/proc/$pid/exe" 2>/dev/null || true)"
       if [[ -n "$candidate" && -x "$candidate" ]]; then
         nginx_bin="$candidate"
         break 2
