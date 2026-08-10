@@ -68,7 +68,7 @@ jobs:
           }
           const left = parse(base, 'base_version')
           const right = parse(target, 'target_version')
-          if (packageVersion !== base) throw new Error(`package.json is ${packageVersion}; expected baseline ${base}`)
+          if (packageVersion !== target) throw new Error(`package.json is ${packageVersion}; expected target ${target}`)
           const newer = right.some((value, index) => value > left[index] && right.slice(0, index).every((part, i) => part === left[i]))
           if (!newer) throw new Error(`target_version ${target} must be newer than ${base}`)
           NODE
@@ -144,7 +144,7 @@ jobs:
           path: build/sidecars/${{ matrix.artifact }}/
 
   build-macos:
-    name: Build signed 0.3.3 and 0.3.4 macOS packages
+    name: Build signed baseline and target macOS packages
     needs: [prepare, build-document-sidecars]
     runs-on: macos-15
     env:
