@@ -204,6 +204,15 @@ describe('gui updater source helpers', () => {
     expect(module._internals.selectGithubRelease(releases, 'stable')?.version).toBe('0.4.1')
   })
 
+  it('does not describe an older withdrawn feed version as the current version', async () => {
+    const module = await import('./gui-updater')
+
+    expect(module._internals.resolveWithdrawnVersion('0.4.1', '0.4.0', 'stable')).toBeUndefined()
+    expect(module._internals.resolveWithdrawnVersion('0.4.0', '0.3.5', 'stable')).toBe('0.4.0')
+    expect(module._internals.resolveWithdrawnVersion('0.3.5', '0.4.0', 'stable')).toBe('0.4.0')
+    expect(module._internals.resolveWithdrawnVersion('0.4.0', '0.3.5', 'frontier')).toBeUndefined()
+  })
+
   it('defaults to the official railwise.cn feed and keeps explicit enterprise overrides', async () => {
     const previous = {
       WORKWISE_UPDATE_PROVIDER: process.env.WORKWISE_UPDATE_PROVIDER,

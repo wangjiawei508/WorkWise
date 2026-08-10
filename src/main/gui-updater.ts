@@ -422,11 +422,23 @@ function isWithdrawnStableVersion(version: string, channel: GuiUpdateChannel): b
   return channel === 'stable' && WITHDRAWN_STABLE_VERSIONS.has(version.trim().replace(/^v/i, ''))
 }
 
+function resolveWithdrawnVersion(
+  currentVersion: string,
+  latestVersion: string,
+  channel: GuiUpdateChannel
+): string | undefined {
+  if (isWithdrawnStableVersion(currentVersion, channel)) return currentVersion
+  if (isVersionGreater(latestVersion, currentVersion) && isWithdrawnStableVersion(latestVersion, channel)) {
+    return latestVersion
+  }
+  return undefined
+}
+
 function toGuiInfo(updateInfo: UpdateInfo, hasUpdate: boolean, manualOnly = false): Extract<GuiUpdateInfo, { ok: true }> {
   const latestVersion = updateInfo.version.trim()
   const currentVersion = app.getVersion()
-  const currentWithdrawn = isWithdrawnStableVersion(currentVersion, configuredChannel)
   const candidateWithdrawn = isWithdrawnStableVersion(latestVersion, configuredChannel)
+  const withdrawnVersion = resolveWithdrawnVersion(currentVersion, latestVersion, configuredChannel)
   return {
     ok: true,
     currentVersion,
@@ -437,12 +449,8 @@ function toGuiInfo(updateInfo: UpdateInfo, hasUpdate: boolean, manualOnly = fals
     channel: configuredChannel,
     manualOnly,
     downloaded,
-    withdrawn: currentWithdrawn || candidateWithdrawn,
-    ...(currentWithdrawn
-      ? { withdrawnVersion: currentVersion }
-      : candidateWithdrawn
-        ? { withdrawnVersion: latestVersion }
-        : {})
+    withdrawn: Boolean(withdrawnVersion),
+    ...(withdrawnVersion ? { withdrawnVersion } : {})
   }
 }
 
@@ -635,6 +643,7 @@ async function checkManualUpdate(
         }
       }
 
+      const withdrawnVersion = resolveWithdrawnVersion(currentVersion, selected.version, channel)
       const info: Extract<GuiUpdateInfo, { ok: true }> = {
         ok: true,
         currentVersion,
@@ -646,13 +655,8 @@ async function checkManualUpdate(
         channel,
         manualOnly: true,
         downloaded: false,
-        withdrawn: isWithdrawnStableVersion(currentVersion, channel) ||
-          isWithdrawnStableVersion(selected.version, channel),
-        ...(isWithdrawnStableVersion(currentVersion, channel)
-          ? { withdrawnVersion: currentVersion }
-          : isWithdrawnStableVersion(selected.version, channel)
-            ? { withdrawnVersion: selected.version }
-            : {})
+        withdrawn: Boolean(withdrawnVersion),
+        ...(withdrawnVersion ? { withdrawnVersion } : {})
       }
       lastInfo = info
       emitGuiUpdateState(info.hasUpdate ? { status: 'available', info } : { status: 'not_available', info })
@@ -725,6 +729,7 @@ async function checkManualUpdate(
         channel
       }
     }
+    const withdrawnVersion = resolveWithdrawnVersion(currentVersion, latestVersion, channel)
     const info: Extract<GuiUpdateInfo, { ok: true }> = {
       ok: true,
       currentVersion,
@@ -735,13 +740,8 @@ async function checkManualUpdate(
       channel,
       manualOnly: true,
       downloaded: false,
-      withdrawn: isWithdrawnStableVersion(currentVersion, channel) ||
-        isWithdrawnStableVersion(latestVersion, channel),
-      ...(isWithdrawnStableVersion(currentVersion, channel)
-        ? { withdrawnVersion: currentVersion }
-        : isWithdrawnStableVersion(latestVersion, channel)
-          ? { withdrawnVersion: latestVersion }
-          : {})
+      withdrawn: Boolean(withdrawnVersion),
+      ...(withdrawnVersion ? { withdrawnVersion } : {})
     }
     lastInfo = info
     emitGuiUpdateState(info.hasUpdate ? { status: 'available', info } : { status: 'not_available', info })
@@ -1018,6 +1018,7 @@ export const _internals = {
   resolveUpdateFeedConfig,
   downloadPageUrl,
   parseScheduledCheckAt,
+  resolveWithdrawnVersion,
   validateCandidateVersion,
   shouldInstallSilently,
   configureUpdaterRequestHeaders
