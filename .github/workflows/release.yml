@@ -955,7 +955,7 @@ jobs:
   verify-candidate-macos:
     name: Verify final candidate on macOS
     if: ${{ always() && needs.verify-candidate.result == 'success' }}
-    runs-on: macos-26-arm64
+    runs-on: macos-26
     needs:
       - prepare
       - verify-candidate
