@@ -119,6 +119,7 @@ export type MarketplaceCollectionV1 =
   | 'development'
   | 'productivity'
   | 'documents'
+  | 'writing'
   | 'data'
   | 'collaboration'
   | 'engineering'

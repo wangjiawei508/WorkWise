@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vitest'
+import { existsSync } from 'node:fs'
+import { resolve } from 'node:path'
 import type { MarketplacePackageV1 } from '../../shared/marketplace'
 import { evaluateMarketplaceLicense } from '../../shared/marketplace'
 import {
@@ -117,10 +119,19 @@ describe('official marketplace catalog', () => {
       'filesystem-mcp',
       'memory-mcp',
       'sequential-thinking-mcp',
+      'di-bao-monitoring',
+      'operational-monitoring',
+      'tender-master',
+      'document-illustrator',
+      'ppt-master',
+      'writing-agent',
+      'humanizer-zh',
+      'nuwa-skill',
       'lark-cli',
       'officecli',
       'ego-browser',
-      'markitdown'
+      'markitdown',
+      'railwise-kb'
     ]
     for (const id of requiredIds) expect(ids.has(id), `${id} is missing`).toBe(true)
   })
@@ -130,14 +141,19 @@ describe('official marketplace catalog', () => {
       'antv-chart-mcp',
       'context7-mcp',
       'dbhub',
+      'di-bao-monitoring',
+      'document-illustrator',
       'filesystem-mcp',
       'github-mcp',
       'lark-cli',
       'markitdown',
       'officecli',
       'playwright-mcp',
+      'ppt-master',
       'schedule',
-      'superpowers'
+      'superpowers',
+      'tender-master',
+      'writing-agent'
     ]
     const packages = getOfficialMarketplaceCatalog()
     const actualRecommendedIds = packages
@@ -158,13 +174,17 @@ describe('official marketplace catalog', () => {
       'ego-browser',
       'fetch-mcp',
       'git-mcp',
+      'humanizer-zh',
       'lark-openapi-mcp',
       'linear-mcp',
       'memory-mcp',
       'mongodb-mcp',
       'notion-mcp',
+      'nuwa-skill',
+      'operational-monitoring',
       'playwright-cli-skills',
       'redis-mcp',
+      'railwise-kb',
       'sequential-thinking-mcp',
       'time-mcp'
     ]
@@ -202,6 +222,43 @@ describe('official marketplace catalog', () => {
     ]) {
       expect(recommended.has(duplicate), `${duplicate} must not be promoted beside its primary capability`).toBe(false)
     }
+  })
+
+  it('restores the curated specialist Skills as managed product entries', () => {
+    const restoredIds = [
+      'di-bao-monitoring',
+      'operational-monitoring',
+      'tender-master',
+      'document-illustrator',
+      'ppt-master',
+      'writing-agent',
+      'humanizer-zh',
+      'nuwa-skill'
+    ]
+
+    for (const id of restoredIds) {
+      const item = packageById(id)
+      expect(existsSync(resolve('src', 'asset', 'skills', id, 'SKILL.md')), `${id} bundled asset is missing`).toBe(true)
+      expect(item.productType, id).toBe('workflow')
+      expect(item.installation, id).toEqual({
+        mode: 'system-managed',
+        installedByDefault: true,
+        reinstallable: false
+      })
+      expect(item.availability, id).toEqual({ status: 'managed', managedBy: 'WorkWise' })
+      expect(item.components, id).toEqual([
+        expect.objectContaining({
+          type: 'skill',
+          skillNames: [id],
+          runtime: { kind: 'system', provider: 'workwise', capability: `skill:${id}` }
+        })
+      ])
+    }
+
+    expect(packageById('writing-agent').collections).toContain('writing')
+    expect(packageById('humanizer-zh').collections).toContain('writing')
+    expect(packageById('di-bao-monitoring').collections).toContain('engineering')
+    expect(packageById('operational-monitoring').collections).toContain('engineering')
   })
 
   it('uses the exact official GitHub remote MCP endpoint', () => {
@@ -564,7 +621,7 @@ describe('official marketplace catalog', () => {
   it('shows system-managed packages without offering marketplace reinstall', () => {
     const packages = getOfficialMarketplaceCatalog()
 
-    for (const id of ['lark-cli', 'officecli', 'ego-browser', 'markitdown']) {
+    for (const id of ['lark-cli', 'officecli', 'ego-browser', 'markitdown', 'railwise-kb']) {
       const item = packages.find((candidate) => candidate.id === id)
       expect(item?.availability).toMatchObject({ status: 'managed' })
       expect(item?.installation).toEqual(expect.objectContaining({

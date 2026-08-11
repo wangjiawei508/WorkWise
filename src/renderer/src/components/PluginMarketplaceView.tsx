@@ -47,7 +47,7 @@ import { friendlyMarketplaceError } from './plugin-marketplace-compat'
 
 export * from './plugin-marketplace-compat'
 
-type StatusFilter = 'recommended' | 'installed' | 'updates' | 'configuration'
+type StatusFilter = 'recommended' | 'all' | 'installed' | 'updates' | 'configuration'
 type MarketplaceView = 'plugins' | 'skills'
 type AudienceFilter = 'official' | 'personal' | 'team'
 type SkillBrowseFilter = 'overview' | 'workwise' | 'personal' | 'project' | 'integrations' | 'attention'
@@ -75,6 +75,10 @@ function packageKey(entry: MarketplaceCatalogPackageEntryV1): string {
 
 function componentTypes(item: MarketplacePackageV1): string[] {
   return [...new Set(item.components.map((component) => component.type))]
+}
+
+function isManagedConnector(item: MarketplacePackageV1): boolean {
+  return item.installation.mode === 'system-managed' && productType(item) === 'connector'
 }
 
 function packageDisplayName(item: MarketplacePackageV1, text: Text): string {
@@ -248,6 +252,7 @@ const SKILL_RESULT_LIMIT = 50
 const MARKETPLACE_CATEGORY_ORDER = [
   'development',
   'documents',
+  'writing',
   'productivity',
   'data',
   'collaboration',
@@ -271,6 +276,7 @@ function marketplaceCategoryLabel(category: string, text: Text): string {
     productivity: text('pluginCategoryProductivity', 'Productivity & automation'),
     data: text('pluginCategoryData', 'Data & visualization'),
     documents: text('pluginCategoryDocuments', 'Documents & reports'),
+    writing: text('pluginCategoryWriting', 'Writing & editing'),
     collaboration: text('pluginCategoryCollaboration', 'Team collaboration'),
     engineering: text('pluginCategoryEngineering', 'Engineering & monitoring'),
     'browser-automation': text('pluginCategoryProductivity', 'Productivity & automation'),
@@ -421,7 +427,6 @@ export function PluginMarketplaceView(): ReactElement {
   const categories = useMemo(() => {
     const available = new Set(
       entries
-        .filter((entry) => entry.package.tier === 'recommended')
         .flatMap((entry) => [marketplaceCollection(entry.package)])
     )
     return [
@@ -468,6 +473,28 @@ export function PluginMarketplaceView(): ReactElement {
     () => entries.filter((entry) => isInstalled(entry.package, installed, mcpServers)),
     [entries, installed, mcpServers]
   )
+
+  const statusCounts = useMemo<Record<StatusFilter, number>>(() => {
+    const scoped = entries.filter((entry) => {
+      if (sourceAudience(sourceMap.get(entry.sourceId)) !== audienceFilter) return false
+      return sourceFilter === 'all' || entry.sourceId === sourceFilter
+    })
+    return {
+      recommended: scoped.filter((entry) => entry.package.tier === 'recommended').length,
+      all: scoped.length,
+      installed: scoped.filter((entry) => isInstalled(entry.package, installed, mcpServers)).length,
+      updates: scoped.filter((entry) => hasUpdate(
+        entry.package,
+        installed.get(entry.package.id),
+        entry.reviewSha256
+      )).length,
+      configuration: scoped.filter((entry) => needsConfiguration(
+        entry.package,
+        installed.get(entry.package.id),
+        installedServerForPackage(entry.package, mcpServers)
+      )).length
+    }
+  }, [audienceFilter, entries, installed, mcpServers, sourceFilter, sourceMap])
 
   const visibleEntryGroups = useMemo(() => {
     const showFeatured = categoryFilter === 'all' && statusFilter === 'recommended' && !query.trim()
@@ -836,7 +863,13 @@ export function PluginMarketplaceView(): ReactElement {
             <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ds-faint" />
             <input
               value={query}
-              onChange={(event) => setQuery(event.target.value)}
+              onChange={(event) => {
+                const value = event.target.value
+                setQuery(value)
+                if (viewMode === 'plugins' && value.trim() && statusFilter === 'recommended') {
+                  setStatusFilter('all')
+                }
+              }}
               placeholder={viewMode === 'skills'
                 ? text('pluginUnifiedSearchSkills', 'Search indexed Skills by name or capability')
                 : text('pluginUnifiedSearch', 'Search plugins, publishers, and capabilities')}
@@ -856,26 +889,33 @@ export function PluginMarketplaceView(): ReactElement {
             setSelectedKey(packageKey(entry))
             setDetailsOpen(true)
           }} />
-          <div className="mt-3 flex items-center justify-between gap-3">
-            <div className="flex items-center gap-1" role="tablist" aria-label={text('pluginUnifiedAudience', 'Catalog audience')}>
+          <div className="mt-3 flex items-center justify-between gap-3 border-b border-ds-border">
+            <div className="flex min-w-0 items-center gap-1 overflow-x-auto" role="tablist" aria-label={text('pluginUnifiedStatus', 'Plugin status')}>
               {([
-                ['official', text('pluginAudienceOfficial', 'Official')],
-                ['personal', text('pluginAudiencePersonal', 'Personal')],
-                ['team', text('pluginAudienceTeam', 'Team')]
-              ] as Array<[AudienceFilter, string]>).map(([value, label]) => (
+                ['recommended', text('pluginUnifiedFeatured', 'Featured')],
+                ['all', text('pluginUnifiedAllPlugins', 'All plugins')],
+                ['installed', text('pluginFilterInstalled', 'Installed')],
+                ['updates', text('pluginUnifiedUpdates', 'Updates')],
+                ['configuration', text('pluginUnifiedNeedsConfig', 'Needs configuration')]
+              ] as Array<[StatusFilter, string]>).map(([value, label]) => (
                 <button
                   key={value}
                   type="button"
                   role="tab"
-                  aria-selected={audienceFilter === value}
-                  onClick={() => setAudienceFilter(value)}
-                  className={`h-8 rounded-md px-3 text-[12px] font-medium transition ${audienceFilter === value ? 'bg-ds-subtle text-ds-ink' : 'text-ds-muted hover:bg-ds-hover hover:text-ds-ink'}`}
+                  aria-selected={statusFilter === value}
+                  onClick={() => setStatusFilter(value)}
+                  className={`h-9 shrink-0 border-b-2 px-2.5 text-[12px] font-medium transition ${statusFilter === value ? 'border-accent text-ds-ink' : 'border-transparent text-ds-muted hover:text-ds-ink'}`}
                 >
-                  {label}
+                  {label} <span className="text-[10px] text-ds-faint">{statusCounts[value]}</span>
                 </button>
               ))}
             </div>
-            <span className="text-[11px] text-ds-faint">{text('pluginUnifiedCuratedCount', '{{count}} featured', { count: entries.filter((entry) => entry.package.tier === 'recommended').length })}</span>
+            <span className="hidden shrink-0 pb-2 text-[11px] text-ds-faint sm:block">
+              {text('pluginUnifiedCatalogCount', '{{featured}} featured · {{total}} total', {
+                featured: statusCounts.recommended,
+                total: statusCounts.all
+              })}
+            </span>
           </div>
           {filtersOpen ? <div className="mt-2 grid gap-2 rounded-md border border-ds-border bg-ds-subtle/40 p-2 md:grid-cols-3">
             <Select value={categoryFilter} onChange={setCategoryFilter} ariaLabel={text('pluginUnifiedCategory', 'Category')}>
@@ -886,13 +926,12 @@ export function PluginMarketplaceView(): ReactElement {
               <option value="all">{text('pluginUnifiedAllSources', 'All sources')}</option>
               {sources.filter((source) => source.searchable).map((source) => <option key={source.id} value={source.id}>{sourceLabel(source, source.id, text)}</option>)}
             </Select>
-            <div className="flex gap-1 overflow-x-auto">
+            <div className="flex h-10 items-center gap-1 overflow-x-auto" role="tablist" aria-label={text('pluginUnifiedAudience', 'Catalog audience')}>
               {([
-                ['recommended', text('pluginFilterRecommended', 'Recommended')],
-                ['installed', text('pluginFilterInstalled', 'Installed')],
-                ['updates', text('pluginUnifiedUpdates', 'Updates')],
-                ['configuration', text('pluginUnifiedNeedsConfig', 'Needs configuration')]
-              ] as Array<[StatusFilter, string]>).map(([value, label]) => <button key={value} type="button" onClick={() => setStatusFilter(value)} className={`h-10 shrink-0 rounded-md px-2.5 text-[11px] font-medium transition ${statusFilter === value ? 'bg-ds-card text-ds-ink shadow-sm' : 'text-ds-muted hover:bg-ds-hover hover:text-ds-ink'}`}>{label}</button>)}
+                ['official', text('pluginAudienceOfficial', 'Official')],
+                ['personal', text('pluginAudiencePersonal', 'Personal')],
+                ['team', text('pluginAudienceTeam', 'Team')]
+              ] as Array<[AudienceFilter, string]>).map(([value, label]) => <button key={value} type="button" role="tab" aria-selected={audienceFilter === value} onClick={() => setAudienceFilter(value)} className={`h-8 shrink-0 rounded-md px-2.5 text-[11px] font-medium transition ${audienceFilter === value ? 'bg-ds-card text-ds-ink shadow-sm' : 'text-ds-muted hover:bg-ds-hover hover:text-ds-ink'}`}>{label}</button>)}
             </div>
           </div> : null}
         </> : null}
@@ -1430,6 +1469,7 @@ function PrimaryAction({ item, installed, server, reviewSha256, busy, text, onCl
   text: Text
   onClick: () => void
 }): ReactElement | null {
+  if (item.installation.mode === 'system-managed') return null
   const added = Boolean(installed || server || isManagedInstalled(item))
   const update = hasUpdate(item, installed, reviewSha256)
   const managesPermissions = item.installation.mode === 'direct-mirror' && added && !update
@@ -1440,7 +1480,6 @@ function PrimaryAction({ item, installed, server, reviewSha256, busy, text, onCl
     ? permissionExpanded(item, installed, reviewSha256) ? text('pluginUnifiedReviewUpdate', 'Review update') : text('pluginUnifiedUpdate', 'Update')
     : item.installation.mode === 'direct-mirror' && !added ? text('pluginUnifiedInstall', 'Install')
     : remote && !added ? text('pluginUnifiedConnect', 'Connect')
-    : item.installation.mode === 'system-managed' ? text('pluginUnifiedManaged', 'Managed')
     : managesPermissions ? text('pluginUnifiedPermissions', 'Permissions')
     : text('pluginOpenSource', 'Open source')
   return (
@@ -1547,7 +1586,9 @@ function DetailsDrawer({ entry, source, installed, server, busy, text, onClose, 
         {isHttpUrl(item.source.location) ? <button type="button" onClick={onOpenSource} className="mt-3 inline-flex items-center gap-1 text-[11px] font-medium text-accent hover:underline"><ExternalLink className="h-3.5 w-3.5" />{text('pluginOpenSource', 'Open source')}</button> : null}
       </DetailSection>
       <DetailSection title={text('pluginUnifiedImplementation', 'Implementation')}>
-        <div className="flex flex-wrap gap-1.5">{componentTypes(item).map((type) => <ComponentBadge key={type} type={type} />)}</div>
+        {isManagedConnector(item)
+          ? <p className="text-[12px] text-ds-muted">{text('pluginUnifiedManagedConnector', 'WorkWise managed connector')}</p>
+          : <div className="flex flex-wrap gap-1.5">{componentTypes(item).map((type) => <ComponentBadge key={type} type={type} />)}</div>}
       </DetailSection>
       <DetailSection title={text('pluginUnifiedPermissions', 'Permissions')}>
         {item.permissions.length ? <div className="space-y-2">{item.permissions.map((permission) => <PermissionLine key={permission.id} permission={permission} text={text} />)}</div> : <p className="text-[12px] text-ds-faint">{text('pluginUnifiedNoPermissions', 'No additional permissions declared.')}</p>}
@@ -1560,8 +1601,8 @@ function DetailsDrawer({ entry, source, installed, server, busy, text, onClose, 
       </DetailSection>
       <DetailSection title={text('pluginUnifiedHealth', 'Health')}>
         <DefinitionList values={[
-          [text('pluginUnifiedStatus', 'Status'), packageHealthLabel(installed?.health.status ?? (server ? (server.enabled ? 'configured' : 'disabled') : 'not installed'), text)],
-          [text('pluginUnifiedLastCheck', 'Last check'), installed?.health.checkedAt ?? installed?.timestamps.lastCheckedAt ?? text('pluginUnifiedNever', 'Never')]
+          [text('pluginUnifiedStatus', 'Status'), packageHealthLabel(installed?.health.status ?? (server ? (server.enabled ? 'configured' : 'disabled') : isManagedInstalled(item) ? 'managed' : 'not installed'), text)],
+          [text('pluginUnifiedLastCheck', 'Last check'), installed?.health.checkedAt ?? installed?.timestamps.lastCheckedAt ?? (isManagedInstalled(item) ? text('pluginUnifiedManagedCheck', 'Managed with WorkWise') : text('pluginUnifiedNever', 'Never'))]
         ]} />
       </DetailSection>
     </Drawer>

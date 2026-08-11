@@ -566,7 +566,15 @@ function assertPackageShape(
   }
   if (value.collections !== undefined) {
     const collections = assertNonEmptyStrings(value.collections, id + ' collections')
-    const allowedCollections = new Set(['development', 'productivity', 'documents', 'data', 'collaboration', 'engineering'])
+    const allowedCollections = new Set([
+      'development',
+      'productivity',
+      'documents',
+      'writing',
+      'data',
+      'collaboration',
+      'engineering'
+    ])
     if (collections.some((item) => !allowedCollections.has(item))) {
       throw new Error(id + ' collection is invalid.')
     }

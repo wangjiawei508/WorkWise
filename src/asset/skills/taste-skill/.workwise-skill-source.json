@@ -4,5 +4,5 @@
   "repo": "taste-skill",
   "path": "skills/taste-skill",
   "ref": "main",
-  "autoUpdate": true
+  "autoUpdate": false
 }

@@ -4,7 +4,7 @@
   "repo": "nuwa-skill",
   "path": "",
   "ref": "main",
-  "autoUpdate": true,
+  "autoUpdate": false,
   "includePaths": [
     "SKILL.md",
     "README.md",

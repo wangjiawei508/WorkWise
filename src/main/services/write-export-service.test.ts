@@ -158,6 +158,23 @@ describe('write-export-service helpers', () => {
     expect(Object.keys(zip.files).some((name) => name.startsWith('word/media/'))).toBe(true)
   })
 
+  it('ignores a file whose extension disguises an unsupported image format', async () => {
+    const sourcePath = join(workspaceRoot, 'draft.md')
+    const imagePath = join(workspaceRoot, 'spoofed.png')
+    await writeFile(imagePath, Buffer.from('icns\u0000\u0000\u0000\u0010unsafe'))
+
+    const docx = await buildDocxFromMarkdown({
+      sourcePath,
+      content: 'before\n\n![spoofed](./spoofed.png)\n\nafter'
+    })
+
+    const zip = await JSZip.loadAsync(docx)
+    expect(Object.keys(zip.files).some((name) => name.startsWith('word/media/'))).toBe(false)
+    const documentXml = await zip.file('word/document.xml')?.async('string')
+    expect(documentXml).toContain('before')
+    expect(documentXml).toContain('after')
+  })
+
   it('exports Markdown through the structured DOCX generator', async () => {
     const sourcePath = join(workspaceRoot, 'quality-report.md')
     const targetPath = join(workspaceRoot, 'quality-report.docx')
@@ -199,6 +216,30 @@ describe('write-export-service helpers', () => {
     expect(documentXml).toContain('真正的 Word 文档')
     expect(documentXml).toContain('<w:numPr>')
     expect(documentXml).toContain('<w:tbl>')
+  })
+
+  it('exports plain text through the structured DOCX generator', async () => {
+    const sourcePath = join(workspaceRoot, 'notes.txt')
+    const targetPath = join(workspaceRoot, 'notes.docx')
+    const content = '第一行纯文本\n第二行纯文本'
+    await writeFile(sourcePath, content, 'utf8')
+    vi.mocked(dialog.showSaveDialog).mockResolvedValueOnce({
+      canceled: false,
+      filePath: targetPath
+    })
+
+    const result = await exportWriteDocument({
+      path: sourcePath,
+      workspaceRoot,
+      format: 'docx',
+      content
+    })
+
+    expect(result).toEqual(expect.objectContaining({ ok: true, path: targetPath, format: 'docx' }))
+    const documentXml = await (await JSZip.loadAsync(await readFile(targetPath)))
+      .file('word/document.xml')?.async('string')
+    expect(documentXml).toContain('第一行纯文本')
+    expect(documentXml).toContain('第二行纯文本')
   })
 
   it('discovers bundled platform converters from WORKWISE_CONVERTER_ROOT', async () => {

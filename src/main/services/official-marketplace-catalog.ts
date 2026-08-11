@@ -101,7 +101,16 @@ const PACKAGE_ICON_OVERRIDES: Record<string, MarketplaceIconV1> = {
   schedule: { kind: 'monogram', value: 'SC', tone: 'blue', alt: 'Schedule' },
   'lark-cli': { kind: 'monogram', value: 'LK', tone: 'red', alt: 'Lark' },
   officecli: { kind: 'monogram', value: 'OF', tone: 'blue', alt: 'OfficeCLI' },
-  markitdown: { kind: 'monogram', value: 'MD', tone: 'slate', alt: 'MarkItDown' }
+  markitdown: { kind: 'monogram', value: 'MD', tone: 'slate', alt: 'MarkItDown' },
+  'railwise-kb': { kind: 'monogram', value: 'RK', tone: 'teal', alt: 'RailWise KB' },
+  'di-bao-monitoring': { kind: 'monogram', value: 'DB', tone: 'red', alt: 'Metro protection monitoring' },
+  'operational-monitoring': { kind: 'monogram', value: 'OM', tone: 'teal', alt: 'Operational monitoring' },
+  'tender-master': { kind: 'monogram', value: 'TM', tone: 'blue', alt: 'Tender Master' },
+  'document-illustrator': { kind: 'monogram', value: 'DI', tone: 'orange', alt: 'Document Illustrator' },
+  'ppt-master': { kind: 'monogram', value: 'PM', tone: 'red', alt: 'PPT Master' },
+  'writing-agent': { kind: 'monogram', value: 'WA', tone: 'green', alt: 'Writing Agent' },
+  'humanizer-zh': { kind: 'monogram', value: 'HZ', tone: 'violet', alt: 'Humanizer Chinese' },
+  'nuwa-skill': { kind: 'monogram', value: 'NW', tone: 'orange', alt: 'Nuwa Skill' }
 }
 
 function defaultPackageIcon(id: string, name: string): MarketplaceIconV1 {
@@ -121,7 +130,9 @@ function defaultCollections(categories: string[] | undefined): MarketplaceCollec
     data: 'data',
     visualization: 'data',
     documents: 'documents',
+    writing: 'writing',
     collaboration: 'collaboration',
+    engineering: 'engineering',
     system: 'productivity'
   }
   const collections = [...new Set((categories ?? []).map((category) => mapping[category]).filter(Boolean))]
@@ -825,6 +836,107 @@ const officialPackages: MarketplacePackageV1[] = [
     true,
     'documents'
   ),
+  managedPackage(
+    'railwise-kb',
+    'RailWise KB',
+    'WorkWise-managed connection to the official RailWise public knowledge base.',
+    'RailWise',
+    'https://kb.railwise.cn/products/workwise/',
+    null,
+    true,
+    true,
+    'documents',
+    'advanced',
+    'connector'
+  ),
+  managedSkillPackage({
+    id: 'di-bao-monitoring',
+    name: 'Metro Protection Monitoring',
+    summary: 'Produce metro protection-zone monitoring plans, reports, warnings, and review responses.',
+    publisher: publisher('workwise', 'WorkWise', 'https://github.com/wangjiawei508/WorkWise', true),
+    location: 'https://github.com/wangjiawei508/WorkWise',
+    license: 'MIT',
+    category: 'engineering',
+    tier: 'recommended',
+    permissions: [FILESYSTEM_READ_PERMISSION, FILESYSTEM_WRITE_PERMISSION]
+  }),
+  managedSkillPackage({
+    id: 'operational-monitoring',
+    name: 'Operational Monitoring',
+    summary: 'Prepare long-term deformation monitoring plans, period reports, alerts, and archives.',
+    publisher: publisher('workwise', 'WorkWise', 'https://github.com/wangjiawei508/WorkWise', true),
+    location: 'https://github.com/wangjiawei508/WorkWise',
+    license: 'MIT',
+    category: 'engineering',
+    tier: 'advanced',
+    permissions: [FILESYSTEM_READ_PERMISSION, FILESYSTEM_WRITE_PERMISSION]
+  }),
+  managedSkillPackage({
+    id: 'tender-master',
+    name: 'Tender Master',
+    summary: 'Turn tender documents into traceable response matrices, drafts, and compliance checks.',
+    publisher: publisher('workwise', 'WorkWise', 'https://github.com/wangjiawei508/WorkWise', true),
+    location: 'https://github.com/wangjiawei508/WorkWise',
+    license: 'MIT',
+    category: 'documents',
+    tier: 'recommended',
+    permissions: [FILESYSTEM_READ_PERMISSION, FILESYSTEM_WRITE_PERMISSION]
+  }),
+  managedSkillPackage({
+    id: 'document-illustrator',
+    name: 'Document Illustrator',
+    summary: 'Plan and generate consistent cover, section, and explanatory images for documents.',
+    publisher: publisher('guizang', 'Guizang', 'https://github.com/op7418', true),
+    location: 'https://github.com/op7418/Document-illustrator-skill',
+    license: 'MIT',
+    category: 'documents',
+    tier: 'recommended',
+    permissions: [FILESYSTEM_READ_PERMISSION, FILESYSTEM_WRITE_PERMISSION, NETWORK_PERMISSION]
+  }),
+  managedSkillPackage({
+    id: 'ppt-master',
+    name: 'PPT Master',
+    summary: 'Create, fill, and refine editable PPTX decks through a structured presentation workflow.',
+    publisher: publisher('hugohe3', 'Hugo He', 'https://github.com/hugohe3', true),
+    location: 'https://github.com/hugohe3/ppt-master',
+    license: 'MIT',
+    category: 'documents',
+    tier: 'recommended',
+    version: '4.3.0',
+    permissions: [FILESYSTEM_READ_PERMISSION, FILESYSTEM_WRITE_PERMISSION, PROCESS_EXECUTE_PERMISSION]
+  }),
+  managedSkillPackage({
+    id: 'writing-agent',
+    name: 'Writing Agent',
+    summary: 'Guide Chinese long-form writing from topic and outline through review and publication checks.',
+    publisher: publisher('dongbeixiaohuo', 'Dongbei Xiaohuo', 'https://github.com/dongbeixiaohuo', true),
+    location: 'https://github.com/dongbeixiaohuo/writing-agent',
+    license: 'MIT',
+    category: 'writing',
+    tier: 'recommended',
+    permissions: [FILESYSTEM_READ_PERMISSION, FILESYSTEM_WRITE_PERMISSION]
+  }),
+  managedSkillPackage({
+    id: 'humanizer-zh',
+    name: 'Humanizer Chinese',
+    summary: 'Identify and rewrite common AI writing patterns in Chinese while preserving meaning and tone.',
+    publisher: publisher('op7418', 'op7418', 'https://github.com/op7418', true),
+    location: 'https://github.com/op7418/Humanizer-zh',
+    license: 'MIT',
+    category: 'writing',
+    tier: 'advanced'
+  }),
+  managedSkillPackage({
+    id: 'nuwa-skill',
+    name: 'Nuwa Skill',
+    summary: 'Research a person or topic and distill its thinking framework into a reusable Skill.',
+    publisher: publisher('alchaincyf', 'alchaincyf', 'https://github.com/alchaincyf', true),
+    location: 'https://github.com/alchaincyf/nuwa-skill',
+    license: 'MIT',
+    category: 'agent-workflows',
+    tier: 'advanced',
+    permissions: [FILESYSTEM_READ_PERMISSION, FILESYSTEM_WRITE_PERMISSION, NETWORK_PERMISSION]
+  }),
   wheelMcpPackage({
     id: 'git-mcp',
     name: 'Git MCP',
@@ -1104,6 +1216,44 @@ function managedPackage(
     updatePolicy: SYSTEM_UPDATE,
     availability: { status: 'managed', managedBy: 'WorkWise' },
     installation: { ...SYSTEM_MANAGED_INSTALL, installedByDefault }
+  })
+}
+
+function managedSkillPackage(options: {
+  id: string
+  name: string
+  summary: string
+  publisher: PackagePublisherV1
+  location: string
+  license: string
+  category: string
+  tier: MarketplacePackageV1['tier']
+  version?: string
+  permissions?: PackagePermissionV1[]
+}): MarketplacePackageV1 {
+  return definePackage({
+    id: options.id,
+    name: options.name,
+    summary: options.summary,
+    tier: options.tier,
+    productType: 'workflow',
+    categories: [options.category],
+    version: options.version ?? 'bundled',
+    publisher: options.publisher,
+    license: options.license,
+    source: simpleSource('system', options.location),
+    components: [{
+      id: `${options.id}-skill`,
+      name: options.name,
+      type: 'skill',
+      skillNames: [options.id],
+      runtime: { kind: 'system', provider: 'workwise', capability: `skill:${options.id}` }
+    }],
+    permissions: options.permissions ?? [],
+    auth: { type: 'none' },
+    updatePolicy: SYSTEM_UPDATE,
+    availability: { status: 'managed', managedBy: 'WorkWise' },
+    installation: { ...SYSTEM_MANAGED_INSTALL, installedByDefault: true }
   })
 }
 

@@ -64,7 +64,11 @@ function catalogPackage(id: string, version: string): MarketplacePackageV1 {
   return {
     schemaVersion: 1,
     id,
-    name: id === 'browser-tools' ? 'Browser Tools' : 'Document Tools',
+    name: id === 'browser-tools'
+      ? 'Browser Tools'
+      : id === 'document-tools'
+        ? 'Document Tools'
+        : 'Advanced Reasoning',
     summary: `Summary for ${id}`,
     tier: 'recommended',
     categories: [id === 'browser-tools' ? 'browser' : 'documents'],
@@ -111,6 +115,24 @@ function catalogPackage(id: string, version: string): MarketplacePackageV1 {
 
 const BROWSER = catalogPackage('browser-tools', '2.0.0')
 const DOCUMENTS = catalogPackage('document-tools', '1.0.0')
+const ADVANCED = { ...catalogPackage('advanced-reasoning', '1.0.0'), tier: 'advanced' as const }
+const MANAGED_KB: MarketplacePackageV1 = {
+  ...catalogPackage('railwise-kb', 'managed'),
+  name: 'RailWise Knowledge Base',
+  productType: 'connector',
+  tier: 'advanced',
+  components: [{
+    id: 'railwise-kb-managed-component',
+    name: 'RailWise Knowledge Base',
+    type: 'cli',
+    sourceId: 'railwise-kb-source',
+    runtime: { kind: 'system', provider: 'workwise', capability: 'railwise-kb' }
+  }],
+  auth: { type: 'tool-managed', provider: 'railwise-kb' },
+  updatePolicy: { strategy: 'system-managed', channel: 'managed', allowMajor: false },
+  availability: { status: 'managed', managedBy: 'WorkWise' },
+  installation: { mode: 'system-managed', installedByDefault: true, reinstallable: false }
+}
 
 const INSTALLED: InstalledPackageV1 = {
   schemaVersion: 1,
@@ -187,7 +209,9 @@ beforeEach(async () => {
             reviewSha256: 'd'.repeat(64),
             conflicted: false
           },
-          { key: `${SOURCE.id}:${DOCUMENTS.id}`, sourceId: SOURCE.id, package: DOCUMENTS, conflicted: false }
+          { key: `${SOURCE.id}:${DOCUMENTS.id}`, sourceId: SOURCE.id, package: DOCUMENTS, conflicted: false },
+          { key: `${SOURCE.id}:${ADVANCED.id}`, sourceId: SOURCE.id, package: ADVANCED, conflicted: false },
+          { key: `${SOURCE.id}:${MANAGED_KB.id}`, sourceId: SOURCE.id, package: MANAGED_KB, conflicted: false }
         ],
         conflicts: []
       })),
@@ -253,9 +277,36 @@ describe('PluginMarketplaceView unified catalog', () => {
     expect(container.textContent).not.toContain('MCP')
     expect(container.querySelector('button[aria-label="Browser Tools"]')).not.toBeNull()
     expect(container.querySelector('button[aria-label="Filters"]')).not.toBeNull()
-    expect(container.textContent).not.toContain('Updates')
+    expect(container.textContent).toContain('All plugins')
+    expect(container.textContent).toContain('Updates')
     expect(container.querySelector('.ds-opaque-work-surface')).not.toBeNull()
     expect(container.querySelector('.backdrop-blur-xl')).toBeNull()
+  })
+
+  it('shows managed connectors as installed and managed in details', async () => {
+    const managed = container.querySelector('button[aria-label="RailWise Knowledge Base"]')
+    if (!(managed instanceof HTMLButtonElement)) throw new Error('Managed connector was not rendered.')
+    await act(async () => managed.click())
+
+    expect(container.textContent).toContain('WorkWise managed connector')
+    expect(container.textContent).toContain('installed · WorkWise managed')
+    expect(container.textContent).toContain('Managed with WorkWise releases')
+    expect(container.textContent).not.toContain('not installed')
+  })
+
+  it('exposes the complete catalog and searches advanced packages from the featured view', async () => {
+    expect(container.textContent).not.toContain('Advanced Reasoning')
+    await act(async () => button('All plugins').click())
+    expect(container.textContent).toContain('Advanced Reasoning')
+
+    await act(async () => button('Featured').click())
+    const search = container.querySelector(
+      'input[placeholder="Search plugins, publishers, and capabilities"]'
+    )
+    if (!(search instanceof HTMLInputElement)) throw new Error('Plugin search input was not rendered.')
+    await act(async () => setInput(search, 'Advanced Reasoning'))
+    expect(container.textContent).toContain('Advanced Reasoning')
+    expect(button('All plugins').getAttribute('aria-selected')).toBe('true')
   })
 
   it('indexes large local Skill sets without flattening them into the default marketplace view', async () => {

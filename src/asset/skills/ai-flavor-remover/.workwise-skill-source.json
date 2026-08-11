@@ -4,7 +4,7 @@
   "repo": "ai-flavor-remover",
   "path": "",
   "ref": "main",
-  "autoUpdate": true,
+  "autoUpdate": false,
   "includePaths": [
     "README.md"
   ],

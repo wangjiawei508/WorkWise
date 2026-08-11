@@ -24,7 +24,6 @@ import { existsSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
 import { basename, dirname, extname, isAbsolute, join, normalize } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { imageSize } from 'image-size'
 import { resolveWriteMarkdownResource } from '../../shared/write-markdown-resource'
 import {
   type ExportElementStyle,
@@ -58,6 +57,59 @@ type ImageInfo = {
   width: number
   height: number
   extension: 'png' | 'jpg' | 'gif' | 'bmp'
+}
+
+const MAX_IMAGE_DIMENSION = 100_000
+const MAX_IMAGE_PIXELS = 100_000_000
+
+function safeImageDimension(value: number): number | null {
+  return Number.isInteger(value) && value > 0 && value <= MAX_IMAGE_DIMENSION ? value : null
+}
+
+function safeImageSize(data: Buffer): { width: number; height: number } | null {
+  if (data.length >= 24 && data.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))) {
+    const width = safeImageDimension(data.readUInt32BE(16))
+    const height = safeImageDimension(data.readUInt32BE(20))
+    return width && height && width * height <= MAX_IMAGE_PIXELS ? { width, height } : null
+  }
+
+  if (data.length >= 10 && (data.subarray(0, 6).toString('ascii') === 'GIF87a' || data.subarray(0, 6).toString('ascii') === 'GIF89a')) {
+    const width = safeImageDimension(data.readUInt16LE(6))
+    const height = safeImageDimension(data.readUInt16LE(8))
+    return width && height && width * height <= MAX_IMAGE_PIXELS ? { width, height } : null
+  }
+
+  if (data.length >= 26 && data.subarray(0, 2).toString('ascii') === 'BM') {
+    const width = safeImageDimension(Math.abs(data.readInt32LE(18)))
+    const height = safeImageDimension(Math.abs(data.readInt32LE(22)))
+    return width && height && width * height <= MAX_IMAGE_PIXELS ? { width, height } : null
+  }
+
+  if (data.length < 4 || data[0] !== 0xff || data[1] !== 0xd8) return null
+  const startOfFrameMarkers = new Set([0xc0, 0xc1, 0xc2, 0xc3, 0xc5, 0xc6, 0xc7, 0xc9, 0xca, 0xcb, 0xcd, 0xce, 0xcf])
+  let offset = 2
+  while (offset + 3 < data.length) {
+    if (data[offset] !== 0xff) {
+      offset += 1
+      continue
+    }
+    while (offset < data.length && data[offset] === 0xff) offset += 1
+    if (offset >= data.length) break
+    const marker = data[offset]
+    offset += 1
+    if (marker === 0xd9 || marker === 0xda) break
+    if (marker === 0x01 || (marker >= 0xd0 && marker <= 0xd7)) continue
+    if (offset + 1 >= data.length) break
+    const segmentLength = data.readUInt16BE(offset)
+    if (segmentLength < 2 || offset + segmentLength > data.length) break
+    if (startOfFrameMarkers.has(marker) && segmentLength >= 7) {
+      const height = safeImageDimension(data.readUInt16BE(offset + 3))
+      const width = safeImageDimension(data.readUInt16BE(offset + 5))
+      return width && height && width * height <= MAX_IMAGE_PIXELS ? { width, height } : null
+    }
+    offset += segmentLength
+  }
+  return null
 }
 
 type TableCellSpec = {
@@ -207,9 +259,10 @@ async function loadImage(src: string, sourcePath: string): Promise<ImageInfo | n
 
   try {
     const data = await readFile(path)
-    const size = imageSize(data)
-    const width = Math.max(1, Number(size.width ?? 0) || 400)
-    const height = Math.max(1, Number(size.height ?? 0) || 300)
+    const size = safeImageSize(data)
+    if (!size) return null
+    const width = size.width
+    const height = size.height
     return {
       data,
       width,

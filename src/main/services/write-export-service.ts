@@ -1,6 +1,5 @@
 import { app, BrowserWindow, clipboard, dialog } from 'electron'
 import type { ChildProcess } from 'node:child_process'
-import { createRequire } from 'node:module'
 import { existsSync } from 'node:fs'
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -30,25 +29,6 @@ import {
 } from '../compat/legacy-environment'
 import { safeSpawn } from './safe-spawn'
 import { atomicWriteFile as durableWriteFile } from './durable-file'
-
-type HtmlToDocxDocumentOptions = {
-  title?: string
-  creator?: string
-  keywords?: string[]
-  description?: string
-  font?: string
-  fontSize?: number
-}
-
-type HtmlToDocxConverter = (
-  htmlString: string,
-  headerHtmlString?: string | null,
-  documentOptions?: HtmlToDocxDocumentOptions,
-  footerHtmlString?: string | null
-) => Promise<ArrayBuffer | Blob>
-
-const require = createRequire(import.meta.url)
-const htmlToDocx = require('html-to-docx') as HtmlToDocxConverter
 
 const EXPORT_CSS = `
   :root {
@@ -570,16 +550,6 @@ export async function copyWriteDocumentAsRichText(
   }
 }
 
-async function bufferFromDocxResult(result: ArrayBuffer | Blob): Promise<Buffer> {
-  if (typeof ArrayBuffer !== 'undefined' && result instanceof ArrayBuffer) {
-    return Buffer.from(new Uint8Array(result))
-  }
-  if (typeof Blob !== 'undefined' && result instanceof Blob) {
-    return Buffer.from(await result.arrayBuffer())
-  }
-  throw new TypeError('Unsupported DOCX export result.')
-}
-
 async function exportDocxWithPandoc(options: {
   sourcePath: string
   content: string
@@ -766,15 +736,16 @@ export async function exportWriteDocument(
           template
         }))
       } else {
-        const docx = await htmlToDocx(html, null, {
+        await durableWriteFile(targetPath, await buildDocxFromMarkdown({
+          sourcePath,
+          content: payload.content,
           title,
-          creator: 'WorkWise Runtime',
-          keywords: ['document', 'export'],
-          description: `Exported from ${basename(sourcePath)}`,
-          font: 'Arial',
-          fontSize: 24
-        })
-        await durableWriteFile(targetPath, await bufferFromDocxResult(docx))
+          template: resolveExportTemplate(
+            payload.templateId ?? options?.defaultExportTemplateId,
+            options?.userExportTemplates,
+            payload.styleOverride
+          )
+        }))
       }
     } else {
       await durableWriteFile(targetPath, await renderHtmlToPdf(html))

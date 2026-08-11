@@ -4,6 +4,6 @@
   "repo": "chatgpt-comparison-detection",
   "path": "",
   "ref": "main",
-  "autoUpdate": true,
+  "autoUpdate": false,
   "overlaySkillId": "chatgpt-comparison-detection"
 }
