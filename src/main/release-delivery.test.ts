@@ -263,7 +263,6 @@ describe('R2 release delivery gates', () => {
     expect(repair).toContain('/downloads/workwise/')
     expect(repair).not.toContain('rm -rf')
   })
-
   it('requires final macOS DMG and ZIP artifacts to pass strict verification in CI', () => {
     const packageJson = JSON.parse(readFileSync('package.json', 'utf8'))
     expect(packageJson.scripts['verify:mac-release-artifacts']).toBe(
