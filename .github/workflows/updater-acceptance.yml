@@ -23,12 +23,12 @@ on:
         description: 'Installed version used to start the acceptance run.'
         required: true
         type: string
-        default: '0.4.0'
+        default: '0.3.5'
       target_version:
         description: 'Version expected after platform updater relaunch.'
         required: true
         type: string
-        default: '0.4.1'
+        default: '0.3.6'
       channel:
         description: 'Updater channel encoded in the test packages and manifest.'
         required: true

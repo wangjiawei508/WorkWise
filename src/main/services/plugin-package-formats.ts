@@ -380,7 +380,7 @@ function compatibility(value: unknown): MarketplacePackageV1['compatibility'] {
     throw new Error('Package compatibility contains an unsupported platform or architecture.')
   }
   return {
-    workwise: optionalString(item.workwise, 'WorkWise compatibility') ?? '>=0.4.0',
+    workwise: optionalString(item.workwise, 'WorkWise compatibility') ?? '>=0.3.6',
     platforms: platforms as MarketplacePackageV1['compatibility']['platforms'],
     architectures: architectures as MarketplacePackageV1['compatibility']['architectures']
   }

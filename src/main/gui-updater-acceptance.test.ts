@@ -185,13 +185,13 @@ describe('GUI updater native acceptance probe', () => {
   })
 
   it('accepts a legacy baseline state without a nonce probe', async () => {
-    const files = await fixture({ baseVersion: '0.3.5', targetVersion: '0.4.1' })
+    const files = await fixture({ baseVersion: '0.3.5', targetVersion: '0.3.6' })
     const prepared = await prepareGuiUpdaterAcceptance({
       argv: [`--workwise-updater-acceptance=${files.configPath}`],
       userDataPath: files.userDataPath,
       currentVersion: '0.3.5'
     }) as ActiveGuiUpdaterAcceptance
-    await runGuiUpdaterAcceptance(prepared, successfulUpdater('0.3.5', '0.4.1'))
+    await runGuiUpdaterAcceptance(prepared, successfulUpdater('0.3.5', '0.3.6'))
 
     const { probe: _probe, probeRequired: _probeRequired, ...legacyState } = prepared.state
     await writeFile(prepared.statePath, JSON.stringify(legacyState), 'utf8')
@@ -200,14 +200,14 @@ describe('GUI updater native acceptance probe', () => {
     const relaunched = await prepareGuiUpdaterAcceptance({
       argv: [],
       userDataPath: files.userDataPath,
-      currentVersion: '0.4.1'
+      currentVersion: '0.3.6'
     })
     expect(relaunched?.kind).toBe('terminal')
     const report = await readReport(files.reportPath)
     expect(report).toMatchObject({
       status: 'passed',
       baseVersion: '0.3.5',
-      targetVersion: '0.4.1',
+      targetVersion: '0.3.6',
       userDataPreserved: true
     })
     expect(report.stages.at(-1)).toMatchObject({

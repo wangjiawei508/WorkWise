@@ -25,12 +25,12 @@ on:
         description: 'Installed baseline version for native updater acceptance.'
         required: false
         type: string
-        default: '0.4.0'
+        default: '0.3.5'
       acceptance_target_version:
         description: 'Temporary target version for native updater acceptance.'
         required: false
         type: string
-        default: '0.4.1'
+        default: '0.3.6'
       cleanup_acceptance_run_id:
         description: 'Cleanup only: exact updater acceptance run id to remove from R2 and the official website.'
         required: false

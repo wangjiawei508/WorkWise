@@ -17,12 +17,12 @@ on:
         description: 'Pinned official Release version installed as the baseline.'
         required: true
         type: string
-        default: '0.4.0'
+        default: '0.3.5'
       target_version:
         description: 'Temporary target version published to the isolated Frontier feed.'
         required: true
         type: string
-        default: '0.4.1'
+        default: '0.3.6'
 
 permissions:
   contents: read

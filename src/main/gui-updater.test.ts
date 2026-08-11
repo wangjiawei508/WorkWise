@@ -184,12 +184,12 @@ describe('gui updater source helpers', () => {
     expect(module._internals.selectGithubRelease(releases, 'stable')?.version).toBe('0.3.5')
   })
 
-  it('selects 0.4.1 as the stable repair over withdrawn 0.4.0', async () => {
+  it('selects the next 0.3.6 patch after skipping withdrawn 0.4.0', async () => {
     const module = await import('./gui-updater')
     const releases = [
       {
-        tag_name: 'v0.4.1',
-        html_url: 'https://github.com/wangjiawei508/WorkWise/releases/tag/v0.4.1'
+        tag_name: 'v0.3.6',
+        html_url: 'https://github.com/wangjiawei508/WorkWise/releases/tag/v0.3.6'
       },
       {
         tag_name: 'v0.4.0',
@@ -201,13 +201,13 @@ describe('gui updater source helpers', () => {
       }
     ]
 
-    expect(module._internals.selectGithubRelease(releases, 'stable')?.version).toBe('0.4.1')
+    expect(module._internals.selectGithubRelease(releases, 'stable')?.version).toBe('0.3.6')
   })
 
   it('does not describe an older withdrawn feed version as the current version', async () => {
     const module = await import('./gui-updater')
 
-    expect(module._internals.resolveWithdrawnVersion('0.4.1', '0.4.0', 'stable')).toBeUndefined()
+    expect(module._internals.resolveWithdrawnVersion('0.5.0', '0.4.0', 'stable')).toBeUndefined()
     expect(module._internals.resolveWithdrawnVersion('0.4.0', '0.3.5', 'stable')).toBe('0.4.0')
     expect(module._internals.resolveWithdrawnVersion('0.3.5', '0.4.0', 'stable')).toBe('0.4.0')
     expect(module._internals.resolveWithdrawnVersion('0.4.0', '0.3.5', 'frontier')).toBeUndefined()

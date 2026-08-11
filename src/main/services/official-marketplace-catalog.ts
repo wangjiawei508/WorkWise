@@ -45,7 +45,7 @@ const SYSTEM_UPDATE = {
 } as const
 
 const COMPATIBILITY: PackageCompatibilityV1 = {
-  workwise: '>=0.4.0',
+  workwise: '>=0.3.6',
   platforms: ['darwin', 'win32', 'linux'],
   architectures: ['arm64', 'x64']
 }
