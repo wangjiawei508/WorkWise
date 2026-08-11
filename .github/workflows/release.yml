@@ -54,6 +54,16 @@ on:
         required: false
         type: string
         default: ''
+      rollback_stable_tag:
+        description: 'Emergency only: existing immutable tag to restore as Stable, for example v0.3.5.'
+        required: false
+        type: string
+        default: ''
+      rollback_stable_confirmation:
+        description: 'Enter ROLLBACK-STABLE-TO-vX.Y.Z using the exact rollback tag.'
+        required: false
+        type: string
+        default: ''
 
 permissions:
   contents: write
@@ -135,9 +145,87 @@ jobs:
             --channel stable \
             --release-prefix workwise
 
+  rollback-stable:
+    name: Roll back WorkWise Stable pointers
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.rollback_stable_tag != '' && inputs.rollback_stable_confirmation != '' }}
+    runs-on: ubuntu-latest
+    env:
+      ROLLBACK_TAG: ${{ inputs.rollback_stable_tag }}
+      ROLLBACK_CONFIRMATION: ${{ inputs.rollback_stable_confirmation }}
+      R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+      R2_BUCKET: ${{ secrets.R2_BUCKET }}
+      R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+      R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+      WORKWISE_WEBSITE_SSH_HOST: ${{ secrets.WORKWISE_WEBSITE_SSH_HOST }}
+      WORKWISE_WEBSITE_SSH_PORT: ${{ secrets.WORKWISE_WEBSITE_SSH_PORT }}
+      WORKWISE_WEBSITE_SSH_USER: ${{ secrets.WORKWISE_WEBSITE_SSH_USER }}
+      WORKWISE_WEBSITE_SSH_PRIVATE_KEY: ${{ secrets.WORKWISE_WEBSITE_SSH_PRIVATE_KEY }}
+      WORKWISE_WEBSITE_SSH_KNOWN_HOSTS: ${{ secrets.WORKWISE_WEBSITE_SSH_KNOWN_HOSTS }}
+      WORKWISE_WEBSITE_RELEASE_ROOT: ${{ secrets.WORKWISE_WEBSITE_RELEASE_ROOT }}
+      WORKWISE_PUBLIC_BASE_URL: https://www.railwise.cn/downloads
+    steps:
+      - name: Check out requested branch
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.ref }}
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - name: Install rollback dependencies
+        run: npm ci --ignore-scripts
+      - name: Validate exact rollback approval and credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "${ROLLBACK_TAG}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
+            echo "::error::rollback_stable_tag must be an exact vX.Y.Z tag"
+            exit 1
+          }
+          [[ "${ROLLBACK_CONFIRMATION}" == "ROLLBACK-STABLE-TO-${ROLLBACK_TAG}" ]] || {
+            echo "::error::rollback confirmation does not match ${ROLLBACK_TAG}"
+            exit 1
+          }
+          for name in \
+            R2_ACCOUNT_ID R2_BUCKET R2_ACCESS_KEY_ID R2_SECRET_ACCESS_KEY \
+            WORKWISE_WEBSITE_SSH_HOST WORKWISE_WEBSITE_SSH_PORT WORKWISE_WEBSITE_SSH_USER \
+            WORKWISE_WEBSITE_SSH_PRIVATE_KEY WORKWISE_WEBSITE_SSH_KNOWN_HOSTS WORKWISE_WEBSITE_RELEASE_ROOT; do
+            [[ -n "${!name:-}" ]] || { echo "::error::Missing ${name}; Stable rollback is blocked"; exit 1; }
+          done
+      - name: Prepare pinned website SSH transport
+        shell: bash
+        run: |
+          set -euo pipefail
+          ssh_dir="${RUNNER_TEMP}/workwise-website-ssh"
+          install -d -m 700 "${ssh_dir}"
+          export SSH_KEY_PATH="${ssh_dir}/deploy-key"
+          export SSH_KNOWN_HOSTS_PATH="${ssh_dir}/known_hosts"
+          node - <<'NODE'
+          const fs = require('node:fs')
+          fs.writeFileSync(process.env.SSH_KEY_PATH, `${process.env.WORKWISE_WEBSITE_SSH_PRIVATE_KEY.trim()}\n`, { mode: 0o600 })
+          fs.writeFileSync(process.env.SSH_KNOWN_HOSTS_PATH, `${process.env.WORKWISE_WEBSITE_SSH_KNOWN_HOSTS.trim()}\n`, { mode: 0o600 })
+          NODE
+          {
+            echo "WORKWISE_WEBSITE_SSH_KEY_PATH=${SSH_KEY_PATH}"
+            echo "WORKWISE_WEBSITE_SSH_KNOWN_HOSTS_PATH=${SSH_KNOWN_HOSTS_PATH}"
+          } >> "${GITHUB_ENV}"
+      - name: Verify immutable rollback source
+        run: node scripts/publish-r2.mjs verify --tag "${ROLLBACK_TAG}" --channel stable --platforms mac,win
+      - name: Atomically restore R2 and website Stable pointers
+        run: |
+          set -euo pipefail
+          node scripts/publish-r2.mjs rollback --tag "${ROLLBACK_TAG}" --channel stable --platforms mac,win
+          node scripts/deploy-website-release.mjs promote \
+            --tag "${ROLLBACK_TAG}" \
+            --channel stable \
+            --release-prefix workwise \
+            --deploy-id "rollback-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+      - name: Verify all public Stable manifests use the rollback version
+        run: node scripts/verify-stable-feed-version.mjs "${ROLLBACK_TAG}"
+
   prepare:
     name: Prepare release version
-    if: ${{ !(github.event_name == 'workflow_dispatch' && (inputs.run_updater_acceptance == true || inputs.cleanup_acceptance_run_id != '' || inputs.repair_website_cache == true)) }}
+    if: ${{ !(github.event_name == 'workflow_dispatch' && (inputs.run_updater_acceptance == true || inputs.cleanup_acceptance_run_id != '' || inputs.repair_website_cache == true || inputs.rollback_stable_tag != '')) }}
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.version.outputs.version }}

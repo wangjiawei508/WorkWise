@@ -271,4 +271,21 @@ describe('R2 release delivery gates', () => {
     const workflow = readFileSync('.github/workflows/updater-acceptance-e2e.yml', 'utf8')
     expect(workflow).toContain('node scripts/verify-mac-release-artifacts.cjs dist arm64 x64')
   })
+
+  it('requires an exact confirmation before restoring an immutable Stable release', () => {
+    const release = YAML.parse(readFileSync('.github/workflows/release.yml', 'utf8')) as {
+      on: { workflow_dispatch: { inputs: Record<string, unknown> } }
+      jobs: Record<string, any>
+    }
+    expect(release.on.workflow_dispatch.inputs).toHaveProperty('rollback_stable_tag')
+    expect(release.on.workflow_dispatch.inputs).toHaveProperty('rollback_stable_confirmation')
+    const rollback = release.jobs['rollback-stable']
+    const command = rollback.steps.map((step: any) => step.run || '').join('\n')
+    expect(command).toContain('ROLLBACK-STABLE-TO-${ROLLBACK_TAG}')
+    expect(command).toContain('publish-r2.mjs verify')
+    expect(command).toContain('publish-r2.mjs rollback')
+    expect(command).toContain('deploy-website-release.mjs promote')
+    expect(command).toContain('verify-stable-feed-version.mjs')
+    expect(command).not.toContain('gh release delete')
+  })
 })
