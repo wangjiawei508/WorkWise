@@ -1,12 +1,13 @@
-# WorkWise 插件市场本地候选验收记录（2026-08-10）
+# WorkWise 0.4.1 候选验收记录（更新于 2026-08-11）
 
 ## 结论
 
-- 本轮只完成本地 macOS arm64 候选包验收，没有创建提交、标签、Release，也没有修改 stable/frontier、官网或公开下载入口。
-- 用户已明确确认以 `0.4.1` 修复错误 `0.4.0`；本记录中的公开发布仍以签名候选和真实更新闭环通过为前提。
-- 插件市场已改为分类优先，只在默认推荐页展示 11 个具有独立产品能力的条目。
-- 本机 200 个 Skill 只建立索引，不进入推荐插件目录，也不会默认平铺 200 行。
-- 当前仍不满足发布门禁：本机候选包仅为 ad-hoc 签名、未公证，真实 `0.4.0 -> 私有 0.4.1 候选` 应用内更新闭环和三平台安装验收尚未完成。
+- 当前验收对象为 `0.4.1` 候选提交 `66562c8`，不是正式发布批准。
+- 未创建 `v0.4.1` 标签或 GitHub Release，未推广 stable，未更新官网正式下载入口。
+- GitHub Actions 已生成签名、公证候选，并在 macOS arm64、macOS x64、Windows x64 上完成真实 `0.3.5 -> 私有 0.4.1` 应用内更新闭环。
+- 本机已启动同一 CI Apple Silicon 签名候选，确认中文启动页、中文主界面、精选插件市场、详情抽屉、独立 Skill 索引页和运行时连接。
+- 插件市场只展示 11 个精选插件，并按独立用户能力分类；本机 204 个 Skill 只建立索引，不进入精选插件目录，也不会默认平铺 204 行。
+- 应用内升级链路已经可用，但更新清单服务器仍返回七天缓存响应头；应用通过唯一查询参数和 `no-cache` 请求头绕过陈旧缓存，基础设施缓存门禁仍未完全关闭。
 
 ## 首发推荐目录
 
@@ -26,8 +27,8 @@
 
 ## 本地 Skills
 
-- 实测索引总数：200。
-- 默认页只显示分组统计：WorkWise 50、个人 29、项目 0、Codex 插件来源 121、需关注 0。
+- 实测索引总数：204。
+- 默认页只显示分组统计：WorkWise 40、个人 29、项目 14、Codex 插件来源 121、需处理 2。
 - 只有执行搜索或主动选择分组后才显示 Skill 行，单次结果最多 50 条。
 - 实测搜索 `shuorenhua` 返回 1 条健康结果，来源和手动更新状态可见。
 - 实测索引仍包含：`bidding-knowledge`、`construction-monitoring`、`monitoring-design`、`di-bao-monitoring`、`operational-monitoring`、`data-analysis`、`docx-generation`、`report-writing`、`ppt-master`、`humanizer`、`shuorenhua`。
@@ -40,43 +41,40 @@
 - “插件”和“技能”是两个平级入口；本地 Skill 数量与来源统计只在独立技能页显示，不进入精选插件列表。
 - 官方、个人、团队目录范围切换与筛选抽屉可用；默认官方目录只显示受限的精选条目。
 - Playwright 详情抽屉实测展示版本、已验证发布者、Apache-2.0 许可证、来源、固定更新策略、浏览器控制权限、Node 依赖和健康状态。
-- 深色主题、浅色主题、1280x840 和 900x700 窗口均完成截图检查，未发现文本或按钮重叠。
+- 当前 CI 签名候选已完成 1171x768 浅色中文界面截图检查，未发现文本或按钮重叠。
+- 深色主题与窄窗口已有同一代码基线的本地截图记录；最终正式安装包仍需在发布前复核。
 
-本地截图证据：
+CI 签名候选截图证据：
 
-- `/private/tmp/workwise-marketplace-final-dark-1280.png`
-- `/private/tmp/workwise-marketplace-final-narrow.png`
-- `/private/tmp/workwise-marketplace-final-light-narrow.png`
-- `/private/tmp/workwise-playwright-details-light-narrow.png`
-- `/private/tmp/workwise-skills-shuorenhua-light.png`
-- `/private/tmp/workwise-marketplace-p0-p2-final-zh-cn.png`（重新编译后的候选包，中文精选市场）
-- `/private/tmp/workwise-marketplace-p0-p2-filter-final-zh-cn.png`（重新编译后的候选包，中文筛选面板）
-- `/private/tmp/workwise-marketplace-p0-p2-details-final-zh-cn.png`（重新编译后的候选包，中文权限审查详情）
-- `/private/tmp/workwise-skills-p0-p2-final-zh-cn.png`（重新编译后的候选包，中文本地 Skill 分类边界）
+- `/private/tmp/workwise-review-0.4.1/screenshots/00-splash-zh.png`（中文启动页）
+- `/private/tmp/workwise-review-0.4.1/screenshots/01-main-zh.png`（中文主界面）
+- `/private/tmp/workwise-review-0.4.1/screenshots/02-plugins-zh.png`（11 个精选插件和任务分类）
+- `/private/tmp/workwise-review-0.4.1/screenshots/03-plugin-detail-zh.png`（权限、许可证、来源与健康状态详情）
+- `/private/tmp/workwise-review-0.4.1/screenshots/04-skills-zh.png`（204 个 Skill 的独立索引边界）
+- `/private/tmp/workwise-review-0.4.1/screenshots/05-runtime-chat-zh.png`（运行时恢复、输入框与智能体选择器启用）
 
 ## 应用内更新状态
 
-- 应用内更新能力不是不可实现；正式 macOS 安装包在 Apple Developer ID 签名和公证均启用时，允许执行应用内下载、安装和自动重启。
-- 本轮本地候选包只有 ad-hoc 签名且未公证，更新安全门禁按设计返回“无法检查更新”，不会用打开官网伪装成应用内升级。
-- 最终中文界面已经明确展示签名阻断原因，并将“检查更新”和用户主动触发的“打开下载页”分成两个动作。
-- 真实 `0.4.0 -> 私有签名 0.4.1 候选` 下载、退出安装、自动重启和数据保留闭环仍未执行，因此应用内更新尚不能签字交付。
+- CI Run：`31437775903`。
+- macOS arm64、macOS x64、Windows x64 三个平台的原生更新任务均通过。
+- 三个平台均记录 `target_relaunched`、版本 `0.4.1`、`user_data_preserved`、`userDataPreserved: true` 和 `browserOpened: false`。
+- 更新失败继续区分未签名构建、清单、网络、签名、下载和安装错误；不会自动打开官网伪装成应用内升级。
+- CI 总任务仍为失败，因为服务器返回 `Cache-Control: max-age=604800, public, max-age=604800`，未达到更新清单短缓存门禁。
+- Electron 更新请求会追加唯一 `noCache` 查询参数，WorkWise 同时发送 `Cache-Control: no-cache` 和 `Pragma: no-cache`，所以三平台真实升级成功；这不等于服务器缓存配置已经修好。
 
 ## 自动化与产物校验
 
-- TypeScript：通过。
-- ESLint：通过。
-- Vitest：246 个测试文件通过、2 个跳过；1767 项测试通过、2 项跳过。
-- 生产构建：通过。
-- ASAR：19992 个文件可读，454 个编译文件与生产输出一致。
-- DMG：`hdiutil verify` 通过。
-- macOS arm64 DMG SHA-256：`1ea1222de6c7707d4fd7f3eef4f46f0cfbaf091cc181bf86d6f401620874b168`。
-- macOS arm64 ZIP SHA-256：`9619c7cf69ee6c957266774e2d9468227b04b656fc6496e1cd96113a27b31bc0`（`WorkWise-0.4.0-mac-arm64-p0-p2-final.zip`）。
-- 签名：ad-hoc；未公证，只允许本机候选验收。
+- TypeScript 与 ESLint 通过；Vitest 为 247 个测试文件通过、2 个跳过，1780 项测试通过、2 项跳过。
+- 候选提交的生产构建和打包检查已通过。
+- macOS arm64 候选 ZIP：`WorkWise-0.4.1-mac-arm64.zip`。
+- ZIP SHA-256：`fc93581adb45067a64a46479b06ccf973bf062e7d387d00f7b3e826f640f50a3`；大小 `298290871` 字节。
+- ZIP 的 SHA-512 和大小与 `latest-mac.yml` 一致，压缩包完整性通过。
+- CI 对同一 ZIP 的校验结果为 `valid on disk`、`satisfies its Designated Requirement`、`source=Notarized Developer ID`，`stapler validate` 通过。
+- 本机系统安全评估环境对候选包和已安装 `0.4.0` 返回相同的 Authority unavailable 结果，因此以 CI 公证校验和真实安装更新结果作为签名证据，并保留该本机异常为残余风险。
 
 ## 发布阻断项
 
-1. 用户尚未确认界面、功能和准确正式版本号。
-2. Apple Developer ID 签名、公证和 stapling 尚未用于本轮最终候选。
-3. 真实 `0.4.0 -> 私有 0.4.1 候选` 应用内下载、退出安装、自动重启和数据保留闭环尚未完成。
-4. macOS x64 与 Windows x64 最终候选尚未完成同等安装和截图验收。
-5. 候选包未执行公开发布，不能推广到 stable、官网或 GitHub Release。
+1. 用户尚未确认本轮截图、功能和准确正式版本号，也未明确批准创建标签、GitHub Release、推广 stable 或更新官网。
+2. 更新清单服务器仍返回七天缓存响应头；需要服务器管理员或控制面板权限修复，当前部署账户无权安全修改 Nginx/OpenResty 配置。
+3. macOS x64 与 Windows x64 已完成原生更新闭环，但发布前仍需确认是否接受以自动化安装证据替代两平台人工截图。
+4. 候选分支需在发布前同步最新 `origin/main`，重新执行最终门禁并确认最终产物与本轮已验收应用代码一致。
