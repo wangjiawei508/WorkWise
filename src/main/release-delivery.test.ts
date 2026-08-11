@@ -261,6 +261,7 @@ describe('R2 release delivery gates', () => {
     const repair = readFileSync('scripts/repair-website-cache.mjs', 'utf8')
     expect(repair).toContain('WorkWise updater metadata cache policy')
     expect(repair).toContain('workwise-cache-backup')
+    expect(repair).toContain('*) "$@" ;;')
     expect(repair).toContain('nginx_bin" -t')
     expect(repair).toContain('apply=rolled_back')
     expect(repair).toContain('nginx_bin" -s reload')

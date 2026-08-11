@@ -55,11 +55,11 @@ const REMOTE_SCRIPT = String.raw`set -euo pipefail
 mode="$1"
 
 run_privileged() {
-  if [[ "$(id -u)" == 0 ]]; then
-    "$@"
-  else
-    sudo -n "$@"
-  fi
+  case "$privilege_mode" in
+    root) "$@" ;;
+    sudo) sudo -n "$@" ;;
+    *) "$@" ;;
+  esac
 }
 
 privilege_mode=unavailable
