@@ -951,3 +951,26 @@ jobs:
           if-no-files-found: error
           retention-days: 7
           path: candidate-installers/*
+
+  verify-candidate-macos:
+    name: Verify final candidate on macOS
+    if: ${{ always() && needs.verify-candidate.result == 'success' }}
+    runs-on: macos-26-arm64
+    needs:
+      - prepare
+      - verify-candidate
+    steps:
+      - name: Check out candidate
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          ref: ${{ github.ref }}
+
+      - name: Download final candidate installers
+        uses: actions/download-artifact@v4
+        with:
+          name: candidate-installers-${{ needs.prepare.outputs.version }}-${{ github.run_number }}
+          path: candidate-installers
+
+      - name: Verify final candidate DMGs
+        run: node scripts/verify-mac-release-artifacts.cjs candidate-installers --dmg-only arm64 x64

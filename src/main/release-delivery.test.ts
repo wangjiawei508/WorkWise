@@ -239,6 +239,10 @@ describe('R2 release delivery gates', () => {
     expect(macBuild).toContain('tar -xzf')
     expect(macBuild).toContain('test -L')
     expect(macBuild).toContain('verify-mac-release-artifacts.cjs dist arm64 x64')
+    const finalMacCandidate = release.jobs['verify-candidate-macos']
+    expect(finalMacCandidate['runs-on']).toBe('macos-26-arm64')
+    expect(finalMacCandidate.steps.map((step: any) => step.run || '').join('\n'))
+      .toContain('verify-mac-release-artifacts.cjs candidate-installers --dmg-only arm64 x64')
   })
 
   it('provides an exact-scope cleanup workflow for canceled updater acceptance runs', () => {

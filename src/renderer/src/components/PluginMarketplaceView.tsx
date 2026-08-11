@@ -1413,7 +1413,7 @@ function PackageStatus({ item, installed, server, reviewSha256, text }: {
   reviewSha256?: string
   text: Text
 }): ReactElement {
-  if (hasUpdate(item, installed, reviewSha256)) return <span className="text-[11px] font-semibold text-amber-700 dark:text-amber-300">{permissionExpanded(item, installed, reviewSha256) ? text('pluginUnifiedReviewUpdate', 'Review update') : text('pluginUnifiedUpdateAvailable', 'Update available')}</span>
+  if (hasUpdate(item, installed, reviewSha256)) return <span className="text-[11px] font-semibold text-amber-700 dark:text-amber-300">{permissionExpanded(item, installed, reviewSha256) ? text('pluginUnifiedPermissionsChanged', 'Permissions changed') : text('pluginUnifiedUpdateAvailable', 'Update available')}</span>
   if (needsConfiguration(item, installed, server)) return <span className="text-[11px] font-semibold text-amber-700 dark:text-amber-300">{text('pluginUnifiedNeedsConfig', 'Needs configuration')}</span>
   if (installed || server || isManagedInstalled(item)) return <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-700 dark:text-emerald-300"><CheckCircle2 className="h-3.5 w-3.5" />{text('pluginFilterInstalled', 'Installed')}</span>
   if (item.availability.status === 'unavailable') return <span className="text-[11px] font-medium text-ds-faint">{text('pluginUnifiedUnavailable', 'Unavailable')}</span>
@@ -1485,13 +1485,13 @@ function PluginRow({ entry, installed, server, reviewSha256, busy, text, onSelec
   )
 }
 
-function Drawer({ title, onClose, children }: { title: string; onClose: () => void; children: ReactNode }): ReactElement {
+function Drawer({ title, closeLabel, onClose, children }: { title: string; closeLabel: string; onClose: () => void; children: ReactNode }): ReactElement {
   return (
     <div className="fixed inset-0 z-40 bg-black/20" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose() }}>
       <aside className="absolute inset-y-0 right-0 flex w-full max-w-[480px] flex-col border-l border-ds-border bg-ds-card shadow-2xl">
         <header className="flex h-14 shrink-0 items-center justify-between border-b border-ds-border px-5">
           <h2 className="truncate text-[15px] font-semibold">{title}</h2>
-          <IconButton label="Close" onClick={onClose}><X className="h-4 w-4" /></IconButton>
+          <IconButton label={closeLabel} onClick={onClose}><X className="h-4 w-4" /></IconButton>
         </header>
         <div className="min-h-0 flex-1 overflow-y-auto">{children}</div>
       </aside>
@@ -1517,7 +1517,7 @@ function DetailsDrawer({ entry, source, installed, server, busy, text, onClose, 
 }): ReactElement {
   const item = entry.package
   return (
-    <Drawer title={packageDisplayName(item, text)} onClose={onClose}>
+    <Drawer title={packageDisplayName(item, text)} closeLabel={text('pluginUnifiedClose', 'Close')} onClose={onClose}>
       <div className="px-5 py-5">
         <div className="flex items-start gap-3">
           <PluginIcon item={item} text={text} />
@@ -1606,7 +1606,7 @@ function SourceDrawer({ sources, credentialStatuses, busy, text, workspaceAvaila
   const [credentialToken, setCredentialToken] = useState('')
   const credentialMap = new Map(credentialStatuses.map((status) => [status.sourceId, status]))
   return (
-    <Drawer title={text('pluginUnifiedSources', 'Catalog sources')} onClose={onClose}>
+    <Drawer title={text('pluginUnifiedSources', 'Catalog sources')} closeLabel={text('pluginUnifiedClose', 'Close')} onClose={onClose}>
       <div className="border-b border-ds-border px-5 py-4">
         <button type="button" onClick={() => setAdding((value) => !value)} className="inline-flex h-8 items-center gap-1.5 rounded-md border border-ds-border px-3 text-[11px] font-semibold hover:bg-ds-hover">
           <Plus className="h-3.5 w-3.5" />{text('pluginUnifiedAddSource', 'Add source')}

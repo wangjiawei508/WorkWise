@@ -297,6 +297,7 @@ describe('PluginMarketplaceView unified catalog', () => {
   it('uses main-process install state and isolates update results', async () => {
     expect(container.textContent).toContain('Browser Tools')
     expect(container.textContent).toContain('Document Tools')
+    expect(container.textContent).toContain('Permissions changed')
     expect(container.textContent).toContain('Review update')
 
     await act(async () => iconButton('Filters').click())

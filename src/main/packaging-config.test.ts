@@ -98,6 +98,12 @@ describe('electron-builder WorkWise packaging', () => {
     expect(macReleaseArtifacts._internals.normalizeLipoArchitecture('arm64')).toBe('arm64')
   })
 
+  it('reads versions from internal and reviewed candidate macOS installer names', () => {
+    expect(macReleaseArtifacts._internals.versionFromArtifactName('WorkWise-0.3.6-mac-arm64.dmg')).toBe('0.3.6')
+    expect(macReleaseArtifacts._internals.versionFromArtifactName('WorkWise-0.3.6-mac-Apple-Silicon.dmg')).toBe('0.3.6')
+    expect(macReleaseArtifacts._internals.versionFromArtifactName('WorkWise-0.3.6-mac-Intel.dmg')).toBe('0.3.6')
+  })
+
   it('includes WorkWise Runtime runtime dependencies in the packaged app', () => {
     expect(builderConfig.beforePack).toBe('./scripts/before-pack.cjs')
     expect(builderConfig.buildDependenciesFromSource).toBe(true)

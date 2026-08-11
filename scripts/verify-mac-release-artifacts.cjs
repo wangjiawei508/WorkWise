@@ -6,7 +6,7 @@ const { tmpdir } = require('node:os')
 const { basename, join, resolve } = require('node:path')
 
 function usage() {
-  console.error('Usage: node scripts/verify-mac-release-artifacts.cjs <distDir> <arm64|x64> [<arm64|x64> ...]')
+  console.error('Usage: node scripts/verify-mac-release-artifacts.cjs <distDir> [--dmg-only] <arm64|x64> [<arm64|x64> ...]')
 }
 
 function run(command, args, options = {}) {
@@ -18,7 +18,7 @@ function run(command, args, options = {}) {
 }
 
 function versionFromArtifactName(name) {
-  const match = name.match(/^WorkWise-(.+)-mac-(?:arm64|x64)\.dmg$/)
+  const match = name.match(/^WorkWise-(.+)-mac-(?:arm64|x64|Apple-Silicon|Intel)\.dmg$/)
   if (!match) throw new Error(`Could not resolve version from ${name}.`)
   return match[1]
 }
@@ -96,7 +96,9 @@ function verifyZip(zipPath, expectedArch, expectedVersion) {
 }
 
 function main() {
-  const [distArg, ...architectures] = process.argv.slice(2)
+  const [distArg, ...args] = process.argv.slice(2)
+  const dmgOnly = args[0] === '--dmg-only'
+  const architectures = dmgOnly ? args.slice(1) : args
   if (!distArg || !architectures.length || architectures.some((arch) => !['arm64', 'x64'].includes(arch))) {
     usage()
     process.exitCode = 2
@@ -106,17 +108,20 @@ function main() {
   const distDir = resolve(distArg)
   const entries = readdirSync(distDir)
   for (const arch of architectures) {
-    const dmgCandidates = entries.filter((name) => name.endsWith(`-mac-${arch}.dmg`))
+    const publicArch = arch === 'arm64' ? 'Apple-Silicon' : 'Intel'
+    const dmgCandidates = entries.filter((name) => name.endsWith(`-mac-${arch}.dmg`) ||
+      (dmgOnly && name.endsWith(`-mac-${publicArch}.dmg`)))
     const zipCandidates = entries.filter((name) => name.endsWith(`-mac-${arch}.zip`))
-    if (dmgCandidates.length !== 1 || zipCandidates.length !== 1) {
-      throw new Error(`Expected one DMG and one ZIP for ${arch}; found ${dmgCandidates.length} DMG and ${zipCandidates.length} ZIP.`)
+    if (dmgCandidates.length !== 1 || (!dmgOnly && zipCandidates.length !== 1)) {
+      throw new Error(`Expected one DMG${dmgOnly ? '' : ' and one ZIP'} for ${arch}; found ${dmgCandidates.length} DMG and ${zipCandidates.length} ZIP.`)
     }
 
     const version = versionFromArtifactName(dmgCandidates[0])
+    verifyDmg(join(distDir, dmgCandidates[0]), arch, version)
+    if (dmgOnly) continue
     const zipVersion = versionFromArtifactName(zipCandidates[0].replace(/\.zip$/, '.dmg'))
     if (zipVersion !== version) throw new Error(`DMG and ZIP versions do not match for ${arch}.`)
 
-    verifyDmg(join(distDir, dmgCandidates[0]), arch, version)
     verifyZip(join(distDir, zipCandidates[0]), arch, version)
   }
 }
