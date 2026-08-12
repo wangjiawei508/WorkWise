@@ -62,7 +62,9 @@ function validateDiagnostics(output) {
     'nginx_binary',
     'nginx_config_test',
     'railwise_server_config',
+    'target_server_name_count',
     'workwise_cache_rule_count',
+    'legacy_cache_rule_count',
     'server_7d_cache_directive_count'
   ]
   const missing = required.filter((key) => !diagnostics.has(key))
@@ -259,12 +261,13 @@ if [[ -z "$server_file" ]] || ! server_file_exists "$server_file"; then
   exit 4
 fi
 
-marker='# WorkWise updater metadata cache policy'
+marker='# WorkWise updater metadata cache policy v2 begin'
 rule_count="$(server_run grep -F -c "$marker" "$server_file" || true)"
+legacy_rule_count="$(server_run grep -E -c '^[[:space:]]*# WorkWise updater metadata cache policy[[:space:]]*$' "$server_file" || true)"
 target_server_name_count="$(server_run grep -Ei -c 'server_name[^;]*[[:space:]]www[.]railwise[.]cn([[:space:]]|;)' "$server_file" || true)"
 expires_7d_count="$(server_run grep -E -c 'expires[[:space:]]+\+?7d|max-age[[:space:]]*=[[:space:]]*604800' "$server_file" || true)"
-printf 'nginx_binary=%s\nnginx_config_test=passed\nrailwise_server_config=%s\ntarget_server_name_count=%s\nworkwise_cache_rule_count=%s\nserver_7d_cache_directive_count=%s\n' \
-  "$(basename "$nginx_bin")" "$(basename "$server_file")" "$target_server_name_count" "$rule_count" "$expires_7d_count"
+printf 'nginx_binary=%s\nnginx_config_test=passed\nrailwise_server_config=%s\ntarget_server_name_count=%s\nworkwise_cache_rule_count=%s\nlegacy_cache_rule_count=%s\nserver_7d_cache_directive_count=%s\n' \
+  "$(basename "$nginx_bin")" "$(basename "$server_file")" "$target_server_name_count" "$rule_count" "$legacy_rule_count" "$expires_7d_count"
 
 if [[ "$mode" == inspect ]]; then
   exit 0
@@ -275,7 +278,7 @@ if ! command -v python3 >/dev/null 2>&1; then
   exit 6
 fi
 
-if [[ "$rule_count" != 0 ]]; then
+if [[ "$rule_count" == 1 && "$legacy_rule_count" == 0 ]]; then
   printf '%s\n' 'apply=already_present'
 else
   backup="$server_file.workwise-cache-backup.$(date -u +%Y%m%dT%H%M%SZ)"
@@ -304,44 +307,111 @@ if not server_blocks:
 server_start = server_blocks[-1].start()
 server_open = text.find('{', server_start, server_blocks[-1].end())
 
-depth = 0
-quote = ''
-comment = False
-close = -1
-for index in range(server_open, len(text)):
-    char = text[index]
-    next_char = text[index + 1] if index + 1 < len(text) else ''
-    if comment:
-        if char == '\n': comment = False
-        continue
-    if quote:
-        if char == quote and text[index - 1] != '\\': quote = ''
-        continue
-    if char == '#':
-        comment = True
-    elif char in ("'", '"'):
-        quote = char
-    elif char == '{':
-        depth += 1
-    elif char == '}':
-        depth -= 1
-        if depth == 0:
-            close = index
-            break
-if close < 0:
+def closing_brace(source, opening):
+    depth = 0
+    quote = ''
+    comment = False
+    for index in range(opening, len(source)):
+        char = source[index]
+        if comment:
+            if char == '\n': comment = False
+            continue
+        if quote:
+            if char == quote and source[index - 1] != '\\': quote = ''
+            continue
+        if char == '#':
+            comment = True
+        elif char in ("'", '"'):
+            quote = char
+        elif char == '{':
+            depth += 1
+        elif char == '}':
+            depth -= 1
+            if depth == 0:
+                return index
     raise SystemExit('railwise server block closing brace was not found')
 
+server_close = closing_brace(text, server_open)
+server_body = text[server_open + 1:server_close]
+
+begin_marker = '# WorkWise updater metadata cache policy v2 begin'
+end_marker = '# WorkWise updater metadata cache policy v2 end'
+while begin_marker in server_body:
+    begin = server_body.index(begin_marker)
+    end = server_body.find(end_marker, begin)
+    if end < 0:
+        raise SystemExit('managed cache policy end marker was not found')
+    end = server_body.find('\n', end)
+    server_body = server_body[:begin] + server_body[len(server_body) if end < 0 else end + 1:]
+
+legacy_marker = '# WorkWise updater metadata cache policy'
+while legacy_marker in server_body:
+    marker_index = server_body.index(legacy_marker)
+    location = re.search(r'(?m)^\s*location\b[^\{]*\{', server_body[marker_index:])
+    if location is None:
+        raise SystemExit('legacy managed cache location was not found')
+    location_start = marker_index + location.start()
+    location_end = marker_index + location.end()
+    location_open = server_body.find('{', location_start, location_end)
+    location_close = closing_brace(server_body, location_open)
+    end = server_body.find('\n', location_close)
+    marker_line_start = server_body.rfind('\n', 0, marker_index) + 1
+    server_body = server_body[:marker_line_start] + server_body[len(server_body) if end < 0 else end + 1:]
+
 location = '''
-    # WorkWise updater metadata cache policy
-    location ~ ^/downloads/workwise/(?:acceptance/[0-9]+/)?channels/(?:stable|frontier)/latest/(?:latest\.json|latest(?:-mac)?\.yml)$ {
+    # WorkWise updater metadata cache policy v2 begin
+    location = /downloads/workwise/channels/stable/latest/latest.json {
         expires off;
         add_header Cache-Control "no-cache, no-store, must-revalidate" always;
         add_header Pragma "no-cache" always;
         add_header X-Content-Type-Options "nosniff" always;
         try_files $uri =404;
     }
+    location = /downloads/workwise/channels/stable/latest/latest.yml {
+        expires off;
+        add_header Cache-Control "no-cache, no-store, must-revalidate" always;
+        add_header Pragma "no-cache" always;
+        add_header X-Content-Type-Options "nosniff" always;
+        try_files $uri =404;
+    }
+    location = /downloads/workwise/channels/stable/latest/latest-mac.yml {
+        expires off;
+        add_header Cache-Control "no-cache, no-store, must-revalidate" always;
+        add_header Pragma "no-cache" always;
+        add_header X-Content-Type-Options "nosniff" always;
+        try_files $uri =404;
+    }
+    location = /downloads/workwise/channels/frontier/latest/latest.json {
+        expires off;
+        add_header Cache-Control "no-cache, no-store, must-revalidate" always;
+        add_header Pragma "no-cache" always;
+        add_header X-Content-Type-Options "nosniff" always;
+        try_files $uri =404;
+    }
+    location = /downloads/workwise/channels/frontier/latest/latest.yml {
+        expires off;
+        add_header Cache-Control "no-cache, no-store, must-revalidate" always;
+        add_header Pragma "no-cache" always;
+        add_header X-Content-Type-Options "nosniff" always;
+        try_files $uri =404;
+    }
+    location = /downloads/workwise/channels/frontier/latest/latest-mac.yml {
+        expires off;
+        add_header Cache-Control "no-cache, no-store, must-revalidate" always;
+        add_header Pragma "no-cache" always;
+        add_header X-Content-Type-Options "nosniff" always;
+        try_files $uri =404;
+    }
+    location ^~ /downloads/workwise/acceptance/ {
+        expires off;
+        add_header Cache-Control "no-cache, no-store, must-revalidate" always;
+        add_header Pragma "no-cache" always;
+        add_header X-Content-Type-Options "nosniff" always;
+        try_files $uri =404;
+    }
+    # WorkWise updater metadata cache policy v2 end
 '''
-path.write_text(text[:server_open + 1] + location + text[server_open + 1:])
+path.write_text(text[:server_open + 1] + location + server_body + text[server_close:])
 PY
   server_run cp -p -- "$server_file" "$config_temp"
   server_write_file "$config_temp" <"$edit_file"
