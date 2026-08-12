@@ -162,6 +162,9 @@ printf '%s\n' "$stage"
 const DEPLOY_SCRIPT = String.raw`
 set -euo pipefail
 fail() { printf 'WorkWise product page deploy error: %s\n' "$1" >&2; exit 1; }
+run_privileged() {
+  if [ "$(id -u)" -eq 0 ]; then "$@"; else sudo -n "$@"; fi
+}
 release_root="$1"
 version="$2"
 deploy_id="$3"
@@ -176,11 +179,11 @@ candidate_count=0
 while IFS= read -r candidate; do
   test -n "$candidate" || continue
   root="\${candidate%/products/workwise/index.php}"
-  if [ -f "$root/includes/workwise_product.php" ] && [ -f "$root/data/workwise-product.json" ]; then
+  if run_privileged test -f "$root/includes/workwise_product.php" && run_privileged test -f "$root/data/workwise-product.json"; then
     site_root="$root"
     candidate_count=$((candidate_count + 1))
   fi
-done < <(find "$search_root" -maxdepth 7 -type f -path '*/products/workwise/index.php' -print 2>/dev/null)
+done < <(run_privileged find "$search_root" -maxdepth 7 -type f -path '*/products/workwise/index.php' -print 2>/dev/null)
 [ "$candidate_count" -eq 1 ] || fail "expected one WorkWise site root under $search_root, found $candidate_count"
 case "$site_root" in "$search_root"/*) ;; *) fail 'discovered site root escaped the search boundary' ;; esac
 backup="$site_root/.workwise-product-backups/$deploy_id"
@@ -188,7 +191,7 @@ case "$backup" in "$site_root"/.workwise-product-backups/*) ;; *) exit 64 ;; esa
 
 for relative in $targets; do
   test -s "$stage/$relative" || fail "missing staged file: $relative"
-  test -f "$site_root/$relative" || fail "missing live target: $relative"
+  run_privileged test -f "$site_root/$relative" || fail "missing live target: $relative"
 done
 printf 'Validated staged and live WorkWise website paths.\n'
 printf 'Discovered WorkWise site root from existing targets.\n'
@@ -206,10 +209,10 @@ test -n "$php_bin" || fail 'PHP CLI was not found'
 if grep -R -n -F '0.4.0' "$stage"; then fail 'staged website still contains withdrawn version 0.4.0'; fi
 printf 'Validated PHP syntax, JSON and exact WorkWise version.\n'
 
-install -d -m 700 "$backup/products/workwise" "$backup/includes" "$backup/data" || fail 'could not create backup directory'
+run_privileged install -d -m 700 "$backup/products/workwise" "$backup/includes" "$backup/data" || fail 'could not create backup directory'
 for relative in $targets; do
-  cp -p "$site_root/$relative" "$backup/$relative" || fail "could not back up: $relative"
-  install -m 0644 "$stage/$relative" "$site_root/$relative.workwise-next" || fail "could not stage replacement: $relative"
+  run_privileged cp -p "$site_root/$relative" "$backup/$relative" || fail "could not back up: $relative"
+  run_privileged install -m 0644 "$stage/$relative" "$site_root/$relative.workwise-next" || fail "could not stage replacement: $relative"
 done
 printf 'Created server backup and next-version files.\n'
 
@@ -217,13 +220,13 @@ committed=0
 rollback() {
   if [ "$committed" -eq 0 ]; then
     for relative in $targets; do
-      if [ -f "$backup/$relative" ]; then cp -p "$backup/$relative" "$site_root/$relative"; fi
-      rm -f "$site_root/$relative.workwise-next"
+      if run_privileged test -f "$backup/$relative"; then run_privileged cp -p "$backup/$relative" "$site_root/$relative"; fi
+      run_privileged rm -f "$site_root/$relative.workwise-next"
     done
   fi
 }
 trap rollback EXIT HUP INT TERM
-for relative in $targets; do mv -f "$site_root/$relative.workwise-next" "$site_root/$relative"; done
+for relative in $targets; do run_privileged mv -f "$site_root/$relative.workwise-next" "$site_root/$relative"; done
 committed=1
 trap - EXIT HUP INT TERM
 printf 'Deployed WorkWise product page %s with backup %s\n' "$version" "$backup"
@@ -231,6 +234,9 @@ printf 'Deployed WorkWise product page %s with backup %s\n' "$version" "$backup"
 
 const ROLLBACK_SCRIPT = String.raw`
 set -euo pipefail
+run_privileged() {
+  if [ "$(id -u)" -eq 0 ]; then "$@"; else sudo -n "$@"; fi
+}
 release_root="$1"
 deploy_id="$2"
 case "$release_root" in /*/downloads/workwise) ;; *) exit 64 ;; esac
@@ -241,17 +247,17 @@ candidate_count=0
 while IFS= read -r candidate; do
   test -n "$candidate" || continue
   root="\${candidate%/products/workwise/index.php}"
-  if [ -f "$root/includes/workwise_product.php" ] && [ -f "$root/data/workwise-product.json" ]; then
+  if run_privileged test -f "$root/includes/workwise_product.php" && run_privileged test -f "$root/data/workwise-product.json"; then
     site_root="$root"
     candidate_count=$((candidate_count + 1))
   fi
-done < <(find "$search_root" -maxdepth 7 -type f -path '*/products/workwise/index.php' -print 2>/dev/null)
+done < <(run_privileged find "$search_root" -maxdepth 7 -type f -path '*/products/workwise/index.php' -print 2>/dev/null)
 [ "$candidate_count" -eq 1 ] || exit 65
 case "$site_root" in "$search_root"/*) ;; *) exit 64 ;; esac
 backup="$site_root/.workwise-product-backups/$deploy_id"
 case "$backup" in "$site_root"/.workwise-product-backups/*) ;; *) exit 64 ;; esac
-for relative in $targets; do test -s "$backup/$relative"; done
-for relative in $targets; do cp -p "$backup/$relative" "$site_root/$relative"; done
+for relative in $targets; do run_privileged test -s "$backup/$relative"; done
+for relative in $targets; do run_privileged cp -p "$backup/$relative" "$site_root/$relative"; done
 printf 'Rolled back WorkWise product page from %s\n' "$backup"
 `
 
