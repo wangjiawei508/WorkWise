@@ -33,6 +33,7 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: '22.22.0'
+      - run: npm ci --ignore-scripts
       - name: Prepare pinned website SSH transport
         shell: bash
         env:

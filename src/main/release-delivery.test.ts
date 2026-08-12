@@ -270,6 +270,7 @@ describe('R2 release delivery gates', () => {
     expect(repair).toContain("target_host='www.railwise.cn'")
     expect(repair).toContain('www[.]railwise[.]cn')
     expect(repair).toContain('nginx_candidate_count')
+    expect(repair).toContain('target_server_name_count')
     expect(repair).toContain("target_host in match.group(1).split()")
     expect(repair).toContain('(?:latest\\.json|latest(?:-mac)?\\.yml)')
     expect(repair).not.toContain("target_host = 'railwise.cn'")
@@ -296,6 +297,13 @@ describe('R2 release delivery gates', () => {
     )
     const workflow = readFileSync('.github/workflows/updater-acceptance-e2e.yml', 'utf8')
     expect(workflow).toContain('node scripts/verify-mac-release-artifacts.cjs dist arm64 x64')
+  })
+
+  it('installs verifier dependencies before checking repaired public headers', () => {
+    const repairWorkflow = readFileSync('.github/workflows/repair-website-cache.yml', 'utf8')
+    const releaseWorkflow = readFileSync('.github/workflows/release.yml', 'utf8')
+    expect(repairWorkflow).toContain('npm ci --ignore-scripts')
+    expect(releaseWorkflow).toContain('npm ci --ignore-scripts')
   })
 
   it('requires an exact confirmation before restoring an immutable Stable release', () => {

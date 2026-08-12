@@ -261,9 +261,10 @@ fi
 
 marker='# WorkWise updater metadata cache policy'
 rule_count="$(server_run grep -F -c "$marker" "$server_file" || true)"
+target_server_name_count="$(server_run grep -Ei -c 'server_name[^;]*[[:space:]]www[.]railwise[.]cn([[:space:]]|;)' "$server_file" || true)"
 expires_7d_count="$(server_run grep -E -c 'expires[[:space:]]+\+?7d|max-age[[:space:]]*=[[:space:]]*604800' "$server_file" || true)"
-printf 'nginx_binary=%s\nnginx_config_test=passed\nrailwise_server_config=%s\nworkwise_cache_rule_count=%s\nserver_7d_cache_directive_count=%s\n' \
-  "$(basename "$nginx_bin")" "$(basename "$server_file")" "$rule_count" "$expires_7d_count"
+printf 'nginx_binary=%s\nnginx_config_test=passed\nrailwise_server_config=%s\ntarget_server_name_count=%s\nworkwise_cache_rule_count=%s\nserver_7d_cache_directive_count=%s\n' \
+  "$(basename "$nginx_bin")" "$(basename "$server_file")" "$target_server_name_count" "$rule_count" "$expires_7d_count"
 
 if [[ "$mode" == inspect ]]; then
   exit 0
