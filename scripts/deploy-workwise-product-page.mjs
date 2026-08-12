@@ -162,32 +162,59 @@ printf '%s\n' "$stage"
 const DEPLOY_SCRIPT = String.raw`
 set -euo pipefail
 fail() { printf 'WorkWise product page deploy error: %s\n' "$1" >&2; exit 1; }
-run_privileged() {
-  if [ "$(id -u)" -eq 0 ]; then "$@"; else sudo -n "$@"; fi
-}
-discover_targets() {
-  search_root="$1"
-  page_matches="$(run_privileged find "$search_root" -maxdepth 10 -type f -name '*.php' \
-    -not -path '*/.workwise-product-backups/*' \
-    -exec grep -l -F '$workwiseManifest = rw_workwise_manifest();' {} + 2>/dev/null || true)"
-  include_matches="$(run_privileged find "$search_root" -maxdepth 10 -type f -name 'workwise_product.php' \
-    -not -path '*/.workwise-product-backups/*' \
-    -exec grep -l -F 'function rw_workwise_manifest()' {} + 2>/dev/null || true)"
-  json_matches="$(run_privileged find "$search_root" -maxdepth 10 -type f -name 'workwise-product.json' \
-    -not -path '*/.workwise-product-backups/*' \
-    -exec grep -l -F '"releaseChannel": "stable"' {} + 2>/dev/null || true)"
-  page_count="$(printf '%s\n' "$page_matches" | sed '/^$/d' | wc -l | tr -d ' ')"
-  include_count="$(printf '%s\n' "$include_matches" | sed '/^$/d' | wc -l | tr -d ' ')"
-  json_count="$(printf '%s\n' "$json_matches" | sed '/^$/d' | wc -l | tr -d ' ')"
-  [ "$page_count" -eq 1 ] || fail "expected one live WorkWise page, found $page_count"
-  [ "$include_count" -eq 1 ] || fail "expected one live WorkWise include, found $include_count"
-  [ "$json_count" -eq 1 ] || fail "expected one live WorkWise manifest, found $json_count"
-  page_path="$page_matches"
-  include_path="$include_matches"
-  json_path="$json_matches"
-  for target in "$page_path" "$include_path" "$json_path"; do
-    case "$target" in "$search_root"/*) ;; *) fail 'discovered website target escaped the search boundary' ;; esac
+discover_runtime() {
+  host_www_root='/opt/1panel/1panel/www'
+  container_www_root='/www'
+  case "$release_root" in
+    "$host_www_root"/sites/www.railwise.cn/index/downloads/workwise) ;;
+    *) fail 'website release root is not the approved railwise.cn document root' ;;
+  esac
+
+  site_root='/www/sites/www.railwise.cn/index'
+
+  web_container=''
+  web_count=0
+  for candidate in $(docker ps -q); do
+    image="$(docker inspect --format '{{.Config.Image}}' "$candidate" 2>/dev/null || true)"
+    if case "$image" in 1panel/openresty:*|*/1panel/openresty:*) true ;; *) false ;; esac \
+      && docker inspect --format '{{range .Mounts}}{{println .Source .Destination .RW}}{{end}}' "$candidate" 2>/dev/null \
+        | grep -Fqx "$host_www_root $container_www_root true"; then
+      web_container="$candidate"
+      web_count=$((web_count + 1))
+    fi
   done
+  [ "$web_count" -eq 1 ] || fail "expected one writable railwise.cn web mount, found $web_count"
+
+  php_container=''
+  php_count=0
+  for candidate in $(docker ps -q); do
+    image="$(docker inspect --format '{{.Config.Image}}' "$candidate" 2>/dev/null || true)"
+    case "$image" in
+      1panel-php-fpm:*|*/1panel-php-fpm:*)
+        php_container="$candidate"
+        php_count=$((php_count + 1))
+        ;;
+    esac
+  done
+  [ "$php_count" -eq 1 ] || fail "expected one website PHP runtime, found $php_count"
+
+  page_path="$site_root/products/workwise/index.php"
+  include_path="$site_root/includes/workwise_product.php"
+  json_path="$site_root/data/workwise-product.json"
+}
+container_run() {
+  docker exec -u 0 "$web_container" "$@"
+}
+container_write() {
+  docker exec -i -u 0 "$web_container" tee "$1" >/dev/null
+}
+verify_live_targets() {
+  container_run test -f "$page_path" || fail 'missing live WorkWise product page'
+  container_run test -f "$include_path" || fail 'missing live WorkWise product include'
+  container_run test -f "$json_path" || fail 'missing live WorkWise product manifest'
+  container_run grep -Fq '$workwiseManifest = rw_workwise_manifest();' "$page_path" || fail 'live product page marker was not recognized'
+  container_run grep -Fq 'function rw_workwise_manifest()' "$include_path" || fail 'live product include marker was not recognized'
+  container_run grep -Fq '"releaseChannel": "stable"' "$json_path" || fail 'live product manifest marker was not recognized'
 }
 release_root="$1"
 version="$2"
@@ -196,41 +223,34 @@ case "$release_root" in /*/downloads/workwise) ;; *) exit 64 ;; esac
 stage="/tmp/workwise-product-deploy-$deploy_id/payload"
 case "$stage" in /tmp/workwise-product-deploy-*/payload) ;; *) exit 64 ;; esac
 
-search_root="$(dirname "$(dirname "$(dirname "$release_root")")")"
-discover_targets "$search_root"
-backup="$search_root/.workwise-product-backups/$deploy_id"
-case "$backup" in "$search_root"/.workwise-product-backups/*) ;; *) exit 64 ;; esac
+discover_runtime
+verify_live_targets
+backup="$(dirname "$site_root")/.workwise-product-backups/$deploy_id"
+case "$backup" in /www/sites/www.railwise.cn/.workwise-product-backups/*) ;; *) exit 64 ;; esac
 
 test -s "$stage/products/workwise/index.php" || fail 'missing staged product page'
 test -s "$stage/includes/workwise_product.php" || fail 'missing staged product include'
 test -s "$stage/data/workwise-product.json" || fail 'missing staged product manifest'
 printf 'Validated staged and live WorkWise website paths.\n'
-printf 'Discovered unique WorkWise product targets from stable source markers.\n'
+printf 'Derived the unique WorkWise targets from the approved document root.\n'
 
-php_bin="$(command -v php || true)"
-if [ -z "$php_bin" ]; then
-  for candidate in /www/server/php/*/bin/php; do
-    if [ -x "$candidate" ]; then php_bin="$candidate"; fi
-  done
-fi
-test -n "$php_bin" || fail 'PHP CLI was not found'
-"$php_bin" -l "$stage/products/workwise/index.php" >/dev/null || fail 'product page PHP lint failed'
-"$php_bin" -l "$stage/includes/workwise_product.php" >/dev/null || fail 'product include PHP lint failed'
-"$php_bin" -r '$p=json_decode(file_get_contents($argv[1]), true); if (!is_array($p) || ($p["version"] ?? "") !== $argv[2]) { exit(65); }' "$stage/data/workwise-product.json" "$version" || fail 'product manifest JSON/version validation failed'
+docker exec -i "$php_container" php -l < "$stage/products/workwise/index.php" >/dev/null || fail 'product page PHP lint failed'
+docker exec -i "$php_container" php -l < "$stage/includes/workwise_product.php" >/dev/null || fail 'product include PHP lint failed'
+docker exec -i "$php_container" php -r '$p=json_decode(stream_get_contents(STDIN), true); if (!is_array($p) || ($p["version"] ?? "") !== $argv[1]) { exit(65); }' -- "$version" < "$stage/data/workwise-product.json" || fail 'product manifest JSON/version validation failed'
 if grep -R -n -F '0.4.0' "$stage"; then fail 'staged website still contains withdrawn version 0.4.0'; fi
 printf 'Validated PHP syntax, JSON and exact WorkWise version.\n'
 
-run_privileged install -d -m 700 "$backup" || fail 'could not create backup directory'
-run_privileged cp -p "$page_path" "$backup/product-page.php" || fail 'could not back up product page'
-run_privileged cp -p "$include_path" "$backup/workwise_product.php" || fail 'could not back up product include'
-run_privileged cp -p "$json_path" "$backup/workwise-product.json" || fail 'could not back up product manifest'
+container_run install -d -m 700 "$backup" || fail 'could not create backup directory'
+container_run cp -p "$page_path" "$backup/product-page.php" || fail 'could not back up product page'
+container_run cp -p "$include_path" "$backup/workwise_product.php" || fail 'could not back up product include'
+container_run cp -p "$json_path" "$backup/workwise-product.json" || fail 'could not back up product manifest'
 
 stage_replacement() {
   live="$1"
   source="$2"
   next="$live.workwise-next"
-  run_privileged cp -p "$live" "$next" || fail 'could not create metadata-preserving next file'
-  run_privileged tee "$next" < "$source" >/dev/null || fail 'could not write next file'
+  container_run cp -p "$live" "$next" || fail 'could not create metadata-preserving next file'
+  container_write "$next" < "$source" || fail 'could not write next file'
 }
 stage_replacement "$include_path" "$stage/includes/workwise_product.php"
 stage_replacement "$json_path" "$stage/data/workwise-product.json"
@@ -240,16 +260,16 @@ printf 'Created server backup and next-version files.\n'
 committed=0
 rollback() {
   if [ "$committed" -eq 0 ]; then
-    if run_privileged test -f "$backup/product-page.php"; then run_privileged cp -p "$backup/product-page.php" "$page_path"; fi
-    if run_privileged test -f "$backup/workwise_product.php"; then run_privileged cp -p "$backup/workwise_product.php" "$include_path"; fi
-    if run_privileged test -f "$backup/workwise-product.json"; then run_privileged cp -p "$backup/workwise-product.json" "$json_path"; fi
-    run_privileged rm -f "$page_path.workwise-next" "$include_path.workwise-next" "$json_path.workwise-next"
+    if container_run test -f "$backup/product-page.php"; then container_run cp -p "$backup/product-page.php" "$page_path"; fi
+    if container_run test -f "$backup/workwise_product.php"; then container_run cp -p "$backup/workwise_product.php" "$include_path"; fi
+    if container_run test -f "$backup/workwise-product.json"; then container_run cp -p "$backup/workwise-product.json" "$json_path"; fi
+    container_run rm -f "$page_path.workwise-next" "$include_path.workwise-next" "$json_path.workwise-next"
   fi
 }
 trap rollback EXIT HUP INT TERM
-run_privileged mv -f "$include_path.workwise-next" "$include_path"
-run_privileged mv -f "$json_path.workwise-next" "$json_path"
-run_privileged mv -f "$page_path.workwise-next" "$page_path"
+container_run mv -f "$include_path.workwise-next" "$include_path"
+container_run mv -f "$json_path.workwise-next" "$json_path"
+container_run mv -f "$page_path.workwise-next" "$page_path"
 committed=1
 trap - EXIT HUP INT TERM
 printf 'Deployed WorkWise product page %s with a server-side backup.\n' "$version"
@@ -257,43 +277,46 @@ printf 'Deployed WorkWise product page %s with a server-side backup.\n' "$versio
 
 const ROLLBACK_SCRIPT = String.raw`
 set -euo pipefail
-run_privileged() {
-  if [ "$(id -u)" -eq 0 ]; then "$@"; else sudo -n "$@"; fi
-}
-discover_targets() {
-  search_root="$1"
-  page_matches="$(run_privileged find "$search_root" -maxdepth 10 -type f -name '*.php' \
-    -not -path '*/.workwise-product-backups/*' \
-    -exec grep -l -F '$workwiseManifest = rw_workwise_manifest();' {} + 2>/dev/null || true)"
-  include_matches="$(run_privileged find "$search_root" -maxdepth 10 -type f -name 'workwise_product.php' \
-    -not -path '*/.workwise-product-backups/*' \
-    -exec grep -l -F 'function rw_workwise_manifest()' {} + 2>/dev/null || true)"
-  json_matches="$(run_privileged find "$search_root" -maxdepth 10 -type f -name 'workwise-product.json' \
-    -not -path '*/.workwise-product-backups/*' \
-    -exec grep -l -F '"releaseChannel": "stable"' {} + 2>/dev/null || true)"
-  [ "$(printf '%s\n' "$page_matches" | sed '/^$/d' | wc -l | tr -d ' ')" -eq 1 ] || exit 65
-  [ "$(printf '%s\n' "$include_matches" | sed '/^$/d' | wc -l | tr -d ' ')" -eq 1 ] || exit 65
-  [ "$(printf '%s\n' "$json_matches" | sed '/^$/d' | wc -l | tr -d ' ')" -eq 1 ] || exit 65
-  page_path="$page_matches"
-  include_path="$include_matches"
-  json_path="$json_matches"
-  for target in "$page_path" "$include_path" "$json_path"; do
-    case "$target" in "$search_root"/*) ;; *) exit 64 ;; esac
+fail() { printf 'WorkWise product page rollback error: %s\n' "$1" >&2; exit 1; }
+discover_web_container() {
+  host_www_root='/opt/1panel/1panel/www'
+  container_www_root='/www'
+  case "$release_root" in
+    "$host_www_root"/sites/www.railwise.cn/index/downloads/workwise) ;;
+    *) fail 'website release root is not the approved railwise.cn document root' ;;
+  esac
+  web_container=''
+  web_count=0
+  for candidate in $(docker ps -q); do
+    image="$(docker inspect --format '{{.Config.Image}}' "$candidate" 2>/dev/null || true)"
+    if case "$image" in 1panel/openresty:*|*/1panel/openresty:*) true ;; *) false ;; esac \
+      && docker inspect --format '{{range .Mounts}}{{println .Source .Destination .RW}}{{end}}' "$candidate" 2>/dev/null \
+        | grep -Fqx "$host_www_root $container_www_root true"; then
+      web_container="$candidate"
+      web_count=$((web_count + 1))
+    fi
   done
+  [ "$web_count" -eq 1 ] || fail "expected one writable railwise.cn web mount, found $web_count"
+}
+container_run() {
+  docker exec -u 0 "$web_container" "$@"
 }
 release_root="$1"
 deploy_id="$2"
 case "$release_root" in /*/downloads/workwise) ;; *) exit 64 ;; esac
-search_root="$(dirname "$(dirname "$(dirname "$release_root")")")"
-discover_targets "$search_root"
-backup="$search_root/.workwise-product-backups/$deploy_id"
-case "$backup" in "$search_root"/.workwise-product-backups/*) ;; *) exit 64 ;; esac
-run_privileged test -s "$backup/product-page.php"
-run_privileged test -s "$backup/workwise_product.php"
-run_privileged test -s "$backup/workwise-product.json"
-run_privileged cp -p "$backup/product-page.php" "$page_path"
-run_privileged cp -p "$backup/workwise_product.php" "$include_path"
-run_privileged cp -p "$backup/workwise-product.json" "$json_path"
+discover_web_container
+site_root='/www/sites/www.railwise.cn/index'
+page_path="$site_root/products/workwise/index.php"
+include_path="$site_root/includes/workwise_product.php"
+json_path="$site_root/data/workwise-product.json"
+backup='/www/sites/www.railwise.cn/.workwise-product-backups/'"$deploy_id"
+case "$backup" in /www/sites/www.railwise.cn/.workwise-product-backups/*) ;; *) exit 64 ;; esac
+container_run test -s "$backup/product-page.php"
+container_run test -s "$backup/workwise_product.php"
+container_run test -s "$backup/workwise-product.json"
+container_run cp -p "$backup/product-page.php" "$page_path"
+container_run cp -p "$backup/workwise_product.php" "$include_path"
+container_run cp -p "$backup/workwise-product.json" "$json_path"
 printf 'Rolled back WorkWise product page from the server-side backup.\n'
 `
 
