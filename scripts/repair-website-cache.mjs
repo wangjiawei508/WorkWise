@@ -71,7 +71,7 @@ fi
 
 nginx_bin=""
 if command -v ps >/dev/null 2>&1; then
-  candidate="$(ps -eo args= | awk '$0 ~ /(nginx|openresty):[[:space:]]+master[[:space:]]+process/ { for (i = 1; i <= NF; i++) if ($i ~ /^\/.+\/(nginx|openresty)$/) { print $i; exit } }')"
+  candidate="$(ps -eo args= | awk '{ for (i = 1; i <= NF; i++) if ($i ~ /^\/.+\/(nginx|openresty)$/) { print $i; exit } }')"
   if [[ -n "$candidate" && -x "$candidate" ]]; then
     nginx_bin="$candidate"
   fi
@@ -92,7 +92,10 @@ for candidate in \
   /usr/sbin/nginx /usr/local/sbin/nginx /usr/local/nginx/sbin/nginx \
   /usr/local/openresty/bin/openresty /usr/local/openresty/nginx/sbin/nginx \
   /opt/openresty/bin/openresty /opt/openresty/nginx/sbin/nginx \
-  /opt/nginx/sbin/nginx /www/server/nginx/sbin/nginx; do
+  /opt/nginx/sbin/nginx /www/server/nginx/sbin/nginx \
+  /opt/1panel/apps/openresty/openresty/bin/openresty \
+  /opt/1panel/apps/openresty/openresty/nginx/sbin/nginx \
+  /opt/1panel/apps/nginx/nginx/sbin/nginx; do
   [[ -n "$nginx_bin" ]] && break
   if [[ "$candidate" == */* ]]; then
     if [[ -x "$candidate" ]] || run_privileged test -x "$candidate" 2>/dev/null; then
@@ -107,6 +110,41 @@ for candidate in \
     fi
   fi
 done
+
+nginx_container=""
+container_user_flag=""
+if [[ -z "$nginx_bin" ]] && command -v docker >/dev/null 2>&1; then
+  while IFS= read -r container; do
+    [[ -n "$container" ]] || continue
+    for process_name in nginx openresty; do
+      candidate="$(docker exec -u 0 "$container" sh -c "command -v $process_name" 2>/dev/null || true)"
+      if [[ -z "$candidate" ]]; then
+        candidate="$(docker exec "$container" sh -c "command -v $process_name" 2>/dev/null || true)"
+        [[ -n "$candidate" ]] || continue
+      else
+        container_user_flag='-u 0'
+      fi
+      if docker exec $container_user_flag "$container" "$candidate" -t >/dev/null 2>&1; then
+        nginx_container="$container"
+        nginx_bin="$candidate"
+        break 2
+      fi
+    done
+  done < <(docker ps --format '{{.Names}}' 2>/dev/null || true)
+fi
+
+server_run() {
+  if [[ -n "$nginx_container" ]]; then
+    docker exec $container_user_flag -i "$nginx_container" "$@"
+  else
+    run_privileged "$@"
+  fi
+}
+
+server_file_exists() {
+  server_run test -f "$1" 2>/dev/null
+}
+
 if [[ -z "$nginx_bin" ]]; then
   printf '%s\n' 'nginx_binary=missing'
   printf 'privilege_mode=%s\n' "$privilege_mode"
@@ -114,6 +152,8 @@ if [[ -z "$nginx_bin" ]]; then
     printf 'server_processes='
     ps -eo comm= | awk '/^(nginx|openresty|caddy|httpd|apache2|traefik)$/ { print }' | sort -u | paste -sd, -
     printf '\n'
+    printf 'server_process_args=\n'
+    ps -eo args= | awk '/(nginx|openresty)/ { print }' | head -20
   fi
   if command -v systemctl >/dev/null 2>&1; then
     printf 'running_web_units='
@@ -127,7 +167,7 @@ fi
 
 dump="$(mktemp)"
 trap 'rm -f -- "$dump"' EXIT
-if ! run_privileged "$nginx_bin" -T >"$dump" 2>&1; then
+if ! server_run "$nginx_bin" -T >"$dump" 2>&1; then
   printf 'nginx_binary=%s\nnginx_config_test=failed\n' "$(basename "$nginx_bin")"
   exit 3
 fi
@@ -146,14 +186,14 @@ for raw in pathlib.Path(sys.argv[1]).read_text(errors='replace').splitlines():
         break
 PY
 )"
-if [[ -z "$server_file" || ! -f "$server_file" ]]; then
+if [[ -z "$server_file" ]] || ! server_file_exists "$server_file"; then
   printf 'nginx_binary=%s\nnginx_config_test=passed\nrailwise_server_config=missing\n' "$(basename "$nginx_bin")"
   exit 4
 fi
 
 marker='# WorkWise updater metadata cache policy'
-rule_count="$(run_privileged grep -F -c "$marker" "$server_file" || true)"
-expires_7d_count="$(run_privileged grep -E -c 'expires[[:space:]]+\\+?7d|max-age[[:space:]]*=[[:space:]]*604800' "$server_file" || true)"
+rule_count="$(server_run grep -F -c "$marker" "$server_file" || true)"
+expires_7d_count="$(server_run grep -E -c 'expires[[:space:]]+\\+?7d|max-age[[:space:]]*=[[:space:]]*604800' "$server_file" || true)"
 printf 'nginx_binary=%s\nnginx_config_test=passed\nrailwise_server_config=%s\nworkwise_cache_rule_count=%s\nserver_7d_cache_directive_count=%s\n' \
   "$(basename "$nginx_bin")" "$(basename "$server_file")" "$rule_count" "$expires_7d_count"
 
@@ -165,8 +205,8 @@ if [[ "$rule_count" != 0 ]]; then
   printf '%s\n' 'apply=already_present'
 else
   backup="\${server_file}.workwise-cache-backup.$(date -u +%Y%m%dT%H%M%SZ)"
-  run_privileged cp -p -- "$server_file" "$backup"
-  run_privileged python3 - "$server_file" <<'PY'
+  server_run cp -p -- "$server_file" "$backup"
+  server_run python3 - "$server_file" <<'PY'
 import pathlib
 import re
 import sys
@@ -220,13 +260,13 @@ location = '''
 '''
 path.write_text(text[:close] + location + text[close:])
 PY
-  if ! run_privileged "$nginx_bin" -t; then
-    run_privileged cp -p -- "$backup" "$server_file"
-    run_privileged "$nginx_bin" -t
+  if ! server_run "$nginx_bin" -t; then
+    server_run cp -p -- "$backup" "$server_file"
+    server_run "$nginx_bin" -t
     printf 'apply=rolled_back\nbackup=%s\n' "$(basename "$backup")"
     exit 5
   fi
-  run_privileged "$nginx_bin" -s reload
+  server_run "$nginx_bin" -s reload
   printf 'apply=applied\nbackup=%s\n' "$(basename "$backup")"
 fi
 `
