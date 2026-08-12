@@ -260,6 +260,9 @@ describe('R2 release delivery gates', () => {
   it('keeps website cache repair scoped, backed up, and validated before reload', () => {
     const repair = readFileSync('scripts/repair-website-cache.mjs', 'utf8')
     expect(repair).toContain('WorkWise updater metadata cache policy')
+    expect(repair).toContain('validateDiagnostics')
+    expect(repair).toContain('Remote cache inspection returned incomplete diagnostics')
+    expect(repair).toContain('apply=blocked_missing_python3')
     expect(repair).toContain('workwise-cache-backup')
     expect(repair).toContain('*) "$@" ;;')
     expect(repair).toContain('nginx_bin" -t')

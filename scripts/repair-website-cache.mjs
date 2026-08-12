@@ -51,6 +51,36 @@ function runRemote(config) {
   )
 }
 
+function validateDiagnostics(output) {
+  const diagnostics = new Map()
+  for (const line of String(output).split(/\r?\n/)) {
+    const separator = line.indexOf('=')
+    if (separator <= 0) continue
+    diagnostics.set(line.slice(0, separator), line.slice(separator + 1))
+  }
+  const required = [
+    'nginx_binary',
+    'nginx_config_test',
+    'railwise_server_config',
+    'workwise_cache_rule_count',
+    'server_7d_cache_directive_count'
+  ]
+  const missing = required.filter((key) => !diagnostics.has(key))
+  if (missing.length) {
+    throw new Error(`Remote cache inspection returned incomplete diagnostics: ${missing.join(', ')}`)
+  }
+  if (diagnostics.get('nginx_binary') === 'missing') {
+    throw new Error('Remote cache inspection did not locate nginx or OpenResty.')
+  }
+  if (diagnostics.get('nginx_config_test') !== 'passed') {
+    throw new Error('Remote nginx/OpenResty configuration test did not pass.')
+  }
+  if (diagnostics.get('railwise_server_config') === 'missing') {
+    throw new Error('Remote cache inspection did not locate the railwise.cn server configuration.')
+  }
+  return output
+}
+
 const REMOTE_SCRIPT = String.raw`set -euo pipefail
 mode="$1"
 
@@ -201,6 +231,11 @@ if [[ "$mode" == inspect ]]; then
   exit 0
 fi
 
+if ! server_run python3 --version >/dev/null 2>&1; then
+  printf '%s\n' 'apply=blocked_missing_python3'
+  exit 6
+fi
+
 if [[ "$rule_count" != 0 ]]; then
   printf '%s\n' 'apply=already_present'
 else
@@ -271,4 +306,5 @@ PY
 fi
 `
 
-process.stdout.write(runRemote(readSshConfig()))
+const diagnostics = validateDiagnostics(runRemote(readSshConfig()))
+process.stdout.write(`[repair-website-cache] validated remote diagnostics\n${diagnostics}`)
