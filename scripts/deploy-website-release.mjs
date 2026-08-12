@@ -868,10 +868,23 @@ function assertMetadataCacheHeaders(headers, name) {
   }
   if (!headers.get('etag')) throw new Error(`Public update metadata is missing ETag: ${name}`)
   if (!headers.get('last-modified')) throw new Error(`Public update metadata is missing Last-Modified: ${name}`)
-  if (!/bytes/i.test(headers.get('accept-ranges') || '')) {
-    throw new Error(`Public update metadata is missing byte-range support: ${name}`)
-  }
   return cacheControl
+}
+
+async function verifyMetadataRange(url, name) {
+  const response = await fetch(url, {
+    headers: { Range: 'bytes=0-0', 'Cache-Control': 'no-cache' },
+    redirect: 'follow',
+    cache: 'no-store'
+  })
+  const contentRange = response.headers.get('content-range') || ''
+  if (response.status !== 206 || !/^bytes 0-0\/[1-9]\d*$/i.test(contentRange)) {
+    throw new Error(`Public update metadata Range verification failed ${response.status}: ${name} (${contentRange || 'missing Content-Range'})`)
+  }
+  const body = await response.arrayBuffer()
+  if (body.byteLength !== 1) {
+    throw new Error(`Public update metadata Range response must contain one byte: ${name}`)
+  }
 }
 
 async function verifyMetadataCacheAt(urlBase) {
@@ -881,6 +894,7 @@ async function verifyMetadataCacheAt(urlBase) {
     const response = await fetch(metadataUrl, { method: 'HEAD', redirect: 'follow', cache: 'no-store' })
     if (!response.ok) throw new Error(`Public update metadata failed ${response.status}: ${name}`)
     const cacheControl = assertMetadataCacheHeaders(response.headers, name)
+    await verifyMetadataRange(metadataUrl, name)
     console.log(`Verified update metadata headers: ${name} (${cacheControl})`)
   }
 }
@@ -924,6 +938,7 @@ export const _internals = {
   normalizeDeployId,
   normalizeTransport,
   assertMetadataCacheHeaders,
+  verifyMetadataRange,
   normalizeReleasePrefix,
   r2StagingPrefix,
   normalizeWebsiteRoot,

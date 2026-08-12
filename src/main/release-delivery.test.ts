@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { readFileSync } from 'node:fs'
 import YAML from 'yaml'
 // The R2 publisher is an executable ESM module that also exposes side-effect-free
@@ -130,6 +130,36 @@ describe('R2 release delivery gates', () => {
     staleExpires.set('expires', 'Mon, 17 Aug 2026 09:00:00 GMT')
     expect(() => websiteDelivery.assertMetadataCacheHeaders(staleExpires, 'latest-mac.yml'))
       .toThrow(/Expires is too long/)
+  })
+
+  it('verifies metadata byte ranges with an actual one-byte GET', async () => {
+    const originalFetch = globalThis.fetch
+    const fetchMock = vi.fn(async () => new Response(new Uint8Array([123]), {
+      status: 206,
+      headers: { 'Content-Range': 'bytes 0-0/2168' }
+    }))
+    globalThis.fetch = fetchMock as typeof fetch
+    try {
+      await websiteDelivery.verifyMetadataRange(new URL('https://example.com/latest.json'), 'latest.json')
+      expect(fetchMock).toHaveBeenCalledWith(expect.any(URL), expect.objectContaining({
+        headers: { Range: 'bytes=0-0', 'Cache-Control': 'no-cache' }
+      }))
+    } finally {
+      globalThis.fetch = originalFetch
+    }
+  })
+
+  it('rejects metadata Range responses that do not prove one-byte support', async () => {
+    const originalFetch = globalThis.fetch
+    globalThis.fetch = vi.fn(async () => new Response('full body', { status: 200 })) as typeof fetch
+    try {
+      await expect(websiteDelivery.verifyMetadataRange(
+        new URL('https://example.com/latest.yml'),
+        'latest.yml'
+      )).rejects.toThrow('Range verification failed 200')
+    } finally {
+      globalThis.fetch = originalFetch
+    }
   })
 
   it('parses updater metadata with SHA-512 and blockmap fields', () => {
