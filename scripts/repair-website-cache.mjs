@@ -165,6 +165,14 @@ fi
 
 server_run() {
   if [[ -n "$nginx_container" ]]; then
+    docker exec $container_user_flag "$nginx_container" "$@"
+  else
+    run_privileged "$@"
+  fi
+}
+
+server_run_with_stdin() {
+  if [[ -n "$nginx_container" ]]; then
     docker exec $container_user_flag -i "$nginx_container" "$@"
   else
     run_privileged "$@"
@@ -241,7 +249,7 @@ if [[ "$rule_count" != 0 ]]; then
 else
   backup="\${server_file}.workwise-cache-backup.$(date -u +%Y%m%dT%H%M%SZ)"
   server_run cp -p -- "$server_file" "$backup"
-  server_run python3 - "$server_file" <<'PY'
+  server_run_with_stdin python3 - "$server_file" <<'PY'
 import pathlib
 import re
 import sys
