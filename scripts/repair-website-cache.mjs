@@ -83,6 +83,7 @@ function validateDiagnostics(output) {
 
 const REMOTE_SCRIPT = String.raw`set -euo pipefail
 mode="$1"
+target_host='www.railwise.cn'
 
 run_privileged() {
   case "$privilege_mode" in
@@ -111,7 +112,8 @@ host_candidate_matches() {
     return 1
   fi
   ((nginx_candidate_count += 1))
-  run_privileged "$candidate" -T 2>&1 | grep -Eiq 'server_name[^;]*railwise\.cn'
+  run_privileged "$candidate" -T 2>&1 \
+    | grep -Eiq 'server_name[^;]*[[:space:]]www[.]railwise[.]cn([[:space:]]|;)'
 }
 
 if command -v ps >/dev/null 2>&1; then
@@ -177,7 +179,7 @@ if [[ -z "$nginx_bin" ]] && command -v docker >/dev/null 2>&1; then
         continue
       fi
       if docker exec $candidate_user_flag "$container" "$candidate" -T 2>&1 \
-        | grep -Eiq 'server_name[^;]*railwise\.cn'; then
+        | grep -Eiq 'server_name[^;]*[[:space:]]www[.]railwise[.]cn([[:space:]]|;)'; then
         nginx_container="$container"
         nginx_bin="$candidate"
         container_user_flag="$candidate_user_flag"
@@ -240,11 +242,13 @@ import pathlib
 import re
 import sys
 
+target_host = 'www.railwise.cn'
 current = ''
 for raw in pathlib.Path(sys.argv[1]).read_text(errors='replace').splitlines():
     if raw.startswith('# configuration file '):
         current = raw.removeprefix('# configuration file ').removesuffix(':').strip()
-    if current and re.search(r'\bserver_name\b[^;]*\brailwise\.cn\b', raw, re.I):
+    match = re.search(r'\bserver_name\b([^;]*);', raw, re.I)
+    if current and match and target_host in match.group(1).split():
         print(current)
         break
 PY
@@ -281,9 +285,13 @@ import sys
 
 path = pathlib.Path(sys.argv[1])
 text = path.read_text()
-server_name = re.search(r'(?m)^\s*server_name\b[^;]*\brailwise\.cn\b[^;]*;', text, re.I)
-if not server_name:
-    raise SystemExit('railwise server_name was not found in the selected config')
+target_host = 'www.railwise.cn'
+server_name = next((
+    match for match in re.finditer(r'(?m)^\s*server_name\b([^;]*);', text, re.I)
+    if target_host in match.group(1).split()
+), None)
+if server_name is None:
+    raise SystemExit('www.railwise.cn server_name was not found in the selected config')
 server_start = text.rfind('server', 0, server_name.start())
 server_open = text.find('{', server_start, server_name.start())
 if server_start < 0 or server_open < 0:
