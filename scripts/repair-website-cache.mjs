@@ -100,17 +100,33 @@ elif sudo -n true 2>/dev/null; then
 fi
 
 nginx_bin=""
-if command -v ps >/dev/null 2>&1; then
-  candidate="$(ps -eo args= | awk '{ for (i = 1; i <= NF; i++) if ($i ~ /^\/.+\/(nginx|openresty)$/) { print $i; exit } }')"
-  if [[ -n "$candidate" && -x "$candidate" ]]; then
-    nginx_bin="$candidate"
+nginx_candidate_count=0
+host_candidate_matches() {
+  local candidate="$1"
+  [[ -n "$candidate" ]] || return 1
+  if ! { [[ -x "$candidate" ]] || run_privileged test -x "$candidate" 2>/dev/null; }; then
+    return 1
   fi
+  if ! run_privileged "$candidate" -t >/dev/null 2>&1; then
+    return 1
+  fi
+  ((nginx_candidate_count += 1))
+  run_privileged "$candidate" -T 2>&1 | grep -Eiq 'server_name[^;]*railwise\.cn'
+}
+
+if command -v ps >/dev/null 2>&1; then
+  while IFS= read -r candidate; do
+    if host_candidate_matches "$candidate"; then
+      nginx_bin="$candidate"
+      break
+    fi
+  done < <(ps -eo args= | awk '{ for (i = 1; i <= NF; i++) if ($i ~ /^\/.+\/(nginx|openresty)$/) print $i }' | sort -u)
 fi
-if command -v pgrep >/dev/null 2>&1 && command -v readlink >/dev/null 2>&1; then
+if [[ -z "$nginx_bin" ]] && command -v pgrep >/dev/null 2>&1 && command -v readlink >/dev/null 2>&1; then
   for process_name in nginx openresty; do
     while IFS= read -r pid; do
       candidate="$(run_privileged readlink -f "/proc/$pid/exe" 2>/dev/null || true)"
-      if [[ -n "$candidate" && -x "$candidate" ]]; then
+      if host_candidate_matches "$candidate"; then
         nginx_bin="$candidate"
         break 2
       fi
@@ -128,13 +144,13 @@ for candidate in \
   /opt/1panel/apps/nginx/nginx/sbin/nginx; do
   [[ -n "$nginx_bin" ]] && break
   if [[ "$candidate" == */* ]]; then
-    if [[ -x "$candidate" ]] || run_privileged test -x "$candidate" 2>/dev/null; then
+    if host_candidate_matches "$candidate"; then
       nginx_bin="$candidate"
       break
     fi
   else
     resolved="$(command -v "$candidate" || true)"
-    if [[ -n "$resolved" && -x "$resolved" ]]; then
+    if host_candidate_matches "$resolved"; then
       nginx_bin="$resolved"
       break
     fi
@@ -147,16 +163,24 @@ if [[ -z "$nginx_bin" ]] && command -v docker >/dev/null 2>&1; then
   while IFS= read -r container; do
     [[ -n "$container" ]] || continue
     for process_name in nginx openresty; do
+      candidate_user_flag=""
       candidate="$(docker exec -u 0 "$container" sh -c "command -v $process_name" 2>/dev/null || true)"
       if [[ -z "$candidate" ]]; then
         candidate="$(docker exec "$container" sh -c "command -v $process_name" 2>/dev/null || true)"
         [[ -n "$candidate" ]] || continue
       else
-        container_user_flag='-u 0'
+        candidate_user_flag='-u 0'
       fi
-      if docker exec $container_user_flag "$container" "$candidate" -t >/dev/null 2>&1; then
+      if docker exec $candidate_user_flag "$container" "$candidate" -t >/dev/null 2>&1; then
+        ((nginx_candidate_count += 1))
+      else
+        continue
+      fi
+      if docker exec $candidate_user_flag "$container" "$candidate" -T 2>&1 \
+        | grep -Eiq 'server_name[^;]*railwise\.cn'; then
         nginx_container="$container"
         nginx_bin="$candidate"
+        container_user_flag="$candidate_user_flag"
         break 2
       fi
     done
@@ -186,6 +210,7 @@ server_file_exists() {
 if [[ -z "$nginx_bin" ]]; then
   printf '%s\n' 'nginx_binary=missing'
   printf 'privilege_mode=%s\n' "$privilege_mode"
+  printf 'nginx_candidate_count=%s\n' "$nginx_candidate_count"
   if command -v ps >/dev/null 2>&1; then
     printf 'server_processes='
     ps -eo comm= | awk '/^(nginx|openresty|caddy|httpd|apache2|traefik)$/ { print }' | sort -u | paste -sd, -
@@ -219,7 +244,7 @@ current = ''
 for raw in pathlib.Path(sys.argv[1]).read_text(errors='replace').splitlines():
     if raw.startswith('# configuration file '):
         current = raw.removeprefix('# configuration file ').removesuffix(':').strip()
-    if current and re.search(r'\\bserver_name\\b[^;]*\\brailwise\\.cn\\b', raw, re.I):
+    if current and re.search(r'\bserver_name\b[^;]*\brailwise\.cn\b', raw, re.I):
         print(current)
         break
 PY
@@ -231,7 +256,7 @@ fi
 
 marker='# WorkWise updater metadata cache policy'
 rule_count="$(server_run grep -F -c "$marker" "$server_file" || true)"
-expires_7d_count="$(server_run grep -E -c 'expires[[:space:]]+\\+?7d|max-age[[:space:]]*=[[:space:]]*604800' "$server_file" || true)"
+expires_7d_count="$(server_run grep -E -c 'expires[[:space:]]+\+?7d|max-age[[:space:]]*=[[:space:]]*604800' "$server_file" || true)"
 printf 'nginx_binary=%s\nnginx_config_test=passed\nrailwise_server_config=%s\nworkwise_cache_rule_count=%s\nserver_7d_cache_directive_count=%s\n' \
   "$(basename "$nginx_bin")" "$(basename "$server_file")" "$rule_count" "$expires_7d_count"
 
@@ -247,7 +272,7 @@ fi
 if [[ "$rule_count" != 0 ]]; then
   printf '%s\n' 'apply=already_present'
 else
-  backup="\${server_file}.workwise-cache-backup.$(date -u +%Y%m%dT%H%M%SZ)"
+  backup="$server_file.workwise-cache-backup.$(date -u +%Y%m%dT%H%M%SZ)"
   server_run cp -p -- "$server_file" "$backup"
   server_run_with_stdin python3 - "$server_file" <<'PY'
 import pathlib
@@ -256,7 +281,7 @@ import sys
 
 path = pathlib.Path(sys.argv[1])
 text = path.read_text()
-server_name = re.search(r'(?m)^\\s*server_name\\b[^;]*\\brailwise\\.cn\\b[^;]*;', text, re.I)
+server_name = re.search(r'(?m)^\s*server_name\b[^;]*\brailwise\.cn\b[^;]*;', text, re.I)
 if not server_name:
     raise SystemExit('railwise server_name was not found in the selected config')
 server_start = text.rfind('server', 0, server_name.start())
@@ -272,14 +297,14 @@ for index in range(server_open, len(text)):
     char = text[index]
     next_char = text[index + 1] if index + 1 < len(text) else ''
     if comment:
-        if char == '\\n': comment = False
+        if char == '\n': comment = False
         continue
     if quote:
-        if char == quote and text[index - 1] != '\\\\': quote = ''
+        if char == quote and text[index - 1] != '\\': quote = ''
         continue
     if char == '#':
         comment = True
-    elif char in "'\\\"":
+    elif char in ("'", '"'):
         quote = char
     elif char == '{':
         depth += 1
@@ -293,7 +318,7 @@ if close < 0:
 
 location = '''
     # WorkWise updater metadata cache policy
-    location ~ ^/downloads/workwise/(?:acceptance/[0-9]+/)?channels/(?:stable|frontier)/latest/(?:latest\\.json|latest(?:-mac)?\\.yml)$ {
+    location ~ ^/downloads/workwise/(?:acceptance/[0-9]+/)?channels/(?:stable|frontier)/latest/(?:latest\.json|latest(?:-mac)?\.yml)$ {
         expires off;
         add_header Cache-Control "no-cache, no-store, must-revalidate" always;
         add_header Pragma "no-cache" always;
