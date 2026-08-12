@@ -197,11 +197,12 @@ server_run() {
   fi
 }
 
-server_run_with_stdin() {
+server_write_file() {
+  local destination="$1"
   if [[ -n "$nginx_container" ]]; then
-    docker exec $container_user_flag -i "$nginx_container" "$@"
+    docker exec $container_user_flag -i "$nginx_container" tee "$destination" >/dev/null
   else
-    run_privileged "$@"
+    run_privileged tee "$destination" >/dev/null
   fi
 }
 
@@ -268,7 +269,7 @@ if [[ "$mode" == inspect ]]; then
   exit 0
 fi
 
-if ! server_run python3 --version >/dev/null 2>&1; then
+if ! command -v python3 >/dev/null 2>&1; then
   printf '%s\n' 'apply=blocked_missing_python3'
   exit 6
 fi
@@ -277,8 +278,12 @@ if [[ "$rule_count" != 0 ]]; then
   printf '%s\n' 'apply=already_present'
 else
   backup="$server_file.workwise-cache-backup.$(date -u +%Y%m%dT%H%M%SZ)"
+  config_temp="$server_file.workwise-cache-edit.$$"
+  edit_file="$(mktemp)"
+  trap 'rm -f -- "$dump" "$edit_file"' EXIT
   server_run cp -p -- "$server_file" "$backup"
-  server_run_with_stdin python3 - "$server_file" <<'PY'
+  server_run cat "$server_file" >"$edit_file"
+  python3 - "$edit_file" <<'PY'
 import pathlib
 import re
 import sys
@@ -337,13 +342,22 @@ location = '''
 '''
 path.write_text(text[:server_open + 1] + location + text[server_open + 1:])
 PY
+  server_run cp -p -- "$server_file" "$config_temp"
+  server_write_file "$config_temp" <"$edit_file"
+  server_run mv -f -- "$config_temp" "$server_file"
   if ! server_run "$nginx_bin" -t; then
     server_run cp -p -- "$backup" "$server_file"
     server_run "$nginx_bin" -t
     printf 'apply=rolled_back\nbackup=%s\n' "$(basename "$backup")"
     exit 5
   fi
-  server_run "$nginx_bin" -s reload
+  if ! server_run "$nginx_bin" -s reload; then
+    server_run cp -p -- "$backup" "$server_file"
+    server_run "$nginx_bin" -t
+    server_run "$nginx_bin" -s reload
+    printf 'apply=rolled_back_reload_failed\nbackup=%s\n' "$(basename "$backup")"
+    exit 7
+  fi
   printf 'apply=applied\nbackup=%s\n' "$(basename "$backup")"
 fi
 `
