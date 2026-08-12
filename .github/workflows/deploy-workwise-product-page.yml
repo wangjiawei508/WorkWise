@@ -61,7 +61,7 @@ jobs:
           REQUESTED_VERSION: ${{ inputs.version }}
         run: |
           set -euo pipefail
-          actual="$(curl --fail --silent --show-error --no-cache https://www.railwise.cn/downloads/workwise/channels/stable/latest/latest.json | node -e 'let s="";process.stdin.on("data",c=>s+=c).on("end",()=>process.stdout.write(JSON.parse(s).version))')"
+          actual="$(curl --fail --silent --show-error --header 'Cache-Control: no-cache' https://www.railwise.cn/downloads/workwise/channels/stable/latest/latest.json | node -e 'let s="";process.stdin.on("data",c=>s+=c).on("end",()=>process.stdout.write(JSON.parse(s).version))')"
           [[ "${actual}" == "${REQUESTED_VERSION}" ]]
 
       - name: Prepare pinned website SSH transport
