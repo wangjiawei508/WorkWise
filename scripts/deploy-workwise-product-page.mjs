@@ -153,9 +153,8 @@ set -euo pipefail
 release_root="$1"
 deploy_id="$2"
 case "$release_root" in /*/downloads/workwise) ;; *) exit 64 ;; esac
-site_root="\${release_root%/downloads/workwise}"
-stage="$site_root/.workwise-product-deploy/$deploy_id/payload"
-case "$stage" in "$site_root"/.workwise-product-deploy/*/payload) ;; *) exit 64 ;; esac
+stage="/tmp/workwise-product-deploy-$deploy_id/payload"
+case "$stage" in /tmp/workwise-product-deploy-*/payload) ;; *) exit 64 ;; esac
 install -d -m 700 "$stage/products/workwise" "$stage/includes" "$stage/data"
 printf '%s\n' "$stage"
 `
@@ -167,11 +166,24 @@ release_root="$1"
 version="$2"
 deploy_id="$3"
 case "$release_root" in /*/downloads/workwise) ;; *) exit 64 ;; esac
-site_root="\${release_root%/downloads/workwise}"
-stage="$site_root/.workwise-product-deploy/$deploy_id/payload"
-backup="$site_root/.workwise-product-backups/$deploy_id"
+stage="/tmp/workwise-product-deploy-$deploy_id/payload"
 targets="products/workwise/index.php includes/workwise_product.php data/workwise-product.json"
-case "$stage" in "$site_root"/.workwise-product-deploy/*/payload) ;; *) exit 64 ;; esac
+case "$stage" in /tmp/workwise-product-deploy-*/payload) ;; *) exit 64 ;; esac
+
+site_root=""
+search_root="$(dirname "$(dirname "$(dirname "$release_root")")")"
+candidate_count=0
+while IFS= read -r candidate; do
+  test -n "$candidate" || continue
+  root="\${candidate%/products/workwise/index.php}"
+  if [ -f "$root/includes/workwise_product.php" ] && [ -f "$root/data/workwise-product.json" ]; then
+    site_root="$root"
+    candidate_count=$((candidate_count + 1))
+  fi
+done < <(find "$search_root" -maxdepth 7 -type f -path '*/products/workwise/index.php' -print 2>/dev/null)
+[ "$candidate_count" -eq 1 ] || fail "expected one WorkWise site root under $search_root, found $candidate_count"
+case "$site_root" in "$search_root"/*) ;; *) fail 'discovered site root escaped the search boundary' ;; esac
+backup="$site_root/.workwise-product-backups/$deploy_id"
 case "$backup" in "$site_root"/.workwise-product-backups/*) ;; *) exit 64 ;; esac
 
 for relative in $targets; do
@@ -179,6 +191,7 @@ for relative in $targets; do
   test -f "$site_root/$relative" || fail "missing live target: $relative"
 done
 printf 'Validated staged and live WorkWise website paths.\n'
+printf 'Discovered WorkWise site root from existing targets.\n'
 
 php_bin="$(command -v php || true)"
 if [ -z "$php_bin" ]; then
@@ -221,9 +234,21 @@ set -euo pipefail
 release_root="$1"
 deploy_id="$2"
 case "$release_root" in /*/downloads/workwise) ;; *) exit 64 ;; esac
-site_root="\${release_root%/downloads/workwise}"
-backup="$site_root/.workwise-product-backups/$deploy_id"
 targets="products/workwise/index.php includes/workwise_product.php data/workwise-product.json"
+search_root="$(dirname "$(dirname "$(dirname "$release_root")")")"
+site_root=""
+candidate_count=0
+while IFS= read -r candidate; do
+  test -n "$candidate" || continue
+  root="\${candidate%/products/workwise/index.php}"
+  if [ -f "$root/includes/workwise_product.php" ] && [ -f "$root/data/workwise-product.json" ]; then
+    site_root="$root"
+    candidate_count=$((candidate_count + 1))
+  fi
+done < <(find "$search_root" -maxdepth 7 -type f -path '*/products/workwise/index.php' -print 2>/dev/null)
+[ "$candidate_count" -eq 1 ] || exit 65
+case "$site_root" in "$search_root"/*) ;; *) exit 64 ;; esac
+backup="$site_root/.workwise-product-backups/$deploy_id"
 case "$backup" in "$site_root"/.workwise-product-backups/*) ;; *) exit 64 ;; esac
 for relative in $targets; do test -s "$backup/$relative"; done
 for relative in $targets; do cp -p "$backup/$relative" "$site_root/$relative"; done
@@ -249,7 +274,7 @@ function deploy(sourceDirectory, version, deployId) {
   const validated = validateSource(sourceDirectory, version)
   const config = readSshConfig()
   const stage = runRemote(config, PREPARE_SCRIPT, [config.releaseRoot, deployId]).trim()
-  if (!stage.endsWith(`/.workwise-product-deploy/${deployId}/payload`)) {
+  if (stage !== `/tmp/workwise-product-deploy-${deployId}/payload`) {
     throw new Error('Remote deployment stage was not recognized.')
   }
   for (const file of validated.files) copyToStage(config, file.source, `${stage}/${file.relative}`)
