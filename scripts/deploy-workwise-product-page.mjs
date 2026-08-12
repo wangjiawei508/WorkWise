@@ -165,36 +165,47 @@ fail() { printf 'WorkWise product page deploy error: %s\n' "$1" >&2; exit 1; }
 run_privileged() {
   if [ "$(id -u)" -eq 0 ]; then "$@"; else sudo -n "$@"; fi
 }
+discover_targets() {
+  search_root="$1"
+  page_matches="$(run_privileged find "$search_root" -maxdepth 10 -type f -name '*.php' \
+    -not -path '*/.workwise-product-backups/*' \
+    -exec grep -l -F '$workwiseManifest = rw_workwise_manifest();' {} + 2>/dev/null || true)"
+  include_matches="$(run_privileged find "$search_root" -maxdepth 10 -type f -name 'workwise_product.php' \
+    -not -path '*/.workwise-product-backups/*' \
+    -exec grep -l -F 'function rw_workwise_manifest()' {} + 2>/dev/null || true)"
+  json_matches="$(run_privileged find "$search_root" -maxdepth 10 -type f -name 'workwise-product.json' \
+    -not -path '*/.workwise-product-backups/*' \
+    -exec grep -l -F '"releaseChannel": "stable"' {} + 2>/dev/null || true)"
+  page_count="$(printf '%s\n' "$page_matches" | sed '/^$/d' | wc -l | tr -d ' ')"
+  include_count="$(printf '%s\n' "$include_matches" | sed '/^$/d' | wc -l | tr -d ' ')"
+  json_count="$(printf '%s\n' "$json_matches" | sed '/^$/d' | wc -l | tr -d ' ')"
+  [ "$page_count" -eq 1 ] || fail "expected one live WorkWise page, found $page_count"
+  [ "$include_count" -eq 1 ] || fail "expected one live WorkWise include, found $include_count"
+  [ "$json_count" -eq 1 ] || fail "expected one live WorkWise manifest, found $json_count"
+  page_path="$page_matches"
+  include_path="$include_matches"
+  json_path="$json_matches"
+  for target in "$page_path" "$include_path" "$json_path"; do
+    case "$target" in "$search_root"/*) ;; *) fail 'discovered website target escaped the search boundary' ;; esac
+  done
+}
 release_root="$1"
 version="$2"
 deploy_id="$3"
 case "$release_root" in /*/downloads/workwise) ;; *) exit 64 ;; esac
 stage="/tmp/workwise-product-deploy-$deploy_id/payload"
-targets="products/workwise/index.php includes/workwise_product.php data/workwise-product.json"
 case "$stage" in /tmp/workwise-product-deploy-*/payload) ;; *) exit 64 ;; esac
 
-site_root=""
 search_root="$(dirname "$(dirname "$(dirname "$release_root")")")"
-candidate_count=0
-while IFS= read -r candidate; do
-  test -n "$candidate" || continue
-  root="\${candidate%/products/workwise/index.php}"
-  if run_privileged test -f "$root/includes/workwise_product.php" && run_privileged test -f "$root/data/workwise-product.json"; then
-    site_root="$root"
-    candidate_count=$((candidate_count + 1))
-  fi
-done < <(run_privileged find "$search_root" -maxdepth 7 -type f -path '*/products/workwise/index.php' -print 2>/dev/null)
-[ "$candidate_count" -eq 1 ] || fail "expected one WorkWise site root under $search_root, found $candidate_count"
-case "$site_root" in "$search_root"/*) ;; *) fail 'discovered site root escaped the search boundary' ;; esac
-backup="$site_root/.workwise-product-backups/$deploy_id"
-case "$backup" in "$site_root"/.workwise-product-backups/*) ;; *) exit 64 ;; esac
+discover_targets "$search_root"
+backup="$search_root/.workwise-product-backups/$deploy_id"
+case "$backup" in "$search_root"/.workwise-product-backups/*) ;; *) exit 64 ;; esac
 
-for relative in $targets; do
-  test -s "$stage/$relative" || fail "missing staged file: $relative"
-  run_privileged test -f "$site_root/$relative" || fail "missing live target: $relative"
-done
+test -s "$stage/products/workwise/index.php" || fail 'missing staged product page'
+test -s "$stage/includes/workwise_product.php" || fail 'missing staged product include'
+test -s "$stage/data/workwise-product.json" || fail 'missing staged product manifest'
 printf 'Validated staged and live WorkWise website paths.\n'
-printf 'Discovered WorkWise site root from existing targets.\n'
+printf 'Discovered unique WorkWise product targets from stable source markers.\n'
 
 php_bin="$(command -v php || true)"
 if [ -z "$php_bin" ]; then
@@ -209,27 +220,39 @@ test -n "$php_bin" || fail 'PHP CLI was not found'
 if grep -R -n -F '0.4.0' "$stage"; then fail 'staged website still contains withdrawn version 0.4.0'; fi
 printf 'Validated PHP syntax, JSON and exact WorkWise version.\n'
 
-run_privileged install -d -m 700 "$backup/products/workwise" "$backup/includes" "$backup/data" || fail 'could not create backup directory'
-for relative in $targets; do
-  run_privileged cp -p "$site_root/$relative" "$backup/$relative" || fail "could not back up: $relative"
-  run_privileged install -m 0644 "$stage/$relative" "$site_root/$relative.workwise-next" || fail "could not stage replacement: $relative"
-done
+run_privileged install -d -m 700 "$backup" || fail 'could not create backup directory'
+run_privileged cp -p "$page_path" "$backup/product-page.php" || fail 'could not back up product page'
+run_privileged cp -p "$include_path" "$backup/workwise_product.php" || fail 'could not back up product include'
+run_privileged cp -p "$json_path" "$backup/workwise-product.json" || fail 'could not back up product manifest'
+
+stage_replacement() {
+  live="$1"
+  source="$2"
+  next="$live.workwise-next"
+  run_privileged cp -p "$live" "$next" || fail 'could not create metadata-preserving next file'
+  run_privileged tee "$next" < "$source" >/dev/null || fail 'could not write next file'
+}
+stage_replacement "$include_path" "$stage/includes/workwise_product.php"
+stage_replacement "$json_path" "$stage/data/workwise-product.json"
+stage_replacement "$page_path" "$stage/products/workwise/index.php"
 printf 'Created server backup and next-version files.\n'
 
 committed=0
 rollback() {
   if [ "$committed" -eq 0 ]; then
-    for relative in $targets; do
-      if run_privileged test -f "$backup/$relative"; then run_privileged cp -p "$backup/$relative" "$site_root/$relative"; fi
-      run_privileged rm -f "$site_root/$relative.workwise-next"
-    done
+    if run_privileged test -f "$backup/product-page.php"; then run_privileged cp -p "$backup/product-page.php" "$page_path"; fi
+    if run_privileged test -f "$backup/workwise_product.php"; then run_privileged cp -p "$backup/workwise_product.php" "$include_path"; fi
+    if run_privileged test -f "$backup/workwise-product.json"; then run_privileged cp -p "$backup/workwise-product.json" "$json_path"; fi
+    run_privileged rm -f "$page_path.workwise-next" "$include_path.workwise-next" "$json_path.workwise-next"
   fi
 }
 trap rollback EXIT HUP INT TERM
-for relative in $targets; do run_privileged mv -f "$site_root/$relative.workwise-next" "$site_root/$relative"; done
+run_privileged mv -f "$include_path.workwise-next" "$include_path"
+run_privileged mv -f "$json_path.workwise-next" "$json_path"
+run_privileged mv -f "$page_path.workwise-next" "$page_path"
 committed=1
 trap - EXIT HUP INT TERM
-printf 'Deployed WorkWise product page %s with backup %s\n' "$version" "$backup"
+printf 'Deployed WorkWise product page %s with a server-side backup.\n' "$version"
 `
 
 const ROLLBACK_SCRIPT = String.raw`
@@ -237,28 +260,41 @@ set -euo pipefail
 run_privileged() {
   if [ "$(id -u)" -eq 0 ]; then "$@"; else sudo -n "$@"; fi
 }
+discover_targets() {
+  search_root="$1"
+  page_matches="$(run_privileged find "$search_root" -maxdepth 10 -type f -name '*.php' \
+    -not -path '*/.workwise-product-backups/*' \
+    -exec grep -l -F '$workwiseManifest = rw_workwise_manifest();' {} + 2>/dev/null || true)"
+  include_matches="$(run_privileged find "$search_root" -maxdepth 10 -type f -name 'workwise_product.php' \
+    -not -path '*/.workwise-product-backups/*' \
+    -exec grep -l -F 'function rw_workwise_manifest()' {} + 2>/dev/null || true)"
+  json_matches="$(run_privileged find "$search_root" -maxdepth 10 -type f -name 'workwise-product.json' \
+    -not -path '*/.workwise-product-backups/*' \
+    -exec grep -l -F '"releaseChannel": "stable"' {} + 2>/dev/null || true)"
+  [ "$(printf '%s\n' "$page_matches" | sed '/^$/d' | wc -l | tr -d ' ')" -eq 1 ] || exit 65
+  [ "$(printf '%s\n' "$include_matches" | sed '/^$/d' | wc -l | tr -d ' ')" -eq 1 ] || exit 65
+  [ "$(printf '%s\n' "$json_matches" | sed '/^$/d' | wc -l | tr -d ' ')" -eq 1 ] || exit 65
+  page_path="$page_matches"
+  include_path="$include_matches"
+  json_path="$json_matches"
+  for target in "$page_path" "$include_path" "$json_path"; do
+    case "$target" in "$search_root"/*) ;; *) exit 64 ;; esac
+  done
+}
 release_root="$1"
 deploy_id="$2"
 case "$release_root" in /*/downloads/workwise) ;; *) exit 64 ;; esac
-targets="products/workwise/index.php includes/workwise_product.php data/workwise-product.json"
 search_root="$(dirname "$(dirname "$(dirname "$release_root")")")"
-site_root=""
-candidate_count=0
-while IFS= read -r candidate; do
-  test -n "$candidate" || continue
-  root="\${candidate%/products/workwise/index.php}"
-  if run_privileged test -f "$root/includes/workwise_product.php" && run_privileged test -f "$root/data/workwise-product.json"; then
-    site_root="$root"
-    candidate_count=$((candidate_count + 1))
-  fi
-done < <(run_privileged find "$search_root" -maxdepth 7 -type f -path '*/products/workwise/index.php' -print 2>/dev/null)
-[ "$candidate_count" -eq 1 ] || exit 65
-case "$site_root" in "$search_root"/*) ;; *) exit 64 ;; esac
-backup="$site_root/.workwise-product-backups/$deploy_id"
-case "$backup" in "$site_root"/.workwise-product-backups/*) ;; *) exit 64 ;; esac
-for relative in $targets; do run_privileged test -s "$backup/$relative"; done
-for relative in $targets; do run_privileged cp -p "$backup/$relative" "$site_root/$relative"; done
-printf 'Rolled back WorkWise product page from %s\n' "$backup"
+discover_targets "$search_root"
+backup="$search_root/.workwise-product-backups/$deploy_id"
+case "$backup" in "$search_root"/.workwise-product-backups/*) ;; *) exit 64 ;; esac
+run_privileged test -s "$backup/product-page.php"
+run_privileged test -s "$backup/workwise_product.php"
+run_privileged test -s "$backup/workwise-product.json"
+run_privileged cp -p "$backup/product-page.php" "$page_path"
+run_privileged cp -p "$backup/workwise_product.php" "$include_path"
+run_privileged cp -p "$backup/workwise-product.json" "$json_path"
+printf 'Rolled back WorkWise product page from the server-side backup.\n'
 `
 
 function copyToStage(config, localPath, remotePath) {
