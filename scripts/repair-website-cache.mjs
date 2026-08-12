@@ -292,10 +292,11 @@ server_name = next((
 ), None)
 if server_name is None:
     raise SystemExit('www.railwise.cn server_name was not found in the selected config')
-server_start = text.rfind('server', 0, server_name.start())
-server_open = text.find('{', server_start, server_name.start())
-if server_start < 0 or server_open < 0:
+server_blocks = list(re.finditer(r'(?m)^\s*server\s*\{', text[:server_name.start()]))
+if not server_blocks:
     raise SystemExit('railwise server block was not found')
+server_start = server_blocks[-1].start()
+server_open = text.find('{', server_start, server_blocks[-1].end())
 
 depth = 0
 quote = ''
@@ -334,7 +335,7 @@ location = '''
         try_files $uri =404;
     }
 '''
-path.write_text(text[:close] + location + text[close:])
+path.write_text(text[:server_open + 1] + location + text[server_open + 1:])
 PY
   if ! server_run "$nginx_bin" -t; then
     server_run cp -p -- "$backup" "$server_file"

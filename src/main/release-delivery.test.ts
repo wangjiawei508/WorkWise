@@ -273,6 +273,8 @@ describe('R2 release delivery gates', () => {
     expect(repair).not.toContain('(?:latest\\\\.json|latest(?:-mac)?\\\\.yml)')
     expect(repair).toContain('workwise-cache-backup')
     expect(repair).toContain('backup="$server_file.workwise-cache-backup.')
+    expect(repair).toContain("re.finditer(r'(?m)^\\s*server\\s*\\{'")
+    expect(repair).toContain('text[:server_open + 1] + location + text[server_open + 1:]')
     expect(repair).not.toContain('backup="\\${server_file}')
     expect(repair).toContain("if char == '\\n': comment = False")
     expect(repair).not.toContain("if char == '\\\\n': comment = False")
