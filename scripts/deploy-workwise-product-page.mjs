@@ -162,6 +162,7 @@ printf '%s\n' "$stage"
 
 const DEPLOY_SCRIPT = String.raw`
 set -euo pipefail
+fail() { printf 'WorkWise product page deploy error: %s\n' "$1" >&2; exit 1; }
 release_root="$1"
 version="$2"
 deploy_id="$3"
@@ -174,20 +175,30 @@ case "$stage" in "$site_root"/.workwise-product-deploy/*/payload) ;; *) exit 64 
 case "$backup" in "$site_root"/.workwise-product-backups/*) ;; *) exit 64 ;; esac
 
 for relative in $targets; do
-  test -s "$stage/$relative"
-  test -f "$site_root/$relative"
+  test -s "$stage/$relative" || fail "missing staged file: $relative"
+  test -f "$site_root/$relative" || fail "missing live target: $relative"
 done
-command -v php >/dev/null 2>&1
-php -l "$stage/products/workwise/index.php" >/dev/null
-php -l "$stage/includes/workwise_product.php" >/dev/null
-php -r '$p=json_decode(file_get_contents($argv[1]), true, 512, JSON_THROW_ON_ERROR); if (($p["version"] ?? "") !== $argv[2]) { exit(65); }' "$stage/data/workwise-product.json" "$version"
-if grep -R -n -F '0.4.0' "$stage"; then exit 65; fi
+printf 'Validated staged and live WorkWise website paths.\n'
 
-install -d -m 700 "$backup/products/workwise" "$backup/includes" "$backup/data"
+php_bin="$(command -v php || true)"
+if [ -z "$php_bin" ]; then
+  for candidate in /www/server/php/*/bin/php; do
+    if [ -x "$candidate" ]; then php_bin="$candidate"; fi
+  done
+fi
+test -n "$php_bin" || fail 'PHP CLI was not found'
+"$php_bin" -l "$stage/products/workwise/index.php" >/dev/null || fail 'product page PHP lint failed'
+"$php_bin" -l "$stage/includes/workwise_product.php" >/dev/null || fail 'product include PHP lint failed'
+"$php_bin" -r '$p=json_decode(file_get_contents($argv[1]), true); if (!is_array($p) || ($p["version"] ?? "") !== $argv[2]) { exit(65); }' "$stage/data/workwise-product.json" "$version" || fail 'product manifest JSON/version validation failed'
+if grep -R -n -F '0.4.0' "$stage"; then fail 'staged website still contains withdrawn version 0.4.0'; fi
+printf 'Validated PHP syntax, JSON and exact WorkWise version.\n'
+
+install -d -m 700 "$backup/products/workwise" "$backup/includes" "$backup/data" || fail 'could not create backup directory'
 for relative in $targets; do
-  cp -p "$site_root/$relative" "$backup/$relative"
-  install -m 0644 "$stage/$relative" "$site_root/$relative.workwise-next"
+  cp -p "$site_root/$relative" "$backup/$relative" || fail "could not back up: $relative"
+  install -m 0644 "$stage/$relative" "$site_root/$relative.workwise-next" || fail "could not stage replacement: $relative"
 done
+printf 'Created server backup and next-version files.\n'
 
 committed=0
 rollback() {
