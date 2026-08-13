@@ -9,7 +9,7 @@
   "releaseChannel": "stable",
   "releaseUrl": "https://github.com/wangjiawei508/WorkWise/releases/tag/v0.3.6",
   "repositoryUrl": "https://github.com/wangjiawei508/WorkWise",
-  "lastReviewedAt": "2026-08-12",
+  "lastReviewedAt": "2026-08-13",
   "platforms": [
     {
       "id": "macos-apple-silicon",
@@ -43,9 +43,9 @@
     }
   ],
   "capabilityStatus": {
-    "stable": ["DeepSeek V4 原生默认支持", "主 Agent 默认 V4 Pro / Write 默认 V4 Flash", "精选分类插件市场与在线目录同步", "34 个经过筛选的插件与 16 个精选插件", "工程监测、招投标、文档和数据分析特色 Skills", "安装权限审查、完整性验证与单版本回滚", "启动窗口、标题栏和临时浮层原生玻璃效果", "侧边栏与工作区实色高对比界面", "Code、Write 与 Design 工作台", "可编辑 PPTX 原生导入与整页视觉参考", "PPT Master 4.3.0 交付链与真实 PPTX 验证", "Design 属性面板、元素定位与导入反馈", "可靠持久任务", "通用/探索/审查/研究 Agent", "四级工作区信任", "MCP V2 与安全凭据", "Git 检查点与预览回滚", "Word 模板与 Office / PDF 交付校验", "通用文档与图片附件解析", "已验证的跨平台应用内更新"],
+    "stable": ["DeepSeek-V4-Pro-0813 正式可用", "DeepSeek V4 1M 上下文 / 最高 384K 输出", "主 Agent 默认 V4 Pro / Write 默认 V4 Flash", "精选分类插件市场与在线目录同步", "34 个经过筛选的插件与 16 个精选插件", "工程监测、招投标、文档和数据分析特色 Skills", "安装权限审查、完整性验证与单版本回滚", "启动窗口、标题栏和临时浮层原生玻璃效果", "侧边栏与工作区实色高对比界面", "Code、Write 与 Design 工作台", "可编辑 PPTX 原生导入与整页视觉参考", "PPT Master 4.3.0 交付链与真实 PPTX 验证", "Design 属性面板、元素定位与导入反馈", "可靠持久任务", "通用/探索/审查/研究 Agent", "四级工作区信任", "MCP V2 与安全凭据", "Git 检查点与预览回滚", "Word 模板与 Office / PDF 交付校验", "通用文档与图片附件解析", "已验证的跨平台应用内更新"],
     "preview": ["Flow Preview 工作台与定时任务迁移", "可选 MinerU 本地解析", "移动端连接", "托管 CLI"],
-    "roadmap": ["新版 V4 Pro 发布后的 Flash / Pro 统一验收与深度优化", "公共插件投稿与审核平台", "更多团队协作", "更多行业 Skills", "Flow 与多模态工作流"]
+    "roadmap": ["V4 Pro 多协议续接与真实业务场景深度验收", "公共插件投稿与审核平台", "更多团队协作", "更多行业 Skills", "Flow 与多模态工作流"]
   },
   "docs": {
     "quickstart": "https://kb.railwise.cn/products/workwise/quickstart/",
