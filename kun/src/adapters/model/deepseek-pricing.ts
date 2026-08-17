@@ -18,8 +18,8 @@ type DeepseekPriceSet = {
 
 const TOKENS_PER_MILLION = 1_000_000
 
-// Official DeepSeek API prices per 1M tokens. As of 2026-06-02,
-// deepseek-chat/deepseek-reasoner are aliases for v4-flash modes.
+// Official DeepSeek API prices per 1M tokens as of 2026-08-13. The retired
+// deepseek-chat/deepseek-reasoner ids retain Flash pricing for local history.
 const DEEPSEEK_V4_PRICES: Record<'flash' | 'pro', DeepseekPriceSet> = {
   flash: {
     usd: {

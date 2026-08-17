@@ -16,6 +16,7 @@ import { MINERU_VERSION, MineruInstallerService, type MineruInstallPreflight } f
 import { analyzePdfDocument, type PdfDocumentAnalysisV1 } from './pdf-document-service'
 import { atomicWriteFile } from './durable-file'
 import { inspectOfficeArchive } from './office-archive-security'
+import { UnlimitedOcrService, normalizeUnlimitedOcrServerUrl } from './unlimited-ocr-service'
 import JSZip from 'jszip'
 
 const MARKITDOWN_ENGINE_VERSION = 'markitdown-v0.1.4-workwise-1'
@@ -57,21 +58,36 @@ export function assessDocumentQuality(input: {
   const reasons: string[] = []
   const minimumText = Math.max(160, Math.min(2_000, Math.floor(input.sourceBytes / 8_192)))
   if (normalized.length < minimumText) reasons.push('low_text_density')
-  if (
-    input.pageCount &&
-    (input.pageTextCharacters ?? normalized.length) < Math.max(80, input.pageCount * 40)
-  ) reasons.push('scanned_or_sparse_pages')
+  if (input.pageCount) {
+    const pageTextCharacters = input.pageTextCharacters ?? normalized.length
+    if (pageTextCharacters === 0) reasons.push('scanned_document')
+    else if (pageTextCharacters < Math.max(80, input.pageCount * 40)) reasons.push('weak_text_layer')
+  }
   const replacementCount = [...input.markdown].filter((character) => character === '\uFFFD').length
   if (replacementCount > 8 && replacementCount / Math.max(1, input.markdown.length) > 0.005) reasons.push('garbled_text')
-  if ((input.warnings ?? []).some((warning) => /scan|ocr|formula|multi.?column|cross.?page|layout/i.test(warning))) {
-    reasons.push('complex_layout')
-  }
+  const lines = input.markdown.split(/\r?\n/)
+  const displayFormulaCount = (input.markdown.match(/\$\$[\s\S]*?\$\$/g) ?? []).length
+  const formulaCommandCount = (input.markdown.match(/\\(?:frac|sum|int|sqrt|begin|end|alpha|beta)\b/g) ?? []).length
+  if (displayFormulaCount >= 2 || formulaCommandCount >= 2) reasons.push('formula_dense')
+  const tableRows = lines.filter((line) => {
+    if (!/^\s*\|(?:[^|]*\|){2,}\s*$/.test(line)) return false
+    return !/^\s*\|(?:\s*:?-{3,}:?\s*\|)+\s*$/.test(line)
+  })
+  if (tableRows.length >= 3) reasons.push('table_dense')
+  const columnarLines = lines.filter((line) => line.split(/\t+/).length >= 3)
+  if (columnarLines.length >= 2) reasons.push('complex_layout')
+  const warnings = (input.warnings ?? []).join('\n')
+  if (/scan|ocr/i.test(warnings)) reasons.push('scanned_document')
+  if (/formula|equation/i.test(warnings)) reasons.push('formula_dense')
+  if (/table|cross.?page/i.test(warnings)) reasons.push('table_dense')
+  if (/multi.?column|layout/i.test(warnings)) reasons.push('complex_layout')
   return { needsAccurateEngine: reasons.length > 0, reasons: [...new Set(reasons)] }
 }
 
 export type DocumentEngineRunner = (input: {
   parseId: string
-  engine: 'markitdown' | 'mineru-local'
+  engine: 'markitdown' | 'unlimited-ocr-local' | 'mineru-local'
+  unlimitedOcrServerUrl?: string
   workspaceRoot: string
   inputPath: string
   outputDirectory: string
@@ -85,6 +101,7 @@ export type DocumentEngineServiceOptions = {
   platform?: NodeJS.Platform
   arch?: string
   runner?: DocumentEngineRunner
+  unlimitedOcr?: UnlimitedOcrService
 }
 
 export class DocumentEngineError extends Error {
@@ -105,8 +122,11 @@ export class DocumentEngineError extends Error {
 
 export class DocumentEngineService {
   private readonly active = new Map<string, AbortController>()
-  private readonly options: Required<Omit<DocumentEngineServiceOptions, 'runner'>> & { runner?: DocumentEngineRunner }
+  private readonly options: Required<Omit<DocumentEngineServiceOptions, 'runner' | 'unlimitedOcr'>> & {
+    runner?: DocumentEngineRunner
+  }
   private readonly mineruInstaller: MineruInstallerService
+  private readonly unlimitedOcr: UnlimitedOcrService
 
   constructor(options: DocumentEngineServiceOptions = {}) {
     this.options = {
@@ -117,15 +137,29 @@ export class DocumentEngineService {
       arch: options.arch ?? process.arch,
       runner: options.runner
     }
+    this.unlimitedOcr = options.unlimitedOcr ?? new UnlimitedOcrService()
     this.mineruInstaller = new MineruInstallerService({
       toolsRoot: this.options.toolsRoot,
       platform: this.options.platform
     })
   }
 
-  async listEngines(privateServerUrl?: string): Promise<DocumentEngineStatusV1[]> {
+  async listEngines(privateServerUrl?: string, unlimitedOcrServerUrl?: string): Promise<DocumentEngineStatusV1[]> {
     const markitdown = await this.executableStatus(this.markitdownExecutable())
     const mineru = this.options.runner ? true : await this.mineruInstaller.isInstalled()
+    let unlimitedOcrState: DocumentEngineStatusV1['state'] = 'needs_configuration'
+    let unlimitedOcrMessage = 'Configure an explicit loopback Unlimited-OCR server URL.'
+    if (unlimitedOcrServerUrl?.trim()) {
+      try {
+        const origin = normalizeUnlimitedOcrServerUrl(unlimitedOcrServerUrl)
+        const health = await this.unlimitedOcr.checkHealth(origin)
+        unlimitedOcrState = health.available ? 'available' : 'error'
+        unlimitedOcrMessage = health.available ? '' : health.message || 'Unlimited-OCR server health check failed.'
+      } catch (error) {
+        unlimitedOcrState = 'error'
+        unlimitedOcrMessage = safeErrorMessage(error)
+      }
+    }
     return [
       {
         id: 'markitdown',
@@ -135,6 +169,15 @@ export class DocumentEngineService {
         capabilities: ['pdf', 'docx', 'pptx', 'xlsx'],
         message: markitdown ? undefined : 'The bundled MarkItDown sidecar is unavailable.',
         attribution: 'Microsoft MarkItDown (MIT)'
+      },
+      {
+        id: 'unlimited-ocr-local',
+        state: unlimitedOcrState,
+        local: true,
+        capabilities: ['pdf', 'ocr', 'layout', 'formula'],
+        message: unlimitedOcrMessage || undefined,
+        version: unlimitedOcrState === 'available' ? 'unlimited-ocr-api-v1' : undefined,
+        attribution: 'Baidu Unlimited-OCR (MIT); local server configured by user'
       },
       {
         id: 'mineru-local',
@@ -156,7 +199,7 @@ export class DocumentEngineService {
     ]
   }
 
-  async parse(request: DocumentParseRequestV1): Promise<DocumentParseResultV1> {
+  async parse(request: DocumentParseRequestV1 & { unlimitedOcrServerUrl?: string }): Promise<DocumentParseResultV1> {
     const parseId = request.parseId?.trim() || request.idempotencyKey.trim() || randomUUID()
     if (this.active.has(parseId)) throw new DocumentEngineError('A parse with this id is already running.', 'document_parse_failed')
     const controller = new AbortController()
@@ -181,9 +224,20 @@ export class DocumentEngineService {
       if (extension !== '.pdf') inspectOfficeArchive(await readFile(inputPath))
       const sourceSha256 = await sha256File(inputPath)
       const mineruAvailable = this.options.runner ? true : await this.mineruInstaller.isInstalled()
-      const engine = await this.selectEngine(request, extension, mineruAvailable)
+      let unlimitedOcrServerUrl = ''
+      const unlimitedOcrRequired = request.preferredEngine === 'unlimited-ocr-local'
+      if (request.unlimitedOcrServerUrl?.trim()) {
+        try {
+          unlimitedOcrServerUrl = normalizeUnlimitedOcrServerUrl(request.unlimitedOcrServerUrl)
+        } catch (error) {
+          if (unlimitedOcrRequired) {
+            throw new DocumentEngineError(safeErrorMessage(error), 'document_engine_unavailable')
+          }
+        }
+      }
+      const engine = await this.selectEngine(request, extension, mineruAvailable, Boolean(unlimitedOcrServerUrl))
       const cacheKey = createHash('sha256')
-        .update(`${sourceSha256}\0${engine}\0${engineCacheVersion(engine)}\0${request.mode}\0${mineruAvailable}`)
+        .update(`${sourceSha256}\0${engine}\0${engineCacheVersion(engine)}\0${request.mode}\0${mineruAvailable}\0${unlimitedOcrServerUrl}`)
         .digest('hex')
       const outputDirectory = await resolveContainedPath({
         root: workspaceRoot,
@@ -192,7 +246,12 @@ export class DocumentEngineService {
         expect: 'directory',
         rejectFinalLink: true
       })
-      const cached = await this.readCache(workspaceRoot, outputDirectory, parseId)
+      const cached = await this.readCache(workspaceRoot, outputDirectory, parseId, {
+        sourceSha256,
+        engine,
+        mode: request.mode,
+        allowLegacyCache: !request.outputDirectory
+      })
       if (cached) return cached
       await mkdir(outputDirectory, { recursive: true })
 
@@ -208,6 +267,7 @@ export class DocumentEngineService {
 
       let response: DocumentSidecarResponse
       let degradedFrom: DocumentEngineId | undefined
+      let routeFallbackFrom: DocumentEngineId | undefined
       let quality: DocumentQualityAssessment = { needsAccurateEngine: false, reasons: [] }
       let pdfAnalysis: PdfDocumentAnalysisV1 | undefined
       try {
@@ -217,27 +277,76 @@ export class DocumentEngineService {
           workspaceRoot,
           inputPath,
           outputDirectory,
-          signal: controller.signal
+          signal: controller.signal,
+          unlimitedOcrServerUrl
         })
       } catch (error) {
         if (controller.signal.aborted) {
           throw new DocumentEngineError('Document parsing was cancelled.', 'document_parse_cancelled')
         }
-        if (engine === 'mineru-local' && request.mode === 'auto') {
+        if (engine === 'unlimited-ocr-local') {
+          const unlimitedOcrWarning = `Unlimited-OCR failed: ${safeErrorMessage(error)}`
+          let fallbackResponse: DocumentSidecarResponse | undefined
+          let mineruError: unknown
+          if (mineruAvailable) {
+            try {
+              fallbackResponse = await this.runEngine({
+                parseId,
+                engine: 'mineru-local',
+                workspaceRoot,
+                inputPath,
+                outputDirectory,
+                signal: controller.signal,
+                unlimitedOcrServerUrl
+              })
+              fallbackResponse.warnings = [
+                ...(fallbackResponse.warnings ?? []),
+                unlimitedOcrWarning
+              ]
+              routeFallbackFrom = engine
+            } catch (fallbackError) {
+              if (controller.signal.aborted) {
+                throw new DocumentEngineError('Document parsing was cancelled.', 'document_parse_cancelled')
+              }
+              mineruError = fallbackError
+            }
+          }
+          if (!fallbackResponse) {
+            fallbackResponse = await this.runEngine({
+              parseId,
+              engine: 'markitdown',
+              workspaceRoot,
+              inputPath,
+              outputDirectory,
+              signal: controller.signal,
+              unlimitedOcrServerUrl
+            })
+            fallbackResponse.warnings = [
+              ...(fallbackResponse.warnings ?? []),
+              unlimitedOcrWarning,
+              ...(mineruError ? [`MinerU failed: ${safeErrorMessage(mineruError)}`] : []),
+              'High-accuracy parsing failed; the local MarkItDown result is shown.'
+            ]
+            fallbackResponse.engine = 'markitdown'
+            degradedFrom = mineruError ? 'mineru-local' : engine
+          }
+          response = fallbackResponse
+        } else if (engine === 'mineru-local') {
           response = await this.runEngine({
             parseId,
             engine: 'markitdown',
             workspaceRoot,
             inputPath,
             outputDirectory,
-            signal: controller.signal
+            signal: controller.signal,
+            unlimitedOcrServerUrl
           })
           response.warnings = [
             ...(response.warnings ?? []),
             `High-accuracy parsing failed; the local MarkItDown result is shown: ${safeErrorMessage(error)}`
           ]
           response.engine = 'markitdown'
-          degradedFrom = 'mineru-local'
+          degradedFrom = engine
         } else {
           throw error
         }
@@ -264,37 +373,10 @@ export class DocumentEngineService {
           pageTextCharacters: pdfAnalysis?.pages.reduce((sum, page) => sum + page.text.length, 0)
         })
         if (quality.needsAccurateEngine) {
-          if (mineruAvailable) {
-            const lightweightResponse = response
-            try {
-              response = await this.runEngine({
-                parseId,
-                engine: 'mineru-local',
-                workspaceRoot,
-                inputPath,
-                outputDirectory,
-                signal: controller.signal
-              })
-              response.warnings = [
-                ...(response.warnings ?? []),
-                `Auto-routed to MinerU: ${quality.reasons.join(', ')}.`
-              ]
-            } catch (error) {
-              response = {
-                ...lightweightResponse,
-                warnings: [
-                  ...(lightweightResponse.warnings ?? []),
-                  `MinerU fallback failed; using MarkItDown: ${safeErrorMessage(error)}`
-                ]
-              }
-              degradedFrom = 'mineru-local'
-            }
-          } else {
-            response.warnings = [
-              ...(response.warnings ?? []),
-              `This document may need high-accuracy parsing (${quality.reasons.join(', ')}); install local MinerU to improve the result.`
-            ]
-          }
+          response.warnings = [
+            ...(response.warnings ?? []),
+            `This document may need high-accuracy parsing (${quality.reasons.join(', ')}); choose high-accuracy parsing to use configured Unlimited-OCR or MinerU.`
+          ]
         }
       }
       if (!response.ok || !response.markdownPath) {
@@ -328,7 +410,7 @@ export class DocumentEngineService {
       const result: DocumentParseResultV1 = {
         id: parseId,
         engine: selectedEngine,
-        engineVersion: response.engineVersion || (selectedEngine === 'markitdown' ? MARKITDOWN_ENGINE_VERSION : 'mineru-3.4'),
+        engineVersion: response.engineVersion || engineCacheVersion(selectedEngine),
         sourceSha256: response.sourceSha256 || sourceSha256,
         markdown,
         headings: supplemented.headings,
@@ -340,7 +422,7 @@ export class DocumentEngineService {
         quality: {
           status: degradedFrom
             ? 'degraded'
-            : selectedEngine === 'mineru-local' || selectedEngine === 'mineru-private'
+            : selectedEngine === 'unlimited-ocr-local' || selectedEngine === 'mineru-local' || selectedEngine === 'mineru-private'
             ? 'enhanced'
             : quality.needsAccurateEngine ? 'degraded' : 'good',
           reasons: degradedFrom
@@ -350,13 +432,15 @@ export class DocumentEngineService {
         route: {
           requestedMode: request.mode,
           selectedEngine,
-          ...(degradedFrom ? { fallbackFrom: degradedFrom } : {})
+          ...((routeFallbackFrom ?? degradedFrom) ? { fallbackFrom: routeFallbackFrom ?? degradedFrom } : {})
         },
         degradedFrom,
         cacheHit: false,
         durationMs: response.durationMs ?? 0
       }
-      await this.writeCache(workspaceRoot, outputDirectory, markdownPath, result)
+      if (!degradedFrom && !routeFallbackFrom) {
+        await this.writeCache(workspaceRoot, outputDirectory, markdownPath, result)
+      }
       return result
     } finally {
       this.active.delete(parseId)
@@ -383,18 +467,23 @@ export class DocumentEngineService {
   private async selectEngine(
     request: DocumentParseRequestV1,
     extension: string,
-    mineruAvailable: boolean
+    mineruAvailable: boolean,
+    unlimitedOcrAvailable: boolean
   ): Promise<DocumentEngineId> {
     if (request.preferredEngine) {
       if (request.preferredEngine === 'mineru-private' && !request.allowPrivateServerUpload) {
         throw new DocumentEngineError('Private document upload was not authorized.', 'document_upload_not_allowed')
       }
+      if (request.preferredEngine === 'unlimited-ocr-local' && !unlimitedOcrAvailable) {
+        throw new DocumentEngineError('The local Unlimited-OCR server is not configured.', 'document_engine_unavailable')
+      }
       return request.preferredEngine
     }
     if (request.mode === 'fast' || extension !== '.pdf') return 'markitdown'
     if (request.mode === 'accurate') {
+      if (unlimitedOcrAvailable) return 'unlimited-ocr-local'
       if (mineruAvailable) return 'mineru-local'
-      throw new DocumentEngineError('The high-accuracy MinerU engine is not installed.', 'document_engine_unavailable')
+      throw new DocumentEngineError('No high-accuracy document engine is configured.', 'document_engine_unavailable')
     }
     // Auto starts with the lightweight local parser. Quality signals returned by
     // the parser are surfaced as warnings; an installed MinerU can be selected
@@ -405,7 +494,13 @@ export class DocumentEngineService {
   private async readCache(
     workspaceRoot: string,
     outputDirectory: string,
-    parseId: string
+    parseId: string,
+    expected: {
+      sourceSha256: string
+      engine: DocumentEngineId
+      mode: DocumentParseRequestV1['mode']
+      allowLegacyCache: boolean
+    }
   ): Promise<DocumentParseResultV1 | null> {
     try {
       const workwisePayload = JSON.parse(await readFile(join(outputDirectory, 'workwise-result.json'), 'utf8')) as {
@@ -413,6 +508,14 @@ export class DocumentEngineService {
         result: DocumentParseResultV1
       }
       if (!workwisePayload.markdownPath || !workwisePayload.result?.sourceSha256) return null
+      if (
+        workwisePayload.result.sourceSha256 !== expected.sourceSha256 ||
+        workwisePayload.result.engine !== expected.engine ||
+        workwisePayload.result.route?.requestedMode !== expected.mode ||
+        workwisePayload.result.route.selectedEngine !== expected.engine ||
+        workwisePayload.result.degradedFrom ||
+        workwisePayload.result.route.fallbackFrom
+      ) return null
       const workwiseMarkdownPath = await resolveContainedPath({
         root: workspaceRoot,
         target: workwisePayload.markdownPath,
@@ -421,6 +524,9 @@ export class DocumentEngineService {
         rejectFinalLink: true
       })
       const workwiseMarkdown = await readFile(workwiseMarkdownPath, 'utf8')
+      if (Buffer.byteLength(workwiseMarkdown) > MAX_PROTOCOL_BYTES) {
+        throw new DocumentEngineError('Parsed Markdown exceeds the 16 MiB result limit.', 'resource_limit')
+      }
       return {
         ...workwisePayload.result,
         id: parseId,
@@ -428,12 +534,19 @@ export class DocumentEngineService {
         cacheHit: true,
         durationMs: 0
       }
-    } catch {
+    } catch (error) {
+      if (error instanceof DocumentEngineError && error.code === 'resource_limit') throw error
       // Older sidecar-only caches remain readable below.
     }
     try {
+      if (!expected.allowLegacyCache) return null
       const payload = JSON.parse(await readFile(join(outputDirectory, 'result.json'), 'utf8')) as DocumentSidecarResponse
-      if (!payload.ok || !payload.markdownPath || !payload.engine || !payload.sourceSha256) return null
+      if (
+        !payload.ok ||
+        !payload.markdownPath ||
+        payload.engine !== expected.engine ||
+        payload.sourceSha256 !== expected.sourceSha256
+      ) return null
       const markdownPath = await resolveContainedPath({
         root: workspaceRoot,
         target: payload.markdownPath,
@@ -442,6 +555,9 @@ export class DocumentEngineService {
         rejectFinalLink: true
       })
       const markdown = await readFile(markdownPath, 'utf8')
+      if (Buffer.byteLength(markdown) > MAX_PROTOCOL_BYTES) {
+        throw new DocumentEngineError('Parsed Markdown exceeds the 16 MiB result limit.', 'resource_limit')
+      }
       return {
         id: parseId,
         engine: payload.engine,
@@ -458,7 +574,8 @@ export class DocumentEngineService {
         cacheHit: true,
         durationMs: 0
       }
-    } catch {
+    } catch (error) {
+      if (error instanceof DocumentEngineError && error.code === 'resource_limit') throw error
       return null
     }
   }
@@ -481,6 +598,21 @@ export class DocumentEngineService {
   private runEngine(input: Parameters<DocumentEngineRunner>[0]): Promise<DocumentSidecarResponse> {
     if (this.options.runner) return this.options.runner(input)
     if (input.engine === 'markitdown') return runJsonSidecar(this.markitdownExecutable(), [], input)
+    if (input.engine === 'unlimited-ocr-local') {
+      return this.unlimitedOcr.parse({
+        serverUrl: input.unlimitedOcrServerUrl ?? '',
+        inputPath: input.inputPath,
+        outputDirectory: input.outputDirectory,
+        signal: input.signal
+      }).then((result) => ({
+        ok: true,
+        engine: 'unlimited-ocr-local',
+        engineVersion: 'unlimited-ocr-api-v1',
+        markdownPath: relative(input.workspaceRoot, result.markdownPath).replaceAll('\\', '/'),
+        warnings: result.warnings,
+        durationMs: result.durationMs
+      }))
+    }
     return runJsonSidecar(this.mineruInstaller.pythonExecutable(), [this.mineruInstaller.adapterPath()], input)
   }
 
@@ -542,6 +674,8 @@ function decodeXmlEntities(value: string): string {
 function engineCacheVersion(engine: DocumentEngineId): string {
   return engine === 'markitdown'
     ? MARKITDOWN_ENGINE_VERSION
+    : engine === 'unlimited-ocr-local'
+      ? 'unlimited-ocr-api-v1'
     : engine === 'mineru-local'
       ? `mineru-${MINERU_VERSION}`
       : 'mineru-private-v1'

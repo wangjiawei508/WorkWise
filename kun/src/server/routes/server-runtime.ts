@@ -24,6 +24,8 @@ import type { TaskController } from '../../services/task-controller.js'
 import type { TaskRunRepository } from '../../services/task-run-repository.js'
 import type { RuntimeSpanService } from '../../services/runtime-span-service.js'
 import type { FlowRuntimeService } from '../../flow/service.js'
+import type { WorkspaceReferenceService } from '../../services/workspace-reference-service.js'
+import type { UiActionService } from '../../services/ui-action-service.js'
 
 export type RuntimeToolDiagnostics = {
   providers: ToolProviderPolicy[]
@@ -44,6 +46,7 @@ export type RuntimeToolDiagnostics = {
 export type ServerRuntime = {
   threadService: ThreadService
   turnService: TurnService
+  uiActionService?: UiActionService
   taskController?: TaskController
   taskRepository?: TaskRunRepository
   spanService?: RuntimeSpanService
@@ -55,6 +58,7 @@ export type ServerRuntime = {
   approvalGate: ApprovalGate
   userInputGate: UserInputGate
   workspaceInspector: WorkspaceInspector
+  workspaceReferenceService: WorkspaceReferenceService
   toolHost?: ToolHost
   attachmentStore?: AttachmentStore
   memoryStore?: MemoryStore

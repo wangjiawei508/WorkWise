@@ -1,7 +1,7 @@
 import { mkdtemp, mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { InMemoryEventBus } from '../src/adapters/in-memory-event-bus.js'
 import { HybridSessionStore, HybridThreadStore } from '../src/adapters/hybrid/index.js'
 import { makeUserItem } from '../src/domain/item.js'
@@ -232,6 +232,201 @@ describe('HybridThreadStore', () => {
     })
   })
 
+  it('returns one Runtime Turn for concurrent starts with the same idempotency key', async () => {
+    const { threadStore, sessionStore } = await createHybridStores()
+    const thread = createThreadRecord({
+      id: 'thr_idempotent_start',
+      title: 'Idempotent IM start',
+      workspace: '/tmp/project',
+      model: 'deepseek-chat',
+      createdAt: '2026-06-04T00:00:00.000Z'
+    })
+    await threadStore.upsert(thread)
+    const turns = createTurnService(threadStore, sessionStore)
+    const request = {
+      threadId: thread.id,
+      request: {
+        prompt: 'handle this remote message once',
+        idempotencyKey: 'im:weixin:account-1:message-1'
+      }
+    }
+
+    const [first, duplicate] = await Promise.all([
+      turns.startTurn(request),
+      turns.startTurn(request)
+    ])
+    const fetched = await threadStore.get(thread.id)
+    const items = await sessionStore.loadItems(thread.id)
+
+    expect(duplicate).toEqual(first)
+    expect(fetched?.turns).toHaveLength(1)
+    expect(fetched?.turns[0]).toMatchObject({
+      id: first.turnId,
+      idempotencyKey: 'im:weixin:account-1:message-1'
+    })
+    expect(items.filter((item) => item.kind === 'user_message')).toHaveLength(1)
+  })
+
+  it('rejects reusing a generic idempotency key for a different prompt', async () => {
+    const { threadStore, sessionStore } = await createHybridStores()
+    const thread = createThreadRecord({
+      id: 'thr_idempotent_prompt_conflict',
+      title: 'Idempotent prompt conflict',
+      workspace: '/tmp/project',
+      model: 'deepseek-chat',
+      createdAt: '2026-06-04T00:00:00.000Z'
+    })
+    await threadStore.upsert(thread)
+    const turns = createTurnService(threadStore, sessionStore)
+    const idempotencyKey = 'im:feishu:account-1:message-1'
+
+    await turns.startTurn({
+      threadId: thread.id,
+      request: { prompt: 'first request', idempotencyKey }
+    })
+
+    await expect(turns.startTurn({
+      threadId: thread.id,
+      request: { prompt: 'different request', idempotencyKey }
+    })).rejects.toMatchObject({ code: 'idempotency_conflict' })
+  })
+
+  it('allows retrying the same idempotency key after start fan-out compensation', async () => {
+    const { threadStore, sessionStore } = await createHybridStores()
+    const thread = createThreadRecord({
+      id: 'thr_idempotent_start_retry',
+      title: 'Idempotent start retry',
+      workspace: '/tmp/project',
+      model: 'deepseek-chat',
+      createdAt: '2026-06-04T00:00:00.000Z'
+    })
+    await threadStore.upsert(thread)
+    const idempotencyKey = 'im:feishu:account-1:message-retry'
+    const turns = createTurnService(threadStore, sessionStore, { failEventKind: 'turn_started' })
+
+    await expect(turns.startTurn({
+      threadId: thread.id,
+      request: { prompt: 'retryable request', idempotencyKey }
+    })).rejects.toThrow('event store unavailable')
+
+    const failed = await threadStore.get(thread.id)
+    expect(failed?.turns[0]?.status).toBe('failed')
+    expect(failed?.turns[0]?.idempotencyKey).not.toBe(idempotencyKey)
+
+    const retry = await turns.startTurn({
+      threadId: thread.id,
+      request: { prompt: 'retryable request', idempotencyKey }
+    })
+    expect(retry.turnId).not.toBe(failed?.turns[0]?.id)
+    expect((await threadStore.get(thread.id))?.turns.map((turn) => turn.status)).toEqual(['failed', 'running'])
+  })
+
+  it('enforces the global turn limit across concurrent starts on different threads', async () => {
+    const { threadStore, sessionStore } = await createHybridStores()
+    const turns = createTurnService(threadStore, sessionStore)
+    const threads = Array.from({ length: 6 }, (_, index) => createThreadRecord({
+      id: `thr_global_limit_${index}`,
+      title: `Global limit ${index}`,
+      workspace: '/tmp/project',
+      model: 'deepseek-chat',
+      createdAt: '2026-06-04T00:00:00.000Z'
+    }))
+    await Promise.all(threads.map((thread) => threadStore.upsert(thread)))
+
+    const settled = await Promise.allSettled(threads.map((thread) => turns.startTurn({
+      threadId: thread.id,
+      request: { prompt: `run ${thread.id}` }
+    })))
+
+    expect(settled.filter((result) => result.status === 'fulfilled')).toHaveLength(4)
+    const rejected = settled.filter((result) => result.status === 'rejected')
+    expect(rejected).toHaveLength(2)
+    for (const result of rejected) {
+      if (result.status !== 'rejected') continue
+      expect(result.reason).toMatchObject({ code: 'resource_limit' })
+    }
+  })
+
+  it('validates workspace references when no validator is injected', async () => {
+    const { threadStore, sessionStore } = await createHybridStores()
+    const thread = createThreadRecord({
+      id: 'thr_default_reference_validator',
+      title: 'Default reference validator',
+      workspace: dataDir,
+      model: 'deepseek-chat',
+      createdAt: '2026-06-04T00:00:00.000Z'
+    })
+    await threadStore.upsert(thread)
+    const turns = createTurnService(threadStore, sessionStore)
+
+    await expect(turns.startTurn({
+      threadId: thread.id,
+      request: {
+        prompt: 'inspect the reference',
+        workspaceReferences: [{ path: '../outside.txt', kind: 'file' }]
+      }
+    })).rejects.toThrow(/escapes the workspace/u)
+    await expect(sessionStore.loadItems(thread.id)).resolves.toEqual([])
+  })
+
+  it('releases a reserved global slot when workspace reference validation rejects', async () => {
+    const { threadStore, sessionStore } = await createHybridStores()
+    const thread = createThreadRecord({
+      id: 'thr_reference_slot_release',
+      title: 'Reference slot release',
+      workspace: dataDir,
+      model: 'deepseek-chat',
+      createdAt: '2026-06-04T00:00:00.000Z'
+    })
+    await threadStore.upsert(thread)
+    const turns = createTurnService(threadStore, sessionStore)
+
+    for (let attempt = 0; attempt < 4; attempt += 1) {
+      await expect(turns.startTurn({
+        threadId: thread.id,
+        request: {
+          prompt: `reject ${attempt}`,
+          workspaceReferences: [{ path: '../outside.txt', kind: 'file' }]
+        }
+      })).rejects.toThrow(/escapes the workspace/u)
+    }
+
+    await expect(turns.startTurn({
+      threadId: thread.id,
+      request: { prompt: 'a valid turn can still start' }
+    })).resolves.toMatchObject({ threadId: thread.id })
+  })
+
+  it('marks a partially started Turn failed when turn-start event persistence fails', async () => {
+    const { threadStore, sessionStore } = await createHybridStores()
+    const thread = createThreadRecord({
+      id: 'thr_start_event_failure',
+      title: 'Start event failure',
+      workspace: '/tmp/project',
+      model: 'deepseek-chat',
+      createdAt: '2026-06-04T00:00:00.000Z'
+    })
+    await threadStore.upsert(thread)
+    const turns = createTurnService(threadStore, sessionStore, {
+      failEventKind: 'turn_started'
+    })
+
+    await expect(turns.startTurn({
+      threadId: thread.id,
+      request: { prompt: 'this start will fail' }
+    })).rejects.toThrow(/event store unavailable/u)
+
+    const recovered = await threadStore.get(thread.id)
+    expect(recovered).toMatchObject({ status: 'idle' })
+    expect(recovered?.turns).toMatchObject([
+      { status: 'failed', error: 'event store unavailable' }
+    ])
+    await expect(turns.startTurn({
+      threadId: thread.id,
+      request: { prompt: 'a later start is not blocked' }
+    })).resolves.toMatchObject({ threadId: thread.id })
+  })
+
   it('deduplicates damaged turn metadata and recovers attachment ids from earlier metadata lines', async () => {
     const { threadStore, sessionStore } = await createHybridStores()
     const thread = createThreadRecord({
@@ -354,7 +549,8 @@ describe('HybridThreadStore', () => {
 
   function createTurnService(
     threadStore: HybridThreadStore,
-    sessionStore: HybridSessionStore
+    sessionStore: HybridSessionStore,
+    options: { failEventKind?: string } = {}
   ): TurnService {
     const bus = new InMemoryEventBus()
     const events = new RuntimeEventRecorder({
@@ -363,6 +559,17 @@ describe('HybridThreadStore', () => {
       allocateSeq: (threadId) => bus.allocateSeq(threadId),
       nowIso: () => '2026-06-04T00:00:02.000Z'
     })
+    if (options.failEventKind) {
+      const originalRecord = events.record.bind(events)
+      let failed = false
+      vi.spyOn(events, 'record').mockImplementation(async (event) => {
+        if (!failed && event.kind === options.failEventKind) {
+          failed = true
+          throw new Error('event store unavailable')
+        }
+        return originalRecord(event)
+      })
+    }
     return new TurnService({
       threadStore,
       sessionStore,

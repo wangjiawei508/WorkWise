@@ -1,4 +1,5 @@
-import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { createHash } from 'node:crypto'
+import { mkdtemp, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, relative } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -10,6 +11,7 @@ import {
   type DocumentEngineRunner,
   type DocumentSidecarResponse
 } from './document-engine-service'
+import { UnlimitedOcrService } from './unlimited-ocr-service'
 
 const roots: string[] = []
 
@@ -34,7 +36,7 @@ function runner(markdown = '# Parsed\n\n| A | B |\n|---|---|\n| 1 | 2 |') {
       ok: true,
       engine: input.engine,
       engineVersion: 'fixture-1',
-      sourceSha256: 'source-hash',
+      sourceSha256: createHash('sha256').update(await readFile(input.inputPath)).digest('hex'),
       markdownPath: relative(input.workspaceRoot, markdownPath),
       headings: [{ level: 1, text: 'Parsed' }],
       tables: [],
@@ -58,6 +60,51 @@ describe('DocumentEngineService', () => {
     expect(assessDocumentQuality({ extension: '.pdf', markdown: `${'正文'.repeat(200)}${'�'.repeat(12)}`, sourceBytes: 1024 }).reasons).toContain('garbled_text')
   })
 
+  it('distinguishes weak text layers, scans, formulas, tables, and complex layouts', () => {
+    expect(assessDocumentQuality({
+      extension: '.pdf',
+      markdown: '可读正文'.repeat(200),
+      sourceBytes: 1024,
+      pageCount: 10,
+      pageTextCharacters: 120
+    }).reasons).toContain('weak_text_layer')
+    expect(assessDocumentQuality({
+      extension: '.pdf',
+      markdown: '',
+      sourceBytes: 1024,
+      pageCount: 10,
+      pageTextCharacters: 0,
+      warnings: ['OCR recommended for scanned pages.']
+    }).reasons).toContain('scanned_document')
+    expect(assessDocumentQuality({
+      extension: '.pdf',
+      markdown: '可读正文'.repeat(200),
+      sourceBytes: 1024,
+      warnings: ['Formula-dense document detected.', 'Cross-page table detected.', 'Multi-column layout detected.']
+    }).reasons).toEqual(expect.arrayContaining(['formula_dense', 'table_dense', 'complex_layout']))
+
+    const markdownWithoutParserWarnings = [
+      '可读正文'.repeat(200),
+      '',
+      '$$ \\frac{a}{b} = \\sum_{i=1}^{n} x_i $$',
+      '$$ \\sqrt{x^2 + y^2} $$',
+      '',
+      '| 条款 | 金额 | 说明 |',
+      '| --- | --- | --- |',
+      '| A | 100 | 跨页 1 |',
+      '| B | 200 | 跨页 2 |',
+      '| C | 300 | 跨页 3 |',
+      '',
+      '左栏内容\t中栏内容\t右栏内容',
+      '左栏续文\t中栏续文\t右栏续文'
+    ].join('\n')
+    expect(assessDocumentQuality({
+      extension: '.pdf',
+      markdown: markdownWithoutParserWarnings,
+      sourceBytes: 1024
+    }).reasons).toEqual(expect.arrayContaining(['formula_dense', 'table_dense', 'complex_layout']))
+  })
+
   it('parses locally and reuses the SHA/version cache', async () => {
     const { root } = await fixture()
     const bridge = runner()
@@ -75,6 +122,192 @@ describe('DocumentEngineService', () => {
     expect(second.cacheHit).toBe(true)
     expect(bridge).toHaveBeenCalledTimes(1)
   }, 15_000)
+
+  it('rejects oversized Markdown from the current cache', async () => {
+    const { root } = await fixture()
+    const outputDirectory = join(root, '.workwise', 'cache', 'oversized-current')
+    const bridge = runner()
+    const service = new DocumentEngineService({ runner: bridge })
+    const request = {
+      workspaceRoot: root,
+      relativePath: 'source.pdf',
+      outputDirectory: relative(root, outputDirectory),
+      mode: 'fast' as const,
+      idempotencyKey: 'oversized-current-cache'
+    }
+    await service.parse(request)
+    await rm(join(outputDirectory, 'result.json'))
+    await writeFile(join(outputDirectory, 'document.md'), Buffer.alloc(16 * 1024 * 1024 + 1, 0x61))
+
+    await expect(service.parse({ ...request, parseId: 'oversized-current-cache-hit' }))
+      .rejects.toMatchObject({ code: 'resource_limit' })
+    expect(bridge).toHaveBeenCalledTimes(1)
+  }, 15_000)
+
+  it('rejects oversized Markdown from a legacy sidecar cache', async () => {
+    const { root } = await fixture()
+    const bridge = runner()
+    const service = new DocumentEngineService({ runner: bridge })
+    const request = {
+      workspaceRoot: root,
+      relativePath: 'source.pdf',
+      mode: 'fast' as const,
+      idempotencyKey: 'oversized-legacy-cache'
+    }
+    await service.parse(request)
+    const [cacheName] = await readdir(join(root, '.workwise', 'cache', 'documents'))
+    const outputDirectory = join(root, '.workwise', 'cache', 'documents', cacheName)
+    await rm(join(outputDirectory, 'workwise-result.json'))
+    await writeFile(join(outputDirectory, 'document.md'), Buffer.alloc(16 * 1024 * 1024 + 1, 0x61))
+
+    await expect(service.parse({ ...request, parseId: 'oversized-legacy-cache-hit' }))
+      .rejects.toMatchObject({ code: 'resource_limit' })
+    expect(bridge).toHaveBeenCalledTimes(1)
+  }, 15_000)
+
+  it('does not reuse a custom output directory after the source changes', async () => {
+    const { root, path } = await fixture()
+    const outputDirectory = join(root, '.workwise', 'cache', 'shared-output')
+    const bridge = runner('first source')
+    const service = new DocumentEngineService({ runner: bridge })
+    const request = {
+      workspaceRoot: root,
+      relativePath: 'source.pdf',
+      outputDirectory: relative(root, outputDirectory),
+      mode: 'fast' as const,
+      idempotencyKey: 'custom-output-source-change'
+    }
+
+    const first = await service.parse(request)
+    await writeFile(path, '%PDF-1.7\nchanged source\n%%EOF')
+    bridge.mockImplementationOnce(runner('second source'))
+
+    const second = await service.parse({ ...request, parseId: 'custom-output-source-change-2' })
+
+    expect(first.cacheHit).toBe(false)
+    expect(second.cacheHit).toBe(false)
+    expect(second.markdown).toContain('second source')
+    expect(bridge).toHaveBeenCalledTimes(2)
+  }, 15_000)
+
+  it('does not permanently cache a degraded high-accuracy result', async () => {
+    const { root } = await fixture()
+    let mineruAttempts = 0
+    const bridge = vi.fn<DocumentEngineRunner>(async (input) => {
+      if (input.engine === 'mineru-local') {
+        mineruAttempts += 1
+        if (mineruAttempts === 1) throw new Error('MinerU temporarily unavailable')
+        return runner('accurate result')(input)
+      }
+      return runner('degraded result')(input)
+    })
+    const service = new DocumentEngineService({ runner: bridge })
+    const request = {
+      workspaceRoot: root,
+      relativePath: 'source.pdf',
+      mode: 'accurate' as const,
+      idempotencyKey: 'retry-accurate'
+    }
+
+    const degraded = await service.parse(request)
+    const recovered = await service.parse({ ...request, parseId: 'retry-accurate-2' })
+
+    expect(degraded).toMatchObject({ engine: 'markitdown', degradedFrom: 'mineru-local', cacheHit: false })
+    expect(recovered).toMatchObject({ engine: 'mineru-local', cacheHit: false })
+    expect(bridge.mock.calls.map(([input]) => input.engine)).toEqual([
+      'mineru-local',
+      'markitdown',
+      'mineru-local'
+    ])
+  }, 15_000)
+
+  it('ignores an invalid optional Unlimited-OCR URL on MarkItDown-only routes', async () => {
+    const { root } = await fixture()
+    const bridge = runner()
+    const service = new DocumentEngineService({ runner: bridge })
+
+    await service.parse({
+      workspaceRoot: root,
+      relativePath: 'source.pdf',
+      mode: 'fast',
+      unlimitedOcrServerUrl: 'not a URL',
+      idempotencyKey: 'invalid-ocr-fast'
+    })
+    await service.parse({
+      workspaceRoot: root,
+      relativePath: 'source.pdf',
+      mode: 'auto',
+      unlimitedOcrServerUrl: 'not a URL',
+      idempotencyKey: 'invalid-ocr-auto'
+    })
+
+    const spreadsheet = await officeFixture('.xlsx', {
+      '[Content_Types].xml': '<Types/>',
+      'xl/workbook.xml': '<workbook><sheets><sheet name="Sheet1"/></sheets></workbook>'
+    })
+    await service.parse({
+      workspaceRoot: spreadsheet.root,
+      relativePath: 'source.xlsx',
+      mode: 'accurate',
+      unlimitedOcrServerUrl: 'not a URL',
+      idempotencyKey: 'invalid-ocr-office'
+    })
+
+    expect(bridge.mock.calls.map(([input]) => input.engine)).toEqual([
+      'markitdown',
+      'markitdown',
+      'markitdown'
+    ])
+  })
+
+  it('only reports Unlimited-OCR as available after a successful health probe', async () => {
+    const unreachable = new DocumentEngineService({
+      runner: runner(),
+      unlimitedOcr: new UnlimitedOcrService({ fetch: vi.fn(async () => { throw new Error('connection refused') }) as unknown as typeof fetch })
+    })
+    await expect(unreachable.listEngines(undefined, 'http://127.0.0.1:3000')).resolves.toContainEqual(expect.objectContaining({
+      id: 'unlimited-ocr-local',
+      state: 'error'
+    }))
+
+    const reachable = new DocumentEngineService({
+      runner: runner(),
+      unlimitedOcr: new UnlimitedOcrService({ fetch: vi.fn(async () => new Response('ok', { status: 200 })) as unknown as typeof fetch })
+    })
+    await expect(reachable.listEngines(undefined, 'http://127.0.0.1:3000')).resolves.toContainEqual(expect.objectContaining({
+      id: 'unlimited-ocr-local',
+      state: 'available'
+    }))
+  })
+
+  it('falls back to MinerU for an invalid optional OCR URL but rejects explicit Unlimited-OCR selection', async () => {
+    const { root } = await fixture()
+    const bridge = runner()
+    const service = new DocumentEngineService({ runner: bridge })
+
+    await expect(service.parse({
+      workspaceRoot: root,
+      relativePath: 'source.pdf',
+      mode: 'accurate',
+      unlimitedOcrServerUrl: 'not a URL',
+      idempotencyKey: 'invalid-ocr-accurate'
+    })).resolves.toMatchObject({
+      engine: 'mineru-local',
+      route: { requestedMode: 'accurate', selectedEngine: 'mineru-local' }
+    })
+    expect(bridge.mock.calls.map(([input]) => input.engine)).toEqual(['mineru-local'])
+
+    await expect(service.parse({
+      workspaceRoot: root,
+      relativePath: 'source.pdf',
+      mode: 'fast',
+      preferredEngine: 'unlimited-ocr-local',
+      idempotencyKey: 'missing-ocr-preferred'
+    })).rejects.toMatchObject({
+      code: 'document_engine_unavailable',
+      message: 'The local Unlimited-OCR server is not configured.'
+    })
+  })
 
   it('rejects workspace escape and unsupported formats', async () => {
     const { root } = await fixture('.txt')
@@ -135,7 +368,7 @@ describe('DocumentEngineService', () => {
     await expect(pending).rejects.toMatchObject({ code: 'document_parse_cancelled' })
   })
 
-  it('keeps the lightweight result when auto MinerU fails', async () => {
+  it('keeps the lightweight result when accurate MinerU parsing fails', async () => {
     const { root } = await fixture()
     const bridge = vi.fn<DocumentEngineRunner>(async (input) => {
       if (input.engine === 'mineru-local') throw new Error('/Users/test/private/model failed')
@@ -145,8 +378,7 @@ describe('DocumentEngineService', () => {
     const result = await service.parse({
       workspaceRoot: root,
       relativePath: 'source.pdf',
-      mode: 'auto',
-      preferredEngine: 'mineru-local',
+      mode: 'accurate',
       idempotencyKey: 'fallback'
     })
     expect(result.engine).toBe('markitdown')
@@ -156,13 +388,18 @@ describe('DocumentEngineService', () => {
     const cached = await service.parse({
       workspaceRoot: root,
       relativePath: 'source.pdf',
-      mode: 'auto',
-      preferredEngine: 'mineru-local',
+      mode: 'accurate',
       parseId: 'fallback-cached',
       idempotencyKey: 'fallback'
     })
-    expect(cached).toMatchObject({ cacheHit: true, degradedFrom: 'mineru-local' })
+    expect(cached).toMatchObject({ cacheHit: false, degradedFrom: 'mineru-local' })
     expect(cached.warnings.join(' ')).toContain('[path]')
+    expect(bridge.mock.calls.map(([input]) => input.engine)).toEqual([
+      'mineru-local',
+      'markitdown',
+      'mineru-local',
+      'markitdown'
+    ])
   })
 
   it('uses PDF.js text-layer evidence to map MarkItDown headings back to pages', async () => {
@@ -203,7 +440,7 @@ describe('DocumentEngineService', () => {
     expect(presentationResult.sourceStructure).toEqual({ slideCount: 2 })
   })
 
-  it('routes low-quality auto parsing to local MinerU but keeps fast mode on MarkItDown', async () => {
+  it('keeps low-quality auto parsing on MarkItDown and recommends an explicit high-accuracy retry', async () => {
     const { root } = await fixture()
     const bridge = runner('tiny')
     const service = new DocumentEngineService({ runner: bridge })
@@ -213,8 +450,13 @@ describe('DocumentEngineService', () => {
       mode: 'auto',
       idempotencyKey: 'auto-route'
     })
-    expect(automatic).toMatchObject({ engine: 'mineru-local', quality: { status: 'enhanced' } })
-    expect(bridge.mock.calls.map(([input]) => input.engine)).toEqual(['markitdown', 'mineru-local'])
+    expect(automatic).toMatchObject({
+      engine: 'markitdown',
+      quality: { status: 'degraded', reasons: ['low_text_density'] },
+      route: { requestedMode: 'auto', selectedEngine: 'markitdown' }
+    })
+    expect(automatic.warnings.join(' ')).toContain('choose high-accuracy parsing')
+    expect(bridge.mock.calls.map(([input]) => input.engine)).toEqual(['markitdown'])
 
     const fastBridge = runner('tiny')
     const fast = new DocumentEngineService({ runner: fastBridge })
@@ -225,6 +467,87 @@ describe('DocumentEngineService', () => {
       idempotencyKey: 'fast-route'
     })
     expect(fastBridge.mock.calls.map(([input]) => input.engine)).toEqual(['markitdown'])
+  })
+
+  it('prefers configured Unlimited-OCR and falls back to MinerU without losing diagnostics', async () => {
+    const { root } = await fixture()
+    const accurateBridge = runner('unlimited result')
+    const accurateService = new DocumentEngineService({ runner: accurateBridge })
+    const accurate = await accurateService.parse({
+      workspaceRoot: root,
+      relativePath: 'source.pdf',
+      mode: 'accurate',
+      unlimitedOcrServerUrl: 'http://127.0.0.1:3000',
+      idempotencyKey: 'unlimited-accurate'
+    })
+    expect(accurate).toMatchObject({
+      engine: 'unlimited-ocr-local',
+      quality: { status: 'enhanced' }
+    })
+    expect(accurateBridge.mock.calls.map(([input]) => input.engine)).toEqual(['unlimited-ocr-local'])
+
+    const fallbackBridge = vi.fn<DocumentEngineRunner>(async (input) => {
+      if (input.engine === 'unlimited-ocr-local') throw new Error('/private/model unavailable')
+      return runner(input.engine === 'markitdown' ? 'tiny' : 'mineru result')(input)
+    })
+    const fallbackService = new DocumentEngineService({ runner: fallbackBridge })
+    const fallback = await fallbackService.parse({
+      workspaceRoot: root,
+      relativePath: 'source.pdf',
+      mode: 'accurate',
+      unlimitedOcrServerUrl: 'http://127.0.0.1:3000',
+      outputDirectory: '.workwise/cache/unlimited-fallback',
+      idempotencyKey: 'unlimited-fallback'
+    })
+    expect(fallback.engine).toBe('mineru-local')
+    expect(fallback.quality.status).toBe('enhanced')
+    expect(fallback.route).toEqual({
+      requestedMode: 'accurate',
+      selectedEngine: 'mineru-local',
+      fallbackFrom: 'unlimited-ocr-local'
+    })
+    expect(fallback.degradedFrom).toBeUndefined()
+    expect(fallback.warnings.join(' ')).toContain('Unlimited-OCR failed: [path]')
+    expect(fallbackBridge.mock.calls.map(([input]) => input.engine)).toEqual([
+      'unlimited-ocr-local',
+      'mineru-local'
+    ])
+  })
+
+  it('returns a degraded MarkItDown result when every high-accuracy engine fails', async () => {
+    const { root } = await fixture()
+    const bridge = vi.fn<DocumentEngineRunner>(async (input) => {
+      if (input.engine === 'unlimited-ocr-local') throw new Error('/private/unlimited unavailable')
+      if (input.engine === 'mineru-local') throw new Error('/private/mineru unavailable')
+      return runner('usable fallback')(input)
+    })
+    const service = new DocumentEngineService({ runner: bridge })
+
+    const result = await service.parse({
+      workspaceRoot: root,
+      relativePath: 'source.pdf',
+      mode: 'accurate',
+      unlimitedOcrServerUrl: 'http://127.0.0.1:3000',
+      idempotencyKey: 'all-accurate-engines-failed'
+    })
+
+    expect(result).toMatchObject({
+      engine: 'markitdown',
+      degradedFrom: 'mineru-local',
+      quality: { status: 'degraded', reasons: ['engine_fallback'] },
+      route: {
+        requestedMode: 'accurate',
+        selectedEngine: 'markitdown',
+        fallbackFrom: 'mineru-local'
+      }
+    })
+    expect(result.warnings.join(' ')).toContain('Unlimited-OCR failed: [path]')
+    expect(result.warnings.join(' ')).toContain('MinerU failed: [path]')
+    expect(bridge.mock.calls.map(([input]) => input.engine)).toEqual([
+      'unlimited-ocr-local',
+      'mineru-local',
+      'markitdown'
+    ])
   })
 })
 

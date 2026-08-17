@@ -114,18 +114,68 @@ describe('upstream model picker list', () => {
     if (result.ok) {
       expect(result.modelIds).toContain('local-only-model')
       expect(result.modelIds).toContain('custom-provider-model')
+      expect(result.modelIds).not.toContain('deepseek-chat')
+      expect(result.modelIds).not.toContain('deepseek-reasoner')
       expect(result.modelGroups).toEqual(expect.arrayContaining([
         expect.objectContaining({
           providerId: 'custom-provider',
           label: 'Custom Provider',
           modelIds: expect.arrayContaining(['custom-provider-model'])
-        }),
-        expect.objectContaining({
-          providerId: 'deepseek',
-          label: 'DeepSeek',
-          modelIds: expect.arrayContaining(['deepseek-chat', 'deepseek-reasoner'])
         })
       ]))
+      const deepseek = result.modelGroups?.find((group) => group.providerId === 'deepseek')
+      expect(deepseek?.modelIds).toEqual(['deepseek-v4-flash', 'deepseek-v4-pro'])
+    }
+  })
+
+  it('hides retired ids returned by the official DeepSeek model catalog', async () => {
+    const dataDir = mkdtempSync(join(tmpdir(), 'workwise-models-'))
+    const official = settings(dataDir, 'deepseek-v4-pro')
+    official.agents.kun.providerId = 'deepseek'
+    const originalFetch = globalThis.fetch
+    globalThis.fetch = async () => new Response(JSON.stringify({
+      data: [
+        { id: 'deepseek-chat' },
+        { id: 'deepseek-reasoner' },
+        { id: 'deepseek-v4-flash' },
+        { id: 'deepseek-v4-pro' }
+      ]
+    }), { status: 200 })
+
+    try {
+      const result = await fetchUpstreamModelIds(official, 'sk-deepseek')
+      expect(result).toMatchObject({ ok: true })
+      if (result.ok) {
+        expect(result.modelIds).toEqual([
+          'auto',
+          'agnes-2.0-flash',
+          'custom-provider-model',
+          'deepseek-v4-flash',
+          'deepseek-v4-pro'
+        ])
+        expect(result.modelIds).not.toContain('deepseek-chat')
+        expect(result.modelIds).not.toContain('deepseek-reasoner')
+        expect(result.modelGroups?.find((group) => group.providerId === 'deepseek')?.modelIds)
+          .toEqual(['deepseek-v4-flash', 'deepseek-v4-pro'])
+      }
+    } finally {
+      globalThis.fetch = originalFetch
+    }
+  })
+
+  it('keeps explicitly configured retired ids on third-party compatible providers', async () => {
+    const dataDir = mkdtempSync(join(tmpdir(), 'workwise-models-'))
+    const custom = settings(dataDir, 'deepseek-reasoner')
+    const provider = custom.provider.providers.find((item) => item.id === 'custom-provider')
+    if (!provider) throw new Error('missing custom provider fixture')
+    provider.models = ['deepseek-chat', 'deepseek-reasoner']
+
+    const result = await fetchUpstreamModelIds(custom, '')
+    expect(result).toMatchObject({ ok: true })
+    if (result.ok) {
+      expect(result.modelIds).toEqual(expect.arrayContaining(['deepseek-chat', 'deepseek-reasoner']))
+      expect(result.modelGroups?.find((group) => group.providerId === 'custom-provider')?.modelIds)
+        .toEqual(['deepseek-chat', 'deepseek-reasoner'])
     }
   })
 })

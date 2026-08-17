@@ -162,7 +162,7 @@ export function ClawSettingsSection({ ctx }: { ctx: ClawSettingsContext }): Reac
                     <div className="truncate text-[14px] font-semibold text-ds-ink">{name}</div>
                     <div className="mt-1 text-[12px] text-ds-faint">
                       {t('clawManageAgentMeta', {
-                        provider: 'Feishu / Lark',
+                        provider: channel.provider === 'weixin' ? 'WeChat' : 'Feishu / Lark',
                         model: channel.model,
                         workspace: channelEffectiveWorkspace(form, channel)
                       })}

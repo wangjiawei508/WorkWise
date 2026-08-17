@@ -14,11 +14,17 @@ import {
   isManagedRuntimeChildRunning,
   reclaimManagedRuntimePort,
   startManagedRuntimeChild,
-  stopManagedRuntimeChildAndWait
+  stopManagedRuntimeChildAndWait,
+  type StartManagedRuntimeChildOptions
 } from '../managed-runtime-process'
 import { getManagedRuntimeBaseUrl } from '../runtime-base-url'
 
 const MANAGED_RUNTIME_ID = 'kun' as const
+let managedRuntimeStartOptions: StartManagedRuntimeChildOptions = {}
+
+export function configureManagedRuntimeStartOptions(options: StartManagedRuntimeChildOptions): void {
+  managedRuntimeStartOptions = { ...options }
+}
 
 function appRoot(): string {
   return app.isPackaged
@@ -42,7 +48,7 @@ export const managedRuntimeAdapter = {
   },
 
   ensureRunning(settings: AppSettingsV1): Promise<void> {
-    return startManagedRuntimeChild(settings)
+    return startManagedRuntimeChild(settings, managedRuntimeStartOptions)
   },
 
   stopAndWait(): Promise<void> {
@@ -71,8 +77,9 @@ export function getRuntimeBaseUrlForSettings(settings: AppSettingsV1): string {
 export function runtimeAuthHeaders(settings: AppSettingsV1): Headers {
   const runtime = getManagedRuntimeSettings(settings)
   const headers = new Headers()
-  if (runtime.runtimeToken.trim()) {
-    headers.set('Authorization', `Bearer ${runtime.runtimeToken.trim()}`)
+  const runtimeToken = managedRuntimeStartOptions.runtimeToken?.trim() || runtime.runtimeToken.trim()
+  if (runtimeToken) {
+    headers.set('Authorization', `Bearer ${runtimeToken}`)
   }
   return headers
 }

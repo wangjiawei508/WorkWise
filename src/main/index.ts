@@ -1,6 +1,7 @@
 import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, nativeTheme, Notification, powerSaveBlocker, shell, Tray, type MessageBoxOptions } from 'electron'
-import { existsSync, openAsBlob } from 'node:fs'
-import { homedir, release as osRelease } from 'node:os'
+import { randomBytes } from 'node:crypto'
+import { existsSync, mkdirSync, openAsBlob } from 'node:fs'
+import { homedir, release as osRelease, tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import {
@@ -13,7 +14,22 @@ import workwiseTrayPng from '../asset/img/workwise_tray.png?url'
 import { createAppIcon, pickTrayIcon } from './app-icon'
 import { configureLinuxWaylandImeSwitches } from './app-command-line'
 import { configureAppIdentity } from './app-identity'
+import {
+  shouldCloseMainWindowToTray,
+  shouldShowStartupErrorDialog,
+  shouldStopServicesWhenAllWindowsClose
+} from './app-lifecycle'
 import { runLegacyDataImport } from './legacy-data-migration'
+import {
+  candidateProcessUserDataPath,
+  candidateEnvironmentFromArgv,
+  isCandidateHeadless,
+  isCandidateRuntimeProbe,
+  isUnconfiguredRecoveryCandidate,
+  resolveCandidateRuntimePaths,
+  runCandidateRuntimeProbe,
+  UNCONFIGURED_RECOVERY_CANDIDATE_EXIT_CODE
+} from './candidate-runtime'
 import {
   applyManagedRuntimePatch,
   kunSettingsEnvelope,
@@ -24,9 +40,11 @@ import {
   mergeModelProviderSettings,
   mergeScheduleSettings,
   mergeWriteSettings,
+  mergeNotificationSettings,
   normalizeAppSettings,
   normalizeAppBehaviorSettings,
   normalizeKeyboardShortcuts,
+  shouldShowTerminalNotification,
   resolveManagedRuntimeSettings,
   type AppBehaviorConfigV1,
   type AppSettingsPatch,
@@ -38,6 +56,7 @@ import type { ApplicationMenuAction } from '../shared/workwise-api'
 import { isAllowedDevPreviewUrl } from '../shared/dev-preview-url'
 import { fetchUpstreamModelIds } from './upstream-models'
 import {
+  configureManagedRuntimeStartOptions,
   managedRuntimeAdapter,
   getRuntimeBaseUrlForSettings,
   runtimeAuthHeaders,
@@ -67,13 +86,33 @@ import { registerRuntimeSseIpc, stopAllRuntimeSse } from './runtime-sse-ipc'
 import { appCancellationRegistry } from './cancellation-registry'
 import { drainSerializedWrites } from './services/durable-file'
 import {
+  ImCredentialService,
+  protectImChannelCredentials,
+  removeUnreferencedImCredentials
+} from './services/im-credential-service'
+import {
+  isImCredentialHelperProcess,
+  runImCredentialHelperProcess,
+  stopCredentialHelperProcesses
+} from './services/im-credential-helper'
+import { ImDeliveryLedger } from './services/im-delivery-ledger'
+import { ImHealthService } from './services/im-health-service'
+import {
+  configureWeixinBridgeCredentialProvider,
   configureWeixinBridgeRuntimeContextProvider,
+  disconnectWeixinBridgeAccount,
   ensureWeixinBridgeRpcUrl,
+  getWeixinBridgeAccountStatuses,
   getWeixinBridgeAccountUserId,
+  isWeixinBridgeAccountConfigured,
+  reconnectWeixinBridgeAccount,
   sendWeixinBridgeMessage,
+  startWeixinBridgeAccount,
+  stopWeixinBridgeAccount,
   stopWeixinBridgeRuntime
 } from './weixin-bridge-runtime'
 import { webhookUrl } from './claw-runtime-helpers'
+import { IM_HEALTH_SUPERVISOR_INTERVAL_MS } from '../shared/im-communication'
 import { isRuntimeHealthResponseBody } from './runtime-health'
 import { legacyStartupTraceEnabled } from './compat/legacy-environment'
 import {
@@ -145,6 +184,7 @@ function syncWeixinBridgeRuntime(settings: AppSettingsV1): void {
 
 const runningClawScheduleMcpServer =
   process.argv.includes('--gui-schedule-mcp-server') || process.argv.includes('--claw-schedule-mcp-server')
+const runningImCredentialHelper = isImCredentialHelperProcess()
 
 function resolveLogDirectory(): string {
   return join(app.getPath('userData'), 'logs')
@@ -188,6 +228,65 @@ function runtimeJsonError(code: string, message: string): Error {
 
 traceStartup('main module evaluated')
 
+let candidateLaunchConfigurationError = ''
+try {
+  Object.assign(process.env, candidateEnvironmentFromArgv(process.execPath, process.argv, process.env, process.resourcesPath))
+} catch (error) {
+  candidateLaunchConfigurationError = error instanceof Error ? error.message : String(error)
+}
+const unconfiguredRecoveryCandidate = isUnconfiguredRecoveryCandidate(process.execPath, process.env, process.resourcesPath)
+if (unconfiguredRecoveryCandidate) {
+  const quarantineRoot = join(tmpdir(), `workwise-unconfigured-candidate-${process.pid}`)
+  const quarantinePaths = {
+    userData: join(quarantineRoot, 'user-data'),
+    cache: join(quarantineRoot, 'cache'),
+    sessionData: join(quarantineRoot, 'session-data'),
+    crashDumps: join(quarantineRoot, 'crash-dumps'),
+    logs: join(quarantineRoot, 'logs')
+  }
+  for (const path of Object.values(quarantinePaths)) mkdirSync(path, { recursive: true, mode: 0o700 })
+  app.setPath('userData', quarantinePaths.userData)
+  app.setPath('cache', quarantinePaths.cache)
+  app.setPath('sessionData', quarantinePaths.sessionData)
+  app.setPath('crashDumps', quarantinePaths.crashDumps)
+  app.setPath('logs', quarantinePaths.logs)
+}
+
+const candidateRuntimePaths = resolveCandidateRuntimePaths()
+const candidateHeadless = Boolean(candidateRuntimePaths && isCandidateHeadless())
+const candidateRuntimeProbe = Boolean(candidateRuntimePaths && isCandidateRuntimeProbe())
+if (candidateRuntimePaths) {
+  const runtimeToken = randomBytes(32).toString('base64url')
+  const flowSecretStoreKey = randomBytes(32).toString('base64url')
+  // The credential helper receives its own --user-data-dir so it never
+  // contends with the GUI's Chromium profile while initializing safeStorage.
+  // Keep the candidate's normal paths for every other process.
+  app.setPath('userData', candidateProcessUserDataPath(
+    candidateRuntimePaths,
+    process.argv,
+    runningImCredentialHelper
+  ))
+  process.env.WORKWISE_TOOLS_ROOT = candidateRuntimePaths.toolsRoot
+  process.env.WORKWISE_UPDATE_PROVIDER = 'none'
+  configureManagedRuntimeStartOptions({
+    candidateRoot: candidateRuntimePaths.root,
+    homeDir: candidateRuntimePaths.home,
+    workwiseHome: candidateRuntimePaths.workwiseHome,
+    mcpConfigPath: join(candidateRuntimePaths.workwiseHome, 'mcp.json'),
+    autoInstallBundledAgentPack: false,
+    autoInstallBundledSpecialistSkills: false,
+    skillRoots: [],
+    runtimeToken,
+    flowSecretStoreKey
+  })
+}
+
+function clawScheduleMcpConfigPaths(): { mcpJsonPath?: string } {
+  return candidateRuntimePaths
+    ? { mcpJsonPath: join(candidateRuntimePaths.workwiseHome, 'mcp.json') }
+    : {}
+}
+
 if (runningClawScheduleMcpServer && process.platform === 'darwin') {
   app.dock?.hide()
 }
@@ -201,11 +300,16 @@ configureAppIdentity()
 
 // 紧跟在身份设置之后、requestSingleInstanceLock() 之前做只读旧数据导入。
 // 源目录永不重命名或删除；已存在的 WorkWise 目标始终优先。
-const legacyMigration = runLegacyDataImport({
-  userDataPath: app.getPath('userData'),
-  homeDir: homedir(),
-  log: (message, detail) => console.warn(`[workwise] ${message}`, detail ?? '')
-})
+const legacyMigration = runningImCredentialHelper || unconfiguredRecoveryCandidate
+  ? {
+      userData: { userDataPath: app.getPath('userData'), migrated: false },
+      home: []
+    }
+  : runLegacyDataImport({
+      userDataPath: app.getPath('userData'),
+      homeDir: candidateRuntimePaths?.home ?? homedir(),
+      log: (message, detail) => console.warn(`[workwise] ${message}`, detail ?? '')
+    })
 traceStartup('legacy data migration checked', {
   userDataPath: legacyMigration.userData.userDataPath,
   migratedUserData: legacyMigration.userData.migrated,
@@ -228,12 +332,15 @@ let logDir = ''
 let clawRuntime: ClawRuntime | null = null
 let scheduleRuntime: ScheduleRuntime | null = null
 let managedRuntimesStoppedForQuit = false
-let managedRuntimesStopPromise: Promise<void> | null = null
 let appBehavior: AppBehaviorConfigV1 = normalizeAppBehaviorSettings()
 let tray: Tray | null = null
 let currentLocale: AppSettingsV1['locale'] = 'en'
 let isQuitting = false
 let gracefulShutdownPromise: Promise<void> | null = null
+let imCredentialService: ImCredentialService | null = null
+let imDeliveryLedger: ImDeliveryLedger | null = null
+let imHealthService: ImHealthService | null = null
+let imHealthTimer: ReturnType<typeof setInterval> | null = null
 
 function gpuCompositingDisabled(): boolean {
   if (
@@ -307,31 +414,25 @@ async function stopManagedRuntimesForQuit(): Promise<void> {
   if (!gracefulShutdownPromise) {
     gracefulShutdownPromise = (async () => {
       await appCancellationRegistry.cancelAll('application_exit')
+      if (imHealthTimer) {
+        clearInterval(imHealthTimer)
+        imHealthTimer = null
+      }
       await stopAllRuntimeSse('application_exit')
       scheduleRuntime?.stop()
-      clawRuntime?.stop()
-      stopWeixinBridgeRuntime()
+      await clawRuntime?.stop()
+      await stopWeixinBridgeRuntime()
+      stopCredentialHelperProcesses()
       await drainSerializedWrites()
+      await imHealthService?.flush()
+      imDeliveryLedger?.close()
+      imDeliveryLedger = null
       await managedRuntimeAdapter.stopAndWait()
     })()
   }
   const timeout = new Promise<void>((resolve) => setTimeout(resolve, 5_000))
   await Promise.race([gracefulShutdownPromise, timeout])
   managedRuntimesStoppedForQuit = true
-}
-
-async function stopManagedRuntimes(): Promise<void> {
-  if (!managedRuntimesStopPromise) {
-    managedRuntimesStopPromise = (async () => {
-      scheduleRuntime?.stop()
-      clawRuntime?.stop()
-      stopWeixinBridgeRuntime()
-      await managedRuntimeAdapter.stopAndWait()
-    })().finally(() => {
-      managedRuntimesStopPromise = null
-    })
-  }
-  return managedRuntimesStopPromise
 }
 
 async function loadGuiUpdaterModule(): Promise<GuiUpdaterModule> {
@@ -409,11 +510,13 @@ const trayIcon = createAppIcon(workwiseTrayPng)
 traceStartup('app icon loaded', { source: workwiseLogoPng.startsWith('data:') ? 'data-url' : 'path' })
 const guiUpdaterAcceptanceLaunch = isGuiUpdaterAcceptanceLaunch(process.argv, app.getPath('userData'))
 const gotSingleInstanceLock = runningClawScheduleMcpServer ||
+  runningImCredentialHelper ||
   guiUpdaterAcceptanceLaunch ||
   app.requestSingleInstanceLock()
 traceStartup('single instance lock checked', {
   gotSingleInstanceLock,
   skippedForClawScheduleMcpServer: runningClawScheduleMcpServer,
+  skippedForImCredentialHelper: runningImCredentialHelper,
   skippedForGuiUpdaterAcceptance: guiUpdaterAcceptanceLaunch
 })
 
@@ -577,6 +680,10 @@ function normalizeNotificationText(raw: string | undefined, fallback: string, ma
 
 type TurnCompleteNotificationPayload = {
   threadId?: string
+  turnId?: string
+  approvalId?: string
+  reason?: 'completed' | 'error' | 'aborted' | 'blocked' | 'max_tokens' | 'waiting_approval'
+  activeThread?: boolean
   title?: string
   body?: string
 }
@@ -585,8 +692,8 @@ async function showTurnCompleteNotification(
   payload: TurnCompleteNotificationPayload
 ): Promise<{ ok: true; shown: boolean; reason?: string } | { ok: false; message: string }> {
   const settings = await store.load()
-  if (!settings.notifications.turnComplete) {
-    return { ok: true, shown: false, reason: 'disabled' }
+  if (!shouldShowTerminalNotification(settings.notifications, payload)) {
+    return { ok: true, shown: false, reason: 'filtered' }
   }
   if (!Notification.isSupported()) {
     return { ok: true, shown: false, reason: 'unsupported' }
@@ -603,6 +710,10 @@ async function showTurnCompleteNotification(
     })
     notification.on('click', () => {
       revealMainWindow()
+      const threadId = payload.threadId?.trim()
+      if (threadId && mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('notification:open-thread', threadId)
+      }
     })
     notification.show()
     return { ok: true, shown: true }
@@ -917,7 +1028,10 @@ function createWindow(options: { suppressInitialShow?: boolean } = {}): void {
     splashOpenedAt = 0
   }
   mainWindow.on('close', (event) => {
-    if (isQuitting || !appBehavior.closeToTray) return
+    if (
+      isQuitting ||
+      !shouldCloseMainWindowToTray(appBehavior.closeToTray, Boolean(candidateRuntimePaths))
+    ) return
     event.preventDefault()
     mainWindow?.hide()
   })
@@ -1073,7 +1187,12 @@ async function runtimeRequest(
   }
 }
 
-if (runningClawScheduleMcpServer) {
+if (unconfiguredRecoveryCandidate) {
+  console.error(`[workwise candidate] ${candidateLaunchConfigurationError || 'Refusing to start without an isolated candidate environment.'}`)
+  process.exit(UNCONFIGURED_RECOVERY_CANDIDATE_EXIT_CODE)
+} else if (runningImCredentialHelper) {
+  void runImCredentialHelperProcess()
+} else if (runningClawScheduleMcpServer) {
   void runClawScheduleMcpServerFromArgv(process.argv).catch((error) => {
     console.error('[claw-schedule-mcp] server failed:', error)
     process.exit(1)
@@ -1105,9 +1224,33 @@ app.whenReady().then(async () => {
     if (!dockSource.isEmpty()) app.dock?.setIcon(dockSource)
   }
 
-  store = new JsonSettingsStore(app.getPath('userData'))
+  store = new JsonSettingsStore(app.getPath('userData'), {
+    workwiseHome: candidateRuntimePaths?.workwiseHome
+  })
   traceStartup('settings load:start')
   let initial = await store.load()
+  imCredentialService = new ImCredentialService({
+    root: join(app.getPath('userData'), 'communication', 'credentials')
+  })
+  configureWeixinBridgeCredentialProvider(imCredentialService)
+  imDeliveryLedger = new ImDeliveryLedger(join(app.getPath('userData'), 'communication', 'messages.sqlite3'))
+  imHealthService = new ImHealthService()
+  await imHealthService.load()
+  try {
+    // Startup migration must be durable. If Keychain authorization is not
+    // available, leave the legacy value in the main-process settings object
+    // and keep the channel unavailable until an explicit reconnect retries it.
+    const migratedChannels = await protectImChannelCredentials(initial.claw.channels, imCredentialService, {
+      requirePersistent: true
+    })
+    if (migratedChannels.some((channel, index) => channel !== initial.claw.channels[index])) {
+      initial = await store.patch({ claw: { channels: migratedChannels } })
+    }
+  } catch (error) {
+    console.warn('[im-credentials] startup migration deferred until protected storage is available.', {
+      code: error && typeof error === 'object' && 'code' in error ? String(error.code) : 'migration_failed'
+    })
+  }
   traceStartup('settings load:done')
   appBehavior = initial.appBehavior
   syncApplicationMenu(initial)
@@ -1127,7 +1270,11 @@ app.whenReady().then(async () => {
     })
   }
   nativeTheme.on('updated', refreshWindowAppearance)
-  await syncClawScheduleMcpConfig(initial, getClawScheduleMcpLaunchConfig()).catch((error) => {
+  await syncClawScheduleMcpConfig(
+    initial,
+    getClawScheduleMcpLaunchConfig(),
+    clawScheduleMcpConfigPaths()
+  ).catch((error) => {
     console.error('[claw-schedule-mcp] failed to sync config on startup:', error)
   })
   splashWindow?.update({
@@ -1157,10 +1304,98 @@ app.whenReady().then(async () => {
     notifyChannelActivity: emitClawChannelActivity,
     sendWeixinBridgeMessage,
     resolveWeixinAccountUserId: getWeixinBridgeAccountUserId,
+    getWeixinBridgeAccountStatuses,
+    startWeixinBridgeAccount,
+    stopWeixinBridgeAccount,
+    reconnectWeixinBridgeAccount,
+    disconnectWeixinBridgeAccount,
+    imLedger: imDeliveryLedger,
+    imHealth: imHealthService,
+    imMaxConcurrency: 4,
+    resolveImCredential: async (channel) => {
+      if (channel.credentialRef && imCredentialService) {
+        const resolved = await imCredentialService.resolve(channel.credentialRef)
+        if (resolved) return resolved
+      }
+      // Deprecated plaintext platform credentials are intentionally never a
+      // runtime fallback. They remain in the main-process settings only so an
+      // explicit reconnect can retry durable migration.
+      return undefined
+    },
     createScheduledTaskFromText: (text, options) =>
       scheduleRuntime?.createScheduledTaskFromText(text, options) ?? Promise.resolve({ kind: 'noop' })
   })
+  traceStartup('claw runtime sync:start', {
+    clawEnabled: initial.claw.enabled,
+    imEnabled: initial.claw.im.enabled,
+    enabledChannels: initial.claw.channels.filter((channel) => channel.enabled).length
+  })
   clawRuntime.sync(initial)
+  traceStartup('claw runtime sync:scheduled')
+  imHealthService.onChange((health) => {
+    if (!mainWindow || mainWindow.isDestroyed()) return
+    mainWindow.webContents.send('claw:im:health-changed', health)
+  })
+  const refreshUnifiedImHealth = async (): Promise<void> => {
+    if (!imHealthService) return
+    await clawRuntime?.recoverPendingMessages()
+    const settings = await store.load()
+    clawRuntime?.refreshChannelHealth(settings)
+    for (const channel of settings.claw.channels.filter((item) => item.enabled)) {
+      const credential = channel.platformCredential
+      const accountId = credential?.kind === 'weixin'
+        ? credential.accountId
+        : credential?.kind === 'feishu'
+          ? credential.appId
+          : channel.id
+      if (!imHealthService.get(channel.id)) {
+        imHealthService.start({ channelId: channel.id, provider: channel.provider, accountId, credentialStorage: channel.credentialRef?.storage })
+      }
+      if (channel.provider !== 'weixin') continue
+      const status = (await getWeixinBridgeAccountStatuses(accountId))[0]
+      if (!status) continue
+      if (status.status === 'starting') {
+        const current = imHealthService.get(channel.id)
+        if (current?.status !== 'starting' || (status.runId && current.runId !== status.runId)) {
+          imHealthService.start({
+            channelId: channel.id,
+            provider: channel.provider,
+            accountId,
+            credentialStorage: channel.credentialRef?.storage,
+            runId: status.runId,
+            startedAt: status.startedAt,
+            message: status.message || '正在连接微信。'
+          })
+        }
+      } else if (status.status === 'connected') imHealthService.heartbeat(channel.id, status.message || '微信连接正常。')
+      else if (status.status === 'expired') imHealthService.fail(channel.id, { reasonCode: 'auth_expired', message: status.message || '微信连接已过期。', errorCode: status.errorCode, expired: true })
+      else if (status.status === 'stale') imHealthService.markStale(channel.id, {
+        reasonCode: status.reasonCode === 'first_poll_timeout' ? 'first_poll_timeout' : 'poll_stale',
+        message: status.message || '微信连接心跳已超时。',
+        errorCode: status.errorCode
+      })
+      else if (status.status === 'retrying' || status.status === 'error') imHealthService.fail(channel.id, {
+        reasonCode: status.reasonCode === 'credential_missing'
+          ? 'credential_missing'
+          : status.reasonCode === 'credential_unavailable'
+            ? 'credential_unavailable'
+            : 'network',
+        message: status.message || '微信连接异常。',
+        errorCode: status.errorCode
+      })
+      else if (status.status === 'stopped') imHealthService.stop(channel.id, status.message || '微信连接已暂停。')
+    }
+    imHealthService.supervise((health) => {
+      if (health.provider === 'feishu' && (health.status === 'stale' || health.status === 'retrying')) {
+        void clawRuntime?.reconnectChannel(health.channelId).catch((error) => logWarn('im-health', 'Failed to reconnect unhealthy Feishu channel.', { message: error instanceof Error ? error.message : String(error) }))
+      }
+      if (!mainWindow || mainWindow.isDestroyed()) return
+      mainWindow.webContents.send('claw:im:health-changed', health)
+    })
+  }
+  void refreshUnifiedImHealth()
+  imHealthTimer = setInterval(() => void refreshUnifiedImHealth().catch((error) => logWarn('im-health', 'Failed to refresh IM health.', { message: error instanceof Error ? error.message : String(error) })), IM_HEALTH_SUPERVISOR_INTERVAL_MS)
+  imHealthTimer.unref?.()
   configureWeixinBridgeRuntimeContextProvider(async () => {
     const settings = await store.load()
     const channel = settings.claw.channels.find((item) => item.enabled && item.provider === 'weixin')
@@ -1195,7 +1430,7 @@ app.whenReady().then(async () => {
       ...restPatch,
       provider: mergeModelProviderSettings(prev.provider, providerPatch),
       log: { ...prev.log, ...(partial.log ?? {}) },
-      notifications: { ...prev.notifications, ...(partial.notifications ?? {}) },
+      notifications: mergeNotificationSettings(prev.notifications, partial.notifications),
       appBehavior: normalizeAppBehaviorSettings({
         ...prev.appBehavior,
         ...(partial.appBehavior ?? {})
@@ -1223,8 +1458,26 @@ app.whenReady().then(async () => {
     if (prev.log.enabled !== next.log.enabled || prev.log.retentionDays !== next.log.retentionDays) {
       configureLogger({ enabled: next.log.enabled, retentionDays: next.log.retentionDays })
     }
-    const saved = await store.patch(partial, expectedRevision)
-    await syncClawScheduleMcpConfig(saved, getClawScheduleMcpLaunchConfig()).catch((error) => {
+    const protectedPatch = partial.claw?.channels && imCredentialService
+      ? {
+          ...partial,
+          claw: {
+            ...partial.claw,
+            // A phone-connection authorization must survive a restart.
+            // Do not display a memory-only fallback as a saved connection.
+            channels: await protectImChannelCredentials(next.claw.channels, imCredentialService, { requirePersistent: true })
+          }
+        }
+      : partial
+    const saved = await store.patch(protectedPatch, expectedRevision)
+    if (imCredentialService) {
+      await removeUnreferencedImCredentials(prev.claw.channels, saved.claw.channels, imCredentialService)
+    }
+    await syncClawScheduleMcpConfig(
+      saved,
+      getClawScheduleMcpLaunchConfig(),
+      clawScheduleMcpConfigPaths()
+    ).catch((error) => {
       console.error('[claw-schedule-mcp] failed to sync config after settings change:', error)
     })
     if (prev.guiUpdate.channel !== saved.guiUpdate.channel && guiUpdaterModulePromise) {
@@ -1266,7 +1519,16 @@ app.whenReady().then(async () => {
     pollFeishuInstall,
     startWeixinInstallQrcode,
     pollWeixinInstall,
-    resolveRuntimeConfigPath: resolveRuntimeMcpJsonPath,
+    getWeixinBridgeAccountStatuses,
+    isWeixinBridgeAccountConfigured,
+    getImHealthService: () => imHealthService,
+    getImCredentialService: () => imCredentialService,
+    getImDeliveryLedger: () => imDeliveryLedger,
+    getUserDataPath: () => app.getPath('userData'),
+    resolveRuntimeConfigPath: () =>
+      candidateRuntimePaths
+        ? join(candidateRuntimePaths.workwiseHome, 'mcp.json')
+        : resolveRuntimeMcpJsonPath(),
     onRuntimeMcpConfigWritten: async () => {
       const settings = await store.load()
       queueRuntimeMcpConfigApply(settings)
@@ -1295,8 +1557,29 @@ app.whenReady().then(async () => {
     label: splashProgressLabel(initial.locale, 'interface')
   })
 
-  createWindow({ suppressInitialShow })
-  traceStartup('createWindow:returned')
+  if (candidateHeadless) {
+    traceStartup('candidate headless diagnostics enabled')
+    if (candidateRuntimeProbe) {
+      traceStartup('candidate Runtime probe:start')
+      await runCandidateRuntimeProbe({
+        ensureRuntime: () => ensureRuntime(initial),
+        reportReady: () => {
+          console.info('[workwise candidate runtime probe]', JSON.stringify({
+            ok: true,
+            port: getManagedRuntimeSettings(initial).port,
+            authenticatedThreadApi: true
+          }))
+          traceStartup('candidate Runtime probe:ready')
+        },
+        stop: stopManagedRuntimesForQuit,
+        exit: (code) => app.exit(code)
+      })
+      return
+    }
+  } else {
+    createWindow({ suppressInitialShow })
+    traceStartup('createWindow:returned')
+  }
 
   void pruneOnStartup().catch((err) => {
     console.warn('[workwise] prune logs:', err)
@@ -1315,6 +1598,7 @@ app.whenReady().then(async () => {
   })
 
   app.on('activate', () => {
+    if (candidateHeadless) return
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
     else revealMainWindow()
   })
@@ -1323,30 +1607,43 @@ app.whenReady().then(async () => {
   console.error('[workwise] startup failed:', error)
   splashWindow?.close()
   splashWindow = null
+  if (!shouldShowStartupErrorDialog(candidateHeadless)) {
+    isQuitting = true
+    void stopManagedRuntimesForQuit()
+      .catch((stopError) => {
+        console.warn('[workwise] failed to clean up after headless startup failure:', stopError)
+      })
+      .finally(() => app.exit(1))
+    return
+  }
   dialog.showErrorBox('WorkWise Runtime failed to start', message)
   app.quit()
 })
 }
 
-app.on('window-all-closed', () => {
-  void stopManagedRuntimes().catch((error) => {
-    console.warn('[workwise] failed to stop WorkWise Runtime runtime:', error)
+if (!runningImCredentialHelper) {
+  app.on('window-all-closed', () => {
+    if (!shouldStopServicesWhenAllWindowsClose(process.platform, Boolean(candidateRuntimePaths))) return
+    isQuitting = true
+    void stopManagedRuntimesForQuit()
+      .catch((error) => {
+        console.warn('[workwise] failed to stop WorkWise Runtime runtime:', error)
+        managedRuntimesStoppedForQuit = true
+      })
+      .finally(() => app.quit())
   })
-  if (process.platform !== 'darwin') {
-    app.quit()
-  }
-})
 
-app.on('before-quit', (event) => {
-  isQuitting = true
-  if (managedRuntimesStoppedForQuit) return
-  event.preventDefault()
-  void stopManagedRuntimesForQuit()
-    .catch((error) => {
-      console.warn('[workwise] failed to stop WorkWise Runtime runtime:', error)
-      managedRuntimesStoppedForQuit = true
-    })
-    .finally(() => {
-      app.quit()
-    })
-})
+  app.on('before-quit', (event) => {
+    isQuitting = true
+    if (managedRuntimesStoppedForQuit) return
+    event.preventDefault()
+    void stopManagedRuntimesForQuit()
+      .catch((error) => {
+        console.warn('[workwise] failed to stop WorkWise Runtime runtime:', error)
+        managedRuntimesStoppedForQuit = true
+      })
+      .finally(() => {
+        app.quit()
+      })
+  })
+}

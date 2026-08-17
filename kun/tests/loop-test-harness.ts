@@ -23,6 +23,7 @@ import type { MemoryStore } from '../src/memory/memory-store.js'
 import type { TokenEconomyConfig } from '../src/loop/token-economy.js'
 import type { ToolStormBreakerOptions } from '../src/loop/tool-storm-breaker.js'
 import type { ContextCompactionConfig } from '../src/loop/model-context-profile.js'
+import type { VisionEvidencePort } from '../src/contracts/vision-evidence.js'
 
 export type Harness = {
   threadId: string
@@ -75,6 +76,7 @@ export function makeHarness(
     tools?: LocalTool[]
     skillRuntime?: SkillRuntime
     attachmentStore?: AttachmentStore
+    visionEvidence?: VisionEvidencePort
     memoryStore?: MemoryStore
     modelCapabilities?: (model: string) => ModelCapabilityMetadata
     tokenEconomy?: TokenEconomyConfig
@@ -132,6 +134,7 @@ export function makeHarness(
     nowMs,
     ...(options.skillRuntime ? { skillRuntime: options.skillRuntime } : {}),
     ...(options.attachmentStore ? { attachmentStore: options.attachmentStore } : {}),
+    ...(options.visionEvidence ? { visionEvidence: options.visionEvidence } : {}),
     ...(options.memoryStore ? { memoryStore: options.memoryStore } : {}),
     ...(options.modelCapabilities ? { modelCapabilities: options.modelCapabilities } : {}),
     ...(options.tokenEconomy ? { tokenEconomy: options.tokenEconomy } : {}),

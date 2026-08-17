@@ -8,7 +8,7 @@ import {
   defaultWriteSettings,
   type AppSettingsV1
 } from '@shared/app-settings'
-import { coerceRendererSettings, guiUpdateFailureMessage, mergeSettingsPatches } from './settings-utils'
+import { coerceRendererSettings, guiUpdateFailureMessage, mergeSettings, mergeSettingsPatches } from './settings-utils'
 
 function legacySettings(): AppSettingsV1 {
   return {
@@ -67,6 +67,35 @@ describe('settings utils', () => {
       uiFontScale: 'large',
       write: { inlineCompletion: { enabled: false, maxTokens: 120 } },
       schedule: { tasks: [{ id: 'new' }] }
+    })
+  })
+
+  it('preserves terminal notification filters across a partial enabled patch', () => {
+    const current = coerceRendererSettings({
+      ...legacySettings(),
+      notifications: {
+        turnComplete: true,
+        turnTerminal: {
+          enabled: true,
+          kinds: ['error', 'waiting_approval'],
+          suppressActiveThread: true,
+          include: ['project-*'],
+          exclude: ['*secret*']
+        }
+      }
+    })
+
+    expect(mergeSettings(current, {
+      notifications: { turnTerminal: { enabled: false } }
+    }).notifications).toEqual({
+      turnComplete: false,
+      turnTerminal: {
+        enabled: false,
+        kinds: ['error', 'waiting_approval'],
+        suppressActiveThread: true,
+        include: ['project-*'],
+        exclude: ['*secret*']
+      }
     })
   })
 

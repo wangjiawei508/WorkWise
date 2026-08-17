@@ -140,6 +140,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   liveAssistant: '',
   lastSeq: 0,
   usageRefreshKey: 0,
+  liveUsageByThreadId: {},
   busy: false,
   error: null,
   runtimeErrorDetail: null,

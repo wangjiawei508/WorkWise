@@ -1,5 +1,5 @@
 import type { WorkspacePreviewResultV1 } from '@shared/agent-workbench'
-import { ChevronLeft, ChevronRight, Minus, Plus, Search } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Minus, Plus, RefreshCw, Search } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState, type ReactElement } from 'react'
 import ReactMarkdown from 'react-markdown'
 import { harden } from 'rehype-harden'
@@ -16,7 +16,10 @@ const markdownRehypePlugins = [[harden, {
   allowedImagePrefixes: []
 }]] as unknown as PluggableList
 
-export function WorkspaceRichPreview({ result }: { result: WorkspacePreviewResultV1 }): ReactElement {
+export function WorkspaceRichPreview({ result, onRequestAccuratePdf }: {
+  result: WorkspacePreviewResultV1
+  onRequestAccuratePdf?: () => void
+}): ReactElement {
   if (result.kind === 'image') {
     return <div className="flex h-full items-center justify-center overflow-auto p-4"><img src={result.dataUrl} alt="" className="max-h-full max-w-full object-contain" /></div>
   }
@@ -37,7 +40,7 @@ export function WorkspaceRichPreview({ result }: { result: WorkspacePreviewResul
       </div>
     )
   }
-  if (result.kind === 'pdf') return <PdfJsPreview result={result} />
+  if (result.kind === 'pdf') return <PdfJsPreview result={result} onRequestAccuratePdf={onRequestAccuratePdf} />
   return <div className="flex h-full items-center justify-center px-6 text-center text-[12px] leading-6 text-ds-muted">{result.message}</div>
 }
 
@@ -53,7 +56,10 @@ function MarkdownBody({ source }: { source: string }): ReactElement {
   )
 }
 
-function PdfJsPreview({ result }: { result: Extract<WorkspacePreviewResultV1, { kind: 'pdf' }> }): ReactElement {
+function PdfJsPreview({ result, onRequestAccuratePdf }: {
+  result: Extract<WorkspacePreviewResultV1, { kind: 'pdf' }>
+  onRequestAccuratePdf?: () => void
+}): ReactElement {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const documentRef = useRef<PDFDocumentProxy | null>(null)
   const [pageNumber, setPageNumber] = useState(1)
@@ -66,6 +72,12 @@ function PdfJsPreview({ result }: { result: Extract<WorkspacePreviewResultV1, { 
     if (!normalized) return []
     return result.pageTexts.filter((page) => page.text.toLowerCase().includes(normalized)).map((page) => page.page)
   }, [query, result.pageTexts])
+  const referencePages = useMemo(
+    () => [...new Set(result.document?.references.map((reference) => reference.page) ?? [])]
+      .filter((page) => page >= 1 && page <= result.pageCount)
+      .slice(0, 12),
+    [result.document?.references, result.pageCount]
+  )
 
   useEffect(() => {
     if (!result.dataUrl) return
@@ -125,9 +137,6 @@ function PdfJsPreview({ result }: { result: Extract<WorkspacePreviewResultV1, { 
     if (matchingPages.length > 0) setPageNumber(matchingPages[0])
   }
 
-  if (!result.dataUrl) {
-    return <div className="flex h-full items-center justify-center px-6 text-center text-[12px] leading-6 text-ds-muted">PDF 超过内嵌预览上限，请使用顶部“打开”按钮在系统阅读器中查看。</div>
-  }
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-ds-border-muted px-3 py-2 text-[11px] text-ds-muted">
@@ -143,12 +152,52 @@ function PdfJsPreview({ result }: { result: Extract<WorkspacePreviewResultV1, { 
           {query ? <span>{matchingPages.length}</span> : null}
         </div>
       </div>
+      <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-ds-border-muted px-3 py-1.5 text-[11px] text-ds-muted">
+        {result.document ? <>
+          <span>当前引擎：{result.document.engine} {result.document.engineVersion}</span>
+          <span>质量：{result.document.quality.status}</span>
+          <span>解析模式：{documentParsingModeLabel(result.document.route.requestedMode)}</span>
+          {result.document.route.fallbackFrom ? <span>降级来源：{result.document.route.fallbackFrom}</span> : null}
+          {result.document.quality.reasons.length > 0 ? (
+            <span>切换原因：{result.document.quality.reasons.map(documentQualityReasonLabel).join('、')}</span>
+          ) : null}
+          {referencePages.length > 0 ? <span className="flex items-center gap-1">引用页：{referencePages.map((page) => <button key={page} type="button" onClick={() => setPageNumber(page)} className="rounded border border-ds-border-muted px-1.5 py-0.5 hover:bg-ds-hover" title={`转到第 ${page} 页`}>{page}</button>)}</span> : null}
+        </> : <span>解析元数据暂不可用，仍可使用 PDF 阅读和搜索。</span>}
+        {onRequestAccuratePdf && (!result.document || result.document.route.requestedMode !== 'accurate') ? (
+          <button type="button" className="ml-auto inline-flex items-center gap-1 rounded border border-ds-border-muted px-2 py-1 text-ds-text-primary hover:bg-ds-hover" onClick={onRequestAccuratePdf}>
+            <RefreshCw className="h-3 w-3" /> 使用高精度解析
+          </button>
+        ) : null}
+      </div>
       {result.warnings.map((warning) => <div key={warning} className="shrink-0 bg-amber-50 px-3 py-1.5 text-[11px] text-amber-800 dark:bg-amber-950/30 dark:text-amber-200">{warning}</div>)}
       <div className="min-h-0 flex-1 overflow-auto bg-slate-100 p-4 dark:bg-slate-950">
-        {loading ? <div className="py-12 text-center text-[12px] text-ds-muted">正在加载 PDF…</div> : null}
-        {error ? <div className="py-12 text-center text-[12px] text-red-600">{error}</div> : null}
-        <canvas ref={canvasRef} className="mx-auto bg-white shadow" />
+        {!result.dataUrl ? <div className="py-12 text-center text-[12px] text-ds-muted">PDF 超过内嵌预览上限，请使用顶部“打开”按钮在系统阅读器中查看。</div> : <>
+          {loading ? <div className="py-12 text-center text-[12px] text-ds-muted">正在加载 PDF…</div> : null}
+          {error ? <div className="py-12 text-center text-[12px] text-red-600">{error}</div> : null}
+          <canvas ref={canvasRef} className="mx-auto bg-white shadow" />
+        </>}
       </div>
     </div>
   )
+}
+
+function documentParsingModeLabel(mode: 'auto' | 'fast' | 'accurate'): string {
+  if (mode === 'fast') return '快解析'
+  if (mode === 'accurate') return '高精度解析'
+  return '自动'
+}
+
+function documentQualityReasonLabel(reason: string): string {
+  const labels: Record<string, string> = {
+    low_text_density: '文本密度过低',
+    weak_text_layer: 'PDF 文本层较弱',
+    scanned_document: '扫描件或 OCR 需求',
+    scanned_or_sparse_pages: '扫描或稀疏页面',
+    garbled_text: '文本存在乱码',
+    formula_dense: '公式密集',
+    table_dense: '表格或跨页表格密集',
+    complex_layout: '复杂或多栏版式',
+    engine_fallback: '高精度引擎失败后已降级'
+  }
+  return labels[reason] ?? reason
 }

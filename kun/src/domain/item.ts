@@ -1,5 +1,9 @@
 import type { TurnItem } from '../contracts/items.js'
 import type { ReviewOutput, ReviewTarget } from '../contracts/review.js'
+import type { WorkspaceReference } from '../contracts/workspace-references.js'
+import type { DshUiBlock } from '../contracts/dsh-ui.js'
+import type { UiActionAudit } from '../contracts/ui-actions.js'
+import type { UiActionTurnItem } from '../contracts/items.js'
 
 export type ItemEntity = TurnItem
 
@@ -10,6 +14,7 @@ export function makeUserItem(input: {
   text: string
   displayText?: string
   attachmentIds?: string[]
+  workspaceReferences?: WorkspaceReference[]
 }): TurnItem {
   const attachmentIds = input.attachmentIds?.filter((id) => id.trim().length > 0)
   const displayText = input.displayText?.trim()
@@ -24,7 +29,10 @@ export function makeUserItem(input: {
     kind: 'user_message',
     text: input.text,
     ...(displayText && displayText !== input.text ? { displayText } : {}),
-    ...(attachmentIds?.length ? { attachmentIds } : {})
+    ...(attachmentIds?.length ? { attachmentIds } : {}),
+    ...(input.workspaceReferences?.length
+      ? { workspaceReferences: input.workspaceReferences.map((reference) => ({ ...reference })) }
+      : {})
   }
 }
 
@@ -34,6 +42,7 @@ export function makeAssistantTextItem(input: {
   threadId: string
   text: string
   status?: 'running' | 'completed' | 'failed'
+  uiBlocks?: DshUiBlock[]
 }): TurnItem {
   return {
     id: input.id,
@@ -43,7 +52,28 @@ export function makeAssistantTextItem(input: {
     status: input.status ?? 'running',
     createdAt: new Date().toISOString(),
     kind: 'assistant_text',
-    text: input.text
+    text: input.text,
+    ...(input.uiBlocks?.length ? { uiBlocks: input.uiBlocks } : {})
+  }
+}
+
+export function makeUiActionItem(input: {
+  id: string
+  turnId: string
+  threadId: string
+  action: UiActionAudit
+  createdAt?: string
+}): UiActionTurnItem {
+  return {
+    id: input.id,
+    turnId: input.turnId,
+    threadId: input.threadId,
+    role: 'user',
+    status: 'completed',
+    createdAt: input.createdAt ?? new Date().toISOString(),
+    finishedAt: input.createdAt ?? new Date().toISOString(),
+    kind: 'ui_action',
+    ...input.action
   }
 }
 

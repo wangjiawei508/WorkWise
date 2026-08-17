@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import {
+  clawMirrorPayloadSchema,
   clawImInstallPollPayloadSchema,
   designDocumentSavePayloadSchema,
   designExportPayloadSchema,
   isSafeOpenExternalUrl,
+  notificationPayloadSchema,
   runtimeRequestPayloadSchema,
   scheduleTaskFromTextPayloadSchema,
   settingsPatchSchema,
@@ -24,6 +26,44 @@ import {
 } from '../../shared/design-document'
 
 describe('app-ipc-schemas', () => {
+  it('accepts the renderer terminal notification active-thread flag', () => {
+    expect(notificationPayloadSchema.parse({
+      threadId: 'thread-1',
+      reason: 'completed',
+      activeThread: true,
+      title: 'Done',
+      body: 'The turn completed.'
+    })).toEqual({
+      threadId: 'thread-1',
+      reason: 'completed',
+      activeThread: true,
+      title: 'Done',
+      body: 'The turn completed.'
+    })
+  })
+
+  it('accepts bounded local IM mirror turn metadata and rejects unknown fields', () => {
+    expect(clawMirrorPayloadSchema.parse({
+      threadId: ' thr_1 ',
+      text: ' completed ',
+      direction: 'assistant',
+      turnId: ' turn_1 ',
+      requestText: ' 请把 TXT 作为附件发给我 '
+    })).toEqual({
+      threadId: 'thr_1',
+      text: 'completed',
+      direction: 'assistant',
+      turnId: 'turn_1',
+      requestText: '请把 TXT 作为附件发给我'
+    })
+    expect(() => clawMirrorPayloadSchema.parse({
+      threadId: 'thr_1',
+      text: 'completed',
+      direction: 'assistant',
+      filePath: '/tmp/private.txt'
+    })).toThrow()
+  })
+
   it('rejects oversized Design documents at both save and export IPC boundaries', () => {
     const document = createDesignDocument()
     document.pages = Array.from(
@@ -146,6 +186,35 @@ describe('app-ipc-schemas', () => {
     }).path).toBe('/v1/threads/thr_1/review')
   })
 
+  it('allows only POST for the persisted UI action endpoint', () => {
+    expect(runtimeRequestPayloadSchema.parse({
+      path: '/v1/threads/thr_1/ui-actions',
+      method: 'POST',
+      body: '{"messageId":"item_1","blockId":"card","actionId":"apply","specFingerprint":"0123456789abcdef","idempotencyKey":"ui_1"}'
+    }).path).toBe('/v1/threads/thr_1/ui-actions')
+    expect(() => runtimeRequestPayloadSchema.parse({
+      path: '/v1/threads/thr_1/ui-actions',
+      method: 'GET'
+    })).toThrow(/runtime request path is not allowed/)
+  })
+
+  it('allows only POST for the thread-scoped workspace reference search endpoint', () => {
+    expect(runtimeRequestPayloadSchema.parse({
+      path: '/v1/threads/thr_1/workspace/references/search',
+      method: 'POST',
+      body: '{"query":"src","limit":20}'
+    }).path).toBe('/v1/threads/thr_1/workspace/references/search')
+    expect(() => runtimeRequestPayloadSchema.parse({
+      path: '/v1/threads/thr_1/workspace/references/search',
+      method: 'GET'
+    })).toThrow(/runtime request path is not allowed/)
+    expect(() => runtimeRequestPayloadSchema.parse({
+      path: '/v1/workspace/references/search',
+      method: 'POST',
+      body: '{"workspaceRoot":"/"}'
+    })).toThrow(/runtime request path is not allowed/)
+  })
+
   it('rejects runtime request paths outside the modeled WorkWise Runtime API surface', () => {
     expect(() =>
       runtimeRequestPayloadSchema.parse({
@@ -192,6 +261,36 @@ describe('app-ipc-schemas', () => {
     expect(payload.agents?.kun?.tokenEconomy?.enabled).toBe(true)
     expect(payload.agents?.kun?.tokenEconomy?.historyHygiene?.maxToolResultTokens).toBe(4000)
     expect(payload.write?.inlineCompletion?.model).toBe('deepseek-v4-pro')
+  })
+
+  it('validates nested terminal notification patches', () => {
+    expect(settingsPatchSchema.parse({
+      notifications: {
+        turnTerminal: {
+          enabled: true,
+          kinds: ['completed', 'error', 'waiting_approval'],
+          suppressActiveThread: true,
+          include: ['project-*'],
+          exclude: ['*secret*']
+        }
+      }
+    }).notifications?.turnTerminal).toEqual({
+      enabled: true,
+      kinds: ['completed', 'error', 'waiting_approval'],
+      suppressActiveThread: true,
+      include: ['project-*'],
+      exclude: ['*secret*']
+    })
+
+    expect(() => settingsPatchSchema.parse({
+      notifications: { turnTerminal: { kinds: ['unsupported'] } }
+    })).toThrow()
+    expect(() => settingsPatchSchema.parse({
+      notifications: { turnTerminal: { include: Array.from({ length: 101 }, (_, index) => `thread-${index}`) } }
+    })).toThrow()
+    expect(() => settingsPatchSchema.parse({
+      notifications: { turnTerminal: { enabled: true, legacyMode: true } }
+    })).toThrow(/Unrecognized key/)
   })
 
   it('accepts schedule settings patches and task payloads', () => {
@@ -272,7 +371,7 @@ describe('app-ipc-schemas', () => {
     expect('quickChat' in (payload.agents ?? {})).toBe(false)
   })
 
-  it('accepts persisted claw channel welcome markers in full settings snapshots', () => {
+  it('accepts persisted secure IM credential references in full settings snapshots', () => {
     const payload = settingsPatchSchema.parse({
       claw: {
         channels: [{
@@ -291,6 +390,16 @@ describe('app-ipc-schemas', () => {
             userContext: '',
             replyRules: ''
           },
+          platformCredential: {
+            kind: 'weixin',
+            accountId: 'wx-account',
+            createdAt: '2026-06-10T00:00:00.000Z'
+          },
+          credentialRef: {
+            id: 'credential-ref-1',
+            storage: 'keychain',
+            createdAt: '2026-06-10T00:00:00.000Z'
+          },
           conversations: [],
           welcomeSentAt: '2026-06-10T00:00:00.000Z',
           createdAt: '2026-06-10T00:00:00.000Z',
@@ -300,6 +409,27 @@ describe('app-ipc-schemas', () => {
     })
 
     expect(payload.claw?.channels?.[0]?.welcomeSentAt).toBe('2026-06-10T00:00:00.000Z')
+    expect(payload.claw?.channels?.[0]?.credentialRef).toEqual({
+      id: 'credential-ref-1',
+      storage: 'keychain',
+      createdAt: '2026-06-10T00:00:00.000Z'
+    })
+  })
+
+  it('rejects unsupported IM credential reference storage', () => {
+    expect(() => settingsPatchSchema.parse({
+      claw: {
+        channels: [{
+          id: 'channel-1',
+          provider: 'weixin',
+          credentialRef: {
+            id: 'credential-ref-1',
+            storage: 'plaintext',
+            createdAt: '2026-06-10T00:00:00.000Z'
+          }
+        }]
+      }
+    })).toThrow()
   })
 
   it('accepts partial provider profiles in settings patches', () => {

@@ -15,10 +15,13 @@ import type { SessionStore } from '../ports/session-store.js'
 import type { ThreadStore } from '../ports/thread-store.js'
 import {
   completionIntentText,
+  fileOutputPaths,
   looksLikeExternalCapabilityBlockedReply,
   looksLikeProgressOnlyReply,
+  looksLikeWebAccessFailureReply,
   promptRequiresFileDeliverable,
-  requiredFileExtensionsForPrompt
+  requiredFileExtensionsForPrompt,
+  verifiedShellDeliverablePaths
 } from '../loop/turn-completion-guard.js'
 import { TaskRunRepository } from './task-run-repository.js'
 import { validateArtifactFile } from './artifact-validator.js'
@@ -27,6 +30,8 @@ import type { RuntimeSpanService } from './runtime-span-service.js'
 const DEFAULT_MAX_ATTEMPTS = 8
 const DEFAULT_MAX_DURATION_MS = 30 * 60 * 1000
 const TERMINAL = new Set<TaskRunStatus>(['completed', 'failed', 'cancelled'])
+const BARE_TASK_CONTINUATION_PATTERN = /^(?:(?:请)?继续(?:执行|完成|处理|推进|做|生成|制作|重试|下一步)?|继续(?:完成)?(?:尚未完成的)?(?:任务|工作)(?:，|,|\s)*(?:推进)?|重试|再试(?:一次|一下)?|重新尝试|(?:确认|同意(?:授权)?|允许|可以(?:了)?)(?:，|,|\s)*(?:开始(?:执行|处理|推进)?|继续(?:执行|完成|处理|推进|做|生成|制作|重试)?|执行|推进|启动)|go\s+ahead|continue|resume|retry|try\s+again|proceed)[。.!！\s]*$/i
+const AUTOMATIC_RECOVERY_PATTERN = /^Continue the persisted task automatically after an application restart\./i
 
 export type TaskCandidateDecision =
   | { kind: 'completed'; task: TaskRun }
@@ -68,7 +73,7 @@ export class TaskController {
   }): TaskRun {
     const active = this.repository.findActiveByThread(input.thread.id)
     const now = this.nowIso()
-    if (active) {
+    if (active && shouldContinueActiveTask(input.request.prompt)) {
       return this.repository.update(active.id, active.revision, (current) => ({
         ...current,
         activeTurnId: input.turnId,
@@ -80,6 +85,9 @@ export class TaskController {
         payload: { turnId: input.turnId },
         createdAt: now
       })
+    }
+    if (active) {
+      this.finish(active, 'cancelled', '用户发起了新的请求，旧任务已停止。')
     }
 
     const acceptance = acceptanceForPrompt(input.request.prompt)
@@ -208,9 +216,16 @@ export class TaskController {
     if (looksLikeProgressOnlyReply(finalResponse)) {
       return this.retry(task, '最终回复仍是进度说明，没有交付具体结果。', fingerprint(turnItems), turnId)
     }
+    if (looksLikeWebAccessFailureReply(finalResponse)) {
+      return this.finish(
+        task,
+        'failed',
+        'web_access_exhausted: 在线搜索连续失败，无法核实当前资讯。'
+      )
+    }
 
     const artifacts = task.acceptance.kind === 'files'
-      ? await this.collectArtifacts(task, turnItems)
+      ? await this.collectArtifacts(task, turnItems, turnId)
       : []
     if (task.acceptance.kind === 'files') {
       const validArtifacts = artifacts.filter((artifact) => artifact.validation === 'valid')
@@ -267,6 +282,9 @@ export class TaskController {
     if (!task || task.activeTurnId !== turnId) return null
     if (code === 'operation_cancelled' || code === 'turn_total_timeout') {
       return this.finish(task, code === 'operation_cancelled' ? 'cancelled' : 'failed', message)
+    }
+    if (code === 'web_access_exhausted') {
+      return this.finish(task, 'failed', message)
     }
     return this.retry(
       task,
@@ -516,10 +534,13 @@ export class TaskController {
     })
   }
 
-  private async collectArtifacts(task: TaskRun, items: TurnItem[]): Promise<TaskArtifact[]> {
-    const paths = items.flatMap((item) => item.kind === 'tool_result' && !item.isError
-      ? outputPaths(item.output)
-      : [])
+  private async collectArtifacts(task: TaskRun, items: TurnItem[], turnId: string): Promise<TaskArtifact[]> {
+    const paths = [
+      ...items.flatMap((item) => item.kind === 'tool_result' && !item.isError
+        ? fileOutputPaths(item.output)
+        : []),
+      ...verifiedShellDeliverablePaths(items, turnId)
+    ]
     const root = await realpath(task.workspaceRoot).catch(() => resolve(task.workspaceRoot))
     const required = task.acceptance.requiredFormats?.map((value) => value.toLowerCase())
     const artifacts: TaskArtifact[] = []
@@ -609,6 +630,12 @@ function artifactValidationSpanId(taskId: string, rawPath: string): string {
   return `span_validation_${createHash('sha256').update(`${taskId}:${rawPath}`).digest('hex').slice(0, 24)}`
 }
 
+function shouldContinueActiveTask(prompt: string): boolean {
+  const intent = completionIntentText(prompt).trim()
+  return AUTOMATIC_RECOVERY_PATTERN.test(intent) ||
+    (intent.length <= 80 && BARE_TASK_CONTINUATION_PATTERN.test(intent))
+}
+
 function acceptanceForPrompt(prompt: string): TaskAcceptance {
   const files = promptRequiresFileDeliverable(prompt)
   const requiredFormats = requiredFileExtensionsForPrompt(prompt)
@@ -658,30 +685,12 @@ function latestAssistantText(turn: Turn | undefined, items: TurnItem[]): string 
   return ''
 }
 
-function outputPaths(output: unknown): string[] {
-  if (!output || typeof output !== 'object') return []
-  const raw = output as Record<string, unknown>
-  const result: string[] = []
-  for (const key of ['path', 'file', 'absolute_path', 'absolutePath', 'relative_path', 'relativePath']) {
-    const value = raw[key]
-    if (typeof value === 'string' && value.trim()) result.push(value.trim())
-  }
-  for (const key of ['files', 'generatedFiles', 'artifacts']) {
-    const value = raw[key]
-    if (!Array.isArray(value)) continue
-    for (const entry of value) {
-      if (typeof entry === 'string') result.push(entry)
-      else result.push(...outputPaths(entry))
-    }
-  }
-  return result
-}
 
 function fingerprint(items: TurnItem[], artifacts: TaskArtifact[] = []): string {
   const normalized = items.map((item) => {
     if (item.kind === 'assistant_reasoning') return { kind: item.kind }
     if (item.kind === 'assistant_text') return { kind: item.kind, text: item.text.trim() }
-    if (item.kind === 'tool_result') return { kind: item.kind, toolName: item.toolName, isError: item.isError, paths: outputPaths(item.output) }
+    if (item.kind === 'tool_result') return { kind: item.kind, toolName: item.toolName, isError: item.isError, paths: fileOutputPaths(item.output) }
     return { kind: item.kind, status: item.status }
   })
   const unique = [...new Map(normalized.map((entry) => [JSON.stringify(entry), entry])).values()]

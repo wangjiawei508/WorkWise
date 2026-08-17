@@ -28,6 +28,7 @@ export const ModelCapabilityMetadata = z
     outputModalities: z.array(ModelInputModality).min(1),
     supportsToolCalling: z.boolean(),
     contextWindowTokens: z.number().int().positive().optional(),
+    maxOutputTokens: z.number().int().positive().optional(),
     messageParts: z.array(ModelMessagePartSupport).min(1)
   })
   .strict()
@@ -270,7 +271,8 @@ export const RuntimeCapabilityManifest = z
     }).strict(),
     imageGen: RuntimeCapabilityState.extend({
       model: z.string().optional()
-    }).strict()
+    }).strict(),
+    uiActions: RuntimeCapabilityState
   })
   .strict()
 export type RuntimeCapabilityManifest = z.infer<typeof RuntimeCapabilityManifest>
@@ -413,7 +415,8 @@ export function buildRuntimeCapabilityManifest(input: {
         input.imageGen?.reason ?? 'image generation provider is not configured'
       ),
       ...(config.imageGen.model ? { model: config.imageGen.model } : {})
-    }
+    },
+    uiActions: available()
   })
 }
 

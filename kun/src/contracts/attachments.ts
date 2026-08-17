@@ -45,7 +45,16 @@ export const AttachmentIndexState = z.enum(['not_applicable', 'pending', 'ready'
 export type AttachmentIndexState = z.infer<typeof AttachmentIndexState>
 
 export const AttachmentParserProvenance = z.object({
-  engine: z.enum(['image-native', 'safe-text', 'document-engine', 'markitdown', 'mineru']),
+  engine: z.enum([
+    'image-native',
+    'safe-text',
+    'document-engine',
+    'markitdown',
+    'mineru',
+    'unlimited-ocr-local',
+    'mineru-local',
+    'mineru-private'
+  ]),
   version: z.string().min(1).optional(),
   local: z.boolean(),
   parsedAt: z.string().optional()

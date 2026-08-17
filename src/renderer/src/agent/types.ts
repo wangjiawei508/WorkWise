@@ -240,7 +240,7 @@ export type ChatBlock =
       managedBy?: 'claw'
       meta?: RuntimeDisclosureMetadata
     }
-  | { kind: 'assistant'; id: string; createdAt?: string; text: string }
+  | { kind: 'assistant'; id: string; createdAt?: string; text: string; uiBlocks?: unknown[] }
   | { kind: 'reasoning'; id: string; createdAt?: string; text: string }
   | ToolBlock
   | CompactionBlock
@@ -278,6 +278,8 @@ export type ChatBlock =
 
 export type ApprovalRequestPayload = {
   approvalId: string
+  threadId?: string
+  turnId?: string
   summary: string
   toolName?: string
   meta?: RuntimeDisclosureMetadata
@@ -370,6 +372,15 @@ export type ThreadDeltaEvent = {
 
 export type ThreadErrorOptions = {
   terminal?: boolean
+  terminalReason?: 'error' | 'blocked' | 'max_tokens'
+  threadId?: string
+  turnId?: string
+}
+
+export type ThreadCompleteOptions = {
+  reason?: 'completed' | 'aborted'
+  threadId?: string
+  turnId?: string
 }
 
 /** Cumulative usage/cost for a WorkWise Runtime thread. */
@@ -406,7 +417,7 @@ export type ThreadEventSink = {
   onRuntimeError?(ev: RuntimeErrorEventPayload): void
   onGoal(ev: { threadId: string; goal: ThreadGoal | null; cleared?: boolean; createdAt?: string }): void
   onTodos?(ev: { threadId: string; todos: ThreadTodoList | null; cleared?: boolean; createdAt?: string }): void
-  onTurnComplete(): void
+  onTurnComplete(options?: ThreadCompleteOptions): void
   onError(err: Error, options?: ThreadErrorOptions): void
   /** Optional: cumulative usage update for the thread. */
   onUsage?(usage: ThreadUsageSnapshot): void
@@ -459,6 +470,7 @@ export interface AgentProvider {
         expectedRevision: number
       }
       attachmentIds?: string[]
+      workspaceReferences?: Array<{ path: string; kind: 'file' | 'directory' }>
     }
   ): Promise<{ turnId: string; threadId: string; userMessageItemId?: string }>
   reviewThread?(

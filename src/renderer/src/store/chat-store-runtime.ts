@@ -38,6 +38,12 @@ import {
   resetBusyRecoveryAttempts,
   syncTurnCompletionPoll as syncTurnCompletionPollImpl
 } from './chat-store-schedulers'
+import {
+  shouldProjectTerminalNotification,
+  terminalNotificationDedupeKey,
+  type TerminalNotificationReason
+} from './terminal-notification-projection'
+import { applyExactLiveUsage, applyLiveUsageDelta } from './live-usage-projection'
 
 const BUSY_WATCHDOG_MS = 180_000
 const MAX_BUSY_RECOVERY_ATTEMPTS = 3
@@ -254,19 +260,43 @@ export function clearWatchedCompletionNotification(threadId: string): void {
   watchCompletionNotificationKeys.delete(normalizedThreadId)
 }
 
-function notifyTurnComplete(threadId: string | null, state: ChatState, dedupeKey: string): void {
-  if (!threadId || typeof window.workwise?.showTurnCompleteNotification !== 'function') return
-  if (!rememberCompletionNotificationKey(dedupeKey)) return
+function notifyTerminal(
+  threadId: string | null,
+  state: ChatState,
+  reason: TerminalNotificationReason,
+  turnId?: string | null,
+  approvalId?: string | null,
+  dedupeKey?: string
+): void {
+  if (!threadId || typeof window === 'undefined' || typeof window.workwise?.showTurnCompleteNotification !== 'function') return
+  const watched = Boolean(state.watchTurnCompletion?.[threadId])
+  const input = { reason, threadId, turnId, approvalId }
+  if (!shouldProjectTerminalNotification(input, {
+    activeThreadId: state.activeThreadId,
+    currentTurnId: state.currentTurnId,
+    watched
+  })) return
+  const key = dedupeKey || terminalNotificationDedupeKey(input)
+  if (!rememberCompletionNotificationKey(key)) return
 
   const threadTitle =
     state.threads.find((thread) => thread.id === threadId)?.title?.trim() ||
     i18n.t('common:untitledThread')
 
+  const reasonText = reason === 'completed'
+    ? i18n.t('common:turnCompleteNotificationBody', { title: threadTitle })
+    : i18n.t(`common:turnTerminalNotificationBody_${reason}`, { title: threadTitle })
   void window.workwise
     .showTurnCompleteNotification({
       threadId,
-      title: i18n.t('common:turnCompleteNotificationTitle'),
-      body: i18n.t('common:turnCompleteNotificationBody', { title: threadTitle })
+      turnId: turnId ?? undefined,
+      approvalId: approvalId ?? undefined,
+      reason,
+      activeThread: state.activeThreadId === threadId,
+      title: reason === 'completed'
+        ? i18n.t('common:turnCompleteNotificationTitle')
+        : i18n.t(`common:turnTerminalNotificationTitle_${reason}`),
+      body: reasonText
     })
     .then((result) => {
       if (result.ok || typeof window.workwise?.logError !== 'function') return
@@ -302,6 +332,10 @@ export function finalizeTurnTiming(state: ChatState): Partial<ChatState> {
       [userId]: Math.max(0, Date.now() - startedAt)
     }
   }
+}
+
+function notifyTurnComplete(threadId: string | null, state: ChatState, dedupeKey: string): void {
+  notifyTerminal(threadId, state, 'completed', state.currentTurnId, null, dedupeKey)
 }
 
 export function flushLiveBlocks(state: ChatState, base: Partial<ChatState> = {}): Partial<ChatState> {
@@ -624,10 +658,16 @@ export function buildThreadEventSink(
         }
         let liveReasoning = s.liveReasoning
         let liveAssistant = s.liveAssistant
+        let liveUsage = s.activeThreadId && s.currentTurnId
+          ? s.liveUsageByThreadId?.[s.activeThreadId]
+          : undefined
         let nextReasoningFirstAtByUserId = s.turnReasoningFirstAtByUserId
         let nextReasoningLastAtByUserId = s.turnReasoningLastAtByUserId
         const userId = s.currentTurnUserId
         for (const delta of deltas) {
+          if (s.activeThreadId && s.currentTurnId) {
+            liveUsage = applyLiveUsageDelta(liveUsage, s.currentTurnId, delta.text)
+          }
           if (delta.kind === 'agent_reasoning') {
             liveReasoning += delta.text
             if (userId) {
@@ -649,6 +689,9 @@ export function buildThreadEventSink(
         }
         return {
           ...base,
+          ...(s.activeThreadId && liveUsage
+            ? { liveUsageByThreadId: { ...(s.liveUsageByThreadId ?? {}), [s.activeThreadId]: liveUsage } }
+            : {}),
           ...(liveReasoning !== s.liveReasoning ? { liveReasoning } : {}),
           ...(liveAssistant !== s.liveAssistant ? { liveAssistant } : {}),
           ...(nextReasoningFirstAtByUserId !== s.turnReasoningFirstAtByUserId
@@ -667,6 +710,14 @@ export function buildThreadEventSink(
         resetBusyRecoveryAttempts()
         // Restore busy state on tool events (same reasoning as onDelta).
         const base: Partial<ChatState> = {}
+        if (s.activeThreadId && s.currentTurnId) {
+          const liveUsage = applyLiveUsageDelta(
+            s.liveUsageByThreadId?.[s.activeThreadId],
+            s.currentTurnId,
+            `${ev.summary} ${ev.detail ?? ''}`
+          )
+          base.liveUsageByThreadId = { ...(s.liveUsageByThreadId ?? {}), [s.activeThreadId]: liveUsage }
+        }
         if (!s.busy) {
           base.busy = true
           armBusyWatchdog(set, get)
@@ -818,7 +869,16 @@ export function buildThreadEventSink(
         }
       })
     },
-    onApproval: (req) =>
+    onApproval: (req) => {
+      if (!isCurrentStream()) return
+      const approvalState = get()
+      notifyTerminal(
+        req.threadId ?? approvalState.activeThreadId,
+        approvalState,
+        'waiting_approval',
+        req.turnId ?? approvalState.currentTurnId,
+        req.approvalId
+      )
       set((s) => {
         if (!isCurrentStream()) return {}
         resetBusyRecoveryAttempts()
@@ -844,7 +904,8 @@ export function buildThreadEventSink(
           ],
           error: clearRuntimeStreamRecoveringError(s.error)
         }
-      }),
+      })
+    },
     onUserInput: (req) => {
       if (!isCurrentStream()) return
       resetBusyRecoveryAttempts()
@@ -1009,7 +1070,7 @@ export function buildThreadEventSink(
           : { threads: nextThreads }
       })
     },
-    onTurnComplete: () => {
+    onTurnComplete: (options) => {
       if (!isCurrentStream()) return
       resetBusyRecoveryAttempts()
       clearBusyWatchdog()
@@ -1052,10 +1113,21 @@ export function buildThreadEventSink(
         void window.workwise.mirrorClawChannelMessage(
           pendingMirror.threadId,
           assistantMirrorText,
-          'assistant'
+          'assistant',
+          {
+            turnId: completedTurnId ?? undefined,
+            requestText: pendingMirror.userText
+          }
         ).catch(() => undefined)
       }
-      notifyTurnComplete(completedThreadId, completedState, completedKey)
+      notifyTerminal(
+        options?.threadId ?? completedThreadId,
+        completedState,
+        options?.reason ?? 'completed',
+        options?.turnId ?? completedTurnId,
+        null,
+        completedKey
+      )
       notifyWriteWorkspaceFileRefresh(get)
       syncTurnCompletionPoll(set, get)
       void get().refreshThreads()
@@ -1070,6 +1142,15 @@ export function buildThreadEventSink(
       const detail = runtimeErrorDetail(err)
       const terminal = options?.terminal === true
       const interrupted = isInterruptSettledError(err, message)
+      if (terminal || interrupted) {
+        const reason = options?.terminalReason ?? (interrupted ? 'aborted' : 'error')
+        notifyTerminal(
+          options?.threadId ?? state.activeThreadId,
+          state,
+          reason,
+          options?.turnId ?? state.currentTurnId
+        )
+      }
       takePendingClawFeishuMirror(state.currentTurnId)
       set((s) => {
         const wasBusy = s.busy
@@ -1097,6 +1178,11 @@ export function buildThreadEventSink(
             delete u[s.activeThreadId]
             out.unreadThreadIds = u
           }
+          if ((terminal || interrupted) && s.activeThreadId) {
+            const liveUsageByThreadId = { ...(s.liveUsageByThreadId ?? {}) }
+            delete liveUsageByThreadId[s.activeThreadId]
+            out.liveUsageByThreadId = liveUsageByThreadId
+          }
         }
         return out
       })
@@ -1110,9 +1196,23 @@ export function buildThreadEventSink(
       // permanently in the busy state.
       if (get().busy) armBusyWatchdog(set, get)
     },
-    onUsage: () => {
+    onUsage: (usage) => {
       if (!isCurrentStream()) return
-      set((s) => ({ usageRefreshKey: s.usageRefreshKey + 1 }))
+      set((s) => {
+        const threadId = s.activeThreadId
+        const turnId = s.currentTurnId
+        return {
+          usageRefreshKey: s.usageRefreshKey + 1,
+          ...(threadId && turnId
+            ? {
+                liveUsageByThreadId: {
+                  ...(s.liveUsageByThreadId ?? {}),
+                  [threadId]: applyExactLiveUsage(s.liveUsageByThreadId?.[threadId], turnId, usage)
+                }
+              }
+            : {})
+        }
+      })
     }
   }
 }

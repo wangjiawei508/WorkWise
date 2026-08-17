@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { dispatchRequest } from '../src/server/http-server.js'
@@ -9,6 +9,7 @@ import { encodeSseEvent } from '../src/server/sse.js'
 import { buildHarness, readJson, readSseEvents, usageSnapshot } from './http-server-test-harness.js'
 import { WORKWISE_RUNTIME_PROTOCOL_VERSION } from '../src/contracts/runtime-protocol.js'
 import type { TurnItem } from '../src/contracts/items.js'
+import { fingerprintDshUiBlock } from '../src/contracts/dsh-ui.js'
 
 describe('HTTP server', () => {
   let dataDir = ''
@@ -64,6 +65,72 @@ describe('HTTP server', () => {
     expect(body.capabilities?.attachments?.allowedMimeTypes).toContain('image/png')
     expect(body.capabilities?.cli?.serve?.available).toBe(true)
     expect(body.capabilities?.cli?.run?.available).toBe(false)
+  })
+
+  it('starts validated UI actions through the authenticated route and replays their audit event', async () => {
+    const h = buildHarness()
+    await h.threadService.create(
+      { workspace: '/tmp', model: 'deepseek-chat', mode: 'agent' },
+      { id: 'thr_ui_route', title: 'UI route' }
+    )
+    const { turnId } = await h.turnService.startTurn({
+      threadId: 'thr_ui_route',
+      request: { prompt: 'Show controls' }
+    })
+    const uiBlocks = [{
+      id: 'card',
+      root: {
+        id: 'button',
+        type: 'button' as const,
+        label: 'Apply',
+        actionId: 'apply'
+      }
+    }]
+    await h.turnService.applyItem(
+      'thr_ui_route',
+      makeAssistantTextItem({
+        id: 'item_ui_route_card',
+        turnId,
+        threadId: 'thr_ui_route',
+        text: 'Apply the change.',
+        uiBlocks,
+        status: 'completed'
+      })
+    )
+    await h.turnService.finishTurn({ threadId: 'thr_ui_route', turnId, status: 'completed' })
+
+    const response = await dispatchRequest(
+      h.router,
+      new Request('http://localhost/v1/threads/thr_ui_route/ui-actions', {
+        method: 'POST',
+        headers: { authorization: 'Bearer tok-1', 'content-type': 'application/json' },
+        body: JSON.stringify({
+          messageId: 'item_ui_route_card',
+          blockId: 'card',
+          actionId: 'apply',
+          specFingerprint: fingerprintDshUiBlock(uiBlocks[0]!),
+          idempotencyKey: 'ui-route-1'
+        })
+      })
+    )
+
+    expect(response.status).toBe(202)
+    const body = await readJson(response) as { turnId: string; uiActionItemId: string }
+    expect(body.turnId).toBeTruthy()
+    expect(body.uiActionItemId).toBeTruthy()
+    const events = await h.sessionStore.loadEventsSince('thr_ui_route', 0)
+    expect(events.some((event) => event.kind === 'ui_action')).toBe(true)
+
+    const genericConflict = await dispatchRequest(
+      h.router,
+      new Request('http://localhost/v1/threads/thr_ui_route/turns', {
+        method: 'POST',
+        headers: { authorization: 'Bearer tok-1', 'content-type': 'application/json' },
+        body: JSON.stringify({ prompt: 'must not reuse a UI action key', idempotencyKey: 'ui-route-1' })
+      })
+    )
+    expect(genericConflict.status).toBe(409)
+    expect(await readJson(genericConflict)).toMatchObject({ code: 'conflict' })
   })
 
   it('requires auth for runtime info', async () => {
@@ -234,6 +301,77 @@ describe('HTTP server', () => {
     const body = await readJson(response) as { turnId: string; userMessageItemId: string }
     expect(body.turnId).toMatch(/^turn_/)
     expect(body.userMessageItemId).toBe(`item_${body.turnId}_user`)
+  })
+
+  it('searches only the authoritative thread workspace and persists bounded references', async () => {
+    const h = buildHarness()
+    await writeFile(join(dataDir, '报价 表.md'), 'PRIVATE-FILE-BODY')
+    await h.threadService.create({
+      workspace: dataDir,
+      model: 'deepseek-chat',
+      mode: 'agent',
+      approvalPolicy: 'on-request',
+      sandboxMode: 'workspace-write'
+    }, { id: 'thr_workspace', title: 'workspace' })
+
+    const searchResponse = await dispatchRequest(
+      h.router,
+      new Request('http://localhost/v1/threads/thr_workspace/workspace/references/search', {
+        method: 'POST',
+        headers: { authorization: 'Bearer tok-1', 'content-type': 'application/json' },
+        body: JSON.stringify({ query: '报价', limit: 10 })
+      })
+    )
+    expect(searchResponse.status).toBe(200)
+    expect(await readJson(searchResponse)).toMatchObject({
+      entries: [{ path: '报价 表.md', name: '报价 表.md', kind: 'file', depth: 1 }],
+      truncated: false
+    })
+
+    const startResponse = await dispatchRequest(
+      h.router,
+      new Request('http://localhost/v1/threads/thr_workspace/turns', {
+        method: 'POST',
+        headers: { authorization: 'Bearer tok-1', 'content-type': 'application/json' },
+        body: JSON.stringify({
+          prompt: 'Review the referenced file.',
+          workspaceReferences: [{ path: '报价 表.md', kind: 'file' }]
+        })
+      })
+    )
+    expect(startResponse.status).toBe(202)
+    const started = await readJson(startResponse) as { turnId: string }
+    const turn = await h.turnService.getTurn('thr_workspace', started.turnId)
+    expect(turn?.prompt).toBe('Review the referenced file.')
+    expect(turn?.prompt).not.toContain('PRIVATE-FILE-BODY')
+    expect(turn?.workspaceReferences).toEqual([{ path: '报价 表.md', kind: 'file' }])
+    expect(turn?.items[0]).toMatchObject({
+      kind: 'user_message',
+      workspaceReferences: [{ path: '报价 表.md', kind: 'file' }]
+    })
+  })
+
+  it('rejects invalid workspace reference search limits and unknown threads', async () => {
+    const h = buildHarness()
+    const invalid = await dispatchRequest(
+      h.router,
+      new Request('http://localhost/v1/threads/missing/workspace/references/search', {
+        method: 'POST',
+        headers: { authorization: 'Bearer tok-1', 'content-type': 'application/json' },
+        body: JSON.stringify({ query: '', limit: 51 })
+      })
+    )
+    expect(invalid.status).toBe(400)
+
+    const missing = await dispatchRequest(
+      h.router,
+      new Request('http://localhost/v1/threads/missing/workspace/references/search', {
+        method: 'POST',
+        headers: { authorization: 'Bearer tok-1', 'content-type': 'application/json' },
+        body: JSON.stringify({ query: '', limit: 10 })
+      })
+    )
+    expect(missing.status).toBe(404)
   })
 
   it('applies per-turn execution policy to the active thread', async () => {

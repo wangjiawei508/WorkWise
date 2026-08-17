@@ -10,7 +10,15 @@ export function healLoadedHistoryItems(items: readonly TurnItem[]): HistoryHeali
   const normalized = items
     .map((item, index) => normalizeLoadedItem(item, index))
     .filter((item): item is TurnItem => item !== null)
-  const repaired = repairModelHistoryItems(normalized)
+  const latestById = new Map(normalized.map((item) => [item.id, item]))
+  const seenIds = new Set<string>()
+  const collapsed = normalized.flatMap((item) => {
+    if (seenIds.has(item.id)) return []
+    seenIds.add(item.id)
+    const latest = latestById.get(item.id)
+    return latest ? [latest] : []
+  })
+  const repaired = repairModelHistoryItems(collapsed)
   return {
     items: repaired,
     changed: JSON.stringify(items) !== JSON.stringify(repaired)
@@ -34,6 +42,7 @@ function normalizeLoadedItem(item: TurnItem, index: number): TurnItem | null {
       if (!candidate.callId || !candidate.toolName) return null
       return base
     case 'assistant_text':
+    case 'ui_action':
     case 'assistant_reasoning':
     case 'user_message':
     case 'approval':

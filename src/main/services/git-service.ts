@@ -1,10 +1,22 @@
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import { basename, isAbsolute, relative, resolve } from 'node:path'
+import { access } from 'node:fs/promises'
 import type { GitBranchesResult } from '../../shared/git-branches'
 import { discoverGitRepositories, findNearestGitRoot } from './git-discovery'
+import { canonicalizeContainmentRoot, isCanonicalPathContained } from './canonical-containment'
 
 const execFileAsync = promisify(execFile)
+
+export async function assertGitWorkspaceAllowed(workspaceRoot: string, activeWorkspaceRoot: string): Promise<void> {
+  const [workspace, active] = await Promise.all([
+    canonicalizeContainmentRoot(workspaceRoot),
+    canonicalizeContainmentRoot(activeWorkspaceRoot)
+  ])
+  if (!isCanonicalPathContained(active, workspace)) {
+    throw new Error('Git workspace must stay within the active workspace.')
+  }
+}
 
 /**
  * Resolve a workspaceRoot to a directory that sits inside a Git working tree.
@@ -51,6 +63,181 @@ function gitFailure(error: unknown): GitBranchesResult {
   return { ok: false, reason: 'error', message }
 }
 
+function preflightFailure(
+  reason: Extract<GitBranchesResult, { ok: false }>['reason'],
+  message: string,
+  blockingPaths: string[] = []
+): GitBranchesResult {
+  return {
+    ok: false,
+    reason,
+    message,
+    ...(blockingPaths.length ? { blockingPaths: blockingPaths.slice(0, 2) } : {})
+  }
+}
+
+export type GitStatusPorcelainEntry = {
+  indexStatus: string
+  worktreeStatus: string
+  path: string
+  originalPath?: string
+}
+
+export function parseGitStatusPorcelainV1Z(output: string): GitStatusPorcelainEntry[] {
+  const fields = output.split('\0')
+  const entries: GitStatusPorcelainEntry[] = []
+  for (let index = 0; index < fields.length; index += 1) {
+    const field = fields[index]
+    if (!field || field.length < 4 || field[2] !== ' ') continue
+    const entry: GitStatusPorcelainEntry = {
+      indexStatus: field[0] ?? ' ',
+      worktreeStatus: field[1] ?? ' ',
+      path: field.slice(3)
+    }
+    if (
+      entry.indexStatus === 'R' || entry.indexStatus === 'C' ||
+      entry.worktreeStatus === 'R' || entry.worktreeStatus === 'C'
+    ) {
+      const originalPath = fields[index + 1]
+      if (originalPath) {
+        entry.originalPath = originalPath
+        index += 1
+      }
+    }
+    entries.push(entry)
+  }
+  return entries
+}
+
+async function existingGitOperation(cwd: string): Promise<string | null> {
+  const markers = [
+    ['MERGE_HEAD', 'merge'],
+    ['rebase-merge', 'rebase'],
+    ['rebase-apply', 'rebase'],
+    ['CHERRY_PICK_HEAD', 'cherry-pick'],
+    ['REVERT_HEAD', 'revert'],
+    ['BISECT_LOG', 'bisect']
+  ] as const
+  for (const [marker, label] of markers) {
+    const markerPath = (await runGit(cwd, ['rev-parse', '--git-path', marker])).stdout.trim()
+    try {
+      await access(resolve(cwd, markerPath))
+      return label
+    } catch {
+      // Marker absent.
+    }
+  }
+  return null
+}
+
+async function branchWorktreePath(cwd: string, branch: string): Promise<string | null> {
+  const output = (await runGit(cwd, ['worktree', 'list', '--porcelain'])).stdout
+  for (const block of output.split(/\n\s*\n/)) {
+    const lines = block.split('\n')
+    const worktree = lines.find((line) => line.startsWith('worktree '))?.slice('worktree '.length).trim()
+    const branchRef = lines.find((line) => line.startsWith('branch '))?.slice('branch '.length).trim()
+    if (worktree && branchRef === `refs/heads/${branch}`) return resolve(worktree)
+  }
+  return null
+}
+
+async function preflightGitWorkspaceState(cwd: string): Promise<GitBranchesResult | null> {
+  const conflicts = (await runGit(cwd, ['diff', '--name-only', '-z', '--diff-filter=U'])).stdout
+    .split('\0')
+    .filter(Boolean)
+  if (conflicts.length) {
+    return preflightFailure('unresolved_conflicts', 'Resolve Git conflicts before switching branches.', conflicts)
+  }
+  const operation = await existingGitOperation(cwd)
+  if (operation) {
+    return preflightFailure('operation_in_progress', `Finish or abort the current Git ${operation} before switching branches.`)
+  }
+  return null
+}
+
+async function pathsChangedOnTarget(cwd: string, branch: string, candidates: string[]): Promise<Set<string>> {
+  const changed = new Set<string>()
+  for (let index = 0; index < candidates.length; index += 128) {
+    const chunk = candidates.slice(index, index + 128)
+    const output = (await runGit(cwd, ['diff', '--name-only', 'HEAD', branch, '--', ...chunk])).stdout
+    for (const line of output.split('\n')) {
+      const path = line.trim()
+      if (path) changed.add(path)
+    }
+  }
+  return changed
+}
+
+async function untrackedPathsPresentOnTarget(cwd: string, branch: string, candidates: string[]): Promise<Set<string>> {
+  const tracked = new Set<string>()
+  for (let index = 0; index < candidates.length; index += 128) {
+    const chunk = candidates.slice(index, index + 128)
+    const output = (await runGit(cwd, ['ls-tree', '-r', '--name-only', branch, '--', ...chunk])).stdout
+    for (const line of output.split('\n')) {
+      const path = line.trim()
+      if (path) tracked.add(path)
+    }
+  }
+  return tracked
+}
+
+export async function preflightGitBranchSwitch(
+  workspaceRoot: string,
+  branchName: string
+): Promise<GitBranchesResult | null> {
+  const cwd = await resolveGitCwd(workspaceRoot)
+  const branch = branchName.trim()
+  if (!cwd) return preflightFailure('no_workspace', 'No working directory selected.')
+  if (!branch) return preflightFailure('invalid_branch', 'Branch name is required.')
+  try {
+    await runGit(cwd, ['check-ref-format', '--branch', branch])
+  } catch {
+    return preflightFailure('invalid_branch', 'The branch name is not valid.')
+  }
+  try {
+    await runGit(cwd, ['show-ref', '--verify', '--quiet', `refs/heads/${branch}`])
+  } catch {
+    return preflightFailure('branch_not_found', 'The requested local branch does not exist.')
+  }
+  try {
+    const repositoryRoot = resolve((await runGit(cwd, ['rev-parse', '--show-toplevel'])).stdout.trim())
+    const currentBranch = (await runGit(cwd, ['branch', '--show-current'])).stdout.trim()
+    if (currentBranch === branch) return null
+
+    const workspaceBlocked = await preflightGitWorkspaceState(cwd)
+    if (workspaceBlocked) return workspaceBlocked
+
+    const occupiedPath = await branchWorktreePath(cwd, branch)
+    if (occupiedPath && occupiedPath !== repositoryRoot) {
+      return preflightFailure('branch_in_other_worktree', 'The branch is already checked out in another worktree.', [occupiedPath])
+    }
+
+    const statusEntries = parseGitStatusPorcelainV1Z(
+      (await runGit(cwd, ['status', '--porcelain=v1', '-z'])).stdout
+    )
+    const dirtyPaths = [...new Set(statusEntries.flatMap((entry) => [entry.path, entry.originalPath].filter((path): path is string => Boolean(path))))]
+    if (dirtyPaths.length) {
+      const untracked = statusEntries
+        .filter((entry) => entry.indexStatus === '?' && entry.worktreeStatus === '?')
+        .map((entry) => entry.path)
+      const trackedDirty = dirtyPaths.filter((path) => !untracked.includes(path))
+      const blocked = new Set<string>()
+      for (const path of await pathsChangedOnTarget(cwd, branch, trackedDirty)) blocked.add(path)
+      for (const path of await untrackedPathsPresentOnTarget(cwd, branch, untracked)) blocked.add(path)
+      if (blocked.size) {
+        return preflightFailure(
+          'would_overwrite_files',
+          'Switching branches would overwrite local files.',
+          [...blocked]
+        )
+      }
+    }
+    return null
+  } catch (error) {
+    return gitFailure(error)
+  }
+}
+
 export async function getGitBranches(workspaceRoot: string): Promise<GitBranchesResult> {
   const cwd = await resolveGitCwd(workspaceRoot)
   if (!cwd) {
@@ -86,9 +273,9 @@ export async function getGitBranches(workspaceRoot: string): Promise<GitBranches
       name,
       current: currentBranch === name
     }))
-    const dirtyCount = (await runGit(cwd, ['status', '--porcelain=v1'])).stdout
-      .split('\n')
-      .filter((line) => line.trim().length > 0).length
+    const dirtyCount = parseGitStatusPorcelainV1Z(
+      (await runGit(cwd, ['status', '--porcelain=v1', '-z'])).stdout
+    ).length
     return { ok: true, repositoryRoot, repositories, currentBranch, branches, dirtyCount }
   } catch (error) {
     return gitFailure(error)
@@ -102,13 +289,11 @@ export async function switchGitBranch(
   const cwd = await resolveGitCwd(workspaceRoot)
   const branch = branchName.trim()
   if (!cwd) return { ok: false, reason: 'no_workspace', message: 'No working directory selected.' }
-  if (!branch) return { ok: false, reason: 'error', message: 'Branch name is required.' }
+  if (!branch) return { ok: false, reason: 'invalid_branch', message: 'Branch name is required.' }
   try {
-    try {
-      await runGit(cwd, ['switch', branch], 20_000)
-    } catch {
-      await runGit(cwd, ['checkout', branch], 20_000)
-    }
+    const blocked = await preflightGitBranchSwitch(cwd, branch)
+    if (blocked) return blocked
+    await runGit(cwd, ['switch', '--no-guess', branch], 20_000)
     return getGitBranches(cwd)
   } catch (error) {
     return gitFailure(error)
@@ -122,14 +307,12 @@ export async function createAndSwitchGitBranch(
   const cwd = await resolveGitCwd(workspaceRoot)
   const branch = branchName.trim()
   if (!cwd) return { ok: false, reason: 'no_workspace', message: 'No working directory selected.' }
-  if (!branch) return { ok: false, reason: 'error', message: 'Branch name is required.' }
+  if (!branch) return { ok: false, reason: 'invalid_branch', message: 'Branch name is required.' }
   try {
     await runGit(cwd, ['check-ref-format', '--branch', branch])
-    try {
-      await runGit(cwd, ['switch', '-c', branch], 20_000)
-    } catch {
-      await runGit(cwd, ['checkout', '-b', branch], 20_000)
-    }
+    const blocked = await preflightGitWorkspaceState(cwd)
+    if (blocked) return blocked
+    await runGit(cwd, ['switch', '--no-guess', '-c', branch], 20_000)
     return getGitBranches(cwd)
   } catch (error) {
     return gitFailure(error)

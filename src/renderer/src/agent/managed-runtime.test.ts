@@ -35,7 +35,7 @@ function settings(): WorkWiseSettingsV2 {
     schedule: defaultScheduleSettings(),
     guiUpdate: { channel: 'stable' },
     conversation: { viewMode: 'concise' },
-    documents: { parsingMode: 'auto', privateMineruServerUrl: '', allowPrivateServerUploadByWorkspace: {} },
+    documents: { parsingMode: 'auto', unlimitedOcrServerUrl: '', privateMineruServerUrl: '', allowPrivateServerUploadByWorkspace: {} },
     codePromptPrefix: ''
   }
 }
@@ -213,7 +213,7 @@ describe('WorkWiseRuntimeProvider', () => {
   })
 
   it('posts WorkWise Runtime turn requests and returns the deterministic user item id', async () => {
-    const runtimeRequest = vi.fn(async () => ({
+    const runtimeRequest = vi.fn(async (_path: string, _method?: string, _body?: string) => ({
       ok: true,
       status: 202,
       body: JSON.stringify({ threadId: 'thr_1', turnId: 'turn_abc', userMessageItemId: 'item_user_real' })
@@ -254,6 +254,27 @@ describe('WorkWiseRuntimeProvider', () => {
         attachmentIds: ['att_1']
       })
     )
+  })
+
+  it('posts path-only workspace references without inlining file content', async () => {
+    const runtimeRequest = vi.fn(async (_path: string, _method?: string, _body?: string) => ({
+      ok: true,
+      status: 202,
+      body: JSON.stringify({ threadId: 'thr_1', turnId: 'turn_ref', userMessageItemId: 'item_user_ref' })
+    }))
+    installDsGui({ runtimeRequest })
+    const provider = new WorkWiseRuntimeProvider()
+
+    await provider.sendUserMessage('thr_1', 'review this', {
+      workspaceReferences: [{ path: 'docs/投标.md', kind: 'file' }]
+    })
+
+    const requestBody = JSON.parse(runtimeRequest.mock.calls[0]?.[2] as string) as Record<string, unknown>
+    expect(requestBody).toMatchObject({
+      prompt: 'review this',
+      workspaceReferences: [{ path: 'docs/投标.md', kind: 'file' }]
+    })
+    expect(JSON.stringify(requestBody)).not.toContain('<workspace_file')
   })
 
   it('posts explicit reasoning effort with WorkWise Runtime turn requests', async () => {

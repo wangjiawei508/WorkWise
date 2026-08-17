@@ -37,20 +37,23 @@ describe('buildSddDraftToPlanPrompt', () => {
     expect(prompt).toContain('`plan_relative_path` to `.workwise/plans/sdd-draft-1.md`')
   })
 
-  it('includes base64 fallback when visual attachments are unavailable', () => {
+  it('does not send image data as text when visual attachments are unavailable', () => {
     const prompt = buildSddDraftToPlanPrompt({
       workspaceRoot: '/tmp/ws',
       draftRelativePath: '.workwise/sdd/draft/draft-1/requirement.md',
       planRelativePath: '.workwise/plans/sdd-draft-1.md',
       draftMarkdown: '# Need login\n\n![wireframe](../../img/wireframe.png)',
-      imageMode: 'base64',
+      imageMode: 'unavailable',
       images: [image()]
     })
 
-    expect(prompt).toContain('base64 text')
+    expect(prompt).toContain('cannot provide visual evidence to the model')
+    expect(prompt).toContain('Do not infer visual details from the images')
     expect(prompt).toContain('MIME: image/png')
     expect(prompt).toContain('Dimensions: 320x240')
-    expect(prompt).toContain('```base64\nZmFrZS1pbWFnZQ==\n```')
+    expect(prompt).toContain('Visual analysis: unavailable for this turn.')
+    expect(prompt).not.toContain('ZmFrZS1pbWFnZQ==')
+    expect(prompt).not.toContain('```base64')
   })
 
   it('includes sidebar Requirement AI conversation context when provided', () => {

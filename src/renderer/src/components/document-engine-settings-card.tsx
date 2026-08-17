@@ -14,6 +14,7 @@ type Props = {
 
 function engineName(id: DocumentEngineId): string {
   if (id === 'markitdown') return 'Microsoft MarkItDown'
+  if (id === 'unlimited-ocr-local') return 'Unlimited-OCR（本机服务）'
   if (id === 'mineru-local') return 'MinerU（本机）'
   return 'MinerU（企业私有服务）'
 }
@@ -85,6 +86,12 @@ export function DocumentEngineSettingsCard({ documents, workspaceRoot, selectCon
             <div className="flex flex-wrap items-center justify-between gap-2 pt-1 text-[11.5px] text-ds-faint"><span>{t('documentLocalPrivacy')}</span><div className="flex gap-2"><button type="button" onClick={() => void window.workwise.openExternal('https://github.com/opendatalab/MinerU/blob/master/LICENSE.md')} className="inline-flex items-center gap-1 rounded-lg px-2 py-1 hover:bg-ds-hover hover:text-ds-ink"><ExternalLink className="h-3 w-3" />{t('documentMineruLicense')}</button><button type="button" disabled={loading} onClick={() => void refresh()} className="inline-flex items-center gap-1 rounded-lg px-2 py-1 hover:bg-ds-hover hover:text-ds-ink">{loading ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}{t('refresh')}</button></div></div>
           </div>
         }
+      />
+      <SettingRow
+        title={t('documentUnlimitedOcr')}
+        description={t('documentUnlimitedOcrDesc')}
+        wideControl
+        control={<input className="w-full rounded-xl border border-ds-border bg-ds-main/50 px-3 py-2 text-[13px] text-ds-ink outline-none focus:border-accent/40" value={documents.unlimitedOcrServerUrl} placeholder="http://127.0.0.1:3000" onChange={(event) => update({ documents: { unlimitedOcrServerUrl: event.target.value } })} />}
       />
       <SettingRow
         title={t('documentPrivateMineru')}

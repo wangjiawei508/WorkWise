@@ -2,6 +2,8 @@ export type ComposerFileReference = {
   path: string
   relativePath: string
   name: string
+  kind?: 'file' | 'directory'
+  source?: 'runtime' | 'legacy'
 }
 
 export type ComposerFileMention = {
@@ -15,6 +17,22 @@ export type ComposerFileContextEntry = {
   relativePath: string
   content: string
   truncated?: boolean
+}
+
+export function runtimeWorkspaceReferences(
+  activeThreadId: string | null,
+  references: ComposerFileReference[],
+  options: { allowLegacyInlineContext?: boolean } = {}
+): Array<{ path: string; kind: 'file' | 'directory' }> | null {
+  if (references.length === 0) return null
+  if (
+    options.allowLegacyInlineContext === true &&
+    (!activeThreadId || references.some((reference) => reference.source !== 'runtime'))
+  ) return null
+  return references.map((reference) => ({
+    path: reference.relativePath,
+    kind: reference.kind ?? 'file'
+  }))
 }
 
 const FILE_MENTION_BOUNDARY = /(^|[\s([{，。；：、])@([^\s@"']*)$/u

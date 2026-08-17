@@ -13,6 +13,7 @@ import { app } from 'electron'
  * not a product name and is allowlisted by the brand-boundary check.
  */
 export const APP_PRODUCT_NAME = 'WorkWise'
+export const CANDIDATE_APP_PRODUCT_NAME = 'WorkWise IM Candidate'
 
 /**
  * 在 main 进程最早期调用,把 app 的对外名称设好。
@@ -23,6 +24,6 @@ export const APP_PRODUCT_NAME = 'WorkWise'
  * Windows 平台专属的 `app.setAppUserModelId()` 不在这里调 —— 它是 win32
  * 专用的,放在 main/index.ts 的 win32 分支里更直观。
  */
-export function configureAppIdentity(): void {
-  app.setName(APP_PRODUCT_NAME)
+export function configureAppIdentity(env: NodeJS.ProcessEnv = process.env): void {
+  app.setName(env.WORKWISE_CANDIDATE === '1' ? CANDIDATE_APP_PRODUCT_NAME : APP_PRODUCT_NAME)
 }

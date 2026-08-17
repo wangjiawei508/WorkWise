@@ -1,6 +1,6 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
-import { basename, dirname, join } from 'node:path'
+import { basename, dirname, join, resolve } from 'node:path'
 import {
   atomicWriteFile,
   backupFileIfPresent,
@@ -23,6 +23,8 @@ import {
   mergeClawSettings,
   mergeScheduleSettings,
   mergeWriteSettings,
+  mergeNotificationSettings,
+  isLegacyManagedWeixinBridgeUrl,
   normalizeAppBehaviorSettings,
   normalizeKeyboardShortcuts,
   migrateLegacyAppSettings,
@@ -36,9 +38,13 @@ import {
 
 export type { AppSettingsV1, WorkWiseSettingsV2 }
 
-const DEFAULT_WORKSPACE_ROOT_ABSOLUTE = expandHomePath(DEFAULT_WORKSPACE_ROOT)
-const DEFAULT_CLAW_CHANNELS_ROOT = join(homedir(), '.workwise', 'claw')
-const DEFAULT_WRITE_WORKSPACE_ROOT_ABSOLUTE = expandHomePath(DEFAULT_WRITE_WORKSPACE_ROOT)
+export function workwiseRuntimeHomeDirectory(env: NodeJS.ProcessEnv = process.env): string {
+  const candidateHome = env.WORKWISE_CANDIDATE === '1'
+    ? env.WORKWISE_CANDIDATE_HOME?.trim()
+    : ''
+  return candidateHome ? resolve(candidateHome) : homedir()
+}
+
 const SETTINGS_FILE_NAME = 'workwise-settings.json'
 const COMPATIBLE_SETTINGS_FILE_NAMES = ['workgpt-settings.json', 'kun-settings.json', 'deepseek-gui-settings.json'] as const
 const COMPATIBLE_USER_DATA_DIR_NAMES = ['workgpt', 'WORKGPT', 'Kun', 'deepseek-gui', 'DeepSeek GUI'] as const
@@ -60,22 +66,25 @@ const WELCOME_MARKDOWN_ZH = `# 欢迎使用 WorkWise 写作台
 - 本地编辑和导出不依赖 AI；配置模型后可使用知识库、配图和 PPT 等能力。
 `
 
-export function expandHomePath(raw: string | null | undefined): string {
+export function expandHomePath(
+  raw: string | null | undefined,
+  homeDirectory: string = workwiseRuntimeHomeDirectory()
+): string {
   const value = typeof raw === 'string' ? raw.trim() : ''
   if (!value) return ''
-  if (value === '~') return homedir()
+  if (value === '~') return homeDirectory
   if (value.startsWith('~/') || value.startsWith('~\\')) {
-    return join(homedir(), value.slice(2))
+    return join(homeDirectory, value.slice(2))
   }
   return value
 }
 
-function normalizeWorkspaceRoot(raw: string | null | undefined): string {
-  return expandHomePath(raw) || DEFAULT_WORKSPACE_ROOT_ABSOLUTE
+function normalizeWorkspaceRoot(raw: string | null | undefined, homeDirectory?: string): string {
+  return expandHomePath(raw, homeDirectory) || expandHomePath(DEFAULT_WORKSPACE_ROOT, homeDirectory)
 }
 
-function normalizeWriteWorkspaceRoot(raw: string | null | undefined): string {
-  return expandHomePath(raw) || DEFAULT_WRITE_WORKSPACE_ROOT_ABSOLUTE
+function normalizeWriteWorkspaceRoot(raw: string | null | undefined, homeDirectory?: string): string {
+  return expandHomePath(raw, homeDirectory) || expandHomePath(DEFAULT_WRITE_WORKSPACE_ROOT, homeDirectory)
 }
 
 function sanitizePathSegment(raw: string | null | undefined, fallback: string): string {
@@ -87,7 +96,7 @@ function sanitizePathSegment(raw: string | null | undefined, fallback: string): 
   return sanitized || fallback
 }
 
-function defaultClawChannelWorkspaceRoot(channel: ClawImChannelV1): string {
+function defaultClawChannelWorkspaceRoot(channel: ClawImChannelV1, workwiseHome: string): string {
   const credential = channel.platformCredential
   const domain = credential?.kind === 'feishu'
     ? credential.domain
@@ -100,11 +109,14 @@ function defaultClawChannelWorkspaceRoot(channel: ClawImChannelV1): string {
       ? credential.accountId
       : ''
   const workspaceId = sanitizePathSegment(credentialId || channel.id, 'channel')
-  return join(DEFAULT_CLAW_CHANNELS_ROOT, channel.provider, domain, workspaceId)
+  return join(workwiseHome, 'claw', channel.provider, domain, workspaceId)
 }
 
-function normalizeClawChannelWorkspaceRoot(channel: ClawImChannelV1): string {
-  return expandHomePath(channel.workspaceRoot) || defaultClawChannelWorkspaceRoot(channel)
+function normalizeClawChannelWorkspaceRoot(
+  channel: ClawImChannelV1,
+  workwiseHome: string = join(workwiseRuntimeHomeDirectory(), '.workwise')
+): string {
+  return expandHomePath(channel.workspaceRoot, dirname(workwiseHome)) || defaultClawChannelWorkspaceRoot(channel, workwiseHome)
 }
 
 function sanitizeConversationWorkspaceSegment(conversation: ClawImConversationV1): string {
@@ -116,24 +128,42 @@ function sanitizeConversationWorkspaceSegment(conversation: ClawImConversationV1
 
 function defaultClawConversationWorkspaceRoot(
   channel: ClawImChannelV1,
-  conversation: ClawImConversationV1
+  conversation: ClawImConversationV1,
+  workwiseHome: string
 ): string {
-  return join(normalizeClawChannelWorkspaceRoot(channel), 'conversations', sanitizeConversationWorkspaceSegment(conversation))
+  return join(
+    normalizeClawChannelWorkspaceRoot(channel, workwiseHome),
+    'conversations',
+    sanitizeConversationWorkspaceSegment(conversation)
+  )
 }
 
 function normalizeClawConversationWorkspaceRoot(
   channel: ClawImChannelV1,
-  conversation: ClawImConversationV1
+  conversation: ClawImConversationV1,
+  workwiseHome: string = join(workwiseRuntimeHomeDirectory(), '.workwise')
 ): string {
-  return expandHomePath(conversation.workspaceRoot) || defaultClawConversationWorkspaceRoot(channel, conversation)
+  return expandHomePath(conversation.workspaceRoot, dirname(workwiseHome)) ||
+    defaultClawConversationWorkspaceRoot(channel, conversation, workwiseHome)
 }
 
-function normalizeStoredSettings(settings: AppSettingsV1): WorkWiseSettingsV2 {
+function normalizeStoredSettings(
+  settings: AppSettingsV1,
+  workwiseHome: string = join(workwiseRuntimeHomeDirectory(), '.workwise')
+): WorkWiseSettingsV2 {
+  const homeDirectory = dirname(workwiseHome)
   const normalized = normalizeAppSettings(settings)
-  const writeDefaultRoot = normalizeWriteWorkspaceRoot(normalized.write.defaultWorkspaceRoot)
-  const writeActiveRoot = normalizeWriteWorkspaceRoot(normalized.write.activeWorkspaceRoot || writeDefaultRoot)
+  const writeDefaultRoot = normalizeWriteWorkspaceRoot(normalized.write.defaultWorkspaceRoot, homeDirectory)
+  const writeActiveRoot = normalizeWriteWorkspaceRoot(
+    normalized.write.activeWorkspaceRoot || writeDefaultRoot,
+    homeDirectory
+  )
   const writeWorkspaces = [...new Set(
-    [writeDefaultRoot, writeActiveRoot, ...normalized.write.workspaces.map(normalizeWriteWorkspaceRoot)]
+    [
+      writeDefaultRoot,
+      writeActiveRoot,
+      ...normalized.write.workspaces.map((root) => normalizeWriteWorkspaceRoot(root, homeDirectory))
+    ]
       .filter(Boolean)
   )]
   return {
@@ -143,10 +173,11 @@ function normalizeStoredSettings(settings: AppSettingsV1): WorkWiseSettingsV2 {
     revision: Number.isSafeInteger(normalized.revision) && (normalized.revision ?? -1) >= 0
       ? normalized.revision as number
       : 0,
-    workspaceRoot: normalizeWorkspaceRoot(normalized.workspaceRoot),
+    workspaceRoot: normalizeWorkspaceRoot(normalized.workspaceRoot, homeDirectory),
     conversation: normalized.conversation ?? { viewMode: 'concise' },
     documents: normalized.documents ?? {
       parsingMode: 'auto',
+      unlimitedOcrServerUrl: '',
       privateMineruServerUrl: '',
       allowPrivateServerUploadByWorkspace: {}
     },
@@ -163,18 +194,18 @@ function normalizeStoredSettings(settings: AppSettingsV1): WorkWiseSettingsV2 {
       ...normalized.claw,
       channels: normalized.claw.channels.map((channel) => ({
         ...channel,
-        workspaceRoot: normalizeClawChannelWorkspaceRoot(channel),
+        workspaceRoot: normalizeClawChannelWorkspaceRoot(channel, workwiseHome),
         conversations: channel.conversations.map((conversation) => ({
           ...conversation,
-          workspaceRoot: normalizeClawConversationWorkspaceRoot(channel, conversation)
+          workspaceRoot: normalizeClawConversationWorkspaceRoot(channel, conversation, workwiseHome)
         }))
       }))
     }
   }
 }
 
-function serializeSettingsForDisk(settings: WorkWiseSettingsV2): string {
-  return JSON.stringify(normalizeStoredSettings(settings), null, 2)
+function serializeSettingsForDisk(settings: WorkWiseSettingsV2, workwiseHome?: string): string {
+  return JSON.stringify(normalizeStoredSettings(settings, workwiseHome), null, 2)
 }
 
 export async function ensureWorkspaceRootExists(workspaceRoot: string): Promise<string> {
@@ -220,7 +251,7 @@ async function ensureClawChannelWorkspaceRootsExist(settings: AppSettingsV1): Pr
   }
 }
 
-const defaultSettings = (): WorkWiseSettingsV2 => ({
+const defaultSettings = (workwiseHome: string): WorkWiseSettingsV2 => ({
   schema: 'workwise.settings',
   version: 2,
   revision: 0,
@@ -231,13 +262,20 @@ const defaultSettings = (): WorkWiseSettingsV2 => ({
   agents: {
     kun: defaultManagedRuntimeSettings()
   },
-  workspaceRoot: DEFAULT_WORKSPACE_ROOT_ABSOLUTE,
+  workspaceRoot: normalizeWorkspaceRoot('', dirname(workwiseHome)),
   log: {
     enabled: true,
     retentionDays: 2
   },
   notifications: {
-    turnComplete: true
+    turnComplete: true,
+    turnTerminal: {
+      enabled: true,
+      kinds: ['completed'],
+      suppressActiveThread: false,
+      include: [],
+      exclude: []
+    }
   },
   appBehavior: normalizeAppBehaviorSettings(),
   keyboardShortcuts: normalizeKeyboardShortcuts(),
@@ -249,6 +287,7 @@ const defaultSettings = (): WorkWiseSettingsV2 => ({
   },
   documents: {
     parsingMode: 'auto',
+    unlimitedOcrServerUrl: '',
     privateMineruServerUrl: '',
     allowPrivateServerUploadByWorkspace: {}
   },
@@ -258,9 +297,9 @@ const defaultSettings = (): WorkWiseSettingsV2 => ({
   schedule: defaultScheduleSettings()
 })
 
-function buildMergedSettings(parsed: Partial<AppSettingsV1>): WorkWiseSettingsV2 {
+function buildMergedSettings(parsed: Partial<AppSettingsV1>, workwiseHome: string): WorkWiseSettingsV2 {
   const migrated = migrateLegacyAppSettings(parsed)
-  const defaults = defaultSettings()
+  const defaults = defaultSettings(workwiseHome)
   return normalizeStoredSettings({
     ...defaults,
     ...migrated,
@@ -269,7 +308,7 @@ function buildMergedSettings(parsed: Partial<AppSettingsV1>): WorkWiseSettingsV2
       mergeManagedRuntimeSettings(getManagedRuntimeSettings(defaults), migrated.agents?.kun)
     ),
     log: { ...defaults.log, ...migrated.log },
-    notifications: { ...defaults.notifications, ...migrated.notifications },
+    notifications: mergeNotificationSettings(defaults.notifications, migrated.notifications),
     appBehavior: normalizeAppBehaviorSettings({
       ...defaults.appBehavior,
       ...migrated.appBehavior
@@ -289,15 +328,15 @@ function buildMergedSettings(parsed: Partial<AppSettingsV1>): WorkWiseSettingsV2
       }
     },
     codePromptPrefix: typeof migrated.codePromptPrefix === 'string' ? migrated.codePromptPrefix : ''
-  } as AppSettingsV1)
+  } as AppSettingsV1, workwiseHome)
 }
 
 function isErrnoException(error: unknown): error is NodeJS.ErrnoException {
   return typeof error === 'object' && error !== null
 }
 
-async function loadDefaultSettings(): Promise<WorkWiseSettingsV2> {
-  const defaults = normalizeStoredSettings(defaultSettings())
+async function loadDefaultSettings(workwiseHome: string): Promise<WorkWiseSettingsV2> {
+  const defaults = normalizeStoredSettings(defaultSettings(workwiseHome), workwiseHome)
   await ensureWorkspaceRootExists(defaults.workspaceRoot)
   await ensureWriteWorkspaceRootsExist(defaults)
   await ensureClawChannelWorkspaceRootsExist(defaults)
@@ -428,7 +467,7 @@ export class JsonSettingsStore {
 
   constructor(userDataPath: string, options?: { workwiseHome?: string }) {
     this.path = join(userDataPath, SETTINGS_FILE_NAME)
-    this.workwiseHome = options?.workwiseHome ?? join(homedir(), '.workwise')
+    this.workwiseHome = options?.workwiseHome ?? join(userDataPath, '.workwise')
   }
 
   async load(): Promise<WorkWiseSettingsV2> {
@@ -439,9 +478,9 @@ export class JsonSettingsStore {
     try {
       const loaded = await readSettingsFileWithCompatibility(this.path)
       if (!loaded) {
-        const defaults = await loadDefaultSettings()
+        const defaults = await loadDefaultSettings(this.workwiseHome)
         await mkdir(dirname(this.path), { recursive: true })
-        await atomicWriteFile(this.path, serializeSettingsForDisk(defaults))
+        await atomicWriteFile(this.path, serializeSettingsForDisk(defaults, this.workwiseHome))
         this.cache = defaults
         return this.cache
       }
@@ -458,7 +497,7 @@ export class JsonSettingsStore {
     } catch (error) {
       if (error instanceof SyntaxError) {
         const backupPath = await writeInvalidSettingsBackup(sourcePath, raw)
-        const defaults = await loadDefaultSettings()
+        const defaults = await loadDefaultSettings(this.workwiseHome)
         await this.save(defaults)
         if (backupPath) {
           console.warn(
@@ -475,11 +514,18 @@ export class JsonSettingsStore {
       throw new Error(`Failed to parse settings file ${sourcePath}: ${message}`, { cause: error })
     }
 
-    const normalized = normalizeStoredSettings(buildMergedSettings(parsed))
+    const normalized = normalizeStoredSettings(
+      buildMergedSettings(parsed, this.workwiseHome),
+      this.workwiseHome
+    )
     await ensureWorkspaceRootExists(normalized.workspaceRoot)
     await ensureWriteWorkspaceRootsExist(normalized)
     await ensureClawChannelWorkspaceRootsExist(normalized)
-    const needsV2Commit = sourcePath !== this.path || parsed.schema !== 'workwise.settings' || parsed.version !== 2
+    const parsedClawIm = (parsed.claw as { im?: { weixinBridgeUrl?: unknown } } | undefined)?.im
+    const needsV2Commit = sourcePath !== this.path ||
+      parsed.schema !== 'workwise.settings' ||
+      parsed.version !== 2 ||
+      isLegacyManagedWeixinBridgeUrl(parsedClawIm?.weixinBridgeUrl)
     if (needsV2Commit) {
       await recordSettingsMigration(
         sourcePath,
@@ -489,19 +535,19 @@ export class JsonSettingsStore {
         this.workwiseHome
       )
       await mkdir(dirname(this.path), { recursive: true })
-      await atomicWriteFile(this.path, serializeSettingsForDisk(normalized))
+      await atomicWriteFile(this.path, serializeSettingsForDisk(normalized, this.workwiseHome))
     }
     this.cache = normalized
     return this.cache
   }
 
   async save(data: AppSettingsV1): Promise<WorkWiseSettingsV2> {
-    const normalized = normalizeStoredSettings(data)
+    const normalized = normalizeStoredSettings(data, this.workwiseHome)
     await ensureWorkspaceRootExists(normalized.workspaceRoot)
     await ensureWriteWorkspaceRootsExist(normalized)
     await ensureClawChannelWorkspaceRootsExist(normalized)
     await mkdir(dirname(this.path), { recursive: true })
-    await atomicWriteFile(this.path, serializeSettingsForDisk(normalized))
+    await atomicWriteFile(this.path, serializeSettingsForDisk(normalized, this.workwiseHome))
     this.cache = normalized
     return normalized
   }
@@ -527,7 +573,7 @@ export class JsonSettingsStore {
         revision: cur.revision + 1,
         provider: mergeModelProviderSettings(cur.provider, providerPatch),
         log: { ...cur.log, ...(partial.log ?? {}) },
-        notifications: { ...cur.notifications, ...(partial.notifications ?? {}) },
+        notifications: mergeNotificationSettings(cur.notifications, partial.notifications),
         appBehavior: normalizeAppBehaviorSettings({
           ...cur.appBehavior,
           ...(partial.appBehavior ?? {})
@@ -551,7 +597,7 @@ export class JsonSettingsStore {
             ...(documentsPatch?.allowPrivateServerUploadByWorkspace ?? {})
           }
         }
-      })
+      }, this.workwiseHome)
       return this.save(next)
     })
   }

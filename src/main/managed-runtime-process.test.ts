@@ -11,6 +11,7 @@ import {
   defaultModelProviderSettings,
   defaultScheduleSettings,
   defaultWriteSettings,
+  isManagedRuntimeInsecure,
   type AppSettingsV1
 } from '../shared/app-settings'
 import { KunConfigSchema } from '../../kun/src/config/kun-config.js'
@@ -134,6 +135,31 @@ describe('startManagedRuntimeChild', () => {
     expect(logText).toContain('bind failed on port 8899')
     expect(logText).toContain('exited with code 23')
   })
+
+  it('passes a process-scoped Flow key to an isolated candidate Runtime', async () => {
+    if (!tempRoot) throw new Error('temp root not initialized')
+    const script = writeScript(
+      'candidate-flow-key-child.js',
+      [
+        "if (process.env.WORKWISE_FLOW_SECRET_STORE_KEY !== 'candidate-flow-key') process.exit(31)",
+        "process.stdout.write('KUN_READY ' + JSON.stringify({ service: 'kun', mode: 'serve', port: 8899 }) + '\\n')",
+        'setInterval(() => {}, 1_000)'
+      ].join('\n')
+    )
+    const module = await import('./managed-runtime-process')
+    const candidateHome = join(tempRoot, 'home')
+    await expect(module.startManagedRuntimeChild(createSettings(script), {
+      candidateRoot: tempRoot,
+      homeDir: candidateHome,
+      workwiseHome: join(candidateHome, '.workwise'),
+      mcpConfigPath: join(candidateHome, '.workwise', 'mcp.json'),
+      autoInstallBundledAgentPack: false,
+      autoInstallBundledSpecialistSkills: false,
+      skillRoots: [],
+      flowSecretStoreKey: 'candidate-flow-key'
+    })).resolves.toBeUndefined()
+    expect(module.isManagedRuntimeChildRunning()).toBe(true)
+  })
 })
 
 describe('reclaimManagedRuntimePort', () => {
@@ -164,6 +190,29 @@ describe('reclaimManagedRuntimePort', () => {
 })
 
 describe('resolveManagedRuntimeDataDir', () => {
+  it('forces candidate runs into the guarded approval and sandbox policy', async () => {
+    if (!tempRoot) throw new Error('temp root not initialized')
+    const module = await import('./managed-runtime-process')
+    const settings = createSettings('/tmp/fake-kun-child.js')
+    settings.agents.kun.approvalPolicy = 'auto'
+    settings.agents.kun.sandboxMode = 'danger-full-access'
+    settings.agents.kun.insecure = true
+
+    const candidate = module.resolveManagedRuntimeForStart(settings, true, 'candidate-runtime-token')
+    expect(candidate).toMatchObject({
+      approvalPolicy: 'on-request',
+      sandboxMode: 'workspace-write',
+      insecure: false,
+      runtimeToken: 'candidate-runtime-token'
+    })
+    expect(isManagedRuntimeInsecure(candidate)).toBe(false)
+    expect(module.resolveManagedRuntimeForStart(settings, false)).toMatchObject({
+      approvalPolicy: 'auto',
+      sandboxMode: 'danger-full-access',
+      insecure: true
+    })
+  })
+
   it('expands Windows-style home-relative data directories', async () => {
     const module = await import('./managed-runtime-process')
 
@@ -174,6 +223,33 @@ describe('resolveManagedRuntimeDataDir', () => {
     const module = await import('./managed-runtime-process')
 
     expect(module.resolveManagedRuntimeDataDir({ dataDir: '~other\\kun' })).toBe('~other\\kun')
+  })
+
+  it('expands candidate runtime data under the explicitly supplied home', async () => {
+    if (!tempRoot) throw new Error('temp root not initialized')
+    const module = await import('./managed-runtime-process')
+    const candidateHome = join(tempRoot, 'candidate-home')
+
+    expect(module.resolveManagedRuntimeDataDir(
+      { dataDir: '~/.workwise/runtime' },
+      candidateHome
+    )).toBe(join(candidateHome, '.workwise', 'runtime'))
+  })
+
+  it('rejects candidate Runtime paths outside the candidate root before spawning', async () => {
+    if (!tempRoot) throw new Error('temp root not initialized')
+    const script = writeScript('never-started.js', 'setInterval(() => {}, 1_000)')
+    const module = await import('./managed-runtime-process')
+
+    await expect(module.startManagedRuntimeChild(createSettings(script), {
+      candidateRoot: join(tempRoot, 'candidate'),
+      homeDir: homedir(),
+      workwiseHome: join(tempRoot, 'candidate', 'home', '.workwise'),
+      autoInstallBundledAgentPack: false,
+      autoInstallBundledSpecialistSkills: false,
+      skillRoots: []
+    })).rejects.toThrow('candidate Runtime home must stay inside WORKWISE_CANDIDATE_ROOT')
+    expect(module.isManagedRuntimeChildRunning()).toBe(false)
   })
 })
 
@@ -200,7 +276,11 @@ describe('syncManagedRuntimeConfig', () => {
     const configPath = join(tempRoot, 'config.json')
     const module = await import('./managed-runtime-process')
 
-    await module.syncManagedRuntimeConfig(tempRoot, defaultManagedRuntimeSettings())
+    await module.syncManagedRuntimeConfig(tempRoot, {
+      ...defaultManagedRuntimeSettings(),
+      baseUrl: 'https://api.deepseek.com',
+      model: 'deepseek-v4-pro'
+    })
 
     const parsed = JSON.parse(readFileSync(configPath, 'utf8')) as any
     expect(parsed.serve.storage).toMatchObject({ backend: 'hybrid' })
@@ -225,6 +305,7 @@ describe('syncManagedRuntimeConfig', () => {
     })
     expect(parsed.models.profiles['deepseek-v4-pro']).toMatchObject({
       contextWindowTokens: 1_000_000,
+      maxOutputTokens: 384_000,
       contextCompaction: {
         softThreshold: 980_000,
         hardThreshold: 990_000
@@ -233,6 +314,7 @@ describe('syncManagedRuntimeConfig', () => {
     expect(parsed.models.profiles['deepseek-v4-flash']).toMatchObject({
       aliases: ['deepseek-chat', 'deepseek-reasoner'],
       contextWindowTokens: 1_000_000,
+      maxOutputTokens: 384_000,
       contextCompaction: {
         softThreshold: 980_000,
         hardThreshold: 990_000
@@ -241,7 +323,12 @@ describe('syncManagedRuntimeConfig', () => {
     expect(parsed.runtime.toolStorm).toMatchObject({ enabled: true, windowSize: 8, threshold: 3 })
     expect(parsed.runtime.toolArgumentRepair).toMatchObject({ maxStringBytes: 524288 })
     expect(parsed.capabilities.attachments).toMatchObject({ enabled: true })
-    expect(parsed.capabilities.web).toMatchObject({ enabled: true, fetchEnabled: true })
+    expect(parsed.capabilities.web).toMatchObject({
+      enabled: true,
+      fetchEnabled: true,
+      searchEnabled: true,
+      provider: 'deepseek-responses'
+    })
     expect(parsed.capabilities.mcp.search).toMatchObject({ enabled: false, mode: 'auto' })
     expect(parsed.capabilities.imageGen).toEqual({
       enabled: false,
@@ -848,5 +935,20 @@ describe('syncManagedRuntimeConfig', () => {
       searchEnabled: true,
       provider: 'custom-search'
     })
+  })
+
+  it('does not enable DeepSeek Responses search for a third-party provider', async () => {
+    if (!tempRoot) throw new Error('temp root not initialized')
+    const module = await import('./managed-runtime-process')
+
+    await module.syncManagedRuntimeConfig(tempRoot, {
+      ...defaultManagedRuntimeSettings(),
+      baseUrl: 'https://third-party.example/v1',
+      model: 'deepseek-v4-pro'
+    })
+
+    const parsed = JSON.parse(readFileSync(join(tempRoot, 'config.json'), 'utf8')) as any
+    expect(parsed.capabilities.web.searchEnabled).not.toBe(true)
+    expect(parsed.capabilities.web.provider).not.toBe('deepseek-responses')
   })
 })

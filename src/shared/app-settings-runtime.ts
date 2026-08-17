@@ -11,6 +11,7 @@ import {
   type KunContextCompactionSettingsV1,
   type KunHistoryHygieneSettingsV1,
   type KunImageGenerationSettingsV1,
+  type KunVisionEvidenceSettingsV1,
   type KunMcpSearchSettingsV1,
   type KunRuntimeTuningSettingsV1,
   type KunRuntimeSettingsPatchV1,
@@ -112,7 +113,8 @@ export function defaultKunRuntimeSettings(
     storage: defaultKunStorageSettings(),
     contextCompaction: defaultKunContextCompactionSettings(),
     runtimeTuning: defaultKunRuntimeTuningSettings(),
-    imageGeneration: defaultKunImageGenerationSettings()
+    imageGeneration: defaultKunImageGenerationSettings(),
+    visionEvidence: defaultKunVisionEvidenceSettings()
   }
 }
 
@@ -126,6 +128,15 @@ export function defaultKunImageGenerationSettings(): KunImageGenerationSettingsV
     model: '',
     defaultSize: '',
     timeoutMs: 180_000
+  }
+}
+
+export function defaultKunVisionEvidenceSettings(): KunVisionEvidenceSettingsV1 {
+  return {
+    enabled: false,
+    endpoint: '',
+    timeoutMs: 120_000,
+    analyzer: 'workwise-vision-evidence'
   }
 }
 
@@ -256,6 +267,11 @@ export function mergeKunRuntimeSettings(
     ...currentImageGeneration,
     ...(patch?.imageGeneration ?? {})
   })
+  const currentVisionEvidence = normalizeKunVisionEvidenceSettings(current.visionEvidence)
+  const nextVisionEvidence = normalizeKunVisionEvidenceSettings({
+    ...currentVisionEvidence,
+    ...(patch?.visionEvidence ?? {})
+  })
   const currentRuntimeTuning = normalizeKunRuntimeTuningSettings(current.runtimeTuning)
   const nextRuntimeTuning = normalizeKunRuntimeTuningSettings({
     ...currentRuntimeTuning,
@@ -281,7 +297,8 @@ export function mergeKunRuntimeSettings(
     storage: nextStorage,
     contextCompaction: nextContextCompaction,
     runtimeTuning: nextRuntimeTuning,
-    imageGeneration: nextImageGeneration
+    imageGeneration: nextImageGeneration,
+    visionEvidence: nextVisionEvidence
   }
 }
 
@@ -299,6 +316,22 @@ function normalizeKunImageGenerationSettings(
     model: typeof input?.model === 'string' ? input.model.trim() : defaults.model,
     defaultSize: /^(auto|\d+x\d+)$/.test(defaultSize) ? defaultSize : '',
     timeoutMs: boundedPositiveInt(input?.timeoutMs, defaults.timeoutMs, 600_000)
+  }
+}
+
+function normalizeKunVisionEvidenceSettings(
+  input: Partial<KunVisionEvidenceSettingsV1> | undefined
+): KunVisionEvidenceSettingsV1 {
+  const defaults = defaultKunVisionEvidenceSettings()
+  return {
+    enabled: input?.enabled === true,
+    endpoint: typeof input?.endpoint === 'string' ? input.endpoint.trim() : '',
+    timeoutMs: typeof input?.timeoutMs === 'number' && Number.isFinite(input.timeoutMs)
+      ? Math.min(600_000, Math.max(1_000, Math.trunc(input.timeoutMs)))
+      : defaults.timeoutMs,
+    analyzer: typeof input?.analyzer === 'string' && input.analyzer.trim()
+      ? input.analyzer.trim().slice(0, 120)
+      : defaults.analyzer
   }
 }
 
@@ -576,7 +609,8 @@ export function migrateLegacyAppSettings(parsed: LegacyAppSettingsShape): Partia
     storage: normalizeKunStorageSettings(explicitKun.storage),
     contextCompaction: normalizeKunContextCompactionSettings(explicitKun.contextCompaction),
     runtimeTuning: normalizeKunRuntimeTuningSettings(explicitKun.runtimeTuning),
-    imageGeneration: normalizeKunImageGenerationSettings(explicitKun.imageGeneration)
+    imageGeneration: normalizeKunImageGenerationSettings(explicitKun.imageGeneration),
+    visionEvidence: normalizeKunVisionEvidenceSettings(explicitKun.visionEvidence)
   }
   // Strip the legacy `agentProvider` discriminator and the legacy
   // per-provider settings from the surfaced migration result. The

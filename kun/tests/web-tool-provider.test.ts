@@ -324,6 +324,52 @@ describe('Web tool provider', () => {
     }
   })
 
+  it('uses separate providers for safe fetch and DeepSeek Responses search', async () => {
+    const config = KunCapabilitiesConfig.parse({
+      web: { enabled: true, fetchEnabled: true, searchEnabled: true }
+    })
+    const built = buildWebToolProviders(config.web, {
+      fetchProvider: { id: 'safe-fetch', fetch: deterministicProvider().fetch.bind(deterministicProvider()) },
+      searchProvider: { id: 'deepseek-responses', search: deterministicProvider().search.bind(deterministicProvider()) }
+    })
+
+    expect(built.fetchAvailable).toBe(true)
+    expect(built.searchAvailable).toBe(true)
+    expect(built.provider).toBe('safe-fetch+deepseek-responses')
+  })
+
+  it('allows the official DeepSeek Responses search enough time to complete', async () => {
+    let receivedTimeoutMs = 0
+    const config = KunCapabilitiesConfig.parse({
+      web: { enabled: true, searchEnabled: true, provider: 'deepseek-responses' }
+    })
+    const host = new LocalToolHost({
+      registry: new CapabilityRegistry(buildWebToolProviders(config.web, {
+        searchProvider: {
+          id: 'deepseek-responses',
+          async search(request) {
+            receivedTimeoutMs = request.timeoutMs
+            return []
+          }
+        }
+      }).providers)
+    })
+
+    await host.execute({
+      callId: 'call_1',
+      toolName: 'web_search',
+      arguments: { query: '今天 AI 行业重要资讯' }
+    }, buildContext())
+    expect(receivedTimeoutMs).toBe(90_000)
+
+    await host.execute({
+      callId: 'call_2',
+      toolName: 'web_search',
+      arguments: { query: '今天 AI 行业重要资讯', timeout_ms: 999_999 }
+    }, buildContext())
+    expect(receivedTimeoutMs).toBe(120_000)
+  })
+
   it('reports web availability in the runtime capability manifest', () => {
     const config = KunCapabilitiesConfig.parse({
       web: {

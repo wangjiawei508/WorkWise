@@ -21,6 +21,8 @@ import {
   isManagedRuntimeInsecure,
   migrateLegacyAppSettings,
   normalizeAppSettings,
+  normalizeNotificationSettings,
+  shouldShowTerminalNotification,
   parseClawUserPromptForDisplay,
   normalizeScheduleSettings,
   resolveManagedRuntimeSettings,
@@ -167,6 +169,79 @@ describe('kun defaults', () => {
   })
 })
 
+describe('terminal notification settings', () => {
+  it('migrates the legacy completion toggle and defaults to completed turns only', () => {
+    expect(normalizeNotificationSettings({ turnComplete: false })).toEqual({
+      turnComplete: false,
+      turnTerminal: {
+        enabled: false,
+        kinds: ['completed'],
+        suppressActiveThread: false,
+        include: [],
+        exclude: []
+      }
+    })
+    expect(normalizeNotificationSettings()).toMatchObject({
+      turnComplete: true,
+      turnTerminal: { enabled: true, kinds: ['completed'] }
+    })
+  })
+
+  it('normalizes terminal kinds and patterns without filling an intentional empty kind list', () => {
+    const raw = {
+      turnTerminal: {
+        enabled: true,
+        kinds: ['error', 'completed', 'error', 'unsupported'],
+        include: [' project-* ', '', 'project-*', 42],
+        exclude: [' *secret* ', '*secret*']
+      }
+    } as unknown as Parameters<typeof normalizeNotificationSettings>[0]
+
+    expect(normalizeNotificationSettings(raw).turnTerminal).toEqual({
+      enabled: true,
+      kinds: ['error', 'completed'],
+      suppressActiveThread: false,
+      include: ['project-*'],
+      exclude: ['*secret*']
+    })
+    expect(normalizeNotificationSettings({ turnTerminal: { kinds: [] } }).turnTerminal?.kinds).toEqual([])
+  })
+
+  it('filters by terminal kind, active thread, include patterns, and exclude precedence', () => {
+    const notifications = normalizeNotificationSettings({
+      turnTerminal: {
+        enabled: true,
+        kinds: ['error'],
+        suppressActiveThread: true,
+        include: ['project-*'],
+        exclude: ['*secret*']
+      }
+    })
+
+    expect(shouldShowTerminalNotification(notifications, {
+      reason: 'error',
+      threadId: 'PROJECT-123'
+    })).toBe(true)
+    expect(shouldShowTerminalNotification(notifications, {
+      reason: 'completed',
+      threadId: 'project-123'
+    })).toBe(false)
+    expect(shouldShowTerminalNotification(notifications, {
+      reason: 'error',
+      threadId: 'project-123',
+      activeThread: true
+    })).toBe(false)
+    expect(shouldShowTerminalNotification(notifications, {
+      reason: 'error',
+      threadId: 'project-secret-123'
+    })).toBe(false)
+    expect(shouldShowTerminalNotification(notifications, {
+      reason: 'error',
+      threadId: 'other-project'
+    })).toBe(false)
+  })
+})
+
 describe('app behavior settings', () => {
   it('defaults desktop behavior to off', () => {
     const raw = {
@@ -246,6 +321,33 @@ describe('claw settings', () => {
     })
 
     expect(normalized.claw.im.weixinBridgeUrl).toBe('http://127.0.0.1:8787/rpc')
+  })
+
+  it('migrates the previous managed WeChat bridge port without changing custom URLs', () => {
+    const defaults = defaultClawSettings()
+    const migrated = normalizeAppSettings({
+      ...settings(),
+      claw: {
+        ...defaults,
+        im: {
+          ...defaults.im,
+          weixinBridgeUrl: 'http://127.0.0.1:18791/api/v1/admin/rpc'
+        }
+      }
+    })
+    const custom = normalizeAppSettings({
+      ...settings(),
+      claw: {
+        ...defaults,
+        im: {
+          ...defaults.im,
+          weixinBridgeUrl: 'http://127.0.0.1:18791/custom-rpc'
+        }
+      }
+    })
+
+    expect(migrated.claw.im.weixinBridgeUrl).toBe(DEFAULT_WEIXIN_BRIDGE_RPC_URL)
+    expect(custom.claw.im.weixinBridgeUrl).toBe('http://127.0.0.1:18791/custom-rpc')
   })
 
   it('normalizes phone agent default names without touching custom names', () => {
@@ -710,6 +812,29 @@ describe('claw runtime prompts', () => {
     expect(prompt).not.toContain('scheduled-task tools')
   })
 
+  it('prevents WeChat agents from diagnosing live connection state from stale history', () => {
+    const state = settings()
+    state.claw.channels = [clawChannel('weixin', 'WorkWise')]
+
+    const prompt = buildClawRuntimePrompt(state, '重启测试', { channel: state.claw.channels[0] })
+
+    expect(prompt).toContain('Do not infer the current WeChat connection state')
+    expect(prompt).toContain('send `/status`')
+    expect(prompt).not.toContain('user-data')
+  })
+
+  it('tells IM agents to create deliverables locally and leave provider upload to WorkWise', () => {
+    const state = settings()
+    state.claw.channels = [clawChannel('feishu', 'WorkWise')]
+
+    const prompt = buildClawRuntimePrompt(state, '请创建一个 TXT 并作为附件发送', { channel: state.claw.channels[0] })
+
+    expect(prompt).toContain('create the deliverable inside the current workspace')
+    expect(prompt).toContain('WorkWise main process')
+    expect(prompt).toContain('Do not search for, call, or implement Feishu, Lark, or WeChat sending APIs')
+    expect(prompt).toContain('do not claim attachments are unsupported')
+  })
+
   it('tells Claw agents to use the image tool when image generation is configured', () => {
     const state = settings()
     state.agents.kun.imageGeneration = {
@@ -774,7 +899,7 @@ describe('write inline completion runtime config', () => {
   it('falls back to the kun model when write keeps the default inline model', () => {
     const state = settings()
     state.agents.kun.model = 'deepseek-chat'
-    expect(resolveWriteInlineCompletionModel(state)).toBe('deepseek-chat')
+    expect(resolveWriteInlineCompletionModel(state)).toBe('deepseek-v4-flash')
   })
 
   it('keeps an explicit flash override when write disables inheritance', () => {
@@ -819,6 +944,6 @@ describe('write inline completion runtime config', () => {
     delete legacyInlineCompletion.inheritModel
     state.write.inlineCompletion = legacyInlineCompletion as AppSettingsV1['write']['inlineCompletion']
 
-    expect(resolveWriteInlineCompletionModel(state)).toBe('deepseek-chat')
+    expect(resolveWriteInlineCompletionModel(state)).toBe('deepseek-v4-flash')
   })
 })

@@ -3,7 +3,8 @@ import type {
   ApprovalPolicy,
   AppSettingsV1,
   ConversationViewMode,
-  SandboxMode
+  SandboxMode,
+  TerminalNotificationKindV1
 } from '@shared/app-settings'
 import {
   DEFAULT_WRITE_INLINE_COMPLETION_BASE_URL,
@@ -26,6 +27,15 @@ import {
   SettingRow,
   Toggle
 } from './settings-controls'
+
+const TERMINAL_NOTIFICATION_OPTIONS: Array<{ value: TerminalNotificationKindV1; label: string }> = [
+  { value: 'completed', label: 'turnTerminalKind_completed' },
+  { value: 'error', label: 'turnTerminalKind_error' },
+  { value: 'aborted', label: 'turnTerminalKind_aborted' },
+  { value: 'blocked', label: 'turnTerminalKind_blocked' },
+  { value: 'max_tokens', label: 'turnTerminalKind_max_tokens' },
+  { value: 'waiting_approval', label: 'turnTerminalKind_waiting_approval' }
+]
 
 export function GeneralSettingsSection({ ctx }: { ctx: Record<string, any> }): ReactElement {
   const {
@@ -97,6 +107,16 @@ export function GeneralSettingsSection({ ctx }: { ctx: Record<string, any> }): R
   const openAtLoginSupported = platform === 'win32' || platform === 'darwin'
   const startMinimizedSupported = platform === 'win32'
   const desktopBehavior = form.appBehavior
+  const terminalNotifications = form.notifications.turnTerminal ?? {
+    enabled: form.notifications.turnComplete,
+    kinds: ['completed'] as TerminalNotificationKindV1[],
+    suppressActiveThread: false,
+    include: [],
+    exclude: []
+  }
+  const updateTerminalNotifications = (patch: Partial<typeof terminalNotifications>): void => {
+    update({ notifications: { turnTerminal: patch } })
+  }
 
   return (
             <>
@@ -186,11 +206,43 @@ export function GeneralSettingsSection({ ctx }: { ctx: Record<string, any> }): R
                 <SettingRow
                   title={t('turnCompleteNotification')}
                   description={t('turnCompleteNotificationDesc')}
+                  wideControl
                   control={
-                    <Toggle
-                      checked={form.notifications.turnComplete}
-                      onChange={(v) => update({ notifications: { turnComplete: v } })}
-                    />
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between gap-3">
+                        <span className="text-[12px] text-ds-muted">{t('turnTerminalEnabled')}</span>
+                        <Toggle checked={terminalNotifications.enabled} onChange={(enabled) => update({ notifications: { turnComplete: enabled, turnTerminal: { enabled } } })} />
+                      </div>
+                      <fieldset className="grid grid-cols-2 gap-x-4 gap-y-2 text-[12px] text-ds-muted">
+                        <legend className="mb-1 text-[12px] text-ds-muted">{t('turnTerminalKinds')}</legend>
+                        {TERMINAL_NOTIFICATION_OPTIONS.map((option) => (
+                          <label key={option.value} className="flex items-center gap-2">
+                            <input
+                              type="checkbox"
+                              checked={terminalNotifications.kinds.includes(option.value)}
+                              onChange={(event) => updateTerminalNotifications({
+                                kinds: event.target.checked
+                                  ? [...new Set([...terminalNotifications.kinds, option.value])]
+                                  : terminalNotifications.kinds.filter((kind: TerminalNotificationKindV1) => kind !== option.value)
+                              })}
+                            />
+                            {t(option.label)}
+                          </label>
+                        ))}
+                      </fieldset>
+                      <div className="flex items-center justify-between gap-3">
+                        <span className="text-[12px] text-ds-muted">{t('turnTerminalSuppressActive')}</span>
+                        <Toggle checked={terminalNotifications.suppressActiveThread} onChange={(suppressActiveThread) => updateTerminalNotifications({ suppressActiveThread })} />
+                      </div>
+                      <label className="block text-[12px] text-ds-muted">
+                        <span className="mb-1 block">{t('turnTerminalInclude')}</span>
+                        <input className="w-full rounded-xl border border-ds-border bg-ds-card px-3 py-2 text-[13px] text-ds-ink shadow-sm" value={terminalNotifications.include.join(', ')} onChange={(event) => updateTerminalNotifications({ include: event.target.value.split(',').map((value) => value.trim()).filter(Boolean) })} placeholder={t('turnTerminalPatternPlaceholder')} />
+                      </label>
+                      <label className="block text-[12px] text-ds-muted">
+                        <span className="mb-1 block">{t('turnTerminalExclude')}</span>
+                        <input className="w-full rounded-xl border border-ds-border bg-ds-card px-3 py-2 text-[13px] text-ds-ink shadow-sm" value={terminalNotifications.exclude.join(', ')} onChange={(event) => updateTerminalNotifications({ exclude: event.target.value.split(',').map((value) => value.trim()).filter(Boolean) })} placeholder={t('turnTerminalPatternPlaceholder')} />
+                      </label>
+                    </div>
                   }
                 />
                 <SettingRow

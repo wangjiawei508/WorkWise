@@ -210,7 +210,12 @@ describe('create_plan tool mapping', () => {
       message: 'model stream exploded',
       severity: 'error'
     })
-    expect(capturedErrorOptions).toEqual({ terminal: true })
+    expect(capturedErrorOptions).toEqual({
+      terminal: true,
+      terminalReason: 'error',
+      threadId: 'thr_1',
+      turnId: 'turn_1'
+    })
   })
 
   it('routes live error items to runtime error timeline events without fatal stream errors', async () => {

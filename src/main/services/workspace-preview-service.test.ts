@@ -58,7 +58,21 @@ describe('WorkspacePreviewService', () => {
     const workspace = await root()
     await writeFile(join(workspace, 'pixel.png'), Buffer.from([0x89, 0x50, 0x4e, 0x47]))
     await writeFile(join(workspace, 'document.pdf'), minimalPdf('Searchable PDF'))
-    const service = new WorkspacePreviewService(new DocumentEngineService({ runner: async () => ({ ok: false }) }))
+    const service = new WorkspacePreviewService(new DocumentEngineService({ runner: async (input) => {
+      const output = join(input.outputDirectory, 'document.md')
+      await mkdir(input.outputDirectory, { recursive: true })
+      await writeFile(output, '# Parsed')
+      return {
+        ok: true,
+        engine: 'markitdown',
+        engineVersion: 'fixture',
+        sourceSha256: 'hash',
+        markdownPath: relative(input.workspaceRoot, output),
+        references: [{ page: 1, kind: 'text' }],
+        warnings: ['Parser detected a cross-page table.'],
+        durationMs: 1
+      }
+    } }))
     await expect(service.preview({ workspaceRoot: workspace, relativePath: 'pixel.png', idempotencyKey: 'image' }))
       .resolves.toMatchObject({ kind: 'image', mediaType: 'image/png' })
     await expect(service.preview({ workspaceRoot: workspace, relativePath: 'document.pdf', idempotencyKey: 'pdf' }))
@@ -66,8 +80,78 @@ describe('WorkspacePreviewService', () => {
         kind: 'pdf',
         pageCount: 1,
         searchable: true,
-        pageTexts: [{ page: 1, text: 'Searchable PDF' }]
+        pageTexts: [{ page: 1, text: 'Searchable PDF' }],
+        document: {
+          engine: 'markitdown',
+          route: { requestedMode: 'fast', selectedEngine: 'markitdown' },
+          references: [{ page: 1, kind: 'text' }]
+        },
+        warnings: expect.arrayContaining(['Parser detected a cross-page table.'])
       })
+  }, 15_000)
+
+  it('keeps the PDF.js preview available when parsing metadata cannot be produced', async () => {
+    const workspace = await root()
+    await writeFile(join(workspace, 'document.pdf'), minimalPdf('PDF.js remains available'))
+    const service = new WorkspacePreviewService(new DocumentEngineService({ runner: async () => ({ ok: false }) }))
+
+    const preview = await service.preview({ workspaceRoot: workspace, relativePath: 'document.pdf', idempotencyKey: 'pdf-fallback' })
+    expect(preview).toMatchObject({
+        kind: 'pdf',
+        pageTexts: [{ page: 1, text: 'PDF.js remains available' }],
+        warnings: expect.arrayContaining(['Document parsing details are unavailable; PDF.js reading and search remain available.'])
+      })
+    if (preview.kind === 'pdf') expect(preview.document).toBeUndefined()
+  }, 15_000)
+
+  it('forwards the selected accurate PDF route and configured local OCR address', async () => {
+    const workspace = await root()
+    await writeFile(join(workspace, 'document.pdf'), minimalPdf('Accurate preview'))
+    let received: { parseId: string; engine: string; unlimitedOcrServerUrl?: string } | undefined
+    const service = new WorkspacePreviewService(new DocumentEngineService({ runner: async (input) => {
+      received = { parseId: input.parseId, engine: input.engine, unlimitedOcrServerUrl: input.unlimitedOcrServerUrl }
+      const output = join(input.outputDirectory, 'document.md')
+      await mkdir(input.outputDirectory, { recursive: true })
+      await writeFile(output, '# Accurate')
+      return {
+        ok: true,
+        engine: input.engine,
+        engineVersion: 'fixture',
+        sourceSha256: 'hash',
+        markdownPath: relative(input.workspaceRoot, output),
+        durationMs: 1
+      }
+    } }))
+
+    await service.preview({
+      workspaceRoot: workspace,
+      relativePath: 'document.pdf',
+      parsingMode: 'accurate',
+      unlimitedOcrServerUrl: 'http://127.0.0.1:3000',
+      idempotencyKey: 'pdf-accurate'
+    })
+
+    expect(received).toEqual({ parseId: 'pdf-accurate', engine: 'unlimited-ocr-local', unlimitedOcrServerUrl: 'http://127.0.0.1:3000' })
+  }, 15_000)
+
+  it('uses the preview idempotency key as the cancellable document parse id', async () => {
+    const workspace = await root()
+    await writeFile(join(workspace, 'document.pdf'), minimalPdf('Cancellable preview'))
+    let started!: () => void
+    const didStart = new Promise<void>((resolve) => { started = resolve })
+    const documents = new DocumentEngineService({ runner: async (input) => new Promise((resolve, reject) => {
+      started()
+      input.signal.addEventListener('abort', () => reject(new Error('aborted')), { once: true })
+      void resolve
+    }) })
+    const service = new WorkspacePreviewService(documents)
+    const pending = service.preview({ workspaceRoot: workspace, relativePath: 'document.pdf', idempotencyKey: 'preview-cancel' })
+    await didStart
+
+    expect(documents.cancel('preview-cancel')).toBe(true)
+    await expect(pending).resolves.toMatchObject({ kind: 'pdf', warnings: expect.arrayContaining([
+      'Document parsing details are unavailable; PDF.js reading and search remain available.'
+    ]) })
   }, 15_000)
 
   it('rejects an OOXML file that only changed its extension', async () => {

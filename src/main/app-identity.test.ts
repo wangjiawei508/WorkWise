@@ -19,17 +19,24 @@ describe('app identity bootstrap', () => {
 
   it('calls app.setName with the project productName', async () => {
     const { configureAppIdentity, APP_PRODUCT_NAME } = await import('./app-identity')
-    configureAppIdentity()
+    configureAppIdentity({})
     expect(setName).toHaveBeenCalledTimes(1)
     expect(setName).toHaveBeenCalledWith(APP_PRODUCT_NAME)
     expect(APP_PRODUCT_NAME).toBe('WorkWise')
+  })
+
+  it('uses an isolated application name for candidate Keychain storage', async () => {
+    const { configureAppIdentity, CANDIDATE_APP_PRODUCT_NAME } = await import('./app-identity')
+    configureAppIdentity({ WORKWISE_CANDIDATE: '1' })
+    expect(setName).toHaveBeenCalledWith(CANDIDATE_APP_PRODUCT_NAME)
+    expect(CANDIDATE_APP_PRODUCT_NAME).toBe('WorkWise IM Candidate')
   })
 
   it('does not call app.setAppUserModelId (caller responsibility on win32)', async () => {
     // setAppUserModelId 仍然由 main/index.ts 里的 win32 分支调用,
     // 这里只验证 configureAppIdentity 自己不重复设置。
     const { configureAppIdentity } = await import('./app-identity')
-    configureAppIdentity()
+    configureAppIdentity({})
     expect(setAppUserModelId).not.toHaveBeenCalled()
   })
 })

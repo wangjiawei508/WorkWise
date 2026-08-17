@@ -2,7 +2,12 @@ import { mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from 'node:fs/
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { DEFAULT_APPROVAL_POLICY, defaultManagedRuntimeSettings, defaultModelProviderSettings } from '../shared/app-settings'
+import {
+  DEFAULT_APPROVAL_POLICY,
+  DEFAULT_WEIXIN_BRIDGE_RPC_URL,
+  defaultManagedRuntimeSettings,
+  defaultModelProviderSettings
+} from '../shared/app-settings'
 import { DEFAULT_GUI_UPDATE_CHANNEL } from '../shared/gui-update'
 import { JsonSettingsStore, SettingsRevisionConflictError } from './settings-store'
 
@@ -34,7 +39,8 @@ async function writeIsolatedSettings(userDataDir: string, locale: 'en' | 'zh' = 
 describe('JsonSettingsStore', () => {
   it('writes new settings with the WorkWise V2 envelope', async () => {
     const userDataDir = await mkdtemp(join(tmpdir(), 'workwise-settings-v2-'))
-    const store = new JsonSettingsStore(userDataDir, { workwiseHome: join(userDataDir, '.workwise') })
+    const workwiseHome = join(userDataDir, '.workwise')
+    const store = new JsonSettingsStore(userDataDir, { workwiseHome })
 
     const loaded = await store.load()
     const persisted = JSON.parse(await readFile(join(userDataDir, 'workwise-settings.json'), 'utf8'))
@@ -44,9 +50,13 @@ describe('JsonSettingsStore', () => {
     expect(loaded.conversation).toEqual({ viewMode: 'concise' })
     expect(loaded.documents).toEqual({
       parsingMode: 'auto',
+      unlimitedOcrServerUrl: '',
       privateMineruServerUrl: '',
       allowPrivateServerUploadByWorkspace: {}
     })
+    expect(loaded.workspaceRoot).toBe(join(workwiseHome, 'default_workspace'))
+    expect(loaded.write.defaultWorkspaceRoot).toBe(join(workwiseHome, 'write_workspace'))
+    expect(loaded.write.activeWorkspaceRoot).toBe(join(workwiseHome, 'write_workspace'))
   })
 
   it('serializes concurrent patches and rejects stale revisions without changing state', async () => {
@@ -64,6 +74,38 @@ describe('JsonSettingsStore', () => {
     await expect(store.patch({ locale: 'en' }, 0)).rejects.toBeInstanceOf(SettingsRevisionConflictError)
     const current = await store.load()
     expect(current).toMatchObject({ revision: 2, locale: 'zh', theme: 'dark' })
+  })
+
+  it('preserves terminal notification filters across a partial toggle patch', async () => {
+    const userDataDir = await mkdtemp(join(tmpdir(), 'workwise-settings-notifications-'))
+    const store = new JsonSettingsStore(userDataDir, { workwiseHome: join(userDataDir, '.workwise') })
+    await store.load()
+    await store.patch({
+      notifications: {
+        turnTerminal: {
+          enabled: true,
+          kinds: ['error', 'waiting_approval'],
+          suppressActiveThread: true,
+          include: ['project-*'],
+          exclude: ['*secret*']
+        }
+      }
+    })
+
+    const updated = await store.patch({
+      notifications: { turnTerminal: { enabled: false } }
+    })
+
+    expect(updated.notifications).toEqual({
+      turnComplete: false,
+      turnTerminal: {
+        enabled: false,
+        kinds: ['error', 'waiting_approval'],
+        suppressActiveThread: true,
+        include: ['project-*'],
+        exclude: ['*secret*']
+      }
+    })
   })
 
   it('records a read-only V1 import and leaves the legacy source unchanged', async () => {
@@ -85,6 +127,28 @@ describe('JsonSettingsStore', () => {
       targetPath: join(userDataDir, 'workwise-settings.json')
     })
     expect(await readFile(legacyPath, 'utf8')).toBe(legacyRaw)
+  })
+
+  it('persists the previous managed WeChat bridge port migration for V2 settings', async () => {
+    const userDataDir = await mkdtemp(join(tmpdir(), 'workwise-settings-weixin-port-'))
+    await writeIsolatedSettings(userDataDir)
+    const settingsPath = join(userDataDir, 'workwise-settings.json')
+    const raw = JSON.parse(await readFile(settingsPath, 'utf8')) as Record<string, unknown>
+    raw.claw = {
+      im: {
+        weixinBridgeUrl: 'http://127.0.0.1:18791/api/v1/admin/rpc'
+      }
+    }
+    await writeFile(settingsPath, JSON.stringify(raw), 'utf8')
+
+    const store = new JsonSettingsStore(userDataDir, { workwiseHome: join(userDataDir, '.workwise') })
+    const loaded = await store.load()
+    const persisted = JSON.parse(await readFile(settingsPath, 'utf8')) as {
+      claw: { im: { weixinBridgeUrl: string } }
+    }
+
+    expect(loaded.claw.im.weixinBridgeUrl).toBe(DEFAULT_WEIXIN_BRIDGE_RPC_URL)
+    expect(persisted.claw.im.weixinBridgeUrl).toBe(DEFAULT_WEIXIN_BRIDGE_RPC_URL)
   })
 
   it('persists revision-safe conversation and document preferences', async () => {
@@ -586,9 +650,12 @@ describe('JsonSettingsStore', () => {
     const loaded = await store.load()
     const channel = loaded.claw.channels[0]
     const conversation = channel?.conversations[0]
+    const expectedClawRoot = join(userDataDir, '.workwise', 'claw')
 
     expect(channel?.threadId).toBe('thr_codewhale')
     expect(conversation?.localThreadId).toBe('thr_conversation_codewhale')
+    expect(channel?.workspaceRoot.startsWith(expectedClawRoot)).toBe(true)
+    expect(conversation?.workspaceRoot.startsWith(expectedClawRoot)).toBe(true)
   })
 
   it('seeds Reasonix-only Claw conversations into the canonical thread id', async () => {

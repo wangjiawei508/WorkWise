@@ -22,6 +22,7 @@ import {
   emptyUsageSnapshot,
   type RuntimeEvent as RuntimeEventType
 } from '../src/contracts/index.js'
+import { AttachmentParserProvenance } from '../src/contracts/attachments.js'
 import {
   modelCapabilitiesForModel,
   modelContextProfilesFromConfig
@@ -35,6 +36,17 @@ import {
 } from '../src/cli/serve.js'
 
 describe('contracts', () => {
+  it('preserves exact local document parser provenance', () => {
+    expect(AttachmentParserProvenance.parse({
+      engine: 'unlimited-ocr-local',
+      version: 'unlimited-ocr-api-v1',
+      local: true
+    })).toMatchObject({ engine: 'unlimited-ocr-local' })
+    expect(AttachmentParserProvenance.parse({
+      engine: 'mineru-local',
+      local: true
+    })).toMatchObject({ engine: 'mineru-local' })
+  })
   it('round-trips a thread creation payload through zod', () => {
     const parsed = CreateThreadRequest.parse({
       title: 'demo',
@@ -222,15 +234,24 @@ describe('contracts', () => {
         turnId: 'turn_1'
       },
       {
-        kind: 'usage',
+        kind: 'turn_failed',
         seq: 3,
+        timestamp: '2025-01-01T00:00:01.500Z',
+        threadId: 'thr_1',
+        turnId: 'turn_1',
+        reason: 'max_tokens',
+        code: 'resource_limit'
+      },
+      {
+        kind: 'usage',
+        seq: 4,
         timestamp: '2025-01-01T00:00:02.000Z',
         threadId: 'thr_1',
         usage: emptyUsageSnapshot()
       },
       {
         kind: 'heartbeat',
-        seq: 4,
+        seq: 5,
         timestamp: '2025-01-01T00:00:03.000Z',
         threadId: 'thr_1'
       }
@@ -568,6 +589,7 @@ describe('cli', () => {
       .find((candidate) => candidate.canonicalModel === 'deepseek-v4-pro')
 
     expect(profile?.contextWindowTokens).toBe(1_000_000)
+    expect(profile?.maxOutputTokens).toBe(384_000)
     expect(profile?.softThreshold).toBe(980_000)
     expect(profile?.hardThreshold).toBe(990_000)
   })

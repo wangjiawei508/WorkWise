@@ -11,6 +11,7 @@ import {
   isClawThread,
   newClawChannel,
   normalizeTurnModelMap,
+  mergeComposerPickList,
   rememberTurnModel
 } from './chat-store-helpers'
 
@@ -78,6 +79,15 @@ describe('chat-store Claw helpers', () => {
 
   afterEach(() => {
     vi.unstubAllGlobals()
+  })
+
+  it('keeps retired DeepSeek aliases out of the product model picker', () => {
+    expect(mergeComposerPickList(true, [
+      'deepseek-chat',
+      'deepseek-reasoner',
+      'deepseek-v4-pro',
+      'custom-model'
+    ])).toEqual(['auto', 'custom-model', 'deepseek-v4-flash', 'deepseek-v4-pro'])
   })
 
   it('compacts code workspace roots while excluding write, temporary, and Claw roots', () => {

@@ -1,4 +1,3 @@
-import { randomUUID } from 'node:crypto'
 import { readFile, stat } from 'node:fs/promises'
 import { extname } from 'node:path'
 import JSZip from 'jszip'
@@ -28,6 +27,7 @@ export class WorkspacePreviewService {
     workspaceRoot: string
     relativePath: string
     parsingMode?: DocumentParsingMode
+    unlimitedOcrServerUrl?: string
     idempotencyKey: string
   }): Promise<WorkspacePreviewResultV1> {
     const path = await resolveContainedPath({
@@ -62,6 +62,14 @@ export class WorkspacePreviewService {
     if (extension === '.pdf') {
       try {
         const analysis = await analyzePdfDocument(path)
+        const document = await this.documents.parse({
+          parseId: request.idempotencyKey,
+          workspaceRoot: request.workspaceRoot,
+          relativePath: request.relativePath,
+          mode: request.parsingMode ?? 'fast',
+          unlimitedOcrServerUrl: request.unlimitedOcrServerUrl,
+          idempotencyKey: request.idempotencyKey
+        }).catch(() => undefined)
         return {
           kind: 'pdf',
           relativePath: request.relativePath,
@@ -72,7 +80,20 @@ export class WorkspacePreviewService {
             ? { dataUrl: `data:application/pdf;base64,${(await readFile(path)).toString('base64')}` }
             : {}),
           truncated: analysis.truncated,
-          warnings: analysis.warnings,
+          warnings: [
+            ...analysis.warnings,
+            ...(document?.warnings ?? []),
+            ...(document ? [] : ['Document parsing details are unavailable; PDF.js reading and search remain available.'])
+          ],
+          ...(document ? {
+            document: {
+              engine: document.engine,
+              engineVersion: document.engineVersion,
+              quality: document.quality,
+              route: document.route,
+              references: document.references
+            }
+          } : {}),
           sizeBytes: info.size
         }
       } catch (error) {
@@ -87,7 +108,7 @@ export class WorkspacePreviewService {
     if (extension === '.docx' || extension === '.pptx' || extension === '.xlsx') {
       const structure = await officeStructure(path, extension)
       const parsed = await this.documents.parse({
-        parseId: `preview_${randomUUID()}`,
+        parseId: request.idempotencyKey,
         workspaceRoot: request.workspaceRoot,
         relativePath: request.relativePath,
         mode: request.parsingMode ?? 'fast',

@@ -1,0 +1,239 @@
+import { readFileSync } from 'node:fs'
+import { basename, isAbsolute, join, relative, resolve } from 'node:path'
+
+export const UNCONFIGURED_RECOVERY_CANDIDATE_EXIT_CODE = 78
+
+export type CandidateRuntimePaths = {
+  root: string
+  userData: string
+  cache: string
+  logs: string
+  home: string
+  workwiseHome: string
+  toolsRoot: string
+}
+
+const USER_DATA_ARG = '--user-data-dir='
+const CANDIDATE_ENV_FILE_ARG = '--workwise-candidate-env-file='
+const CANDIDATE_BUNDLE_IDENTIFIER = 'com.wangjiawei508.workwise.imcandidate.recovery'
+const CANDIDATE_BUNDLE_NAME = 'WorkWise IM Recovery Candidate.app'
+const CANDIDATE_ENV_KEYS = new Set([
+  'WORKWISE_CANDIDATE',
+  'WORKWISE_CANDIDATE_ROOT',
+  'WORKWISE_CANDIDATE_USER_DATA',
+  'WORKWISE_CANDIDATE_CACHE',
+  'WORKWISE_CANDIDATE_LOGS',
+  'WORKWISE_CANDIDATE_HOME',
+  'WORKWISE_TOOLS_ROOT',
+  'WORKWISE_CANDIDATE_OUTBOUND_DISABLED',
+  'WORKWISE_CANDIDATE_OUTBOUND_PROVIDER',
+  'WORKWISE_CANDIDATE_INBOUND_DISABLED',
+  'WORKWISE_CANDIDATE_INBOUND_PROVIDER',
+  'WORKWISE_CANDIDATE_ALLOWED_FEISHU_CHAT_ID',
+  'WORKWISE_CANDIDATE_ALLOWED_FEISHU_COMMAND',
+  'WORKWISE_CANDIDATE_ALLOWED_WEIXIN_CHAT_ID',
+  'WORKWISE_CANDIDATE_ALLOWED_WEIXIN_COMMAND',
+  'WORKWISE_CANDIDATE_CREDENTIAL_HELPER'
+])
+
+function recoveryCandidateBundleIdentifier(resourcesPath: string | undefined): string {
+  if (!resourcesPath) return ''
+  try {
+    const plist = readFileSync(join(resolve(resourcesPath), '..', 'Info.plist'), 'utf8')
+    const match = /<key>CFBundleIdentifier<\/key>\s*<string>([^<]+)<\/string>/.exec(plist)
+    return match?.[1]?.trim() ?? ''
+  } catch {
+    return ''
+  }
+}
+
+function isRecoveryCandidateExecutable(
+  executablePath: string,
+  resourcesPath: string | undefined = process.resourcesPath
+): boolean {
+  if (/^WorkWise IM Recovery Candidate(?:\.exe)?$/i.test(basename(executablePath))) return true
+  if (basename(resolve(resourcesPath ?? '', '..', '..')) !== CANDIDATE_BUNDLE_NAME) return false
+  return recoveryCandidateBundleIdentifier(resourcesPath) === CANDIDATE_BUNDLE_IDENTIFIER
+}
+
+function readCandidateEnvironmentFile(path: string): NodeJS.ProcessEnv {
+  const output: NodeJS.ProcessEnv = {}
+  for (const rawLine of readFileSync(path, 'utf8').split(/\r?\n/)) {
+    const line = rawLine.trim()
+    if (!line || line.startsWith('#')) continue
+    const match = /^([A-Z][A-Z0-9_]*)=(.*)$/.exec(line)
+    if (!match || !CANDIDATE_ENV_KEYS.has(match[1]!)) continue
+    const rawValue = match[2]!.trim()
+    const value = rawValue.length >= 2 && (
+      (rawValue.startsWith("'") && rawValue.endsWith("'")) ||
+      (rawValue.startsWith('"') && rawValue.endsWith('"'))
+    )
+      ? rawValue.slice(1, -1)
+      : rawValue
+    if (value.includes('\0') || value.length > 8_192) {
+      throw new Error('Candidate environment file contains an invalid value.')
+    }
+    output[match[1]!] = value
+  }
+  return output
+}
+
+/**
+ * macOS LaunchServices does not reliably forward `open --env` values to a
+ * fresh app instance. Recovery candidates can instead receive their existing
+ * isolated candidate.env path through `open --args`. This is deliberately
+ * unavailable to production executables and remains fail-closed on errors.
+ */
+export function candidateEnvironmentFromArgv(
+  executablePath: string,
+  argv: readonly string[],
+  env: NodeJS.ProcessEnv = process.env,
+  resourcesPath: string | undefined = process.resourcesPath
+): NodeJS.ProcessEnv {
+  const paths = argv
+    .filter((arg) => arg.startsWith(CANDIDATE_ENV_FILE_ARG))
+    .map((arg) => arg.slice(CANDIDATE_ENV_FILE_ARG.length).trim())
+  if (paths.length === 0) return env
+  if (!isRecoveryCandidateExecutable(executablePath, resourcesPath)) {
+    throw new Error('Candidate environment files are accepted only by an isolated recovery candidate.')
+  }
+  if (paths.length !== 1 || !paths[0] || !isAbsolute(paths[0]!)) {
+    throw new Error('Recovery candidate requires exactly one absolute candidate environment file path.')
+  }
+  const environment = readCandidateEnvironmentFile(paths[0]!)
+  if (environment.WORKWISE_CANDIDATE !== '1' || !environment.WORKWISE_CANDIDATE_ROOT) {
+    throw new Error('Candidate environment file does not enable isolated candidate mode.')
+  }
+  const root = resolve(environment.WORKWISE_CANDIDATE_ROOT)
+  if (resolve(paths[0]!) !== join(root, 'candidate.env')) {
+    throw new Error('Candidate environment file must be the candidate.env file inside its isolated root.')
+  }
+  // LaunchServices may preserve only a subset of the parent candidate
+  // environment. The verified in-root file is authoritative for an explicit
+  // candidate launch, so helper selection survives app restarts as well.
+  const merged = { ...env, ...environment }
+  resolveCandidateRuntimePaths(merged)
+  return merged
+}
+
+export async function runCandidateRuntimeProbe(options: {
+  ensureRuntime: () => Promise<void>
+  reportReady: () => void
+  stop: () => Promise<void>
+  exit: (code: number) => void
+}): Promise<void> {
+  await options.ensureRuntime()
+  options.reportReady()
+  await options.stop()
+  options.exit(0)
+}
+
+export function isCandidateHeadless(env: NodeJS.ProcessEnv = process.env): boolean {
+  return env.WORKWISE_CANDIDATE === '1' && env.WORKWISE_CANDIDATE_HEADLESS === '1'
+}
+
+export function isCandidateRuntimeProbe(env: NodeJS.ProcessEnv = process.env): boolean {
+  return isCandidateHeadless(env) && env.WORKWISE_CANDIDATE_RUNTIME_PROBE === '1'
+}
+
+/**
+ * Candidate processes must not contact real IM recipients by default. An
+ * explicit `=0` is required for a separately authorized outbound test.
+ */
+export function isCandidateOutboundDisabled(
+  providerOrEnv?: 'feishu' | 'weixin' | NodeJS.ProcessEnv,
+  configuredEnv: NodeJS.ProcessEnv = process.env
+): boolean {
+  const provider = typeof providerOrEnv === 'string' ? providerOrEnv : undefined
+  const env = typeof providerOrEnv === 'string' ? configuredEnv : providerOrEnv ?? configuredEnv
+  if (env.WORKWISE_CANDIDATE !== '1') return false
+  if (env.WORKWISE_CANDIDATE_OUTBOUND_DISABLED !== '0') return true
+  const allowedProvider = env.WORKWISE_CANDIDATE_OUTBOUND_PROVIDER?.trim().toLowerCase()
+  return !provider || allowedProvider !== provider
+}
+
+/**
+ * Candidate IM reception is also fail-closed. A real provider callback can
+ * otherwise start arbitrary work as soon as a test credential is authorized.
+ * The opt-in is intentionally a single provider, chat and exact command.
+ */
+export function isCandidateInboundAllowed(
+  provider: 'feishu' | 'weixin',
+  chatId: string,
+  content: string,
+  configuredEnv: NodeJS.ProcessEnv = process.env
+): boolean {
+  if (configuredEnv.WORKWISE_CANDIDATE !== '1') return true
+  if (configuredEnv.WORKWISE_CANDIDATE_INBOUND_DISABLED !== '0') return false
+  if (configuredEnv.WORKWISE_CANDIDATE_INBOUND_PROVIDER?.trim().toLowerCase() !== provider) return false
+  const allowedChatId = provider === 'feishu'
+    ? configuredEnv.WORKWISE_CANDIDATE_ALLOWED_FEISHU_CHAT_ID?.trim()
+    : configuredEnv.WORKWISE_CANDIDATE_ALLOWED_WEIXIN_CHAT_ID?.trim()
+  if (!allowedChatId || allowedChatId !== chatId.trim()) return false
+  const allowedCommand = provider === 'feishu'
+    ? configuredEnv.WORKWISE_CANDIDATE_ALLOWED_FEISHU_COMMAND?.trim()
+    : configuredEnv.WORKWISE_CANDIDATE_ALLOWED_WEIXIN_COMMAND?.trim()
+  return Boolean(allowedCommand) && content.trim() === allowedCommand
+}
+
+export function isUnconfiguredRecoveryCandidate(
+  executablePath: string,
+  env: NodeJS.ProcessEnv = process.env,
+  resourcesPath: string | undefined = process.resourcesPath
+): boolean {
+  if (env.WORKWISE_CANDIDATE === '1') return false
+  return isRecoveryCandidateExecutable(executablePath, resourcesPath)
+}
+
+function containedPath(root: string, name: string, raw: string | undefined, fallback: string): string {
+  const value = raw?.trim() || join(root, fallback)
+  if (!isAbsolute(value)) throw new Error(`${name} must be an absolute path in candidate mode.`)
+  const target = resolve(value)
+  const rel = relative(root, target)
+  if (rel === '..' || rel.startsWith(`..${process.platform === 'win32' ? '\\' : '/'}`) || isAbsolute(rel)) {
+    throw new Error(`${name} must stay inside WORKWISE_CANDIDATE_ROOT.`)
+  }
+  return target
+}
+
+export function resolveCandidateRuntimePaths(
+  env: NodeJS.ProcessEnv = process.env
+): CandidateRuntimePaths | null {
+  if (env.WORKWISE_CANDIDATE !== '1') return null
+  const rawRoot = env.WORKWISE_CANDIDATE_ROOT?.trim()
+  if (!rawRoot || !isAbsolute(rawRoot)) {
+    throw new Error('WORKWISE_CANDIDATE_ROOT must be an absolute path in candidate mode.')
+  }
+  const root = resolve(rawRoot)
+  if (root === resolve(root, '..')) throw new Error('WORKWISE_CANDIDATE_ROOT cannot be a filesystem root.')
+  const userData = containedPath(root, 'WORKWISE_CANDIDATE_USER_DATA', env.WORKWISE_CANDIDATE_USER_DATA, 'user-data')
+  const cache = containedPath(root, 'WORKWISE_CANDIDATE_CACHE', env.WORKWISE_CANDIDATE_CACHE, 'cache')
+  const logs = containedPath(root, 'WORKWISE_CANDIDATE_LOGS', env.WORKWISE_CANDIDATE_LOGS, 'logs')
+  const home = containedPath(root, 'WORKWISE_CANDIDATE_HOME', env.WORKWISE_CANDIDATE_HOME, 'home')
+  return {
+    root,
+    userData,
+    cache,
+    logs,
+    home,
+    workwiseHome: join(home, '.workwise'),
+    toolsRoot: join(home, '.workwise', 'tools')
+  }
+}
+
+export function candidateProcessUserDataPath(
+  paths: CandidateRuntimePaths,
+  argv: readonly string[],
+  credentialHelper: boolean
+): string {
+  if (!credentialHelper) return paths.userData
+  const raw = argv.find((arg) => arg.startsWith(USER_DATA_ARG))?.slice(USER_DATA_ARG.length).trim()
+  if (!raw) return paths.userData
+  if (!isAbsolute(raw)) throw new Error('Credential helper user data must be an absolute path.')
+  const target = resolve(raw)
+  const rel = relative(paths.root, target)
+  if (rel === '..' || rel.startsWith(`..${process.platform === 'win32' ? '\\' : '/'}`) || isAbsolute(rel)) {
+    throw new Error('Credential helper user data must stay inside WORKWISE_CANDIDATE_ROOT.')
+  }
+  return target
+}

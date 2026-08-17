@@ -20,6 +20,7 @@ import type {
   ToolEventPayload,
   UserInputQuestion
 } from './types'
+import { terminalReasonForFailure } from '../store/terminal-notification-projection'
 import { safeMediaPreviewUrl } from '../lib/safe-media-preview-url'
 import { redactSecrets, redactSecretText } from '@shared/secret-redaction'
 import type { DesignCanvasCommandV1 } from '@shared/design-workspace'
@@ -736,7 +737,13 @@ function userMessageEventFromItem(item: CoreTurnItemJson): UserMessageEventPaylo
 
 function assistantTextBlockFromItem(item: CoreTurnItemJson): ChatBlock | null {
   if (!item.text?.trim()) return null
-  return { kind: 'assistant', id: item.id, createdAt: itemCreatedAt(item), text: item.text }
+  return {
+    kind: 'assistant',
+    id: item.id,
+    createdAt: itemCreatedAt(item),
+    text: item.text,
+    ...(Array.isArray(item.uiBlocks) ? { uiBlocks: item.uiBlocks } : {})
+  }
 }
 
 function reasoningBlockFromItem(item: CoreTurnItemJson): ChatBlock | null {
@@ -1293,12 +1300,23 @@ export async function dispatchRuntimeEvent(
       return
     case 'turn_completed':
     case 'turn_aborted':
-      sink.onTurnComplete()
+      sink.onTurnComplete({
+        reason: event.reason === 'aborted' ? 'aborted' : event.kind === 'turn_aborted' ? 'aborted' : 'completed',
+        threadId: event.threadId,
+        turnId: event.turnId
+      })
       return
     case 'turn_failed': {
       const payload = runtimeErrorFromEvent(event, 'WorkWise Runtime turn failed')
       sink.onRuntimeError?.(payload)
-      sink.onError(errorForRuntimeEvent(payload), { terminal: true })
+      sink.onError(errorForRuntimeEvent(payload), {
+        terminal: true,
+        terminalReason: event.reason === 'blocked' || event.reason === 'max_tokens' || event.reason === 'error'
+          ? event.reason
+          : terminalReasonForFailure(payload.code, payload.message),
+        threadId: event.threadId,
+        turnId: event.turnId
+      })
       return
     }
     case 'error':

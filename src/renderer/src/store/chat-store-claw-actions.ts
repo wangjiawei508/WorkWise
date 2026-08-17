@@ -244,35 +244,67 @@ export function createClawActions(options: CreateClawActionsOptions): Pick<
     addClawChannel: async (provider, agentProfile, platformCredential, optionsArg) => {
       if (typeof window.workwise === 'undefined') return
       const preserveRoute = optionsArg?.preserveRoute === true
-      const settings = await rendererRuntimeClient.getSettings()
       const targetChannelId = optionsArg?.channelId?.trim() ?? ''
-      const existing = targetChannelId
-        ? settings.claw.channels.find((channel) => channel.id === targetChannelId)
+      const channel = targetChannelId ? null : newClawChannel(provider, agentProfile, platformCredential)
+      const nextChannel = channel
+        ? {
+            ...channel,
+            model: optionsArg?.model ?? channel.model,
+            workspaceRoot: optionsArg?.workspaceRoot?.trim() ?? channel.workspaceRoot,
+            enabled: optionsArg?.enabled ?? channel.enabled
+          }
         : null
-      if (existing) {
-        const now = new Date().toISOString()
-        const profileName = agentProfile?.name?.trim() ?? ''
-        const updatedChannel: ClawImChannelV1 = {
-          ...existing,
-          label: profileName || existing.label,
-          model: optionsArg?.model ?? existing.model,
-          workspaceRoot: optionsArg?.workspaceRoot?.trim() ?? existing.workspaceRoot,
-          enabled: optionsArg?.enabled ?? existing.enabled,
-          agentProfile: {
-            name: profileName,
-            description: agentProfile?.description?.trim() ?? '',
-            identity: agentProfile?.identity ?? '',
-            personality: agentProfile?.personality ?? '',
-            userContext: agentProfile?.userContext ?? '',
-            replyRules: agentProfile?.replyRules ?? ''
-          },
-          platformCredential: platformCredential ?? existing.platformCredential,
-          updatedAt: now
+      let activeChannelId = targetChannelId || nextChannel?.id || ''
+      const saved = await rendererRuntimeClient.updateSettings((settings) => {
+        const existing = targetChannelId
+          ? settings.claw.channels.find((item) => item.id === targetChannelId)
+          : null
+        if (targetChannelId && !existing) {
+          throw new Error(`Claw channel not found: ${targetChannelId}`)
         }
-        const channels = settings.claw.channels.map((channel) =>
-          channel.id === existing.id ? updatedChannel : channel
-        )
-        const saved = await rendererRuntimeClient.setSettings({
+        if (existing) {
+          const now = new Date().toISOString()
+          const profileName = agentProfile?.name?.trim() ?? ''
+          const updatedChannel: ClawImChannelV1 = {
+            ...existing,
+            label: profileName || existing.label,
+            model: optionsArg?.model ?? existing.model,
+            workspaceRoot: optionsArg?.workspaceRoot?.trim() ?? existing.workspaceRoot,
+            enabled: optionsArg?.enabled ?? existing.enabled,
+            agentProfile: {
+              name: profileName,
+              description: agentProfile?.description?.trim() ?? '',
+              identity: agentProfile?.identity ?? '',
+              personality: agentProfile?.personality ?? '',
+              userContext: agentProfile?.userContext ?? '',
+              replyRules: agentProfile?.replyRules ?? ''
+            },
+            platformCredential: platformCredential ?? existing.platformCredential,
+            updatedAt: now
+          }
+          activeChannelId = existing.id
+          return {
+            claw: {
+              enabled: true,
+              im: {
+                enabled: true,
+                provider,
+                ...(optionsArg?.im ?? {})
+              },
+              channels: settings.claw.channels.map((item) =>
+                item.id === existing.id ? updatedChannel : item
+              )
+            }
+          }
+        }
+        const duplicateProvider = settings.claw.channels.find((item) => item.provider === provider)
+        if (duplicateProvider) {
+          const providerLabel = provider === 'weixin' ? 'WeChat' : 'Feishu / Lark'
+          throw new Error(i18n.t('common:connectPhoneProviderAlreadyConnected', { provider: providerLabel }))
+        }
+        if (!nextChannel) throw new Error('Unable to create Claw channel.')
+        activeChannelId = nextChannel.id
+        return {
           claw: {
             enabled: true,
             im: {
@@ -280,48 +312,16 @@ export function createClawActions(options: CreateClawActionsOptions): Pick<
               provider,
               ...(optionsArg?.im ?? {})
             },
-            channels
+            channels: [...settings.claw.channels, nextChannel]
           }
-        })
-        set({
-          clawChannels: saved.claw.channels,
-          activeClawChannelId: existing.id,
-          ...(preserveRoute ? {} : { route: 'claw' as const })
-        })
-        if (!preserveRoute) await get().selectClawChannel(existing.id)
-        return
-      }
-      const duplicateProvider = settings.claw.channels.find((channel) => channel.provider === provider)
-      if (duplicateProvider) {
-        const providerLabel = provider === 'weixin' ? 'WeChat' : 'Feishu / Lark'
-        throw new Error(i18n.t('common:connectPhoneProviderAlreadyConnected', { provider: providerLabel }))
-      }
-
-      const channel = newClawChannel(provider, agentProfile, platformCredential)
-      const nextChannel: ClawImChannelV1 = {
-        ...channel,
-        model: optionsArg?.model ?? channel.model,
-        workspaceRoot: optionsArg?.workspaceRoot?.trim() ?? channel.workspaceRoot,
-        enabled: optionsArg?.enabled ?? channel.enabled
-      }
-      const channels = [...settings.claw.channels, nextChannel]
-      const saved = await rendererRuntimeClient.setSettings({
-        claw: {
-          enabled: true,
-          im: {
-            enabled: true,
-            provider,
-            ...(optionsArg?.im ?? {})
-          },
-          channels
         }
       })
       set({
         clawChannels: saved.claw.channels,
-        activeClawChannelId: nextChannel.id,
+        activeClawChannelId: activeChannelId,
         ...(preserveRoute ? {} : { route: 'claw' as const })
       })
-      if (!preserveRoute) await get().selectClawChannel(nextChannel.id)
+      if (!preserveRoute) await get().selectClawChannel(activeChannelId)
     },
 
     selectClawChannel: async (channelId) => {

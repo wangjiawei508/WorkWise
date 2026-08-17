@@ -6,6 +6,7 @@ import {
   type ClawImPlatformCredentialV1,
   type ClawImRemoteSessionV1
 } from './app-settings-types'
+import type { ImCredentialRefV1 } from './im-communication'
 import { resolveKunImageGenerationSettings } from './app-settings-provider'
 
 export const CLAW_CURRENT_USER_REQUEST_HEADING = '[Current user request]'
@@ -61,21 +62,33 @@ export function normalizeClawImPlatformCredential(input: unknown): ClawImPlatfor
     return {
       kind: raw.kind,
       accountId,
-      sessionKey: typeof raw.sessionKey === 'string' ? raw.sessionKey.trim() : '',
+      ...(typeof raw.sessionKey === 'string' && raw.sessionKey.trim()
+        ? { sessionKey: raw.sessionKey.trim() }
+        : {}),
       createdAt: typeof raw.createdAt === 'string' && raw.createdAt ? raw.createdAt : new Date().toISOString()
     }
   }
   if (raw.kind !== 'feishu') return undefined
   const appId = typeof raw.appId === 'string' ? raw.appId.trim() : ''
   const appSecret = typeof raw.appSecret === 'string' ? raw.appSecret.trim() : ''
-  if (!appId || !appSecret) return undefined
+  if (!appId) return undefined
   return {
     kind: raw.kind,
     appId,
-    appSecret,
+    ...(appSecret ? { appSecret } : {}),
     domain: typeof raw.domain === 'string' && raw.domain.trim() ? raw.domain.trim() : raw.kind,
     createdAt: typeof raw.createdAt === 'string' && raw.createdAt ? raw.createdAt : new Date().toISOString()
   }
+}
+
+export function normalizeCredentialRef(input: unknown): { credentialRef?: ImCredentialRefV1 } {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) return {}
+  const raw = input as Record<string, unknown>
+  const id = typeof raw.id === 'string' ? raw.id.trim() : ''
+  const storage = raw.storage
+  const createdAt = typeof raw.createdAt === 'string' ? raw.createdAt.trim() : ''
+  if (!id || !createdAt || !['keychain', 'dpapi', 'safe-storage', 'session'].includes(String(storage))) return {}
+  return { credentialRef: { id, storage: storage as ImCredentialRefV1['storage'], createdAt } }
 }
 
 export function normalizeClawImRemoteSession(input: unknown): ClawImRemoteSessionV1 | undefined {
@@ -183,6 +196,16 @@ export function buildClawRuntimePrompt(
   if (prefix) instructions.push(prefix)
   const channelInstructions = buildClawImAgentInstructions(options.channel)
   if (channelInstructions) instructions.push(channelInstructions)
+  if (options.channel) {
+    instructions.push(
+      'This request arrived through a live WorkWise IM bridge. For a requested file or document, create the deliverable inside the current workspace with the available file tools and then give a short, factual completion message. The WorkWise main process inspects files produced by the completed Runtime turn and uploads them to the same IM conversation. Do not search for, call, or implement Feishu, Lark, or WeChat sending APIs, and do not claim attachments are unsupported merely because no IM-send tool is exposed to you. Only report the file as ready after the file operation succeeds.'
+    )
+  }
+  if (options.channel?.provider === 'weixin') {
+    instructions.push(
+      'This request arrived through the live WorkWise WeChat bridge. Do not infer the current WeChat connection state from chat history, old process ids, temporary candidate directories, or historical log/status files. Those may belong to an earlier app instance. For an authoritative current connection check, tell the user to send `/status`; WorkWise answers that command locally without calling the model.'
+    )
+  }
   const imageGeneration = settings.provider && settings.agents
     ? resolveKunImageGenerationSettings(settings as AppSettingsV1)
     : settings.agents?.kun?.imageGeneration

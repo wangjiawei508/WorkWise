@@ -283,6 +283,8 @@ function summarizeItem(item: TurnItem): string {
   switch (item.kind) {
     case 'user_message':
       return `- User: ${clipText(item.text)}`
+    case 'ui_action':
+      return `- Untrusted UI action ${item.actionId}: ${clipText(stringifyCompact(item.value))}`
     case 'assistant_text':
       return `- Assistant: ${clipText(item.text)}`
     case 'assistant_reasoning':

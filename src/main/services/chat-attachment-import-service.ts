@@ -5,7 +5,7 @@ import { basename, dirname, extname, join, relative, resolve } from 'node:path'
 import { Transform } from 'node:stream'
 import { pipeline } from 'node:stream/promises'
 import JSZip from 'jszip'
-import type { DocumentParseResultV1 } from '../../shared/agent-workbench'
+import type { DocumentParseResultV1, DocumentParsingMode } from '../../shared/agent-workbench'
 import { canonicalizeContainmentRoot, isCanonicalPathContained, resolveContainedPath } from './canonical-containment'
 import { DocumentEngineService } from './document-engine-service'
 import { inspectOfficeArchive } from './office-archive-security'
@@ -115,7 +115,10 @@ export class ChatAttachmentImportService {
     }
   }
 
-  async parse(staged: StagedChatAttachment): Promise<ParsedChatAttachment> {
+  async parse(staged: StagedChatAttachment, options: {
+    mode?: DocumentParsingMode
+    unlimitedOcrServerUrl?: string
+  } = {}): Promise<ParsedChatAttachment> {
     if (staged.kind === 'image') return { ...staged, state: 'ready', warnings: [], degradationReasons: [] }
     if (['text', 'markdown', 'csv'].includes(staged.kind)) {
       const text = await readBoundedText(staged.absolutePath)
@@ -128,7 +131,8 @@ export class ChatAttachmentImportService {
       parseId: staged.importId,
       workspaceRoot: root,
       relativePath: staged.relativePath,
-      mode: 'auto',
+      mode: options.mode ?? 'auto',
+      unlimitedOcrServerUrl: options.unlimitedOcrServerUrl,
       allowPrivateServerUpload: false,
       idempotencyKey: `attachment:${staged.sha256}`
     })

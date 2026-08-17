@@ -93,6 +93,36 @@ describe('DeepseekCompatModelClient', () => {
     expect(sentBodies[0]?.model).toBe('deepseek-v4-pro')
   })
 
+  it('migrates retired DeepSeek aliases only on the official host', async () => {
+    const response = {
+      id: 'alias',
+      model: 'deepseek-v4-flash',
+      choices: [{ index: 0, finish_reason: 'stop', message: { role: 'assistant', content: 'done' } }]
+    }
+    const sentModels: string[] = []
+    const fetchImpl: typeof fetch = async (_url, init) => {
+      sentModels.push((JSON.parse(String(init?.body ?? '{}')) as { model: string }).model)
+      return new Response(JSON.stringify(response), {
+        status: 200,
+        headers: { 'content-type': 'application/json' }
+      })
+    }
+    for (const baseUrl of ['https://api.deepseek.com', 'https://example.com/v1']) {
+      const client = new DeepseekCompatModelClient({
+        baseUrl,
+        apiKey: 'k',
+        model: 'deepseek-chat',
+        fetchImpl,
+        nonStreaming: true
+      })
+      for await (const _chunk of client.stream(buildRequest(new AbortController().signal))) {
+        // drain
+      }
+    }
+
+    expect(sentModels).toEqual(['deepseek-v4-flash', 'deepseek-chat'])
+  })
+
   it('builds chat completions URLs for base URLs with and without version segments', async () => {
     const cases = [
       ['https://zenmux.ai/api', 'https://zenmux.ai/api/v1/chat/completions'],
@@ -186,6 +216,226 @@ describe('DeepseekCompatModelClient', () => {
       expect.objectContaining({ kind: 'usage', usage: expect.objectContaining({ promptTokens: 2, completionTokens: 3 }) }),
       { kind: 'completed', stopReason: 'stop' }
     ])
+  })
+
+  it('maps DeepSeek reasoning controls across Chat, Responses, and Anthropic formats', async () => {
+    const sentBodies: Array<Record<string, unknown>> = []
+    const fetchImpl: typeof fetch = async (_url, init) => {
+      sentBodies.push(JSON.parse(String(init?.body ?? '{}')) as Record<string, unknown>)
+      return new Response(JSON.stringify({
+        id: 'reasoning',
+        status: 'completed',
+        output_text: 'done',
+        choices: [{ index: 0, finish_reason: 'stop', message: { role: 'assistant', content: 'done' } }],
+        content: [{ type: 'text', text: 'done' }],
+        stop_reason: 'end_turn'
+      }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' }
+      })
+    }
+    const cases = [
+      { endpointFormat: 'chat_completions' as const, effort: 'low', expected: { thinking: { type: 'enabled' }, reasoning_effort: 'low' } },
+      { endpointFormat: 'chat_completions' as const, effort: 'max', expected: { thinking: { type: 'enabled' }, reasoning_effort: 'max' } },
+      { endpointFormat: 'responses' as const, effort: 'off', expected: { reasoning: { effort: 'none' } } },
+      { endpointFormat: 'responses' as const, effort: 'max', expected: { reasoning: { effort: 'max' } } },
+      { endpointFormat: 'messages' as const, effort: 'low', expected: { thinking: { type: 'enabled' }, output_config: { effort: 'low' } } },
+      { endpointFormat: 'messages' as const, effort: 'off', expected: { thinking: { type: 'disabled' }, output_config: { effort: 'none' } } }
+    ]
+
+    for (const testCase of cases) {
+      const client = new DeepseekCompatModelClient({
+        baseUrl: testCase.endpointFormat === 'messages'
+          ? 'https://api.deepseek.com/anthropic'
+          : 'https://api.deepseek.com',
+        apiKey: 'k',
+        model: 'deepseek-v4-pro',
+        endpointFormat: testCase.endpointFormat,
+        fetchImpl,
+        nonStreaming: true
+      })
+      const request = buildRequest(new AbortController().signal)
+      request.model = 'deepseek-v4-pro'
+      request.reasoningEffort = testCase.effort
+      for await (const _chunk of client.stream(request)) {
+        // drain
+      }
+      expect(sentBodies.at(-1)).toMatchObject(testCase.expected)
+    }
+  })
+
+  it('keeps DeepSeek-specific reasoning fields off third-party protocol adapters', async () => {
+    const sentBodies: Array<Record<string, unknown>> = []
+    const fetchImpl: typeof fetch = async (_url, init) => {
+      sentBodies.push(JSON.parse(String(init?.body ?? '{}')) as Record<string, unknown>)
+      return new Response(JSON.stringify({
+        id: 'custom-reasoning',
+        status: 'completed',
+        output_text: 'done',
+        choices: [{ index: 0, finish_reason: 'stop', message: { role: 'assistant', content: 'done' } }],
+        content: [{ type: 'text', text: 'done' }],
+        stop_reason: 'end_turn'
+      }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' }
+      })
+    }
+    const history = [
+      makeAssistantReasoningItem({
+        id: 'custom-reasoning-history',
+        turnId: 'turn_1',
+        threadId: 'thr_1',
+        text: 'Do not send this as a DeepSeek block.',
+        status: 'completed'
+      }),
+      makeAssistantTextItem({
+        id: 'custom-text-history',
+        turnId: 'turn_1',
+        threadId: 'thr_1',
+        text: 'Previous answer.',
+        status: 'completed'
+      })
+    ]
+
+    for (const endpointFormat of ['chat_completions', 'responses', 'messages'] as const) {
+      const client = new DeepseekCompatModelClient({
+        baseUrl: 'https://gateway.example.com/v1',
+        apiKey: 'k',
+        model: 'custom-model',
+        endpointFormat,
+        fetchImpl,
+        nonStreaming: true
+      })
+      const request = buildRequest(new AbortController().signal)
+      request.model = 'custom-model'
+      request.reasoningEffort = endpointFormat === 'responses' ? 'medium' : 'low'
+      request.history = history
+      for await (const _chunk of client.stream(request)) {
+        // drain
+      }
+    }
+
+    expect(sentBodies[0]).toMatchObject({ reasoning_effort: 'high' })
+    expect(sentBodies[1]).toMatchObject({ reasoning: { effort: 'medium' } })
+    expect(sentBodies[1]?.input).not.toContainEqual(expect.objectContaining({ type: 'reasoning' }))
+    expect(sentBodies[2]).not.toHaveProperty('thinking')
+    expect(sentBodies[2]).not.toHaveProperty('output_config')
+    const anthropicMessages = sentBodies[2]?.messages as Array<{ content: Array<Record<string, unknown>> }>
+    expect(anthropicMessages.flatMap((message) => message.content)).not.toContainEqual(
+      expect.objectContaining({ type: 'thinking' })
+    )
+  })
+
+  it('preserves reasoning blocks for Responses and Anthropic tool continuations', async () => {
+    const sentBodies: Array<Record<string, unknown>> = []
+    const fetchImpl: typeof fetch = async (_url, init) => {
+      sentBodies.push(JSON.parse(String(init?.body ?? '{}')) as Record<string, unknown>)
+      return new Response(JSON.stringify({
+        id: 'continuation',
+        status: 'completed',
+        output_text: 'done',
+        content: [{ type: 'text', text: 'done' }],
+        stop_reason: 'end_turn'
+      }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' }
+      })
+    }
+    const history = [
+      makeAssistantReasoningItem({
+        id: 'reasoning',
+        turnId: 'turn_1',
+        threadId: 'thr_1',
+        text: 'Call echo now.',
+        status: 'completed'
+      }),
+      makeToolCallItem({
+        id: 'call_1',
+        turnId: 'turn_1',
+        threadId: 'thr_1',
+        callId: 'call_1',
+        toolName: 'echo',
+        toolKind: 'tool_call',
+        arguments: { text: 'hi' },
+        status: 'completed'
+      }),
+      makeToolResultItem({
+        id: 'result_1',
+        turnId: 'turn_1',
+        threadId: 'thr_1',
+        callId: 'call_1',
+        toolName: 'echo',
+        toolKind: 'tool_call',
+        output: 'hi',
+        status: 'completed'
+      })
+    ]
+    for (const endpointFormat of ['responses', 'messages'] as const) {
+      const client = new DeepseekCompatModelClient({
+        baseUrl: endpointFormat === 'messages'
+          ? 'https://api.deepseek.com/anthropic'
+          : 'https://api.deepseek.com',
+        apiKey: 'k',
+        model: 'deepseek-v4-pro',
+        endpointFormat,
+        fetchImpl,
+        nonStreaming: true
+      })
+      const request = buildRequest(new AbortController().signal)
+      request.model = 'deepseek-v4-pro'
+      request.reasoningEffort = 'high'
+      request.history = history
+      for await (const _chunk of client.stream(request)) {
+        // drain
+      }
+    }
+
+    const responsesInput = sentBodies[0]?.input as Array<Record<string, unknown>>
+    expect(responsesInput).toContainEqual(expect.objectContaining({
+      type: 'reasoning',
+      content: [{ type: 'reasoning_text', text: 'Call echo now.' }]
+    }))
+    const anthropicMessages = sentBodies[1]?.messages as Array<{ role: string; content: Array<Record<string, unknown>> }>
+    expect(anthropicMessages[0]?.content).toContainEqual({ type: 'thinking', thinking: 'Call echo now.' })
+  })
+
+  it('parses Responses reasoning, cache usage, and incomplete status', async () => {
+    const fetchImpl: typeof fetch = async () => new Response(JSON.stringify({
+      id: 'resp_incomplete',
+      status: 'incomplete',
+      incomplete_details: { reason: 'max_output_tokens' },
+      output: [
+        { type: 'reasoning', content: [{ type: 'reasoning_text', text: 'working' }] },
+        { type: 'message', content: [{ type: 'output_text', text: 'partial' }] }
+      ],
+      usage: {
+        input_tokens: 100,
+        input_tokens_details: { cached_tokens: 64 },
+        output_tokens: 12,
+        total_tokens: 112
+      }
+    }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' }
+    })
+    const client = new DeepseekCompatModelClient({
+      baseUrl: 'https://api.deepseek.com',
+      apiKey: 'k',
+      model: 'deepseek-v4-pro',
+      endpointFormat: 'responses',
+      fetchImpl,
+      nonStreaming: true
+    })
+    const chunks: ModelStreamChunk[] = []
+    for await (const chunk of client.stream(buildRequest(new AbortController().signal))) chunks.push(chunk)
+
+    expect(chunks).toContainEqual({ kind: 'assistant_reasoning_delta', text: 'working' })
+    expect(chunks).toContainEqual({ kind: 'assistant_text_delta', text: 'partial' })
+    expect(chunks).toContainEqual(expect.objectContaining({
+      kind: 'usage',
+      usage: expect.objectContaining({ cacheHitTokens: 64, cacheMissTokens: 36 })
+    }))
+    expect(chunks).toContainEqual({ kind: 'completed', stopReason: 'length' })
   })
 
   it('uses the Anthropic Messages API format when selected', async () => {

@@ -1,11 +1,15 @@
 import { describe, expect, it } from 'vitest'
-import { makeToolResultItem } from '../domain/item.js'
+import { mkdtemp, utimes, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { makeAssistantTextItem, makeToolResultItem } from '../domain/item.js'
 import {
   hasSuccessfulFileDeliverable,
   completionIntentText,
   incompleteTurnContinuationInstruction,
   looksLikeExternalCapabilityBlockedReply,
   looksLikeProgressOnlyReply,
+  looksLikeWebAccessFailureReply,
   promptRequiresFileDeliverable,
   requiredFileExtensionsForPrompt
 } from './turn-completion-guard.js'
@@ -68,7 +72,10 @@ describe('turn completion guard', () => {
 
   it('distinguishes a progress announcement from a delivered result', () => {
     expect(looksLikeProgressOnlyReply('资料够了。现在开始撰写完整文档。')).toBe(true)
+    expect(looksLikeProgressOnlyReply('我来帮你查一下今天 AI 圈的资讯。让我搜索一下最新的动态。')).toBe(true)
+    expect(looksLikeProgressOnlyReply('我帮你查询后汇报一下。')).toBe(true)
     expect(looksLikeProgressOnlyReply('文档已完成并保存到 workspace/report.md。')).toBe(false)
+    expect(looksLikeProgressOnlyReply('今天 AI 圈有三条重要动态：V4 Pro 发布、Agent 工具链更新和新的开源模型。')).toBe(false)
   })
 
   it('distinguishes a missing external capability from an incomplete deliverable', () => {
@@ -86,6 +93,23 @@ describe('turn completion guard', () => {
     )).toBe(false)
   })
 
+  it('recognizes an explicit unverified live-web failure as a failed result', () => {
+    const degradedWeatherReply = [
+      '宁波天气查询结果如下：温度约 30℃，天气现象多云。',
+      '本轮 web_search 成功返回了上述结果片段，但我随后尝试用 web_fetch 直接抓取源页面做交叉核验，全部抓取失败。',
+      '因此我无法确认当前天气数据已通过源页面核实，请稍后重试。'
+    ].join('\n')
+
+    expect(looksLikeWebAccessFailureReply(degradedWeatherReply)).toBe(true)
+    expect(looksLikeProgressOnlyReply(degradedWeatherReply)).toBe(false)
+    expect(looksLikeWebAccessFailureReply(
+      'Web search failed, so I could not verify today weather information.'
+    )).toBe(true)
+    expect(looksLikeWebAccessFailureReply(
+      '已根据成功的联网搜索整理宁波今天的天气，并附上可核验来源。'
+    )).toBe(false)
+  })
+
   it('recognizes a successful document write in the current turn', () => {
     const items = [
       makeToolResultItem({
@@ -99,6 +123,118 @@ describe('turn completion guard', () => {
       })
     ]
     expect(hasSuccessfulFileDeliverable(items, 'turn_1')).toBe(true)
+  })
+
+  it('recognizes an absolute deliverable path printed by a successful shell tool', () => {
+    const items = [
+      makeToolResultItem({
+        id: 'result_shell',
+        threadId: 'thread_1',
+        turnId: 'turn_1',
+        callId: 'call_shell',
+        toolName: 'bash',
+        toolKind: 'command_execution',
+        output: {
+          command: "printf 'fixture' > deliverable.txt",
+          cwd: '/tmp/workspace',
+          exit_code: 0,
+          output: 'fixture\n/tmp/workspace/deliverable.txt\n',
+          full_output_path: '/tmp/runtime/shell-output/bash_call.log'
+        }
+      })
+    ]
+
+    expect(hasSuccessfulFileDeliverable(items, 'turn_1', '请创建 TXT 文件。')).toBe(true)
+  })
+
+  it('does not treat a file name mentioned only in shell command or stdout as a deliverable', () => {
+    const items = [
+      makeToolResultItem({
+        id: 'result_shell',
+        threadId: 'thread_1',
+        turnId: 'turn_1',
+        callId: 'call_shell',
+        toolName: 'bash',
+        toolKind: 'command_execution',
+        output: {
+          command: "printf 'fixture' > deliverable.txt",
+          cwd: '/tmp/workspace',
+          exit_code: 0,
+          output: 'created deliverable.txt\n',
+          full_output_path: '/tmp/runtime/shell-output/bash_call.log'
+        }
+      })
+    ]
+
+    expect(hasSuccessfulFileDeliverable(items, 'turn_1', '请创建 TXT 文件。')).toBe(false)
+  })
+
+  it('recognizes a recent workspace file claimed after a successful shell write', async () => {
+    const workspace = await mkdtemp(join(tmpdir(), 'workwise-shell-deliverable-'))
+    const deliverablePath = join(workspace, 'feishu-attachment.txt')
+    const startedAt = new Date(Date.now() - 1_000)
+    await writeFile(deliverablePath, 'exact content')
+    const finishedAt = new Date(Date.now() + 1_000)
+    const items = [
+      makeToolResultItem({
+        id: 'result_shell',
+        threadId: 'thread_1',
+        turnId: 'turn_1',
+        callId: 'call_shell',
+        toolName: 'bash',
+        toolKind: 'command_execution',
+        output: {
+          cwd: workspace,
+          exit_code: 0,
+          output: 'bytes: 13\nMATCH\n',
+          started_at: startedAt.toISOString(),
+          finished_at: finishedAt.toISOString()
+        }
+      }),
+      makeAssistantTextItem({
+        id: 'assistant_1',
+        threadId: 'thread_1',
+        turnId: 'turn_1',
+        text: '已创建文件：`feishu-attachment.txt`，内容已校验。',
+        status: 'completed'
+      })
+    ]
+
+    expect(hasSuccessfulFileDeliverable(items, 'turn_1', '请创建 TXT 文件。')).toBe(true)
+  })
+
+  it('does not accept a historical workspace file after an unrelated successful command', async () => {
+    const workspace = await mkdtemp(join(tmpdir(), 'workwise-old-shell-deliverable-'))
+    const deliverablePath = join(workspace, 'historical.txt')
+    await writeFile(deliverablePath, 'old content')
+    const oldTimestamp = new Date('2020-01-01T00:00:00.000Z')
+    await utimes(deliverablePath, oldTimestamp, oldTimestamp)
+    const items = [
+      makeToolResultItem({
+        id: 'result_shell',
+        threadId: 'thread_1',
+        turnId: 'turn_1',
+        callId: 'call_shell',
+        toolName: 'bash',
+        toolKind: 'command_execution',
+        output: {
+          cwd: workspace,
+          exit_code: 0,
+          output: 'done\n',
+          started_at: '2026-08-17T00:00:00.000Z',
+          finished_at: '2026-08-17T00:00:01.000Z'
+        }
+      }),
+      makeAssistantTextItem({
+        id: 'assistant_1',
+        threadId: 'thread_1',
+        turnId: 'turn_1',
+        text: '历史文件 `historical.txt` 已存在。',
+        status: 'completed'
+      })
+    ]
+
+    expect(hasSuccessfulFileDeliverable(items, 'turn_1', '请创建 TXT 文件。')).toBe(false)
   })
 
   it('does not accept HTML as completion when the user requested a PPT', () => {

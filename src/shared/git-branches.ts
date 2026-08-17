@@ -19,6 +19,17 @@ export type GitBranchesResult =
     }
   | {
       ok: false
-      reason: 'no_workspace' | 'not_git_repo' | 'git_unavailable' | 'error'
+      reason:
+        | 'no_workspace'
+        | 'not_git_repo'
+        | 'git_unavailable'
+        | 'invalid_branch'
+        | 'branch_not_found'
+        | 'operation_in_progress'
+        | 'unresolved_conflicts'
+        | 'branch_in_other_worktree'
+        | 'would_overwrite_files'
+        | 'error'
       message: string
+      blockingPaths?: string[]
     }

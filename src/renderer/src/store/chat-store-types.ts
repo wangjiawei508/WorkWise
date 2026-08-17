@@ -10,6 +10,7 @@ import type {
   ThreadTodoStatus,
   UserInputAnswer
 } from '../agent/types'
+import type { LiveUsageProjection } from './live-usage-projection'
 import type {
   ClawImAgentProfileV1,
   ClawImChannelV1,
@@ -30,6 +31,7 @@ export type QueuedUserMessage = {
   reasoningEffort?: string
   attachmentIds?: string[]
   attachments?: AttachmentReference[]
+  workspaceReferences?: Array<{ path: string; kind: 'file' | 'directory' }>
   /**
    * Optional GUI plan context forwarded to WorkWise Runtime. The renderer
    * attaches it for plan/refine turns so the runtime can advertise
@@ -77,6 +79,7 @@ export type SendMessageOverrides = {
   guiDesign?: GuiDesignMessageContext
   attachmentIds?: string[]
   attachments?: AttachmentReference[]
+  workspaceReferences?: Array<{ path: string; kind: 'file' | 'directory' }>
 }
 
 export type InitialSetupMode = 'required' | 'preview'
@@ -151,6 +154,7 @@ export type ChatState = {
   liveAssistant: string
   lastSeq: number
   usageRefreshKey: number
+  liveUsageByThreadId: Record<string, LiveUsageProjection>
   busy: boolean
   error: string | null
   runtimeErrorDetail: string | null

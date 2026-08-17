@@ -20,6 +20,7 @@ export type ModelContextProfile = ModelContextThresholds & {
   canonicalModel: string
   modelIds: readonly string[]
   contextWindowTokens: number
+  maxOutputTokens?: number
   inputModalities: readonly ModelInputModality[]
   outputModalities: readonly ModelInputModality[]
   supportsToolCalling: boolean
@@ -29,6 +30,7 @@ export type ModelContextProfile = ModelContextThresholds & {
 export type ModelContextProfileConfig = {
   aliases?: readonly string[]
   contextWindowTokens?: number
+  maxOutputTokens?: number
   contextCompaction?: ModelContextCompactionProfileConfig
   /** @deprecated Use contextCompaction.softRatio. */
   softRatio?: number
@@ -73,6 +75,7 @@ export const DEFAULT_CONTEXT_THRESHOLDS: ModelContextThresholds = {
 }
 
 const DEEPSEEK_V4_CONTEXT_WINDOW_TOKENS = 1_000_000
+const DEEPSEEK_V4_MAX_OUTPUT_TOKENS = 384_000
 const DEEPSEEK_V4_SOFT_THRESHOLD_RATIO = 0.98
 const DEEPSEEK_V4_HARD_THRESHOLD_RATIO = 0.99
 const DEFAULT_MODEL_INPUT_MODALITIES: readonly ModelInputModality[] = ['text']
@@ -124,6 +127,7 @@ export function modelCapabilitiesForModel(
     outputModalities: [...(profile?.outputModalities ?? DEFAULT_MODEL_OUTPUT_MODALITIES)],
     supportsToolCalling: profile?.supportsToolCalling ?? true,
     contextWindowTokens: profile?.contextWindowTokens,
+    maxOutputTokens: profile?.maxOutputTokens,
     messageParts: [...(profile?.messageParts ?? DEFAULT_MODEL_MESSAGE_PARTS)]
   }
 }
@@ -157,6 +161,7 @@ function deepseekV4Profile(
     canonicalModel,
     modelIds,
     contextWindowTokens: DEEPSEEK_V4_CONTEXT_WINDOW_TOKENS,
+    maxOutputTokens: DEEPSEEK_V4_MAX_OUTPUT_TOKENS,
     softThreshold: Math.floor(DEEPSEEK_V4_CONTEXT_WINDOW_TOKENS * DEEPSEEK_V4_SOFT_THRESHOLD_RATIO),
     hardThreshold: Math.floor(DEEPSEEK_V4_CONTEXT_WINDOW_TOKENS * DEEPSEEK_V4_HARD_THRESHOLD_RATIO),
     inputModalities: DEFAULT_MODEL_INPUT_MODALITIES,
@@ -206,6 +211,7 @@ function mergeModelContextProfile(
     canonicalModel,
     modelIds,
     contextWindowTokens,
+    maxOutputTokens: input.maxOutputTokens ?? current?.maxOutputTokens,
     softThreshold,
     hardThreshold,
     inputModalities: uniqueModelCapabilityValues(input.inputModalities ?? current?.inputModalities ?? DEFAULT_MODEL_INPUT_MODALITIES),

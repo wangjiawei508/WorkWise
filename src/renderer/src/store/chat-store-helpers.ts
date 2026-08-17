@@ -1,5 +1,8 @@
 import type { ChatBlock, NormalizedThread } from '../agent/types'
-import { DEFAULT_COMPOSER_MODEL_IDS } from '@shared/default-composer-models'
+import {
+  DEFAULT_COMPOSER_MODEL_IDS,
+  isVisibleComposerModelId
+} from '@shared/default-composer-models'
 import {
   CLAW_MANAGED_INSTRUCTIONS_HEADING,
   CLAW_MODEL_IDS,
@@ -105,7 +108,8 @@ export function mergeComposerPickList(upstreamOk: boolean, upstreamIds: string[]
   }
   if (upstreamOk) {
     for (const id of upstreamIds) {
-      if (id.trim()) ordered.add(id.trim())
+      const normalized = id.trim()
+      if (normalized && isVisibleComposerModelId(normalized)) ordered.add(normalized)
     }
   }
   const tail = [...ordered].filter((id) => id !== 'auto').sort((a, b) => a.localeCompare(b))

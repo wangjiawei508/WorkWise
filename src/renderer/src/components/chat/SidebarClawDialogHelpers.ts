@@ -62,6 +62,12 @@ export function formatClawInstallError(
   t: (k: string, opts?: Record<string, unknown>) => string
 ): string {
   const value = message.trim()
+  if (/Protected IM credential storage must be authorized/i.test(value)) {
+    return t('connectPhoneCredentialStorageRequired')
+  }
+  if (/IM_INSTALL_POLL_TIMEOUT/i.test(value)) {
+    return t('clawAddImOfficialQrPollRetrying')
+  }
   if (
     /WeChat login bridge/i.test(value) ||
     (/OpenClaw Gateway/i.test(value) &&

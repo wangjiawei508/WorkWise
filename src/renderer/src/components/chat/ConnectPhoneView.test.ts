@@ -6,6 +6,7 @@ import i18n from '../../i18n'
 import {
   ConnectPhoneSidebarPanel,
   ConnectPhoneView,
+  canReauthorizePhoneChannel,
   connectPhoneInstallRequestOptions,
   connectPhoneProviderForTarget,
   createConnectPhoneAgentProfile,
@@ -13,7 +14,11 @@ import {
   createConnectPhoneCredential,
   formatConnectPhoneUserCode,
   hasClawPhoneChannel,
-  hasEnabledClawPhoneChannel
+  hasEnabledClawPhoneChannel,
+  imHealthLabelKey,
+  imSelfCheckScopeKey,
+  needsProtectedStorageReconnect,
+  withClawInstallPollTimeout
 } from './ConnectPhoneView'
 
 function channel(enabled: boolean, provider: ClawImChannelV1['provider'] = 'feishu'): ClawImChannelV1 {
@@ -59,6 +64,24 @@ describe('ConnectPhoneView', () => {
     expect(html).not.toContain('WorkWise Runtime usage')
   })
 
+  it('resolves every common connection label instead of exposing translation keys', async () => {
+    const keys = [
+      'clawImConnectionEnabled',
+      'clawImEnabled',
+      'clawImDisabled',
+      'clawWorkspaceOverride',
+      'showSecret',
+      'hideSecret'
+    ]
+
+    for (const language of ['en', 'zh']) {
+      await i18n.changeLanguage(language)
+      for (const key of keys) {
+        expect(i18n.t(key, { ns: 'common' })).not.toBe(key)
+      }
+    }
+  })
+
   it('maps scan targets to the matching install API provider', () => {
     expect(connectPhoneProviderForTarget('feishu')).toBe('feishu')
     expect(connectPhoneProviderForTarget('lark')).toBe('feishu')
@@ -79,6 +102,11 @@ describe('ConnectPhoneView', () => {
   it('formats the official user code instead of the opaque device code', () => {
     expect(formatConnectPhoneUserCode('YWAZ-ZZ8P', 'v1:opaque-device-code')).toBe('YWAZ-ZZ8P')
     expect(formatConnectPhoneUserCode('', 'abcd1234-rest-of-token')).toBe('ABCD-1234')
+  })
+
+  it('bounds a renderer-side authorization poll that never settles', async () => {
+    const pending = withClawInstallPollTimeout(new Promise<never>(() => undefined), 10)
+    await expect(pending).rejects.toThrow('IM_INSTALL_POLL_TIMEOUT')
   })
 
   it('builds the default WorkWise channel payload after a successful scan', () => {
@@ -158,6 +186,67 @@ describe('ConnectPhoneView', () => {
     expect(hasClawPhoneChannel([channel(true, 'weixin')], 'weixin')).toBe(true)
   })
 
+  it('keeps a connected WeChat account distinguishable for runtime status checks', () => {
+    const existing = channel(true, 'weixin')
+    existing.platformCredential = {
+      kind: 'weixin',
+      accountId: 'wx_account',
+      sessionKey: 'wx_session',
+      createdAt: '2026-08-13T00:00:00.000Z'
+    }
+
+    expect(existing.platformCredential.accountId).toBe('wx_account')
+    expect(hasClawPhoneChannel([existing], 'weixin')).toBe(true)
+  })
+
+  it('keeps protected-storage recovery separate from replacing expired credentials', () => {
+    expect(canReauthorizePhoneChannel('weixin', {
+      status: 'error',
+      reasonCode: 'credential_unavailable'
+    })).toBe(false)
+    expect(needsProtectedStorageReconnect({ reasonCode: 'credential_unavailable' })).toBe(true)
+    expect(needsProtectedStorageReconnect({ reasonCode: 'credential_missing' })).toBe(false)
+    expect(canReauthorizePhoneChannel('feishu', {
+      status: 'error',
+      reasonCode: 'credential_missing'
+    })).toBe(true)
+    expect(canReauthorizePhoneChannel('feishu', {
+      status: 'expired',
+      reasonCode: 'auth_expired'
+    })).toBe(true)
+    expect(canReauthorizePhoneChannel('weixin', null, {
+      status: 'expired',
+      reasonCode: 'auth_expired'
+    })).toBe(true)
+    expect(canReauthorizePhoneChannel('feishu', {
+      status: 'error',
+      reasonCode: 'network'
+    })).toBe(false)
+  })
+
+  it('uses authoritative health instead of a stale disabled channel snapshot', () => {
+    expect(imHealthLabelKey({ status: 'connected' }, false)).toBe('connectPhoneHealthConnected')
+    expect(imHealthLabelKey({ status: 'starting' }, false)).toBe('connectPhoneHealthStarting')
+    expect(imHealthLabelKey({ status: 'stopped' }, true)).toBe('connectPhoneHealthStopped')
+    expect(imHealthLabelKey(null, false)).toBe('clawImDisabledSidebar')
+    expect(imHealthLabelKey(null, true)).toBeNull()
+  })
+
+  it('invalidates a self-check result when its channel health scope changes', () => {
+    const connected = imSelfCheckScopeKey('channel-1', {
+      status: 'connected',
+      reasonCode: 'none'
+    })
+    expect(imSelfCheckScopeKey('channel-1', {
+      status: 'stopped',
+      reasonCode: 'user_stopped'
+    })).not.toBe(connected)
+    expect(imSelfCheckScopeKey('channel-2', {
+      status: 'connected',
+      reasonCode: 'none'
+    })).not.toBe(connected)
+  })
+
   it('shows settings and disconnect actions for an existing phone connection', () => {
     const html = renderToStaticMarkup(
       createElement(ConnectPhoneSidebarPanel, {
@@ -170,5 +259,8 @@ describe('ConnectPhoneView', () => {
 
     expect(html).toContain('Phone connection settings')
     expect(html).toContain('Disconnect phone')
+    expect(html).toContain('Reconnect')
+    expect(html).toContain('Pause connection')
+    expect(html).toContain('Run connection self-check')
   })
 })

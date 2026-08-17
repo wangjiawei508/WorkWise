@@ -1,5 +1,5 @@
 import type { ReactElement } from 'react'
-import { useMemo } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import {
   MessageSquare,
   Plus,
@@ -36,10 +36,34 @@ export function ClawSidebarContent({
   onOpenSettings,
   t
 }: ClawSidebarContentProps): ReactElement {
+  const [expiredWeixinAccountIds, setExpiredWeixinAccountIds] = useState<Set<string>>(new Set())
   const sortedChannels = useMemo(
     () => [...channels].sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt)),
     [channels]
   )
+
+  useEffect(() => {
+    let disposed = false
+    const load = async (): Promise<void> => {
+      if (typeof window.workwise?.getWeixinBridgeStatus !== 'function') return
+      try {
+        const statuses = await window.workwise.getWeixinBridgeStatus()
+        if (!disposed) {
+          setExpiredWeixinAccountIds(new Set(
+            statuses.filter((status) => status.status === 'expired').map((status) => status.accountId)
+          ))
+        }
+      } catch {
+        /* Keep the neutral state when status diagnostics are unavailable. */
+      }
+    }
+    void load()
+    const timer = window.setInterval(() => void load(), 5_000)
+    return () => {
+      disposed = true
+      window.clearInterval(timer)
+    }
+  }, [])
 
   return (
     <div className="ds-no-drag flex min-h-0 flex-1 flex-col">
@@ -94,6 +118,10 @@ export function ClawSidebarContent({
                 (conversation) => conversation.localThreadId.trim() === activeThreadId
               )
               const disabled = !channel.enabled
+              const weixinAccountId = channel.platformCredential?.kind === 'weixin'
+                ? channel.platformCredential.accountId
+                : ''
+              const connectionExpired = Boolean(weixinAccountId && expiredWeixinAccountIds.has(weixinAccountId))
               const providerLabel = clawProviderDisplayLabel(channel.provider)
               const secondaryLabel = latestConversation?.senderName.trim()
                 || latestConversation?.chatId.trim()
@@ -105,14 +133,20 @@ export function ClawSidebarContent({
                     active={active}
                     activeVariant="outline"
                     className={disabled ? 'opacity-55' : undefined}
-                    title={disabled ? t('clawImDisabledSidebar') : channel.label}
-                    disabled={!runtimeReady || disabled}
+                    title={disabled
+                      ? t('clawImDisabledSidebar')
+                      : connectionExpired
+                        ? t('connectPhoneWeixinExpired')
+                        : channel.label}
+                    disabled={!runtimeReady || disabled || connectionExpired}
                     onClick={() => onSelectChannel(channel.id)}
                     trailing={
                       <span
                         className={`mx-1 h-2 w-2 shrink-0 rounded-full ${
                         disabled
                           ? 'bg-ds-faint'
+                          : connectionExpired
+                            ? 'bg-rose-500'
                           : running || channel.threadId.trim()
                             ? 'bg-emerald-400'
                             : 'bg-amber-400'
@@ -122,7 +156,7 @@ export function ClawSidebarContent({
                     actions={
                       <SidebarIconButton
                         onClick={() => onResetChannel(channel.id)}
-                        disabled={!runtimeReady || disabled}
+                        disabled={!runtimeReady || disabled || connectionExpired}
                         title={t('clawClearSession')}
                         ariaLabel={t('clawClearSession')}
                         stopPropagation
@@ -136,7 +170,7 @@ export function ClawSidebarContent({
                     <span className="min-w-0 flex-1">
                       <span className="block truncate">{channel.label}</span>
                       <span className="mt-0.5 block truncate text-[11.5px] text-ds-faint">
-                        {secondaryLabel}
+                        {connectionExpired ? t('connectPhoneWeixinExpired') : secondaryLabel}
                       </span>
                     </span>
                   </SidebarTreeRow>

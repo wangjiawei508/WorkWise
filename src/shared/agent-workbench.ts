@@ -15,7 +15,7 @@ export type TaskNodeKind = 'plan' | 'execute' | 'verify' | 'deliver'
 export type TaskNodeStatus = 'pending' | 'running' | 'completed' | 'failed' | 'cancelled' | 'blocked'
 export type ConversationViewMode = 'concise' | 'standard' | 'developer'
 export type WorkspaceTrustLevel = 'read-only' | 'workspace-write' | 'trusted' | 'full-access'
-export type DocumentEngineId = 'markitdown' | 'mineru-local' | 'mineru-private'
+export type DocumentEngineId = 'markitdown' | 'unlimited-ocr-local' | 'mineru-local' | 'mineru-private'
 export type DocumentParsingMode = 'auto' | 'fast' | 'accurate'
 
 export type RevisionMutation = {
@@ -353,6 +353,7 @@ export type WorkspacePreviewResultV1 =
       dataUrl?: string
       truncated: boolean
       warnings: string[]
+      document?: Pick<DocumentParseResultV1, 'engine' | 'engineVersion' | 'quality' | 'route' | 'references'>
       sizeBytes: number
     }
   | {

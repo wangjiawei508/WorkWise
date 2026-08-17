@@ -136,6 +136,7 @@ export function parseServeOptions(
     models: loadedConfig?.config.models,
     contextCompaction: loadedConfig?.config.contextCompaction,
     runtime: loadedConfig?.config.runtime,
+    visionEvidence: loadedConfig?.config.visionEvidence,
     capabilities: loadedConfig?.config.capabilities ?? DEFAULT_SERVE_OPTIONS.capabilities
   }
   return ServeOptionsSchema.parse(merged)

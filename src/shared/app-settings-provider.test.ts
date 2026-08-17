@@ -101,6 +101,23 @@ describe('model provider settings', () => {
     expect(runtime.endpointFormat).toBe('messages')
   })
 
+  it('migrates retired DeepSeek aliases without changing third-party models', () => {
+    const deepseekSettings = settings()
+    deepseekSettings.agents.kun.providerId = 'deepseek'
+    deepseekSettings.agents.kun.model = 'deepseek-reasoner'
+    expect(resolveManagedRuntimeSettings(deepseekSettings).model).toBe('deepseek-v4-flash')
+
+    const customSettings = settings()
+    customSettings.agents.kun.model = 'deepseek-reasoner'
+    expect(resolveManagedRuntimeSettings(customSettings).model).toBe('deepseek-reasoner')
+
+    const overriddenSettings = settings()
+    overriddenSettings.agents.kun.providerId = 'deepseek'
+    overriddenSettings.agents.kun.model = 'deepseek-reasoner'
+    overriddenSettings.agents.kun.baseUrl = 'https://gateway.example.com/v1'
+    expect(resolveManagedRuntimeSettings(overriddenSettings).model).toBe('deepseek-reasoner')
+  })
+
   it('creates Xiaomi and MiniMax provider presets for WorkWise Runtime runtime profiles', () => {
     const xiaomi = getModelProviderPreset('xiaomi')
     const minimax = getModelProviderPreset('minimax')

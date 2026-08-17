@@ -33,7 +33,13 @@ type PlanResultMatch = {
 
 type PlanTurnOverrides = Pick<
   SendMessageOverrides,
-  'attachmentIds' | 'attachments' | 'displayText' | 'guiPlan' | 'model' | 'reasoningEffort'
+  | 'attachmentIds'
+  | 'attachments'
+  | 'displayText'
+  | 'guiPlan'
+  | 'model'
+  | 'reasoningEffort'
+  | 'workspaceReferences'
 > & {
   workspaceRoot?: string
 }

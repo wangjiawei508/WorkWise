@@ -6,6 +6,7 @@ import {
   Battery,
   CheckCircle2,
   ChevronLeft,
+  CircleStop,
   Image as ImageIcon,
   Loader2,
   LogOut,
@@ -16,6 +17,7 @@ import {
   QrCode,
   RefreshCw,
   Settings,
+  ShieldCheck,
   Smile,
   Wifi
 } from 'lucide-react'
@@ -29,7 +31,16 @@ import type {
   ClawModel
 } from '@shared/app-settings'
 import { DEFAULT_PHONE_AGENT_NAME } from '@shared/app-settings'
-import type { ClawImInstallPollResult, ClawImInstallQrResult } from '@shared/workwise-api'
+import type {
+  ClawImInstallPollResult,
+  ClawImInstallQrResult,
+  WeixinBridgeAccountStatusV1
+} from '@shared/workwise-api'
+import type {
+  ImChannelHealthV1,
+  ImDiagnosticsV1,
+  ImSelfCheckResultV1
+} from '@shared/im-communication'
 import { confirmDialog } from '../../lib/confirm-dialog'
 import {
   type ClawInstallQrState,
@@ -45,6 +56,7 @@ type AddClawPhoneChannel = (
   agentProfile: ClawImAgentProfileV1,
   platformCredential: ClawImPlatformCredentialV1,
   options: {
+    channelId?: string
     model: ClawModel
     enabled: boolean
     im: Partial<ClawImSettingsV1>
@@ -82,6 +94,114 @@ const INITIAL_QR_STATE: ClawInstallQrState = {
   error: ''
 }
 
+const INSTALL_POLL_IPC_TIMEOUT_MS = 15_000
+
+export async function withClawInstallPollTimeout<T>(
+  operation: Promise<T>,
+  timeoutMs = INSTALL_POLL_IPC_TIMEOUT_MS
+): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  try {
+    return await Promise.race([
+      operation,
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error('IM_INSTALL_POLL_TIMEOUT')), timeoutMs)
+      })
+    ])
+  } finally {
+    if (timer) clearTimeout(timer)
+  }
+}
+
+function useWeixinConnectionStatus(channel: ClawImChannelV1 | null): WeixinBridgeAccountStatusV1 | null {
+  const [status, setStatus] = useState<WeixinBridgeAccountStatusV1 | null>(null)
+  const accountId = channel?.platformCredential?.kind === 'weixin'
+    ? channel.platformCredential.accountId
+    : ''
+
+  useEffect(() => {
+    let disposed = false
+    const load = async (): Promise<void> => {
+      if (!accountId || typeof window.workwise?.getWeixinBridgeStatus !== 'function') {
+        if (!disposed) setStatus(null)
+        return
+      }
+      try {
+        const entries = await window.workwise.getWeixinBridgeStatus(accountId)
+        if (!disposed) setStatus(entries[0] ?? null)
+      } catch {
+        if (!disposed) setStatus(null)
+      }
+    }
+    void load()
+    const timer = accountId ? window.setInterval(() => void load(), 5_000) : null
+    return () => {
+      disposed = true
+      if (timer !== null) window.clearInterval(timer)
+    }
+  }, [accountId])
+
+  return status
+}
+
+function useImHealth(channel: ClawImChannelV1 | null): ImChannelHealthV1 | null {
+  const [health, setHealth] = useState<ImChannelHealthV1 | null>(null)
+  const channelId = channel?.id ?? ''
+  useEffect(() => {
+    let disposed = false
+    const load = async (): Promise<void> => {
+      if (!channelId || typeof window.workwise?.getImHealth !== 'function') {
+        if (!disposed) setHealth(null)
+        return
+      }
+      try {
+        const entries = await window.workwise.getImHealth(channelId)
+        if (!disposed) setHealth(entries[0] ?? null)
+      } catch {
+        if (!disposed) setHealth(null)
+      }
+    }
+    void load()
+    const timer = channelId ? window.setInterval(() => void load(), 5_000) : null
+    const unsubscribe = typeof window.workwise?.onImHealthChanged === 'function'
+      ? window.workwise.onImHealthChanged((next) => {
+          if (next.channelId === channelId && !disposed) setHealth(next)
+        })
+      : undefined
+    return () => {
+      disposed = true
+      if (timer !== null) window.clearInterval(timer)
+      unsubscribe?.()
+    }
+  }, [channelId])
+  return health
+}
+
+export function imHealthLabelKey(
+  health: Pick<ImChannelHealthV1, 'status'> | null,
+  channelEnabled: boolean
+): string | null {
+  if (!health) return channelEnabled ? null : 'clawImDisabledSidebar'
+  const labels: Record<ImChannelHealthV1['status'], string> = {
+    unknown: 'connectPhoneHealthUnknown',
+    starting: 'connectPhoneHealthStarting',
+    connected: 'connectPhoneHealthConnected',
+    retrying: 'connectPhoneHealthRetrying',
+    stale: 'connectPhoneHealthStale',
+    expired: 'connectPhoneHealthExpired',
+    error: 'connectPhoneHealthError',
+    stopped: 'connectPhoneHealthStopped'
+  }
+  return labels[health.status]
+}
+
+export function imSelfCheckScopeKey(
+  channelId: string,
+  health: Pick<ImChannelHealthV1, 'status' | 'reasonCode'> | null
+): string {
+  return `${channelId}:${health?.status ?? 'unknown'}:${health?.reasonCode ?? ''}`
+}
+
 export function connectPhoneProviderForTarget(target: ClawInstallTarget): ClawImProvider {
   return target === 'weixin' ? 'weixin' : 'feishu'
 }
@@ -102,6 +222,26 @@ export function hasClawPhoneChannel(
   return provider
     ? channels.some((channel) => channel.provider === provider)
     : channels.length > 0
+}
+
+export function canReauthorizePhoneChannel(
+  provider: ClawImProvider,
+  health: Pick<ImChannelHealthV1, 'status' | 'reasonCode'> | null,
+  weixinStatus: Pick<WeixinBridgeAccountStatusV1, 'status' | 'reasonCode'> | null = null
+): boolean {
+  if (health?.status === 'expired') return true
+  if (
+    health?.reasonCode === 'credential_missing'
+    || health?.reasonCode === 'auth_expired'
+  ) return true
+  return provider === 'weixin'
+    && (weixinStatus?.status === 'expired' || weixinStatus?.reasonCode === 'auth_expired')
+}
+
+export function needsProtectedStorageReconnect(
+  health: Pick<ImChannelHealthV1, 'reasonCode'> | null
+): boolean {
+  return health?.reasonCode === 'credential_unavailable'
 }
 
 export function connectPhoneInstallRequestOptions(
@@ -183,8 +323,14 @@ export function ConnectPhoneView({
   const installPollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const installCountdownTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const installRequestInFlightRef = useRef(false)
+  const installPollInFlightRef = useRef(false)
   const installAttemptRef = useRef(0)
   const targetProvider = connectPhoneProviderForTarget(target)
+  const connectedChannel = channels.find((channel) => channel.provider === targetProvider) ?? null
+  const imHealth = useImHealth(connectedChannel)
+  const weixinStatus = useWeixinConnectionStatus(connectedChannel)
+  const allowReauthorization = canReauthorizePhoneChannel(targetProvider, imHealth, weixinStatus)
+  const credentialAccessUnavailable = needsProtectedStorageReconnect(imHealth)
   const hasExistingChannel = hasClawPhoneChannel(channels, targetProvider)
 
   const clearInstallTimers = useCallback((): void => {
@@ -201,6 +347,7 @@ export function ConnectPhoneView({
   const cancelInstallAttempt = useCallback((): void => {
     installAttemptRef.current += 1
     installRequestInFlightRef.current = false
+    installPollInFlightRef.current = false
     clearInstallTimers()
   }, [clearInstallTimers])
 
@@ -215,17 +362,18 @@ export function ConnectPhoneView({
   }, [cancelInstallAttempt, target])
 
   useEffect(() => {
-    if (!hasExistingChannel) return
+    if (!hasExistingChannel || allowReauthorization) return
     cancelInstallAttempt()
     setSaving(false)
     setInstallQr(INITIAL_QR_STATE)
-  }, [cancelInstallAttempt, hasExistingChannel])
+  }, [allowReauthorization, cancelInstallAttempt, hasExistingChannel])
 
   const addConnectedChannel = async (
     poll: Extract<ClawImInstallPollResult, { done: true }>
   ): Promise<void> => {
     const provider = poll.kind
-    if (hasClawPhoneChannel(channels, provider)) {
+    const existing = channels.find((channel) => channel.provider === provider) ?? null
+    if (existing && !allowReauthorization) {
       setInstallQr({
         ...INITIAL_QR_STATE,
         status: 'error',
@@ -241,7 +389,10 @@ export function ConnectPhoneView({
         provider,
         createConnectPhoneAgentProfile(),
         createConnectPhoneCredential(poll),
-        createConnectPhoneChannelOptions(provider)
+        {
+          ...createConnectPhoneChannelOptions(provider),
+          ...(existing ? { channelId: existing.id } : {})
+        }
       )
     } catch (error) {
       setInstallQr((current) => ({
@@ -255,7 +406,7 @@ export function ConnectPhoneView({
   }
 
   const startOfficialInstallQr = async (): Promise<void> => {
-    if (hasExistingChannel) {
+    if (hasExistingChannel && !allowReauthorization) {
       setInstallQr({
         ...INITIAL_QR_STATE,
         status: 'error',
@@ -343,6 +494,8 @@ export function ConnectPhoneView({
       })
     }, 1000)
     const waitForInstall = async (): Promise<void> => {
+      if (installPollInFlightRef.current) return
+      installPollInFlightRef.current = true
       try {
         if (
           typeof window === 'undefined' ||
@@ -350,7 +503,9 @@ export function ConnectPhoneView({
         ) {
           throw new Error(t('clawAddImOfficialQrUnavailable'))
         }
-        const poll = await window.workwise.pollClawImInstall(request.provider, result.deviceCode)
+        const poll = await withClawInstallPollTimeout(
+          window.workwise.pollClawImInstall(request.provider, result.deviceCode)
+        )
         if (installAttempt !== installAttemptRef.current) return
         if (poll.done) {
           clearInstallTimers()
@@ -364,6 +519,12 @@ export function ConnectPhoneView({
           return
         }
         if (poll.error) {
+          if (poll.retryable) {
+            setInstallQr((current) => current.status === 'showing'
+              ? { ...current, error: formatClawInstallError(poll.error ?? '', t) }
+              : current)
+            return
+          }
           installAttemptRef.current += 1
           clearInstallTimers()
           setInstallQr((current) => ({
@@ -371,7 +532,11 @@ export function ConnectPhoneView({
             status: 'error',
             error: formatClawInstallError(poll.error ?? t('clawAddImOfficialQrFailed'), t)
           }))
+          return
         }
+        setInstallQr((current) => current.status === 'showing' && current.error
+          ? { ...current, error: '' }
+          : current)
       } catch (error) {
         if (installAttempt !== installAttemptRef.current) return
         installAttemptRef.current += 1
@@ -381,6 +546,10 @@ export function ConnectPhoneView({
           status: 'error',
           error: formatClawInstallError(error instanceof Error ? error.message : String(error), t)
         }))
+      } finally {
+        if (installAttempt === installAttemptRef.current) {
+          installPollInFlightRef.current = false
+        }
       }
     }
     if (request.provider === 'weixin') {
@@ -419,6 +588,17 @@ export function ConnectPhoneView({
             <p className="mx-auto mt-2 max-w-[460px] text-[14px] leading-6 text-[#9299a3] dark:text-white/40">
               {t('connectPhoneSubtitle')}
             </p>
+            {credentialAccessUnavailable ? (
+              <div className="mx-auto mt-4 max-w-[460px] rounded-[10px] border border-amber-300/70 bg-amber-50 px-3 py-2 text-left text-[12.5px] leading-5 text-amber-800 dark:border-amber-400/25 dark:bg-amber-400/10 dark:text-amber-100">
+                <div className="font-semibold">{t('connectPhoneCredentialAccessRequired')}</div>
+                <div className="mt-0.5">{t('connectPhoneCredentialAccessHint')}</div>
+              </div>
+            ) : allowReauthorization ? (
+              <div className="mx-auto mt-4 max-w-[460px] rounded-[10px] border border-amber-300/70 bg-amber-50 px-3 py-2 text-left text-[12.5px] leading-5 text-amber-800 dark:border-amber-400/25 dark:bg-amber-400/10 dark:text-amber-100">
+                <div className="font-semibold">{t('connectPhoneReauthorizationRequired')}</div>
+                <div className="mt-0.5">{t('connectPhoneReauthorizationHint')}</div>
+              </div>
+            ) : null}
 
             <div className="mt-7 inline-flex rounded-full bg-[#f0f1ef] p-1 shadow-inner dark:bg-white/[0.08]">
               {CONNECT_PHONE_TARGETS.map((item) => {
@@ -452,10 +632,10 @@ export function ConnectPhoneView({
                   <button
                     type="button"
                     onClick={() => void startOfficialInstallQr()}
-                    disabled={hasExistingChannel}
+                    disabled={hasExistingChannel && !allowReauthorization}
                     className="inline-flex min-h-[36px] items-center justify-center gap-2 rounded-xl bg-[#222323] px-3.5 py-2 text-[12.5px] font-semibold text-white shadow-sm transition hover:bg-black disabled:cursor-not-allowed disabled:opacity-55 dark:bg-white dark:text-black"
                   >
-                    {t('connectPhoneGenerateQr')}
+                    {allowReauthorization ? t('connectPhoneReauthorize') : t('connectPhoneGenerateQr')}
                   </button>
                 </div>
               ) : null}
@@ -497,7 +677,7 @@ export function ConnectPhoneView({
                   <div className="max-w-[220px] text-center text-[12px] leading-5 text-red-600 dark:text-red-300">
                     {installQr.error || t('clawAddImOfficialQrFailed')}
                   </div>
-                  {!hasExistingChannel ? (
+                  {!hasExistingChannel || allowReauthorization ? (
                     <button
                       type="button"
                       onClick={() => void startOfficialInstallQr()}
@@ -623,14 +803,39 @@ export function ConnectPhoneSidebarPanel({
   const installPollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const installCountdownTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const installRequestInFlightRef = useRef(false)
+  const installPollInFlightRef = useRef(false)
   const installAttemptRef = useRef(0)
   const targetProvider = connectPhoneProviderForTarget(target)
   const connectedChannel = channels.find((channel) => channel.provider === targetProvider) ?? null
+  const imHealth = useImHealth(connectedChannel)
+  const weixinStatus = useWeixinConnectionStatus(connectedChannel)
+  const allowReauthorization = canReauthorizePhoneChannel(targetProvider, imHealth, weixinStatus)
+  const credentialAccessUnavailable = needsProtectedStorageReconnect(imHealth)
   const hasExistingChannel = Boolean(connectedChannel)
+  const [imSelfCheck, setImSelfCheck] = useState<ImSelfCheckResultV1 | null>(null)
+  const [imDiagnostics, setImDiagnostics] = useState<ImDiagnosticsV1['channels'][number] | null>(null)
+  const [imDiagnosticsFingerprint, setImDiagnosticsFingerprint] = useState('')
+  const [imAction, setImAction] = useState<'start' | 'reconnect' | 'stop' | 'self-check' | null>(null)
+  const [imActionError, setImActionError] = useState('')
   const displayUserCode = targetProvider === 'weixin'
     ? ''
     : formatConnectPhoneUserCode(installQr.userCode, installQr.deviceCode)
   const installQrIsImage = installQr.url.startsWith('data:image/')
+  const fallbackConnectionLabel = targetProvider === 'weixin'
+    ? weixinStatus?.status === 'connected'
+      ? t('connectPhoneWeixinConnected')
+      : t('connectPhoneWeixinChecking')
+    : t('clawManageImConnected')
+  const healthLabelKey = connectedChannel
+    ? imHealthLabelKey(imHealth, connectedChannel.enabled)
+    : null
+  const selfCheckScopeKey = imSelfCheckScopeKey(connectedChannel?.id ?? '', imHealth)
+
+  useEffect(() => {
+    setImSelfCheck(null)
+    setImDiagnostics(null)
+    setImDiagnosticsFingerprint('')
+  }, [selfCheckScopeKey])
 
   const clearInstallTimers = useCallback((): void => {
     if (installPollTimerRef.current) {
@@ -646,6 +851,7 @@ export function ConnectPhoneSidebarPanel({
   const cancelInstallAttempt = useCallback((): void => {
     installAttemptRef.current += 1
     installRequestInFlightRef.current = false
+    installPollInFlightRef.current = false
     clearInstallTimers()
   }, [clearInstallTimers])
 
@@ -658,20 +864,25 @@ export function ConnectPhoneSidebarPanel({
     setSaving(false)
     setInstallQr(INITIAL_QR_STATE)
     setDisconnectError('')
+    setImSelfCheck(null)
+    setImDiagnostics(null)
+    setImDiagnosticsFingerprint('')
+    setImActionError('')
   }, [cancelInstallAttempt, target])
 
   useEffect(() => {
-    if (!hasExistingChannel) return
+    if (!hasExistingChannel || allowReauthorization) return
     cancelInstallAttempt()
     setSaving(false)
     setInstallQr(INITIAL_QR_STATE)
-  }, [cancelInstallAttempt, hasExistingChannel])
+  }, [allowReauthorization, cancelInstallAttempt, hasExistingChannel])
 
   const addConnectedChannel = async (
     poll: Extract<ClawImInstallPollResult, { done: true }>
   ): Promise<void> => {
     const provider = poll.kind
-    if (hasClawPhoneChannel(channels, provider)) {
+    const existing = channels.find((channel) => channel.provider === provider) ?? null
+    if (existing && !allowReauthorization) {
       setInstallQr({
         ...INITIAL_QR_STATE,
         status: 'error',
@@ -689,6 +900,7 @@ export function ConnectPhoneSidebarPanel({
         createConnectPhoneCredential(poll),
         {
           ...createConnectPhoneChannelOptions(provider),
+          ...(existing ? { channelId: existing.id } : {}),
           preserveRoute: true
         }
       )
@@ -704,7 +916,7 @@ export function ConnectPhoneSidebarPanel({
   }
 
   const startOfficialInstallQr = async (): Promise<void> => {
-    if (hasExistingChannel) {
+    if (hasExistingChannel && !allowReauthorization) {
       setInstallQr({
         ...INITIAL_QR_STATE,
         status: 'error',
@@ -792,6 +1004,8 @@ export function ConnectPhoneSidebarPanel({
       })
     }, 1000)
     const waitForInstall = async (): Promise<void> => {
+      if (installPollInFlightRef.current) return
+      installPollInFlightRef.current = true
       try {
         if (
           typeof window === 'undefined' ||
@@ -799,7 +1013,9 @@ export function ConnectPhoneSidebarPanel({
         ) {
           throw new Error(t('clawAddImOfficialQrUnavailable'))
         }
-        const poll = await window.workwise.pollClawImInstall(request.provider, result.deviceCode)
+        const poll = await withClawInstallPollTimeout(
+          window.workwise.pollClawImInstall(request.provider, result.deviceCode)
+        )
         if (installAttempt !== installAttemptRef.current) return
         if (poll.done) {
           clearInstallTimers()
@@ -813,6 +1029,12 @@ export function ConnectPhoneSidebarPanel({
           return
         }
         if (poll.error) {
+          if (poll.retryable) {
+            setInstallQr((current) => current.status === 'showing'
+              ? { ...current, error: formatClawInstallError(poll.error ?? '', t) }
+              : current)
+            return
+          }
           installAttemptRef.current += 1
           clearInstallTimers()
           setInstallQr((current) => ({
@@ -820,7 +1042,11 @@ export function ConnectPhoneSidebarPanel({
             status: 'error',
             error: formatClawInstallError(poll.error ?? t('clawAddImOfficialQrFailed'), t)
           }))
+          return
         }
+        setInstallQr((current) => current.status === 'showing' && current.error
+          ? { ...current, error: '' }
+          : current)
       } catch (error) {
         if (installAttempt !== installAttemptRef.current) return
         installAttemptRef.current += 1
@@ -830,6 +1056,10 @@ export function ConnectPhoneSidebarPanel({
           status: 'error',
           error: formatClawInstallError(error instanceof Error ? error.message : String(error), t)
         }))
+      } finally {
+        if (installAttempt === installAttemptRef.current) {
+          installPollInFlightRef.current = false
+        }
       }
     }
     if (request.provider === 'weixin') {
@@ -856,6 +1086,60 @@ export function ConnectPhoneSidebarPanel({
       setDisconnectError(error instanceof Error ? error.message : String(error))
     } finally {
       setDisconnecting(false)
+    }
+  }
+
+  const runImLifecycle = async (action: 'start' | 'reconnect' | 'stop'): Promise<void> => {
+    if (!connectedChannel || imAction) return
+    const invoke = action === 'start'
+      ? window.workwise?.startIm
+      : action === 'reconnect'
+        ? window.workwise?.reconnectIm
+        : window.workwise?.stopIm
+    if (typeof invoke !== 'function') {
+      setImActionError(t('connectPhoneLifecycleUnavailable'))
+      return
+    }
+    setImSelfCheck(null)
+    setImDiagnostics(null)
+    setImDiagnosticsFingerprint('')
+    setImAction(action)
+    setImActionError('')
+    try {
+      const result = await invoke(connectedChannel.id)
+      if (!result.ok) setImActionError(result.message)
+    } catch (error) {
+      setImActionError(error instanceof Error ? error.message : String(error))
+    } finally {
+      setImAction(null)
+    }
+  }
+
+  const runImSelfCheck = async (): Promise<void> => {
+    if (!connectedChannel || imAction) return
+    if (
+      typeof window.workwise?.selfCheckIm !== 'function'
+      || typeof window.workwise?.getImDiagnostics !== 'function'
+    ) {
+      setImActionError(t('connectPhoneSelfCheckUnavailable'))
+      return
+    }
+    setImAction('self-check')
+    setImActionError('')
+    try {
+      const [selfCheck, diagnostics] = await Promise.all([
+        window.workwise.selfCheckIm(connectedChannel.id),
+        window.workwise.getImDiagnostics()
+      ])
+      setImSelfCheck(selfCheck)
+      setImDiagnostics(
+        diagnostics.channels.find((entry) => entry.channelId === connectedChannel.id) ?? null
+      )
+      setImDiagnosticsFingerprint(diagnostics.userDataFingerprint)
+    } catch (error) {
+      setImActionError(error instanceof Error ? error.message : String(error))
+    } finally {
+      setImAction(null)
     }
   }
 
@@ -890,7 +1174,7 @@ export function ConnectPhoneSidebarPanel({
         </div>
       </div>
 
-      {connectedChannel ? (
+      {connectedChannel && !allowReauthorization ? (
         <div className="mx-1 rounded-[12px] border border-ds-border bg-ds-card px-3 py-3 shadow-sm">
           <div className="flex items-start gap-2.5">
             <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-[10px] bg-emerald-500/12 text-emerald-600 dark:text-emerald-300">
@@ -901,13 +1185,95 @@ export function ConnectPhoneSidebarPanel({
                 {connectedChannel.label}
               </span>
               <span className="mt-1 block truncate text-[12px] text-ds-faint">
-                {connectedChannel.enabled
-                  ? t('clawManageImConnected')
-                  : t('clawImDisabledSidebar')}
+                {healthLabelKey ? t(healthLabelKey) : fallbackConnectionLabel}
               </span>
             </span>
           </div>
-          <div className="mt-3 grid gap-2">
+          {imHealth ? (
+            <div className="mt-3 border-t border-ds-border-muted pt-3 text-[11.5px] leading-5 text-ds-faint">
+              <div className="break-words text-ds-muted">
+                {credentialAccessUnavailable ? t('connectPhoneCredentialAccessHint') : imHealth.message}
+              </div>
+              <div className="mt-1">
+                {t('connectPhoneHealthCounts', {
+                  pending: imHealth.pendingMessages,
+                  processing: imHealth.processingMessages,
+                  delivery: imHealth.deliveryMessages
+                })}
+              </div>
+            </div>
+          ) : null}
+          <div className="mt-3 grid grid-cols-2 gap-2">
+            <button
+              type="button"
+              onClick={() => void runImLifecycle(imHealth?.status === 'stopped' ? 'start' : 'reconnect')}
+              disabled={Boolean(imAction)}
+              className="inline-flex min-h-[30px] items-center justify-center gap-1.5 rounded-[8px] border border-ds-border bg-ds-main/55 px-2 py-1.5 text-[12px] font-medium text-ds-muted transition hover:bg-ds-hover hover:text-ds-ink disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {imAction === 'start' || imAction === 'reconnect' ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" strokeWidth={1.8} />
+              ) : (
+                <RefreshCw className="h-3.5 w-3.5" strokeWidth={1.8} />
+              )}
+              {imHealth?.status === 'stopped' ? t('connectPhoneStart') : t('connectPhoneReconnect')}
+            </button>
+            <button
+              type="button"
+              onClick={() => void runImLifecycle('stop')}
+              disabled={Boolean(imAction) || imHealth?.status === 'stopped'}
+              className="inline-flex min-h-[30px] items-center justify-center gap-1.5 rounded-[8px] border border-ds-border bg-ds-main/55 px-2 py-1.5 text-[12px] font-medium text-ds-muted transition hover:bg-ds-hover hover:text-ds-ink disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {imAction === 'stop' ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" strokeWidth={1.8} />
+              ) : (
+                <CircleStop className="h-3.5 w-3.5" strokeWidth={1.8} />
+              )}
+              {t('connectPhoneStop')}
+            </button>
+            <button
+              type="button"
+              onClick={() => void runImSelfCheck()}
+              disabled={Boolean(imAction)}
+              className="col-span-2 inline-flex min-h-[30px] items-center justify-center gap-1.5 rounded-[8px] border border-ds-border bg-ds-main/55 px-2.5 py-1.5 text-[12px] font-medium text-ds-muted transition hover:bg-ds-hover hover:text-ds-ink disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {imAction === 'self-check' ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" strokeWidth={1.8} />
+              ) : (
+                <ShieldCheck className="h-3.5 w-3.5" strokeWidth={1.8} />
+              )}
+              {imAction === 'self-check' ? t('connectPhoneSelfChecking') : t('connectPhoneSelfCheck')}
+            </button>
+          </div>
+          {imSelfCheck ? (
+            <div className={`mt-2 rounded-[8px] px-2.5 py-2 text-[11.5px] leading-5 ${
+              imSelfCheck.overall === 'PASS'
+                ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-200'
+                : 'bg-amber-500/10 text-amber-800 dark:text-amber-100'
+            }`}>
+              <div className="font-semibold">
+                {imSelfCheck.overall === 'PASS' ? t('connectPhoneSelfCheckPass') : t('connectPhoneSelfCheckFail')}
+              </div>
+              {imSelfCheck.checks.map((check) => (
+                <div key={check.id}>{check.pass ? '✓' : '×'} {check.summary}</div>
+              ))}
+              {imDiagnostics ? (
+                <div className="mt-1 border-t border-current/15 pt-1">
+                  {t('connectPhoneDiagnosticsCounts', {
+                    pending: imDiagnostics.pendingMessages,
+                    processing: imDiagnostics.processingMessages,
+                    delivery: imDiagnostics.deliveryMessages,
+                    failures: imDiagnostics.failureCount
+                  })}
+                  {imDiagnosticsFingerprint ? (
+                    <div className="break-all font-mono opacity-75">
+                      {t('connectPhoneDiagnosticsFingerprint', { fingerprint: imDiagnosticsFingerprint })}
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+          <div className="mt-2 grid gap-2">
             <button
               type="button"
               onClick={onOpenSettings}
@@ -938,6 +1304,12 @@ export function ConnectPhoneSidebarPanel({
         </div>
       ) : (
         <div className="mx-1 flex flex-col items-center rounded-[12px] border border-ds-border bg-ds-card px-3 py-4 shadow-sm">
+          {allowReauthorization ? (
+            <div className="mb-3 w-full rounded-[9px] border border-amber-300/70 bg-amber-50 px-2.5 py-2 text-[12px] leading-5 text-amber-800 dark:border-amber-400/25 dark:bg-amber-400/10 dark:text-amber-100">
+              <div className="font-semibold">{t('connectPhoneReauthorizationRequired')}</div>
+              <div className="mt-0.5">{t('connectPhoneReauthorizationHint')}</div>
+            </div>
+          ) : null}
           <div className="flex h-[168px] w-full items-center justify-center rounded-[10px] border border-[#ececea] bg-white p-2">
             {installQr.status === 'idle' ? (
               <div className="grid justify-items-center gap-3">
@@ -949,7 +1321,7 @@ export function ConnectPhoneSidebarPanel({
                   onClick={() => void startOfficialInstallQr()}
                   className="inline-flex min-h-[32px] items-center justify-center gap-1.5 rounded-[8px] bg-[#222323] px-3 py-1.5 text-[12px] font-semibold text-white shadow-sm transition hover:bg-black dark:bg-white dark:text-black"
                 >
-                  {t('connectPhoneGenerateQr')}
+                  {allowReauthorization ? t('connectPhoneReauthorize') : t('connectPhoneGenerateQr')}
                 </button>
               </div>
             ) : null}
@@ -975,9 +1347,16 @@ export function ConnectPhoneSidebarPanel({
           </div>
 
           {installQr.status === 'showing' ? (
-            <div className="mt-3 text-center text-[12px] text-[#8d95a1]">
-              {t('clawAddImOfficialQrTimeLeft', { seconds: installQr.timeLeft })}
-            </div>
+            <>
+              <div className="mt-3 text-center text-[12px] text-[#8d95a1]">
+                {t('clawAddImOfficialQrTimeLeft', { seconds: installQr.timeLeft })}
+              </div>
+              {installQr.error ? (
+                <div className="mt-2 max-w-[220px] text-center text-[12px] leading-5 text-amber-700 dark:text-amber-200">
+                  {installQr.error}
+                </div>
+              ) : null}
+            </>
           ) : null}
 
           {installQr.status === 'success' ? (
@@ -992,7 +1371,7 @@ export function ConnectPhoneSidebarPanel({
               <div className="max-w-[220px] text-center text-[12px] leading-5 text-red-600 dark:text-red-300">
                 {installQr.error || t('clawAddImOfficialQrFailed')}
               </div>
-              {!hasExistingChannel ? (
+              {!hasExistingChannel || allowReauthorization ? (
                 <button
                   type="button"
                   onClick={() => void startOfficialInstallQr()}

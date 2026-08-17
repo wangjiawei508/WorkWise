@@ -243,6 +243,8 @@ function routerRoleForItem(item: TurnItem): string {
   switch (item.kind) {
     case 'user_message':
       return 'user'
+    case 'ui_action':
+      return 'user'
     case 'tool_result':
       return 'tool'
     case 'compaction':
@@ -258,6 +260,8 @@ function routerTextForItem(item: TurnItem): string {
     case 'assistant_text':
     case 'assistant_reasoning':
       return item.text
+    case 'ui_action':
+      return `[untrusted UI action: ${item.actionId}] ${item.value === undefined ? '' : JSON.stringify(item.value)}`
     case 'tool_call':
       return `[tool call: ${item.toolName}]`
     case 'tool_result':

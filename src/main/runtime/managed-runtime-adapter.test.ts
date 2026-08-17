@@ -10,7 +10,11 @@ import {
   defaultWriteSettings,
   type AppSettingsV1
 } from '../../shared/app-settings'
-import { runtimeRequestViaHost } from './managed-runtime-adapter'
+import {
+  configureManagedRuntimeStartOptions,
+  runtimeAuthHeaders,
+  runtimeRequestViaHost
+} from './managed-runtime-adapter'
 
 let server: Server | null = null
 
@@ -54,6 +58,7 @@ function listen(handler: RequestHandler): Promise<number> {
 }
 
 afterEach(async () => {
+  configureManagedRuntimeStartOptions({})
   const current = server
   server = null
   if (!current) return
@@ -62,6 +67,16 @@ afterEach(async () => {
       if (error) reject(error)
       else resolve()
     })
+  })
+})
+
+describe('runtimeAuthHeaders', () => {
+  it('uses the process-scoped candidate token when persisted settings have no token', () => {
+    const settings = settingsForPort(8899)
+    settings.agents.kun.runtimeToken = ''
+    configureManagedRuntimeStartOptions({ runtimeToken: 'candidate-runtime-token' })
+
+    expect(runtimeAuthHeaders(settings).get('Authorization')).toBe('Bearer candidate-runtime-token')
   })
 })
 

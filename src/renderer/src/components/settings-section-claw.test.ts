@@ -97,6 +97,26 @@ function buildSettings(): AppSettingsV1 {
   return settings
 }
 
+function withWeixinChannel(settings: AppSettingsV1): AppSettingsV1 {
+  const channel = settings.claw.channels[0]!
+  return {
+    ...settings,
+    claw: {
+      ...settings.claw,
+      channels: [{
+        ...channel,
+        id: 'channel_weixin',
+        provider: 'weixin',
+        platformCredential: {
+          kind: 'weixin',
+          accountId: 'wx-test',
+          createdAt: '2026-08-15T00:00:00.000Z'
+        }
+      }]
+    }
+  }
+}
+
 describe('ClawSettingsSection', () => {
   it('renders connected phone agent management fields', () => {
     const html = renderToStaticMarkup(
@@ -121,5 +141,24 @@ describe('ClawSettingsSection', () => {
     expect(html).toContain('Reply rules')
     expect(html).toContain('Start with the conclusion.')
     expect(html).toContain('<option value="deepseek-v4-pro"')
+  })
+
+  it('labels a WeChat phone agent as WeChat instead of Feishu / Lark', () => {
+    const html = renderToStaticMarkup(
+      createElement(ClawSettingsSection, {
+        ctx: {
+          t,
+          form: withWeixinChannel(buildSettings()),
+          update: vi.fn(),
+          selectControlClass: 'select-control',
+          pickClawWorkspace: async () => undefined,
+          resetClawWorkspaceToDefault: () => undefined,
+          clawWorkspacePickerError: null
+        }
+      })
+    )
+
+    expect(html).toContain('WeChat auto /tmp/claw')
+    expect(html).not.toContain('Feishu / Lark auto /tmp/claw')
   })
 })

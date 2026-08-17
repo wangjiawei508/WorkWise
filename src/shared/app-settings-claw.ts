@@ -16,6 +16,7 @@ import {
   normalizeClawImConversation,
   normalizeClawImPlatformCredential,
   normalizeClawImRemoteSession,
+  normalizeCredentialRef,
   readLegacyAgentThreadId
 } from './app-settings-prompts'
 import { normalizeScheduledTask } from './app-settings-schedule'
@@ -31,6 +32,18 @@ import {
 
 type LegacyClawImSettingsPatch = Partial<ClawImSettingsV1> & {
   openClawGatewayUrl?: unknown
+}
+
+const LEGACY_DEFAULT_WEIXIN_BRIDGE_RPC_URL = 'http://127.0.0.1:18791/api/v1/admin/rpc'
+
+export function isLegacyManagedWeixinBridgeUrl(value: unknown): boolean {
+  return typeof value === 'string' && value.trim() === LEGACY_DEFAULT_WEIXIN_BRIDGE_RPC_URL
+}
+
+function normalizeWeixinBridgeUrl(value: string): string {
+  return isLegacyManagedWeixinBridgeUrl(value)
+    ? DEFAULT_WEIXIN_BRIDGE_RPC_URL
+    : value
 }
 
 function defaultClawChannelLabel(provider: ClawImProvider): string {
@@ -115,7 +128,9 @@ export function normalizeClawSettings(input: ClawSettingsPatchV1 | undefined): C
       port: normalizePositiveInteger(im.port, defaults.im.port, 1024, 65_535),
       path: normalizePathSegment(im.path),
       secret: typeof im.secret === 'string' ? im.secret.trim() : '',
-      weixinBridgeUrl: weixinBridgeUrl || legacyOpenClawGatewayUrl || defaults.im.weixinBridgeUrl,
+      weixinBridgeUrl: normalizeWeixinBridgeUrl(
+        weixinBridgeUrl || legacyOpenClawGatewayUrl || defaults.im.weixinBridgeUrl
+      ),
       workspaceRoot: typeof im.workspaceRoot === 'string' ? im.workspaceRoot.trim() : '',
       model: typeof im.model === 'string' && im.model.trim() ? im.model.trim() : DEFAULT_CLAW_MODEL,
       mode: normalizeRunMode(im.mode),
@@ -144,6 +159,7 @@ export function normalizeClawSettings(input: ClawSettingsPatchV1 | undefined): C
               name: profileName || label
             },
             platformCredential: normalizeClawImPlatformCredential(raw.platformCredential),
+            ...normalizeCredentialRef(raw.credentialRef),
             remoteSession: normalizeClawImRemoteSession(raw.remoteSession),
             conversations: Array.isArray(raw.conversations)
               ? raw.conversations

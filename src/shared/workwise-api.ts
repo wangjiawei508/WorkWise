@@ -110,6 +110,7 @@ import type {
   PreparedPluginImportV1
 } from './marketplace'
 import type { WindowAppearanceV1 } from './window-appearance'
+import type { ImChannelHealthV1, ImDiagnosticsV1, ImLifecycleResultV1, ImSelfCheckResultV1 } from './im-communication'
 import type {
   GitCheckpointV1,
   GitRollbackPreviewV1,
@@ -267,6 +268,10 @@ export type RuntimeConfigFileResult = { path: string; content: string; exists: b
 export type RuntimeConfigSaveResult = { ok: true; path: string }
 export type TurnCompleteNotificationPayload = {
   threadId?: string
+  turnId?: string
+  approvalId?: string
+  reason?: 'completed' | 'error' | 'aborted' | 'blocked' | 'max_tokens' | 'waiting_approval'
+  activeThread?: boolean
   title: string
   body: string
 }
@@ -294,7 +299,23 @@ export type ClawImInstallQrResult =
 export type ClawImInstallPollResult =
   | { done: true; kind: 'feishu'; appId: string; appSecret: string; domain: string }
   | { done: true; kind: 'weixin'; accountId: string; sessionKey: string }
-  | { done: false; error?: string }
+  | { done: false; error?: string; retryable?: boolean }
+export type WeixinBridgeAccountStatusV1 = {
+  accountId: string
+  status: 'unknown' | 'starting' | 'connected' | 'retrying' | 'stale' | 'expired' | 'error' | 'stopped'
+  message: string
+  errorCode?: number
+  updatedAt?: string
+  lastSuccessfulPollAt?: string
+  runId?: string
+  startedAt?: string
+  lastInboundAt?: string
+  lastOutboundAt?: string
+  lastErrorAt?: string
+  failureCount?: number
+  nextRetryAt?: string
+  reasonCode?: string
+}
 export type ConfirmDialogOptions = {
   message: string
   detail?: string
@@ -318,6 +339,7 @@ export type WorkWiseApi = {
   windowAppearance: WindowAppearanceV1
   onWindowAppearanceChanged: (handler: (appearance: WindowAppearanceV1) => void) => () => void
   onApplicationMenuAction: (handler: (action: ApplicationMenuAction) => void) => () => void
+  onNotificationOpenThread: (handler: (threadId: string) => void) => () => void
   getSettings: () => Promise<WorkWiseSettingsV2>
   setSettings: (partial: AppSettingsPatch, expectedRevision?: number) => Promise<WorkWiseSettingsV2>
   runtimeRequest: (path: string, method?: string, body?: string) => Promise<RuntimeRequestResult>
@@ -356,6 +378,14 @@ export type WorkWiseApi = {
     provider: 'feishu' | 'weixin',
     deviceCode: string
   ) => Promise<ClawImInstallPollResult>
+  getWeixinBridgeStatus: (accountId?: string) => Promise<WeixinBridgeAccountStatusV1[]>
+  getImHealth: (channelId?: string) => Promise<ImChannelHealthV1[]>
+  startIm: (channelId?: string) => Promise<ImLifecycleResultV1>
+  reconnectIm: (channelId?: string) => Promise<ImLifecycleResultV1>
+  stopIm: (channelId?: string) => Promise<ImLifecycleResultV1>
+  disconnectIm: (channelId?: string) => Promise<ImLifecycleResultV1>
+  selfCheckIm: (channelId: string) => Promise<ImSelfCheckResultV1>
+  getImDiagnostics: () => Promise<ImDiagnosticsV1>
   pickWorkspaceDirectory: (defaultPath?: string) => Promise<WorkspacePickResult>
   pickPluginPackage: (mode: 'file' | 'directory') => Promise<WorkspacePickResult>
   confirmDialog: (options: ConfirmDialogOptions) => Promise<boolean>
@@ -596,15 +626,18 @@ export type WorkWiseApi = {
   onSseEnd: (handler: (payload: SseEndPayload) => void) => () => void
   onSseError: (handler: (payload: SseErrorPayload) => void) => () => void
   onClawChannelActivity: (handler: (payload: ClawChannelActivityPayload) => void) => () => void
+  onImHealthChanged: (handler: (payload: ImChannelHealthV1) => void) => () => void
   mirrorClawChannelMessage: (
     threadId: string,
     text: string,
-    direction: 'user' | 'assistant'
+    direction: 'user' | 'assistant',
+    options?: { turnId?: string; requestText?: string }
   ) => Promise<ClawChannelMirrorResult>
   mirrorClawChannelMessageToFeishu: (
     threadId: string,
     text: string,
-    direction: 'user' | 'assistant'
+    direction: 'user' | 'assistant',
+    options?: { turnId?: string; requestText?: string }
   ) => Promise<ClawChannelMirrorResult>
   createClawTaskFromText: (
     text: string,

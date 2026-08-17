@@ -12,7 +12,8 @@ import {
   ModelConfigSchema,
   RuntimeTuningConfigSchema,
   StorageConfigSchema,
-  TokenEconomyConfigSchema
+  TokenEconomyConfigSchema,
+  VisionEvidenceConfigSchema
 } from '../config/kun-config.js'
 import {
   DEFAULT_KUN_CAPABILITIES_CONFIG,
@@ -54,6 +55,7 @@ export const ServeOptionsSchema = z.object({
   models: ModelConfigSchema.optional(),
   contextCompaction: ContextCompactionConfigSchema.optional(),
   runtime: RuntimeTuningConfigSchema.optional(),
+  visionEvidence: VisionEvidenceConfigSchema.optional(),
   capabilities: KunCapabilitiesConfig.default(DEFAULT_KUN_CAPABILITIES_CONFIG)
 })
 export type ServeOptions = z.infer<typeof ServeOptionsSchema>

@@ -17,6 +17,18 @@ function compactionDigestShape(item: TurnItem): unknown {
   switch (item.kind) {
     case 'user_message':
       return { kind: item.kind, text: item.text }
+    case 'ui_action':
+      return {
+        kind: item.kind,
+        messageId: item.messageId,
+        blockId: item.blockId,
+        actionId: item.actionId,
+        specFingerprint: item.specFingerprint,
+        nodeId: item.nodeId,
+        nodeType: item.nodeType,
+        fieldName: item.fieldName,
+        value: item.value
+      }
     case 'assistant_text':
       return { kind: item.kind, text: item.text }
     case 'assistant_reasoning':

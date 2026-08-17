@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { appendFile, mkdir, mkdtemp, readFile, rm } from 'node:fs/promises'
+import { appendFile, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { InMemoryEventBus } from '../src/adapters/in-memory-event-bus.js'
@@ -41,6 +41,35 @@ describe('AgentLoop', () => {
     const status = await h.loop.runTurn(h.threadId, h.turnId)
     expect(status).toBe('completed')
     expect(h.inflight.size()).toBe(0)
+  })
+
+  it('revalidates workspace references before calling the model without an injected validator', async () => {
+    const workspace = await mkdtemp(join(tmpdir(), 'kun-loop-workspace-reference-'))
+    let modelCalls = 0
+    try {
+      await writeFile(join(workspace, 'brief.md'), '# Brief')
+      const h = makeHarness({
+        provider: 'reference-revalidation-test',
+        model: 'reference-revalidation-test',
+        async *stream(): AsyncIterable<ModelStreamChunk> {
+          modelCalls += 1
+          yield { kind: 'completed', stopReason: 'stop' }
+        }
+      })
+      await bootstrapThread(h, {
+        workspace,
+        request: {
+          prompt: 'inspect the brief',
+          workspaceReferences: [{ path: 'brief.md', kind: 'file' }]
+        }
+      })
+      await rm(join(workspace, 'brief.md'))
+
+      await expect(h.loop.runTurn(h.threadId, h.turnId)).resolves.toBe('failed')
+      expect(modelCalls).toBe(0)
+    } finally {
+      await rm(workspace, { recursive: true, force: true })
+    }
   })
 
   it('continues a document task until the requested file is actually written', async () => {
@@ -116,6 +145,69 @@ describe('AgentLoop', () => {
     )).toBe(true)
   })
 
+  it('completes after a shell write is verified and reported with a relative file name', async () => {
+    const workspace = await mkdtemp(join(tmpdir(), 'workwise-loop-shell-deliverable-'))
+    let calls = 0
+    const bashTool = LocalToolHost.defineTool({
+      name: 'bash',
+      description: 'Execute a shell command',
+      inputSchema: {
+        type: 'object',
+        properties: { command: { type: 'string' } },
+        required: ['command'],
+        additionalProperties: false
+      },
+      policy: 'auto',
+      toolKind: 'command_execution',
+      execute: async () => {
+        const startedAt = new Date(Date.now() - 1_000)
+        await writeFile(join(workspace, 'feishu-attachment.txt'), 'exact content')
+        return {
+          output: {
+            cwd: workspace,
+            exit_code: 0,
+            output: 'bytes: 13\nMATCH\n',
+            started_at: startedAt.toISOString(),
+            finished_at: new Date(Date.now() + 1_000).toISOString()
+          }
+        }
+      }
+    })
+    const h = makeHarness(
+      {
+        provider: 'shell-deliverable-guard',
+        model: 'shell-deliverable-guard',
+        async *stream(): AsyncIterable<ModelStreamChunk> {
+          calls += 1
+          if (calls === 1) {
+            yield {
+              kind: 'tool_call_complete',
+              callId: 'call_shell_deliverable',
+              toolName: 'bash',
+              arguments: { command: "printf '%s' 'exact content' > feishu-attachment.txt" }
+            }
+            yield { kind: 'completed', stopReason: 'tool_calls' }
+            return
+          }
+          yield {
+            kind: 'assistant_text_delta',
+            text: '已创建文件：`feishu-attachment.txt`，内容已校验。'
+          }
+          yield { kind: 'completed', stopReason: 'stop' }
+        }
+      },
+      { tools: [bashTool] }
+    )
+    await bootstrapThread(h, {
+      request: { prompt: '请创建一个 TXT 文件并作为附件发送。' }
+    })
+
+    const status = await h.loop.runTurn(h.threadId, h.turnId)
+
+    expect(status).toBe('completed')
+    expect(calls).toBe(2)
+  })
+
   it('continues after a progress-only reply instead of silently completing', async () => {
     let calls = 0
     const h = makeHarness({
@@ -139,6 +231,193 @@ describe('AgentLoop', () => {
 
     expect(status).toBe('completed')
     expect(calls).toBe(2)
+  })
+
+  it('does not complete an IM research request from a search announcement', async () => {
+    let calls = 0
+    const h = makeHarness({
+      provider: 'im-research-progress-guard',
+      model: 'im-research-progress-guard',
+      async *stream(request: ModelRequest): AsyncIterable<ModelStreamChunk> {
+        calls += 1
+        if (calls === 1) {
+          yield {
+            kind: 'assistant_text_delta',
+            text: '我来帮你查一下今天 AI 圈的资讯。让我搜索一下最新的动态。'
+          }
+          yield { kind: 'completed', stopReason: 'stop' }
+          return
+        }
+        expect(request.contextInstructions?.join('\n')).toContain('progress announcement')
+        yield {
+          kind: 'assistant_text_delta',
+          text: '目前可确认的资讯包括 DeepSeek V4 Pro 正式发布，以及多家厂商更新 Agent 工具链。'
+        }
+        yield { kind: 'completed', stopReason: 'stop' }
+      }
+    })
+    await bootstrapThread(h, {
+      request: {
+        prompt: '今天 AI 圈有哪些资讯？给我汇报一下',
+        disableUserInput: true
+      }
+    })
+
+    const status = await h.loop.runTurn(h.threadId, h.turnId)
+
+    expect(status).toBe('completed')
+    expect(calls).toBe(2)
+  })
+
+  it('fails the turn after repeated web failures instead of completing from a degraded reply', async () => {
+    let calls = 0
+    const failedWebTool = LocalToolHost.defineTool({
+      name: 'web_fetch',
+      description: 'Fetch a web page',
+      inputSchema: {
+        type: 'object',
+        properties: { url: { type: 'string' } },
+        required: ['url'],
+        additionalProperties: false
+      },
+      policy: 'auto',
+      execute: async () => ({ output: { error: 'network unavailable' }, isError: true })
+    })
+    const h = makeHarness({
+      provider: 'failed-web-recovery',
+      model: 'failed-web-recovery',
+      async *stream(request: ModelRequest): AsyncIterable<ModelStreamChunk> {
+        calls += 1
+        if (calls <= 2) {
+          yield {
+            kind: 'tool_call_complete',
+            callId: `call_web_${calls}`,
+            toolName: 'web_fetch',
+            arguments: { url: `https://example.com/missing-${calls}` }
+          }
+          yield { kind: 'completed', stopReason: 'tool_calls' }
+          return
+        }
+        expect(request.contextInstructions?.join('\n')).toContain('final recovery opportunity')
+        yield {
+          kind: 'assistant_text_delta',
+          text: '在线搜索连续失败，我暂时无法核实今天的资讯。请稍后重试或提供可访问的来源。'
+        }
+        yield { kind: 'completed', stopReason: 'stop' }
+      }
+    }, { tools: [failedWebTool] })
+    await bootstrapThread(h, {
+      request: { prompt: '今天 AI 圈有哪些资讯？', disableUserInput: true }
+    })
+
+    const status = await h.loop.runTurn(h.threadId, h.turnId)
+    const thread = await h.threadStore.get(h.threadId)
+
+    expect(status).toBe('failed')
+    expect(calls).toBe(3)
+    expect(thread?.turns.find((turn) => turn.id === h.turnId)).toMatchObject({
+      status: 'failed',
+      error: expect.stringContaining('在线搜索连续失败')
+    })
+    const items = await h.sessionStore.loadItems(h.threadId)
+    expect(items).toContainEqual(expect.objectContaining({
+      kind: 'error',
+      code: 'web_access_degraded',
+      severity: 'warning'
+    }))
+  })
+
+  it('finishes from successful search evidence when later page fetches fail', async () => {
+    let calls = 0
+    const searchTool = LocalToolHost.defineTool({
+      name: 'web_search',
+      description: 'Search the web',
+      inputSchema: {
+        type: 'object',
+        properties: { query: { type: 'string' } },
+        required: ['query'],
+        additionalProperties: false
+      },
+      policy: 'auto',
+      execute: async () => ({
+        output: {
+          results: [{
+            title: 'Verified AI news',
+            url: 'https://example.com/verified',
+            snippet: 'A verified current event.'
+          }]
+        }
+      })
+    })
+    const fetchTool = LocalToolHost.defineTool({
+      name: 'web_fetch',
+      description: 'Fetch a web page',
+      inputSchema: {
+        type: 'object',
+        properties: { url: { type: 'string' } },
+        required: ['url'],
+        additionalProperties: false
+      },
+      policy: 'auto',
+      execute: async () => ({
+        output: { error: 'page fetch unavailable' },
+        isError: true
+      })
+    })
+    const h = makeHarness({
+      provider: 'search-success-fetch-failure',
+      model: 'search-success-fetch-failure',
+      async *stream(request: ModelRequest): AsyncIterable<ModelStreamChunk> {
+        calls += 1
+        if (calls === 1) {
+          yield {
+            kind: 'tool_call_complete',
+            callId: 'call_search',
+            toolName: 'web_search',
+            arguments: { query: 'today AI news' }
+          }
+          yield { kind: 'completed', stopReason: 'tool_calls' }
+          return
+        }
+        if (calls === 2) {
+          yield {
+            kind: 'tool_call_complete',
+            callId: 'call_fetch_1',
+            toolName: 'web_fetch',
+            arguments: { url: 'https://example.com/verified' }
+          }
+          yield {
+            kind: 'tool_call_complete',
+            callId: 'call_fetch_2',
+            toolName: 'web_fetch',
+            arguments: { url: 'https://example.com/backup' }
+          }
+          yield { kind: 'completed', stopReason: 'tool_calls' }
+          return
+        }
+        expect(request.contextInstructions?.join('\n')).toContain('Use only already verified tool results')
+        expect(request.tools.map((tool) => tool.name)).not.toContain('web_search')
+        expect(request.tools.map((tool) => tool.name)).not.toContain('web_fetch')
+        yield {
+          kind: 'assistant_text_delta',
+          text: [
+            '已根据成功的联网搜索整理资讯，并附上来源：https://example.com/verified',
+            '我随后尝试直接抓取源页面做交叉核验，但 web fetch 全部失败，因此无法确认当前信息已经过页面核实。'
+          ].join('\n')
+        }
+        yield { kind: 'completed', stopReason: 'stop' }
+      }
+    }, { tools: [searchTool, fetchTool] })
+    await bootstrapThread(h, {
+      request: { prompt: '今天 AI 圈有哪些资讯？请附来源。', disableUserInput: true }
+    })
+
+    const status = await h.loop.runTurn(h.threadId, h.turnId)
+    const items = await h.sessionStore.loadItems(h.threadId)
+
+    expect(status).toBe('completed')
+    expect(calls).toBe(3)
+    expect(items.some((item) => item.kind === 'error' && item.code === 'web_access_exhausted')).toBe(false)
   })
 
   it('injects the current shell runtime when bash is available', async () => {
@@ -1315,6 +1594,33 @@ describe('AgentLoop', () => {
     expect(request.contextInstructions?.join('\n')).toContain('check current memory usage')
     expect(request.tools.map((tool) => tool.name)).toContain(GET_GOAL_TOOL_NAME)
     expect(request.tools.map((tool) => tool.name)).toContain(UPDATE_GOAL_TOOL_NAME)
+  })
+
+  it('does not continue an unrelated active GUI goal during an IM turn', async () => {
+    const observedRequests: ModelRequest[] = []
+    const h = makeHarness({
+      provider: 'im-with-stale-goal',
+      model: 'im-with-stale-goal',
+      async *stream(request: ModelRequest): AsyncIterable<ModelStreamChunk> {
+        observedRequests.push(request)
+        yield { kind: 'assistant_text_delta', text: '当前 IM 请求已完成。' }
+        yield { kind: 'completed', stopReason: 'stop' }
+      }
+    })
+    await bootstrapThread(h, {
+      request: { prompt: '处理当前 IM 消息', disableUserInput: true }
+    })
+    await h.threads.setGoal(h.threadId, {
+      objective: '旧的本地三步任务',
+      status: 'active'
+    })
+
+    const status = await h.loop.runTurn(h.threadId, h.turnId)
+
+    expect(status).toBe('completed')
+    expect(observedRequests).toHaveLength(1)
+    expect(observedRequests[0]?.contextInstructions?.join('\n') ?? '')
+      .not.toContain('Continue working toward the active thread goal.')
   })
 
   it('continues an active goal after no-tool model turns until update_goal completes it', async () => {

@@ -20,10 +20,15 @@ import { buildAttachmentToolProviders } from '../adapters/tool/attachment-tool-p
 import { buildFlowToolProviders } from '../adapters/tool/flow-tool-provider.js'
 import { buildDelegationToolProviders } from '../adapters/tool/delegation-tool-provider.js'
 import { buildWebToolProviders } from '../adapters/tool/web-tool-provider.js'
+import {
+  DeepSeekResponsesWebProvider,
+  isDeepSeekResponsesWebSearchConfig
+} from '../adapters/tool/deepseek-responses-web-provider.js'
 import { buildImageGenToolProviders } from '../adapters/tool/image-gen-tool-provider.js'
 import { buildPptMasterToolProviders } from '../adapters/tool/ppt-master-tool-provider.js'
 import { buildDesignToolProviders } from '../adapters/tool/design-tool-provider.js'
 import { LocalWorkspaceInspector } from '../adapters/workspace/local-workspace-inspector.js'
+import { WorkspaceReferenceService } from '../services/workspace-reference-service.js'
 import { createImmutablePrefix } from '../cache/immutable-prefix.js'
 import {
   buildRuntimeCapabilityManifest,
@@ -60,6 +65,7 @@ import { KUN_SYSTEM_PROMPT } from '../prompt/kun-system-prompt.js'
 import { RuntimeEventRecorder } from '../services/runtime-event-recorder.js'
 import { ThreadService } from '../services/thread-service.js'
 import { TurnService } from '../services/turn-service.js'
+import { UiActionService } from '../services/ui-action-service.js'
 import { TaskController } from '../services/task-controller.js'
 import { TaskRunRepository } from '../services/task-run-repository.js'
 import { RuntimeSpanService } from '../services/runtime-span-service.js'
@@ -76,6 +82,7 @@ import { FileMemoryStore } from '../memory/memory-store.js'
 import { DelegationRuntime, FileDelegationStore } from '../delegation/delegation-runtime.js'
 import { createChildAgentExecutor } from '../delegation/child-agent-executor.js'
 import { stopAllBashSessions } from '../adapters/tool/builtin-bash-tool.js'
+import { HttpVisionEvidenceService, type VisionEvidenceConfig } from '../vision/vision-evidence-service.js'
 
 export type KunServeRuntimeOptions = {
   host: string
@@ -95,6 +102,7 @@ export type KunServeRuntimeOptions = {
   models?: ModelConfig
   contextCompaction?: ContextCompactionConfig
   runtime?: RuntimeTuningConfig
+  visionEvidence?: VisionEvidenceConfig
   storage?: StorageConfig
   capabilities?: KunCapabilitiesConfig
   startedAt?: string
@@ -124,6 +132,7 @@ export async function createKunServeRuntime(
   const approvalGate = new InMemoryApprovalGate()
   const userInputGate = new InMemoryUserInputGate()
   const workspaceInspector = new LocalWorkspaceInspector()
+  const workspaceReferenceService = new WorkspaceReferenceService()
   const usageService = new UsageService()
   const inflight = new InflightTracker()
   const steering = new SteeringQueue()
@@ -236,8 +245,10 @@ export async function createKunServeRuntime(
     nowIso,
     tasks: taskController,
     approvalGate,
-    userInputGate
+    userInputGate,
+    workspaceReferences: workspaceReferenceService
   })
+  const uiActionService = new UiActionService({ sessionStore, turns: turnService })
   await seedUsageCarryover({ threadStore, sessionStore, usageService })
   const modelClient = new DeepseekCompatModelClient({
     baseUrl: options.baseUrl,
@@ -262,7 +273,18 @@ export async function createKunServeRuntime(
     ...(options.runtime ? { runtime: options.runtime } : {})
   })
   const mcpProviders = await buildMcpToolProviders(options.capabilities?.mcp)
-  const webProviders = buildWebToolProviders(options.capabilities?.web)
+  const deepSeekWebSearch = isDeepSeekResponsesWebSearchConfig(options)
+    ? new DeepSeekResponsesWebProvider({
+        baseUrl: options.baseUrl,
+        apiKey: options.apiKey,
+        model: options.model,
+        nowIso
+      })
+    : undefined
+  const webProviders = buildWebToolProviders(options.capabilities?.web, {
+    ...(deepSeekWebSearch ? { searchProvider: deepSeekWebSearch } : {}),
+    nowIso
+  })
   const skillRuntime = await SkillRuntime.create(options.capabilities?.skills)
   const attachmentStore = options.capabilities?.attachments.enabled
     ? new FileAttachmentStore({
@@ -272,6 +294,9 @@ export async function createKunServeRuntime(
       })
     : undefined
   await attachmentStore?.cleanupAbandoned()
+  const visionEvidence = options.visionEvidence?.enabled
+    ? new HttpVisionEvidenceService(options.visionEvidence)
+    : undefined
   const attachmentCleanupTimer = attachmentStore
     ? setInterval(() => { void attachmentStore.cleanupAbandoned() }, 24 * 60 * 60 * 1000)
     : undefined
@@ -457,6 +482,7 @@ export async function createKunServeRuntime(
     ...(options.runtime?.toolStorm ? { toolStorm: options.runtime.toolStorm } : {}),
     ...(options.runtime?.toolArgumentRepair ? { toolArgumentRepair: options.runtime.toolArgumentRepair } : {}),
     ...(attachmentStore ? { attachmentStore } : {}),
+    ...(visionEvidence ? { visionEvidence } : {}),
     ...(memoryStore ? { memoryStore } : {}),
     onPlanWritten: async ({ threadId, planId, relativePath, markdown }) => {
       await threadService.syncTodosFromPlan(threadId, {
@@ -467,12 +493,14 @@ export async function createKunServeRuntime(
       })
     },
     tasks: taskController,
-    spanService
+    spanService,
+    workspaceReferences: workspaceReferenceService
   })
   const startedAt = options.startedAt ?? nowIso()
   const runtime: ServerRuntime = {
     threadService,
     turnService,
+    uiActionService,
     taskController,
     taskRepository,
     spanService,
@@ -484,6 +512,7 @@ export async function createKunServeRuntime(
     approvalGate,
     userInputGate,
     workspaceInspector,
+    workspaceReferenceService,
     toolHost,
     ...(attachmentStore ? { attachmentStore } : {}),
     ...(memoryStore ? { memoryStore } : {}),

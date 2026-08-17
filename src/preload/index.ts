@@ -64,6 +64,11 @@ const api = {
     ipcRenderer.on('app:menu-action', wrapped)
     return () => ipcRenderer.removeListener('app:menu-action', wrapped)
   },
+  onNotificationOpenThread: (handler) => {
+    const wrapped = (_event: Electron.IpcRendererEvent, threadId: string): void => handler(threadId)
+    ipcRenderer.on('notification:open-thread', wrapped)
+    return () => ipcRenderer.removeListener('notification:open-thread', wrapped)
+  },
   getSettings: () => ipcRenderer.invoke('settings:get'),
   setSettings: (partial, expectedRevision) =>
     ipcRenderer.invoke('settings:set', { patch: partial, expectedRevision }),
@@ -100,6 +105,15 @@ const api = {
     ipcRenderer.invoke('claw:im-install:qrcode', { provider, isLark: options?.isLark }),
   pollClawImInstall: (provider, deviceCode) =>
     ipcRenderer.invoke('claw:im-install:poll', { provider, deviceCode }),
+  getWeixinBridgeStatus: (accountId) =>
+    ipcRenderer.invoke('claw:weixin-status', { accountId }),
+  getImHealth: (channelId) => ipcRenderer.invoke('claw:im:health', { channelId }),
+  startIm: (channelId) => ipcRenderer.invoke('claw:im:start', { channelId }),
+  reconnectIm: (channelId) => ipcRenderer.invoke('claw:im:reconnect', { channelId }),
+  stopIm: (channelId) => ipcRenderer.invoke('claw:im:stop', { channelId }),
+  disconnectIm: (channelId) => ipcRenderer.invoke('claw:im:disconnect', { channelId }),
+  selfCheckIm: (channelId) => ipcRenderer.invoke('claw:im:self-check', { channelId }),
+  getImDiagnostics: () => ipcRenderer.invoke('claw:im:diagnostics'),
   pickWorkspaceDirectory: (defaultPath) =>
     ipcRenderer.invoke('workspace:pick-directory', defaultPath),
   pickPluginPackage: (mode) => ipcRenderer.invoke('plugin:pick-package', { mode }),
@@ -333,10 +347,15 @@ const api = {
     ipcRenderer.on('claw:channel-activity', wrapped)
     return () => ipcRenderer.removeListener('claw:channel-activity', wrapped)
   },
-  mirrorClawChannelMessage: (threadId, text, direction) =>
-    ipcRenderer.invoke('claw:channel:mirror', { threadId, text, direction }),
-  mirrorClawChannelMessageToFeishu: (threadId, text, direction) =>
-    ipcRenderer.invoke('claw:channel:mirror-to-feishu', { threadId, text, direction }),
+  onImHealthChanged: (handler) => {
+    const wrapped = (_: Electron.IpcRendererEvent, payload: Parameters<typeof handler>[0]) => handler(payload)
+    ipcRenderer.on('claw:im:health-changed', wrapped)
+    return () => ipcRenderer.removeListener('claw:im:health-changed', wrapped)
+  },
+  mirrorClawChannelMessage: (threadId, text, direction, options) =>
+    ipcRenderer.invoke('claw:channel:mirror', { threadId, text, direction, ...options }),
+  mirrorClawChannelMessageToFeishu: (threadId, text, direction, options) =>
+    ipcRenderer.invoke('claw:channel:mirror-to-feishu', { threadId, text, direction, ...options }),
   createClawTaskFromText: (text, options) =>
     ipcRenderer.invoke('claw:task:create-from-text', {
       text,

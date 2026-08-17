@@ -167,20 +167,41 @@ export function resolveKunRuntimeSettings(settings: AppSettingsV1): KunRuntimeSe
   const runtimeApiKey = runtime.apiKey?.trim() ?? ''
   const runtimeBaseUrl = runtime.baseUrl?.trim() ?? ''
   const providerBaseUrl = provider.baseUrl.trim() || DEFAULT_DEEPSEEK_BASE_URL
+  const baseUrl =
+    runtimeBaseUrl && runtimeBaseUrl !== DEFAULT_DEEPSEEK_BASE_URL
+      ? normalizeDeepseekBaseUrl(runtimeBaseUrl)
+      : normalizeDeepseekBaseUrl(providerBaseUrl)
 
   return {
     ...runtime,
     apiKey: runtimeApiKey || provider.apiKey.trim(),
-    baseUrl:
-      runtimeBaseUrl && runtimeBaseUrl !== DEFAULT_DEEPSEEK_BASE_URL
-        ? normalizeDeepseekBaseUrl(runtimeBaseUrl)
-        : normalizeDeepseekBaseUrl(providerBaseUrl),
+    baseUrl,
     endpointFormat: provider.endpointFormat,
+    model: resolveProviderModelId({ ...provider, baseUrl }, runtime.model),
     imageGeneration: resolveKunImageGenerationSettings(settings)
   }
 }
 
 export const resolveManagedRuntimeSettings = resolveKunRuntimeSettings
+
+export function resolveProviderModelId(provider: ModelProviderProfileV1, model: string): string {
+  const trimmed = model.trim()
+  if (!isOfficialDeepSeekBaseUrl(provider.baseUrl)) {
+    return trimmed
+  }
+  const normalized = trimmed.toLowerCase()
+  return normalized === 'deepseek-chat' || normalized === 'deepseek-reasoner'
+    ? 'deepseek-v4-flash'
+    : trimmed
+}
+
+export function isOfficialDeepSeekBaseUrl(baseUrl: string): boolean {
+  try {
+    return new URL(baseUrl).hostname.toLowerCase() === 'api.deepseek.com'
+  } catch {
+    return false
+  }
+}
 
 function defaultModelProviderProfile(apiKey: string, baseUrl: string): ModelProviderProfileV1 {
   return {

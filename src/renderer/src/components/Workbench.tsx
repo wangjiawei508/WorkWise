@@ -1,5 +1,5 @@
 import type { ReactElement } from 'react'
-import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useShallow } from 'zustand/react/shallow'
 import type { ApprovalPolicy, ConversationViewMode, SandboxMode } from '@shared/app-settings'
@@ -77,15 +77,14 @@ import { normalizeWorkspaceRoot } from '../lib/workspace-path'
 import { useKeyboardShortcutSettings } from '../lib/keyboard-shortcut-settings'
 import { collectComposerChangeSummary } from '../lib/composer-change-summary'
 import { readFocusModePreference, writeFocusModePreference } from '../lib/focus-mode'
+import { WorkbenchRegistry } from './workbench-registry'
+import { WorkbenchPanelLoader } from './workbench-panel-loader'
 import {
   buildComposerFileContextPrompt,
+  runtimeWorkspaceReferences,
   mergeComposerFileReferences,
   type ComposerFileContextEntry
 } from '../lib/composer-file-references'
-
-const ChangeInspector = lazy(() =>
-  import('./ChangeInspector').then((module) => ({ default: module.ChangeInspector }))
-)
 
 function writeContentHash(value: string): string {
   let hash = 0x811c9dc5
@@ -95,32 +94,64 @@ function writeContentHash(value: string): string {
   }
   return `fnv1a-${(hash >>> 0).toString(16).padStart(8, '0')}`
 }
-const DevBrowserPanel = lazy(() =>
-  import('./DevBrowserPanel').then((module) => ({ default: module.DevBrowserPanel }))
-)
-const PluginMarketplaceView = lazy(() =>
-  import('./PluginMarketplaceView').then((module) => ({ default: module.PluginMarketplaceView }))
-)
-const WorkspaceFilePreviewPanel = lazy(() =>
-  import('./WorkspaceFilePreviewPanel').then((module) => ({
-    default: module.WorkspaceFilePreviewPanel
-  }))
-)
-const PlanPanel = lazy(() =>
-  import('./plan/PlanPanel').then((module) => ({ default: module.PlanPanel }))
-)
-const TodoPanel = lazy(() =>
-  import('./todo/TodoPanel').then((module) => ({ default: module.TodoPanel }))
-)
-const ScheduleTasksView = lazy(() =>
-  import('./schedule/ScheduleTasksView').then((module) => ({ default: module.ScheduleTasksView }))
-)
-const FlowWorkspaceView = lazy(() =>
-  import('./flow/FlowWorkspaceView').then((module) => ({ default: module.FlowWorkspaceView }))
-)
-const DesignWorkspaceView = lazy(() =>
-  import('./design/DesignWorkspaceView').then((module) => ({ default: module.DesignWorkspaceView }))
-)
+type BuiltinRightPanelContext = {
+  mode: RightPanelMode
+  route: string
+  activeSddDraft: boolean
+  writeAssistantOpen: boolean
+}
+
+const builtinRightPanels = new WorkbenchRegistry<BuiltinRightPanelContext, void, null>()
+const registerBuiltinRightPanel = <Module,>(
+  id: string,
+  order: number,
+  availability: (context: BuiltinRightPanelContext) => boolean,
+  load: () => Promise<Module>
+): void => {
+  builtinRightPanels.registerTab({
+    id,
+    order,
+    single: true,
+    dedupeKey: () => id,
+    availability,
+    load,
+    render: () => null,
+    onOpen: () => undefined,
+    onClose: () => undefined
+  })
+}
+registerBuiltinRightPanel('sdd-ai', 10, (context) => context.mode === 'sdd-ai' && context.activeSddDraft, async () => null)
+registerBuiltinRightPanel('write-assistant', 20, (context) => context.route === 'write' && context.writeAssistantOpen, async () => null)
+registerBuiltinRightPanel('changes', 30, (context) => context.mode === 'changes', () => import('./ChangeInspector'))
+registerBuiltinRightPanel('todo', 40, (context) => context.mode === 'todo', () => import('./todo/TodoPanel'))
+registerBuiltinRightPanel('browser', 50, (context) => context.mode === 'browser', () => import('./DevBrowserPanel'))
+registerBuiltinRightPanel('plan', 60, (context) => context.mode === 'plan', () => import('./plan/PlanPanel'))
+registerBuiltinRightPanel('file', 70, (context) => context.mode === 'file', () => import('./WorkspaceFilePreviewPanel'))
+
+type BuiltinWorkbenchViewContext = { route: string }
+const builtinWorkbenchViews = new WorkbenchRegistry<BuiltinWorkbenchViewContext, void, null>()
+const registerBuiltinWorkbenchView = <Module,>(
+  id: string,
+  order: number,
+  route: string,
+  load: () => Promise<Module>
+): void => {
+  builtinWorkbenchViews.registerTab({
+    id,
+    order,
+    single: true,
+    dedupeKey: () => id,
+    availability: (context) => context.route === route,
+    load,
+    render: () => null,
+    onOpen: () => undefined,
+    onClose: () => undefined
+  })
+}
+registerBuiltinWorkbenchView('plugins', 10, 'plugins', () => import('./PluginMarketplaceView'))
+registerBuiltinWorkbenchView('flow', 20, 'flow', () => import('./flow/FlowWorkspaceView'))
+registerBuiltinWorkbenchView('schedule', 30, 'schedule', () => import('./schedule/ScheduleTasksView'))
+registerBuiltinWorkbenchView('design', 40, 'design', () => import('./design/DesignWorkspaceView'))
 
 type PendingSddPlanTarget = {
   planId: string
@@ -689,6 +720,14 @@ export function Workbench(): ReactElement {
       }
     })
   }, [chooseWorkspace, createThread, openSettings])
+
+  useEffect(() => {
+    if (typeof window.workwise?.onNotificationOpenThread !== 'function') return
+    return window.workwise.onNotificationOpenThread((threadId) => {
+      if (!threadId.trim()) return
+      void useChatStore.getState().selectThread(threadId)
+    })
+  }, [])
   const showDevPreviewCard =
     route === 'chat' &&
     latestDevPreviewUrl !== null
@@ -1433,8 +1472,8 @@ export function Workbench(): ReactElement {
 
     let imagesForPrompt = collected.images
     let attachmentIds: string[] = []
-    let imageMode: 'attachments' | 'base64' | 'none' =
-      collected.images.length === 0 ? 'none' : 'base64'
+    let imageMode: 'attachments' | 'unavailable' | 'none' =
+      collected.images.length === 0 ? 'none' : 'unavailable'
 
     if (supportsImageAttachments) {
       try {
@@ -1571,7 +1610,11 @@ export function Workbench(): ReactElement {
           ? t('composerFileOnlyDisplay', { count: fileReferences.length })
           : t('composerImageOnlyDisplay')
     const messageText = v || emptyPrompt
-    const prepareChatMessage = async (): Promise<{ text: string; displayText?: string } | null> => {
+    const prepareChatMessage = async (): Promise<{
+      text: string
+      displayText?: string
+      workspaceReferences?: Array<{ path: string; kind: 'file' | 'directory' }>
+    } | null> => {
       if (fileReferences.length === 0) {
         return {
           text: messageText,
@@ -1585,9 +1628,19 @@ export function Workbench(): ReactElement {
         setError(t('workspaceRequiredToCreateThread'))
         return null
       }
+      const displayText = v || emptyDisplayText
+      const structuredReferences = runtimeWorkspaceReferences(activeThreadId, fileReferences, {
+        allowLegacyInlineContext: import.meta.env.VITE_WORKWISE_LEGACY_INLINE_FILE_CONTEXT === '1'
+      })
+      if (structuredReferences) {
+        return {
+          text: messageText,
+          ...(displayText ? { displayText } : {}),
+          workspaceReferences: structuredReferences
+        }
+      }
       try {
         const fileContext = await readComposerFileContextEntries(fileReferences, workspace)
-        const displayText = v || emptyDisplayText
         return {
           text: buildComposerFileContextPrompt(messageText, fileContext),
           ...(displayText ? { displayText } : {})
@@ -1617,6 +1670,9 @@ export function Workbench(): ReactElement {
       void sendPlanTurn(prepared.text, {
         ...(prepared.displayText ? { displayText: prepared.displayText } : {}),
         ...(reasoningEffort ? { reasoningEffort } : {}),
+        ...(prepared.workspaceReferences?.length
+          ? { workspaceReferences: prepared.workspaceReferences }
+          : {}),
         ...(attachmentIds.length ? { attachmentIds, attachments } : {})
       })
       return
@@ -1722,6 +1778,9 @@ export function Workbench(): ReactElement {
     void sendMessage(prepared.text, mode === 'plan' ? 'plan' : 'agent', {
       ...(prepared.displayText ? { displayText: prepared.displayText } : {}),
       ...(reasoningEffort ? { reasoningEffort } : {}),
+      ...(prepared.workspaceReferences?.length
+        ? { workspaceReferences: prepared.workspaceReferences }
+        : {}),
       ...(attachmentIds.length ? { attachmentIds, attachments } : {})
     })
   }
@@ -1849,6 +1908,29 @@ export function Workbench(): ReactElement {
     ? (error?.trim() || t('writeRuntimeUnavailable'))
     : null
 
+  const resolvedRightPanelId = builtinRightPanels.resolveTab({
+    mode: rightPanelMode,
+    route,
+    activeSddDraft: Boolean(activeSddDraft),
+    writeAssistantOpen
+  })?.id ?? rightPanelMode
+  const resolvedWorkbenchViewId = builtinWorkbenchViews.resolveTab({ route })?.id ?? null
+
+  useEffect(() => {
+    if (!rightPanelVisible || !resolvedRightPanelId) return
+    return builtinRightPanels.activateTab(resolvedRightPanelId, {
+      mode: rightPanelMode,
+      route,
+      activeSddDraft: Boolean(activeSddDraft),
+      writeAssistantOpen
+    })
+  }, [activeSddDraft, resolvedRightPanelId, rightPanelMode, rightPanelVisible, route, writeAssistantOpen])
+
+  useEffect(() => {
+    if (!resolvedWorkbenchViewId) return
+    return builtinWorkbenchViews.activateTab(resolvedWorkbenchViewId, { route })
+  }, [resolvedWorkbenchViewId, route])
+
   const renderRightPanel = (): ReactElement | null => {
     if (!rightPanelVisible) return null
     return (
@@ -1860,8 +1942,7 @@ export function Workbench(): ReactElement {
           onPointerDown={beginRightResize}
         />
         <div className="ds-workbench-right-panel h-full min-h-0 shrink-0" style={{ width: rightSidebarWidth }}>
-          <Suspense fallback={<div className="h-full w-full bg-ds-sidebar" />}>
-            {rightPanelMode === 'sdd-ai' && activeSddDraft ? (
+          {resolvedRightPanelId === 'sdd-ai' && activeSddDraft ? (
               <SddAssistantPanel
                 draft={activeSddDraft}
                 input={input}
@@ -1893,7 +1974,7 @@ export function Workbench(): ReactElement {
                 onCollapse={closeRightPanel}
                 className="h-full max-h-full w-full"
               />
-            ) : route === 'write' && writeAssistantOpen ? (
+            ) : resolvedRightPanelId === 'write-assistant' ? (
               <WriteAssistantPanel
                 input={input}
                 setInput={setInput}
@@ -1929,46 +2010,95 @@ export function Workbench(): ReactElement {
                 onCollapse={closeRightPanel}
                 className="h-full max-h-full w-full"
               />
-            ) : rightPanelMode === 'changes' ? (
-              <ChangeInspector
-                blocks={blocks}
-                className="h-full max-h-full w-full flex-col"
-                onCollapse={closeRightPanel}
-              />
-            ) : rightPanelMode === 'todo' ? (
-              <TodoPanel
-                className="h-full max-h-full w-full"
-                onCollapse={closeRightPanel}
-                onOpenPlan={openGuiPlanPanel}
-              />
-            ) : rightPanelMode === 'browser' ? (
-              <DevBrowserPanel
-                blocks={devPreviewBlocks}
-                preferredUrl={latestDevPreviewUrl}
-                className="h-full max-h-full w-full flex-col"
-                onCollapse={closeRightPanel}
-              />
-            ) : rightPanelMode === 'plan' ? (
-              <PlanPanel
-                workspaceRoot={workspaceRoot}
-                activeThreadId={activeThreadId}
-                runtimeReady={runtimeConnection === 'ready'}
-                busy={busy}
-                className="h-full max-h-full w-full"
-                onCollapse={closeRightPanel}
-                onBuildPlan={() => void buildGuiPlan()}
-                onVerifyPlan={() => void verifyGuiPlan()}
-                onReplanChanged={(ids) => void replanChangedRequirements(ids)}
-              />
+            ) : resolvedRightPanelId === 'changes' ? (
+              <WorkbenchPanelLoader<typeof import('./ChangeInspector')>
+                registry={builtinRightPanels}
+                panelId="changes"
+                title={t('workbenchPanelErrorTitle')}
+                retryLabel={t('workbenchPanelRetry')}
+                fallback={<div className="h-full w-full bg-ds-sidebar" />}
+              >
+                {({ ChangeInspector: Panel }) => (
+                  <Panel
+                    blocks={blocks}
+                    className="h-full max-h-full w-full flex-col"
+                    onCollapse={closeRightPanel}
+                  />
+                )}
+              </WorkbenchPanelLoader>
+            ) : resolvedRightPanelId === 'todo' ? (
+              <WorkbenchPanelLoader<typeof import('./todo/TodoPanel')>
+                registry={builtinRightPanels}
+                panelId="todo"
+                title={t('workbenchPanelErrorTitle')}
+                retryLabel={t('workbenchPanelRetry')}
+                fallback={<div className="h-full w-full bg-ds-sidebar" />}
+              >
+                {({ TodoPanel: Panel }) => (
+                  <Panel
+                    className="h-full max-h-full w-full"
+                    onCollapse={closeRightPanel}
+                    onOpenPlan={openGuiPlanPanel}
+                  />
+                )}
+              </WorkbenchPanelLoader>
+            ) : resolvedRightPanelId === 'browser' ? (
+              <WorkbenchPanelLoader<typeof import('./DevBrowserPanel')>
+                registry={builtinRightPanels}
+                panelId="browser"
+                title={t('workbenchPanelErrorTitle')}
+                retryLabel={t('workbenchPanelRetry')}
+                fallback={<div className="h-full w-full bg-ds-sidebar" />}
+              >
+                {({ DevBrowserPanel: Panel }) => (
+                  <Panel
+                    blocks={devPreviewBlocks}
+                    preferredUrl={latestDevPreviewUrl}
+                    className="h-full max-h-full w-full flex-col"
+                    onCollapse={closeRightPanel}
+                  />
+                )}
+              </WorkbenchPanelLoader>
+            ) : resolvedRightPanelId === 'plan' ? (
+              <WorkbenchPanelLoader<typeof import('./plan/PlanPanel')>
+                registry={builtinRightPanels}
+                panelId="plan"
+                title={t('workbenchPanelErrorTitle')}
+                retryLabel={t('workbenchPanelRetry')}
+                fallback={<div className="h-full w-full bg-ds-sidebar" />}
+              >
+                {({ PlanPanel: Panel }) => (
+                  <Panel
+                    workspaceRoot={workspaceRoot}
+                    activeThreadId={activeThreadId}
+                    runtimeReady={runtimeConnection === 'ready'}
+                    busy={busy}
+                    className="h-full max-h-full w-full"
+                    onCollapse={closeRightPanel}
+                    onBuildPlan={() => void buildGuiPlan()}
+                    onVerifyPlan={() => void verifyGuiPlan()}
+                    onReplanChanged={(ids) => void replanChangedRequirements(ids)}
+                  />
+                )}
+              </WorkbenchPanelLoader>
             ) : (
-              <WorkspaceFilePreviewPanel
-                target={filePreviewTarget}
-                workspaceRoot={workspaceRoot}
-                className="h-full max-h-full w-full"
-                onClose={closeRightPanel}
-              />
+              <WorkbenchPanelLoader<typeof import('./WorkspaceFilePreviewPanel')>
+                registry={builtinRightPanels}
+                panelId="file"
+                title={t('workbenchPanelErrorTitle')}
+                retryLabel={t('workbenchPanelRetry')}
+                fallback={<div className="h-full w-full bg-ds-sidebar" />}
+              >
+                {({ WorkspaceFilePreviewPanel: Panel }) => (
+                  <Panel
+                    target={filePreviewTarget}
+                    workspaceRoot={workspaceRoot}
+                    className="h-full max-h-full w-full"
+                    onClose={closeRightPanel}
+                  />
+                )}
+              </WorkbenchPanelLoader>
             )}
-          </Suspense>
         </div>
       </>
     )
@@ -2042,7 +2172,7 @@ export function Workbench(): ReactElement {
           route === 'plugins' ? 'px-0' : ''
         }`}
       >
-        {route === 'plugins' ? (
+        {resolvedWorkbenchViewId === 'plugins' ? (
           <>
             <div className="ds-no-drag shrink-0 px-4 pt-4">
               <SidebarTitlebarToggleButton
@@ -2051,36 +2181,62 @@ export function Workbench(): ReactElement {
                 ariaLabel={leftSidebarCollapsed ? t('sidebarExpand') : t('sidebarCollapse')}
               />
             </div>
-            <Suspense fallback={<div className="h-full bg-ds-main" />}>
-              <PluginMarketplaceView />
-            </Suspense>
+            <WorkbenchPanelLoader<typeof import('./PluginMarketplaceView')>
+              registry={builtinWorkbenchViews}
+              panelId="plugins"
+              title={t('workbenchPanelErrorTitle')}
+              retryLabel={t('workbenchPanelRetry')}
+            >
+              {({ PluginMarketplaceView: View }) => <View />}
+            </WorkbenchPanelLoader>
           </>
-        ) : route === 'flow' ? (
-          <Suspense fallback={<div className="h-full bg-ds-main" />}>
-            <FlowWorkspaceView
-              leftSidebarCollapsed={leftSidebarCollapsed}
-              onToggleLeftSidebar={toggleLeftSidebar}
-              filter={flowFilter}
-            />
-          </Suspense>
-        ) : route === 'schedule' ? (
-          <Suspense fallback={<div className="h-full bg-ds-main" />}>
-            <ScheduleTasksView
-              leftSidebarCollapsed={leftSidebarCollapsed}
-              onToggleLeftSidebar={toggleLeftSidebar}
-              onOpenThread={openThread}
-              onOpenFlow={() => openFlow('scheduled')}
-            />
-          </Suspense>
-        ) : route === 'design' ? (
-          <Suspense fallback={<div className="h-full bg-ds-main" />}>
-            <DesignWorkspaceView
-              leftSidebarCollapsed={leftSidebarCollapsed}
-              onToggleLeftSidebar={toggleLeftSidebar}
-              onOpenWrite={openWriteMode}
-              workspaceRoot={workspaceRoot}
-            />
-          </Suspense>
+        ) : resolvedWorkbenchViewId === 'flow' ? (
+          <WorkbenchPanelLoader<typeof import('./flow/FlowWorkspaceView')>
+            registry={builtinWorkbenchViews}
+            panelId="flow"
+            title={t('workbenchPanelErrorTitle')}
+            retryLabel={t('workbenchPanelRetry')}
+          >
+            {({ FlowWorkspaceView: View }) => (
+              <View
+                leftSidebarCollapsed={leftSidebarCollapsed}
+                onToggleLeftSidebar={toggleLeftSidebar}
+                filter={flowFilter}
+              />
+            )}
+          </WorkbenchPanelLoader>
+        ) : resolvedWorkbenchViewId === 'schedule' ? (
+          <WorkbenchPanelLoader<typeof import('./schedule/ScheduleTasksView')>
+            registry={builtinWorkbenchViews}
+            panelId="schedule"
+            title={t('workbenchPanelErrorTitle')}
+            retryLabel={t('workbenchPanelRetry')}
+          >
+            {({ ScheduleTasksView: View }) => (
+              <View
+                leftSidebarCollapsed={leftSidebarCollapsed}
+                onToggleLeftSidebar={toggleLeftSidebar}
+                onOpenThread={openThread}
+                onOpenFlow={() => openFlow('scheduled')}
+              />
+            )}
+          </WorkbenchPanelLoader>
+        ) : resolvedWorkbenchViewId === 'design' ? (
+          <WorkbenchPanelLoader<typeof import('./design/DesignWorkspaceView')>
+            registry={builtinWorkbenchViews}
+            panelId="design"
+            title={t('workbenchPanelErrorTitle')}
+            retryLabel={t('workbenchPanelRetry')}
+          >
+            {({ DesignWorkspaceView: View }) => (
+              <View
+                leftSidebarCollapsed={leftSidebarCollapsed}
+                onToggleLeftSidebar={toggleLeftSidebar}
+                onOpenWrite={openWriteMode}
+                workspaceRoot={workspaceRoot}
+              />
+            )}
+          </WorkbenchPanelLoader>
         ) : route === 'write' ? (
           <>
             {writeRuntimeBannerMessage ? renderRuntimeBanner(writeRuntimeBannerMessage, runtimeErrorDetail) : null}

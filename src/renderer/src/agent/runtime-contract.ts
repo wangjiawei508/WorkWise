@@ -57,6 +57,20 @@ export type CoreThreadJson = CoreThreadSummaryJson & {
   latestSeq?: number
 }
 
+export type CoreWorkspaceReferenceJson = {
+  path: string
+  kind: 'file' | 'directory'
+}
+
+export type CoreWorkspaceReferenceSearchResponseJson = {
+  entries: Array<CoreWorkspaceReferenceJson & {
+    name: string
+    depth: number
+  }>
+  truncated: boolean
+  indexedAt: string
+}
+
 export type CoreAttachmentMetadataJson = {
   id: string
   name: string
@@ -187,6 +201,7 @@ export type CoreRuntimeCapabilityManifestJson = {
     outputModalities: Array<'text' | 'image'>
     supportsToolCalling: boolean
     contextWindowTokens?: number
+    maxOutputTokens?: number
     messageParts: Array<'text' | 'image_url' | 'input_image'>
   }
   cli: Record<'serve' | 'run' | 'chat' | 'exec', CoreRuntimeCapabilityStateJson>
@@ -231,6 +246,8 @@ export type CoreRuntimeCapabilityManifestJson = {
   imageGen?: CoreRuntimeCapabilityStateJson & {
     model?: string
   }
+  /** Optional so the GUI can disable persisted controls against older runtimes. */
+  uiActions?: CoreRuntimeCapabilityStateJson
 }
 
 export type CoreRuntimeInfoJson = {
@@ -333,6 +350,7 @@ export type CoreTurnJson = {
   finishedAt?: string
   items?: CoreTurnItemJson[]
   attachmentIds?: string[]
+  workspaceReferences?: CoreWorkspaceReferenceJson[]
   activeSkillIds?: string[]
   injectedMemoryIds?: string[]
   skillInjectionBytes?: number
@@ -349,6 +367,7 @@ export type CoreTurnItemJson = {
   finishedAt?: string
   kind: string
   text?: string
+  uiBlocks?: unknown[]
   displayText?: string
   toolName?: string
   callId?: string
@@ -376,6 +395,7 @@ export type CoreTurnItemJson = {
   details?: unknown
   severity?: 'info' | 'warning' | 'error'
   attachmentIds?: string[]
+  workspaceReferences?: CoreWorkspaceReferenceJson[]
   activeSkillIds?: string[]
   injectedMemoryIds?: string[]
   skillInjectionBytes?: number
@@ -518,6 +538,7 @@ export type CoreRuntimeEventJson = {
 	  changeKind?: 'additive' | 'breaking'
 	  toolNames?: string[]
   status?: string
+  reason?: 'completed' | 'error' | 'aborted' | 'blocked' | 'max_tokens'
   stage?:
     | 'setup'
     | 'pre_start'

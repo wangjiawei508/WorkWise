@@ -1,6 +1,6 @@
 import { Router } from '../router.js'
 import { healthJsonResponse } from './health.js'
-import { buildWorkspaceStatusResponse } from './workspace.js'
+import { buildWorkspaceStatusResponse, searchWorkspaceReferences } from './workspace.js'
 import {
   createThread,
   clearThreadGoal,
@@ -55,6 +55,7 @@ import { ERRORS } from './runtime-error.js'
 import type { ServerRuntime } from './server-runtime.js'
 import { cancelTask, getTask, getTaskDiagnostics, listTasks, resumeTask, retryTask } from './tasks.js'
 import { listShellSessions, terminateShellSession } from './shell-sessions.js'
+import { startUiAction } from './ui-actions.js'
 
 /**
  * Build the full router used by the HTTP server. The router exposes:
@@ -74,6 +75,7 @@ import { listShellSessions, terminateShellSession } from './shell-sessions.js'
  * - `GET/POST/DELETE /v1/threads/{id}/goal` (auth)
  * - `GET/POST/DELETE /v1/threads/{id}/todos` (auth)
  * - `POST /v1/threads/{id}/turns` (auth)
+ * - `POST /v1/threads/{id}/ui-actions` (auth)
  * - `POST /v1/threads/{id}/review` (auth)
  * - `GET /v1/threads/{id}/turns/{turnId}` (auth)
  * - `POST /v1/threads/{id}/turns/{turnId}/steer` (auth)
@@ -187,6 +189,15 @@ export function buildRouter(runtime: ServerRuntime): Router {
     const path = url.searchParams.get('path')
     return buildWorkspaceStatusResponse({ inspector: runtime.workspaceInspector, path })
   })
+  router.add('POST', '/v1/threads/:id/workspace/references/search', async (request, ctx) => {
+    if (!authorize(request, runtime)) return ERRORS.unauthorized()
+    return searchWorkspaceReferences({
+      service: runtime.workspaceReferenceService,
+      threads: runtime.threadService,
+      threadId: ctx.params.id,
+      request
+    })
+  })
   router.add('GET', '/v1/threads', async (request) => {
     if (!authorize(request, runtime)) return ERRORS.unauthorized()
     return listThreads(runtime.threadService, request)
@@ -274,6 +285,13 @@ export function buildRouter(runtime: ServerRuntime): Router {
   router.add('POST', '/v1/threads/:id/turns', async (request, ctx) => {
     if (!authorize(request, runtime)) return ERRORS.unauthorized()
     return startTurn(runtime.turnService, ctx.params.id, request, ({ threadId, turnId }) => {
+      runtime.runTurn(threadId, turnId)
+    })
+  })
+  router.add('POST', '/v1/threads/:id/ui-actions', async (request, ctx) => {
+    if (!authorize(request, runtime)) return ERRORS.unauthorized()
+    if (!runtime.uiActionService) return ERRORS.unavailable('UI actions are not available')
+    return startUiAction(runtime.uiActionService, ctx.params.id, request, ({ threadId, turnId }) => {
       runtime.runTurn(threadId, turnId)
     })
   })

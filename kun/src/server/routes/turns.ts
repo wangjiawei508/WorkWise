@@ -38,8 +38,14 @@ export async function startTurn(
     if ((error as { code?: unknown })?.code === 'turn_in_progress') {
       return ERRORS.conflict('a turn is already running for this thread')
     }
+    if ((error as { code?: unknown })?.code === 'idempotency_conflict') {
+      return ERRORS.conflict('idempotency key is already bound to a different request')
+    }
     if ((error as { code?: unknown })?.code === 'resource_limit') {
       return ERRORS.resourceLimit('the application turn concurrency limit has been reached')
+    }
+    if ((error as { code?: unknown })?.code === 'workspace_reference_invalid') {
+      return ERRORS.validation(error instanceof Error ? error.message : 'invalid workspace reference')
     }
     throw error
   }

@@ -247,6 +247,7 @@ export class WorkWiseRuntimeProvider implements AgentProvider {
         expectedRevision: number
       }
       attachmentIds?: string[]
+      workspaceReferences?: Array<{ path: string; kind: 'file' | 'directory' }>
     }
   ): Promise<{ turnId: string; threadId: string; userMessageItemId?: string }> {
     const settings = await rendererRuntimeClient.getSettings()
@@ -287,6 +288,9 @@ export class WorkWiseRuntimeProvider implements AgentProvider {
     }
     if (options?.attachmentIds?.length) {
       body.attachmentIds = options.attachmentIds
+    }
+    if (options?.workspaceReferences?.length) {
+      body.workspaceReferences = options.workspaceReferences
     }
     const response = await rendererRuntimeClient.runtimeRequest(
       runtimeThreadTurnsPath(threadId),
@@ -862,6 +866,8 @@ export class WorkWiseRuntimeProvider implements AgentProvider {
     }
     sink.onApproval({
       approvalId,
+      threadId: event.threadId,
+      turnId: event.turnId,
       summary: event.summary ?? 'Approval required',
       toolName: event.toolName,
       ...(event.child ? { meta: { child: event.child } } : {})

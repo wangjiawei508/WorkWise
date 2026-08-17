@@ -87,6 +87,64 @@ describe('TaskController reliability boundaries', () => {
     repository.close()
   })
 
+  it('starts a fresh answer task when failure feedback follows an unfinished file task', async () => {
+    const { repository, controller, task, thread } = await fixture(
+      '请创建并交付 workwise-download-test.txt 文件。'
+    )
+    repository.update(task.id, task.revision, (current) => ({
+      ...current,
+      status: 'stalled',
+      stalledReason: '文件交付失败。',
+      updatedAt: '2026-07-18T00:01:00.000Z'
+    }))
+
+    const feedbackTask = controller.ensureTask({
+      thread,
+      turnId: 'turn_download_feedback',
+      request: { prompt: 'TXT 无法下载' }
+    })
+
+    expect(feedbackTask.id).not.toBe(task.id)
+    expect(feedbackTask).toMatchObject({
+      activeTurnId: 'turn_download_feedback',
+      goal: 'TXT 无法下载',
+      status: 'queued',
+      acceptance: { kind: 'answer', requiredNodeKinds: ['deliver'] }
+    })
+    expect(repository.get(task.id)).toMatchObject({
+      status: 'cancelled',
+      stalledReason: '用户发起了新的请求，旧任务已停止。'
+    })
+    repository.close()
+  })
+
+  it('keeps an unfinished file task when the user explicitly asks to continue', async () => {
+    const { repository, controller, task, thread } = await fixture(
+      '请创建并交付 workwise-download-test.txt 文件。'
+    )
+    const stalled = repository.update(task.id, task.revision, (current) => ({
+      ...current,
+      status: 'stalled',
+      stalledReason: '等待继续。',
+      updatedAt: '2026-07-18T00:01:00.000Z'
+    }))
+
+    const resumed = controller.ensureTask({
+      thread,
+      turnId: 'turn_continue',
+      request: { prompt: '同意，继续推进。' }
+    })
+
+    expect(resumed.id).toBe(task.id)
+    expect(resumed).toMatchObject({
+      activeTurnId: 'turn_continue',
+      acceptance: stalled.acceptance,
+      status: 'stalled'
+    })
+    expect(repository.list({ threadId: thread.id })).toHaveLength(1)
+    repository.close()
+  })
+
   it('replans repeated no-progress attempts and stalls with a recoverable checkpoint', async () => {
     const { repository, controller, task } = await fixture()
     let lastKind = ''
@@ -128,6 +186,42 @@ describe('TaskController reliability boundaries', () => {
     expect(repository.events(task.id).filter((event) => event.kind === 'task_failed')).toHaveLength(1)
     repository.close()
   }, PERSISTENCE_TEST_TIMEOUT_MS)
+
+  it('fails a depleted web search immediately instead of silently retrying it', async () => {
+    const { repository, controller, task } = await fixture('今天 AI 圈有哪些资讯？')
+    controller.beginAttempt(task.threadId, 'turn_reliability')
+
+    const decision = controller.recordAttemptFailure(
+      task.threadId,
+      'turn_reliability',
+      'web_access_exhausted',
+      '在线搜索连续失败，无法核实当前资讯。'
+    )
+
+    expect(decision).toMatchObject({ kind: 'failed', task: { status: 'failed', attempts: 1 } })
+    expect(repository.events(task.id).filter((event) => event.kind === 'attempt_retrying')).toHaveLength(0)
+    repository.close()
+  })
+
+  it('does not complete a task from an assistant reply that explicitly reports unverified web failure', async () => {
+    const { repository, sessionStore, controller, task } = await fixture('今天宁波的天气怎么样？')
+    await sessionStore.appendItem(task.threadId, makeAssistantTextItem({
+      id: 'item_web_failure',
+      threadId: task.threadId,
+      turnId: 'turn_reliability',
+      text: '实时网页获取失败，所以目前无法核实宁波今天的准确天气信息。请稍后重试。',
+      status: 'completed'
+    }))
+    controller.beginAttempt(task.threadId, 'turn_reliability')
+
+    await expect(controller.assessCandidate(task.threadId, 'turn_reliability')).resolves.toMatchObject({
+      kind: 'failed',
+      task: { status: 'failed' },
+      reason: expect.stringContaining('web_access_exhausted')
+    })
+    expect(repository.events(task.id).filter((event) => event.kind === 'task_completed')).toHaveLength(0)
+    repository.close()
+  })
 
   it('enforces the duration budget and recovers an expired running lease after restart', async () => {
     const { repository, controller, task, setNow } = await fixture()
@@ -192,6 +286,93 @@ describe('TaskController reliability boundaries', () => {
       status: 'ok',
       attributes: { format: 'md', valid: true }
     })
+    repository.close()
+  })
+
+  it('validates a workspace artifact whose absolute path is printed by a successful shell tool', async () => {
+    const { root, repository, sessionStore, controller, task } = await fixture(
+      '请创建并交付 result.txt 文件。'
+    )
+    const artifactPath = join(root, 'result.txt')
+    await writeFile(artifactPath, 'verified shell deliverable', 'utf8')
+    await sessionStore.appendItem(task.threadId, makeToolResultItem({
+      id: 'item_shell_result',
+      threadId: task.threadId,
+      turnId: 'turn_reliability',
+      callId: 'call_shell',
+      toolName: 'bash',
+      toolKind: 'command_execution',
+      output: {
+        command: "printf 'verified shell deliverable' > result.txt",
+        cwd: root,
+        exit_code: 0,
+        output: `verified shell deliverable\n${artifactPath}\n`,
+        full_output_path: join(root, 'runtime', 'shell-output', 'bash_call.log')
+      }
+    }))
+    await sessionStore.appendItem(task.threadId, makeAssistantTextItem({
+      id: 'item_shell_assistant',
+      threadId: task.threadId,
+      turnId: 'turn_reliability',
+      text: 'TXT 文件已创建并验证。',
+      status: 'completed'
+    }))
+
+    controller.beginAttempt(task.threadId, 'turn_reliability')
+    await expect(controller.assessCandidate(task.threadId, 'turn_reliability'))
+      .resolves.toMatchObject({
+        kind: 'completed',
+        task: {
+          status: 'completed',
+          artifacts: [{ relativePath: 'result.txt', validation: 'valid' }]
+        }
+      })
+    expect(repository.events(task.id).filter((event) => event.kind === 'task_completed')).toHaveLength(1)
+    repository.close()
+  })
+
+  it('validates a recent relative artifact claimed after a successful shell tool', async () => {
+    const { root, repository, sessionStore, controller, task } = await fixture(
+      '请创建并交付 result.txt 文件。'
+    )
+    const startedAt = new Date(Date.now() - 1_000).toISOString()
+    await writeFile(join(root, 'result.txt'), 'verified relative shell deliverable', 'utf8')
+    const finishedAt = new Date(Date.now() + 1_000).toISOString()
+    await sessionStore.appendItem(task.threadId, makeToolResultItem({
+      id: 'item_relative_shell_result',
+      threadId: task.threadId,
+      turnId: 'turn_reliability',
+      callId: 'call_relative_shell',
+      toolName: 'bash',
+      toolKind: 'command_execution',
+      output: {
+        command: "printf 'verified relative shell deliverable' > result.txt",
+        cwd: root,
+        exit_code: 0,
+        started_at: startedAt,
+        finished_at: finishedAt,
+        output: 'bytes: 35\nMATCH\n35\n',
+        full_output_path: join(root, 'runtime', 'shell-output', 'bash_call.log')
+      }
+    }))
+    await sessionStore.appendItem(task.threadId, makeAssistantTextItem({
+      id: 'item_relative_shell_assistant',
+      threadId: task.threadId,
+      turnId: 'turn_reliability',
+      text: 'TXT 文件 result.txt 已创建并验证。',
+      status: 'completed'
+    }))
+
+    controller.beginAttempt(task.threadId, 'turn_reliability')
+    await expect(controller.assessCandidate(task.threadId, 'turn_reliability'))
+      .resolves.toMatchObject({
+        kind: 'completed',
+        task: {
+          status: 'completed',
+          artifacts: [{ relativePath: 'result.txt', validation: 'valid' }]
+        }
+      })
+    expect(repository.events(task.id).filter((event) => event.kind === 'task_completed')).toHaveLength(1)
     repository.close()
   })
 

@@ -1,5 +1,5 @@
 import { app } from 'electron'
-import { randomBytes, randomUUID } from 'node:crypto'
+import { createHash, randomBytes, randomUUID } from 'node:crypto'
 import { createRequire } from 'node:module'
 import { readFileSync } from 'node:fs'
 import { mkdir, readFile, writeFile, unlink } from 'node:fs/promises'
@@ -10,9 +10,18 @@ import {
   type ServerResponse
 } from 'node:http'
 import { createServer as createNetServer } from 'node:net'
-import { dirname, join } from 'node:path'
+import { basename, dirname, join } from 'node:path'
 import { DEFAULT_WEIXIN_BRIDGE_RPC_URL } from '../shared/app-settings'
+import {
+  IM_HEALTH_SUPERVISOR_INTERVAL_MS,
+  IM_LEDGER_LEASE_RENEW_INTERVAL_MS,
+  IM_STALE_AFTER_MS,
+  retryDelayMs
+} from '../shared/im-communication'
+import type { WeixinBridgeAccountStatusV1 } from '../shared/workwise-api'
+import type { ImCredentialRefV1 } from '../shared/im-communication'
 import { logError, logInfo, logWarn } from './logger'
+import { isCandidateOutboundDisabled } from './candidate-runtime'
 
 const requireFromHere = createRequire(import.meta.url)
 const WEIXIN_BRIDGE_PORT = 18790
@@ -27,24 +36,94 @@ const LOGIN_TTL_MS = 5 * 60_000
 const QR_LONG_POLL_TIMEOUT_MS = 35_000
 const DEFAULT_LONG_POLL_TIMEOUT_MS = 35_000
 const DEFAULT_API_TIMEOUT_MS = 15_000
-const RETRY_DELAY_MS = 2_000
-const BACKOFF_DELAY_MS = 30_000
 const WEIXIN_SEND_RETRY_DELAYS_MS = [0, 750, 2_000] as const
 const WEIXIN_SLOW_REPLY_NOTICE_MS = 8_000
 const WEIXIN_SLOW_REPLY_TEXT = '收到，正在处理，请稍候…'
-const WEIXIN_FAILED_REPLY_TEXT = '这次处理没有成功，请稍后重试。'
+const WEIXIN_SESSION_EXPIRED_ERRCODE = -14
+// The bundled Tencent channel uses the same limit for plain text messages.
+// Keep each request below it because the iLink API does not reliably expose
+// an oversized-message error to the caller.
+const WEIXIN_TEXT_CHUNK_LIMIT = 4_000
+const WEIXIN_FAILED_REPLY_TEXT = '任务未完成，WorkWise Runtime 没有产生可交付结果。请稍后重试。'
+const WEIXIN_WEB_SEARCH_FAILED_REPLY_TEXT =
+  '在线搜索连续失败，暂时无法核实最新资讯。本次任务未完成，请稍后重试，或发来可访问的网页链接。'
+const WEIXIN_TIMEOUT_REPLY_TEXT = '任务处理超时，尚未完成。请稍后重试。'
+const WEIXIN_FILE_FAILED_REPLY_TEXT = '回复文字已发送，但附件发送失败。请稍后再让我发送该文件。'
 const MessageType = {
   BOT: 2
 } as const
 const MessageItemType = {
   TEXT: 1,
-  VOICE: 3
+  IMAGE: 2,
+  VOICE: 3,
+  FILE: 4,
+  VIDEO: 5
 } as const
 const MessageState = {
   FINISH: 2
 } as const
 
 type JsonRecord = Record<string, unknown>
+
+class WeixinWebhookError extends Error {
+  constructor(readonly replyText: string) {
+    super('WorkWise Runtime webhook failed')
+  }
+}
+
+class WorkWiseDeliveryLeaseLostError extends Error {
+  constructor(message = 'WorkWise delivery lease is no longer owned by this sender.') {
+    super(message)
+    this.name = 'WorkWiseDeliveryLeaseLostError'
+  }
+}
+
+function safeWeixinFailureReply(message: string): string {
+  if (/web_access_exhausted|在线搜索连续失败|web (?:access|search).*fail/i.test(message)) {
+    return WEIXIN_WEB_SEARCH_FAILED_REPLY_TEXT
+  }
+  if (/timed out|timeout|超时/i.test(message)) return WEIXIN_TIMEOUT_REPLY_TEXT
+  if (/file delivery failed|attachment.*fail|附件.*失败/i.test(message)) return WEIXIN_FILE_FAILED_REPLY_TEXT
+  return WEIXIN_FAILED_REPLY_TEXT
+}
+
+function webhookReplyText(data: JsonRecord): string {
+  return recordString(data, 'reply') || recordString(data, 'text')
+}
+
+function buildBoundLoginResult(input: {
+  sessionKey: string
+  existingAccountId: string
+}): JsonRecord {
+  return {
+    connected: true,
+    alreadyConnected: true,
+    accountId: normalizeAccountId(input.existingAccountId),
+    sessionKey: input.sessionKey,
+    message: '已连接过此 WorkWise Runtime，无需重复连接。'
+  }
+}
+
+export function splitWeixinText(text: string, maxLength = WEIXIN_TEXT_CHUNK_LIMIT): string[] {
+  const normalized = text.trim()
+  if (!normalized) return []
+  const limit = Math.max(1, Math.floor(maxLength))
+  const chunks: string[] = []
+  let remaining = normalized
+  while (remaining.length > limit) {
+    const newline = remaining.lastIndexOf('\n', limit - 1)
+    const whitespace = remaining.lastIndexOf(' ', limit - 1)
+    const splitAt = newline >= Math.floor(limit / 2)
+      ? newline + 1
+      : whitespace >= Math.floor(limit / 2)
+        ? whitespace + 1
+        : limit
+    chunks.push(remaining.slice(0, splitAt).trimEnd())
+    remaining = remaining.slice(splitAt).trimStart()
+  }
+  if (remaining) chunks.push(remaining)
+  return chunks
+}
 
 type WeixinBridgeRuntimeContext = {
   webhookUrl: string
@@ -63,13 +142,31 @@ type WeixinLoginSession = {
   qrcodeUrl: string
   startedAt: number
   currentApiBaseUrl?: string
+  /**
+   * A forced QR login can return `binded_redirect` instead of issuing a new
+   * token. Keep the local account id that supplied the token list so the
+   * caller restarts the real account rather than the temporary session UUID.
+   */
+  existingAccountId?: string
 }
 
 type WeixinAccountData = {
+  credentialRef?: ImCredentialRefV1
+  /** Legacy plaintext token, migrated after secure-storage verification. */
   token?: string
   baseUrl?: string
   userId?: string
+  savedAt?: string
 }
+
+export type WeixinBridgeCredentialProvider = {
+  set: (namespace: string, key: string, value: string) => Promise<ImCredentialRefV1>
+  migrate: (namespace: string, key: string, legacySecret: string, ref?: ImCredentialRefV1) => Promise<ImCredentialRefV1>
+  resolve: (ref: ImCredentialRefV1) => Promise<string | undefined>
+  remove: (ref: ImCredentialRefV1 | undefined) => Promise<void>
+}
+
+type WeixinPersistedAccountStatus = Omit<WeixinBridgeAccountStatusV1, 'accountId'>
 
 type WeixinAccount = {
   accountId: string
@@ -87,7 +184,9 @@ type WeixinMessageItem = {
 }
 
 type WeixinMessage = {
-  message_id?: string
+  // Tencent may return this 64-bit id as a JSON number even though the
+  // adapter contract documents it as a string.
+  message_id?: string | number
   message_type?: number
   from_user_id?: string
   create_time_ms?: number
@@ -95,10 +194,35 @@ type WeixinMessage = {
   item_list?: WeixinMessageItem[]
 }
 
+function weixinMessageId(message: WeixinMessage): string {
+  const value = message.message_id
+  if (typeof value === 'string') return value.trim()
+  if (typeof value === 'number' && Number.isFinite(value)) return String(value)
+  const sender = message.from_user_id?.trim() ?? ''
+  const createdAt = message.create_time_ms
+  if (sender && typeof createdAt === 'number' && Number.isFinite(createdAt)) {
+    const digest = createHash('sha256')
+      .update(JSON.stringify([
+        sender,
+        createdAt,
+        message.message_type ?? null,
+        message.context_token ?? '',
+        message.item_list ?? []
+      ]))
+      .digest('hex')
+      .slice(0, 32)
+    return `wx-fallback-${digest}`
+  }
+  return ''
+}
+
 type WeixinMonitor = {
   accountId: string
+  runId: string
+  startedAt: string
   controller: AbortController
   promise: Promise<void>
+  watchdog: ReturnType<typeof setInterval>
 }
 
 export type WeixinBridgeSendResult =
@@ -107,12 +231,18 @@ export type WeixinBridgeSendResult =
 
 let server: HttpServer | null = null
 let startPromise: Promise<string> | null = null
+let bridgeRuntimeStopping = false
 let runtimeContextProvider: (() => Promise<WeixinBridgeRuntimeContext>) | null = null
+let credentialProvider: WeixinBridgeCredentialProvider | null = null
 let activeBridgePort = WEIXIN_BRIDGE_PORT
 let packageInfoCache: WeixinPackageInfo | null = null
 const activeLogins = new Map<string, WeixinLoginSession>()
 const contextTokenStore = new Map<string, string>()
+const contextTokenRefs = new Map<string, ImCredentialRefV1>()
 const monitors = new Map<string, WeixinMonitor>()
+const accountStatuses = new Map<string, WeixinPersistedAccountStatus>()
+let accountStatusesLoaded = false
+let accountStatusWritePromise: Promise<void> = Promise.resolve()
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
@@ -128,6 +258,19 @@ export function configureWeixinBridgeRuntimeContextProvider(
   provider: (() => Promise<WeixinBridgeRuntimeContext>) | null
 ): void {
   runtimeContextProvider = provider
+}
+
+export function configureWeixinBridgeCredentialProvider(provider: WeixinBridgeCredentialProvider | null): void {
+  credentialProvider = provider
+}
+
+async function requirePersistentWeixinCredential(
+  ref: ImCredentialRefV1
+): Promise<ImCredentialRefV1> {
+  if (ref.storage !== 'session') return ref
+  throw Object.assign(new Error('Protected WeChat credential storage is temporarily unavailable.'), {
+    code: 'credential_unavailable'
+  })
 }
 
 async function resolveRuntimeContext(): Promise<WeixinBridgeRuntimeContext> {
@@ -240,14 +383,18 @@ async function apiPost(
   baseUrl: string,
   endpoint: string,
   body: JsonRecord,
-  options: { token?: string; timeoutMs?: number; label: string }
+  options: { token?: string; timeoutMs?: number; signal?: AbortSignal; label: string }
 ): Promise<JsonRecord> {
   const url = new URL(endpoint, baseUrl.endsWith('/') ? baseUrl : `${baseUrl}/`)
+  const timeoutSignal = options.timeoutMs ? AbortSignal.timeout(options.timeoutMs) : undefined
+  const signal = options.signal && timeoutSignal
+    ? AbortSignal.any([options.signal, timeoutSignal])
+    : options.signal ?? timeoutSignal
   const res = await fetch(url.toString(), {
     method: 'POST',
     headers: buildHeaders(options.token),
     body: JSON.stringify(body),
-    signal: options.timeoutMs ? AbortSignal.timeout(options.timeoutMs) : undefined
+    signal
   })
   const data = await readJsonResponse(res)
   if (!res.ok) {
@@ -293,6 +440,10 @@ function syncBufPath(accountId: string): string {
 
 function contextTokensPath(accountId: string): string {
   return join(accountsDir(), `${accountId}.context-tokens.json`)
+}
+
+function accountStatusesPath(): string {
+  return join(weixinStateDir(), 'account-status.json')
 }
 
 function configPath(): string {
@@ -348,6 +499,107 @@ async function writeJsonIfChanged(filePath: string, value: unknown): Promise<voi
   await writeFile(filePath, next, 'utf8')
 }
 
+function normalizeAccountStatus(value: unknown): WeixinPersistedAccountStatus | null {
+  const raw = asRecord(value)
+  const status = raw.status
+  if (
+    status !== 'unknown' &&
+    status !== 'starting' &&
+    status !== 'connected' &&
+    status !== 'retrying' &&
+    status !== 'stale' &&
+    status !== 'expired' &&
+    status !== 'error' &&
+    status !== 'stopped'
+  ) return null
+  const errorCode = Number(raw.errorCode)
+  return {
+    status,
+    message: recordString(raw, 'message'),
+    ...(Number.isFinite(errorCode) ? { errorCode } : {}),
+    ...(recordString(raw, 'updatedAt') ? { updatedAt: recordString(raw, 'updatedAt') } : {}),
+    ...(recordString(raw, 'lastSuccessfulPollAt')
+      ? { lastSuccessfulPollAt: recordString(raw, 'lastSuccessfulPollAt') }
+      : {}),
+    ...(recordString(raw, 'runId') ? { runId: recordString(raw, 'runId') } : {}),
+    ...(recordString(raw, 'startedAt') ? { startedAt: recordString(raw, 'startedAt') } : {}),
+    ...(recordString(raw, 'lastInboundAt') ? { lastInboundAt: recordString(raw, 'lastInboundAt') } : {}),
+    ...(recordString(raw, 'lastOutboundAt') ? { lastOutboundAt: recordString(raw, 'lastOutboundAt') } : {}),
+    ...(recordString(raw, 'lastErrorAt') ? { lastErrorAt: recordString(raw, 'lastErrorAt') } : {}),
+    ...(Number.isFinite(Number(raw.failureCount)) ? { failureCount: Number(raw.failureCount) } : {}),
+    ...(recordString(raw, 'nextRetryAt') ? { nextRetryAt: recordString(raw, 'nextRetryAt') } : {}),
+    ...(recordString(raw, 'reasonCode') ? { reasonCode: recordString(raw, 'reasonCode') } : {})
+  }
+}
+
+async function loadAccountStatuses(): Promise<void> {
+  if (accountStatusesLoaded) return
+  accountStatusesLoaded = true
+  try {
+    const parsed = asRecord(await readJsonFile(accountStatusesPath()))
+    for (const [id, value] of Object.entries(parsed)) {
+      const status = normalizeAccountStatus(value)
+      if (status) accountStatuses.set(normalizeAccountId(id), status)
+    }
+  } catch {
+    /* Diagnostic state must never block login. */
+  }
+}
+
+async function setAccountStatus(
+  accountId: string,
+  status: WeixinPersistedAccountStatus['status'],
+  detail: Partial<Omit<WeixinPersistedAccountStatus, 'status'>> = {}
+): Promise<void> {
+  await loadAccountStatuses()
+  const normalizedId = normalizeAccountId(accountId)
+  const previous = accountStatuses.get(normalizedId)
+  const healthy = status === 'connected' || status === 'starting'
+  const next: WeixinPersistedAccountStatus = {
+    ...previous,
+    status,
+    message: detail.message !== undefined ? detail.message.trim() : previous?.message ?? '',
+    errorCode: detail.errorCode !== undefined ? detail.errorCode : healthy ? undefined : previous?.errorCode,
+    updatedAt: detail.updatedAt || new Date().toISOString(),
+    ...(detail.lastSuccessfulPollAt ? { lastSuccessfulPollAt: detail.lastSuccessfulPollAt } : {}),
+    ...(detail.runId ? { runId: detail.runId } : {}),
+    ...(detail.startedAt ? { startedAt: detail.startedAt } : {}),
+    ...(detail.lastInboundAt ? { lastInboundAt: detail.lastInboundAt } : {}),
+    ...(detail.lastOutboundAt ? { lastOutboundAt: detail.lastOutboundAt } : {}),
+    lastErrorAt: detail.lastErrorAt || (healthy ? undefined : previous?.lastErrorAt),
+    ...(detail.failureCount !== undefined ? { failureCount: detail.failureCount } : {}),
+    nextRetryAt: detail.nextRetryAt || (healthy || status === 'stopped' || status === 'expired' ? undefined : previous?.nextRetryAt),
+    ...(detail.reasonCode ? { reasonCode: detail.reasonCode } : {})
+  }
+  accountStatuses.set(normalizedId, next)
+  accountStatusWritePromise = accountStatusWritePromise
+    .catch(() => undefined)
+    .then(() => writeJsonIfChanged(accountStatusesPath(), Object.fromEntries(accountStatuses)))
+  await accountStatusWritePromise
+}
+
+function isWeixinSessionExpiredResponse(response: JsonRecord): boolean {
+  return Number(response.errcode ?? 0) === WEIXIN_SESSION_EXPIRED_ERRCODE ||
+    Number(response.ret ?? 0) === WEIXIN_SESSION_EXPIRED_ERRCODE
+}
+
+function buildWeixinQrRequest(localTokens: string[], includeLocalTokens: boolean): JsonRecord {
+  return { local_token_list: includeLocalTokens ? localTokens : [] }
+}
+
+function canReuseWeixinAccountStatus(
+  status: WeixinPersistedAccountStatus['status'] | undefined
+): boolean {
+  return status !== 'expired' && status !== 'stopped'
+}
+
+function canTrustActiveWeixinCredential(
+  monitorActive: boolean,
+  status: WeixinPersistedAccountStatus['status'] | undefined
+): boolean {
+  return monitorActive && status === 'connected'
+}
+
 async function listIndexedWeixinAccountIds(): Promise<string[]> {
   try {
     const parsed = await readJsonFile(accountsIndexPath())
@@ -366,83 +618,201 @@ async function registerWeixinAccountId(accountId: string): Promise<void> {
   await writeJsonIfChanged(accountsIndexPath(), [...existing, accountId])
 }
 
-async function unregisterWeixinAccountId(accountId: string): Promise<void> {
-  const existing = await listIndexedWeixinAccountIds()
-  const next = existing.filter((id) => id !== accountId)
-  if (next.length !== existing.length) await writeJsonIfChanged(accountsIndexPath(), next)
-}
-
 async function readAccountFile(filePath: string): Promise<WeixinAccountData | null> {
   try {
     const parsed = await readJsonFile(filePath)
-    return asRecord(parsed) as WeixinAccountData
+    const raw = asRecord(parsed)
+    const ref = asRecord(raw.credentialRef)
+    const credentialRef = typeof ref.id === 'string' && typeof ref.storage === 'string' && typeof ref.createdAt === 'string'
+      ? ref as unknown as ImCredentialRefV1
+      : undefined
+    return {
+      ...(credentialRef ? { credentialRef } : {}),
+      ...(typeof raw.token === 'string' ? { token: raw.token } : {}),
+      ...(typeof raw.baseUrl === 'string' ? { baseUrl: raw.baseUrl } : {}),
+      ...(typeof raw.userId === 'string' ? { userId: raw.userId } : {}),
+      ...(typeof raw.savedAt === 'string' ? { savedAt: raw.savedAt } : {})
+    }
   } catch {
     return null
   }
 }
 
-async function loadLegacyToken(): Promise<string | undefined> {
+type LoadedWeixinAccountData = {
+  data: WeixinAccountData
+  sourcePath: string
+  legacyCredentialFile: boolean
+}
+
+async function loadLegacyToken(): Promise<LoadedWeixinAccountData | null> {
+  const sourcePath = join(stateRoot(), 'credentials', WEIXIN_PLUGIN_ID, 'credentials.json')
   try {
-    const parsed = await readJsonFile(join(stateRoot(), 'credentials', WEIXIN_PLUGIN_ID, 'credentials.json'))
+    const parsed = await readJsonFile(sourcePath)
     const token = asRecord(parsed).token
-    return typeof token === 'string' && token.trim() ? token.trim() : undefined
+    return typeof token === 'string' && token.trim()
+      ? { data: { token: token.trim() }, sourcePath, legacyCredentialFile: true }
+      : null
   } catch {
-    return undefined
+    return null
   }
 }
 
-async function loadWeixinAccountData(accountId: string): Promise<WeixinAccountData | null> {
-  const primary = await readAccountFile(accountPath(accountId))
-  if (primary) return primary
+async function loadWeixinAccountEntry(accountId: string): Promise<LoadedWeixinAccountData | null> {
+  const primaryPath = accountPath(accountId)
+  const primary = await readAccountFile(primaryPath)
+  if (primary) return { data: primary, sourcePath: primaryPath, legacyCredentialFile: false }
   const rawId = deriveRawAccountId(accountId)
   if (rawId) {
-    const compat = await readAccountFile(accountPath(rawId))
-    if (compat) return compat
+    const compatPath = accountPath(rawId)
+    const compat = await readAccountFile(compatPath)
+    if (compat) return { data: compat, sourcePath: compatPath, legacyCredentialFile: false }
   }
-  const legacyToken = await loadLegacyToken()
-  return legacyToken ? { token: legacyToken } : null
+  return loadLegacyToken()
+}
+
+async function loadWeixinAccountData(accountId: string): Promise<WeixinAccountData | null> {
+  return (await loadWeixinAccountEntry(accountId))?.data ?? null
+}
+
+async function protectWeixinAccountData(
+  accountId: string,
+  data: WeixinAccountData,
+  provider: WeixinBridgeCredentialProvider | null = credentialProvider
+): Promise<{ data: WeixinAccountData; token?: string; migrated: boolean }> {
+  if (data.credentialRef) {
+    const token = await provider?.resolve(data.credentialRef)
+    if (token?.trim()) return { data: { ...data, token: undefined }, token: token.trim(), migrated: Boolean(data.token) }
+  }
+  const legacyToken = data.token?.trim()
+  if (!legacyToken || !provider) return { data, token: legacyToken || undefined, migrated: false }
+  const credentialRef = await requirePersistentWeixinCredential(
+    await provider.migrate('weixin-account', accountId, legacyToken, data.credentialRef)
+  )
+  const verified = await provider.resolve(credentialRef)
+  if (verified !== legacyToken) throw new Error('WeChat credential migration verification failed.')
+  return {
+    data: {
+      credentialRef,
+      ...(data.baseUrl?.trim() ? { baseUrl: data.baseUrl.trim() } : {}),
+      ...(data.userId?.trim() ? { userId: data.userId.trim() } : {}),
+      savedAt: new Date().toISOString()
+    },
+    token: verified,
+    migrated: true
+  }
+}
+
+async function latestConfiguredWeixinAccountId(): Promise<string> {
+  await loadAccountStatuses()
+  const accountIds = await listIndexedWeixinAccountIds()
+  for (let index = accountIds.length - 1; index >= 0; index -= 1) {
+    const accountId = normalizeAccountId(accountIds[index])
+    const account = await resolveWeixinAccount(accountId)
+    const status = accountStatuses.get(accountId)?.status
+    if (account.token?.trim() && canReuseWeixinAccountStatus(status)) return accountId
+  }
+  return ''
 }
 
 async function saveWeixinAccount(accountId: string, update: WeixinAccountData): Promise<void> {
   await ensureStateDirs()
-  const existing = await loadWeixinAccountData(accountId) ?? {}
+  const existingEntry = await loadWeixinAccountEntry(accountId)
+  const existing = existingEntry?.data ?? {}
+  let credentialRef = update.credentialRef ?? existing.credentialRef
   const token = update.token?.trim() || existing.token?.trim()
+  if (token) {
+    if (!credentialProvider) throw new Error('Secure WeChat credential storage is unavailable.')
+    credentialRef = await requirePersistentWeixinCredential(update.token?.trim()
+      ? await credentialProvider.set('weixin-account', accountId, token)
+      : await credentialProvider.migrate('weixin-account', accountId, token, credentialRef))
+    if (await credentialProvider.resolve(credentialRef) !== token) {
+      throw new Error('WeChat credential write verification failed.')
+    }
+  }
   const baseUrl = update.baseUrl?.trim() || existing.baseUrl?.trim()
   const userId = update.userId !== undefined
     ? update.userId.trim() || undefined
     : existing.userId?.trim() || undefined
   await writeJsonIfChanged(accountPath(accountId), {
-    ...(token ? { token, savedAt: new Date().toISOString() } : {}),
+    ...(credentialRef ? { credentialRef, savedAt: new Date().toISOString() } : {}),
     ...(baseUrl ? { baseUrl } : {}),
     ...(userId ? { userId } : {})
   })
   await registerWeixinAccountId(accountId)
 }
 
-async function clearWeixinAccount(accountId: string): Promise<void> {
-  for (const filePath of [accountPath(accountId), syncBufPath(accountId), contextTokensPath(accountId)]) {
+async function resetWeixinConversationState(accountId: string): Promise<void> {
+  for (const filePath of [syncBufPath(accountId), contextTokensPath(accountId)]) {
     try {
       await unlink(filePath)
     } catch {
-      /* ignore */
+      /* A first login has no previous conversation state. */
     }
   }
-  await unregisterWeixinAccountId(accountId)
+  const prefix = `${normalizeAccountId(accountId)}:`
+  for (const key of contextTokenStore.keys()) {
+    if (key.startsWith(prefix)) {
+      contextTokenStore.delete(key)
+      contextTokenRefs.delete(key)
+    }
+  }
 }
 
-async function clearStaleAccountsForUserId(currentAccountId: string, userId: string): Promise<void> {
+function credentialRefFromValue(value: unknown): ImCredentialRefV1 | undefined {
+  const raw = asRecord(value)
+  return typeof raw.id === 'string' && typeof raw.storage === 'string' && typeof raw.createdAt === 'string'
+    ? raw as unknown as ImCredentialRefV1
+    : undefined
+}
+
+async function persistedContextCredentialRefs(accountId: string): Promise<ImCredentialRefV1[]> {
+  try {
+    const parsed = asRecord(await readJsonFile(contextTokensPath(accountId)))
+    return Object.values(parsed).flatMap((value) => {
+      const ref = credentialRefFromValue(asRecord(value).credentialRef)
+      return ref ? [ref] : []
+    })
+  } catch {
+    return []
+  }
+}
+
+async function removePersistedAccountStatus(accountId: string): Promise<void> {
+  await loadAccountStatuses()
+  accountStatuses.delete(normalizeAccountId(accountId))
+  accountStatusWritePromise = accountStatusWritePromise
+    .catch(() => undefined)
+    .then(() => writeJsonIfChanged(accountStatusesPath(), Object.fromEntries(accountStatuses)))
+  await accountStatusWritePromise
+}
+
+async function preserveStaleAccountsForUserId(currentAccountId: string, userId: string): Promise<void> {
   if (!userId.trim()) return
   for (const id of await listIndexedWeixinAccountIds()) {
     if (id === currentAccountId) continue
     const data = await loadWeixinAccountData(id)
-    if (data?.userId?.trim() === userId) await clearWeixinAccount(id)
+    if (data?.userId?.trim() !== userId) continue
+    monitors.get(normalizeAccountId(id))?.controller.abort()
+    await setAccountStatus(id, 'stopped', {
+      message: `此旧连接已由账号 ${currentAccountId} 替代，配置保留用于诊断。`
+    })
   }
 }
 
 async function resolveWeixinAccount(accountId: string): Promise<WeixinAccount> {
   const id = normalizeAccountId(accountId)
-  const data = await loadWeixinAccountData(id)
-  const token = data?.token?.trim()
+  const entry = await loadWeixinAccountEntry(id)
+  const protectedAccount = entry ? await protectWeixinAccountData(id, entry.data) : undefined
+  if (entry && protectedAccount?.migrated) {
+    const destination = entry.legacyCredentialFile ? accountPath(id) : entry.sourcePath
+    await writeJsonIfChanged(destination, protectedAccount.data)
+    if (entry.legacyCredentialFile && destination !== entry.sourcePath) {
+      await unlink(entry.sourcePath).catch(() => undefined)
+    }
+    await registerWeixinAccountId(id)
+  }
+  const data = protectedAccount?.data
+  const token = protectedAccount?.token?.trim()
   return {
     accountId: id,
     baseUrl: data?.baseUrl?.trim() || WEIXIN_API_BASE_URL,
@@ -500,21 +870,28 @@ function purgeExpiredLogins(): void {
 }
 
 async function localTokenList(): Promise<string[]> {
+  await loadAccountStatuses()
   const ids = await listIndexedWeixinAccountIds()
   const tokens: string[] = []
   for (let index = ids.length - 1; index >= 0 && tokens.length < 10; index -= 1) {
-    const data = await loadWeixinAccountData(ids[index])
-    const token = data?.token?.trim()
-    if (token) tokens.push(token)
+    const account = await resolveWeixinAccount(ids[index])
+    const token = account.token?.trim()
+    const status = accountStatuses.get(normalizeAccountId(ids[index]))?.status
+    if (token && canReuseWeixinAccountStatus(status)) tokens.push(token)
   }
   return tokens
 }
 
-async function fetchQRCode(botType = WEIXIN_DEFAULT_BOT_TYPE): Promise<JsonRecord> {
+async function fetchQRCode(
+  botType = WEIXIN_DEFAULT_BOT_TYPE,
+  options: { includeLocalTokens?: boolean } = {}
+): Promise<JsonRecord> {
+  const includeLocalTokens = options.includeLocalTokens !== false
+  const localTokens = includeLocalTokens ? await localTokenList() : []
   return apiPost(
     WEIXIN_API_BASE_URL,
     `ilink/bot/get_bot_qrcode?bot_type=${encodeURIComponent(botType)}`,
-    { local_token_list: await localTokenList() },
+    buildWeixinQrRequest(localTokens, includeLocalTokens),
     { label: 'fetchQRCode' }
   )
 }
@@ -552,7 +929,13 @@ async function startWeixinLogin(params: JsonRecord): Promise<JsonRecord> {
     }
   }
 
-  const qr = await fetchQRCode(recordString(params, 'botType') || WEIXIN_DEFAULT_BOT_TYPE)
+  // An explicit reconnect must obtain a new bot token. Sending the expired
+  // local token can make Tencent return binded_redirect, which confirms only
+  // the server-side binding and does not provide credentials to replace it.
+  const existingAccountId = force ? '' : await latestConfiguredWeixinAccountId()
+  const qr = await fetchQRCode(recordString(params, 'botType') || WEIXIN_DEFAULT_BOT_TYPE, {
+    includeLocalTokens: !force
+  })
   const qrcode = recordString(qr, 'qrcode')
   const qrcodeUrl = recordString(qr, 'qrcode_img_content') || recordString(qr, 'qrcodeUrl')
   if (!qrcode || !qrcodeUrl) {
@@ -563,7 +946,8 @@ async function startWeixinLogin(params: JsonRecord): Promise<JsonRecord> {
     qrcode,
     qrcodeUrl,
     startedAt: Date.now(),
-    currentApiBaseUrl: WEIXIN_API_BASE_URL
+    currentApiBaseUrl: WEIXIN_API_BASE_URL,
+    ...(existingAccountId ? { existingAccountId } : {})
   })
   return {
     qrcode: qrcodeUrl,
@@ -604,13 +988,16 @@ async function waitForWeixinLogin(params: JsonRecord): Promise<JsonRecord> {
         return { connected: false, message: '多次输入错误，连接流程已停止。请稍后再试。' }
       case 'binded_redirect':
         activeLogins.delete(sessionKey)
-        return {
-          connected: true,
-          alreadyConnected: true,
-          accountId: normalizeAccountId(sessionKey),
-          sessionKey,
-          message: '已连接过此 WorkWise Runtime，无需重复连接。'
+        if (!login.existingAccountId) {
+          return {
+            connected: false,
+            message: '微信服务端仍保留旧绑定，但当前二维码没有下发新的登录凭据。请重新生成二维码；如持续出现，请先在微信中解除旧绑定后再连接。'
+          }
         }
+        return buildBoundLoginResult({
+          sessionKey,
+          existingAccountId: login.existingAccountId
+        })
       case 'scaned_but_redirect': {
         const redirectHost = recordString(status, 'redirect_host')
         if (redirectHost) login.currentApiBaseUrl = `https://${redirectHost}`
@@ -627,7 +1014,9 @@ async function waitForWeixinLogin(params: JsonRecord): Promise<JsonRecord> {
         const baseUrl = recordString(status, 'baseurl') || WEIXIN_API_BASE_URL
         const userId = recordString(status, 'ilink_user_id')
         await saveWeixinAccount(accountId, { token, baseUrl, userId })
-        await clearStaleAccountsForUserId(accountId, userId)
+        await resetWeixinConversationState(accountId)
+        await setAccountStatus(accountId, 'starting', { message: '正在启动微信连接。' })
+        await preserveStaleAccountsForUserId(accountId, userId)
         activeLogins.delete(sessionKey)
         return {
           connected: true,
@@ -651,9 +1040,24 @@ function contextTokenKey(accountId: string, userId: string): string {
 
 async function persistContextTokens(accountId: string): Promise<void> {
   const prefix = `${accountId}:`
-  const tokens: Record<string, string> = {}
+  const tokens: Record<string, string | { credentialRef: ImCredentialRefV1 }> = {}
   for (const [key, value] of contextTokenStore) {
-    if (key.startsWith(prefix)) tokens[key.slice(prefix.length)] = value
+    if (!key.startsWith(prefix)) continue
+    const userId = key.slice(prefix.length)
+    if (!credentialProvider) {
+      tokens[userId] = value
+      continue
+    }
+    const currentRef = contextTokenRefs.get(key)
+    const currentValue = currentRef ? await credentialProvider.resolve(currentRef) : undefined
+    const ref = await requirePersistentWeixinCredential(currentValue === value && currentRef
+      ? currentRef
+      : await credentialProvider.set('weixin-context', key, value))
+    if (await credentialProvider.resolve(ref) !== value) {
+      throw new Error('WeChat context credential write verification failed.')
+    }
+    contextTokenRefs.set(key, ref)
+    tokens[userId] = { credentialRef: ref }
   }
   await writeJsonIfChanged(contextTokensPath(accountId), tokens)
 }
@@ -661,11 +1065,32 @@ async function persistContextTokens(accountId: string): Promise<void> {
 async function restoreContextTokens(accountId: string): Promise<void> {
   try {
     const parsed = await readJsonFile(contextTokensPath(accountId))
-    for (const [userId, token] of Object.entries(asRecord(parsed))) {
-      if (typeof token === 'string' && token) {
-        contextTokenStore.set(contextTokenKey(accountId, userId), token)
+    let migrated = false
+    for (const [userId, value] of Object.entries(asRecord(parsed))) {
+      const key = contextTokenKey(accountId, userId)
+      if (typeof value === 'string' && value) {
+        contextTokenStore.set(key, value)
+        if (credentialProvider) {
+          const ref = await requirePersistentWeixinCredential(
+            await credentialProvider.migrate('weixin-context', key, value)
+          )
+          if (await credentialProvider.resolve(ref) !== value) {
+            throw new Error('WeChat context credential migration verification failed.')
+          }
+          contextTokenRefs.set(key, ref)
+          migrated = true
+        }
+        continue
       }
+      const rawRef = asRecord(asRecord(value).credentialRef)
+      if (typeof rawRef.id !== 'string' || typeof rawRef.storage !== 'string' || typeof rawRef.createdAt !== 'string') continue
+      const ref = rawRef as unknown as ImCredentialRefV1
+      const token = await credentialProvider?.resolve(ref)
+      if (!token) continue
+      contextTokenRefs.set(key, ref)
+      contextTokenStore.set(key, token)
     }
+    if (migrated) await persistContextTokens(accountId)
   } catch {
     /* no persisted tokens */
   }
@@ -715,7 +1140,8 @@ async function notifyStop(account: WeixinAccount): Promise<void> {
 async function getUpdates(
   account: WeixinAccount,
   getUpdatesBuf: string,
-  timeoutMs: number
+  timeoutMs: number,
+  signal?: AbortSignal
 ): Promise<JsonRecord> {
   try {
     return await apiPost(
@@ -725,9 +1151,10 @@ async function getUpdates(
         get_updates_buf: getUpdatesBuf,
         base_info: buildBaseInfo()
       },
-      { token: account.token, timeoutMs, label: 'getUpdates' }
+      { token: account.token, timeoutMs, signal, label: 'getUpdates' }
     )
   } catch (error) {
+    if (signal?.aborted) throw error
     if (error instanceof Error && error.name === 'TimeoutError') {
       return { ret: 0, msgs: [], get_updates_buf: getUpdatesBuf }
     }
@@ -739,35 +1166,72 @@ function generateMessageId(): string {
   return `workwise-weixin-${randomUUID()}`
 }
 
+function buildWeixinOutboundMessageBody(params: {
+  to: string
+  clientId: string
+  item: JsonRecord
+  contextToken?: string
+  runId?: string
+}): JsonRecord {
+  return {
+    msg: {
+      from_user_id: '',
+      to_user_id: params.to,
+      client_id: params.clientId,
+      message_type: MessageType.BOT,
+      message_state: MessageState.FINISH,
+      item_list: [params.item],
+      context_token: params.contextToken,
+      run_id: params.runId
+    },
+    base_info: buildBaseInfo()
+  }
+}
+
 async function sendMessageWeixin(params: {
   account: WeixinAccount
   to: string
   text: string
   contextToken?: string
+  runId?: string
   timeoutMs?: number
+  clientId?: string
 }): Promise<{ messageId: string }> {
-  const messageId = generateMessageId()
-  await apiPost(
+  if (isCandidateOutboundDisabled('weixin')) {
+    throw new Error('Candidate IM outbound is disabled.')
+  }
+  const messageId = params.clientId?.trim() || generateMessageId()
+  const response = await apiPost(
     params.account.baseUrl,
     'ilink/bot/sendmessage',
-    {
-      msg: {
-        from_user_id: '',
-        to_user_id: params.to,
-        client_id: messageId,
-        message_type: MessageType.BOT,
-        message_state: MessageState.FINISH,
-        item_list: [{ type: MessageItemType.TEXT, text_item: { text: params.text } }],
-        context_token: params.contextToken
-      },
-      base_info: buildBaseInfo()
-    },
+    buildWeixinOutboundMessageBody({
+      to: params.to,
+      clientId: messageId,
+      item: { type: MessageItemType.TEXT, text_item: { text: params.text } },
+      contextToken: params.contextToken,
+      runId: params.runId
+    }),
     {
       token: params.account.token,
       timeoutMs: params.timeoutMs ?? DEFAULT_API_TIMEOUT_MS,
       label: 'sendMessage'
     }
   )
+  const ret = Number(response.ret ?? 0)
+  const errcode = Number(response.errcode ?? 0)
+  if (ret !== 0 || errcode !== 0) {
+    throw new Error(
+      `sendMessage rejected (ret=${ret}, errcode=${errcode}, errmsg=${recordString(response, 'errmsg') || recordString(response, 'message') || 'unknown error'})`
+    )
+  }
+  logInfo('weixin-bridge', `sent WeChat text message (messageId=${messageId}, textLen=${params.text.length})`)
+  const currentStatus = accountStatuses.get(params.account.accountId)
+  if (currentStatus) {
+    await setAccountStatus(params.account.accountId, currentStatus.status, {
+      message: currentStatus.message,
+      lastOutboundAt: new Date().toISOString()
+    })
+  }
   return { messageId }
 }
 
@@ -788,8 +1252,43 @@ async function retryWithDelays<T>(
   throw lastError
 }
 
+async function retryWithStableClientId<T>(
+  requestedClientId: string | undefined,
+  operation: (clientId: string) => Promise<T>,
+  delaysMs: readonly number[] = WEIXIN_SEND_RETRY_DELAYS_MS
+): Promise<T> {
+  const clientId = requestedClientId?.trim() || generateMessageId()
+  return retryWithDelays(() => operation(clientId), delaysMs)
+}
+
 async function sendMessageWeixinWithRetry(params: Parameters<typeof sendMessageWeixin>[0]): Promise<{ messageId: string }> {
-  return retryWithDelays(() => sendMessageWeixin(params))
+  return retryWithStableClientId(params.clientId, (clientId) => sendMessageWeixin({ ...params, clientId }))
+}
+
+function weixinChunkClientId(clientId: string | undefined, index: number, count: number): string | undefined {
+  const stable = clientId?.trim()
+  if (!stable) return undefined
+  return count === 1 ? stable : `${stable}-${index + 1}`
+}
+
+async function sendWeixinTextWithRetry(
+  params: Parameters<typeof sendMessageWeixin>[0],
+  beforeSend?: () => void
+): Promise<{ messageId: string }> {
+  const chunks = splitWeixinText(params.text)
+  let firstMessageId = ''
+  for (let index = 0; index < chunks.length; index += 1) {
+    beforeSend?.()
+    const stableClientId = weixinChunkClientId(params.clientId, index, chunks.length)
+    const sent = await sendMessageWeixinWithRetry({
+      ...params,
+      text: chunks[index],
+      clientId: stableClientId
+    })
+    if (!firstMessageId) firstMessageId = sent.messageId
+    logInfo('weixin-bridge', `delivered WeChat reply chunk ${index + 1}/${chunks.length} (textLen=${chunks[index].length})`)
+  }
+  return { messageId: firstMessageId }
 }
 
 function textFromItemList(itemList: unknown): string {
@@ -808,7 +1307,12 @@ function textFromItemList(itemList: unknown): string {
   return ''
 }
 
-function buildWebhookMessage(message: WeixinMessage, accountId: string, text: string): JsonRecord {
+function buildWebhookMessage(
+  message: WeixinMessage,
+  accountId: string,
+  text: string,
+  messageId = weixinMessageId(message) || generateMessageId()
+): JsonRecord {
   const from = message.from_user_id || ''
   return {
     provider: 'weixin',
@@ -817,7 +1321,7 @@ function buildWebhookMessage(message: WeixinMessage, accountId: string, text: st
     sender: from || 'WeChat',
     from,
     chatId: from,
-    messageId: message.message_id || generateMessageId(),
+    messageId,
     senderId: from,
     senderName: from || 'WeChat',
     threadId: '',
@@ -857,22 +1361,192 @@ function webhookGeneratedFiles(result: JsonRecord): WeixinOutboundFile[] {
 
 type SendWeixinMediaFile = (params: {
   filePath: string
+  fileName?: string
   to: string
   text: string
+  clientId: string
+  runId?: string
   opts: { baseUrl: string; token?: string; timeoutMs?: number; contextToken?: string }
   cdnBaseUrl: string
+  beforeProviderSend?: () => void
 }) => Promise<{ messageId: string }>
+
+type UploadedWeixinMedia = {
+  downloadEncryptedQueryParam: string
+  aeskey: string
+  fileSize: number
+  fileSizeCiphertext: number
+}
+
+type WeixinMediaUploadModule = {
+  uploadVideoToWeixin: (params: JsonRecord) => Promise<UploadedWeixinMedia>
+  uploadFileToWeixin: (params: JsonRecord) => Promise<UploadedWeixinMedia>
+  uploadFileAttachmentToWeixin: (params: JsonRecord) => Promise<UploadedWeixinMedia>
+}
+
+type WeixinMimeModule = {
+  getMimeFromFilename: (filePath: string) => string
+}
+
+type WeixinMediaDelivery = {
+  sent: WeixinOutboundFile[]
+  failed: Array<{ file: WeixinOutboundFile; message: string }>
+}
+
+type LoadWeixinMediaFile = () => Promise<SendWeixinMediaFile>
+
+async function deliverWeixinFilesBeforeSuccessText<T>(
+  files: readonly WeixinOutboundFile[],
+  sendFiles: () => Promise<WeixinMediaDelivery>,
+  sendText: () => Promise<T>,
+  beforeSend?: () => void
+): Promise<T> {
+  beforeSend?.()
+  if (files.length > 0) {
+    const mediaDelivery = await sendFiles()
+    if (mediaDelivery.failed.length > 0) {
+      throw new Error(`WeChat file delivery failed: ${mediaDelivery.failed[0]?.message || 'unknown upload error'}`)
+    }
+  }
+  beforeSend?.()
+  return sendText()
+}
 
 let sendWeixinMediaFilePromise: Promise<SendWeixinMediaFile> | null = null
 
+function encodeWeixinCdnAesKey(aesKeyHex: string): string {
+  // Tencent's outbound file contract uses base64(hex text), not base64(raw
+  // key bytes). The receiver decodes the 32 ASCII hex characters first and
+  // then parses them into the 16-byte AES key.
+  if (!/^[0-9a-f]{32}$/i.test(aesKeyHex)) {
+    throw new Error('Invalid WeChat CDN AES key')
+  }
+  return Buffer.from(aesKeyHex.toLowerCase(), 'utf8').toString('base64')
+}
+
+async function validateUploadedWeixinMedia(
+  filePath: string,
+  uploaded: UploadedWeixinMedia
+): Promise<void> {
+  const expected = await readFile(filePath)
+  if (expected.byteLength !== uploaded.fileSize) {
+    throw new Error(
+      `WeChat CDN verification failed: source size changed during upload (${expected.byteLength} != ${uploaded.fileSize}).`
+    )
+  }
+  if (!uploaded.downloadEncryptedQueryParam.trim()) {
+    throw new Error('WeChat CDN upload returned an empty download parameter.')
+  }
+  encodeWeixinCdnAesKey(uploaded.aeskey)
+  if (!Number.isSafeInteger(uploaded.fileSizeCiphertext) || uploaded.fileSizeCiphertext <= 0) {
+    throw new Error('WeChat CDN upload returned an invalid encrypted file size.')
+  }
+}
+
 /**
- * The CDN upload + media message protocol lives in the bundled WeChat plugin.
- * Loaded lazily so a broken install degrades to a text notice instead of
- * failing this whole module at startup.
+ * Reuse the bundled plugin's encrypted CDN uploader, but send the resulting
+ * media item here so retries can retain the ledger's stable client id.
  */
+function createSendWeixinMediaFile(
+  upload: WeixinMediaUploadModule,
+  mime: WeixinMimeModule,
+  post: typeof apiPost = apiPost
+): SendWeixinMediaFile {
+  return async (params): Promise<{ messageId: string }> => {
+    const uploadOptions = {
+      filePath: params.filePath,
+      toUserId: params.to,
+      opts: { baseUrl: params.opts.baseUrl, token: params.opts.token },
+      cdnBaseUrl: params.cdnBaseUrl
+    }
+    const contentType = mime.getMimeFromFilename(params.filePath)
+    let uploaded: UploadedWeixinMedia
+    let item: JsonRecord
+    if (contentType.startsWith('video/')) {
+      uploaded = await upload.uploadVideoToWeixin(uploadOptions) as UploadedWeixinMedia
+      item = {
+        type: MessageItemType.VIDEO,
+        video_item: {
+          media: {
+            encrypt_query_param: uploaded.downloadEncryptedQueryParam,
+            aes_key: encodeWeixinCdnAesKey(uploaded.aeskey),
+            encrypt_type: 1
+          },
+          video_size: uploaded.fileSizeCiphertext
+        }
+      }
+    } else if (contentType.startsWith('image/')) {
+      uploaded = await upload.uploadFileToWeixin(uploadOptions) as UploadedWeixinMedia
+      item = {
+        type: MessageItemType.IMAGE,
+        image_item: {
+          media: {
+            encrypt_query_param: uploaded.downloadEncryptedQueryParam,
+            aes_key: encodeWeixinCdnAesKey(uploaded.aeskey),
+            encrypt_type: 1
+          },
+          mid_size: uploaded.fileSizeCiphertext
+        }
+      }
+    } else {
+      const fileName = params.fileName?.trim() || basename(params.filePath)
+      uploaded = await upload.uploadFileAttachmentToWeixin({ ...uploadOptions, fileName }) as UploadedWeixinMedia
+      item = {
+        type: MessageItemType.FILE,
+        file_item: {
+          media: {
+            encrypt_query_param: uploaded.downloadEncryptedQueryParam,
+            aes_key: encodeWeixinCdnAesKey(uploaded.aeskey),
+            encrypt_type: 1
+          },
+          file_name: fileName,
+          len: String(uploaded.fileSize)
+        }
+      }
+    }
+    await validateUploadedWeixinMedia(params.filePath, uploaded)
+    // The CDN upload can outlive the provider-delivery lease. Revalidate at
+    // the last possible point before the irreversible provider send.
+    params.beforeProviderSend?.()
+    const response = await post(
+      params.opts.baseUrl,
+      'ilink/bot/sendmessage',
+      buildWeixinOutboundMessageBody({
+        to: params.to,
+        clientId: params.clientId,
+        item,
+        contextToken: params.opts.contextToken,
+        runId: params.runId
+      }),
+      {
+        token: params.opts.token,
+        timeoutMs: params.opts.timeoutMs ?? DEFAULT_API_TIMEOUT_MS,
+        label: 'sendMediaMessage'
+      }
+    )
+    const ret = Number(response.ret ?? 0)
+    const errcode = Number(response.errcode ?? 0)
+    if (ret !== 0 || errcode !== 0) {
+      throw new Error(
+        `sendMediaMessage rejected (ret=${ret}, errcode=${errcode}, errmsg=${recordString(response, 'errmsg') || recordString(response, 'message') || 'unknown error'})`
+      )
+    }
+    logInfo(
+      'weixin-bridge',
+      `sent WeChat media message (messageId=${params.clientId}, fileName=${basename(params.filePath)}, bytes=${uploaded.fileSize})`
+    )
+    return { messageId: params.clientId }
+  }
+}
+
 function loadSendWeixinMediaFile(): Promise<SendWeixinMediaFile> {
-  sendWeixinMediaFilePromise ??= import('@tencent-weixin/openclaw-weixin/dist/src/messaging/send-media.js')
-    .then((mod) => mod.sendWeixinMediaFile)
+  const uploadModuleId: string = '@tencent-weixin/openclaw-weixin/dist/src/cdn/upload.js'
+  const mimeModuleId: string = '@tencent-weixin/openclaw-weixin/dist/src/media/mime.js'
+  sendWeixinMediaFilePromise ??= Promise.all([
+    import(uploadModuleId) as Promise<WeixinMediaUploadModule>,
+    import(mimeModuleId) as Promise<WeixinMimeModule>
+  ])
+    .then(([upload, mime]) => createSendWeixinMediaFile(upload, mime))
     .catch((error) => {
       sendWeixinMediaFilePromise = null
       throw error
@@ -882,49 +1556,72 @@ function loadSendWeixinMediaFile(): Promise<SendWeixinMediaFile> {
 
 /**
  * Upload each generated file to the WeChat C2C CDN and deliver it as an
- * image / video / file message (routed by MIME). A failed file degrades to a
- * text notice instead of failing the whole reply.
+ * image / video / file message (routed by MIME). Any failed file makes the
+ * delivery fail so the ledger can retry it with the same outbound id.
  */
 async function sendGeneratedFilesWeixin(
   account: WeixinAccount,
   to: string,
   files: readonly WeixinOutboundFile[],
-  contextToken: string | undefined
-): Promise<void> {
-  for (const file of files) {
+  contextToken: string | undefined,
+  runId?: string,
+  outboundId?: string,
+  loadMediaFile: LoadWeixinMediaFile = loadSendWeixinMediaFile,
+  beforeSend?: () => void
+): Promise<WeixinMediaDelivery> {
+  if (isCandidateOutboundDisabled('weixin')) {
+    const message = 'Candidate IM outbound is disabled.'
+    return {
+      sent: [],
+      failed: files.map((file) => ({ file, message }))
+    }
+  }
+  const sent: WeixinOutboundFile[] = []
+  const failed: Array<{ file: WeixinOutboundFile; message: string }> = []
+  for (const [index, file] of files.entries()) {
     try {
-      const sendWeixinMediaFile = await loadSendWeixinMediaFile()
-      await sendWeixinMediaFile({
-        filePath: file.path,
-        to,
-        text: '',
-        opts: { baseUrl: account.baseUrl, token: account.token, contextToken },
-        cdnBaseUrl: account.cdnBaseUrl
+      beforeSend?.()
+      const sendWeixinMediaFile = await loadMediaFile()
+      const clientId = outboundId?.trim() ? `${outboundId.trim()}-file-${index + 1}` : undefined
+      await retryWithStableClientId(clientId, (stableClientId) => {
+        beforeSend?.()
+        return sendWeixinMediaFile({
+          filePath: file.path,
+          fileName: file.fileName,
+          to,
+          text: '',
+          clientId: stableClientId,
+          runId,
+          opts: { baseUrl: account.baseUrl, token: account.token, contextToken },
+          cdnBaseUrl: account.cdnBaseUrl,
+          beforeProviderSend: beforeSend
+        })
       })
+      sent.push(file)
     } catch (error) {
+      if (error instanceof WorkWiseDeliveryLeaseLostError) throw error
+      const message = error instanceof Error ? error.message : String(error)
+      failed.push({ file, message })
       logWarn('weixin-bridge', 'Failed to send generated file to WeChat.', {
         accountId: account.accountId,
         filePath: file.path,
-        message: error instanceof Error ? error.message : String(error)
+        message
       })
-      await sendMessageWeixinWithRetry({
-        account,
-        to,
-        text: `文件 ${file.fileName} 发送失败，请稍后再试。`,
-        contextToken
-      }).catch(() => undefined)
     }
   }
+  return { sent, failed }
 }
 
 async function postToWorkWiseWebhook(message: WeixinMessage, accountId: string): Promise<JsonRecord> {
   const settings = await resolveRuntimeContext()
   const text = textFromItemList(message.item_list)
   if (!text) return { reply: 'Only text messages are supported right now.' }
+  const messageId = weixinMessageId(message) || generateMessageId()
   const body = {
-    ...buildWebhookMessage(message, accountId, text),
+    ...buildWebhookMessage(message, accountId, text, messageId),
     channelId: settings.channelId || undefined
   }
+  logInfo('weixin-bridge', `received WeChat inbound message (accountId=${accountId}, messageId=${messageId}, textLen=${text.length})`)
   const headers: Record<string, string> = { 'content-type': 'application/json' }
   if (settings.webhookSecret) {
     headers.authorization = `Bearer ${settings.webhookSecret}`
@@ -938,22 +1635,173 @@ async function postToWorkWiseWebhook(message: WeixinMessage, accountId: string):
   })
   const data = await readJsonResponse(res)
   if (!res.ok || data.ok === false) {
-    throw new Error(recordString(data, 'message') || `WorkWise Runtime webhook HTTP ${res.status}`)
+    const reply = webhookReplyText(data) || safeWeixinFailureReply(recordString(data, 'message'))
+    logWarn('weixin-bridge', 'WorkWise webhook did not produce a successful result.', {
+      accountId,
+      messageId,
+      status: res.status,
+      message: recordString(data, 'message'),
+      hasReply: Boolean(webhookReplyText(data)),
+      deliveringReply: true
+    })
+    return { ...data, reply }
   }
+  // The webhook handler owns the inbound lease only until it writes this
+  // response. Acquire the provider-send phase before any CDN upload so a
+  // recovery worker cannot start a duplicate delivery in the gap.
+  try {
+    const deliveryLeaseUntil = await reportWorkWiseDelivery(data, 'start')
+    if (deliveryLeaseUntil) data.deliveryLeaseUntil = deliveryLeaseUntil
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    logWarn('weixin-bridge', 'WorkWise delivery lease could not be acquired.', {
+      accountId,
+      messageId,
+      message
+    })
+    return {
+      ...data,
+      ok: false,
+      deliveryLeaseLost: true,
+      message,
+      reply: safeWeixinFailureReply(message)
+    }
+  }
+  logInfo('weixin-bridge', `WorkWise webhook completed for WeChat message (accountId=${accountId}, messageId=${messageId}, hasReply=${Boolean(webhookReplyText(data))})`)
   return data
+}
+
+type WorkWiseDeliveryPhase = 'start' | 'renew' | 'complete'
+
+async function reportWorkWiseDelivery(
+  result: JsonRecord,
+  phase: WorkWiseDeliveryPhase,
+  ok?: boolean,
+  message?: string
+): Promise<string | undefined> {
+  const deliveryId = recordString(result, 'deliveryId')
+  const outboundId = recordString(result, 'outboundId')
+  const leaseRunId = recordString(result, 'deliveryLeaseRunId')
+  if (!deliveryId || !outboundId) return undefined
+  if (!leaseRunId) {
+    if (phase === 'complete') return undefined
+    throw new Error('WorkWise delivery response did not include a lease owner.')
+  }
+  const settings = await resolveRuntimeContext()
+  const receiptUrl = new URL(settings.webhookUrl)
+  receiptUrl.pathname = `${receiptUrl.pathname.replace(/\/$/, '')}/delivery`
+  const headers: Record<string, string> = { 'content-type': 'application/json' }
+  if (settings.webhookSecret) {
+    headers.authorization = `Bearer ${settings.webhookSecret}`
+    headers['x-workwise-secret'] = settings.webhookSecret
+  }
+  const response = await fetch(receiptUrl, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({
+      deliveryId,
+      outboundId,
+      leaseRunId,
+      phase,
+      ...(phase === 'complete' ? { ok: ok === true, message } : {})
+    }),
+    signal: AbortSignal.timeout(10_000)
+  })
+  if (!response.ok) {
+    if (response.status === 409) {
+      throw new WorkWiseDeliveryLeaseLostError()
+    }
+    throw new Error(`WorkWise delivery receipt failed with HTTP ${response.status}.`)
+  }
+  const receipt = await readJsonResponse(response)
+  return recordString(receipt, 'leaseUntil') || undefined
+}
+
+type WorkWiseDeliveryLeaseHeartbeat = {
+  stop: () => void
+  assertOwned: () => void
+}
+
+function workWiseDeliveryLeaseDeadline(value: unknown): number | undefined {
+  if (typeof value !== 'string' || !value.trim()) return undefined
+  const timestamp = Date.parse(value)
+  return Number.isFinite(timestamp) ? timestamp : undefined
+}
+
+function startWorkWiseDeliveryLeaseHeartbeat(
+  result: JsonRecord,
+  options: {
+    renew?: typeof reportWorkWiseDelivery
+    now?: () => number
+    intervalMs?: number
+  } = {}
+): WorkWiseDeliveryLeaseHeartbeat {
+  if (!recordString(result, 'deliveryId') || !recordString(result, 'outboundId') || !recordString(result, 'deliveryLeaseRunId')) {
+    return { stop: () => undefined, assertOwned: () => undefined }
+  }
+  const renew = options.renew ?? reportWorkWiseDelivery
+  const now = options.now ?? Date.now
+  let lost = false
+  let lastConfirmedLeaseDeadline = workWiseDeliveryLeaseDeadline(result.deliveryLeaseUntil) ?? 0
+  const markExpired = (): void => {
+    if (lost || now() < lastConfirmedLeaseDeadline) return
+    lost = true
+  }
+  const timer = setInterval(() => {
+    if (lost) return
+    void renew(result, 'renew').then((leaseUntil) => {
+      if (lost) return
+      const deadline = workWiseDeliveryLeaseDeadline(leaseUntil)
+      if (deadline !== undefined) lastConfirmedLeaseDeadline = deadline
+      else markExpired()
+    }).catch((error) => {
+      if (error instanceof WorkWiseDeliveryLeaseLostError) lost = true
+      else markExpired()
+      logWarn('weixin-bridge', 'Failed to renew the WorkWise delivery lease while sending.', {
+        message: error instanceof Error ? error.message : String(error)
+      })
+    })
+  }, options.intervalMs ?? IM_LEDGER_LEASE_RENEW_INTERVAL_MS)
+  timer.unref?.()
+  return {
+    stop: () => clearInterval(timer),
+    assertOwned: () => {
+      markExpired()
+      if (lost) throw new WorkWiseDeliveryLeaseLostError()
+    }
+  }
 }
 
 async function monitorWeixinAccount(accountId: string, signal: AbortSignal): Promise<void> {
   const account = await resolveWeixinAccount(accountId)
   if (!account.configured || !account.token?.trim()) {
+    await setAccountStatus(accountId, 'error', {
+      message: '微信账号凭据不存在。',
+      reasonCode: 'credential_missing'
+    })
     throw new Error(`WeChat account is not configured: ${accountId}`)
   }
+  const monitor = monitors.get(account.accountId)
+  const runId = monitor?.runId ?? randomUUID()
+  const startedAt = monitor?.startedAt ?? new Date().toISOString()
+  await setAccountStatus(account.accountId, 'starting', {
+    message: '正在连接微信。',
+    runId,
+    startedAt,
+    failureCount: 0,
+    reasonCode: 'none'
+  })
   await restoreContextTokens(account.accountId)
   try {
     await notifyStart(account)
-  } catch {
-    /* best-effort */
+  } catch (error) {
+    logWarn('weixin-bridge', 'WeChat monitor could not notify the upstream session start.', {
+      accountId: account.accountId,
+      message: error instanceof Error ? error.message : String(error)
+    })
   }
+
+  logInfo('weixin-bridge', `WeChat monitor started (accountId=${account.accountId})`)
 
   let getUpdatesBuf = await loadSyncBuf(account.accountId)
   let nextTimeoutMs = DEFAULT_LONG_POLL_TIMEOUT_MS
@@ -965,6 +1813,7 @@ async function monitorWeixinAccount(accountId: string, signal: AbortSignal): Pro
   // and the poll loop keep moving.
   const senderChains = new Map<string, Promise<void>>()
   const dispatchToSender = (message: WeixinMessage, to: string, contextToken: string | undefined): void => {
+    const messageRunId = randomUUID()
     const task = async (): Promise<void> => {
       if (signal.aborted) return
       const slowReply = { promise: null as Promise<void> | null }
@@ -973,7 +1822,8 @@ async function monitorWeixinAccount(accountId: string, signal: AbortSignal): Pro
           account,
           to,
           text: WEIXIN_SLOW_REPLY_TEXT,
-          contextToken
+          contextToken,
+          runId: messageRunId
         }).then(() => undefined).catch((error) => {
           logWarn('weixin-bridge', 'Failed to send WeChat processing notice.', {
             accountId: account.accountId,
@@ -989,17 +1839,50 @@ async function monitorWeixinAccount(accountId: string, signal: AbortSignal): Pro
       }
       if (slowReply.promise) await slowReply.promise
       const reply = recordString(result, 'reply') || recordString(result, 'text')
-      if (reply) {
-        await sendMessageWeixinWithRetry({
-          account,
-          to,
-          text: reply,
-          contextToken
+      try {
+        if (result.deliveryLeaseLost === true) return
+        if (!reply) throw new Error('WorkWise webhook completed without a text reply.')
+        const files = webhookGeneratedFiles(result)
+        const outboundId = recordString(result, 'outboundId') || undefined
+        const deliveryLease = startWorkWiseDeliveryLeaseHeartbeat(result)
+        try {
+          await deliverWeixinFilesBeforeSuccessText(
+            files,
+            () => sendGeneratedFilesWeixin(
+              account,
+              to,
+              files,
+              contextToken,
+              messageRunId,
+              outboundId,
+              undefined,
+              deliveryLease.assertOwned
+            ),
+            () => sendWeixinTextWithRetry({
+              account,
+              to,
+              text: reply,
+              contextToken,
+              runId: messageRunId,
+              clientId: outboundId
+            }, deliveryLease.assertOwned),
+            deliveryLease.assertOwned
+          )
+          deliveryLease.assertOwned()
+          await reportWorkWiseDelivery(result, 'complete', true)
+        } finally {
+          deliveryLease.stop()
+        }
+      } catch (error) {
+        if (error instanceof WorkWiseDeliveryLeaseLostError) return
+        await reportWorkWiseDelivery(result, 'complete', false, error instanceof Error ? error.message : String(error)).catch((receiptError) => {
+          logWarn('weixin-bridge', 'Failed to record WeChat delivery failure in the WorkWise ledger.', {
+            accountId: account.accountId,
+            message: receiptError instanceof Error ? receiptError.message : String(receiptError)
+          })
         })
+        throw error
       }
-      // Generated files (e.g. generate_image output) arrive alongside the
-      // text reply and go out as native image / file messages.
-      await sendGeneratedFilesWeixin(account, to, webhookGeneratedFiles(result), contextToken)
     }
     const chained = (senderChains.get(to) ?? Promise.resolve())
       .then(task)
@@ -1012,8 +1895,11 @@ async function monitorWeixinAccount(accountId: string, signal: AbortSignal): Pro
         await sendMessageWeixinWithRetry({
           account,
           to,
-          text: WEIXIN_FAILED_REPLY_TEXT,
-          contextToken
+          text: error instanceof WeixinWebhookError
+            ? error.replyText
+            : safeWeixinFailureReply(error instanceof Error ? error.message : String(error)),
+          contextToken,
+          runId: messageRunId
         }).catch((sendError) => {
           logWarn('weixin-bridge', 'Failed to send WeChat failure notice.', {
             accountId: account.accountId,
@@ -1028,32 +1914,78 @@ async function monitorWeixinAccount(accountId: string, signal: AbortSignal): Pro
   }
   while (!signal.aborted) {
     try {
-      const resp = await getUpdates(account, getUpdatesBuf, nextTimeoutMs)
+      const resp = await getUpdates(account, getUpdatesBuf, nextTimeoutMs, signal)
       if (typeof resp.longpolling_timeout_ms === 'number' && resp.longpolling_timeout_ms > 0) {
         nextTimeoutMs = resp.longpolling_timeout_ms
       }
       const ret = Number(resp.ret ?? 0)
       const errcode = Number(resp.errcode ?? 0)
       if (ret !== 0 || errcode !== 0) {
+        logWarn('weixin-bridge', 'WeChat getUpdates returned an error.', {
+          accountId: account.accountId,
+          ret,
+          errcode,
+          errmsg: recordString(resp, 'errmsg')
+        })
+        if (isWeixinSessionExpiredResponse(resp)) {
+          await setAccountStatus(account.accountId, 'expired', {
+            message: '微信连接已过期，请重新扫码。',
+            errorCode: WEIXIN_SESSION_EXPIRED_ERRCODE,
+            runId,
+            startedAt,
+            lastErrorAt: new Date().toISOString(),
+            reasonCode: 'auth_expired'
+          })
+          logWarn('weixin-bridge', 'WeChat monitor paused because the session expired. Scan a new QR code to reconnect.', {
+            accountId: account.accountId,
+            errcode: WEIXIN_SESSION_EXPIRED_ERRCODE
+          })
+          break
+        }
         consecutiveFailures += 1
-        await sleep(consecutiveFailures >= 3 ? BACKOFF_DELAY_MS : RETRY_DELAY_MS)
-        if (consecutiveFailures >= 3) consecutiveFailures = 0
+        const delayMs = retryDelayMs(consecutiveFailures)
+        await setAccountStatus(account.accountId, 'retrying', {
+          message: '微信网络连接异常，正在重试。',
+          runId,
+          startedAt,
+          failureCount: consecutiveFailures,
+          nextRetryAt: new Date(Date.now() + delayMs).toISOString(),
+          lastErrorAt: new Date().toISOString(),
+          reasonCode: 'network'
+        })
+        await sleep(delayMs)
         continue
       }
       consecutiveFailures = 0
+      await setAccountStatus(account.accountId, 'connected', {
+        message: '微信已连接。',
+        lastSuccessfulPollAt: new Date().toISOString(),
+        runId,
+        startedAt,
+        failureCount: 0,
+        reasonCode: 'none'
+      })
       const nextBuf = typeof resp.get_updates_buf === 'string' ? resp.get_updates_buf : ''
       if (nextBuf) {
         getUpdatesBuf = nextBuf
         await saveSyncBuf(account.accountId, getUpdatesBuf)
       }
       const messages = Array.isArray(resp.msgs) ? resp.msgs as WeixinMessage[] : []
+      if (messages.length > 0) {
+        logInfo('weixin-bridge', `received ${messages.length} WeChat inbound message(s) from getUpdates (accountId=${account.accountId})`)
+        await setAccountStatus(account.accountId, 'connected', {
+          runId,
+          lastInboundAt: new Date().toISOString(),
+          reasonCode: 'none'
+        })
+      }
       for (const message of messages) {
         if (signal.aborted) return
         if (message.message_type === MessageType.BOT) continue
         const to = message.from_user_id || ''
         if (!to) continue
-        const contextToken = message.context_token || undefined
-        if (contextToken) await setContextToken(account.accountId, to, contextToken)
+        const contextToken = message.context_token?.trim() || getContextToken(account.accountId, to)
+        if (message.context_token?.trim()) await setContextToken(account.accountId, to, message.context_token.trim())
         dispatchToSender(message, to, contextToken)
       }
     } catch (error) {
@@ -1063,8 +1995,17 @@ async function monitorWeixinAccount(accountId: string, signal: AbortSignal): Pro
         message: error instanceof Error ? error.message : String(error)
       })
       consecutiveFailures += 1
-      await sleep(consecutiveFailures >= 3 ? BACKOFF_DELAY_MS : RETRY_DELAY_MS)
-      if (consecutiveFailures >= 3) consecutiveFailures = 0
+      const delayMs = retryDelayMs(consecutiveFailures)
+      await setAccountStatus(account.accountId, 'retrying', {
+        message: '微信连接异常，正在重试。',
+        runId,
+        startedAt,
+        failureCount: consecutiveFailures,
+        nextRetryAt: new Date(Date.now() + delayMs).toISOString(),
+        lastErrorAt: new Date().toISOString(),
+        reasonCode: 'network'
+      })
+      await sleep(delayMs)
     }
   }
 
@@ -1075,41 +2016,223 @@ async function monitorWeixinAccount(accountId: string, signal: AbortSignal): Pro
   }
 }
 
-function startAccountMonitor(accountId: string): void {
+function weixinMonitorHeartbeatTime(status: WeixinPersistedAccountStatus): number {
+  const reference = status.status === 'starting'
+    ? status.startedAt ?? status.updatedAt ?? ''
+    : status.lastSuccessfulPollAt ?? status.startedAt ?? status.updatedAt ?? ''
+  return Date.parse(reference)
+}
+
+async function startAccountMonitor(accountId: string): Promise<void> {
   const normalized = normalizeAccountId(accountId)
   const existing = monitors.get(normalized)
   if (existing && !existing.controller.signal.aborted) return
   const controller = new AbortController()
-  const promise = monitorWeixinAccount(normalized, controller.signal).catch((error) => {
+  const runId = randomUUID()
+  const startedAt = new Date().toISOString()
+  let restartRequested = false
+  const initialStatus = setAccountStatus(normalized, 'starting', {
+    message: '正在连接微信。',
+    runId,
+    startedAt,
+    failureCount: 0,
+    reasonCode: 'none'
+  })
+  const watchdog = setInterval(() => {
+    const current = accountStatuses.get(normalized)
+    if (!current || controller.signal.aborted) return
+    const heartbeat = weixinMonitorHeartbeatTime(current)
+    const deadline = current.status === 'starting' ? 90_000 : IM_STALE_AFTER_MS
+    if (Number.isFinite(heartbeat) && Date.now() - heartbeat <= deadline) return
+    void setAccountStatus(normalized, 'stale', {
+      message: '微信连接心跳超时，正在重新连接。',
+      runId,
+      startedAt,
+      failureCount: (current.failureCount ?? 0) + 1,
+      nextRetryAt: new Date(Date.now() + retryDelayMs((current.failureCount ?? 0) + 1)).toISOString(),
+      lastErrorAt: new Date().toISOString(),
+      reasonCode: current.status === 'starting' ? 'first_poll_timeout' : 'poll_stale'
+    })
+    restartRequested = true
+    controller.abort()
+  }, IM_HEALTH_SUPERVISOR_INTERVAL_MS)
+  const promise = initialStatus.then(() => monitorWeixinAccount(normalized, controller.signal)).catch(async (error) => {
     if (!controller.signal.aborted) {
+      const code = error && typeof error === 'object' && 'code' in error
+        ? String(error.code)
+        : ''
+      const current = accountStatuses.get(normalized)
+      if (current?.reasonCode !== 'credential_missing') {
+        const failureCount = (current?.failureCount ?? 0) + 1
+        const credentialUnavailable = code === 'credential_unavailable'
+        await setAccountStatus(normalized, 'error', {
+          message: code === 'credential_unavailable'
+            ? '现有微信凭据仍在，请通过“重新连接”恢复系统钥匙串访问。'
+            : '微信连接进程异常，正在准备重试。',
+          runId,
+          startedAt,
+          failureCount,
+          ...(credentialUnavailable
+            ? { nextRetryAt: undefined }
+            : { nextRetryAt: new Date(Date.now() + retryDelayMs(failureCount)).toISOString() }),
+          lastErrorAt: new Date().toISOString(),
+          reasonCode: credentialUnavailable ? 'credential_unavailable' : 'bridge_unavailable'
+        })
+      }
       logError('weixin-bridge', 'WeChat monitor stopped.', {
         accountId: normalized,
         message: error instanceof Error ? error.message : String(error)
       })
     }
   }).finally(() => {
+    clearInterval(watchdog)
     if (monitors.get(normalized)?.controller === controller) monitors.delete(normalized)
+    const current = accountStatuses.get(normalized)
+    if (shouldRestartWeixinMonitor(controller.signal.aborted, restartRequested, current?.status, current?.reasonCode)) {
+      const retryTimer = setTimeout(() => {
+        const latest = accountStatuses.get(normalized)
+        if (bridgeRuntimeStopping || !canAutomaticallyStartWeixinMonitor(latest?.status, latest?.reasonCode)) return
+        void startAccountMonitor(normalized)
+      }, retryDelayMs((current?.failureCount ?? 0) + 1))
+      retryTimer.unref?.()
+    }
   })
-  monitors.set(normalized, { accountId: normalized, controller, promise })
+  monitors.set(normalized, { accountId: normalized, runId, startedAt, controller, promise, watchdog })
+  await initialStatus
+}
+
+function shouldRestartWeixinMonitor(
+  aborted: boolean,
+  restartRequested: boolean,
+  status: WeixinPersistedAccountStatus['status'] | undefined,
+  reasonCode?: string
+): boolean {
+  if (
+    reasonCode === 'credential_missing' ||
+    reasonCode === 'credential_unavailable' ||
+    reasonCode === 'auth_expired' ||
+    reasonCode === 'user_stopped'
+  ) return false
+  return (restartRequested || !aborted) && status !== 'expired' && status !== 'stopped'
+}
+
+function canAutomaticallyStartWeixinMonitor(
+  status: WeixinPersistedAccountStatus['status'] | undefined,
+  reasonCode?: string
+): boolean {
+  if (status === 'expired' || status === 'stopped') return false
+  // A locked Keychain requires an explicit reconnect. Retrying during app
+  // startup would reopen the macOS authorization prompt without user intent.
+  return reasonCode !== 'credential_missing' &&
+    reasonCode !== 'credential_unavailable' &&
+    reasonCode !== 'auth_expired' &&
+    reasonCode !== 'user_stopped'
 }
 
 async function startWeixinChannels(params: JsonRecord): Promise<JsonRecord> {
+  await loadAccountStatuses()
   const requestedAccountId = recordString(params, 'accountId')
   const accountIds = requestedAccountId
     ? [normalizeAccountId(requestedAccountId)]
     : await listIndexedWeixinAccountIds()
-  for (const accountId of accountIds) startAccountMonitor(accountId)
-  return { started: accountIds }
+  const startable = requestedAccountId
+    ? accountIds
+    : accountIds.filter((accountId) => {
+        const persisted = accountStatuses.get(normalizeAccountId(accountId))
+        return canAutomaticallyStartWeixinMonitor(persisted?.status, persisted?.reasonCode)
+      })
+  await Promise.all(startable.map((accountId) => startAccountMonitor(accountId)))
+  return { started: startable }
+}
+
+async function abortWeixinMonitors(activeMonitors: readonly WeixinMonitor[]): Promise<void> {
+  for (const monitor of activeMonitors) monitor.controller.abort()
+  await Promise.allSettled(activeMonitors.map((monitor) => monitor.promise))
 }
 
 async function stopWeixinChannels(params: JsonRecord): Promise<JsonRecord> {
   const requestedAccountId = recordString(params, 'accountId')
   const targets = requestedAccountId ? [normalizeAccountId(requestedAccountId)] : [...monitors.keys()]
+  const activeMonitors = targets
+    .map((accountId) => monitors.get(accountId))
+    .filter((monitor): monitor is WeixinMonitor => monitor != null)
+  for (const monitor of activeMonitors) {
+    if (monitors.get(monitor.accountId) === monitor) monitors.delete(monitor.accountId)
+  }
+  await abortWeixinMonitors(activeMonitors)
   for (const accountId of targets) {
-    monitors.get(accountId)?.controller.abort()
-    monitors.delete(accountId)
+    await setAccountStatus(accountId, 'stopped', {
+      message: '微信连接已暂停。',
+      reasonCode: 'user_stopped'
+    })
   }
   return { stopped: targets }
+}
+
+export async function startWeixinBridgeAccount(accountId: string): Promise<void> {
+  await ensureWeixinBridgeRpcUrl()
+  await startWeixinChannels({ accountId })
+}
+
+export async function stopWeixinBridgeAccount(accountId: string): Promise<void> {
+  await stopWeixinChannels({ accountId })
+}
+
+export async function reconnectWeixinBridgeAccount(accountId: string): Promise<void> {
+  await stopWeixinChannels({ accountId })
+  await ensureWeixinBridgeRpcUrl()
+  await startWeixinChannels({ accountId })
+}
+
+export async function disconnectWeixinBridgeAccount(accountId: string): Promise<void> {
+  const normalized = normalizeAccountId(accountId)
+  const monitor = monitors.get(normalized)
+  monitor?.controller.abort()
+  monitors.delete(normalized)
+  await setAccountStatus(normalized, 'stopped', {
+    message: '微信连接已断开，正在清除凭据。',
+    reasonCode: 'user_stopped'
+  })
+  await monitor?.promise
+
+  const entry = await loadWeixinAccountEntry(normalized)
+  const refs = new Map<string, ImCredentialRefV1>()
+  const addRef = (ref: ImCredentialRefV1 | undefined): void => {
+    if (ref) refs.set(`${ref.storage}:${ref.id}`, ref)
+  }
+  addRef(entry?.data.credentialRef)
+  for (const ref of await persistedContextCredentialRefs(normalized)) addRef(ref)
+  const prefix = `${normalized}:`
+  for (const [key, ref] of contextTokenRefs) {
+    if (key.startsWith(prefix)) addRef(ref)
+  }
+  if (refs.size > 0 && !credentialProvider) {
+    throw new Error('Secure WeChat credential storage is unavailable; credentials were not removed.')
+  }
+  await Promise.all([...refs.values()].map((ref) => credentialProvider?.remove(ref)))
+
+  const rawId = deriveRawAccountId(normalized)
+  const files = new Set([
+    accountPath(normalized),
+    syncBufPath(normalized),
+    contextTokensPath(normalized),
+    ...(rawId ? [accountPath(rawId), syncBufPath(rawId), contextTokensPath(rawId)] : []),
+    ...(entry ? [entry.sourcePath] : [])
+  ])
+  await Promise.all([...files].map((filePath) => unlink(filePath).catch(() => undefined)))
+  const remainingAccountIds = (await listIndexedWeixinAccountIds())
+    .filter((id) => normalizeAccountId(id) !== normalized)
+  await writeJsonIfChanged(accountsIndexPath(), remainingAccountIds)
+
+  for (const key of [...contextTokenStore.keys()]) {
+    if (!key.startsWith(prefix)) continue
+    contextTokenStore.delete(key)
+    contextTokenRefs.delete(key)
+  }
+  for (const [sessionKey, login] of activeLogins) {
+    if (normalizeAccountId(login.existingAccountId ?? '') === normalized) activeLogins.delete(sessionKey)
+  }
+  await removePersistedAccountStatus(normalized)
 }
 
 async function dispatchRpc(method: string, params: JsonRecord): Promise<JsonRecord> {
@@ -1223,6 +2346,7 @@ async function listen(serverToStart: HttpServer, port: number): Promise<void> {
 
 async function startBridgeServer(): Promise<string> {
   if (server && await fetchBridgeHealth(activeBridgePort)) return resolveRpcUrl()
+  bridgeRuntimeStopping = false
   const port = await resolveAvailableBridgePort()
   activeBridgePort = port
   await prepareBridgeState(port)
@@ -1261,11 +2385,47 @@ export async function getWeixinBridgeAccountUserId(accountId: string): Promise<s
   }
 }
 
+export async function isWeixinBridgeAccountConfigured(accountId: string): Promise<boolean> {
+  const normalized = normalizeAccountId(accountId)
+  await loadAccountStatuses()
+  if (canTrustActiveWeixinCredential(monitors.has(normalized), accountStatuses.get(normalized)?.status)) return true
+  try {
+    return (await resolveWeixinAccount(normalized)).configured
+  } catch {
+    return false
+  }
+}
+
+export async function getWeixinBridgeAccountStatuses(
+  requestedAccountId?: string
+): Promise<WeixinBridgeAccountStatusV1[]> {
+  await loadAccountStatuses()
+  const requested = requestedAccountId?.trim() ? normalizeAccountId(requestedAccountId) : ''
+  const indexedIds = await listIndexedWeixinAccountIds()
+  const ids = requested
+    ? [requested]
+    : [...new Set([...indexedIds.map(normalizeAccountId), ...accountStatuses.keys(), ...monitors.keys()])]
+  return ids.map((accountId) => {
+    const persisted = accountStatuses.get(accountId)
+    if (persisted) return { accountId, ...persisted }
+    return {
+      accountId,
+      status: monitors.has(accountId) ? 'starting' : 'unknown',
+      message: monitors.has(accountId) ? '正在连接微信。' : '尚未确认微信连接状态。'
+    }
+  })
+}
+
 export async function sendWeixinBridgeMessage(options: {
   accountId: string
   to: string
   text: string
+  clientId?: string
+  files?: WeixinOutboundFile[]
 }): Promise<WeixinBridgeSendResult> {
+  if (isCandidateOutboundDisabled('weixin')) {
+    return { ok: false, message: 'Candidate IM outbound is disabled.' }
+  }
   const accountId = normalizeAccountId(options.accountId)
   const to = options.to.trim()
   const text = options.text.trim()
@@ -1278,16 +2438,60 @@ export async function sendWeixinBridgeMessage(options: {
     const cfg = await readBridgeConfig()
     void cfg
     const account = await resolveWeixinAccount(accountId)
+    const [status] = await getWeixinBridgeAccountStatuses(accountId)
+    if (status?.status === 'expired') {
+      return { ok: false as const, message: '微信连接已过期，请重新扫码。' }
+    }
+    if (status?.status === 'stopped' || status?.reasonCode === 'user_stopped') {
+      return { ok: false as const, message: '微信连接已暂停，请先重新连接。' }
+    }
     if (!account.configured || !account.token?.trim()) {
       return { ok: false as const, message: 'WeChat account is not configured.' }
     }
     await restoreContextTokens(account.accountId)
-    const result = await sendMessageWeixinWithRetry({
-      account,
-      to,
-      text,
-      contextToken: getContextToken(account.accountId, to)
-    })
+    const contextToken = getContextToken(account.accountId, to)
+    const messageRunId = randomUUID()
+    const files = options.files ?? []
+    let result: { messageId: string }
+    try {
+      result = await deliverWeixinFilesBeforeSuccessText(
+        files,
+        () => sendGeneratedFilesWeixin(
+          account,
+          to,
+          files,
+          contextToken,
+          messageRunId,
+          options.clientId
+        ),
+        () => sendWeixinTextWithRetry({
+          account,
+          to,
+          text,
+          contextToken,
+          runId: messageRunId,
+          clientId: options.clientId
+        })
+      )
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      if (/^WeChat file delivery failed:/i.test(message)) {
+        await sendWeixinTextWithRetry({
+          account,
+          to,
+          text: WEIXIN_FILE_FAILED_REPLY_TEXT,
+          contextToken,
+          runId: messageRunId,
+          clientId: options.clientId?.trim() ? `${options.clientId.trim()}-failure` : undefined
+        }).catch((noticeError) => {
+          logWarn('weixin-bridge', 'Failed to send WeChat attachment failure notice.', {
+            accountId,
+            message: noticeError instanceof Error ? noticeError.message : String(noticeError)
+          })
+        })
+      }
+      throw error
+    }
     return { ok: true as const, messageId: result.messageId }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
@@ -1300,19 +2504,52 @@ export async function sendWeixinBridgeMessage(options: {
   }
 }
 
-export function stopWeixinBridgeRuntime(): void {
+export async function stopWeixinBridgeRuntime(): Promise<void> {
+  bridgeRuntimeStopping = true
   startPromise = null
-  for (const monitor of monitors.values()) monitor.controller.abort()
+  const activeMonitors = [...monitors.values()]
   monitors.clear()
+  await abortWeixinMonitors(activeMonitors)
   if (!server) return
   const runningServer = server
   server = null
-  runningServer.close()
+  await new Promise<void>((resolveClose) => {
+    try {
+      runningServer.close(() => resolveClose())
+    } catch {
+      resolveClose()
+    }
+  })
 }
 
 export const weixinBridgeRuntimeInternals = {
   buildBaseInfo,
+  buildWeixinOutboundMessageBody,
   normalizeAccountId,
   retryWithDelays,
-  webhookGeneratedFiles
+  retryWithStableClientId,
+  weixinChunkClientId,
+  weixinMessageId,
+  weixinMonitorHeartbeatTime,
+  getUpdates,
+  shouldRestartWeixinMonitor,
+  canAutomaticallyStartWeixinMonitor,
+  webhookGeneratedFiles,
+  sendGeneratedFilesWeixin,
+  createSendWeixinMediaFile,
+  deliverWeixinFilesBeforeSuccessText,
+  encodeWeixinCdnAesKey,
+  validateUploadedWeixinMedia,
+  buildWebhookMessage,
+  webhookReplyText,
+  safeWeixinFailureReply,
+  splitWeixinText,
+  buildBoundLoginResult,
+  buildWeixinQrRequest,
+  canReuseWeixinAccountStatus,
+  canTrustActiveWeixinCredential,
+  isWeixinSessionExpiredResponse,
+  startWorkWiseDeliveryLeaseHeartbeat,
+  protectWeixinAccountData,
+  abortWeixinMonitors
 }

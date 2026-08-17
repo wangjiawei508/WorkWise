@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import {
   getModelProviderProfile,
   getModelProviderSettings,
+  isOfficialDeepSeekBaseUrl,
   listModelProviderModelIds,
   resolveManagedRuntimeSettings,
   type AppSettingsV1
@@ -17,6 +18,7 @@ export type FetchUpstreamModelsResult =
   | { ok: false; message: string }
 
 const UPSTREAM_MODELS_TIMEOUT_MS = 8_000
+const RETIRED_DEEPSEEK_MODEL_IDS = new Set(['deepseek-chat', 'deepseek-reasoner'])
 
 export function fallbackModelIds(): string[] {
   return sortComposerModelIds(DEFAULT_COMPOSER_MODEL_IDS)
@@ -26,7 +28,10 @@ export async function fetchUpstreamModelIds(
   settings: AppSettingsV1,
   apiKey: string
 ): Promise<FetchUpstreamModelsResult> {
-  const configuredModelIds = await readConfiguredKunModelIds(settings)
+  const configuredModelIds = visibleConfiguredModelIds(
+    settings,
+    await readConfiguredKunModelIds(settings)
+  )
   const configuredGroups = await readConfiguredModelGroups(settings)
   const key = apiKey.trim()
   if (!key) {
@@ -69,7 +74,8 @@ export async function fetchUpstreamModelIds(
         if (id) ids.add(id)
       }
     }
-    const sorted = mergeModelIds([...ids, ...configuredModelIds])
+    const upstreamIds = visibleProviderModelIds(activeProvider.baseUrl, [...ids])
+    const sorted = mergeModelIds([...upstreamIds, ...configuredModelIds])
     if (sorted.length === 0) {
       return { ok: false, message: 'Upstream returned an empty model list.' }
     }
@@ -81,7 +87,7 @@ export async function fetchUpstreamModelIds(
         {
           providerId: activeProvider.id,
           label: activeProvider.name,
-          modelIds: [...ids]
+          modelIds: upstreamIds
         }
       ])
     }
@@ -128,7 +134,7 @@ async function readConfiguredModelGroups(settings: AppSettingsV1): Promise<Model
     groups.push({
       providerId: provider.id,
       label: provider.name,
-      modelIds: provider.models
+      modelIds: visibleProviderModelIds(provider.baseUrl, provider.models)
     })
   }
   return mergeModelGroups([
@@ -191,6 +197,9 @@ async function readConfiguredProfileAliasGroups(
   const aliasesByModel = new Map<string, string[]>()
   collectModelProfileAliases(aliasesByModel, objectValue(contextCompaction.modelProfiles))
   collectModelProfileAliases(aliasesByModel, objectValue(models.profiles))
+  const providers = new Map(
+    getModelProviderSettings(settings).providers.map((provider) => [provider.id, provider])
+  )
 
   const aliasGroups: ModelProviderModelGroup[] = []
   for (const group of providerGroups) {
@@ -199,10 +208,11 @@ async function readConfiguredProfileAliasGroups(
       aliases.push(...(aliasesByModel.get(modelId.trim()) ?? []))
     }
     if (aliases.length === 0) continue
+    const provider = providers.get(group.providerId)
     aliasGroups.push({
       providerId: group.providerId,
       label: group.label,
-      modelIds: aliases
+      modelIds: provider ? visibleProviderModelIds(provider.baseUrl, aliases) : aliases
     })
   }
   return aliasGroups
@@ -225,6 +235,24 @@ function collectModelProfileAliases(
     }
     target.set(trimmed, ids)
   }
+}
+
+function visibleProviderModelIds(baseUrl: string, ids: readonly string[]): string[] {
+  if (!isOfficialDeepSeekBaseUrl(baseUrl)) return sortComposerModelIds(ids)
+  return sortComposerModelIds(ids).filter((id) => !RETIRED_DEEPSEEK_MODEL_IDS.has(id.toLowerCase()))
+}
+
+function visibleConfiguredModelIds(settings: AppSettingsV1, ids: readonly string[]): string[] {
+  const explicitlyConfiguredByCompatibleProvider = new Set(
+    getModelProviderSettings(settings).providers
+      .filter((provider) => !isOfficialDeepSeekBaseUrl(provider.baseUrl))
+      .flatMap((provider) => provider.models.map((id) => id.trim().toLowerCase()))
+  )
+  return ids.filter((id) => {
+    const normalized = id.trim().toLowerCase()
+    return !RETIRED_DEEPSEEK_MODEL_IDS.has(normalized) ||
+      explicitlyConfiguredByCompatibleProvider.has(normalized)
+  })
 }
 
 function mergeModelIds(ids: readonly string[]): string[] {

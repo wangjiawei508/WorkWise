@@ -25,6 +25,8 @@ import type { UsageSnapshot } from '../src/contracts/usage.js'
 import { buildRuntimeCapabilityManifest } from '../src/contracts/capabilities.js'
 import { modelCapabilitiesForModel } from '../src/loop/model-context-profile.js'
 import { RUNTIME_RESOURCE_LIMITS_V1 } from '../src/contracts/resource-limits.js'
+import { WorkspaceReferenceService } from '../src/services/workspace-reference-service.js'
+import { UiActionService } from '../src/services/ui-action-service.js'
 
 function makeModel(chunks: ModelStreamChunk[]): ModelClient {
   return {
@@ -91,6 +93,7 @@ export function buildHarness(options: { onThreadDeleted?: (threadId: string) => 
   const inflight = new InflightTracker()
   const steering = new SteeringQueue()
   const compactor = new ContextCompactor()
+  const workspaceReferenceService = new WorkspaceReferenceService()
   const toolHost = new LocalToolHost({ tools: defaultLocalTools })
   const usage = new UsageService()
   const prefix = createImmutablePrefix({ systemPrompt: 'be brief' })
@@ -106,8 +109,10 @@ export function buildHarness(options: { onThreadDeleted?: (threadId: string) => 
     steering,
     compactor,
     ids,
-    nowIso
+    nowIso,
+    workspaceReferences: workspaceReferenceService
   })
+  const uiActionService = new UiActionService({ sessionStore, turns: turnService })
   const threadService = new ThreadService({ threadStore, sessionStore, events, ids, nowIso, ...options })
   const model = makeModel([{ kind: 'completed', stopReason: 'stop' }])
   const loop = new AgentLoop({
@@ -125,7 +130,8 @@ export function buildHarness(options: { onThreadDeleted?: (threadId: string) => 
     compactor,
     prefix,
     ids,
-    nowIso
+    nowIso,
+    workspaceReferences: workspaceReferenceService
   })
   const startedAt = nowIso()
   const modelId = 'deepseek-chat'
@@ -135,6 +141,7 @@ export function buildHarness(options: { onThreadDeleted?: (threadId: string) => 
   const runtime: ServerRuntime = {
     threadService,
     turnService,
+    uiActionService,
     usageService: usage,
     eventBus: bus,
     sessionStore,
@@ -142,6 +149,7 @@ export function buildHarness(options: { onThreadDeleted?: (threadId: string) => 
     approvalGate,
     userInputGate,
     workspaceInspector: new LocalWorkspaceInspector(),
+    workspaceReferenceService,
     runTurn: (threadId, turnId) => {
       void loop.runTurn(threadId, turnId)
     },

@@ -5,6 +5,8 @@ import type {
   SseErrorPayload,
   SseEventPayload
 } from '@shared/workwise-api'
+import { runtimeThreadWorkspaceReferenceSearchPath } from '@shared/runtime-endpoints'
+import type { CoreWorkspaceReferenceSearchResponseJson } from './runtime-contract'
 
 class RendererRuntimeClient {
   private cachedSettings: WorkWiseSettingsV2 | null = null
@@ -31,21 +33,31 @@ class RendererRuntimeClient {
   }
 
   async setSettings(partial: AppSettingsPatch): Promise<WorkWiseSettingsV2> {
-    const task = this.settingsWriteQueue.then(() => this.writeSettings(partial))
+    const task = this.settingsWriteQueue.then(() => this.writeSettings(() => partial))
     this.settingsWriteQueue = task.then(() => undefined, () => undefined)
     return task
   }
 
-  private async writeSettings(partial: AppSettingsPatch): Promise<WorkWiseSettingsV2> {
+  async updateSettings(
+    createPatch: (settings: WorkWiseSettingsV2) => AppSettingsPatch
+  ): Promise<WorkWiseSettingsV2> {
+    const task = this.settingsWriteQueue.then(() => this.writeSettings(createPatch))
+    this.settingsWriteQueue = task.then(() => undefined, () => undefined)
+    return task
+  }
+
+  private async writeSettings(
+    createPatch: (settings: WorkWiseSettingsV2) => AppSettingsPatch
+  ): Promise<WorkWiseSettingsV2> {
     const current = await this.getSettings()
     let settings: WorkWiseSettingsV2
     try {
-      settings = await window.workwise.setSettings(partial, current.revision)
+      settings = await window.workwise.setSettings(createPatch(current), current.revision)
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
       if (!/revision conflict|stale_request/i.test(message)) throw error
       const latest = await this.getSettings({ forceRefresh: true })
-      settings = await window.workwise.setSettings(partial, latest.revision)
+      settings = await window.workwise.setSettings(createPatch(latest), latest.revision)
     }
     this.cachedSettings = settings
     this.settingsPromise = null
@@ -63,6 +75,30 @@ class RendererRuntimeClient {
       return window.workwise.runtimeRequest(path, method)
     }
     return window.workwise.runtimeRequest(path, method, body)
+  }
+
+  async searchWorkspaceReferences(
+    threadId: string,
+    query: string,
+    limit = 20
+  ): Promise<CoreWorkspaceReferenceSearchResponseJson | null> {
+    const response = await this.runtimeRequest(
+      runtimeThreadWorkspaceReferenceSearchPath(threadId),
+      'POST',
+      JSON.stringify({ query, limit })
+    )
+    const errorMessage = readRuntimeErrorMessage(response.body, 'workspace reference search failed')
+    if (response.status === 501 || (response.status === 404 && errorMessage === 'route not found')) {
+      return null
+    }
+    if (!response.ok) {
+      throw new Error(errorMessage)
+    }
+    try {
+      return JSON.parse(response.body) as CoreWorkspaceReferenceSearchResponseJson
+    } catch {
+      throw new Error('runtime returned an invalid workspace reference search response')
+    }
   }
 
   startSse(threadId: string, sinceSeq: number, streamId?: string): Promise<{ streamId: string }> {
@@ -87,3 +123,12 @@ class RendererRuntimeClient {
 }
 
 export const rendererRuntimeClient = new RendererRuntimeClient()
+
+function readRuntimeErrorMessage(body: string, fallback: string): string {
+  try {
+    const parsed = JSON.parse(body) as { message?: unknown }
+    return typeof parsed.message === 'string' && parsed.message.trim() ? parsed.message : fallback
+  } catch {
+    return fallback
+  }
+}

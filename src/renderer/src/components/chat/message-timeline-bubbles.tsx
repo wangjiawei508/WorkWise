@@ -17,6 +17,8 @@ import {
 } from '../../lib/generated-file-actions'
 import { resolveGeneratedFileWorkspaceRoot } from '../../lib/generated-file-path'
 import { safeMediaPreviewUrl } from '../../lib/safe-media-preview-url'
+import { projectDshUiText } from '../../lib/dsh-ui-stream'
+import { DshUiBlocks } from './DshUiBlocks'
 import { DiffView } from '../DiffView'
 import { AssistantMarkdown } from './AssistantMarkdown'
 import { ModelMetaTag, WritePromptMetaDisclosure } from './message-timeline-cards'
@@ -1403,18 +1405,47 @@ function formatMessageDateTime(input: string, locale: string): string {
 export function MessageBubble({ block, nested = false }: { block: ChatBlock; nested?: boolean }): ReactElement {
   const { t, i18n } = useTranslation('common')
   const resolveApproval = useChatStore((s) => s.resolveApproval)
+  const activeThreadId = useChatStore((s) => s.activeThreadId)
+  const dshUiProjection = useMemo(() => {
+    if (block.kind !== 'assistant') return null
+    const streaming = block.id === 'live-assistant'
+    return projectDshUiText(block.text, {
+      settled: !streaming,
+      ...(streaming
+        ? {}
+        : {
+            persistedBlockIds: (block.uiBlocks ?? [])
+              .flatMap((candidate) => candidate && typeof candidate === 'object' && 'id' in candidate
+                ? [String(candidate.id)]
+                : [])
+          })
+    })
+  }, [block])
   if (block.kind === 'user') {
     return <UserMessageBubble block={block} />
   }
   if (block.kind === 'assistant') {
     const streaming = block.id === 'live-assistant'
+    const uiBlocks = streaming ? dshUiProjection?.blocks : block.uiBlocks
     const createdAtLabel = block.createdAt
       ? formatMessageDateTime(block.createdAt, i18n.language)
       : null
     return (
       <div className="group/message flex min-w-0 max-w-full flex-col">
         <div className="ds-markdown ds-chat-answer min-w-0 max-w-full text-ds-ink">
-          <AssistantMarkdown text={block.text} streaming={streaming} />
+          <AssistantMarkdown text={dshUiProjection?.markdown ?? block.text} streaming={streaming} />
+          {uiBlocks?.length ? (
+            <DshUiBlocks
+              blocks={uiBlocks}
+              threadId={streaming ? null : activeThreadId}
+              messageId={block.id}
+            />
+          ) : null}
+          {dshUiProjection?.diagnostics.map((diagnostic, index) => (
+            <div key={`${diagnostic.code}:${diagnostic.blockId ?? index}`} role="status" className="mt-2 rounded border border-amber-300 bg-amber-50 px-3 py-2 text-[11.5px] text-amber-800 dark:bg-amber-950/30 dark:text-amber-200">
+              {t(`dshUiDiagnostic_${diagnostic.code}`, { blockId: diagnostic.blockId ?? '' })}
+            </div>
+          ))}
         </div>
         {!streaming ? (
           <div className="mt-1 flex min-h-5 min-w-0 items-center justify-between gap-3 text-[11.5px] text-ds-faint opacity-0 transition duration-150 group-hover/message:opacity-100">

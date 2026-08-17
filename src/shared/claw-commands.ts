@@ -3,6 +3,7 @@ import type { ClawModel } from './app-settings'
 export type ClawCommand =
   | { kind: 'clear' }
   | { kind: 'help' }
+  | { kind: 'status' }
   | { kind: 'showModel' }
   | { kind: 'model'; model: ClawModel }
   | { kind: 'invalidModel' }
@@ -15,6 +16,9 @@ export function parseClawCommand(text: string): ClawCommand | null {
   }
   if (/^[/-](?:help|帮助|命令|\?)$/.test(lower)) {
     return { kind: 'help' }
+  }
+  if (/^[/-](?:status|状态|连接状态|微信状态)$/.test(lower)) {
+    return { kind: 'status' }
   }
   const match = raw.match(/^[/-](?:model|模型)(?:\s+(.+))?$/i)
   if (!match) return null

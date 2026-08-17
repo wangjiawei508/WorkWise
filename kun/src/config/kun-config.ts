@@ -51,6 +51,7 @@ export const ModelContextProfileConfigSchema = z
   .object({
     aliases: z.array(z.string().min(1)).optional(),
     contextWindowTokens: PositiveInt.optional(),
+    maxOutputTokens: PositiveInt.optional(),
     contextCompaction: ModelContextCompactionProfileConfigSchema.optional(),
     softRatio: PositiveRatio.optional(),
     hardRatio: PositiveRatio.optional(),
@@ -154,6 +155,13 @@ export const TokenEconomyConfigSchema = z
   })
   .strict()
 
+export const VisionEvidenceConfigSchema = z.object({
+  enabled: z.boolean().default(false),
+  endpoint: z.string().default(''),
+  timeoutMs: PositiveInt.max(600_000).optional(),
+  analyzer: z.string().min(1).max(120).optional()
+}).strict()
+
 export const StorageConfigSchema = z
   .object({
     backend: z.enum(['hybrid', 'file']).default('hybrid'),
@@ -193,6 +201,7 @@ export const KunConfigSchema = z
     models: ModelConfigSchema.optional(),
     contextCompaction: ContextCompactionConfigSchema.optional(),
     runtime: RuntimeTuningConfigSchema.optional(),
+    visionEvidence: VisionEvidenceConfigSchema.optional(),
     capabilities: KunCapabilitiesConfig.default(DEFAULT_KUN_CAPABILITIES_CONFIG)
   })
   .strict()
@@ -204,6 +213,7 @@ export type ContextCompactionConfig = z.infer<typeof ContextCompactionConfigSche
 export type RuntimeTuningConfig = z.infer<typeof RuntimeTuningConfigSchema>
 export type TokenEconomyConfig = z.infer<typeof TokenEconomyConfigSchema>
 export type StorageConfig = z.infer<typeof StorageConfigSchema>
+export type VisionEvidenceConfig = z.infer<typeof VisionEvidenceConfigSchema>
 
 export type LoadedKunConfig = {
   path: string
