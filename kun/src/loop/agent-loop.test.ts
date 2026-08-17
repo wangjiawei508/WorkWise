@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest'
 import {
   AgentLoop,
   allowedToolNamesWithGuiStateTools,
-  resolvePlanModeToolSpecs
+  resolvePlanModeToolSpecs,
+  turnRequestForRouting
 } from './agent-loop.js'
 import type { ModelClient, ModelToolSpec } from '../ports/model-client.js'
 import type { ToolHost } from '../ports/tool-host.js'
@@ -161,6 +162,37 @@ describe('allowedToolNamesWithGuiStateTools', () => {
 
   it('preserves an unrestricted tool catalog', () => {
     expect(allowedToolNamesWithGuiStateTools(undefined, false, true)).toBeUndefined()
+  })
+})
+
+describe('turnRequestForRouting', () => {
+  it('preserves structured UI action context when the turn prompt is empty', () => {
+    const request = turnRequestForRouting(
+      { prompt: '' },
+      [{
+        id: 'item_action',
+        turnId: 'turn_action',
+        threadId: 'thread_action',
+        role: 'user',
+        status: 'completed',
+        createdAt: '2026-07-18T00:00:00.000Z',
+        finishedAt: '2026-07-18T00:00:00.000Z',
+        kind: 'ui_action',
+        messageId: 'message_card',
+        blockId: 'filters',
+        actionId: 'choose-kind',
+        specFingerprint: 'fingerprint',
+        nodeId: 'kind',
+        nodeType: 'select',
+        fieldName: 'kind',
+        value: 'two'
+      }],
+      'turn_action'
+    )
+
+    expect(request).toContain('choose-kind')
+    expect(request).toContain('select')
+    expect(request).toContain('two')
   })
 })
 

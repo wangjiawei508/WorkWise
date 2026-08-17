@@ -66,6 +66,15 @@ describe('UiActionService', () => {
     expect(events.some((event) => event.kind === 'ui_action')).toBe(true)
     const turn = await h.turnService.getTurn('thr_ui_action', first.turnId)
     expect(turn?.items.map((item) => item.kind)).toEqual(['ui_action'])
+    expect(turn?.prompt).toBe('')
+    expect(turn?.uiAction).toMatchObject({
+      messageId: 'item_card',
+      blockId: 'filters',
+      actionId: 'choose-kind',
+      nodeType: 'select',
+      fieldName: 'kind',
+      value: 'two'
+    })
   })
 
   it('rejects stale, mismatched, and secret-bearing actions without leaking their values', async () => {

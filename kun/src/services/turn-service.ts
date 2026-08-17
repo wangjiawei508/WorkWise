@@ -85,7 +85,6 @@ export class TurnService {
     threadId: string
     action: UiActionAudit
     idempotencyKey: string
-    prompt: string
   }): Promise<UiActionStartResponse> {
     const previous = this.startQueues.get(input.threadId) ?? Promise.resolve()
     const run = previous.catch(() => undefined).then(() => this.startUiActionTurnInternal(input))
@@ -102,7 +101,6 @@ export class TurnService {
     threadId: string
     action: UiActionAudit
     idempotencyKey: string
-    prompt: string
   }): Promise<UiActionStartResponse> {
     const thread = await this.deps.threadStore.get(input.threadId)
     if (!thread) throw new Error(`thread not found: ${input.threadId}`)
@@ -146,8 +144,9 @@ export class TurnService {
       const turn = createTurnRecord({
         id: turnId,
         threadId: input.threadId,
-        prompt: input.prompt,
-        idempotencyKey
+        prompt: '',
+        idempotencyKey,
+        uiAction: input.action
       })
       const actionItem = makeUiActionItem({
         id: `item_${turnId}_ui_action`,
@@ -189,7 +188,10 @@ export class TurnService {
       this.deps.tasks?.ensureTask({
         thread,
         turnId,
-        request: { prompt: input.prompt, idempotencyKey }
+        // This is internal task metadata only. The model receives the
+        // persisted structured ui_action item, never this label as a user
+        // message or turn prompt.
+        request: { prompt: uiActionTaskLabel(input.action), idempotencyKey }
       })
       return { threadId: input.threadId, turnId, uiActionItemId: actionItem.id }
     } catch (error) {
@@ -727,6 +729,10 @@ export class TurnService {
   private isSystemOnly(item: TurnItem): boolean {
     return item.kind === 'compaction' || item.kind === 'error'
   }
+}
+
+function uiActionTaskLabel(action: UiActionAudit): string {
+  return `Structured UI action ${action.actionId} (${action.nodeType})`
 }
 
 function sameIdempotentTurnRequest(

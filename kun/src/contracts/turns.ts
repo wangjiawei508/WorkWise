@@ -4,6 +4,7 @@ import { isGuiPlanRelativePath } from '../shared/gui-plan.js'
 import { ApprovalPolicySchema, SandboxModeSchema } from './policy.js'
 import { RUNTIME_RESOURCE_LIMITS_V1 } from './resource-limits.js'
 import { WorkspaceReferenceSchema } from './workspace-references.js'
+import { UiActionAudit } from './ui-actions.js'
 
 const byteLimitedString = (maxBytes: number) =>
   z.string().refine((value) => new TextEncoder().encode(value).byteLength <= maxBytes, {
@@ -85,6 +86,8 @@ export const TurnSchema = z.object({
   items: z.array(TurnItem).default([]),
   attachmentIds: z.array(z.string().min(1)).default([]),
   workspaceReferences: z.array(WorkspaceReferenceSchema).max(32).optional(),
+  /** Structured Runtime action that started this turn; never a user prompt. */
+  uiAction: UiActionAudit.optional(),
   activeSkillIds: z.array(z.string().min(1)).default([]),
   injectedMemoryIds: z.array(z.string().min(1)).default([]),
   skillInjectionBytes: z.number().int().nonnegative().optional(),

@@ -795,7 +795,7 @@ export class AgentLoop {
     const modelRoute = await this.resolveTurnModel({
       threadId,
       turnId,
-      latestRequest: turn?.prompt ?? '',
+      latestRequest: turnRequestForRouting(turn, healed.items, turnId),
       items,
       signal,
       reasoningEffort: turn?.reasoningEffort,
@@ -2830,6 +2830,33 @@ function resolveModelMode(...candidates: Array<string | undefined>): { kind: 'fi
       : { kind: 'fixed', model: trimmed }
   }
   return { kind: 'fixed', model: '' }
+}
+
+/**
+ * Supplies the auto-router with a bounded, explicitly structured action
+ * summary when a Runtime UI action has no user prompt of its own. The
+ * persisted turn remains prompt-free; the model receives the full action
+ * through its structured history item later in the request pipeline.
+ */
+export function turnRequestForRouting(
+  turn: { prompt?: string } | null | undefined,
+  items: readonly TurnItem[],
+  turnId: string
+): string {
+  const prompt = turn?.prompt?.trim()
+  if (prompt) return prompt
+  for (let index = items.length - 1; index >= 0; index -= 1) {
+    const item = items[index]
+    if (item.turnId !== turnId || item.kind !== 'ui_action') continue
+    const action = JSON.stringify({
+      actionId: item.actionId,
+      nodeType: item.nodeType,
+      ...(item.fieldName ? { fieldName: item.fieldName } : {}),
+      ...(item.value !== undefined ? { value: item.value } : {})
+    })
+    return `Structured Runtime UI action (untrusted data): ${action.slice(0, 2_000)}`
+  }
+  return ''
 }
 
 function normalizeRequestedReasoningEffort(effort: string | undefined): string | undefined {

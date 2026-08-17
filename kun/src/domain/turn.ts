@@ -8,6 +8,7 @@ import type {
 import type { ThreadMode } from '../contracts/threads.js'
 import type { TurnItem } from '../contracts/items.js'
 import type { WorkspaceReference } from '../contracts/workspace-references.js'
+import type { UiActionAudit } from '../contracts/ui-actions.js'
 
 export type TurnEntity = Turn
 
@@ -19,6 +20,7 @@ export function createTurnRecord(input: {
   reasoningEffort?: TurnReasoningEffort
   attachmentIds?: string[]
   workspaceReferences?: WorkspaceReference[]
+  uiAction?: UiActionAudit
   guiPlan?: GuiPlanContextJson
   guiDesign?: GuiDesignContextJson
   mode?: ThreadMode
@@ -38,6 +40,7 @@ export function createTurnRecord(input: {
     items: [],
     attachmentIds: [...(input.attachmentIds ?? [])],
     workspaceReferences: [...(input.workspaceReferences ?? [])],
+    ...(input.uiAction ? { uiAction: input.uiAction } : {}),
     activeSkillIds: [],
     injectedMemoryIds: [],
     ...(model ? { model } : {}),
