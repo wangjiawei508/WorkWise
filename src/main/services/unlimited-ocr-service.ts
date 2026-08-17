@@ -80,7 +80,7 @@ export class UnlimitedOcrService {
       return { available: true }
     } catch (error) {
       if (controller.signal.aborted) return { available: false, message: 'Unlimited-OCR health check timed out.' }
-      return { available: false, message: error instanceof Error ? error.message : 'Unlimited-OCR health check failed.' }
+      return { available: false, message: safeHealthErrorMessage(error) }
     } finally {
       clearTimeout(timeout)
     }
@@ -300,4 +300,13 @@ function cancellationError(): DOMException {
 
 function timeoutError(): Error {
   return new Error('Unlimited-OCR parsing timed out.')
+}
+
+function safeHealthErrorMessage(error: unknown): string {
+  const fallback = 'Unlimited-OCR health check failed.'
+  if (!(error instanceof Error) || !error.message.trim()) return fallback
+  return error.message
+    .replace(/\bhttps?:\/\/[^\s]+/gi, '[url]')
+    .replace(/(?:[A-Za-z]:)?[\\/](?:[^\s/\\]+[\\/])+[^\s/\\]+/g, '[path]')
+    .slice(0, 240) || fallback
 }

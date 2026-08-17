@@ -263,6 +263,24 @@ describe('chat-store-side-actions', () => {
     expect(provider.subscribeMock).toHaveBeenCalledWith('side_thr_main', 0, expect.anything(), expect.anything())
   })
 
+  it('deduplicates replayed approval requests in a side conversation', async () => {
+    const { actions, state, provider } = buildHarness()
+    const sideId = (await actions.spawnSideConversation())!
+    const sink = (provider.subscribeMock.mock.calls.at(-1) as [string, number, ThreadEventSink, AbortSignal])[2]
+    const request = {
+      approvalId: 'approval-replayed',
+      summary: 'Allow the side action?',
+      toolName: 'bash'
+    }
+
+    sink.onApproval(request)
+    sink.onApproval(request)
+
+    expect(state.sideConversations[sideId].blocks.filter((block) => (
+      block.kind === 'approval' && block.approvalId === request.approvalId
+    ))).toHaveLength(1)
+  })
+
   it('openSideConversationDraft opens the side surface without forking a thread', () => {
     const { actions, state, provider } = buildHarness()
 

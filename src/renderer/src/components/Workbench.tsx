@@ -45,9 +45,7 @@ import {
 import { SideConversationPanel } from './chat/SideConversationPanel'
 import { SessionHeader } from './SessionHeader'
 import { WriteWorkspaceView } from './write/WriteWorkspaceView'
-import { WriteAssistantPanel } from './write/WriteAssistantPanel'
 import { WriteSidebar } from './write/WriteSidebar'
-import { SddAssistantPanel } from './sdd/SddAssistantPanel'
 import { SddDraftEditorView } from './sdd/SddDraftEditorView'
 import { SidebarTitlebarToggleButton } from './sidebar/SidebarPrimitives'
 import { composeWritePrompt } from '../write/quoted-selection'
@@ -79,6 +77,7 @@ import { collectComposerChangeSummary } from '../lib/composer-change-summary'
 import { readFocusModePreference, writeFocusModePreference } from '../lib/focus-mode'
 import { WorkbenchRegistry } from './workbench-registry'
 import { WorkbenchPanelLoader } from './workbench-panel-loader'
+import { builtinRightPanelLoaders } from './workbench-panel-loaders'
 import {
   buildComposerFileContextPrompt,
   runtimeWorkspaceReferences,
@@ -120,8 +119,8 @@ const registerBuiltinRightPanel = <Module,>(
     onClose: () => undefined
   })
 }
-registerBuiltinRightPanel('sdd-ai', 10, (context) => context.mode === 'sdd-ai' && context.activeSddDraft, async () => null)
-registerBuiltinRightPanel('write-assistant', 20, (context) => context.route === 'write' && context.writeAssistantOpen, async () => null)
+registerBuiltinRightPanel('sdd-ai', 10, (context) => context.mode === 'sdd-ai' && context.activeSddDraft, builtinRightPanelLoaders['sdd-ai'])
+registerBuiltinRightPanel('write-assistant', 20, (context) => context.route === 'write' && context.writeAssistantOpen, builtinRightPanelLoaders['write-assistant'])
 registerBuiltinRightPanel('changes', 30, (context) => context.mode === 'changes', () => import('./ChangeInspector'))
 registerBuiltinRightPanel('todo', 40, (context) => context.mode === 'todo', () => import('./todo/TodoPanel'))
 registerBuiltinRightPanel('browser', 50, (context) => context.mode === 'browser', () => import('./DevBrowserPanel'))
@@ -1943,73 +1942,93 @@ export function Workbench(): ReactElement {
         />
         <div className="ds-workbench-right-panel h-full min-h-0 shrink-0" style={{ width: rightSidebarWidth }}>
           {resolvedRightPanelId === 'sdd-ai' && activeSddDraft ? (
-              <SddAssistantPanel
-                draft={activeSddDraft}
-                input={input}
-                setInput={setInput}
-                mode={mode}
-                setMode={setMode}
-                busy={busy}
-                runtimeConnection={runtimeConnection}
-                activeThreadId={activeThreadId}
-                blocks={blocks}
-                liveReasoning={liveReasoning}
-                liveAssistant={liveAssistant}
-                composerModel={writeAssistantModel}
-                composerPickList={writeAssistantPickList}
-                composerModelGroups={composerModelGroups}
-                composerReasoningEffort={composerReasoningEffort}
-                setComposerModel={setWriteAssistantModel}
-                setComposerReasoningEffort={setComposerReasoningEffort}
-                queuedMessages={queuedMessages}
-                removeQueuedMessage={removeQueuedMessage}
-                onSend={handleSend}
-                onInterrupt={(options) => void interrupt(options)}
-                onRetryConnection={() => void probeRuntime('user')}
-                onOpenSettings={() => openSettings('agents')}
-                onNewConversation={() => {
-                  setInput('')
-                  void createSddAssistantThreadForDraft(activeSddDraft)
-                }}
-                onCollapse={closeRightPanel}
-                className="h-full max-h-full w-full"
-              />
+              <WorkbenchPanelLoader<typeof import('./sdd/SddAssistantPanel')>
+                registry={builtinRightPanels}
+                panelId="sdd-ai"
+                title={t('workbenchPanelErrorTitle')}
+                retryLabel={t('workbenchPanelRetry')}
+                fallback={<div className="h-full w-full bg-ds-sidebar" />}
+              >
+                {({ SddAssistantPanel: Panel }) => (
+                  <Panel
+                    draft={activeSddDraft}
+                    input={input}
+                    setInput={setInput}
+                    mode={mode}
+                    setMode={setMode}
+                    busy={busy}
+                    runtimeConnection={runtimeConnection}
+                    activeThreadId={activeThreadId}
+                    blocks={blocks}
+                    liveReasoning={liveReasoning}
+                    liveAssistant={liveAssistant}
+                    composerModel={writeAssistantModel}
+                    composerPickList={writeAssistantPickList}
+                    composerModelGroups={composerModelGroups}
+                    composerReasoningEffort={composerReasoningEffort}
+                    setComposerModel={setWriteAssistantModel}
+                    setComposerReasoningEffort={setComposerReasoningEffort}
+                    queuedMessages={queuedMessages}
+                    removeQueuedMessage={removeQueuedMessage}
+                    onSend={handleSend}
+                    onInterrupt={(options) => void interrupt(options)}
+                    onRetryConnection={() => void probeRuntime('user')}
+                    onOpenSettings={() => openSettings('agents')}
+                    onNewConversation={() => {
+                      setInput('')
+                      void createSddAssistantThreadForDraft(activeSddDraft)
+                    }}
+                    onCollapse={closeRightPanel}
+                    className="h-full max-h-full w-full"
+                  />
+                )}
+              </WorkbenchPanelLoader>
             ) : resolvedRightPanelId === 'write-assistant' ? (
-              <WriteAssistantPanel
-                input={input}
-                setInput={setInput}
-                mode={mode}
-                setMode={setMode}
-                busy={busy}
-                runtimeConnection={runtimeConnection}
-                activeThreadId={activeThreadId}
-                blocks={blocks}
-                liveReasoning={liveReasoning}
-                liveAssistant={liveAssistant}
-                composerModel={writeAssistantModel}
-                composerPickList={writeAssistantPickList}
-                composerModelGroups={composerModelGroups}
-                composerReasoningEffort={composerReasoningEffort}
-                setComposerModel={setWriteAssistantModel}
-                setComposerReasoningEffort={setComposerReasoningEffort}
-                queuedMessages={queuedMessages}
-                removeQueuedMessage={removeQueuedMessage}
-                attachments={writeAttachments}
-                attachmentUploadEnabled={attachmentUploadEnabled}
-                attachmentUploadBusy={writeAttachmentUploadBusy}
-                attachmentUploadError={writeAttachmentUploadError}
-                onPickAttachments={(files) => void handlePickAttachments(files, 'write')}
-                onPasteClipboardImage={(options) => void handlePasteClipboardImage(options)}
-                onRemoveAttachment={(id) => removeComposerAttachment(id, 'write')}
-                onRetryAttachment={(id) => void retryComposerAttachment(id, 'write')}
-                onSend={handleSend}
-                onInterrupt={(options) => void interrupt(options)}
-                onRetryConnection={() => void probeRuntime('user')}
-                onOpenSettings={() => openSettings('agents')}
-                onNewConversation={startNewWriteAssistantConversation}
-                onCollapse={closeRightPanel}
-                className="h-full max-h-full w-full"
-              />
+              <WorkbenchPanelLoader<typeof import('./write/WriteAssistantPanel')>
+                registry={builtinRightPanels}
+                panelId="write-assistant"
+                title={t('workbenchPanelErrorTitle')}
+                retryLabel={t('workbenchPanelRetry')}
+                fallback={<div className="h-full w-full bg-ds-sidebar" />}
+              >
+                {({ WriteAssistantPanel: Panel }) => (
+                  <Panel
+                    input={input}
+                    setInput={setInput}
+                    mode={mode}
+                    setMode={setMode}
+                    busy={busy}
+                    runtimeConnection={runtimeConnection}
+                    activeThreadId={activeThreadId}
+                    blocks={blocks}
+                    liveReasoning={liveReasoning}
+                    liveAssistant={liveAssistant}
+                    composerModel={writeAssistantModel}
+                    composerPickList={writeAssistantPickList}
+                    composerModelGroups={composerModelGroups}
+                    composerReasoningEffort={composerReasoningEffort}
+                    setComposerModel={setWriteAssistantModel}
+                    setComposerReasoningEffort={setComposerReasoningEffort}
+                    queuedMessages={queuedMessages}
+                    removeQueuedMessage={removeQueuedMessage}
+                    attachments={writeAttachments}
+                    attachmentUploadEnabled={attachmentUploadEnabled}
+                    attachmentUploadBusy={writeAttachmentUploadBusy}
+                    attachmentUploadError={writeAttachmentUploadError}
+                    onPickAttachments={(files) => void handlePickAttachments(files, 'write')}
+                    onPasteClipboardImage={(options) => void handlePasteClipboardImage(options)}
+                    onRemoveAttachment={(id) => removeComposerAttachment(id, 'write')}
+                    onRetryAttachment={(id) => void retryComposerAttachment(id, 'write')}
+                    onSend={handleSend}
+                    onInterrupt={(options) => void interrupt(options)}
+                    onRetryConnection={() => void probeRuntime('user')}
+                    onOpenSettings={() => openSettings('agents')}
+                    onNewConversation={startNewWriteAssistantConversation}
+                    onCollapse={closeRightPanel}
+                    className="h-full max-h-full w-full"
+                  />
+                )}
+              </WorkbenchPanelLoader>
             ) : resolvedRightPanelId === 'changes' ? (
               <WorkbenchPanelLoader<typeof import('./ChangeInspector')>
                 registry={builtinRightPanels}

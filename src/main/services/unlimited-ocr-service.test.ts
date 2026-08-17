@@ -34,6 +34,20 @@ describe('UnlimitedOcrService', () => {
     })
   })
 
+  it('redacts local paths and URLs from health diagnostics', async () => {
+    const fetcher = vi.fn(async () => {
+      throw new Error('request failed at /private/tmp/workwise-secret/token.json via http://127.0.0.1:3000/health?token=secret')
+    }) as unknown as typeof fetch
+    const service = new UnlimitedOcrService({ fetch: fetcher })
+
+    const result = await service.checkHealth('http://127.0.0.1:3000')
+
+    expect(result).toEqual({
+      available: false,
+      message: 'request failed at [path] via [url]'
+    })
+  })
+
   it('uploads a PDF, polls page jobs, and writes ordered page markdown', async () => {
     const root = await mkdtemp(join(tmpdir(), 'workwise-unlimited-ocr-'))
     const inputPath = join(root, 'input.pdf')
