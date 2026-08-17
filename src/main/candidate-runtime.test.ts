@@ -147,6 +147,30 @@ describe('resolveCandidateRuntimePaths', () => {
     }
   })
 
+  it('decodes shell-escaped paths emitted by the candidate authorization script', () => {
+    const parent = mkdtempSync(join(tmpdir(), 'workwise-candidate-launch-'))
+    const root = join(parent, 'root with spaces')
+    mkdirSync(root, { recursive: true })
+    const file = join(root, 'candidate.env')
+    try {
+      const escaped = (value: string): string => value.replace(/ /g, '\\ ')
+      writeFileSync(file, [
+        'WORKWISE_CANDIDATE=1',
+        `WORKWISE_CANDIDATE_ROOT=${escaped(root)}`,
+        `WORKWISE_CANDIDATE_USER_DATA=${escaped(join(root, 'user-data'))}`
+      ].join('\n'))
+      const env = candidateEnvironmentFromArgv(
+        '/private/tmp/WorkWise IM Recovery Candidate.app/Contents/MacOS/WorkWise IM Recovery Candidate',
+        [`--workwise-candidate-env-file=${file}`],
+        {}
+      )
+      expect(env.WORKWISE_CANDIDATE_ROOT).toBe(root)
+      expect(env.WORKWISE_CANDIDATE_USER_DATA).toBe(join(root, 'user-data'))
+    } finally {
+      rmSync(parent, { recursive: true, force: true })
+    }
+  })
+
   it('uses the launch file to complete a partially inherited candidate environment', () => {
     const root = mkdtempSync(join(tmpdir(), 'workwise-candidate-launch-'))
     const file = join(root, 'candidate.env')

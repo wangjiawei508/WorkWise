@@ -56,6 +56,26 @@ function isRecoveryCandidateExecutable(
   return recoveryCandidateBundleIdentifier(resourcesPath) === CANDIDATE_BUNDLE_IDENTIFIER
 }
 
+function decodeCandidateEnvironmentValue(rawValue: string): string {
+  const trimmed = rawValue.trim()
+  const quoted = trimmed.length >= 2 && (
+    (trimmed.startsWith("'") && trimmed.endsWith("'")) ||
+    (trimmed.startsWith('"') && trimmed.endsWith('"'))
+  )
+  const value = quoted ? trimmed.slice(1, -1) : trimmed
+  let decoded = ''
+  for (let index = 0; index < value.length; index += 1) {
+    const character = value[index]
+    if (character === '\\' && index + 1 < value.length) {
+      decoded += value[index + 1]
+      index += 1
+      continue
+    }
+    decoded += character
+  }
+  return decoded
+}
+
 function readCandidateEnvironmentFile(path: string): NodeJS.ProcessEnv {
   const output: NodeJS.ProcessEnv = {}
   for (const rawLine of readFileSync(path, 'utf8').split(/\r?\n/)) {
@@ -63,13 +83,7 @@ function readCandidateEnvironmentFile(path: string): NodeJS.ProcessEnv {
     if (!line || line.startsWith('#')) continue
     const match = /^([A-Z][A-Z0-9_]*)=(.*)$/.exec(line)
     if (!match || !CANDIDATE_ENV_KEYS.has(match[1]!)) continue
-    const rawValue = match[2]!.trim()
-    const value = rawValue.length >= 2 && (
-      (rawValue.startsWith("'") && rawValue.endsWith("'")) ||
-      (rawValue.startsWith('"') && rawValue.endsWith('"'))
-    )
-      ? rawValue.slice(1, -1)
-      : rawValue
+    const value = decodeCandidateEnvironmentValue(match[2]!)
     if (value.includes('\0') || value.length > 8_192) {
       throw new Error('Candidate environment file contains an invalid value.')
     }
