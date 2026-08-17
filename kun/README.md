@@ -63,7 +63,7 @@ Run from the `kun/` directory.
 | `--data-dir` | Root directory for threads, events, and usage | required |
 | `--runtime-token` | Bearer token for `/v1/*` requests | empty |
 | `--api-key` | DeepSeek-compatible API key | empty |
-| `--base-url` | DeepSeek-compatible model API base URL | `https://api.deepseek.com/beta` |
+| `--base-url` | DeepSeek-compatible model API base URL | `https://api.deepseek.com` |
 | `--model` | Default model id | `deepseek-v4-pro` |
 | `--approval-policy` | `on-request` \| `untrusted` \| `never` \| `auto` \| `suggest` | `auto` |
 | `--sandbox-mode` | `read-only` \| `workspace-write` \| `danger-full-access` \| `external-sandbox` | `workspace-write` |
@@ -143,7 +143,7 @@ Shape:
     "dataDir": "~/.deepseekgui/kun",
     "runtimeToken": "",
     "apiKey": "",
-    "baseUrl": "https://api.deepseek.com/beta",
+    "baseUrl": "https://api.deepseek.com",
     "model": "deepseek-v4-pro",
     "approvalPolicy": "auto",
     "sandboxMode": "workspace-write",
@@ -164,6 +164,7 @@ Shape:
     "profiles": {
       "deepseek-v4-pro": {
         "contextWindowTokens": 1000000,
+        "maxOutputTokens": 384000,
         "contextCompaction": {
           "softThreshold": 980000,
           "hardThreshold": 990000
@@ -172,6 +173,7 @@ Shape:
       "deepseek-v4-flash": {
         "aliases": ["deepseek-chat", "deepseek-reasoner"],
         "contextWindowTokens": 1000000,
+        "maxOutputTokens": 384000,
         "contextCompaction": {
           "softThreshold": 980000,
           "hardThreshold": 990000
@@ -250,7 +252,10 @@ Model-specific context windows, capabilities, and compaction thresholds
 belong in `models.profiles`. Built-in profiles already cover
 `deepseek-v4-pro`, `deepseek-v4-flash`, and the compatibility aliases
 `deepseek-chat` / `deepseek-reasoner`; DeepSeek V4 defaults to a 1M
-context window and starts compaction around 980k input tokens.
+context window, reports a 384K maximum-output capability, and starts
+compaction around 980k input tokens. Use `https://api.deepseek.com` for
+normal Chat Completions and Responses traffic; the `/beta` base is
+reserved for FIM and prefix-completion endpoints.
 The legacy `contextCompaction.modelProfiles` location is still read for
 backward compatibility, but new configs should use `models.profiles`.
 See `../docs/KUN_CONFIG.md` for the detailed file layout and examples.
@@ -262,7 +267,7 @@ Feature flags are intentionally explicit:
 - `serve.tokenEconomy` / `tokenEconomyMode` compresses tool descriptions, tool results, and history context while preserving code, paths, commands, URLs, errors, and other high-value signals.
 - `contextCompaction` controls fallback long-thread compaction thresholds and summary behavior. Per-model thresholds live in `models.profiles`. Compaction preserves goals, constraints, decisions, touched files, tool outcomes, and unresolved next steps.
 - `serve.runtimeTuning.toolStorm` suppresses repeated identical tool calls within a turn so useless tool loops do not keep spending tokens.
-- `capabilities.web` exposes `web_fetch` and/or `web_search`. The built-in provider can fetch HTTP(S) pages; search requires a provider implementation and may report unavailable.
+- `capabilities.web` exposes `web_fetch` and/or `web_search`. The built-in provider fetches HTTP(S) pages. GUI-managed official DeepSeek V4 Pro / Flash runtimes use the DeepSeek Responses API for server-side search; third-party runtimes still require their own search provider.
 - `capabilities.skills` scans configured roots for `skill.json` manifests and, when `legacySkillMd` is true, older `SKILL.md` directories.
 - `capabilities.attachments` stores image bytes outside thread logs and allows turns to reference `attachmentIds`. Vision-capable models receive image parts; text-only models receive a bounded compressed base64 text fallback.
 - `capabilities.memory` stores long-term records under the data dir, retrieves scoped matches before turns, and exposes `memory_create`, `memory_update`, and `memory_delete` tools.

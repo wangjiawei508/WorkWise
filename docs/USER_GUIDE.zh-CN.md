@@ -7,6 +7,12 @@
 - 问题反馈：https://github.com/wangjiawei508/WorkWise/issues
 - 维护者：https://github.com/wangjiawei508
 
+## DeepSeek V4 Pro
+
+DeepSeek 已于 2026 年 8 月 13 日正式发布 `DeepSeek-V4-Pro-0813`。WorkWise 中继续选择 `deepseek-v4-pro` 即可使用正式服务端版本，不需要为模型更新重新安装应用。默认官方服务地址是 `https://api.deepseek.com`；只有 Write 的 FIM/前缀续写会使用 `/beta` 接口。
+
+正式模型提供 100 万 token 上下文和最高 384K 输出。公开 Stable `v0.3.6` 的稳定默认路径是 Chat Completions。模型菜单过滤、DeepSeek Responses 联网搜索、失败终态和其他协议的增强目前只在本地候选中完成验证，需以后续通过发布门禁的正式版本为准。
+
 ## 产品定位
 
 WorkWise 是面向工程、基础设施、城市更新与企业运营场景的智能体工作台。产品把 Code、Write、Design、Skills、知识库和文档解析放在同一个 Agent Runtime 中。

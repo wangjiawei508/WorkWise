@@ -160,7 +160,7 @@ Saved settings should now be just:
       "port": 8899,
       "autoStart": true,
       "apiKey": "",
-      "baseUrl": "https://api.deepseek.com/beta",
+      "baseUrl": "https://api.deepseek.com",
       "runtimeToken": "",
       "dataDir": "~/.workwise/runtime",
       "model": "deepseek-v4-pro",
