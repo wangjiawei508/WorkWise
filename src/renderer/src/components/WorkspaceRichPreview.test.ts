@@ -20,12 +20,13 @@ describe('WorkspaceRichPreview PDF status', () => {
         engineVersion: 'fixture-1',
         quality: {
           status: 'degraded',
-          reasons: ['weak_text_layer', 'engine_fallback']
+          reasons: []
         },
         route: {
           requestedMode: 'accurate',
           selectedEngine: 'markitdown',
-          fallbackFrom: 'mineru-local'
+          fallbackFrom: 'mineru-local',
+          switchReason: ['weak_text_layer', 'engine_fallback']
         },
         references: [{ page: 1, blockId: 'heading-1', kind: 'text' }]
       },

@@ -134,6 +134,42 @@ describe('WorkspacePreviewService', () => {
     expect(received).toEqual({ parseId: 'pdf-accurate', engine: 'unlimited-ocr-local', unlimitedOcrServerUrl: 'http://127.0.0.1:3000' })
   }, 15_000)
 
+  it('exposes PDF parse quality reasons on the preview route metadata', async () => {
+    const workspace = await root()
+    await writeFile(join(workspace, 'document.pdf'), minimalPdf('Sparse'))
+    const service = new WorkspacePreviewService(new DocumentEngineService({ runner: async (input) => {
+      const output = join(input.outputDirectory, 'document.md')
+      await mkdir(input.outputDirectory, { recursive: true })
+      await writeFile(output, 'tiny')
+      return {
+        ok: true,
+        engine: 'markitdown',
+        engineVersion: 'fixture',
+        sourceSha256: 'hash',
+        markdownPath: relative(input.workspaceRoot, output),
+        durationMs: 1
+      }
+    } }))
+
+    const preview = await service.preview({
+      workspaceRoot: workspace,
+      relativePath: 'document.pdf',
+      parsingMode: 'auto',
+      idempotencyKey: 'pdf-route-reason'
+    })
+
+    expect(preview).toMatchObject({
+      kind: 'pdf',
+      document: {
+        route: {
+          requestedMode: 'auto',
+          selectedEngine: 'markitdown',
+          switchReason: expect.arrayContaining(['low_text_density'])
+        }
+      }
+    })
+  }, 15_000)
+
   it('uses the preview idempotency key as the cancellable document parse id', async () => {
     const workspace = await root()
     await writeFile(join(workspace, 'document.pdf'), minimalPdf('Cancellable preview'))

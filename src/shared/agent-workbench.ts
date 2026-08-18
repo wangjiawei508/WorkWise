@@ -324,6 +324,7 @@ export type DocumentParseResultV1 = {
     requestedMode: DocumentParsingMode
     selectedEngine: DocumentEngineId
     fallbackFrom?: DocumentEngineId
+    switchReason?: string[]
   }
   degradedFrom?: DocumentEngineId
   cacheHit: boolean

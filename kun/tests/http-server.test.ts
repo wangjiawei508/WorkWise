@@ -10,6 +10,7 @@ import { buildHarness, readJson, readSseEvents, usageSnapshot } from './http-ser
 import { WORKWISE_RUNTIME_PROTOCOL_VERSION } from '../src/contracts/runtime-protocol.js'
 import type { TurnItem } from '../src/contracts/items.js'
 import { fingerprintDshUiBlock } from '../src/contracts/dsh-ui.js'
+import { RUNTIME_RESOURCE_LIMITS_V1 } from '../src/contracts/resource-limits.js'
 
 describe('HTTP server', () => {
   let dataDir = ''
@@ -1026,6 +1027,99 @@ describe('HTTP server', () => {
 
     const frames = await readSseEvents(await responsePromise)
     expect(frames.filter((frame) => frame.includes(`id: ${recorded.seq}\n`))).toHaveLength(1)
+  })
+
+  it('closes cleanly when the client aborts while replay is loading', async () => {
+    const h = buildHarness()
+    const thread = await h.threadService.create(
+      { workspace: '/tmp', model: 'deepseek-chat', mode: 'agent' },
+      { id: 'thr_replay_abort', title: 'Replay abort' }
+    )
+    const originalLoadEventsSince = h.sessionStore.loadEventsSince.bind(h.sessionStore)
+    let replayStartedResolve: (() => void) | undefined
+    const replayStarted = new Promise<void>((resolve) => {
+      replayStartedResolve = resolve
+    })
+    let releaseReplayResolve: (() => void) | undefined
+    const releaseReplay = new Promise<void>((resolve) => {
+      releaseReplayResolve = resolve
+    })
+    vi.spyOn(h.sessionStore, 'loadEventsSince').mockImplementation(async (threadId, sinceSeq) => {
+      const backlog = await originalLoadEventsSince(threadId, sinceSeq)
+      replayStartedResolve?.()
+      await releaseReplay
+      return backlog
+    })
+    const unsubscribe = vi.fn()
+    const subscribe = h.bus.subscribe.bind(h.bus)
+    vi.spyOn(h.bus, 'subscribe').mockImplementation((threadId, handler) => {
+      const actualUnsubscribe = subscribe(threadId, handler)
+      return () => {
+        unsubscribe()
+        actualUnsubscribe()
+      }
+    })
+    const abortController = new AbortController()
+    const responsePromise = dispatchRequest(
+      h.router,
+      new Request(`http://localhost/v1/threads/${thread.id}/events?since_seq=0`, {
+        headers: { authorization: 'Bearer tok-1' },
+        signal: abortController.signal
+      })
+    )
+    await replayStarted
+    abortController.abort()
+    releaseReplayResolve?.()
+
+    const response = await responsePromise
+    const reader = response.body!.getReader()
+    await expect(reader.read()).resolves.toMatchObject({ done: true })
+    expect(unsubscribe).toHaveBeenCalledTimes(1)
+  })
+
+  it('bounds live events buffered while replay is loading', async () => {
+    const h = buildHarness()
+    const thread = await h.threadService.create(
+      { workspace: '/tmp', model: 'deepseek-chat', mode: 'agent' },
+      { id: 'thr_replay_overflow', title: 'Replay overflow' }
+    )
+    await h.runtime.events.record({ kind: 'heartbeat', threadId: thread.id })
+    const originalLoadEventsSince = h.sessionStore.loadEventsSince.bind(h.sessionStore)
+    let replayStartedResolve: (() => void) | undefined
+    const replayStarted = new Promise<void>((resolve) => {
+      replayStartedResolve = resolve
+    })
+    let releaseReplayResolve: (() => void) | undefined
+    const releaseReplay = new Promise<void>((resolve) => {
+      releaseReplayResolve = resolve
+    })
+    vi.spyOn(h.sessionStore, 'loadEventsSince').mockImplementation(async (threadId, sinceSeq) => {
+      const backlog = await originalLoadEventsSince(threadId, sinceSeq)
+      replayStartedResolve?.()
+      await releaseReplay
+      return backlog
+    })
+    const responsePromise = dispatchRequest(
+      h.router,
+      new Request(`http://localhost/v1/threads/${thread.id}/events?since_seq=0`, {
+        headers: { authorization: 'Bearer tok-1' }
+      })
+    )
+    await replayStarted
+    const firstLiveSeq = 2
+    for (let index = 0; index <= RUNTIME_RESOURCE_LIMITS_V1.sseReplayEvents; index += 1) {
+      h.bus.publish({
+        kind: 'heartbeat',
+        threadId: thread.id,
+        seq: firstLiveSeq + index,
+        timestamp: new Date().toISOString()
+      })
+    }
+    releaseReplayResolve?.()
+
+    const frames = await readSseEvents(await responsePromise, { idleMs: 100 })
+    expect(frames.filter((frame) => frame.includes('event: replay_reset'))).toHaveLength(1)
+    expect(frames.some((frame) => frame.includes('event: heartbeat'))).toBe(false)
   })
 
   it('skips SSE backlog replay when the client is already caught up', async () => {

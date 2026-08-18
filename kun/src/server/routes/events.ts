@@ -44,6 +44,7 @@ export function buildEventStreamResponse(input: {
         if (closed) return
         closed = true
         unsubscribe?.()
+        unsubscribe = undefined
         if (heartbeatTimer) {
           clearInterval(heartbeatTimer)
           heartbeatTimer = undefined
@@ -59,7 +60,11 @@ export function buildEventStreamResponse(input: {
         let lastDeliveredSeq = sinceSeq
         let replaying = true
         const pendingLiveEvents: RuntimeEvent[] = []
+        let pendingLiveBytes = 0
+        let pendingLiveHighWaterSeq = sinceSeq
+        let replayOverflowed = false
         const deliver = (event: RuntimeEvent): void => {
+          if (closed) return
           if (typeof event.seq === 'number') {
             if (event.seq <= lastDeliveredSeq) return
             lastDeliveredSeq = event.seq
@@ -70,7 +75,21 @@ export function buildEventStreamResponse(input: {
           if (closed) return
           try {
             if (replaying) {
+              if (typeof event.seq === 'number') {
+                pendingLiveHighWaterSeq = Math.max(pendingLiveHighWaterSeq, event.seq)
+              }
+              const eventBytes = Buffer.byteLength(JSON.stringify(event), 'utf8')
+              if (
+                pendingLiveEvents.length >= RUNTIME_RESOURCE_LIMITS_V1.sseReplayEvents ||
+                pendingLiveBytes + eventBytes > RUNTIME_RESOURCE_LIMITS_V1.sseReplayBytes
+              ) {
+                replayOverflowed = true
+                pendingLiveEvents.length = 0
+                pendingLiveBytes = 0
+                return
+              }
               pendingLiveEvents.push(event)
+              pendingLiveBytes += eventBytes
               return
             }
             deliver(event)
@@ -79,17 +98,19 @@ export function buildEventStreamResponse(input: {
           }
         })
         const highestSeq = await input.sessionStore.highestSeq(input.threadId).catch(() => 0)
+        if (closed) return
         let backlog = sinceSeq >= highestSeq
           ? []
           : await input.sessionStore.loadEventsSince(input.threadId, sinceSeq)
+        if (closed) return
         const replayBytes = backlog.reduce(
           (total, event) => total + Buffer.byteLength(JSON.stringify(event), 'utf8'),
           0
         )
-        if (
+        const backlogOverflowed =
           backlog.length > RUNTIME_RESOURCE_LIMITS_V1.sseReplayEvents ||
           replayBytes > RUNTIME_RESOURCE_LIMITS_V1.sseReplayBytes
-        ) {
+        if (backlogOverflowed && !replayOverflowed) {
           const reset = {
             kind: 'replay_reset',
             seq: highestSeq,
@@ -102,15 +123,34 @@ export function buildEventStreamResponse(input: {
             )
           )
           lastDeliveredSeq = highestSeq
-          backlog = []
         }
-        for (const event of backlog) {
-          deliver(event)
+        if (replayOverflowed) {
+          const resetSeq = Math.max(highestSeq, pendingLiveHighWaterSeq)
+          controller.enqueue(
+            encoder.encode(
+              `id: ${resetSeq}\nevent: replay_reset\ndata: ${JSON.stringify({
+                kind: 'replay_reset',
+                seq: resetSeq,
+                timestamp: new Date().toISOString(),
+                threadId: input.threadId
+              })}\n\n`
+            )
+          )
+          lastDeliveredSeq = resetSeq
+          backlog = []
+        } else if (backlogOverflowed) {
+          backlog = []
+        } else {
+          for (const event of backlog) {
+            deliver(event)
+          }
         }
         replaying = false
-        pendingLiveEvents.sort((a, b) => a.seq - b.seq)
-        for (const event of pendingLiveEvents) {
-          deliver(event)
+        if (!replayOverflowed) {
+          pendingLiveEvents.sort((a, b) => a.seq - b.seq)
+          for (const event of pendingLiveEvents) {
+            deliver(event)
+          }
         }
         pendingLiveEvents.length = 0
         heartbeatTimer = setInterval(() => {
@@ -131,19 +171,26 @@ export function buildEventStreamResponse(input: {
           }
         }, HEARTBEAT_INTERVAL_MS)
       } catch (error) {
-        controller.enqueue(
-          encoder.encode(
-            `event: error\ndata: ${JSON.stringify({
-              message: error instanceof Error ? error.message : String(error)
-            })}\n\n`
+        if (closed) return
+        try {
+          controller.enqueue(
+            encoder.encode(
+              `event: error\ndata: ${JSON.stringify({
+                message: error instanceof Error ? error.message : String(error)
+              })}\n\n`
+            )
           )
-        )
+        } catch {
+          // The request may have been aborted while replay was in flight.
+        }
         close()
       }
     },
     cancel() {
+      if (closed) return
       closed = true
       unsubscribe?.()
+      unsubscribe = undefined
       if (heartbeatTimer) clearInterval(heartbeatTimer)
     }
   })

@@ -124,6 +124,33 @@ describe('DocumentEngineService', () => {
     expect(bridge).toHaveBeenCalledTimes(1)
   }, 15_000)
 
+  it('backfills PDF switch reasons when reading an older current cache entry', async () => {
+    const { root } = await fixture()
+    const bridge = runner()
+    const service = new DocumentEngineService({ runner: bridge })
+    const request = {
+      workspaceRoot: root,
+      relativePath: 'source.pdf',
+      mode: 'fast' as const,
+      idempotencyKey: 'cache-switch-reason'
+    }
+    await service.parse(request)
+    const [cacheName] = await readdir(join(root, '.workwise', 'cache', 'documents'))
+    const metadataPath = join(root, '.workwise', 'cache', 'documents', cacheName!, 'workwise-result.json')
+    const metadata = JSON.parse(await readFile(metadataPath, 'utf8')) as {
+      result: { quality: { reasons: string[] }; route: { switchReason?: string[] } }
+    }
+    delete metadata.result.route.switchReason
+    metadata.result.quality.reasons = ['low_text_density']
+    await writeFile(metadataPath, JSON.stringify(metadata))
+
+    await expect(service.parse({ ...request, parseId: 'cache-switch-reason-hit' })).resolves.toMatchObject({
+      cacheHit: true,
+      route: { switchReason: ['low_text_density'] }
+    })
+    expect(bridge).toHaveBeenCalledTimes(1)
+  }, 15_000)
+
   it('rejects oversized Markdown from the current cache', async () => {
     const { root } = await fixture()
     const outputDirectory = join(root, '.workwise', 'cache', 'oversized-current')
@@ -137,8 +164,10 @@ describe('DocumentEngineService', () => {
       idempotencyKey: 'oversized-current-cache'
     }
     await service.parse(request)
-    await rm(join(outputDirectory, 'result.json'))
-    await writeFile(join(outputDirectory, 'document.md'), Buffer.alloc(16 * 1024 * 1024 + 1, 0x61))
+    const metadata = JSON.parse(await readFile(join(outputDirectory, 'workwise-result.json'), 'utf8')) as {
+      markdownPath: string
+    }
+    await writeFile(join(root, metadata.markdownPath), Buffer.alloc(16 * 1024 * 1024 + 1, 0x61))
 
     await expect(service.parse({ ...request, parseId: 'oversized-current-cache-hit' }))
       .rejects.toMatchObject({ code: 'resource_limit' })
@@ -159,11 +188,55 @@ describe('DocumentEngineService', () => {
     const [cacheName] = await readdir(join(root, '.workwise', 'cache', 'documents'))
     const outputDirectory = join(root, '.workwise', 'cache', 'documents', cacheName)
     await rm(join(outputDirectory, 'workwise-result.json'))
-    await writeFile(join(outputDirectory, 'document.md'), Buffer.alloc(16 * 1024 * 1024 + 1, 0x61))
+    const legacyMarkdownPath = join(outputDirectory, 'document.md')
+    await writeFile(legacyMarkdownPath, Buffer.alloc(16 * 1024 * 1024 + 1, 0x61))
+    const legacyPayload = JSON.parse(await readFile(join(outputDirectory, '.attempts', (await readdir(join(outputDirectory, '.attempts')))[0]!, 'result.json'), 'utf8')) as {
+      markdownPath?: string
+    }
+    legacyPayload.markdownPath = relative(root, legacyMarkdownPath)
+    await writeFile(join(outputDirectory, 'result.json'), JSON.stringify(legacyPayload))
 
     await expect(service.parse({ ...request, parseId: 'oversized-legacy-cache-hit' }))
       .rejects.toMatchObject({ code: 'resource_limit' })
     expect(bridge).toHaveBeenCalledTimes(1)
+  }, 15_000)
+
+  it('keeps late timed-out parser artifacts away from an immediate retry', async () => {
+    const { root } = await fixture()
+    let attempts = 0
+    const bridge = vi.fn<DocumentEngineRunner>(async (input) => {
+      attempts += 1
+      await mkdir(input.outputDirectory, { recursive: true })
+      const markdown = attempts === 1 ? 'late old result' : 'retry result'
+      if (attempts === 1) await new Promise((resolve) => setTimeout(resolve, 200))
+      const markdownPath = join(input.outputDirectory, 'document.md')
+      await writeFile(markdownPath, markdown)
+      return {
+        ok: true,
+        engine: input.engine,
+        engineVersion: 'fixture-1',
+        markdownPath: relative(input.workspaceRoot, markdownPath),
+        warnings: [],
+        durationMs: 1
+      }
+    })
+    const service = new DocumentEngineService({ parseTimeoutMs: 100, runner: bridge })
+    const request = {
+      workspaceRoot: root,
+      relativePath: 'source.pdf',
+      mode: 'fast' as const,
+      idempotencyKey: 'late-output-retry'
+    }
+
+    await expect(service.parse(request)).rejects.toMatchObject({ code: 'document_parse_timeout' })
+    const retry = await service.parse({ ...request, parseId: 'late-output-retry-2' })
+    await new Promise((resolve) => setTimeout(resolve, 240))
+    expect(retry.markdown).toBe('retry result')
+    await expect(service.parse({ ...request, parseId: 'late-output-retry-cache' })).resolves.toMatchObject({
+      cacheHit: true,
+      markdown: 'retry result'
+    })
+    expect(bridge).toHaveBeenCalledTimes(2)
   }, 15_000)
 
   it('rejects oversized cache metadata before parsing JSON', async () => {
@@ -573,7 +646,7 @@ describe('DocumentEngineService', () => {
     expect(automatic).toMatchObject({
       engine: 'markitdown',
       quality: { status: 'degraded', reasons: ['low_text_density'] },
-      route: { requestedMode: 'auto', selectedEngine: 'markitdown' }
+      route: { requestedMode: 'auto', selectedEngine: 'markitdown', switchReason: ['low_text_density'] }
     })
     expect(automatic.warnings.join(' ')).toContain('choose high-accuracy parsing')
     expect(bridge.mock.calls.map(([input]) => input.engine)).toEqual(['markitdown'])
@@ -624,7 +697,8 @@ describe('DocumentEngineService', () => {
     expect(fallback.route).toEqual({
       requestedMode: 'accurate',
       selectedEngine: 'mineru-local',
-      fallbackFrom: 'unlimited-ocr-local'
+      fallbackFrom: 'unlimited-ocr-local',
+      switchReason: ['engine_fallback']
     })
     expect(fallback.degradedFrom).toBeUndefined()
     expect(fallback.warnings.join(' ')).toContain('Unlimited-OCR failed: [path]')

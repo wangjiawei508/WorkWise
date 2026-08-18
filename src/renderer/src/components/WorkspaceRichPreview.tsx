@@ -78,6 +78,7 @@ function PdfJsPreview({ result, onRequestAccuratePdf }: {
       .slice(0, 12),
     [result.document?.references, result.pageCount]
   )
+  const switchReasons = result.document?.route.switchReason ?? result.document?.quality.reasons ?? []
 
   useEffect(() => {
     if (!result.dataUrl) return
@@ -158,8 +159,8 @@ function PdfJsPreview({ result, onRequestAccuratePdf }: {
           <span>质量：{result.document.quality.status}</span>
           <span>解析模式：{documentParsingModeLabel(result.document.route.requestedMode)}</span>
           {result.document.route.fallbackFrom ? <span>降级来源：{result.document.route.fallbackFrom}</span> : null}
-          {result.document.quality.reasons.length > 0 ? (
-            <span>切换原因：{result.document.quality.reasons.map(documentQualityReasonLabel).join('、')}</span>
+          {switchReasons.length > 0 ? (
+            <span>切换原因：{switchReasons.map(documentQualityReasonLabel).join('、')}</span>
           ) : null}
           {referencePages.length > 0 ? <span className="flex items-center gap-1">引用页：{referencePages.map((page) => <button key={page} type="button" onClick={() => setPageNumber(page)} className="rounded border border-ds-border-muted px-1.5 py-0.5 hover:bg-ds-hover" title={`转到第 ${page} 页`}>{page}</button>)}</span> : null}
         </> : <span>解析元数据暂不可用，仍可使用 PDF 阅读和搜索。</span>}

@@ -1,7 +1,7 @@
 import { randomUUID, createHash } from 'node:crypto'
 import type { ChildProcess } from 'node:child_process'
 import { existsSync } from 'node:fs'
-import { access, mkdir, readFile, stat } from 'node:fs/promises'
+import { access, mkdir, readFile, rm, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { basename, extname, join, relative } from 'node:path'
 import type {
@@ -78,7 +78,8 @@ const documentParseResultSchema = z.object({
   route: z.object({
     requestedMode: documentParsingModeSchema,
     selectedEngine: documentEngineIdSchema,
-    fallbackFrom: documentEngineIdSchema.optional()
+    fallbackFrom: documentEngineIdSchema.optional(),
+    switchReason: boundedStringArraySchema.optional()
   }),
   degradedFrom: documentEngineIdSchema.optional(),
   cacheHit: z.boolean(),
@@ -367,7 +368,18 @@ export class DocumentEngineService {
       })
       throwIfDocumentParseAborted(controller.signal)
       if (cached) return cached
-      await mkdir(outputDirectory, { recursive: true })
+      // Isolate each attempt because a timed-out parser may ignore AbortSignal
+      // and finish after an immediate retry has started.
+      const attemptDirectory = await resolveContainedPath({
+        root: workspaceRoot,
+        target: join(outputDirectory, '.attempts', randomUUID()),
+        mustExist: false,
+        expect: 'directory',
+        rejectFinalLink: true
+      })
+      await mkdir(attemptDirectory, { recursive: true })
+      let keepAttemptDirectory = false
+      try {
       throwIfDocumentParseAborted(controller.signal)
 
       if (engine === 'mineru-private') {
@@ -391,7 +403,7 @@ export class DocumentEngineService {
           engine,
           workspaceRoot,
           inputPath,
-          outputDirectory,
+          outputDirectory: attemptDirectory,
           signal: controller.signal,
           unlimitedOcrServerUrl
         })
@@ -410,7 +422,7 @@ export class DocumentEngineService {
                 engine: 'mineru-local',
                 workspaceRoot,
                 inputPath,
-                outputDirectory,
+                outputDirectory: attemptDirectory,
                 signal: controller.signal,
                 unlimitedOcrServerUrl
               })
@@ -432,7 +444,7 @@ export class DocumentEngineService {
               engine: 'markitdown',
               workspaceRoot,
               inputPath,
-              outputDirectory,
+              outputDirectory: attemptDirectory,
               signal: controller.signal,
               unlimitedOcrServerUrl
             })
@@ -452,7 +464,7 @@ export class DocumentEngineService {
             engine: 'markitdown',
             workspaceRoot,
             inputPath,
-            outputDirectory,
+            outputDirectory: attemptDirectory,
             signal: controller.signal,
             unlimitedOcrServerUrl
           })
@@ -532,6 +544,11 @@ export class DocumentEngineService {
         analysis: pdfAnalysis
       })
       const sourceStructure = await inspectDocumentStructure(inputPath, extension, pdfAnalysis)
+      const fallbackFrom = routeFallbackFrom ?? degradedFrom
+      const switchReason = [...new Set([
+        ...quality.reasons,
+        ...(fallbackFrom ? ['engine_fallback'] : [])
+      ])]
       const result: DocumentParseResultV1 = {
         id: parseId,
         engine: selectedEngine,
@@ -557,7 +574,8 @@ export class DocumentEngineService {
         route: {
           requestedMode: request.mode,
           selectedEngine,
-          ...((routeFallbackFrom ?? degradedFrom) ? { fallbackFrom: routeFallbackFrom ?? degradedFrom } : {})
+          ...(fallbackFrom ? { fallbackFrom } : {}),
+          ...(switchReason.length > 0 ? { switchReason } : {})
         },
         degradedFrom,
         cacheHit: false,
@@ -568,7 +586,13 @@ export class DocumentEngineService {
         await this.writeCache(workspaceRoot, outputDirectory, markdownPath, result, controller.signal)
       }
       throwIfDocumentParseAborted(controller.signal)
+      keepAttemptDirectory = true
       return result
+      } finally {
+        if (!keepAttemptDirectory) {
+          await rm(attemptDirectory, { recursive: true, force: true }).catch(() => undefined)
+        }
+      }
   }
 
   cancel(parseId: string): boolean {
@@ -656,10 +680,14 @@ export class DocumentEngineService {
       if (Buffer.byteLength(workwiseMarkdown) > MAX_PROTOCOL_BYTES) {
         throw new DocumentEngineError('Parsed Markdown exceeds the 16 MiB result limit.', 'resource_limit')
       }
+      const switchReason = result.route.switchReason ?? (
+        result.quality.reasons.length > 0 ? result.quality.reasons : undefined
+      )
       return {
         ...result,
         id: parseId,
         markdown: workwiseMarkdown,
+        route: switchReason ? { ...result.route, switchReason } : result.route,
         cacheHit: true,
         durationMs: 0
       }

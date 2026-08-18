@@ -527,7 +527,7 @@ describe('Attachment store and multimodal input', () => {
       modelCapabilities: () => ({ ...visionCapabilities(), inputModalities: ['text'] }),
       visionEvidence: {
         async analyze() {
-          throw new Error(`request to http://127.0.0.1:4000/analyze?token=signed-secret failed ${imageBase64.repeat(4)}`)
+          throw new Error(`request to http://127.0.0.1:4000/analyze?token=signed-secret failed while reading /Users/alice/client/input.png and ${String.raw`C:\Users\alice\client\input.png`} ${imageBase64.repeat(4)}`)
         }
       }
     })
@@ -544,11 +544,16 @@ describe('Attachment store and multimodal input', () => {
     expect(serializedEvents).toContain('attachment_evidence_failed')
     expect(serializedEvents).not.toContain('127.0.0.1')
     expect(serializedEvents).not.toContain('signed-secret')
+    expect(serializedEvents).not.toContain('/Users/alice/client/input.png')
+    expect(serializedEvents).not.toContain('C:\\Users\\alice\\client\\input.png')
     expect(serializedEvents).not.toContain(imageBase64)
-    await expect(h.turns.getTurn(h.threadId, h.turnId)).resolves.toMatchObject({
+    const failedTurn = await h.turns.getTurn(h.threadId, h.turnId)
+    expect(failedTurn).toMatchObject({
       status: 'failed',
       error: expect.stringContaining('attachment_analysis_unavailable')
     })
+    expect(failedTurn?.error).not.toContain('/Users/alice/client/input.png')
+    expect(failedTurn?.error).not.toContain('C:\\Users\\alice\\client\\input.png')
   })
 
   it('rejects DeepSeek v4 image attachments without a configured evidence analyzer', async () => {

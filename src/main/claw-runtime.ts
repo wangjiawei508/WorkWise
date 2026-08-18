@@ -2735,7 +2735,7 @@ export class ClawRuntime {
         this.refreshFeishuBridgeHealth(target.id, existingBridge)
         continue
       }
-      if (version !== this.feishuSyncVersion && !existingBridge) return
+      if (version !== this.feishuSyncVersion) return
       if (existingBridge) {
         await this.closeFeishuChannel(target.id)
         if (version !== this.feishuSyncVersion) return

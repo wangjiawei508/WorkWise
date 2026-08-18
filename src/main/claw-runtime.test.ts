@@ -508,6 +508,80 @@ describe('ClawRuntime', () => {
     expect(imHealth.heartbeat).toHaveBeenCalledWith('channel_1', '飞书连接正常。')
   })
 
+  it('does not let a stale Feishu sync disconnect a newer bridge with different credentials', async () => {
+    const oldSettings = buildSettings()
+    oldSettings.claw.im.enabled = true
+    oldSettings.claw.channels = [buildChannel({
+      platformCredential: {
+        kind: 'feishu',
+        appId: 'app-old',
+        appSecret: 'old-secret',
+        domain: 'feishu',
+        createdAt: '2026-08-15T00:00:00.000Z'
+      }
+    })]
+    const newSettings = buildSettings()
+    newSettings.claw.im.enabled = true
+    newSettings.claw.channels = [buildChannel({
+      platformCredential: {
+        kind: 'feishu',
+        appId: 'app-new',
+        appSecret: 'new-secret',
+        domain: 'feishu',
+        createdAt: '2026-08-15T00:01:00.000Z'
+      }
+    })]
+    let releaseOldCredential: (() => void) | undefined
+    let notifyOldCredentialStarted: (() => void) | undefined
+    const oldCredentialStarted = new Promise<void>((resolve) => {
+      notifyOldCredentialStarted = resolve
+    })
+    const oldCredentialPending = new Promise<void>((resolve) => {
+      releaseOldCredential = resolve
+    })
+    const newBridge = {
+      dispatcher: { register: vi.fn() },
+      disconnect: vi.fn(async () => undefined),
+      getConnectionStatus: vi.fn(() => ({ state: 'connected' })),
+      on: vi.fn(),
+      connect: vi.fn(async () => undefined)
+    }
+    const runtime = createClawRuntime({
+      store: { load: vi.fn(async () => newSettings), patch: vi.fn(async () => newSettings) } as never,
+      runtimeRequest: vi.fn() as never,
+      logError: () => undefined,
+      createFeishuChannel: vi.fn(() => newBridge) as never,
+      resolveImCredential: vi.fn(async (channel) => {
+        if (channel.platformCredential?.kind === 'feishu' && channel.platformCredential.appId === 'app-old') {
+          notifyOldCredentialStarted?.()
+          await oldCredentialPending
+          return 'old-secret'
+        }
+        return 'new-secret'
+      }),
+      imHealth: {
+        get: vi.fn(() => ({ status: 'starting' })),
+        start: vi.fn(),
+        heartbeat: vi.fn(),
+        fail: vi.fn()
+      } as never
+    })
+    const internal = runtime as unknown as {
+      feishuChannels: Map<string, typeof newBridge>
+      syncFeishuChannels(value: AppSettingsV1): Promise<void>
+    }
+
+    const oldSync = internal.syncFeishuChannels(oldSettings)
+    await oldCredentialStarted
+    await internal.syncFeishuChannels(newSettings)
+    releaseOldCredential?.()
+    await oldSync
+
+    expect(internal.feishuChannels.get('channel_1')).toBe(newBridge)
+    expect(newBridge.disconnect).not.toHaveBeenCalled()
+    expect(newBridge.connect).toHaveBeenCalledTimes(1)
+  })
+
   it('does not revive a user-stopped Feishu channel during automatic settings sync', async () => {
     const settings = buildSettings()
     settings.claw.im.enabled = true
