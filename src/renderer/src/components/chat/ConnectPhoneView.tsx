@@ -322,6 +322,7 @@ export function ConnectPhoneView({
   const [saving, setSaving] = useState(false)
   const installPollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const installCountdownTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const installPollFocusHandlerRef = useRef<(() => void) | null>(null)
   const installRequestInFlightRef = useRef(false)
   const installPollInFlightRef = useRef(false)
   const installAttemptRef = useRef(0)
@@ -341,6 +342,10 @@ export function ConnectPhoneView({
     if (installCountdownTimerRef.current) {
       clearInterval(installCountdownTimerRef.current)
       installCountdownTimerRef.current = null
+    }
+    if (installPollFocusHandlerRef.current && typeof window !== 'undefined') {
+      window.removeEventListener('focus', installPollFocusHandlerRef.current)
+      installPollFocusHandlerRef.current = null
     }
   }, [])
 
@@ -552,9 +557,17 @@ export function ConnectPhoneView({
         }
       }
     }
-    if (request.provider === 'weixin') {
-      void waitForInstall()
-    } else {
+    if (typeof window !== 'undefined') {
+      const onFocus = (): void => {
+        void waitForInstall()
+      }
+      installPollFocusHandlerRef.current = onFocus
+      window.addEventListener('focus', onFocus)
+    }
+    // Poll once immediately. Returning from the phone app should not depend
+    // on a background timer that Chromium may throttle while the QR is shown.
+    void waitForInstall()
+    if (request.provider !== 'weixin') {
       installPollTimerRef.current = setInterval(() => {
         void waitForInstall()
       }, Math.max(result.interval, 3) * 1000)
@@ -802,6 +815,7 @@ export function ConnectPhoneSidebarPanel({
   const [disconnectError, setDisconnectError] = useState('')
   const installPollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const installCountdownTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const installPollFocusHandlerRef = useRef<(() => void) | null>(null)
   const installRequestInFlightRef = useRef(false)
   const installPollInFlightRef = useRef(false)
   const installAttemptRef = useRef(0)
@@ -845,6 +859,10 @@ export function ConnectPhoneSidebarPanel({
     if (installCountdownTimerRef.current) {
       clearInterval(installCountdownTimerRef.current)
       installCountdownTimerRef.current = null
+    }
+    if (installPollFocusHandlerRef.current && typeof window !== 'undefined') {
+      window.removeEventListener('focus', installPollFocusHandlerRef.current)
+      installPollFocusHandlerRef.current = null
     }
   }, [])
 
@@ -1062,9 +1080,17 @@ export function ConnectPhoneSidebarPanel({
         }
       }
     }
-    if (request.provider === 'weixin') {
-      void waitForInstall()
-    } else {
+    if (typeof window !== 'undefined') {
+      const onFocus = (): void => {
+        void waitForInstall()
+      }
+      installPollFocusHandlerRef.current = onFocus
+      window.addEventListener('focus', onFocus)
+    }
+    // Poll once immediately. Returning from the phone app should not depend
+    // on a background timer that Chromium may throttle while the QR is shown.
+    void waitForInstall()
+    if (request.provider !== 'weixin') {
       installPollTimerRef.current = setInterval(() => {
         void waitForInstall()
       }, Math.max(result.interval, 3) * 1000)
