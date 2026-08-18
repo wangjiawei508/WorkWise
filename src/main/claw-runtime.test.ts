@@ -314,6 +314,200 @@ describe('ClawRuntime', () => {
     expect(imHealth.heartbeat).toHaveBeenCalledWith('channel_1', '飞书连接正常。')
   })
 
+  it('handles a Feishu message dispatched before connect resolves', async () => {
+    const settings = buildSettings()
+    settings.claw.im.enabled = true
+    settings.claw.channels = [buildChannel({
+      platformCredential: {
+        kind: 'feishu',
+        appId: 'app-1',
+        appSecret: 'secret',
+        domain: 'feishu',
+        createdAt: '2026-08-15T00:00:00.000Z'
+      }
+    })]
+    const handlers = new Map<string, (payload: any) => Promise<void> | void>()
+    const send = vi.fn(async () => ({ messageId: 'om_reply' }))
+    const bridge = {
+      botIdentity: { openId: 'ou_bot' },
+      dispatcher: { register: vi.fn() },
+      disconnect: vi.fn(async () => undefined),
+      getConnectionStatus: vi.fn(() => ({ state: 'connected' })),
+      on: vi.fn((event: string, handler: (payload: any) => Promise<void> | void) => {
+        handlers.set(event, handler)
+      }),
+      send,
+      connect: vi.fn(async () => {
+        await handlers.get('message')?.({
+          messageId: 'om_during_connect',
+          chatId: 'oc_chat_1',
+          chatType: 'p2p',
+          senderId: 'ou_user',
+          senderName: 'Alice',
+          content: '/status',
+          rawContentType: 'text',
+          resources: [],
+          mentions: [],
+          mentionAll: false,
+          mentionedBot: false
+        })
+      })
+    }
+    const imHealth = {
+      get: vi.fn(() => ({
+        status: 'starting',
+        message: '正在建立连接。',
+        updatedAt: '2026-08-15T00:00:00.000Z'
+      })),
+      start: vi.fn(),
+      heartbeat: vi.fn(),
+      inbound: vi.fn(),
+      outbound: vi.fn(),
+      fail: vi.fn()
+    }
+    const runtime = createClawRuntime({
+      store: { load: vi.fn(async () => settings), patch: vi.fn(async () => settings) } as never,
+      runtimeRequest: vi.fn() as never,
+      logError: () => undefined,
+      createFeishuChannel: vi.fn(() => bridge) as never,
+      resolveImCredential: vi.fn(async () => 'secret'),
+      imHealth: imHealth as never
+    })
+
+    await (runtime as unknown as {
+      syncFeishuChannels(value: AppSettingsV1): Promise<void>
+    }).syncFeishuChannels(settings)
+
+    expect(send).toHaveBeenCalledTimes(1)
+    expect(send).toHaveBeenCalledWith(
+      'oc_chat_1',
+      { markdown: expect.stringContaining('Feishu') },
+      { replyTo: 'om_during_connect', replyInThread: false }
+    )
+    expect(imHealth.inbound).toHaveBeenCalledWith('channel_1')
+  })
+
+  it('does not revive a Feishu bridge stopped while connect is pending', async () => {
+    const settings = buildSettings()
+    settings.claw.im.enabled = true
+    settings.claw.channels = [buildChannel({
+      platformCredential: {
+        kind: 'feishu',
+        appId: 'app-1',
+        appSecret: 'secret',
+        domain: 'feishu',
+        createdAt: '2026-08-15T00:00:00.000Z'
+      }
+    })]
+    let releaseConnect: (() => void) | undefined
+    let notifyConnectStarted: (() => void) | undefined
+    const connectStarted = new Promise<void>((resolve) => {
+      notifyConnectStarted = resolve
+    })
+    const connectPending = new Promise<void>((resolve) => {
+      releaseConnect = resolve
+    })
+    const bridge = {
+      dispatcher: { register: vi.fn() },
+      disconnect: vi.fn(async () => undefined),
+      on: vi.fn(),
+      connect: vi.fn(async () => {
+        notifyConnectStarted?.()
+        await connectPending
+      })
+    }
+    const imHealth = {
+      get: vi.fn(() => ({ status: 'starting' })),
+      start: vi.fn(),
+      stop: vi.fn(),
+      heartbeat: vi.fn(),
+      fail: vi.fn()
+    }
+    const runtime = createClawRuntime({
+      store: { load: vi.fn(async () => settings), patch: vi.fn(async () => settings) } as never,
+      runtimeRequest: vi.fn() as never,
+      logError: () => undefined,
+      createFeishuChannel: vi.fn(() => bridge) as never,
+      resolveImCredential: vi.fn(async () => 'secret'),
+      imHealth: imHealth as never
+    })
+    const internal = runtime as unknown as {
+      feishuChannels: Map<string, typeof bridge>
+      syncFeishuChannels(value: AppSettingsV1): Promise<void>
+    }
+
+    const syncing = internal.syncFeishuChannels(settings)
+    await connectStarted
+    await runtime.stopChannel('channel_1')
+    releaseConnect?.()
+    await syncing
+
+    expect(internal.feishuChannels.has('channel_1')).toBe(false)
+    expect(imHealth.stop).toHaveBeenCalledWith('channel_1')
+    expect(imHealth.heartbeat).not.toHaveBeenCalled()
+    expect(bridge.disconnect).toHaveBeenCalled()
+  })
+
+  it('keeps a pending Feishu bridge when an equivalent settings sync reuses it', async () => {
+    const settings = buildSettings()
+    settings.claw.im.enabled = true
+    settings.claw.channels = [buildChannel({
+      platformCredential: {
+        kind: 'feishu',
+        appId: 'app-1',
+        appSecret: 'secret',
+        domain: 'feishu',
+        createdAt: '2026-08-15T00:00:00.000Z'
+      }
+    })]
+    let releaseConnect: (() => void) | undefined
+    let notifyConnectStarted: (() => void) | undefined
+    const connectStarted = new Promise<void>((resolve) => {
+      notifyConnectStarted = resolve
+    })
+    const connectPending = new Promise<void>((resolve) => {
+      releaseConnect = resolve
+    })
+    const bridge = {
+      dispatcher: { register: vi.fn() },
+      disconnect: vi.fn(async () => undefined),
+      getConnectionStatus: vi.fn(() => ({ state: 'connecting' })),
+      on: vi.fn(),
+      connect: vi.fn(async () => {
+        notifyConnectStarted?.()
+        await connectPending
+      })
+    }
+    const imHealth = {
+      get: vi.fn(() => ({ status: 'starting' })),
+      start: vi.fn(),
+      heartbeat: vi.fn(),
+      fail: vi.fn()
+    }
+    const runtime = createClawRuntime({
+      store: { load: vi.fn(async () => settings), patch: vi.fn(async () => settings) } as never,
+      runtimeRequest: vi.fn() as never,
+      logError: () => undefined,
+      createFeishuChannel: vi.fn(() => bridge) as never,
+      resolveImCredential: vi.fn(async () => 'secret'),
+      imHealth: imHealth as never
+    })
+    const internal = runtime as unknown as {
+      feishuChannels: Map<string, typeof bridge>
+      syncFeishuChannels(value: AppSettingsV1): Promise<void>
+    }
+
+    const firstSync = internal.syncFeishuChannels(settings)
+    await connectStarted
+    await internal.syncFeishuChannels(settings)
+    releaseConnect?.()
+    await firstSync
+
+    expect(internal.feishuChannels.get('channel_1')).toBe(bridge)
+    expect(bridge.disconnect).not.toHaveBeenCalled()
+    expect(imHealth.heartbeat).toHaveBeenCalledWith('channel_1', '飞书连接正常。')
+  })
+
   it('does not revive a user-stopped Feishu channel during automatic settings sync', async () => {
     const settings = buildSettings()
     settings.claw.im.enabled = true

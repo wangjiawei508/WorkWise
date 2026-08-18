@@ -949,6 +949,7 @@ export class ClawRuntime {
 
   async stop(): Promise<void> {
     traceImStartup('stop')
+    this.feishuSyncVersion += 1
     await Promise.all([
       this.closeWebhook(),
       this.closeAllFeishuChannels(false)
@@ -980,6 +981,7 @@ export class ClawRuntime {
       await this.deps.reconnectWeixinBridgeAccount?.(accountId)
       return
     }
+    this.feishuSyncVersion += 1
     await this.closeFeishuChannel(channelId)
     this.deps.imHealth?.start({ channelId, provider: channel.provider, accountId, credentialStorage: channel.credentialRef?.storage })
     this.sync(settings)
@@ -989,7 +991,10 @@ export class ClawRuntime {
     const settings = await this.deps.store.load()
     const channel = settings.claw.channels.find((item) => item.id === channelId)
     if (!channel) return
-    if (channel.provider === 'feishu') await this.closeFeishuChannel(channelId)
+    if (channel.provider === 'feishu') {
+      this.feishuSyncVersion += 1
+      await this.closeFeishuChannel(channelId)
+    }
     else {
       const credential = channel.platformCredential
       const accountId = credential?.kind === 'weixin' ? credential.accountId : channel.id
@@ -2665,16 +2670,16 @@ export class ClawRuntime {
       if (!hasFeishuPlatformCredential(target)) continue
       const credential = target.platformCredential
       const appId = credential.appId.trim()
-      const existingBridge = this.feishuChannels.get(target.id)
+      const existingBridgeAtStart = this.feishuChannels.get(target.id)
       const existingHealth = this.deps.imHealth?.get?.(target.id)
-      if (!existingBridge && (
+      if (!existingBridgeAtStart && (
         existingHealth?.status === 'stopped' ||
         existingHealth?.status === 'expired' ||
         existingHealth?.reasonCode === 'credential_unavailable'
       )) {
         continue
       }
-      if (!existingBridge && existingHealth?.status !== 'starting') {
+      if (!existingBridgeAtStart && existingHealth?.status !== 'starting') {
         this.deps.imHealth?.start({
           channelId: target.id,
           provider: 'feishu',
@@ -2721,11 +2726,16 @@ export class ClawRuntime {
         .map((entry) => entry.trim())
         .filter((entry, index, entries) => entry && entries.indexOf(entry) === index)
       const nextKey = `${target.id}|${appId}|${appSecret}|${domain}|${allowedFileDirs.join('|')}`
+      // Credential resolution is asynchronous. Re-read bridge ownership so a
+      // concurrent settings sync cannot create a second connection from a
+      // stale snapshot or tear down an equivalent connection already starting.
+      const existingBridge = this.feishuChannels.get(target.id)
       const currentKey = this.feishuChannelKeys.get(target.id)
       if (existingBridge && currentKey === nextKey) {
         this.refreshFeishuBridgeHealth(target.id, existingBridge)
         continue
       }
+      if (version !== this.feishuSyncVersion && !existingBridge) return
       if (existingBridge) {
         await this.closeFeishuChannel(target.id)
         if (version !== this.feishuSyncVersion) return
@@ -2737,8 +2747,9 @@ export class ClawRuntime {
         })
       }
 
+      let bridge: LarkChannel | undefined
       try {
-        const bridge = createLarkChannel({
+        bridge = (this.deps.createFeishuChannel ?? createLarkChannel)({
           appId,
           appSecret,
           domain: domain === 'lark' ? Domain.Lark : Domain.Feishu,
@@ -2811,17 +2822,32 @@ export class ClawRuntime {
             // intentionally empty — see TODO above
           }
         })
+        // The SDK can dispatch the first inbound event immediately after the
+        // WebSocket handshake, before connect() resolves. Register the bridge
+        // first so that event is handled instead of being dropped by the
+        // channel lookup in handleFeishuMessageCore().
+        this.feishuChannels.set(target.id, bridge)
+        this.feishuChannelKeys.set(target.id, nextKey)
         traceImStartup('feishu bridge connect:start')
         await bridge.connect()
         traceImStartup('feishu bridge connect:done')
-        this.deps.imHealth?.heartbeat(target.id, '飞书连接正常。')
-        if (version !== this.feishuSyncVersion) {
+        if (
+          this.feishuChannels.get(target.id) !== bridge ||
+          this.feishuChannelKeys.get(target.id) !== nextKey
+        ) {
           await bridge.disconnect().catch(() => undefined)
           return
         }
-        this.feishuChannels.set(target.id, bridge)
-        this.feishuChannelKeys.set(target.id, nextKey)
+        this.deps.imHealth?.heartbeat(target.id, '飞书连接正常。')
       } catch (error) {
+        if (bridge && this.feishuChannels.get(target.id) !== bridge) {
+          await bridge.disconnect().catch(() => undefined)
+          return
+        }
+        if (bridge) {
+          this.feishuChannels.delete(target.id)
+          this.feishuChannelKeys.delete(target.id)
+        }
         traceImStartup('feishu bridge connect:failed', {
           errorType: error instanceof Error ? error.name : typeof error
         })

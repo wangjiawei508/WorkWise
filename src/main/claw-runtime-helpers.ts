@@ -28,6 +28,7 @@ export type ClawRuntimeDeps = {
   store: JsonSettingsStore
   runtimeRequest: RuntimeRequestFn
   logError: (category: string, message: string, detail?: unknown) => void
+  createFeishuChannel?: typeof import('@larksuiteoapi/node-sdk').createLarkChannel
   notifyChannelActivity?: (payload: { channelId: string; threadId: string }) => void
   sendWeixinBridgeMessage?: (options: {
     accountId: string
