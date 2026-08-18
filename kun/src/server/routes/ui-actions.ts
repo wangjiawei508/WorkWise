@@ -22,9 +22,16 @@ export async function startUiAction(
     if (error instanceof UiActionError) {
       if (error.code === 'ui_action_not_found') return ERRORS.notFound(error.message)
       if (error.code === 'ui_action_unavailable') return ERRORS.unavailable(error.message)
+      if (error.code === 'ui_action_stale' || error.code === 'ui_action_expired') {
+        return ERRORS.staleRequest(error.message)
+      }
       return ERRORS.validation(error.message)
     }
-    if ((error as { code?: unknown })?.code === 'turn_in_progress' || (error as { code?: unknown })?.code === 'idempotency_conflict') {
+    if (
+      (error as { code?: unknown })?.code === 'turn_in_progress' ||
+      (error as { code?: unknown })?.code === 'idempotency_conflict' ||
+      (error as { code?: unknown })?.code === 'ui_action_consumed'
+    ) {
       return ERRORS.conflict(error instanceof Error ? error.message : 'UI action conflict')
     }
     if ((error as { code?: unknown })?.code === 'resource_limit') {

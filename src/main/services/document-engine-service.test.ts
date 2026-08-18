@@ -8,6 +8,7 @@ import {
   assessDocumentQuality,
   DocumentEngineError,
   DocumentEngineService,
+  sanitizeDocumentDiagnostic,
   type DocumentEngineRunner,
   type DocumentSidecarResponse
 } from './document-engine-service'
@@ -164,6 +165,51 @@ describe('DocumentEngineService', () => {
       .rejects.toMatchObject({ code: 'resource_limit' })
     expect(bridge).toHaveBeenCalledTimes(1)
   }, 15_000)
+
+  it('rejects oversized cache metadata before parsing JSON', async () => {
+    const { root } = await fixture()
+    const outputDirectory = join(root, '.workwise', 'cache', 'oversized-metadata')
+    const bridge = runner()
+    const service = new DocumentEngineService({ runner: bridge })
+    const request = {
+      workspaceRoot: root,
+      relativePath: 'source.pdf',
+      outputDirectory: relative(root, outputDirectory),
+      mode: 'fast' as const,
+      idempotencyKey: 'oversized-cache-metadata'
+    }
+    await service.parse(request)
+    await writeFile(join(outputDirectory, 'workwise-result.json'), Buffer.alloc(1024 * 1024 + 1, 0x61))
+
+    await expect(service.parse({ ...request, parseId: 'oversized-cache-metadata-hit' }))
+      .rejects.toMatchObject({ code: 'resource_limit' })
+    expect(bridge).toHaveBeenCalledTimes(1)
+  })
+
+  it('ignores cache metadata whose arrays exceed the runtime schema bounds', async () => {
+    const { root } = await fixture()
+    const outputDirectory = join(root, '.workwise', 'cache', 'invalid-array-metadata')
+    const bridge = runner()
+    const service = new DocumentEngineService({ runner: bridge })
+    const request = {
+      workspaceRoot: root,
+      relativePath: 'source.pdf',
+      outputDirectory: relative(root, outputDirectory),
+      mode: 'fast' as const,
+      idempotencyKey: 'invalid-array-cache-metadata'
+    }
+    await service.parse(request)
+    const metadataPath = join(outputDirectory, 'workwise-result.json')
+    const metadata = JSON.parse(await readFile(metadataPath, 'utf8')) as {
+      result: { warnings: string[] }
+    }
+    metadata.result.warnings = Array.from({ length: 1_001 }, () => 'warning')
+    await writeFile(metadataPath, JSON.stringify(metadata))
+
+    await expect(service.parse({ ...request, parseId: 'invalid-array-cache-metadata-hit' }))
+      .resolves.toMatchObject({ cacheHit: false })
+    expect(bridge).toHaveBeenCalledTimes(2)
+  })
 
   it('does not reuse a custom output directory after the source changes', async () => {
     const { root, path } = await fixture()
@@ -366,6 +412,80 @@ describe('DocumentEngineService', () => {
     await didStart
     expect(service.cancel('cancel-me')).toBe(true)
     await expect(pending).rejects.toMatchObject({ code: 'document_parse_cancelled' })
+  })
+
+  it('applies one total deadline even when a custom engine ignores cancellation', async () => {
+    const { root } = await fixture()
+    let engineSignal: AbortSignal | undefined
+    const service = new DocumentEngineService({
+      parseTimeoutMs: 30,
+      runner: async (input) => {
+        engineSignal = input.signal
+        return new Promise<DocumentSidecarResponse>(() => undefined)
+      }
+    })
+    let safetyTimer: ReturnType<typeof setTimeout> | undefined
+    const safety = new Promise<never>((_, reject) => {
+      safetyTimer = setTimeout(() => reject(new Error('test safety timeout')), 500)
+    })
+
+    try {
+      await expect(Promise.race([
+        service.parse({
+          parseId: 'deadline-parse',
+          workspaceRoot: root,
+          relativePath: 'source.pdf',
+          mode: 'fast',
+          idempotencyKey: 'deadline-parse'
+        }),
+        safety
+      ])).rejects.toMatchObject({ code: 'document_parse_timeout' })
+    } finally {
+      clearTimeout(safetyTimer)
+    }
+    expect(engineSignal?.aborted).toBe(true)
+    expect(service.cancel('deadline-parse')).toBe(false)
+  })
+
+  it('does not write the current cache when an engine resolves after the deadline', async () => {
+    const { root } = await fixture()
+    const outputDirectory = join(root, '.workwise', 'cache', 'late-engine-result')
+    const service = new DocumentEngineService({
+      parseTimeoutMs: 20,
+      runner: async (input) => {
+        await new Promise((resolve) => setTimeout(resolve, 60))
+        return runner()(input)
+      }
+    })
+
+    await expect(service.parse({
+      parseId: 'late-engine-result',
+      workspaceRoot: root,
+      relativePath: 'source.pdf',
+      outputDirectory: relative(root, outputDirectory),
+      mode: 'fast',
+      idempotencyKey: 'late-engine-result'
+    })).rejects.toMatchObject({ code: 'document_parse_timeout' })
+
+    await new Promise((resolve) => setTimeout(resolve, 100))
+    await expect(readFile(join(outputDirectory, 'workwise-result.json'), 'utf8'))
+      .rejects.toMatchObject({ code: 'ENOENT' })
+  })
+
+  it('redacts URLs plus macOS and Windows paths, including spaces', () => {
+    const message = [
+      'failed at /Users/test/Private Documents/client secret.pdf',
+      'and C:\\Users\\test\\Private Documents\\token.json',
+      'via https://ocr.example.test/jobs/1?token=secret'
+    ].join(' ')
+
+    const sanitized = sanitizeDocumentDiagnostic(message)
+
+    expect(sanitized).not.toContain('client secret.pdf')
+    expect(sanitized).not.toContain('token.json')
+    expect(sanitized).not.toContain('ocr.example.test')
+    expect(sanitized).toContain('[path]')
+    expect(sanitized).toContain('[url]')
   })
 
   it('keeps the lightweight result when accurate MinerU parsing fails', async () => {

@@ -14,8 +14,15 @@ import {
 import type { SessionStore } from '../ports/session-store.js'
 import type { TurnService } from './turn-service.js'
 
+export const UI_ACTION_TTL_MS = 24 * 60 * 60 * 1_000
+
 export class UiActionError extends Error {
-  readonly code: 'ui_action_invalid' | 'ui_action_not_found' | 'ui_action_stale' | 'ui_action_unavailable'
+  readonly code:
+    | 'ui_action_invalid'
+    | 'ui_action_not_found'
+    | 'ui_action_stale'
+    | 'ui_action_expired'
+    | 'ui_action_unavailable'
 
   constructor(
     code: UiActionError['code'],
@@ -28,7 +35,11 @@ export class UiActionError extends Error {
 }
 
 export class UiActionService {
-  constructor(private readonly deps: { sessionStore: SessionStore; turns: TurnService }) {}
+  constructor(private readonly deps: {
+    sessionStore: SessionStore
+    turns: TurnService
+    now?: () => number
+  }) {}
 
   /**
    * Resolves the target strictly from the persisted assistant card. Client
@@ -45,6 +56,7 @@ export class UiActionService {
     }
     const request = parsed.data
     const message = await this.findCompletedAssistantMessage(input.threadId, request.messageId)
+    this.assertMessageFresh(message)
     const block = message.uiBlocks?.find((candidate) => candidate.id === request.blockId)
     if (!block) {
       throw new UiActionError('ui_action_not_found', 'the requested UI block was not found')
@@ -79,6 +91,14 @@ export class UiActionService {
       return item
     }
     throw new UiActionError('ui_action_not_found', 'the requested completed assistant message was not found')
+  }
+
+  private assertMessageFresh(message: AssistantTextTurnItem): void {
+    const createdAt = Date.parse(message.createdAt)
+    const now = this.deps.now?.() ?? Date.now()
+    if (!Number.isFinite(createdAt) || now - createdAt > UI_ACTION_TTL_MS) {
+      throw new UiActionError('ui_action_expired', 'the requested UI block has expired')
+    }
   }
 }
 

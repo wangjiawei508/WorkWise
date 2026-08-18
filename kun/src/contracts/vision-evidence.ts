@@ -24,6 +24,35 @@ export const AttachmentEvidence = z.object({
 }).strict()
 export type AttachmentEvidence = z.infer<typeof AttachmentEvidence>
 
+export function sanitizeAttachmentEvidence(input: AttachmentEvidence): AttachmentEvidence {
+  const evidence = AttachmentEvidence.parse(input)
+  return {
+    ...evidence,
+    summary: sanitizeEvidenceText(evidence.summary),
+    ocr: sanitizeEvidenceText(evidence.ocr),
+    layout: evidence.layout.map((item) => ({
+      ...item,
+      ...(item.text !== undefined ? { text: sanitizeEvidenceText(item.text) } : {})
+    })),
+    semantics: evidence.semantics.map(sanitizeEvidenceText),
+    visual: sanitizeEvidenceText(evidence.visual),
+    uncertainty: evidence.uncertainty.map(sanitizeEvidenceText),
+    source: {
+      ...evidence.source,
+      analyzer: sanitizeEvidenceText(evidence.source.analyzer)
+    }
+  }
+}
+
+function sanitizeEvidenceText(value: string): string {
+  return value
+    .replace(/data:[^\s"'<>]+/gi, '[data-url]')
+    .replace(/(?:https?|ftp|file):\/\/[^\s"'<>]+/gi, '[url]')
+    .replace(/(^|[\s("'`])\/(?:Users|private|tmp|var|home|Applications|Volumes|opt|etc)(?:\/[^/\r\n"'<>|]+)+/g, '$1[absolute-path]')
+    .replace(/\b[A-Za-z]:\\(?:[^\\\r\n"'<>|]+\\)*[^\\\r\n"'<>|]*/g, '[absolute-path]')
+    .replace(/[A-Za-z0-9+/_-]{80,}={0,2}/g, '[encoded-data]')
+}
+
 export type VisionEvidenceInput = {
   attachmentId: string
   name: string

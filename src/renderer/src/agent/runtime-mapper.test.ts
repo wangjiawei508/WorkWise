@@ -120,6 +120,50 @@ describe('todo event mapping', () => {
   })
 })
 
+describe('attachment evidence event mapping', () => {
+  it('surfaces ready and failed evidence states through the event sink', async () => {
+    const evidenceEvents: unknown[] = []
+    const sink = {
+      ...makeSink(),
+      onAttachmentEvidence: (event: unknown) => evidenceEvents.push(event)
+    } as ThreadEventSink
+
+    await dispatchRuntimeEvent({
+      kind: 'attachment_evidence_ready',
+      seq: 5,
+      timestamp: '2026-08-18T00:00:00.000Z',
+      threadId: 'thr_1',
+      turnId: 'turn_1',
+      attachmentId: 'att_1',
+      status: 'ready'
+    } as CoreRuntimeEventJson, sink, async () => undefined)
+    await dispatchRuntimeEvent({
+      kind: 'attachment_evidence_failed',
+      seq: 6,
+      timestamp: '2026-08-18T00:00:01.000Z',
+      threadId: 'thr_1',
+      turnId: 'turn_1',
+      attachmentId: 'att_2',
+      status: 'failed',
+      message: 'analysis unavailable'
+    } as CoreRuntimeEventJson, sink, async () => undefined)
+
+    expect(evidenceEvents).toEqual([
+      {
+        attachmentId: 'att_1',
+        status: 'ready',
+        createdAt: '2026-08-18T00:00:00.000Z'
+      },
+      {
+        attachmentId: 'att_2',
+        status: 'failed',
+        createdAt: '2026-08-18T00:00:01.000Z',
+        message: 'analysis unavailable'
+      }
+    ])
+  })
+})
+
 describe('review mapping', () => {
   const reviewItem: CoreTurnItemJson = {
     id: 'item_review_1',

@@ -131,6 +131,40 @@ describe('HTTP server', () => {
     )
     expect(genericConflict.status).toBe(409)
     expect(await readJson(genericConflict)).toMatchObject({ code: 'conflict' })
+
+    const staleAction = await dispatchRequest(
+      h.router,
+      new Request('http://localhost/v1/threads/thr_ui_route/ui-actions', {
+        method: 'POST',
+        headers: { authorization: 'Bearer tok-1', 'content-type': 'application/json' },
+        body: JSON.stringify({
+          messageId: 'item_ui_route_card',
+          blockId: 'card',
+          actionId: 'apply',
+          specFingerprint: '0'.repeat(16),
+          idempotencyKey: 'ui-route-stale'
+        })
+      })
+    )
+    expect(staleAction.status).toBe(409)
+    expect(await readJson(staleAction)).toMatchObject({ code: 'stale_request' })
+
+    const consumedAction = await dispatchRequest(
+      h.router,
+      new Request('http://localhost/v1/threads/thr_ui_route/ui-actions', {
+        method: 'POST',
+        headers: { authorization: 'Bearer tok-1', 'content-type': 'application/json' },
+        body: JSON.stringify({
+          messageId: 'item_ui_route_card',
+          blockId: 'card',
+          actionId: 'apply',
+          specFingerprint: fingerprintDshUiBlock(uiBlocks[0]!),
+          idempotencyKey: 'ui-route-second-click'
+        })
+      })
+    )
+    expect(consumedAction.status).toBe(409)
+    expect(await readJson(consumedAction)).toMatchObject({ code: 'conflict' })
   })
 
   it('requires auth for runtime info', async () => {
@@ -956,6 +990,42 @@ describe('HTTP server', () => {
     const frames = await readSseEvents(eventStream)
     const occurrences = frames.filter((frame) => frame.includes(`id: ${recorded.seq}\n`))
     expect(occurrences).toHaveLength(1)
+  })
+
+  it('does not lose a live event published while the replay backlog is loading', async () => {
+    const h = buildHarness()
+    const thread = await h.threadService.create(
+      { workspace: '/tmp', model: 'deepseek-chat', mode: 'agent' },
+      { id: 'thr_replay_race', title: 'Replay race' }
+    )
+    const originalLoadEventsSince = h.sessionStore.loadEventsSince.bind(h.sessionStore)
+    let replayStartedResolve: (() => void) | undefined
+    const replayStarted = new Promise<void>((resolve) => {
+      replayStartedResolve = resolve
+    })
+    let releaseReplayResolve: (() => void) | undefined
+    const releaseReplay = new Promise<void>((resolve) => {
+      releaseReplayResolve = resolve
+    })
+    vi.spyOn(h.sessionStore, 'loadEventsSince').mockImplementation(async (threadId, sinceSeq) => {
+      const backlog = await originalLoadEventsSince(threadId, sinceSeq)
+      replayStartedResolve?.()
+      await releaseReplay
+      return backlog
+    })
+
+    const responsePromise = dispatchRequest(
+      h.router,
+      new Request(`http://localhost/v1/threads/${thread.id}/events?since_seq=0`, {
+        headers: { authorization: 'Bearer tok-1' }
+      })
+    )
+    await replayStarted
+    const recorded = await h.runtime.events.record({ kind: 'heartbeat', threadId: thread.id })
+    releaseReplayResolve?.()
+
+    const frames = await readSseEvents(await responsePromise)
+    expect(frames.filter((frame) => frame.includes(`id: ${recorded.seq}\n`))).toHaveLength(1)
   })
 
   it('skips SSE backlog replay when the client is already caught up', async () => {

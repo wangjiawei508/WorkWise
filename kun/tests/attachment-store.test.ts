@@ -371,10 +371,14 @@ describe('Attachment store and multimodal input', () => {
 
   })
 
-  it('uses structured visual evidence for text-only models without exposing image bytes or analyzer URLs', async () => {
+  it('uses redacted structured visual evidence for text-only models without exposing analyzer secrets', async () => {
     const store = createStore()
     const image = png(1, 1)
     const imageBase64 = image.toString('base64')
+    const analyzerBase64 = Buffer.alloc(96, 0xab).toString('base64')
+    const analyzerUrl = 'https://vision.example.test/analyze?token=signed-secret'
+    const analyzerMacPath = '/Users/tester/Private Evidence/input.png'
+    const analyzerWindowsPath = 'C:\\Users\\tester\\Private Evidence\\input.png'
     const attachment = await store.create({
       name: 'evidence.png',
       data: image,
@@ -396,12 +400,12 @@ describe('Attachment store and multimodal input', () => {
         return {
           version: 1,
           attachmentId: input.attachmentId,
-          summary: 'A weather dashboard',
-          ocr: 'Ningbo 31 C',
-          layout: [{ type: 'heading', text: 'Weather' }],
-          semantics: ['current weather'],
-          visual: 'A compact weather card',
-          uncertainty: ['Small icon is ambiguous'],
+          summary: `A weather dashboard from ${analyzerUrl}`,
+          ocr: `Ningbo 31 C data:image/png;base64,${analyzerBase64}`,
+          layout: [{ type: 'heading', text: `Weather ${analyzerMacPath}` }],
+          semantics: [`current weather ${analyzerWindowsPath}`],
+          visual: `A compact weather card ${analyzerBase64}`,
+          uncertainty: [`Small icon is ambiguous; source ${analyzerUrl}`],
           source: {
             kind: 'configured-endpoint',
             analyzer: 'test-analyzer',
@@ -431,10 +435,31 @@ describe('Attachment store and multimodal input', () => {
     expect(serialized).not.toContain(imageBase64)
     expect(serialized).not.toContain('127.0.0.1')
     expect(serialized).not.toContain('token=')
+    expect(serialized).not.toContain('signed-secret')
+    expect(serialized).not.toContain(analyzerBase64)
+    expect(serialized).not.toContain(analyzerMacPath)
+    expect(serialized).not.toContain(analyzerWindowsPath)
+    expect(serialized).toContain('[url]')
+    expect(serialized).toContain('[data-url]')
+    expect(serialized).toContain('[absolute-path]')
     const event = (await h.sessionStore.loadEventsSince(h.threadId, 0))
       .find((item) => item.kind === 'attachment_evidence_ready')
-    expect(event).toMatchObject({ attachmentId: attachment.id, status: 'ready' })
-    expect(JSON.stringify(event)).not.toContain(imageBase64)
+    expect(event).toMatchObject({
+      attachmentId: attachment.id,
+      status: 'ready',
+      evidence: {
+        source: {
+          analyzer: 'test-analyzer',
+          configFingerprint: 'a'.repeat(64)
+        }
+      }
+    })
+    const serializedEvent = JSON.stringify(event)
+    expect(serializedEvent).not.toContain(imageBase64)
+    expect(serializedEvent).not.toContain('signed-secret')
+    expect(serializedEvent).not.toContain(analyzerBase64)
+    expect(serializedEvent).not.toContain(analyzerMacPath)
+    expect(serializedEvent).not.toContain(analyzerWindowsPath)
   })
 
   it('keeps native image input when a visual model is used even if an analyzer is configured', async () => {

@@ -2,7 +2,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   armBusyWatchdog,
   clearBusyWatchdog,
-  resetBusyRecoveryAttempts
+  resetBusyRecoveryAttempts,
+  stopTurnCompletionPoll,
+  syncTurnCompletionPoll
 } from './chat-store-schedulers'
 import type { ChatState, ChatStoreSet } from './chat-store-types'
 
@@ -136,5 +138,42 @@ describe('busyTimeout minutes interpolation (#131)', () => {
     vi.advanceTimersByTime(10)
     expect(typeof h.getState().error).toBe('string')
     expect(h.getState().error as string).toMatch(/已等待 9 分钟/)
+  })
+})
+
+describe('background turn completion polling', () => {
+  afterEach(() => {
+    stopTurnCompletionPoll()
+  })
+
+  it('passes the authoritative terminal turn snapshot to the notification layer', async () => {
+    const h = makeHarness({
+      runtimeConnection: 'ready',
+      watchTurnCompletion: { 'thread-background': true }
+    })
+    const onCompletedThreads = vi.fn()
+
+    syncTurnCompletionPoll(h.set, h.get, {
+      loadThreadState: vi.fn(async () => ({
+        blocks: [],
+        threadStatus: 'idle',
+        latestTurnId: 'turn-background',
+        latestTurnStatus: 'failed',
+        latestTurnError: 'policy_blocked: approval denied'
+      })),
+      threadLooksRunning: () => false,
+      onCompletedThreads
+    })
+
+    await vi.waitFor(() => {
+      expect(onCompletedThreads).toHaveBeenCalledWith([
+        {
+          threadId: 'thread-background',
+          turnId: 'turn-background',
+          turnStatus: 'failed',
+          turnError: 'policy_blocked: approval denied'
+        }
+      ], expect.anything(), h.set, h.get)
+    })
   })
 })

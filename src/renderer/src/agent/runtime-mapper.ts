@@ -1,5 +1,6 @@
 import type {
   ChatBlock,
+  AttachmentEvidenceEventPayload,
   CompactionEventPayload,
   GeneratedFileReference,
   NormalizedThread,
@@ -26,6 +27,7 @@ import { redactSecrets, redactSecretText } from '@shared/secret-redaction'
 import type { DesignCanvasCommandV1 } from '@shared/design-workspace'
 import type {
   CoreChildRuntimeMetadataJson,
+  CoreAttachmentEvidenceJson,
   CoreRuntimeEventJson,
   CoreThreadGoalJson,
   CoreThreadTodoListJson,
@@ -1200,6 +1202,22 @@ export async function dispatchRuntimeEvents(
   flushDeltas()
 }
 
+function attachmentEvidenceFromEvent(event: CoreRuntimeEventJson): AttachmentEvidenceEventPayload | null {
+  const attachmentId = typeof event.attachmentId === 'string' ? event.attachmentId.trim() : ''
+  if (!attachmentId) return null
+  const status = event.kind === 'attachment_evidence_ready' ? 'ready' : 'failed'
+  const message = typeof event.message === 'string' && event.message.trim()
+    ? redactSecretText(event.message)
+    : undefined
+  return {
+    attachmentId,
+    status,
+    ...(event.timestamp ? { createdAt: event.timestamp } : {}),
+    ...(event.evidence ? { evidence: event.evidence as CoreAttachmentEvidenceJson } : {}),
+    ...(message ? { message } : {})
+  }
+}
+
 export async function dispatchRuntimeEvent(
   event: CoreRuntimeEventJson,
   sink: ThreadEventSink,
@@ -1234,7 +1252,7 @@ export async function dispatchRuntimeEvent(
 	      if (status) sink.onRuntimeStatus?.(status)
 	      return
 	    }
-	    case 'tool_storm_suppressed': {
+    case 'tool_storm_suppressed': {
 	      const status = runtimeStatusFromEvent(event)
 	      if (status) sink.onRuntimeStatus?.(status)
 	      return
@@ -1317,6 +1335,12 @@ export async function dispatchRuntimeEvent(
         threadId: event.threadId,
         turnId: event.turnId
       })
+      return
+    }
+    case 'attachment_evidence_ready':
+    case 'attachment_evidence_failed': {
+      const evidence = attachmentEvidenceFromEvent(event)
+      if (evidence) sink.onAttachmentEvidence?.(evidence)
       return
     }
     case 'error':

@@ -1,5 +1,6 @@
 import type {
   CoreAttachmentContentResponseJson,
+  CoreAttachmentEvidenceJson,
   CoreAttachmentMetadataJson,
   CoreAttachmentTextFallbackJson,
   CoreMemoryRecordJson,
@@ -69,6 +70,14 @@ export type RuntimeDisclosureMetadata = {
   sources?: WebCitationSource[]
 }
 
+export type AttachmentEvidenceEventPayload = {
+  attachmentId: string
+  status: 'ready' | 'failed'
+  createdAt?: string
+  evidence?: CoreAttachmentEvidenceJson
+  message?: string
+}
+
 export type UserInputOption = {
   label: string
   description: string
@@ -103,6 +112,7 @@ export type NormalizedThread = {
   preview?: string
   latestTurnId?: string
   latestTurnStatus?: string
+  latestTurnError?: string
   relation?: 'primary' | 'fork' | 'side'
   parentThreadId?: string
   forkedFromThreadId?: string
@@ -415,6 +425,7 @@ export type ThreadEventSink = {
   onUserInputStatus(ev: UserInputStatusPayload): void
   onRuntimeStatus?(ev: RuntimeStatusEventPayload): void
   onRuntimeError?(ev: RuntimeErrorEventPayload): void
+  onAttachmentEvidence?(ev: AttachmentEvidenceEventPayload): void
   onGoal(ev: { threadId: string; goal: ThreadGoal | null; cleared?: boolean; createdAt?: string }): void
   onTodos?(ev: { threadId: string; todos: ThreadTodoList | null; cleared?: boolean; createdAt?: string }): void
   onTurnComplete(options?: ThreadCompleteOptions): void
@@ -441,6 +452,8 @@ export interface AgentProvider {
     latestSeq: number
     threadStatus?: string
     latestTurnId?: string
+    latestTurnStatus?: string
+    latestTurnError?: string
     latestUserMessageId?: string
     turnDurationByUserId?: Record<string, number>
     usage?: ThreadUsageSnapshot

@@ -18,11 +18,91 @@ import { atomicWriteFile } from './durable-file'
 import { inspectOfficeArchive } from './office-archive-security'
 import { UnlimitedOcrService, normalizeUnlimitedOcrServerUrl } from './unlimited-ocr-service'
 import JSZip from 'jszip'
+import { z } from 'zod'
 
 const MARKITDOWN_ENGINE_VERSION = 'markitdown-v0.1.4-workwise-1'
 const MAX_DOCUMENT_BYTES = 200 * 1024 * 1024
 const MAX_PROTOCOL_BYTES = 16 * 1024 * 1024
+const MAX_METADATA_BYTES = 1024 * 1024
+const MAX_METADATA_ARRAY_ITEMS = 1_000
+const MAX_METADATA_STRING_LENGTH = 64 * 1024
+const DEFAULT_PARSE_TIMEOUT_MS = 10 * 60 * 1_000
 const SUPPORTED_EXTENSIONS = new Set(['.pdf', '.docx', '.pptx', '.xlsx'])
+
+const boundedStringSchema = z.string().max(MAX_METADATA_STRING_LENGTH)
+const boundedStringArraySchema = z.array(boundedStringSchema).max(MAX_METADATA_ARRAY_ITEMS)
+const documentEngineIdSchema = z.enum(['markitdown', 'unlimited-ocr-local', 'mineru-local', 'mineru-private'])
+const documentParsingModeSchema = z.enum(['auto', 'fast', 'accurate'])
+const positivePageSchema = z.number().int().positive()
+const finiteNonNegativeSchema = z.number().finite().nonnegative()
+const headingSchema = z.object({
+  level: z.number().int().positive(),
+  text: boundedStringSchema,
+  page: positivePageSchema.optional()
+})
+const tableSchema = z.object({
+  markdown: boundedStringSchema,
+  page: positivePageSchema.optional()
+})
+const mediaSchema = z.object({
+  relativePath: boundedStringSchema,
+  mediaType: boundedStringSchema.optional(),
+  page: positivePageSchema.optional()
+})
+const referenceSchema = z.object({
+  page: positivePageSchema,
+  blockId: boundedStringSchema.optional(),
+  kind: z.enum(['text', 'table', 'formula', 'image']).optional(),
+  boundingBox: z.tuple([z.number().finite(), z.number().finite(), z.number().finite(), z.number().finite()]).optional()
+})
+const documentParseResultSchema = z.object({
+  id: boundedStringSchema,
+  engine: documentEngineIdSchema,
+  engineVersion: boundedStringSchema,
+  sourceSha256: boundedStringSchema.min(1),
+  markdown: z.string().max(MAX_METADATA_BYTES),
+  headings: z.array(headingSchema).max(MAX_METADATA_ARRAY_ITEMS),
+  tables: z.array(tableSchema).max(MAX_METADATA_ARRAY_ITEMS),
+  media: z.array(mediaSchema).max(MAX_METADATA_ARRAY_ITEMS),
+  references: z.array(referenceSchema).max(MAX_METADATA_ARRAY_ITEMS),
+  sourceStructure: z.object({
+    pageCount: z.number().int().nonnegative().optional(),
+    worksheets: boundedStringArraySchema.optional(),
+    slideCount: z.number().int().nonnegative().optional()
+  }).optional(),
+  warnings: boundedStringArraySchema,
+  quality: z.object({
+    status: z.enum(['good', 'degraded', 'enhanced']),
+    reasons: boundedStringArraySchema
+  }),
+  route: z.object({
+    requestedMode: documentParsingModeSchema,
+    selectedEngine: documentEngineIdSchema,
+    fallbackFrom: documentEngineIdSchema.optional()
+  }),
+  degradedFrom: documentEngineIdSchema.optional(),
+  cacheHit: z.boolean(),
+  durationMs: finiteNonNegativeSchema
+})
+const workwiseCacheSchema = z.object({
+  markdownPath: boundedStringSchema,
+  result: documentParseResultSchema
+})
+const documentSidecarResponseSchema = z.object({
+  ok: z.boolean(),
+  code: boundedStringSchema.optional(),
+  message: boundedStringSchema.optional(),
+  engine: documentEngineIdSchema.optional(),
+  engineVersion: boundedStringSchema.optional(),
+  sourceSha256: boundedStringSchema.min(1).optional(),
+  markdownPath: boundedStringSchema.optional(),
+  headings: z.array(headingSchema).max(MAX_METADATA_ARRAY_ITEMS).optional(),
+  tables: z.array(tableSchema).max(MAX_METADATA_ARRAY_ITEMS).optional(),
+  media: z.array(mediaSchema).max(MAX_METADATA_ARRAY_ITEMS).optional(),
+  references: z.array(referenceSchema).max(MAX_METADATA_ARRAY_ITEMS).optional(),
+  warnings: boundedStringArraySchema.optional(),
+  durationMs: finiteNonNegativeSchema.optional()
+})
 
 export type DocumentSidecarResponse = {
   ok: boolean
@@ -102,6 +182,7 @@ export type DocumentEngineServiceOptions = {
   arch?: string
   runner?: DocumentEngineRunner
   unlimitedOcr?: UnlimitedOcrService
+  parseTimeoutMs?: number
 }
 
 export class DocumentEngineError extends Error {
@@ -111,6 +192,7 @@ export class DocumentEngineError extends Error {
       | 'document_engine_unavailable'
       | 'document_parse_failed'
       | 'document_parse_cancelled'
+      | 'document_parse_timeout'
       | 'document_upload_not_allowed'
       | 'resource_limit'
       | 'unsupported_format'
@@ -135,6 +217,7 @@ export class DocumentEngineService {
       toolsRoot: options.toolsRoot ?? join(homedir(), '.workwise', 'tools'),
       platform: options.platform ?? process.platform,
       arch: options.arch ?? process.arch,
+      parseTimeoutMs: normalizeParseTimeout(options.parseTimeoutMs),
       runner: options.runner
     }
     this.unlimitedOcr = options.unlimitedOcr ?? new UnlimitedOcrService()
@@ -204,8 +287,33 @@ export class DocumentEngineService {
     if (this.active.has(parseId)) throw new DocumentEngineError('A parse with this id is already running.', 'document_parse_failed')
     const controller = new AbortController()
     this.active.set(parseId, controller)
+    let timeout: ReturnType<typeof setTimeout> | undefined
+    const deadline = new Promise<never>((_, reject) => {
+      timeout = setTimeout(() => {
+        const error = new DocumentEngineError('Document parsing timed out.', 'document_parse_timeout')
+        controller.abort(error)
+        reject(error)
+      }, this.options.parseTimeoutMs)
+    })
+    const operation = this.parseWithSignal(request, parseId, controller)
     try {
+      return await Promise.race([operation, deadline])
+    } catch (error) {
+      if (controller.signal.aborted) throw documentParseAbortError(controller.signal)
+      throw error
+    } finally {
+      clearTimeout(timeout)
+      this.active.delete(parseId)
+    }
+  }
+
+  private async parseWithSignal(
+    request: DocumentParseRequestV1 & { unlimitedOcrServerUrl?: string },
+    parseId: string,
+    controller: AbortController
+  ): Promise<DocumentParseResultV1> {
       const workspaceRoot = await canonicalizeContainmentRoot(request.workspaceRoot)
+      throwIfDocumentParseAborted(controller.signal)
       const inputPath = await resolveContainedPath({
         root: workspaceRoot,
         target: request.relativePath,
@@ -213,6 +321,7 @@ export class DocumentEngineService {
         expect: 'file',
         rejectFinalLink: true
       })
+      throwIfDocumentParseAborted(controller.signal)
       const file = await stat(inputPath)
       if (file.size > MAX_DOCUMENT_BYTES) {
         throw new DocumentEngineError('Document exceeds the 200 MiB limit.', 'resource_limit')
@@ -221,9 +330,12 @@ export class DocumentEngineService {
       if (!SUPPORTED_EXTENSIONS.has(extension)) {
         throw new DocumentEngineError(`Unsupported document format: ${extension || '(none)'}`, 'unsupported_format')
       }
-      if (extension !== '.pdf') inspectOfficeArchive(await readFile(inputPath))
-      const sourceSha256 = await sha256File(inputPath)
+      if (extension !== '.pdf') inspectOfficeArchive(await readFile(inputPath, { signal: controller.signal }))
+      throwIfDocumentParseAborted(controller.signal)
+      const sourceSha256 = await sha256File(inputPath, controller.signal)
+      throwIfDocumentParseAborted(controller.signal)
       const mineruAvailable = this.options.runner ? true : await this.mineruInstaller.isInstalled()
+      throwIfDocumentParseAborted(controller.signal)
       let unlimitedOcrServerUrl = ''
       const unlimitedOcrRequired = request.preferredEngine === 'unlimited-ocr-local'
       if (request.unlimitedOcrServerUrl?.trim()) {
@@ -246,14 +358,17 @@ export class DocumentEngineService {
         expect: 'directory',
         rejectFinalLink: true
       })
+      throwIfDocumentParseAborted(controller.signal)
       const cached = await this.readCache(workspaceRoot, outputDirectory, parseId, {
         sourceSha256,
         engine,
         mode: request.mode,
         allowLegacyCache: !request.outputDirectory
       })
+      throwIfDocumentParseAborted(controller.signal)
       if (cached) return cached
       await mkdir(outputDirectory, { recursive: true })
+      throwIfDocumentParseAborted(controller.signal)
 
       if (engine === 'mineru-private') {
         if (!request.allowPrivateServerUpload) {
@@ -282,7 +397,7 @@ export class DocumentEngineService {
         })
       } catch (error) {
         if (controller.signal.aborted) {
-          throw new DocumentEngineError('Document parsing was cancelled.', 'document_parse_cancelled')
+          throw documentParseAbortError(controller.signal)
         }
         if (engine === 'unlimited-ocr-local') {
           const unlimitedOcrWarning = `Unlimited-OCR failed: ${safeErrorMessage(error)}`
@@ -306,7 +421,7 @@ export class DocumentEngineService {
               routeFallbackFrom = engine
             } catch (fallbackError) {
               if (controller.signal.aborted) {
-                throw new DocumentEngineError('Document parsing was cancelled.', 'document_parse_cancelled')
+                throw documentParseAbortError(controller.signal)
               }
               mineruError = fallbackError
             }
@@ -351,6 +466,7 @@ export class DocumentEngineService {
           throw error
         }
       }
+      throwIfDocumentParseAborted(controller.signal)
       if (request.mode === 'auto' && engine === 'markitdown' && response.ok && response.markdownPath) {
         const lightweightPath = await resolveContainedPath({
           root: workspaceRoot,
@@ -359,11 +475,14 @@ export class DocumentEngineService {
           expect: 'file',
           rejectFinalLink: true
         })
-        const lightweightMarkdown = await readFile(lightweightPath, 'utf8')
+        throwIfDocumentParseAborted(controller.signal)
+        const lightweightMarkdown = await readFile(lightweightPath, { encoding: 'utf8', signal: controller.signal })
         pdfAnalysis = await analyzePdfDocument(inputPath, controller.signal).catch((error) => {
+          if (controller.signal.aborted) throw documentParseAbortError(controller.signal)
           response.warnings = [...(response.warnings ?? []), `PDF.js text-layer analysis failed: ${safeErrorMessage(error)}`]
           return undefined
         })
+        throwIfDocumentParseAborted(controller.signal)
         quality = assessDocumentQuality({
           extension,
           markdown: lightweightMarkdown,
@@ -380,7 +499,10 @@ export class DocumentEngineService {
         }
       }
       if (!response.ok || !response.markdownPath) {
-        throw new DocumentEngineError(response.message || 'Document parser returned an invalid response.', 'document_parse_failed')
+        throw new DocumentEngineError(
+          response.message ? sanitizeDocumentDiagnostic(response.message) : 'Document parser returned an invalid response.',
+          'document_parse_failed'
+        )
       }
       const markdownPath = await resolveContainedPath({
         root: workspaceRoot,
@@ -389,17 +511,20 @@ export class DocumentEngineService {
         expect: 'file',
         rejectFinalLink: true
       })
-      const markdown = await readFile(markdownPath, 'utf8')
+      throwIfDocumentParseAborted(controller.signal)
+      const markdown = await readFile(markdownPath, { encoding: 'utf8', signal: controller.signal })
       if (Buffer.byteLength(markdown) > MAX_PROTOCOL_BYTES) {
         throw new DocumentEngineError('Parsed Markdown exceeds the 16 MiB result limit.', 'resource_limit')
       }
       const selectedEngine = response.engine ?? engine
       if (extension === '.pdf' && !pdfAnalysis) {
         pdfAnalysis = await analyzePdfDocument(inputPath, controller.signal).catch((error) => {
+          if (controller.signal.aborted) throw documentParseAbortError(controller.signal)
           response.warnings = [...(response.warnings ?? []), `PDF.js text-layer analysis failed: ${safeErrorMessage(error)}`]
           return undefined
         })
       }
+      throwIfDocumentParseAborted(controller.signal)
       const supplemented = supplementPageReferences({
         headings: response.headings ?? [],
         tables: response.tables ?? [],
@@ -439,18 +564,17 @@ export class DocumentEngineService {
         durationMs: response.durationMs ?? 0
       }
       if (!degradedFrom && !routeFallbackFrom) {
-        await this.writeCache(workspaceRoot, outputDirectory, markdownPath, result)
+        throwIfDocumentParseAborted(controller.signal)
+        await this.writeCache(workspaceRoot, outputDirectory, markdownPath, result, controller.signal)
       }
+      throwIfDocumentParseAborted(controller.signal)
       return result
-    } finally {
-      this.active.delete(parseId)
-    }
   }
 
   cancel(parseId: string): boolean {
     const controller = this.active.get(parseId)
     if (!controller) return false
-    controller.abort('user_cancelled')
+    controller.abort(new DocumentEngineError('Document parsing was cancelled.', 'document_parse_cancelled'))
     return true
   }
 
@@ -503,22 +627,27 @@ export class DocumentEngineService {
     }
   ): Promise<DocumentParseResultV1 | null> {
     try {
-      const workwisePayload = JSON.parse(await readFile(join(outputDirectory, 'workwise-result.json'), 'utf8')) as {
-        markdownPath: string
-        result: DocumentParseResultV1
-      }
-      if (!workwisePayload.markdownPath || !workwisePayload.result?.sourceSha256) return null
+      const metadataPath = await resolveContainedPath({
+        root: workspaceRoot,
+        target: join(outputDirectory, 'workwise-result.json'),
+        mustExist: true,
+        expect: 'file',
+        rejectFinalLink: true
+      })
+      const workwisePayload = workwiseCacheSchema.safeParse(await readBoundedJson(metadataPath))
+      if (!workwisePayload.success) return null
+      const { markdownPath, result } = workwisePayload.data
       if (
-        workwisePayload.result.sourceSha256 !== expected.sourceSha256 ||
-        workwisePayload.result.engine !== expected.engine ||
-        workwisePayload.result.route?.requestedMode !== expected.mode ||
-        workwisePayload.result.route.selectedEngine !== expected.engine ||
-        workwisePayload.result.degradedFrom ||
-        workwisePayload.result.route.fallbackFrom
+        result.sourceSha256 !== expected.sourceSha256 ||
+        result.engine !== expected.engine ||
+        result.route.requestedMode !== expected.mode ||
+        result.route.selectedEngine !== expected.engine ||
+        result.degradedFrom ||
+        result.route.fallbackFrom
       ) return null
       const workwiseMarkdownPath = await resolveContainedPath({
         root: workspaceRoot,
-        target: workwisePayload.markdownPath,
+        target: markdownPath,
         mustExist: true,
         expect: 'file',
         rejectFinalLink: true
@@ -528,7 +657,7 @@ export class DocumentEngineService {
         throw new DocumentEngineError('Parsed Markdown exceeds the 16 MiB result limit.', 'resource_limit')
       }
       return {
-        ...workwisePayload.result,
+        ...result,
         id: parseId,
         markdown: workwiseMarkdown,
         cacheHit: true,
@@ -540,7 +669,16 @@ export class DocumentEngineService {
     }
     try {
       if (!expected.allowLegacyCache) return null
-      const payload = JSON.parse(await readFile(join(outputDirectory, 'result.json'), 'utf8')) as DocumentSidecarResponse
+      const metadataPath = await resolveContainedPath({
+        root: workspaceRoot,
+        target: join(outputDirectory, 'result.json'),
+        mustExist: true,
+        expect: 'file',
+        rejectFinalLink: true
+      })
+      const parsed = documentSidecarResponseSchema.safeParse(await readBoundedJson(metadataPath))
+      if (!parsed.success) return null
+      const payload = parsed.data as DocumentSidecarResponse
       if (
         !payload.ok ||
         !payload.markdownPath ||
@@ -584,22 +722,27 @@ export class DocumentEngineService {
     workspaceRoot: string,
     outputDirectory: string,
     markdownPath: string,
-    result: DocumentParseResultV1
+    result: DocumentParseResultV1,
+    signal: AbortSignal
   ): Promise<void> {
     await atomicWriteFile(
       join(outputDirectory, 'workwise-result.json'),
       `${JSON.stringify({
         markdownPath: relative(workspaceRoot, markdownPath).replaceAll('\\', '/'),
         result: { ...result, markdown: '' }
-      }, null, 2)}\n`
+      }, null, 2)}\n`,
+      { beforeReplace: async () => throwIfDocumentParseAborted(signal) }
     )
   }
 
-  private runEngine(input: Parameters<DocumentEngineRunner>[0]): Promise<DocumentSidecarResponse> {
-    if (this.options.runner) return this.options.runner(input)
-    if (input.engine === 'markitdown') return runJsonSidecar(this.markitdownExecutable(), [], input)
-    if (input.engine === 'unlimited-ocr-local') {
-      return this.unlimitedOcr.parse({
+  private async runEngine(input: Parameters<DocumentEngineRunner>[0]): Promise<DocumentSidecarResponse> {
+    let response: unknown
+    if (this.options.runner) {
+      response = await this.options.runner(input)
+    } else if (input.engine === 'markitdown') {
+      response = await runJsonSidecar(this.markitdownExecutable(), [], input)
+    } else if (input.engine === 'unlimited-ocr-local') {
+      response = await this.unlimitedOcr.parse({
         serverUrl: input.unlimitedOcrServerUrl ?? '',
         inputPath: input.inputPath,
         outputDirectory: input.outputDirectory,
@@ -612,8 +755,15 @@ export class DocumentEngineService {
         warnings: result.warnings,
         durationMs: result.durationMs
       }))
+    } else {
+      response = await runJsonSidecar(this.mineruInstaller.pythonExecutable(), [this.mineruInstaller.adapterPath()], input)
     }
-    return runJsonSidecar(this.mineruInstaller.pythonExecutable(), [this.mineruInstaller.adapterPath()], input)
+    throwIfDocumentParseAborted(input.signal)
+    const parsed = documentSidecarResponseSchema.safeParse(response)
+    if (!parsed.success) {
+      throw new DocumentEngineError('Document parser returned an invalid response.', 'document_parse_failed')
+    }
+    return parsed.data as DocumentSidecarResponse
   }
 
   private markitdownExecutable(): string {
@@ -728,14 +878,50 @@ function normalizeForPageMatch(value: string): string {
     .toLowerCase()
 }
 
-async function sha256File(path: string): Promise<string> {
-  const contents = await readFile(path)
+async function sha256File(path: string, signal?: AbortSignal): Promise<string> {
+  const contents = await readFile(path, { signal })
   return createHash('sha256').update(contents).digest('hex')
+}
+
+function normalizeParseTimeout(value: number | undefined): number {
+  return typeof value === 'number' && Number.isFinite(value) && value > 0
+    ? Math.max(1, Math.floor(value))
+    : DEFAULT_PARSE_TIMEOUT_MS
+}
+
+function documentParseAbortError(signal: AbortSignal): DocumentEngineError {
+  if (signal.reason instanceof DocumentEngineError) return signal.reason
+  return new DocumentEngineError('Document parsing was cancelled.', 'document_parse_cancelled')
+}
+
+function throwIfDocumentParseAborted(signal: AbortSignal): void {
+  if (signal.aborted) throw documentParseAbortError(signal)
+}
+
+export function sanitizeDocumentDiagnostic(message: string): string {
+  let sanitized = message.replace(/\b[a-z][a-z\d+.-]*:\/\/[^\s]+/gi, '[url]')
+  const boundary = String.raw`(?=\s+(?:and|via|at|from|on|in|because|with)\b|[,;)}\]]|$)`
+  sanitized = sanitized.replace(new RegExp(String.raw`\b[A-Za-z]:\\[^\r\n]*?${boundary}`, 'g'), '[path]')
+  sanitized = sanitized.replace(new RegExp(String.raw`(?<![A-Za-z0-9_])/(?:Users|home|private|tmp|var|Volumes|Applications|Library|opt|etc)/[^\r\n]*?${boundary}`, 'g'), '[path]')
+  return sanitized.replace(/\s{2,}/g, ' ').trim().slice(0, 240)
 }
 
 function safeErrorMessage(error: unknown): string {
   if (!(error instanceof Error)) return 'unknown error'
-  return error.message.replace(/(?:[A-Za-z]:)?[\\/](?:[^\s/\\]+[\\/])+[^\s/\\]+/g, '[path]').slice(0, 240)
+  return sanitizeDocumentDiagnostic(error.message)
+}
+
+async function readBoundedJson(path: string): Promise<unknown> {
+  const info = await stat(path)
+  if (!info.isFile()) throw new DocumentEngineError('Document metadata is not a regular file.', 'document_parse_failed')
+  if (info.size > MAX_METADATA_BYTES) {
+    throw new DocumentEngineError('Document parser metadata exceeds the 1 MiB limit.', 'resource_limit')
+  }
+  const contents = await readFile(path)
+  if (contents.byteLength > MAX_METADATA_BYTES) {
+    throw new DocumentEngineError('Document parser metadata exceeds the 1 MiB limit.', 'resource_limit')
+  }
+  return JSON.parse(contents.toString('utf8')) as unknown
 }
 
 async function runJsonSidecar(
@@ -754,6 +940,7 @@ async function runJsonSidecar(
   }
   input.signal.addEventListener('abort', abort, { once: true })
   try {
+    throwIfDocumentParseAborted(input.signal)
     child = await safeSpawn(executable, args, {
       cwd: input.workspaceRoot,
       workspaceRoot: input.workspaceRoot,
@@ -789,20 +976,25 @@ async function runJsonSidecar(
       child?.once('error', reject)
       child?.once('exit', resolveExit)
     })
-    if (input.signal.aborted) throw new DocumentEngineError('Document parsing was cancelled.', 'document_parse_cancelled')
+    throwIfDocumentParseAborted(input.signal)
     if (bytes > MAX_PROTOCOL_BYTES) throw new DocumentEngineError('Parser response exceeded the result limit.', 'resource_limit')
     const text = Buffer.concat(stdout).toString('utf8').trim()
     let response: DocumentSidecarResponse
     try {
-      response = JSON.parse(text) as DocumentSidecarResponse
+      const parsed = documentSidecarResponseSchema.safeParse(JSON.parse(text) as unknown)
+      if (!parsed.success) throw new Error('invalid response schema')
+      response = parsed.data as DocumentSidecarResponse
     } catch {
       throw new DocumentEngineError(
-        `Document parser exited with ${exitCode ?? 'unknown'}: ${Buffer.concat(stderr).toString('utf8').slice(0, 240)}`,
+        sanitizeDocumentDiagnostic(`Document parser exited with ${exitCode ?? 'unknown'}: ${Buffer.concat(stderr).toString('utf8')}`),
         'document_parse_failed'
       )
     }
     if (exitCode !== 0 || !response.ok) {
-      throw new DocumentEngineError(response.message || 'Document parser failed.', 'document_parse_failed')
+      throw new DocumentEngineError(
+        response.message ? sanitizeDocumentDiagnostic(response.message) : 'Document parser failed.',
+        'document_parse_failed'
+      )
     }
     return response
   } finally {

@@ -45,3 +45,28 @@ export function terminalReasonForFailure(code?: string, message?: string): Exclu
   if (value.includes('blocked') || value.includes('budget_limited') || value.includes('policy_blocked')) return 'blocked'
   return 'error'
 }
+
+export function terminalReasonForTurnSnapshot(
+  status?: string,
+  error?: string
+): Exclude<TerminalNotificationReason, 'waiting_approval'> {
+  switch (status?.trim().toLowerCase()) {
+    case 'completed':
+      return 'completed'
+    case 'aborted':
+    case 'cancelled':
+    case 'canceled':
+      return 'aborted'
+    case 'blocked':
+      return 'blocked'
+    case 'max_tokens':
+      return 'max_tokens'
+    case 'failed':
+    case 'error':
+      return terminalReasonForFailure(undefined, error)
+    default:
+      return error?.trim()
+        ? terminalReasonForFailure(undefined, error)
+        : 'completed'
+  }
+}

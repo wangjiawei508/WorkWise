@@ -129,6 +129,21 @@ export class TurnService {
       }
       return { threadId: input.threadId, turnId: existing.id, uiActionItemId: item.id }
     }
+    const consumed = thread.turns.some((turn) =>
+      Boolean(turn.idempotencyKey) &&
+      turn.items.some((item) =>
+        item.kind === 'ui_action' &&
+        item.messageId === input.action.messageId &&
+        item.blockId === input.action.blockId &&
+        item.actionId === input.action.actionId &&
+        item.specFingerprint === input.action.specFingerprint
+      )
+    )
+    if (consumed) {
+      throw Object.assign(new Error('the requested UI action has already been consumed'), {
+        code: 'ui_action_consumed'
+      })
+    }
     if (thread.turns.some((turn) => turn.status === 'running')) {
       throw Object.assign(new Error('a turn is already running for this thread'), {
         code: 'turn_in_progress'

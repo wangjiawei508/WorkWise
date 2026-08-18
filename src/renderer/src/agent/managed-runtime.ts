@@ -183,6 +183,8 @@ export class WorkWiseRuntimeProvider implements AgentProvider {
     latestSeq: number
     threadStatus?: string
     latestTurnId?: string
+    latestTurnStatus?: string
+    latestTurnError?: string
     latestUserMessageId?: string
     turnDurationByUserId?: Record<string, number>
     usage?: ThreadUsageSnapshot
@@ -218,6 +220,8 @@ export class WorkWiseRuntimeProvider implements AgentProvider {
       latestSeq: thread.latestSeq ?? 0,
       threadStatus: thread.status ?? latestTurn?.status,
       latestTurnId: latestTurn?.id,
+      latestTurnStatus: latestTurn?.status,
+      latestTurnError: latestTurn?.error,
       latestUserMessageId,
       goal: thread.goal ? goalFromCore(thread.goal) : null,
       todos: thread.todos ? todosFromCore(thread.todos) : null

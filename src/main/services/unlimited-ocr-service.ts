@@ -99,7 +99,7 @@ export class UnlimitedOcrService {
       const origin = normalizeUnlimitedOcrServerUrl(input.serverUrl)
       if (!origin) throw new Error('Unlimited-OCR server is not configured.')
       const fetcher = this.options.fetch ?? fetch
-      const contents = await readFile(input.inputPath)
+      const contents = await readFile(input.inputPath, { signal })
       throwIfAborted(signal)
       const form = new FormData()
       form.append('image', new Blob([contents], { type: 'application/pdf' }), basename(input.inputPath))
@@ -139,7 +139,9 @@ export class UnlimitedOcrService {
         .join('\n\n')
       const markdownPath = join(input.outputDirectory, 'unlimited-ocr.md')
       throwIfAborted(signal)
-      await atomicWriteFile(markdownPath, `${markdown}\n`)
+      await atomicWriteFile(markdownPath, `${markdown}\n`, {
+        beforeReplace: async () => throwIfAborted(signal)
+      })
       throwIfAborted(signal)
       return { markdownPath, warnings: [], durationMs: Date.now() - startedAt }
     })

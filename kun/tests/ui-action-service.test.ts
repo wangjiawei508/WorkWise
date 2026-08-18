@@ -1,13 +1,13 @@
 import { describe, expect, it } from 'vitest'
 import { makeAssistantTextItem } from '../src/domain/item.js'
 import { fingerprintDshUiBlock, parseDshUiBlocks } from '../src/contracts/dsh-ui.js'
-import { UiActionService } from '../src/services/ui-action-service.js'
+import { UI_ACTION_TTL_MS, UiActionService } from '../src/services/ui-action-service.js'
 import { buildHarness } from './http-server-test-harness.js'
 
 const SELECT_CARD = '```dsh-ui\n{"id":"filters","root":{"id":"layout","type":"col","children":[{"id":"kind","type":"select","label":"Kind","name":"kind","actionId":"choose-kind","options":[{"label":"One","value":"one"},{"label":"Two","value":"two"}]}]}}\n```'
 const PASSWORD_CARD = '```dsh-ui\n{"id":"secret","root":{"id":"layout","type":"col","children":[{"id":"password","type":"input","label":"Password","name":"password","actionId":"set-password","inputType":"password"}]}}\n```'
 
-async function seededActionCard(card = SELECT_CARD) {
+async function seededActionCard(card = SELECT_CARD, options: { messageCreatedAt?: string; now?: number } = {}) {
   const h = buildHarness()
   await h.threadService.create(
     { workspace: '/tmp', model: 'deepseek-chat', mode: 'agent' },
@@ -19,19 +19,28 @@ async function seededActionCard(card = SELECT_CARD) {
   })
   const [block] = parseDshUiBlocks(card)
   if (!block) throw new Error('expected valid UI card')
+  const message = makeAssistantTextItem({
+    id: 'item_card',
+    turnId,
+    threadId: 'thr_ui_action',
+    text: 'Choose one.',
+    uiBlocks: [block],
+    status: 'completed'
+  })
   await h.turnService.applyItem(
     'thr_ui_action',
-    makeAssistantTextItem({
-      id: 'item_card',
-      turnId,
-      threadId: 'thr_ui_action',
-      text: 'Choose one.',
-      uiBlocks: [block],
-      status: 'completed'
-    })
+    options.messageCreatedAt ? { ...message, createdAt: options.messageCreatedAt } : message
   )
   await h.turnService.finishTurn({ threadId: 'thr_ui_action', turnId, status: 'completed' })
-  return { h, block, service: new UiActionService({ sessionStore: h.sessionStore, turns: h.turnService }) }
+  return {
+    h,
+    block,
+    service: new UiActionService({
+      sessionStore: h.sessionStore,
+      turns: h.turnService,
+      now: () => options.now ?? Date.now()
+    })
+  }
 }
 
 describe('UiActionService', () => {
@@ -146,5 +155,72 @@ describe('UiActionService', () => {
       threadId: 'thr_ui_action',
       request: { prompt: 'must not replace the action', idempotencyKey }
     })).rejects.toMatchObject({ code: 'idempotency_conflict' })
+  })
+
+  it('rejects an expired persisted card before starting a Turn', async () => {
+    const now = Date.parse('2026-08-18T12:00:00.000Z')
+    const { block, service } = await seededActionCard(SELECT_CARD, {
+      now,
+      messageCreatedAt: new Date(now - UI_ACTION_TTL_MS - 1).toISOString()
+    })
+
+    await expect(service.execute({
+      threadId: 'thr_ui_action',
+      request: {
+        messageId: 'item_card',
+        blockId: block.id,
+        actionId: 'choose-kind',
+        specFingerprint: fingerprintDshUiBlock(block),
+        value: 'one',
+        idempotencyKey: 'ui-action-expired-1'
+      }
+    })).rejects.toMatchObject({ code: 'ui_action_expired' })
+  })
+
+  it('rejects replaying the same persisted action with a new idempotency key', async () => {
+    const { block, service } = await seededActionCard()
+    const request = {
+      messageId: 'item_card',
+      blockId: block.id,
+      actionId: 'choose-kind',
+      specFingerprint: fingerprintDshUiBlock(block),
+      value: 'one',
+      idempotencyKey: 'ui-action-first-key'
+    }
+    await service.execute({ threadId: 'thr_ui_action', request })
+
+    await expect(service.execute({
+      threadId: 'thr_ui_action',
+      request: { ...request, idempotencyKey: 'ui-action-second-key' }
+    })).rejects.toMatchObject({ code: 'ui_action_consumed' })
+  })
+
+  it('atomically accepts only one concurrent click when idempotency keys differ', async () => {
+    const { h, block, service } = await seededActionCard()
+    const request = {
+      messageId: 'item_card',
+      blockId: block.id,
+      actionId: 'choose-kind',
+      specFingerprint: fingerprintDshUiBlock(block),
+      value: 'two'
+    }
+
+    const results = await Promise.allSettled([
+      service.execute({
+        threadId: 'thr_ui_action',
+        request: { ...request, idempotencyKey: 'ui-action-race-a' }
+      }),
+      service.execute({
+        threadId: 'thr_ui_action',
+        request: { ...request, idempotencyKey: 'ui-action-race-b' }
+      })
+    ])
+
+    expect(results.filter((result) => result.status === 'fulfilled')).toHaveLength(1)
+    expect(results.filter((result) => result.status === 'rejected')).toMatchObject([
+      { reason: { code: 'ui_action_consumed' } }
+    ])
+    const items = await h.sessionStore.loadItems('thr_ui_action')
+    expect(items.filter((item) => item.kind === 'ui_action')).toHaveLength(1)
   })
 })

@@ -18,10 +18,21 @@ type TurnCompletionPollOptions = {
   loadThreadState: (
     state: ChatState,
     threadId: string
-  ) => Promise<{ blocks: ChatBlock[]; threadStatus?: string }>
+  ) => Promise<{
+    blocks: ChatBlock[]
+    threadStatus?: string
+    latestTurnId?: string
+    latestTurnStatus?: string
+    latestTurnError?: string
+  }>
   threadLooksRunning: (blocks: ChatBlock[], threadStatus?: string) => boolean
   onCompletedThreads: (
-    doneIds: string[],
+    doneThreads: Array<{
+      threadId: string
+      turnId?: string
+      turnStatus?: string
+      turnError?: string
+    }>,
     state: ChatState,
     set: ChatStoreSet,
     get: ChatStoreGet
@@ -123,20 +134,36 @@ async function pollTurnCompletionWatch(
     return
   }
 
-  const doneIds: string[] = []
+  const doneThreads: Array<{
+    threadId: string
+    turnId?: string
+    turnStatus?: string
+    turnError?: string
+  }> = []
   for (const threadId of ids) {
     try {
-      const { blocks, threadStatus } = await options.loadThreadState(state, threadId)
+      const {
+        blocks,
+        threadStatus,
+        latestTurnId,
+        latestTurnStatus,
+        latestTurnError
+      } = await options.loadThreadState(state, threadId)
       if (!options.threadLooksRunning(blocks, threadStatus)) {
-        doneIds.push(threadId)
+        doneThreads.push({
+          threadId,
+          turnId: latestTurnId,
+          turnStatus: latestTurnStatus,
+          turnError: latestTurnError
+        })
       }
     } catch {
       /* ignore */
     }
   }
 
-  if (doneIds.length > 0) {
-    await options.onCompletedThreads(doneIds, state, set, get)
+  if (doneThreads.length > 0) {
+    await options.onCompletedThreads(doneThreads, state, set, get)
   }
 
   if (Object.keys(get().watchTurnCompletion).filter((id) => get().watchTurnCompletion[id]).length === 0) {

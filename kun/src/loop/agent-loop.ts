@@ -54,7 +54,11 @@ import type { TaskAttemptOutcome } from '../contracts/tasks.js'
 import type { WorkspaceReference } from '../contracts/workspace-references.js'
 import { WorkspaceReferenceService } from '../services/workspace-reference-service.js'
 import type { AttachmentContent, AttachmentStore } from '../attachments/attachment-store.js'
-import type { AttachmentEvidence, VisionEvidencePort } from '../contracts/vision-evidence.js'
+import {
+  sanitizeAttachmentEvidence,
+  type AttachmentEvidence,
+  type VisionEvidencePort
+} from '../contracts/vision-evidence.js'
 import type { ModelInputAttachment } from '../ports/model-client.js'
 import type { MemoryStore } from '../memory/memory-store.js'
 import {
@@ -2432,13 +2436,13 @@ export class AgentLoop {
         throw new Error(`attachment_analysis_unavailable: ${message}`)
       }
       try {
-        const analyzed = await this.opts.visionEvidence.analyze({
+        const analyzed = sanitizeAttachmentEvidence(await this.opts.visionEvidence.analyze({
           attachmentId: attachment.id,
           name: attachment.name,
           mimeType: attachment.mimeType,
           data: attachment.data,
           signal: input.signal
-        })
+        }))
         evidence.push(analyzed)
         await this.opts.events.record({
           kind: 'attachment_evidence_ready',

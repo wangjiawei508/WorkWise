@@ -78,8 +78,10 @@ export function WorkspaceFilePreviewPanel({
   const [copied, setCopied] = useState(false)
   const copyResetRef = useRef<number | null>(null)
   const activeParseIdRef = useRef<string | null>(null)
+  const previewGenerationRef = useRef(0)
 
   const cancelActiveParse = (): void => {
+    previewGenerationRef.current += 1
     const parseId = activeParseIdRef.current
     if (!parseId) return
     activeParseIdRef.current = null
@@ -100,6 +102,7 @@ export function WorkspaceFilePreviewPanel({
     }
 
     let cancelled = false
+    const previewGeneration = ++previewGenerationRef.current
     setLoading(true)
     setResult(null)
     setRichResult(null)
@@ -120,12 +123,12 @@ export function WorkspaceFilePreviewPanel({
 
     void pending
       .then((next) => {
-        if (cancelled) return
+        if (cancelled || previewGenerationRef.current !== previewGeneration) return
         if (rich) setRichResult(next as WorkspacePreviewResultV1)
         else setResult(next as WorkspaceFileReadResult)
       })
       .catch((error) => {
-        if (!cancelled) {
+        if (!cancelled && previewGenerationRef.current === previewGeneration) {
           setResult({
             ok: false,
             message: error instanceof Error ? error.message : String(error)
@@ -133,7 +136,7 @@ export function WorkspaceFilePreviewPanel({
         }
       })
       .finally(() => {
-        if (!cancelled) setLoading(false)
+        if (!cancelled && previewGenerationRef.current === previewGeneration) setLoading(false)
         if (activeParseIdRef.current === parseId) activeParseIdRef.current = null
       })
 
@@ -213,6 +216,7 @@ export function WorkspaceFilePreviewPanel({
     if (!target || target.path.split('.').at(-1)?.toLowerCase() !== 'pdf') return
     const workspace = target.workspaceRoot ?? workspaceRoot
     const parseId = `preview:${workspace}:${target.path}:accurate`
+    const previewGeneration = ++previewGenerationRef.current
     activeParseIdRef.current = parseId
     setLoading(true)
     void window.workwise.previewWorkspaceFile({
@@ -221,12 +225,14 @@ export function WorkspaceFilePreviewPanel({
       parsingMode: 'accurate' as DocumentParsingMode,
       idempotencyKey: parseId
     }).then((next) => {
+      if (previewGenerationRef.current !== previewGeneration) return
       setResult(null)
       setRichResult(next)
     }).catch((error) => {
+      if (previewGenerationRef.current !== previewGeneration) return
       setResult({ ok: false, message: error instanceof Error ? error.message : String(error) })
     }).finally(() => {
-      setLoading(false)
+      if (previewGenerationRef.current === previewGeneration) setLoading(false)
       if (activeParseIdRef.current === parseId) activeParseIdRef.current = null
     })
   }

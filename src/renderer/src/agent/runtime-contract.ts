@@ -518,6 +518,27 @@ export type CoreUsageSnapshotJson = {
   tokenEconomySavingsCny?: number
 }
 
+export type CoreAttachmentEvidenceJson = {
+  version: 1
+  attachmentId: string
+  summary: string
+  ocr: string
+  layout: Array<{
+    type: string
+    text?: string
+    boundingBox?: [number, number, number, number]
+  }>
+  semantics: string[]
+  visual: string
+  uncertainty: string[]
+  source: {
+    kind: 'configured-endpoint'
+    analyzer: string
+    configFingerprint: string
+  }
+  status: 'ready'
+}
+
 export type CoreRuntimeEventJson = {
   kind?: string
   seq?: number
@@ -533,6 +554,8 @@ export type CoreRuntimeEventJson = {
   callId?: string
   readyCount?: number
   toolResultCount?: number
+	attachmentId?: string
+	evidence?: CoreAttachmentEvidenceJson
 	  fingerprint?: string
 	  toolCount?: number
 	  changeKind?: 'additive' | 'breaking'

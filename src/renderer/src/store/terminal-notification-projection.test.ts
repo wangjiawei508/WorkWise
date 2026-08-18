@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest'
 import {
   shouldProjectTerminalNotification,
   terminalNotificationDedupeKey,
-  terminalReasonForFailure
+  terminalReasonForFailure,
+  terminalReasonForTurnSnapshot
 } from './terminal-notification-projection'
 
 describe('terminal notification projection', () => {
@@ -32,5 +33,17 @@ describe('terminal notification projection', () => {
     expect(terminalReasonForFailure('budget_limited', 'blocked by budget')).toBe('blocked')
     expect(terminalReasonForFailure('provider_unavailable', 'max tokens reached')).toBe('max_tokens')
     expect(terminalReasonForFailure('provider_unavailable', 'network failed')).toBe('error')
+  })
+
+  it.each([
+    ['completed', undefined, 'completed'],
+    ['aborted', undefined, 'aborted'],
+    ['failed', 'policy_blocked: approval denied', 'blocked'],
+    ['failed', 'max tokens reached', 'max_tokens'],
+    ['failed', 'network failed', 'error'],
+    ['blocked', undefined, 'blocked'],
+    ['max_tokens', undefined, 'max_tokens']
+  ])('maps a %s turn snapshot to %s', (status, error, expected) => {
+    expect(terminalReasonForTurnSnapshot(status, error)).toBe(expected)
   })
 })

@@ -57,6 +57,8 @@ export function buildEventStreamResponse(input: {
       input.request.signal.addEventListener('abort', close)
       try {
         let lastDeliveredSeq = sinceSeq
+        let replaying = true
+        const pendingLiveEvents: RuntimeEvent[] = []
         const deliver = (event: RuntimeEvent): void => {
           if (typeof event.seq === 'number') {
             if (event.seq <= lastDeliveredSeq) return
@@ -64,6 +66,18 @@ export function buildEventStreamResponse(input: {
           }
           controller.enqueue(encoder.encode(encodeSseEvent(event)))
         }
+        unsubscribe = input.eventBus.subscribe(input.threadId, (event: RuntimeEvent) => {
+          if (closed) return
+          try {
+            if (replaying) {
+              pendingLiveEvents.push(event)
+              return
+            }
+            deliver(event)
+          } catch {
+            close()
+          }
+        })
         const highestSeq = await input.sessionStore.highestSeq(input.threadId).catch(() => 0)
         let backlog = sinceSeq >= highestSeq
           ? []
@@ -93,14 +107,12 @@ export function buildEventStreamResponse(input: {
         for (const event of backlog) {
           deliver(event)
         }
-        unsubscribe = input.eventBus.subscribe(input.threadId, (event: RuntimeEvent) => {
-          if (closed) return
-          try {
-            deliver(event)
-          } catch {
-            close()
-          }
-        })
+        replaying = false
+        pendingLiveEvents.sort((a, b) => a.seq - b.seq)
+        for (const event of pendingLiveEvents) {
+          deliver(event)
+        }
+        pendingLiveEvents.length = 0
         heartbeatTimer = setInterval(() => {
           if (closed) return
           try {

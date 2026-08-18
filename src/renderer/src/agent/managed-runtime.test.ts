@@ -146,7 +146,45 @@ describe('WorkWiseRuntimeProvider', () => {
     expect(detail.blocks.map((block) => block.kind)).toEqual(['user', 'assistant'])
     expect(detail.latestSeq).toBe(9)
     expect(detail.latestTurnId).toBe('turn_1')
+    expect(detail.latestTurnStatus).toBe('completed')
+    expect(detail.latestTurnError).toBeUndefined()
     expect(detail.latestUserMessageId).toBe('item_user')
+  })
+
+  it('preserves the latest terminal turn error for background completion polling', async () => {
+    installDsGui({
+      runtimeRequest: vi.fn(async () => ({
+        ok: true,
+        status: 200,
+        body: JSON.stringify({
+          id: 'thr_failed',
+          title: 'Failed background turn',
+          model: 'deepseek-chat',
+          mode: 'agent',
+          status: 'idle',
+          createdAt: 't0',
+          updatedAt: 't1',
+          latestSeq: 3,
+          turns: [{
+            id: 'turn_failed',
+            threadId: 'thr_failed',
+            status: 'failed',
+            prompt: 'finish in background',
+            createdAt: 't0',
+            finishedAt: 't1',
+            error: 'max tokens reached',
+            items: []
+          }]
+        })
+      }))
+    })
+    const provider = new WorkWiseRuntimeProvider()
+
+    await expect(provider.getThreadDetail('thr_failed')).resolves.toMatchObject({
+      latestTurnId: 'turn_failed',
+      latestTurnStatus: 'failed',
+      latestTurnError: 'max tokens reached'
+    })
   })
 
   it('coalesces tool_call and tool_result pairs into one tool block on thread load', async () => {

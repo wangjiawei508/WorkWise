@@ -2,6 +2,7 @@ import { mkdtemp, readFile, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
+import { atomicWriteFile, drainSerializedWrites } from './durable-file'
 import { UnlimitedOcrService, normalizeUnlimitedOcrServerUrl } from './unlimited-ocr-service'
 
 describe('UnlimitedOcrService', () => {
@@ -141,6 +142,51 @@ describe('UnlimitedOcrService', () => {
     await vi.waitFor(() => expect(fetcher).toHaveBeenCalledTimes(2))
     controller.abort()
     await expect(pending).rejects.toMatchObject({ name: 'AbortError' })
+  })
+
+  it('does not replace the OCR output after cancellation while the atomic write is queued', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'workwise-unlimited-ocr-late-write-'))
+    const inputPath = join(root, 'input.pdf')
+    const outputPath = join(root, 'unlimited-ocr.md')
+    await writeFile(inputPath, '%PDF-test')
+
+    let releaseBlocker: (() => void) | undefined
+    let notifyBlocked: (() => void) | undefined
+    const blocked = new Promise<void>((resolve) => {
+      notifyBlocked = resolve
+    })
+    const blocker = atomicWriteFile(outputPath, 'existing output', {
+      beforeReplace: () => new Promise<void>((resolve) => {
+        releaseBlocker = resolve
+        notifyBlocked?.()
+      })
+    })
+    await blocked
+
+    const responses = [
+      { jobs: [{ id: 'page-1', status_url: '/v1/jobs/page-1' }] },
+      { status: 'succeeded', document_page: 1, result: { generated_text: 'late OCR output' } }
+    ]
+    const fetcher = vi.fn(async () => new Response(JSON.stringify(responses.shift()), {
+      status: 200,
+      headers: { 'content-type': 'application/json' }
+    })) as unknown as typeof fetch
+    const controller = new AbortController()
+    const pending = new UnlimitedOcrService({ fetch: fetcher, pollIntervalMs: 0 }).parse({
+      serverUrl: 'http://127.0.0.1:3000',
+      inputPath,
+      outputDirectory: root,
+      signal: controller.signal
+    })
+
+    await vi.waitFor(() => expect(fetcher).toHaveBeenCalledTimes(2))
+    controller.abort()
+    await expect(pending).rejects.toMatchObject({ name: 'AbortError' })
+    releaseBlocker?.()
+    await blocker
+    await drainSerializedWrites()
+
+    expect(await readFile(outputPath, 'utf8')).toBe('existing output')
   })
 
   it('rejects a non-positive deadline before making a network request', async () => {

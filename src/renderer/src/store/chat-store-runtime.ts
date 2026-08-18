@@ -1,4 +1,5 @@
 import type {
+  AttachmentEvidenceEventPayload,
   ChatBlock,
   CompactionBlock,
   NormalizedThread,
@@ -41,6 +42,7 @@ import {
 import {
   shouldProjectTerminalNotification,
   terminalNotificationDedupeKey,
+  terminalReasonForTurnSnapshot,
   type TerminalNotificationReason
 } from './terminal-notification-projection'
 import { applyExactLiveUsage, applyLiveUsageDelta } from './live-usage-projection'
@@ -65,6 +67,46 @@ export type PendingClawFeishuMirror = {
 }
 
 const pendingClawFeishuMirrors = new Map<string, PendingClawFeishuMirror>()
+
+function projectAttachmentEvidence(
+  block: ChatBlock,
+  event: AttachmentEvidenceEventPayload
+): ChatBlock {
+  if (block.kind !== 'user') return block
+  const meta = block.meta
+  const attachmentIds = Array.isArray(meta?.attachmentIds)
+    ? meta.attachmentIds.filter((id): id is string => typeof id === 'string')
+    : []
+  const current = Array.isArray(meta?.attachments) ? meta.attachments : []
+  const hasAttachment = current.some((attachment) => attachment.id === event.attachmentId) ||
+    attachmentIds.includes(event.attachmentId)
+  if (!hasAttachment) return block
+
+  const nextAttachments = [...current]
+  const index = nextAttachments.findIndex((attachment) => attachment.id === event.attachmentId)
+  const currentAttachment = index >= 0 ? nextAttachments[index] : { id: event.attachmentId }
+  if (event.status === 'ready') {
+    const { degradationReasons: _degradationReasons, ...withoutFailure } = currentAttachment
+    const next = { ...withoutFailure, state: 'ready' as const }
+    if (index >= 0) nextAttachments[index] = next
+    else nextAttachments.push(next)
+  } else {
+    const next = {
+      ...currentAttachment,
+      state: 'degraded' as const,
+      ...(event.message ? { degradationReasons: [event.message] } : {})
+    }
+    if (index >= 0) nextAttachments[index] = next
+    else nextAttachments.push(next)
+  }
+  return {
+    ...block,
+    meta: {
+      ...meta,
+      attachments: nextAttachments
+    }
+  }
+}
 
 export function watchTurnCompletionNotification(threadId: string, now = Date.now()): void {
   const normalizedThreadId = threadId.trim()
@@ -528,21 +570,31 @@ export function syncTurnCompletionPoll(
       return provider.getThreadDetail(threadId)
     },
     threadLooksRunning: threadSnapshotLooksRunning,
-    onCompletedThreads: async (doneIds, state, setState, getState) => {
-      for (const id of doneIds) {
-        notifyTurnComplete(
-          id,
+    onCompletedThreads: async (doneThreads, state, setState, getState) => {
+      for (const done of doneThreads) {
+        const reason = terminalReasonForTurnSnapshot(done.turnStatus, done.turnError)
+        notifyTerminal(
+          done.threadId,
           state,
-          completionNotificationDedupeKeyForWatchedThread(id)
+          reason,
+          done.turnId,
+          null,
+          done.turnId
+            ? terminalNotificationDedupeKey({
+                reason,
+                threadId: done.threadId,
+                turnId: done.turnId
+              })
+            : completionNotificationDedupeKeyForWatchedThread(done.threadId)
         )
-        clearWatchedCompletionNotification(id)
+        clearWatchedCompletionNotification(done.threadId)
       }
       setState((snapshot) => {
         const watchTurnCompletion = { ...snapshot.watchTurnCompletion }
         const unreadThreadIds = { ...snapshot.unreadThreadIds }
-        for (const id of doneIds) {
-          delete watchTurnCompletion[id]
-          unreadThreadIds[id] = true
+        for (const done of doneThreads) {
+          delete watchTurnCompletion[done.threadId]
+          unreadThreadIds[done.threadId] = true
         }
         return { watchTurnCompletion, unreadThreadIds }
       })
@@ -574,6 +626,12 @@ export function buildThreadEventSink(
   const isCurrentStream = (): boolean => {
     if (binding.signal?.aborted) return false
     return !boundThreadId || get().activeThreadId === boundThreadId
+  }
+  const isCurrentTurn = (turnId?: string): boolean => {
+    const currentTurnId = get().currentTurnId?.trim()
+    const eventTurnId = turnId?.trim()
+    if (eventTurnId) return currentTurnId === eventTurnId
+    return Boolean(currentTurnId)
   }
 
   return {
@@ -1008,6 +1066,21 @@ export function buildThreadEventSink(
         }
       })
     },
+    onAttachmentEvidence: (ev) => {
+      if (!isCurrentStream()) return
+      resetBusyRecoveryAttempts()
+      set((s) => {
+        let changed = false
+        const blocks = s.blocks.map((block) => {
+          const next = projectAttachmentEvidence(block, ev)
+          if (next !== block) changed = true
+          return next
+        })
+        return changed
+          ? { blocks, error: clearRuntimeStreamRecoveringError(s.error) }
+          : {}
+      })
+    },
     onGoal: (ev) => {
       if (!isCurrentStream()) return
       if (!ev.threadId) return
@@ -1072,6 +1145,7 @@ export function buildThreadEventSink(
     },
     onTurnComplete: (options) => {
       if (!isCurrentStream()) return
+      if (!isCurrentTurn(options?.turnId)) return
       resetBusyRecoveryAttempts()
       clearBusyWatchdog()
       const completedState = get()
@@ -1135,13 +1209,14 @@ export function buildThreadEventSink(
     },
     onError: (err, options) => {
       if (!isCurrentStream()) return
+      const terminal = options?.terminal === true
+      const message = formatRuntimeError(err)
+      const interrupted = isInterruptSettledError(err, message)
+      if ((terminal || interrupted) && !isCurrentTurn(options?.turnId)) return
       resetBusyRecoveryAttempts()
       clearBusyWatchdog()
       const state = get()
-      const message = formatRuntimeError(err)
       const detail = runtimeErrorDetail(err)
-      const terminal = options?.terminal === true
-      const interrupted = isInterruptSettledError(err, message)
       if (terminal || interrupted) {
         const reason = options?.terminalReason ?? (interrupted ? 'aborted' : 'error')
         notifyTerminal(

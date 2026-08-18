@@ -57,6 +57,43 @@ afterEach(() => {
 })
 
 describe('thread event sink binding', () => {
+  it('projects attachment evidence status onto the matching user attachment', () => {
+    const initial = makeSinkHarness({
+      blocks: [{
+        kind: 'user',
+        id: 'user-current',
+        text: 'inspect these images',
+        meta: {
+          attachments: [
+            { id: 'att-ready', state: 'parsing' },
+            { id: 'att-failed', state: 'parsing' }
+          ]
+        }
+      }]
+    })
+    const sink = buildThreadEventSink(initial.set, initial.get, { threadId: 'thread-current' })
+
+    sink.onAttachmentEvidence?.({
+      attachmentId: 'att-ready',
+      status: 'ready',
+      createdAt: '2026-08-18T00:00:00.000Z'
+    })
+    sink.onAttachmentEvidence?.({
+      attachmentId: 'att-failed',
+      status: 'failed',
+      createdAt: '2026-08-18T00:00:01.000Z',
+      message: 'analysis unavailable'
+    })
+
+    const user = initial.getState().blocks[0]
+    expect(user?.kind).toBe('user')
+    if (user?.kind !== 'user') return
+    expect(user.meta?.attachments).toEqual([
+      { id: 'att-ready', state: 'ready' },
+      { id: 'att-failed', state: 'degraded', degradationReasons: ['analysis unavailable'] }
+    ])
+  })
+
   it('seeds initial terminal history without notifying, then notifies for a new live turn', () => {
     const showTurnCompleteNotification = vi.fn(async () => ({ ok: true }))
     vi.stubGlobal('window', {
@@ -113,6 +150,43 @@ describe('thread event sink binding', () => {
       turnId: 'live-turn',
       reason: 'completed'
     }))
+  })
+
+  it.each([
+    ['completed', (sink: ReturnType<typeof buildThreadEventSink>) => sink.onTurnComplete({
+      reason: 'completed', threadId: 'thread-current', turnId: 'turn-old'
+    })],
+    ['aborted', (sink: ReturnType<typeof buildThreadEventSink>) => sink.onTurnComplete({
+      reason: 'aborted', threadId: 'thread-current', turnId: 'turn-old'
+    })],
+    ['failed', (sink: ReturnType<typeof buildThreadEventSink>) => sink.onError(
+      new Error('old turn failed'),
+      { terminal: true, threadId: 'thread-current', turnId: 'turn-old' }
+    )]
+  ])('does not let an old %s event settle the current turn', (_kind, emit) => {
+    const initial = makeSinkHarness({
+      busy: true,
+      currentTurnId: 'turn-current',
+      currentTurnUserId: 'user-current',
+      liveAssistant: 'current answer',
+      liveReasoning: 'current reasoning',
+      blocks: [{ kind: 'user', id: 'user-current', text: 'current request' }],
+      watchTurnCompletion: { 'thread-current': true },
+      unreadThreadIds: { 'thread-current': true }
+    })
+
+    emit(buildThreadEventSink(initial.set, initial.get, { threadId: 'thread-current' }))
+
+    expect(initial.getState()).toMatchObject({
+      busy: true,
+      currentTurnId: 'turn-current',
+      currentTurnUserId: 'user-current',
+      liveAssistant: 'current answer',
+      liveReasoning: 'current reasoning',
+      error: null,
+      watchTurnCompletion: { 'thread-current': true },
+      unreadThreadIds: { 'thread-current': true }
+    })
   })
 
   it('ignores reasoning deltas from a stream bound to a different active thread', () => {
