@@ -325,6 +325,7 @@ export function ConnectPhoneView({
   const installPollFocusHandlerRef = useRef<(() => void) | null>(null)
   const installRequestInFlightRef = useRef(false)
   const installPollInFlightRef = useRef(false)
+  const installPollAttemptRef = useRef<number | null>(null)
   const installAttemptRef = useRef(0)
   const targetProvider = connectPhoneProviderForTarget(target)
   const connectedChannel = channels.find((channel) => channel.provider === targetProvider) ?? null
@@ -353,6 +354,7 @@ export function ConnectPhoneView({
     installAttemptRef.current += 1
     installRequestInFlightRef.current = false
     installPollInFlightRef.current = false
+    installPollAttemptRef.current = null
     clearInstallTimers()
   }, [clearInstallTimers])
 
@@ -499,8 +501,12 @@ export function ConnectPhoneView({
       })
     }, 1000)
     const waitForInstall = async (): Promise<void> => {
-      if (installPollInFlightRef.current) return
+      if (
+        installPollInFlightRef.current
+        && installPollAttemptRef.current === installAttempt
+      ) return
       installPollInFlightRef.current = true
+      installPollAttemptRef.current = installAttempt
       try {
         if (
           typeof window === 'undefined' ||
@@ -552,8 +558,9 @@ export function ConnectPhoneView({
           error: formatClawInstallError(error instanceof Error ? error.message : String(error), t)
         }))
       } finally {
-        if (installAttempt === installAttemptRef.current) {
+        if (installPollAttemptRef.current === installAttempt) {
           installPollInFlightRef.current = false
+          installPollAttemptRef.current = null
         }
       }
     }
@@ -818,6 +825,7 @@ export function ConnectPhoneSidebarPanel({
   const installPollFocusHandlerRef = useRef<(() => void) | null>(null)
   const installRequestInFlightRef = useRef(false)
   const installPollInFlightRef = useRef(false)
+  const installPollAttemptRef = useRef<number | null>(null)
   const installAttemptRef = useRef(0)
   const targetProvider = connectPhoneProviderForTarget(target)
   const connectedChannel = channels.find((channel) => channel.provider === targetProvider) ?? null
@@ -870,6 +878,7 @@ export function ConnectPhoneSidebarPanel({
     installAttemptRef.current += 1
     installRequestInFlightRef.current = false
     installPollInFlightRef.current = false
+    installPollAttemptRef.current = null
     clearInstallTimers()
   }, [clearInstallTimers])
 
@@ -1022,8 +1031,12 @@ export function ConnectPhoneSidebarPanel({
       })
     }, 1000)
     const waitForInstall = async (): Promise<void> => {
-      if (installPollInFlightRef.current) return
+      if (
+        installPollInFlightRef.current
+        && installPollAttemptRef.current === installAttempt
+      ) return
       installPollInFlightRef.current = true
+      installPollAttemptRef.current = installAttempt
       try {
         if (
           typeof window === 'undefined' ||
@@ -1075,8 +1088,9 @@ export function ConnectPhoneSidebarPanel({
           error: formatClawInstallError(error instanceof Error ? error.message : String(error), t)
         }))
       } finally {
-        if (installAttempt === installAttemptRef.current) {
+        if (installPollAttemptRef.current === installAttempt) {
           installPollInFlightRef.current = false
+          installPollAttemptRef.current = null
         }
       }
     }
