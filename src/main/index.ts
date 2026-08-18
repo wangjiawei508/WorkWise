@@ -1387,7 +1387,14 @@ app.whenReady().then(async () => {
     }
     imHealthService.supervise((health) => {
       if (health.provider === 'feishu' && (health.status === 'stale' || health.status === 'retrying')) {
-        void clawRuntime?.reconnectChannel(health.channelId).catch((error) => logWarn('im-health', 'Failed to reconnect unhealthy Feishu channel.', { message: error instanceof Error ? error.message : String(error) }))
+        void (async () => {
+          // A protected credential failure can be transient. Ask the isolated
+          // helper for one fresh Keychain attempt before rebuilding the bridge.
+          if (health.reasonCode === 'credential_unavailable') {
+            await imCredentialService?.retryProtectedStorage()
+          }
+          await clawRuntime?.reconnectChannel(health.channelId)
+        })().catch((error) => logWarn('im-health', 'Failed to reconnect unhealthy Feishu channel.', { message: error instanceof Error ? error.message : String(error) }))
       }
       if (!mainWindow || mainWindow.isDestroyed()) return
       mainWindow.webContents.send('claw:im:health-changed', health)

@@ -139,7 +139,30 @@ describe('ImHealthService', () => {
     expect(failed?.nextRetryAt).toBeUndefined()
   })
 
-  it('requires reauthorization when protected credential storage is unavailable', () => {
+  it('backs off and retries Feishu when protected credential storage is temporarily unavailable', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-08-15T00:00:00.000Z'))
+    const service = new ImHealthService()
+    service.start({ channelId: 'fs-1', provider: 'feishu', accountId: 'app-1' })
+    const failed = service.fail('fs-1', {
+      reasonCode: 'credential_unavailable',
+      message: '系统钥匙串暂时不可用。'
+    })
+    const recoveryDue = vi.fn()
+
+    expect(failed).toMatchObject({ status: 'retrying', reasonCode: 'credential_unavailable' })
+    expect(failed?.nextRetryAt).toBeDefined()
+    vi.setSystemTime(new Date(failed!.nextRetryAt!))
+    service.supervise(recoveryDue)
+    expect(recoveryDue).toHaveBeenCalledWith(expect.objectContaining({
+      channelId: 'fs-1',
+      provider: 'feishu',
+      reasonCode: 'credential_unavailable'
+    }))
+    vi.useRealTimers()
+  })
+
+  it('keeps WeChat credential unavailability explicit instead of auto-reconnecting', () => {
     const service = new ImHealthService()
     service.start({ channelId: 'wx-1', provider: 'weixin', accountId: 'account-1' })
     const failed = service.fail('wx-1', {

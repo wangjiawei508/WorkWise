@@ -50,7 +50,7 @@
 
 | 能力 | 状态 | 证据与边界 |
 |---|---|---|
-| 飞书/Lark 和微信凭据保护、迁移、超时和重试 | DONE（代码/单元证据） | `ImCredentialService`、credential helper 和迁移测试通过；真实系统钥匙串授权仍需在隔离候选中重新验收。 |
+| 飞书/Lark 和微信凭据保护、迁移、超时和重试 | DONE（代码/单元证据） | `ImCredentialService`、credential helper 和迁移测试通过；飞书 `credential_unavailable` 进入退避重试并在恢复前刷新受保护存储，微信仍要求显式授权；真实系统钥匙串授权仍需在隔离候选中重新验收。 |
 | SQLite 消息账本、去重、租约、崩溃恢复、串行和全局并发 | DONE | ledger 与 `claw-runtime` 测试覆盖重复消息、租约丢失、重启恢复、发送重试和并发限制。 |
 | Runtime 幂等键、当前结果契约和历史文本隔离 | DONE | turn idempotency、空结果、失败/超时/授权等待和文件结果测试通过。 |
 | 稳定 outbound ID、文件发送重试和明确失败回复 | DONE（代码/单元证据） | Feishu/微信稳定 ID、文件先发、失败通知和账本重试测试通过；没有新的真实 IM 文件下载验收。 |

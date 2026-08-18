@@ -127,9 +127,16 @@ export class ImHealthService {
     const nextStatus: ImHealthStatusV1 = input.expired || input.reasonCode === 'auth_expired'
       ? 'expired'
       : input.reasonCode === 'credential_missing' ||
-          input.reasonCode === 'credential_unavailable' ||
           input.reasonCode === 'state_corrupt'
         ? 'error'
+        // A locked macOS Keychain is often transient (for example while the
+        // user is confirming access after a candidate restart). Feishu can
+        // safely retry its bridge after backoff; WeChat keeps its explicit
+        // reauthorization behavior because its monitor owns token recovery.
+        : input.reasonCode === 'credential_unavailable' && current.provider === 'feishu'
+          ? 'retrying'
+        : input.reasonCode === 'credential_unavailable'
+          ? 'error'
         : 'retrying'
     if (
       current.status === nextStatus &&
