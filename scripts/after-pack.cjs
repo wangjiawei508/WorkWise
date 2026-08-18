@@ -10,6 +10,10 @@ const {
 } = require('node:fs')
 const { join } = require('node:path')
 const { verifyAsarArchive } = require('./verify-packaged-asar.cjs')
+const {
+  adHocSignMacSidecar,
+  verifyMarkItDownSidecar
+} = require('./verify-packaged-markitdown.cjs')
 
 const MANAGED_RUNTIME_REQUIRED_PATHS = [
   'kun/dist/cli/serve-entry.js',
@@ -99,6 +103,24 @@ function ensureBundledMarkItDownExecutable(context) {
   }
 }
 
+function validateBundledMarkItDownSidecar(context) {
+  const platform = normalizePlatform(context.electronPlatformName)
+  const sidecarRoot = join(unpackedAppRoot(context), 'sidecars', 'markitdown')
+  if (platform === 'darwin' && !hasDeveloperIdSigning()) {
+    adHocSignMacSidecar(sidecarRoot)
+  }
+  return verifyMarkItDownSidecar(sidecarRoot, platform)
+}
+
+function hasDeveloperIdSigning() {
+  return Boolean(
+    process.env.CSC_LINK ||
+    process.env.CSC_NAME ||
+    process.env.CSC_KEY_PASSWORD ||
+    process.env.MAC_SIGN === '1'
+  )
+}
+
 function activateBundledRuntimeDependencies(context) {
   const runtimeRoot = join(unpackedAppRoot(context), 'kun')
   const staged = join(runtimeRoot, 'runtime-deps')
@@ -164,6 +186,7 @@ async function afterPack(context) {
   activateBundledRuntimeDependencies(context)
   validateBundledKunRuntime(context)
   ensureBundledMarkItDownExecutable(context)
+  validateBundledMarkItDownSidecar(context)
   copyBundledMarkdownConverters(context)
   const integrity = verifyAsarArchive(
     join(packedResourcesDir(context), 'app.asar'),
@@ -184,6 +207,7 @@ module.exports._internals = {
   activateBundledRuntimeDependencies,
   validateBundledKunRuntime,
   ensureBundledMarkItDownExecutable,
+  validateBundledMarkItDownSidecar,
   copyBundledMarkdownConverters,
   converterDirNameForContext,
   normalizeArch

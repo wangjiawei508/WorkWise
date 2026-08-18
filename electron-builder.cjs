@@ -61,7 +61,18 @@ const markitdownExtraResources = existsSync(markitdownSidecarRoot)
   ? [{
       from: markitdownSidecarRoot,
       to: 'app.asar.unpacked/sidecars/markitdown',
-      filter: ['**/*']
+      // FileMatcher uses minimatch({ dot: true }) and preserves symlinks. Keep
+      // the PyInstaller archive, notices, hidden PIL dylibs, and framework
+      // links explicit so a future filter change cannot silently drop them.
+      filter: [
+        'workwise-markitdown',
+        'requirements.lock',
+        'README.md',
+        'THIRD_PARTY_NOTICES.md',
+        '_internal/**/*',
+        '_internal/PIL/.dylibs/**/*',
+        '_internal/Python.framework/**/*'
+      ]
     }]
   : []
 if (process.env.WORKWISE_REQUIRE_DOCUMENT_SIDECAR === '1' && markitdownExtraResources.length === 0) {
