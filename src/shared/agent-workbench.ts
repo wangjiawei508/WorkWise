@@ -331,6 +331,15 @@ export type DocumentParseResultV1 = {
   durationMs: number
 }
 
+export type DocumentParseErrorCode =
+  | 'document_engine_unavailable'
+  | 'document_parse_failed'
+  | 'document_parse_cancelled'
+  | 'document_parse_timeout'
+  | 'document_upload_not_allowed'
+  | 'resource_limit'
+  | 'unsupported_format'
+
 export type DocumentEngineStatusV1 = {
   id: DocumentEngineId
   state: 'available' | 'not_installed' | 'installing' | 'needs_configuration' | 'error'
@@ -354,6 +363,7 @@ export type WorkspacePreviewResultV1 =
       dataUrl?: string
       truncated: boolean
       warnings: string[]
+      documentError?: { code: DocumentParseErrorCode; message: string }
       document?: Pick<DocumentParseResultV1, 'engine' | 'engineVersion' | 'quality' | 'route' | 'references'>
       sizeBytes: number
     }

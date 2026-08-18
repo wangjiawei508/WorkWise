@@ -7,6 +7,7 @@ import { basename, extname, join, relative } from 'node:path'
 import type {
   DocumentEngineId,
   DocumentEngineStatusV1,
+  DocumentParseErrorCode,
   DocumentParseRequestV1,
   DocumentParseResultV1
 } from '../../shared/agent-workbench'
@@ -189,14 +190,7 @@ export type DocumentEngineServiceOptions = {
 export class DocumentEngineError extends Error {
   constructor(
     message: string,
-    readonly code:
-      | 'document_engine_unavailable'
-      | 'document_parse_failed'
-      | 'document_parse_cancelled'
-      | 'document_parse_timeout'
-      | 'document_upload_not_allowed'
-      | 'resource_limit'
-      | 'unsupported_format'
+    readonly code: DocumentParseErrorCode
   ) {
     super(message)
     this.name = 'DocumentEngineError'
@@ -274,19 +268,31 @@ export class DocumentEngineService {
       },
       {
         id: 'mineru-private',
-        state: privateServerUrl?.trim() ? 'available' : 'needs_configuration',
+        state: privateServerUrl?.trim() ? 'error' : 'needs_configuration',
         local: false,
         capabilities: ['pdf', 'ocr', 'layout', 'formula'],
-        message: privateServerUrl?.trim() ? undefined : 'An enterprise private MinerU endpoint must be configured explicitly.',
+        message: privateServerUrl?.trim()
+          ? 'Private MinerU transport is not configured in this build.'
+          : 'An enterprise private MinerU endpoint must be configured explicitly.',
         attribution: 'User-configured private MinerU service'
       }
     ]
   }
 
-  async parse(request: DocumentParseRequestV1 & { unlimitedOcrServerUrl?: string }): Promise<DocumentParseResultV1> {
+  async parse(request: DocumentParseRequestV1 & {
+    unlimitedOcrServerUrl?: string
+    signal?: AbortSignal
+  }): Promise<DocumentParseResultV1> {
     const parseId = request.parseId?.trim() || request.idempotencyKey.trim() || randomUUID()
     if (this.active.has(parseId)) throw new DocumentEngineError('A parse with this id is already running.', 'document_parse_failed')
+    if (request.signal?.aborted) {
+      throw new DocumentEngineError('Document parsing was cancelled.', 'document_parse_cancelled')
+    }
     const controller = new AbortController()
+    const abortFromParent = (): void => {
+      controller.abort(new DocumentEngineError('Document parsing was cancelled.', 'document_parse_cancelled'))
+    }
+    request.signal?.addEventListener('abort', abortFromParent, { once: true })
     this.active.set(parseId, controller)
     let timeout: ReturnType<typeof setTimeout> | undefined
     const deadline = new Promise<never>((_, reject) => {
@@ -304,6 +310,7 @@ export class DocumentEngineService {
       throw error
     } finally {
       clearTimeout(timeout)
+      request.signal?.removeEventListener('abort', abortFromParent)
       this.active.delete(parseId)
     }
   }
@@ -537,7 +544,18 @@ export class DocumentEngineService {
         })
       }
       throwIfDocumentParseAborted(controller.signal)
+      if (extension === '.pdf' && selectedEngine === 'markitdown') {
+        quality = assessDocumentQuality({
+          extension,
+          markdown,
+          sourceBytes: file.size,
+          warnings: response.warnings,
+          pageCount: pdfAnalysis?.pageCount,
+          pageTextCharacters: pdfAnalysis?.pages.reduce((sum, page) => sum + page.text.length, 0)
+        })
+      }
       const supplemented = supplementPageReferences({
+        markdown,
         headings: response.headings ?? [],
         tables: response.tables ?? [],
         references: response.references ?? [],
@@ -860,30 +878,64 @@ function engineCacheVersion(engine: DocumentEngineId): string {
 }
 
 function supplementPageReferences(input: {
+  markdown: string
   headings: DocumentParseResultV1['headings']
   tables: DocumentParseResultV1['tables']
   references: DocumentParseResultV1['references']
   analysis?: PdfDocumentAnalysisV1
 }): Pick<DocumentParseResultV1, 'headings' | 'tables' | 'references'> {
-  if (!input.analysis?.pages.length) {
-    return { headings: input.headings, tables: input.tables, references: input.references }
-  }
   const references = [...input.references]
-  const headings = input.headings.map((heading, index) => {
-    const page = heading.page ?? findPdfPage(input.analysis!.pages, heading.text)
+  const markers = markdownPageMarkers(input.markdown, input.analysis?.pageCount)
+  for (const marker of markers) {
+    if (!references.some((reference) => reference.blockId === `page-${marker.page}`)) {
+      references.push({ page: marker.page, blockId: `page-${marker.page}`, kind: 'text' })
+    }
+  }
+  const headings = [...input.headings]
+  for (const marker of markers) {
+    for (const heading of marker.headings) {
+      if (!headings.some((current) => current.level === heading.level && current.text === heading.text && current.page === marker.page)) {
+        headings.push({ ...heading, page: marker.page })
+      }
+    }
+  }
+  const supplementedHeadings = headings.map((heading, index) => {
+    const page = heading.page ?? (input.analysis?.pages.length ? findPdfPage(input.analysis.pages, heading.text) : undefined)
     if (page && !references.some((reference) => reference.blockId === `heading-${index + 1}`)) {
       references.push({ page, blockId: `heading-${index + 1}`, kind: 'text' })
     }
     return page ? { ...heading, page } : heading
   })
   const tables = input.tables.map((table, index) => {
-    const page = table.page ?? findPdfPage(input.analysis!.pages, table.markdown)
+    const page = table.page ?? (input.analysis?.pages.length ? findPdfPage(input.analysis.pages, table.markdown) : undefined)
     if (page && !references.some((reference) => reference.blockId === `table-${index + 1}`)) {
       references.push({ page, blockId: `table-${index + 1}`, kind: 'table' })
     }
     return page ? { ...table, page } : table
   })
-  return { headings, tables, references }
+  return { headings: supplementedHeadings, tables, references }
+}
+
+function markdownPageMarkers(markdown: string, pageCount?: number): Array<{
+  page: number
+  headings: Array<{ level: number; text: string }>
+}> {
+  const matches = [...markdown.matchAll(/<!--\s*page\s*:\s*(\d+)\s*-->/gi)]
+  return matches.flatMap((match, index) => {
+    const page = Number(match[1])
+    const maximumPage = pageCount ?? MAX_METADATA_ARRAY_ITEMS
+    if (!Number.isSafeInteger(page) || page < 1 || page > maximumPage) return []
+    const start = (match.index ?? 0) + match[0].length
+    const end = matches[index + 1]?.index ?? markdown.length
+    const headings = [...markdown.slice(start, end).matchAll(/^\s*(#{1,6})\s+(.+?)\s*$/gm)]
+      .slice(0, MAX_METADATA_ARRAY_ITEMS)
+      .map((heading) => ({
+        level: heading[1].length,
+        text: heading[2].replace(/\s+#+\s*$/, '').trim().slice(0, MAX_METADATA_STRING_LENGTH)
+      }))
+      .filter((heading) => heading.text.length > 0)
+    return [{ page, headings }]
+  }).slice(0, MAX_METADATA_ARRAY_ITEMS)
 }
 
 function findPdfPage(pages: PdfDocumentAnalysisV1['pages'], value: string): number | undefined {

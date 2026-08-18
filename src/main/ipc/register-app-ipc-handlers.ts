@@ -219,6 +219,11 @@ function stableGitIpcError(error: unknown): string {
   return 'Git operation is temporarily unavailable.'
 }
 
+function stableGitIpcReason(error: unknown): 'workspace_not_allowed' | 'error' {
+  const message = error instanceof Error ? error.message : String(error)
+  return /active workspace/i.test(message) ? 'workspace_not_allowed' : 'error'
+}
+
 type WorkspaceFileWatchRecord = {
   watcher: FSWatcher
   sender: WebContents
@@ -346,22 +351,36 @@ function runtimeResponseMessage(result: RuntimeRequestResult): string {
 export function buildAttachmentSections(attachmentId: string, text: string, document?: {
   headings: Array<{ text: string; page?: number }>
   tables: Array<{ markdown: string; page?: number }>
-  sourceStructure?: { worksheets?: string[]; slideCount?: number }
+  sourceStructure?: { pageCount?: number; worksheets?: string[]; slideCount?: number }
 }): Array<{
   id: string; attachmentId: string; ordinal: number; text: string; tokenEstimate: number;
   provenance: { heading?: string; page?: number; table?: string; worksheet?: string; slide?: number }; createdAt: string
 }> {
-  const tokens = text.normalize('NFC').match(/[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}]|[^\s\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}]{1,4}/gu) ?? []
-  const tokenOffset = (characterOffset: number): number => text.slice(0, characterOffset).normalize('NFC').match(/[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}]|[^\s\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}]{1,4}/gu)?.length ?? 0
+  const pageMarkerPattern = /<!--\s*page\s*:\s*(\d+)\s*-->/gi
+  const pageAnchors: Array<{ token: number; page: number }> = []
+  let cleanText = ''
+  let sourceOffset = 0
+  for (const marker of text.matchAll(pageMarkerPattern)) {
+    cleanText += text.slice(sourceOffset, marker.index)
+    const page = Number(marker[1])
+    if (Number.isSafeInteger(page) && page > 0 && page <= (document?.sourceStructure?.pageCount ?? 0)) {
+      pageAnchors.push({ token: tokenizeAttachmentText(cleanText).length, page })
+    }
+    cleanText += ' '
+    sourceOffset = marker.index + marker[0].length
+  }
+  cleanText += text.slice(sourceOffset)
+  const tokens = tokenizeAttachmentText(cleanText)
+  const tokenOffset = (characterOffset: number): number => tokenizeAttachmentText(cleanText.slice(0, characterOffset)).length
   type ProvenanceAnchor = { token: number; heading?: string; page?: number; worksheet?: string; slide?: number }
   const anchors: ProvenanceAnchor[] = [
-    ...(document?.headings ?? []).flatMap((heading) => { const offset = text.indexOf(heading.text); return offset < 0 ? [] : [{ token: tokenOffset(offset), heading: heading.text, page: heading.page }] }),
-    ...(document?.sourceStructure?.worksheets ?? []).flatMap((worksheet) => { const offset = text.indexOf(worksheet); return offset < 0 ? [] : [{ token: tokenOffset(offset), worksheet }] }),
-    ...[...text.matchAll(/(?:<!--\s*)?slide(?:\s+number)?\s*[:#-]?\s*(\d+)(?:\s*-->)?/gi)].map((match) => ({ token: tokenOffset(match.index), slide: Number(match[1]) }))
+    ...(document?.headings ?? []).flatMap((heading) => { const offset = cleanText.indexOf(heading.text); return offset < 0 ? [] : [{ token: tokenOffset(offset), heading: heading.text, page: heading.page }] }),
+    ...(document?.sourceStructure?.worksheets ?? []).flatMap((worksheet) => { const offset = cleanText.indexOf(worksheet); return offset < 0 ? [] : [{ token: tokenOffset(offset), worksheet }] }),
+    ...[...cleanText.matchAll(/(?:<!--\s*)?slide(?:\s+number)?\s*[:#-]?\s*(\d+)(?:\s*-->)?/gi)].map((match) => ({ token: tokenOffset(match.index), slide: Number(match[1]) }))
   ].sort((left, right) => left.token - right.token)
   const tableAnchors = (document?.tables ?? []).flatMap((table, index) => {
     const probes = [table.markdown, ...table.markdown.split(/[|\n]/)].map((value) => value.trim()).filter((value) => value && !/^[-:]+$/.test(value))
-    const offset = probes.map((probe) => text.indexOf(probe)).find((candidate) => candidate >= 0) ?? -1
+    const offset = probes.map((probe) => cleanText.indexOf(probe)).find((candidate) => candidate >= 0) ?? -1
     return offset < 0 ? [] : [{ token: tokenOffset(offset), table: `table-${index + 1}`, page: table.page }]
   })
   const sections: Array<{ id: string; attachmentId: string; ordinal: number; text: string; tokenEstimate: number; provenance: { heading?: string; page?: number; table?: string; worksheet?: string; slide?: number }; createdAt: string }> = []; const createdAt = new Date().toISOString(); const target = 1200; const stride = 1050
@@ -373,15 +392,21 @@ export function buildAttachmentSections(attachmentId: string, text: string, docu
     const worksheetAnchor = [...activeAnchors].reverse().find((item) => item.worksheet)
     const slideAnchor = [...activeAnchors].reverse().find((item) => item.slide)
     const table = tableAnchors.find((item) => item.token >= cursor && item.token < cursor + target)
+    const pageAnchor = [...pageAnchors].reverse().find((item) => item.token <= cursor)
+      ?? pageAnchors.find((item) => item.token < cursor + target)
     const provenance = {
       ...(headingAnchor?.heading ? { heading: headingAnchor.heading } : {}), ...(worksheetAnchor?.worksheet ? { worksheet: worksheetAnchor.worksheet } : {}),
       ...(slideAnchor?.slide ? { slide: slideAnchor.slide } : {}), ...(table?.table ? { table: table.table } : {}),
-      ...((table?.page ?? headingAnchor?.page) ? { page: table?.page ?? headingAnchor?.page } : {})
+      ...((table?.page ?? headingAnchor?.page ?? pageAnchor?.page) ? { page: table?.page ?? headingAnchor?.page ?? pageAnchor?.page } : {})
     }
     sections.push({ id: `sec_${createHash('sha256').update(`${attachmentId}\0${ordinal}\0${sectionText}`).digest('hex').slice(0, 24)}`, attachmentId, ordinal, text: sectionText, tokenEstimate: chunk.length, provenance, createdAt })
     if (cursor + target >= tokens.length) break
   }
   return sections
+}
+
+function tokenizeAttachmentText(text: string): string[] {
+  return text.normalize('NFC').match(/[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}]|[^\s\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}]{1,4}/gu) ?? []
 }
 
 export function buildAttachmentParserProvenance(document: {
@@ -1103,7 +1128,9 @@ export function registerAppIpcHandlers(options: RegisterAppIpcHandlersOptions): 
   })
   ipcMain.handle('document-engine:cancel', async (_, payload: unknown) => {
     const parseId = parseIpcPayload('document-engine:cancel', streamIdSchema, payload)
-    return documentEngineService.cancel(parseId)
+    const previewCancelled = workspacePreviewService.cancel(parseId)
+    const documentCancelled = documentEngineService.cancel(parseId)
+    return previewCancelled || documentCancelled
   })
   ipcMain.handle('attachment:import-file', async (_, payload: unknown) => {
     const request = parseIpcPayload('attachment:import-file', z.object({
@@ -1697,7 +1724,7 @@ export function registerAppIpcHandlers(options: RegisterAppIpcHandlersOptions): 
     } catch (error) {
       return {
         ok: false as const,
-        reason: 'error' as const,
+        reason: stableGitIpcReason(error),
         message: stableGitIpcError(error)
       }
     }
@@ -1713,7 +1740,7 @@ export function registerAppIpcHandlers(options: RegisterAppIpcHandlersOptions): 
       } catch (error) {
         return {
           ok: false as const,
-          reason: 'error' as const,
+          reason: stableGitIpcReason(error),
           message: stableGitIpcError(error)
         }
       }
@@ -1734,7 +1761,7 @@ export function registerAppIpcHandlers(options: RegisterAppIpcHandlersOptions): 
       } catch (error) {
         return {
           ok: false as const,
-          reason: 'error' as const,
+          reason: stableGitIpcReason(error),
           message: stableGitIpcError(error)
         }
       }

@@ -195,6 +195,30 @@ describe('switchGitBranch / createAndSwitchGitBranch — integration with real g
     })
   })
 
+  it('blocks every supported rebase, revert, and bisect operation marker', async () => {
+    execFileSync('git', ['-C', repoRoot, 'branch', 'feature/operation-target'], { stdio: 'pipe' })
+    const markers = [
+      { name: 'rebase-merge', directory: true, label: 'rebase' },
+      { name: 'rebase-apply', directory: true, label: 'rebase' },
+      { name: 'REVERT_HEAD', directory: false, label: 'revert' },
+      { name: 'BISECT_LOG', directory: false, label: 'bisect' }
+    ]
+
+    for (const marker of markers) {
+      const markerPath = execFileSync('git', ['-C', repoRoot, 'rev-parse', '--git-path', marker.name], { encoding: 'utf8' }).trim()
+      const absoluteMarkerPath = join(repoRoot, markerPath)
+      if (marker.directory) await mkdir(absoluteMarkerPath, { recursive: true })
+      else await writeFile(absoluteMarkerPath, 'fixture\n')
+
+      await expect(switchGitBranch(repoRoot, 'feature/operation-target')).resolves.toMatchObject({
+        ok: false,
+        reason: 'operation_in_progress',
+        message: expect.stringContaining(marker.label)
+      })
+      await rm(absoluteMarkerPath, { recursive: true, force: true })
+    }
+  })
+
   it('blocks a branch already occupied by another worktree', async () => {
     execFileSync('git', ['-C', repoRoot, 'branch', 'feature/occupied'], { stdio: 'pipe' })
     const other = await realpath(await mkdtemp(join(tmpdir(), 'workwise-git-worktree-')))

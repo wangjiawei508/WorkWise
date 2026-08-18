@@ -169,6 +169,20 @@ describe('registerAppIpcHandlers', () => {
     })
   })
 
+  it('uses OCR page markers as attachment provenance without exposing marker syntax', async () => {
+    const { buildAttachmentSections } = await import('./register-app-ipc-handlers')
+    const sections = buildAttachmentSections(
+      'att_ocr',
+      '<!-- page:2 -->\n\n# 扫描标题\n\n扫描正文\n\n<!-- page:999 -->\n\n越界页',
+      { headings: [], tables: [], sourceStructure: { pageCount: 2 } }
+    )
+
+    expect(sections[0]?.provenance).toMatchObject({ page: 2 })
+    expect(sections[0]?.text).toMatch(/扫\s*描\s*正\s*文/)
+    expect(sections[0]?.text).not.toContain('page:2')
+    expect(sections.some((section) => section.provenance.page === 999)).toBe(false)
+  })
+
   it('rejects invalid settings patches at the handler boundary', async () => {
     const { registerAppIpcHandlers } = await import('./register-app-ipc-handlers')
     const applySettingsPatch = vi.fn(async () => settings())
@@ -194,7 +208,7 @@ describe('registerAppIpcHandlers', () => {
     await expect(handlers.get('git:branches')?.({}, '/private/var'))
       .resolves.toMatchObject({
         ok: false,
-        reason: 'error',
+        reason: 'workspace_not_allowed',
         message: 'Git workspace must stay within the active workspace.'
       })
   })

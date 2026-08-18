@@ -2,7 +2,7 @@ import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, relative } from 'node:path'
 import JSZip from 'jszip'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { DocumentEngineService } from './document-engine-service'
 import {
   normalizeSpreadsheetPreviewMarkdown,
@@ -99,9 +99,36 @@ describe('WorkspacePreviewService', () => {
     expect(preview).toMatchObject({
         kind: 'pdf',
         pageTexts: [{ page: 1, text: 'PDF.js remains available' }],
-        warnings: expect.arrayContaining(['Document parsing details are unavailable; PDF.js reading and search remain available.'])
+        documentError: { code: 'document_parse_failed' },
+        warnings: expect.arrayContaining([
+          'Document parsing failed (document_parse_failed): Document parser returned an invalid response. PDF.js reading and search remain available.'
+        ])
       })
     if (preview.kind === 'pdf') expect(preview.document).toBeUndefined()
+  }, 15_000)
+
+  it('preserves a structured and redacted parser failure while keeping PDF.js available', async () => {
+    const workspace = await root()
+    await writeFile(join(workspace, 'document.pdf'), minimalPdf('PDF.js remains available'))
+    const service = new WorkspacePreviewService(new DocumentEngineService({ runner: async () => ({
+      ok: false,
+      message: 'OCR failed at /Users/test/Private Documents/secret.pdf via https://ocr.example.test/jobs/1?token=secret'
+    }) }))
+
+    const preview = await service.preview({ workspaceRoot: workspace, relativePath: 'document.pdf', idempotencyKey: 'pdf-error' })
+
+    expect(preview).toMatchObject({
+      kind: 'pdf',
+      documentError: {
+        code: 'document_parse_failed',
+        message: expect.stringContaining('[path]')
+      }
+    })
+    if (preview.kind === 'pdf') {
+      expect(preview.documentError?.message).not.toContain('secret.pdf')
+      expect(preview.documentError?.message).not.toContain('ocr.example.test')
+      expect(preview.warnings.join(' ')).toContain('document_parse_failed')
+    }
   }, 15_000)
 
   it('forwards the selected accurate PDF route and configured local OCR address', async () => {
@@ -185,9 +212,34 @@ describe('WorkspacePreviewService', () => {
     await didStart
 
     expect(documents.cancel('preview-cancel')).toBe(true)
-    await expect(pending).resolves.toMatchObject({ kind: 'pdf', warnings: expect.arrayContaining([
-      'Document parsing details are unavailable; PDF.js reading and search remain available.'
-    ]) })
+    await expect(pending).rejects.toMatchObject({ code: 'document_parse_cancelled' })
+  }, 15_000)
+
+  it('cancels during PDF.js pre-analysis without starting the document engine', async () => {
+    const workspace = await root()
+    await writeFile(join(workspace, 'document.pdf'), minimalPdf('Cancellable analysis'))
+    let started!: () => void
+    const didStart = new Promise<void>((resolve) => { started = resolve })
+    const parser = vi.fn(async () => ({ ok: false }))
+    const documents = new DocumentEngineService({ runner: parser })
+    const service = new WorkspacePreviewService(documents, async (_path, signal) => {
+      started()
+      return new Promise((_, reject) => {
+        signal?.addEventListener('abort', () => reject(Object.assign(new Error('cancelled'), {
+          code: 'document_parse_cancelled'
+        })), { once: true })
+      })
+    })
+    const pending = service.preview({
+      workspaceRoot: workspace,
+      relativePath: 'document.pdf',
+      idempotencyKey: 'preview-analysis-cancel'
+    })
+    await didStart
+
+    expect(service.cancel('preview-analysis-cancel')).toBe(true)
+    await expect(pending).rejects.toMatchObject({ code: 'document_parse_cancelled' })
+    expect(parser).not.toHaveBeenCalled()
   }, 15_000)
 
   it('rejects an OOXML file that only changed its extension', async () => {

@@ -68,4 +68,27 @@ describe('WorkspaceRichPreview PDF status', () => {
 
     expect(html).toContain('使用高精度解析')
   })
+
+  it('shows the specific parser error code and redacted message', () => {
+    const result: WorkspacePreviewResultV1 = {
+      kind: 'pdf',
+      relativePath: 'scan.pdf',
+      pageCount: 1,
+      searchable: false,
+      pageTexts: [{ page: 1, text: '' }],
+      truncated: false,
+      warnings: [],
+      documentError: {
+        code: 'document_engine_unavailable',
+        message: 'No high-accuracy document engine is configured.'
+      },
+      sizeBytes: 128
+    }
+
+    const html = renderToStaticMarkup(createElement(WorkspaceRichPreview, { result }))
+
+    expect(html).toContain('document_engine_unavailable')
+    expect(html).toContain('No high-accuracy document engine is configured.')
+    expect(html).not.toContain('解析元数据暂不可用')
+  })
 })

@@ -399,6 +399,16 @@ describe('DocumentEngineService', () => {
     }))
   })
 
+  it('does not advertise the unimplemented private MinerU transport as available', async () => {
+    const service = new DocumentEngineService({ runner: runner() })
+
+    await expect(service.listEngines('https://mineru.example.test')).resolves.toContainEqual(expect.objectContaining({
+      id: 'mineru-private',
+      state: 'error',
+      message: expect.stringMatching(/transport.*not configured/i)
+    }))
+  })
+
   it('falls back to MinerU for an invalid optional OCR URL but rejects explicit Unlimited-OCR selection', async () => {
     const { root } = await fixture()
     const bridge = runner()
@@ -576,7 +586,10 @@ describe('DocumentEngineService', () => {
     })
     expect(result.engine).toBe('markitdown')
     expect(result.degradedFrom).toBe('mineru-local')
-    expect(result.quality).toMatchObject({ status: 'degraded', reasons: ['engine_fallback'] })
+    expect(result.quality).toMatchObject({
+      status: 'degraded',
+      reasons: expect.arrayContaining(['low_text_density', 'engine_fallback'])
+    })
     expect(result.warnings.join(' ')).toContain('[path]')
     const cached = await service.parse({
       workspaceRoot: root,
@@ -608,7 +621,41 @@ describe('DocumentEngineService', () => {
     expect(result.headings[0]).toMatchObject({ text: 'Parsed', page: 1 })
     expect(result.references).toContainEqual({ page: 1, blockId: 'heading-1', kind: 'text' })
     expect(result.sourceStructure).toEqual({ pageCount: 1 })
-    expect(result.route).toEqual({ requestedMode: 'fast', selectedEngine: 'markitdown' })
+    expect(result.route).toMatchObject({
+      requestedMode: 'fast',
+      selectedEngine: 'markitdown',
+      switchReason: expect.arrayContaining(['low_text_density', 'weak_text_layer'])
+    })
+  })
+
+  it('turns Unlimited-OCR page markers into bounded references and heading pages', async () => {
+    const { root, path } = await fixture()
+    await writeFile(path, minimalPdf(''))
+    const bridge = runner([
+      '<!-- page:1 -->',
+      '# 第一页标题',
+      '第一页正文',
+      '<!-- page:2 -->',
+      '## 第二页标题',
+      '第二页正文',
+      '<!-- page:999 -->',
+      '# 越界标题'
+    ].join('\n\n'))
+    const service = new DocumentEngineService({ runner: bridge })
+
+    const result = await service.parse({
+      workspaceRoot: root,
+      relativePath: 'source.pdf',
+      mode: 'accurate',
+      unlimitedOcrServerUrl: 'http://127.0.0.1:3000',
+      idempotencyKey: 'ocr-page-markers'
+    })
+
+    expect(result.headings).toEqual(expect.arrayContaining([
+      expect.objectContaining({ text: '第一页标题', page: 1 })
+    ]))
+    expect(result.references).toContainEqual({ page: 1, blockId: 'page-1', kind: 'text' })
+    expect(result.references.some((reference) => reference.page === 999)).toBe(false)
   })
 
   it('preserves worksheet names and slide counts from validated Office packages', async () => {
@@ -645,8 +692,12 @@ describe('DocumentEngineService', () => {
     })
     expect(automatic).toMatchObject({
       engine: 'markitdown',
-      quality: { status: 'degraded', reasons: ['low_text_density'] },
-      route: { requestedMode: 'auto', selectedEngine: 'markitdown', switchReason: ['low_text_density'] }
+      quality: { status: 'degraded', reasons: expect.arrayContaining(['low_text_density', 'scanned_document']) },
+      route: {
+        requestedMode: 'auto',
+        selectedEngine: 'markitdown',
+        switchReason: expect.arrayContaining(['low_text_density', 'scanned_document'])
+      }
     })
     expect(automatic.warnings.join(' ')).toContain('choose high-accuracy parsing')
     expect(bridge.mock.calls.map(([input]) => input.engine)).toEqual(['markitdown'])
@@ -660,6 +711,40 @@ describe('DocumentEngineService', () => {
       idempotencyKey: 'fast-route'
     })
     expect(fastBridge.mock.calls.map(([input]) => input.engine)).toEqual(['markitdown'])
+  })
+
+  it('detects complex layout signals through the real document parse path', async () => {
+    const { root, path } = await fixture()
+    await writeFile(path, minimalPdf('Layout quality fixture'))
+    const markdown = [
+      '可读正文'.repeat(200),
+      '$$ \\frac{a}{b} = \\sum_{i=1}^{n} x_i $$',
+      '$$ \\sqrt{x^2 + y^2} $$',
+      '| 条款 | 金额 | 说明 |',
+      '| --- | --- | --- |',
+      '| A | 100 | 跨页 1 |',
+      '| B | 200 | 跨页 2 |',
+      '| C | 300 | 跨页 3 |',
+      '左栏内容\t中栏内容\t右栏内容',
+      '左栏续文\t中栏续文\t右栏续文'
+    ].join('\n')
+    const result = await new DocumentEngineService({ runner: runner(markdown) }).parse({
+      workspaceRoot: root,
+      relativePath: 'source.pdf',
+      mode: 'auto',
+      idempotencyKey: 'complex-layout-production-path'
+    })
+
+    expect(result.quality.reasons).toEqual(expect.arrayContaining([
+      'formula_dense',
+      'table_dense',
+      'complex_layout'
+    ]))
+    expect(result.route.switchReason).toEqual(expect.arrayContaining([
+      'formula_dense',
+      'table_dense',
+      'complex_layout'
+    ]))
   })
 
   it('prefers configured Unlimited-OCR and falls back to MinerU without losing diagnostics', async () => {
@@ -728,7 +813,10 @@ describe('DocumentEngineService', () => {
     expect(result).toMatchObject({
       engine: 'markitdown',
       degradedFrom: 'mineru-local',
-      quality: { status: 'degraded', reasons: ['engine_fallback'] },
+      quality: {
+        status: 'degraded',
+        reasons: expect.arrayContaining(['low_text_density', 'scanned_document', 'engine_fallback'])
+      },
       route: {
         requestedMode: 'accurate',
         selectedEngine: 'markitdown',

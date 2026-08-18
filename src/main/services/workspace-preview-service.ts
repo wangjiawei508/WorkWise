@@ -2,10 +2,21 @@ import { readFile, stat } from 'node:fs/promises'
 import { extname } from 'node:path'
 import JSZip from 'jszip'
 import MarkdownIt from 'markdown-it'
-import type { DocumentParsingMode, WorkspacePreviewResultV1 } from '../../shared/agent-workbench'
+import type {
+  DocumentParseErrorCode,
+  DocumentParsingMode,
+  WorkspacePreviewResultV1
+} from '../../shared/agent-workbench'
 import { resolveContainedPath } from './canonical-containment'
-import { DocumentEngineService } from './document-engine-service'
-import { analyzePdfDocument } from './pdf-document-service'
+import {
+  DocumentEngineError,
+  DocumentEngineService,
+  sanitizeDocumentDiagnostic
+} from './document-engine-service'
+import {
+  analyzePdfDocument,
+  type PdfDocumentAnalysisV1
+} from './pdf-document-service'
 import { inspectOfficeArchive } from './office-archive-security'
 
 const MAX_PREVIEW_BYTES = 200 * 1024 * 1024
@@ -21,7 +32,12 @@ const IMAGE_TYPES: Record<string, string> = {
 }
 
 export class WorkspacePreviewService {
-  constructor(private readonly documents: DocumentEngineService) {}
+  private readonly active = new Map<string, AbortController>()
+
+  constructor(
+    private readonly documents: DocumentEngineService,
+    private readonly analyzePdf: (path: string, signal?: AbortSignal) => Promise<PdfDocumentAnalysisV1> = analyzePdfDocument
+  ) {}
 
   async preview(request: {
     workspaceRoot: string
@@ -30,6 +46,35 @@ export class WorkspacePreviewService {
     unlimitedOcrServerUrl?: string
     idempotencyKey: string
   }): Promise<WorkspacePreviewResultV1> {
+    const parseId = request.idempotencyKey.trim()
+    if (!parseId) throw new DocumentEngineError('A preview id is required.', 'document_parse_failed')
+    if (this.active.has(parseId)) {
+      throw new DocumentEngineError('A preview with this id is already running.', 'document_parse_failed')
+    }
+    const controller = new AbortController()
+    this.active.set(parseId, controller)
+    try {
+      return await this.previewWithSignal(request, controller.signal)
+    } finally {
+      this.active.delete(parseId)
+    }
+  }
+
+  cancel(parseId: string): boolean {
+    const controller = this.active.get(parseId)
+    if (!controller) return false
+    controller.abort(new DocumentEngineError('Document parsing was cancelled.', 'document_parse_cancelled'))
+    return true
+  }
+
+  private async previewWithSignal(request: {
+    workspaceRoot: string
+    relativePath: string
+    parsingMode?: DocumentParsingMode
+    unlimitedOcrServerUrl?: string
+    idempotencyKey: string
+  }, signal: AbortSignal): Promise<WorkspacePreviewResultV1> {
+    throwIfPreviewCancelled(signal)
     const path = await resolveContainedPath({
       root: request.workspaceRoot,
       target: request.relativePath,
@@ -37,6 +82,7 @@ export class WorkspacePreviewService {
       expect: 'file',
       rejectFinalLink: true
     })
+    throwIfPreviewCancelled(signal)
     const info = await stat(path)
     if (info.size > MAX_PREVIEW_BYTES) throw Object.assign(new Error('File exceeds the 200 MiB preview limit.'), { code: 'resource_limit' })
     const extension = extname(path).toLowerCase()
@@ -61,15 +107,25 @@ export class WorkspacePreviewService {
     }
     if (extension === '.pdf') {
       try {
-        const analysis = await analyzePdfDocument(path)
-        const document = await this.documents.parse({
-          parseId: request.idempotencyKey,
-          workspaceRoot: request.workspaceRoot,
-          relativePath: request.relativePath,
-          mode: request.parsingMode ?? 'fast',
-          unlimitedOcrServerUrl: request.unlimitedOcrServerUrl,
-          idempotencyKey: request.idempotencyKey
-        }).catch(() => undefined)
+        const analysis = await this.analyzePdf(path, signal)
+        throwIfPreviewCancelled(signal)
+        let document: Awaited<ReturnType<DocumentEngineService['parse']>> | undefined
+        let documentError: { code: DocumentParseErrorCode; message: string } | undefined
+        try {
+          document = await this.documents.parse({
+            parseId: request.idempotencyKey,
+            workspaceRoot: request.workspaceRoot,
+            relativePath: request.relativePath,
+            mode: request.parsingMode ?? 'fast',
+            unlimitedOcrServerUrl: request.unlimitedOcrServerUrl,
+            idempotencyKey: request.idempotencyKey,
+            signal
+          })
+        } catch (error) {
+          if (isDocumentCancellation(error) || signal.aborted) throw error
+          documentError = previewDocumentError(error)
+        }
+        throwIfPreviewCancelled(signal)
         return {
           kind: 'pdf',
           relativePath: request.relativePath,
@@ -83,8 +139,11 @@ export class WorkspacePreviewService {
           warnings: [
             ...analysis.warnings,
             ...(document?.warnings ?? []),
-            ...(document ? [] : ['Document parsing details are unavailable; PDF.js reading and search remain available.'])
+            ...(documentError
+              ? [`Document parsing failed (${documentError.code}): ${documentError.message} PDF.js reading and search remain available.`]
+              : [])
           ],
+          ...(documentError ? { documentError } : {}),
           ...(document ? {
             document: {
               engine: document.engine,
@@ -97,11 +156,12 @@ export class WorkspacePreviewService {
           sizeBytes: info.size
         }
       } catch (error) {
+        if (isDocumentCancellation(error) || signal.aborted) throw error
         return metadata(
           path,
           info.size,
           'application/pdf',
-          error instanceof Error ? error.message : 'The PDF could not be read.'
+          error instanceof Error ? sanitizeDocumentDiagnostic(error.message) : 'The PDF could not be read.'
         )
       }
     }
@@ -112,7 +172,8 @@ export class WorkspacePreviewService {
         workspaceRoot: request.workspaceRoot,
         relativePath: request.relativePath,
         mode: request.parsingMode ?? 'fast',
-        idempotencyKey: request.idempotencyKey
+        idempotencyKey: request.idempotencyKey,
+        signal
       })
       const spreadsheetPreview = extension === '.xlsx'
         ? normalizeSpreadsheetPreviewMarkdown(parsed.markdown)
@@ -137,6 +198,26 @@ export class WorkspacePreviewService {
     }
     return metadata(path, info.size, undefined, 'Preview is unavailable for this file type; open it in the system application.')
   }
+}
+
+function throwIfPreviewCancelled(signal: AbortSignal): void {
+  if (signal.aborted) {
+    throw new DocumentEngineError('Document parsing was cancelled.', 'document_parse_cancelled')
+  }
+}
+
+function isDocumentCancellation(error: unknown): boolean {
+  return error instanceof DocumentEngineError
+    ? error.code === 'document_parse_cancelled'
+    : typeof error === 'object' && error !== null && 'code' in error && error.code === 'document_parse_cancelled'
+}
+
+function previewDocumentError(error: unknown): { code: DocumentParseErrorCode; message: string } {
+  const code = error instanceof DocumentEngineError
+    ? error.code
+    : 'document_parse_failed'
+  const message = sanitizeDocumentDiagnostic(error instanceof Error ? error.message : String(error))
+  return { code, message: message || 'Document parsing failed.' }
 }
 
 type SpreadsheetPreviewNormalization = {

@@ -163,7 +163,11 @@ function PdfJsPreview({ result, onRequestAccuratePdf }: {
             <span>切换原因：{switchReasons.map(documentQualityReasonLabel).join('、')}</span>
           ) : null}
           {referencePages.length > 0 ? <span className="flex items-center gap-1">引用页：{referencePages.map((page) => <button key={page} type="button" onClick={() => setPageNumber(page)} className="rounded border border-ds-border-muted px-1.5 py-0.5 hover:bg-ds-hover" title={`转到第 ${page} 页`}>{page}</button>)}</span> : null}
-        </> : <span>解析元数据暂不可用，仍可使用 PDF 阅读和搜索。</span>}
+        </> : result.documentError ? (
+          <span className="text-red-600 dark:text-red-300">
+            解析失败 [{result.documentError.code}]：{result.documentError.message}
+          </span>
+        ) : <span>解析元数据暂不可用，仍可使用 PDF 阅读和搜索。</span>}
         {onRequestAccuratePdf && (!result.document || result.document.route.requestedMode !== 'accurate') ? (
           <button type="button" className="ml-auto inline-flex items-center gap-1 rounded border border-ds-border-muted px-2 py-1 text-ds-text-primary hover:bg-ds-hover" onClick={onRequestAccuratePdf}>
             <RefreshCw className="h-3 w-3" /> 使用高精度解析

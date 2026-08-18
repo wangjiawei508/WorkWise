@@ -29,6 +29,7 @@ export type GitBranchesResult =
         | 'unresolved_conflicts'
         | 'branch_in_other_worktree'
         | 'would_overwrite_files'
+        | 'workspace_not_allowed'
         | 'error'
       message: string
       blockingPaths?: string[]

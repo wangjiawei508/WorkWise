@@ -7,11 +7,13 @@ import {
 } from './terminal-notification-projection'
 
 describe('terminal notification projection', () => {
-  it('dedupes by reason, thread, and turn, with approvals keyed by approval id', () => {
+  it('dedupes terminal states by thread and turn, with approvals keyed by approval id', () => {
     expect(terminalNotificationDedupeKey({ reason: 'error', threadId: 't1', turnId: 'r1' }))
-      .toBe('terminal:error:t1:r1')
+      .toBe('terminal:turn:t1:r1')
+    expect(terminalNotificationDedupeKey({ reason: 'blocked', threadId: 't1', turnId: 'r1' }))
+      .toBe('terminal:turn:t1:r1')
     expect(terminalNotificationDedupeKey({ reason: 'waiting_approval', threadId: 't1', turnId: 'r1', approvalId: 'a1' }))
-      .toBe('terminal:waiting_approval:t1:a1')
+      .toBe('terminal:approval:t1:a1')
   })
 
   it('projects only the current or explicitly watched turn', () => {

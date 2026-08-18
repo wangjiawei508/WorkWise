@@ -21,10 +21,11 @@ export type TerminalNotificationContext = {
 
 export function terminalNotificationDedupeKey(input: TerminalNotificationInput): string {
   const threadId = input.threadId?.trim() || 'unknown-thread'
-  const identity = input.reason === 'waiting_approval'
-    ? input.approvalId?.trim() || input.turnId?.trim() || 'unknown-approval'
-    : input.turnId?.trim() || 'unknown-turn'
-  return `terminal:${input.reason}:${threadId}:${identity}`
+  if (input.reason === 'waiting_approval') {
+    const approvalId = input.approvalId?.trim() || input.turnId?.trim() || 'unknown-approval'
+    return `terminal:approval:${threadId}:${approvalId}`
+  }
+  return `terminal:turn:${threadId}:${input.turnId?.trim() || 'unknown-turn'}`
 }
 
 export function shouldProjectTerminalNotification(

@@ -118,6 +118,22 @@ describe('UiActionService', () => {
     expect(persisted).not.toContain('do-not-persist-this-secret')
   })
 
+  it('rejects an action addressed to a different thread', async () => {
+    const { block, service } = await seededActionCard()
+
+    await expect(service.execute({
+      threadId: 'thr_wrong_thread',
+      request: {
+        messageId: 'item_card',
+        blockId: block.id,
+        actionId: 'choose-kind',
+        specFingerprint: fingerprintDshUiBlock(block),
+        value: 'one',
+        idempotencyKey: 'ui-action-wrong-thread'
+      }
+    })).rejects.toMatchObject({ code: 'ui_action_not_found' })
+  })
+
   it('rejects reusing an idempotency key for a different persisted action value', async () => {
     const { block, service } = await seededActionCard()
     const request = {

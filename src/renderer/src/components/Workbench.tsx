@@ -720,13 +720,6 @@ export function Workbench(): ReactElement {
     })
   }, [chooseWorkspace, createThread, openSettings])
 
-  useEffect(() => {
-    if (typeof window.workwise?.onNotificationOpenThread !== 'function') return
-    return window.workwise.onNotificationOpenThread((threadId) => {
-      if (!threadId.trim()) return
-      void useChatStore.getState().selectThread(threadId)
-    })
-  }, [])
   const showDevPreviewCard =
     route === 'chat' &&
     latestDevPreviewUrl !== null
@@ -1790,6 +1783,17 @@ export function Workbench(): ReactElement {
     setRoute('chat')
     void selectThread(id)
   }
+
+  const notificationOpenThreadRef = useRef(openThread)
+  notificationOpenThreadRef.current = openThread
+
+  useEffect(() => {
+    if (typeof window.workwise?.onNotificationOpenThread !== 'function') return
+    return window.workwise.onNotificationOpenThread((threadId) => {
+      if (!threadId.trim()) return
+      notificationOpenThreadRef.current(threadId)
+    })
+  }, [])
 
   const startNewChat = (): void => {
     if (activeSddDraft) dismissActiveSddDraft({ closeAssistant: true })
