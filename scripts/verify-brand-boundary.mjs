@@ -39,6 +39,7 @@ const allowedFiles = [
   /^src\/shared\/gui-plan(?:\.test)?\.ts$/,
   /^src\/shared\/app-settings-(?:runtime|types)(?:\.test)?\.ts$/,
   /^src\/shared\/legacy-agent-name\.ts$/,
+  /^scripts\/authorize-workwise-candidate\.sh$/,
   /^src\/main\/claw-schedule-mcp-config\.test\.ts$/,
   /^src\/main\/services\/(?:agent-pack|skill)-service\.test\.ts$/,
   /^src\/preload\/index(?:\.d)?\.ts$/,
