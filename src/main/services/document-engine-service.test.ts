@@ -628,6 +628,41 @@ describe('DocumentEngineService', () => {
     })
   })
 
+  it('drops parser-provided PDF provenance pages outside the analyzed document', async () => {
+    const { root, path } = await fixture()
+    await writeFile(path, minimalPdf('Bounded parser provenance'))
+    const service = new DocumentEngineService({ runner: async (input) => {
+      const output = join(input.outputDirectory, 'document.md')
+      await mkdir(input.outputDirectory, { recursive: true })
+      await writeFile(output, '# Valid heading\n\nBody')
+      return {
+        ok: true,
+        engine: 'markitdown',
+        engineVersion: 'fixture',
+        sourceSha256: 'hash',
+        markdownPath: relative(input.workspaceRoot, output),
+        headings: [
+          { level: 1, text: 'Valid heading', page: 1 },
+          { level: 1, text: 'Invalid heading', page: 999 }
+        ],
+        tables: [{ markdown: '| Valid |', page: 999 }],
+        references: [{ page: 999, blockId: 'invalid', kind: 'text' }],
+        durationMs: 1
+      }
+    } })
+
+    const result = await service.parse({
+      workspaceRoot: root,
+      relativePath: 'source.pdf',
+      mode: 'fast',
+      idempotencyKey: 'bounded-parser-provenance'
+    })
+
+    expect(result.headings).toEqual([{ level: 1, text: 'Valid heading', page: 1 }])
+    expect(result.tables).toEqual([])
+    expect(result.references).not.toContainEqual(expect.objectContaining({ page: 999 }))
+  })
+
   it('turns Unlimited-OCR page markers into bounded references and heading pages', async () => {
     const { root, path } = await fixture()
     await writeFile(path, minimalPdf(''))

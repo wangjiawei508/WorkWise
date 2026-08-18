@@ -28,6 +28,7 @@ describe('WorkspaceRichPreview PDF status', () => {
           fallbackFrom: 'mineru-local',
           switchReason: ['weak_text_layer', 'engine_fallback']
         },
+        headings: [{ level: 1, text: '招标文件', page: 2 }],
         references: [{ page: 1, blockId: 'heading-1', kind: 'text' }]
       },
       sizeBytes: 128
@@ -40,6 +41,8 @@ describe('WorkspaceRichPreview PDF status', () => {
     expect(html).toContain('切换原因：PDF 文本层较弱、高精度引擎失败后已降级')
     expect(html).toContain('降级来源：mineru-local')
     expect(html).toContain('高精度解析失败，已显示可用的快解析结果。')
+    expect(html).toContain('标题页：')
+    expect(html).toContain('招标文件 · 2')
   })
 
   it('offers a document-level retry when the current PDF uses the fast route', () => {
@@ -56,6 +59,7 @@ describe('WorkspaceRichPreview PDF status', () => {
         engineVersion: 'fixture-1',
         quality: { status: 'degraded', reasons: ['scanned_document'] },
         route: { requestedMode: 'auto', selectedEngine: 'markitdown' },
+        headings: [],
         references: []
       },
       sizeBytes: 128

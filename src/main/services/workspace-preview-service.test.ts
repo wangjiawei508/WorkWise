@@ -197,6 +197,38 @@ describe('WorkspacePreviewService', () => {
     })
   }, 15_000)
 
+  it('preserves parsed title-to-page mappings in the PDF preview result', async () => {
+    const workspace = await root()
+    await writeFile(join(workspace, 'document.pdf'), minimalPdf('Mapped title content'))
+    const service = new WorkspacePreviewService(new DocumentEngineService({ runner: async (input) => {
+      const output = join(input.outputDirectory, 'document.md')
+      await mkdir(input.outputDirectory, { recursive: true })
+      await writeFile(output, '# Mapped title\n\nBody')
+      return {
+        ok: true,
+        engine: 'markitdown',
+        engineVersion: 'fixture',
+        sourceSha256: 'hash',
+        markdownPath: relative(input.workspaceRoot, output),
+        headings: [{ level: 1, text: 'Mapped title' }],
+        durationMs: 1
+      }
+    } }))
+
+    const preview = await service.preview({
+      workspaceRoot: workspace,
+      relativePath: 'document.pdf',
+      idempotencyKey: 'pdf-heading-provenance'
+    })
+
+    expect(preview).toMatchObject({
+      kind: 'pdf',
+      document: {
+        headings: [{ level: 1, text: 'Mapped title', page: 1 }]
+      }
+    })
+  }, 15_000)
+
   it('uses the preview idempotency key as the cancellable document parse id', async () => {
     const workspace = await root()
     await writeFile(join(workspace, 'document.pdf'), minimalPdf('Cancellable preview'))

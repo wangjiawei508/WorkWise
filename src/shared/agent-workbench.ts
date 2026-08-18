@@ -364,7 +364,7 @@ export type WorkspacePreviewResultV1 =
       truncated: boolean
       warnings: string[]
       documentError?: { code: DocumentParseErrorCode; message: string }
-      document?: Pick<DocumentParseResultV1, 'engine' | 'engineVersion' | 'quality' | 'route' | 'references'>
+      document?: Pick<DocumentParseResultV1, 'engine' | 'engineVersion' | 'quality' | 'route' | 'headings' | 'references'>
       sizeBytes: number
     }
   | {

@@ -78,6 +78,14 @@ function PdfJsPreview({ result, onRequestAccuratePdf }: {
       .slice(0, 12),
     [result.document?.references, result.pageCount]
   )
+  const headingPages = useMemo(
+    () => (result.document?.headings ?? [])
+      .filter((heading): heading is typeof heading & { page: number } => (
+        typeof heading.page === 'number' && heading.page >= 1 && heading.page <= result.pageCount
+      ))
+      .slice(0, 24),
+    [result.document?.headings, result.pageCount]
+  )
   const switchReasons = result.document?.route.switchReason ?? result.document?.quality.reasons ?? []
 
   useEffect(() => {
@@ -161,6 +169,22 @@ function PdfJsPreview({ result, onRequestAccuratePdf }: {
           {result.document.route.fallbackFrom ? <span>降级来源：{result.document.route.fallbackFrom}</span> : null}
           {switchReasons.length > 0 ? (
             <span>切换原因：{switchReasons.map(documentQualityReasonLabel).join('、')}</span>
+          ) : null}
+          {headingPages.length > 0 ? (
+            <span className="flex min-w-0 flex-wrap items-center gap-1">
+              标题页：
+              {headingPages.map((heading, index) => (
+                <button
+                  key={`${heading.page}:${heading.text}:${index}`}
+                  type="button"
+                  onClick={() => setPageNumber(heading.page)}
+                  className="max-w-[220px] truncate rounded border border-ds-border-muted px-1.5 py-0.5 text-left hover:bg-ds-hover"
+                  title={`转到第 ${heading.page} 页：${heading.text}`}
+                >
+                  {heading.text} · {heading.page}
+                </button>
+              ))}
+            </span>
           ) : null}
           {referencePages.length > 0 ? <span className="flex items-center gap-1">引用页：{referencePages.map((page) => <button key={page} type="button" onClick={() => setPageNumber(page)} className="rounded border border-ds-border-muted px-1.5 py-0.5 hover:bg-ds-hover" title={`转到第 ${page} 页`}>{page}</button>)}</span> : null}
         </> : result.documentError ? (

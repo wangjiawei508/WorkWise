@@ -884,14 +884,14 @@ function supplementPageReferences(input: {
   references: DocumentParseResultV1['references']
   analysis?: PdfDocumentAnalysisV1
 }): Pick<DocumentParseResultV1, 'headings' | 'tables' | 'references'> {
-  const references = [...input.references]
+  const references = input.references.filter((reference) => isValidPdfPage(reference.page, input.analysis))
   const markers = markdownPageMarkers(input.markdown, input.analysis?.pageCount)
   for (const marker of markers) {
     if (!references.some((reference) => reference.blockId === `page-${marker.page}`)) {
       references.push({ page: marker.page, blockId: `page-${marker.page}`, kind: 'text' })
     }
   }
-  const headings = [...input.headings]
+  const headings = input.headings.filter((heading) => heading.page === undefined || isValidPdfPage(heading.page, input.analysis))
   for (const marker of markers) {
     for (const heading of marker.headings) {
       if (!headings.some((current) => current.level === heading.level && current.text === heading.text && current.page === marker.page)) {
@@ -906,7 +906,9 @@ function supplementPageReferences(input: {
     }
     return page ? { ...heading, page } : heading
   })
-  const tables = input.tables.map((table, index) => {
+  const tables = input.tables
+    .filter((table) => table.page === undefined || isValidPdfPage(table.page, input.analysis))
+    .map((table, index) => {
     const page = table.page ?? (input.analysis?.pages.length ? findPdfPage(input.analysis.pages, table.markdown) : undefined)
     if (page && !references.some((reference) => reference.blockId === `table-${index + 1}`)) {
       references.push({ page, blockId: `table-${index + 1}`, kind: 'table' })
@@ -914,6 +916,10 @@ function supplementPageReferences(input: {
     return page ? { ...table, page } : table
   })
   return { headings: supplementedHeadings, tables, references }
+}
+
+function isValidPdfPage(page: number, analysis?: PdfDocumentAnalysisV1): boolean {
+  return !analysis || page >= 1 && page <= analysis.pageCount
 }
 
 function markdownPageMarkers(markdown: string, pageCount?: number): Array<{

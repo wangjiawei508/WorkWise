@@ -150,6 +150,7 @@ export class WorkspacePreviewService {
               engineVersion: document.engineVersion,
               quality: document.quality,
               route: document.route,
+              headings: document.headings,
               references: document.references
             }
           } : {}),
