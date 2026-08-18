@@ -1,5 +1,6 @@
 import { readFile } from 'node:fs/promises'
 import { describe, expect, it, vi } from 'vitest'
+import { IM_FIRST_HEARTBEAT_DEADLINE_MS } from '../../shared/im-communication'
 const testState = vi.hoisted(() => ({
   root: `/tmp/workwise-im-health-${process.pid}`
 }))
@@ -193,6 +194,46 @@ describe('ImHealthService', () => {
       status: 'retrying',
       reasonCode: 'network'
     }))
+    vi.useRealTimers()
+  })
+
+  it('does not launch overlapping recovery attempts for one retry snapshot', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-08-15T00:00:00.000Z'))
+    const service = new ImHealthService()
+    service.start({ channelId: 'fs-claim', provider: 'feishu', accountId: 'app-claim' })
+    const failed = service.fail('fs-claim', { reasonCode: 'network', message: '飞书连接异常。' })
+    const recoveryDue = vi.fn()
+
+    vi.setSystemTime(new Date(failed!.nextRetryAt!))
+    service.supervise(recoveryDue)
+    service.supervise(recoveryDue)
+    expect(recoveryDue).toHaveBeenCalledOnce()
+
+    vi.setSystemTime(new Date(Date.parse(failed!.nextRetryAt!) + IM_FIRST_HEARTBEAT_DEADLINE_MS + 1))
+    service.supervise(recoveryDue)
+    expect(recoveryDue).toHaveBeenCalledTimes(2)
+    vi.useRealTimers()
+  })
+
+  it('retries a stale channel after its first recovery callback does not change state', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-08-15T00:00:00.000Z'))
+    const service = new ImHealthService()
+    service.start({ channelId: 'fs-stale-retry', provider: 'feishu', accountId: 'app-stale-retry' })
+    const stale = service.markStale('fs-stale-retry', {
+      reasonCode: 'poll_stale',
+      message: '飞书连接心跳已超时。'
+    })
+    const recoveryDue = vi.fn()
+
+    vi.setSystemTime(new Date(stale!.nextRetryAt!))
+    service.supervise(recoveryDue)
+    expect(recoveryDue).toHaveBeenCalledOnce()
+
+    vi.setSystemTime(new Date(Date.parse(stale!.nextRetryAt!) + IM_FIRST_HEARTBEAT_DEADLINE_MS + 1))
+    service.supervise(recoveryDue)
+    expect(recoveryDue).toHaveBeenCalledTimes(2)
     vi.useRealTimers()
   })
 

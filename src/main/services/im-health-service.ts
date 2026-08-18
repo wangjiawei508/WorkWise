@@ -28,6 +28,10 @@ function nowIso(): string {
 export class ImHealthService {
   private readonly states = new Map<string, ImChannelHealthV1>()
   private readonly listeners = new Set<HealthListener>()
+  // A reconnect callback may take longer than the supervisor interval (for
+  // example while a WebSocket handshake or Keychain helper is pending). Keep
+  // the same retry snapshot from launching overlapping recovery attempts.
+  private readonly recoveryClaims = new Map<string, number>()
   private writeQueue: Promise<void> = Promise.resolve()
 
   onChange(listener: HealthListener): () => void {
@@ -220,10 +224,25 @@ export class ImHealthService {
     for (const current of this.states.values()) {
       if (current.status === 'retrying') {
         const nextRetryAt = current.nextRetryAt ? Date.parse(current.nextRetryAt) : Number.NaN
-        if (Number.isFinite(nextRetryAt) && now >= nextRetryAt) onRecoveryDue?.({ ...current })
+        if (Number.isFinite(nextRetryAt) && now >= nextRetryAt) {
+          const claimedUntil = this.recoveryClaims.get(current.channelId) ?? 0
+          if (now < claimedUntil) continue
+          this.recoveryClaims.set(current.channelId, now + IM_FIRST_HEARTBEAT_DEADLINE_MS)
+          onRecoveryDue?.({ ...current })
+        }
         continue
       }
-      if (current.status === 'unknown' || current.status === 'stale' || current.status === 'expired' || current.status === 'error' || current.status === 'stopped') continue
+      if (current.status === 'stale') {
+        const nextRetryAt = current.nextRetryAt ? Date.parse(current.nextRetryAt) : Number.NaN
+        if (Number.isFinite(nextRetryAt) && now >= nextRetryAt) {
+          const claimedUntil = this.recoveryClaims.get(current.channelId) ?? 0
+          if (now < claimedUntil) continue
+          this.recoveryClaims.set(current.channelId, now + IM_FIRST_HEARTBEAT_DEADLINE_MS)
+          onRecoveryDue?.({ ...current })
+        }
+        continue
+      }
+      if (current.status === 'unknown' || current.status === 'expired' || current.status === 'error' || current.status === 'stopped') continue
       const last = current.lastSuccessfulHeartbeatAt ? Date.parse(current.lastSuccessfulHeartbeatAt) : Date.parse(current.startedAt ?? current.updatedAt)
       if (!Number.isFinite(last)) continue
       const deadline = current.status === 'starting' ? IM_FIRST_HEARTBEAT_DEADLINE_MS : IM_STALE_AFTER_MS
@@ -311,6 +330,18 @@ export class ImHealthService {
   }
 
   private commit(next: ImChannelHealthV1): ImChannelHealthV1 {
+    const previous = this.states.get(next.channelId)
+    if (
+      previous && (
+        previous.runId !== next.runId ||
+        previous.status !== next.status ||
+        previous.reasonCode !== next.reasonCode ||
+        previous.nextRetryAt !== next.nextRetryAt
+      )
+    ) {
+      this.recoveryClaims.delete(next.channelId)
+    }
+    if (next.status !== 'retrying') this.recoveryClaims.delete(next.channelId)
     this.states.set(next.channelId, next)
     this.writeQueue = this.writeQueue
       .catch(() => undefined)

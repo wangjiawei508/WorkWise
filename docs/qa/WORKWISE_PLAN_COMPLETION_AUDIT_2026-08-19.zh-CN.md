@@ -12,7 +12,7 @@
 
 - `npm run typecheck`：通过。
 - `npm run lint`：通过。
-- 受控回环权限下 `npx vitest run`：`272 passed | 2 skipped`，`2160 passed | 2 skipped`。
+- 受控回环权限下 `npx vitest run`：`272 passed | 2 skipped`，`2163 passed | 2 skipped`（包含本轮健康监督回归测试）。
 - `npm run build`：通过。
 - `npm run openspec:validate`：`10 passed, 0 failed`。
 - `npm run verify:brand-boundary`：通过，扫描 1380 个文件。
