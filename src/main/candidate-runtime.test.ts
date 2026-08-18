@@ -48,19 +48,34 @@ describe('resolveCandidateRuntimePaths', () => {
       WORKWISE_CANDIDATE: '1',
       WORKWISE_CANDIDATE_OUTBOUND_DISABLED: '0'
     })).toBe(true)
-    expect(isCandidateOutboundDisabled('feishu', {
+    expect(isCandidateOutboundDisabled('feishu', 'oc_self_test', {
       WORKWISE_CANDIDATE: '1',
       WORKWISE_CANDIDATE_OUTBOUND_DISABLED: '0',
-      WORKWISE_CANDIDATE_OUTBOUND_PROVIDER: 'feishu'
+      WORKWISE_CANDIDATE_OUTBOUND_PROVIDER: 'feishu',
+      WORKWISE_CANDIDATE_ALLOWED_FEISHU_CHAT_ID: 'oc_self_test'
     })).toBe(false)
-    expect(isCandidateOutboundDisabled('weixin', {
+    expect(isCandidateOutboundDisabled('feishu', 'oc_other', {
+      WORKWISE_CANDIDATE: '1',
+      WORKWISE_CANDIDATE_OUTBOUND_DISABLED: '0',
+      WORKWISE_CANDIDATE_OUTBOUND_PROVIDER: 'feishu',
+      WORKWISE_CANDIDATE_ALLOWED_FEISHU_CHAT_ID: 'oc_self_test'
+    })).toBe(true)
+    expect(isCandidateOutboundDisabled('weixin', 'wx_self_test', {
+      WORKWISE_CANDIDATE: '1',
+      WORKWISE_CANDIDATE_OUTBOUND_DISABLED: '0',
+      WORKWISE_CANDIDATE_OUTBOUND_PROVIDER: 'feishu',
+      WORKWISE_CANDIDATE_ALLOWED_WEIXIN_CHAT_ID: 'wx_self_test'
+    })).toBe(true)
+    expect(isCandidateOutboundDisabled('feishu', 'oc_self_test', {
       WORKWISE_CANDIDATE: '1',
       WORKWISE_CANDIDATE_OUTBOUND_DISABLED: '0',
       WORKWISE_CANDIDATE_OUTBOUND_PROVIDER: 'feishu'
     })).toBe(true)
     expect(isCandidateOutboundDisabled('feishu', {
       WORKWISE_CANDIDATE: '1',
-      WORKWISE_CANDIDATE_OUTBOUND_DISABLED: '0'
+      WORKWISE_CANDIDATE_OUTBOUND_DISABLED: '0',
+      WORKWISE_CANDIDATE_OUTBOUND_PROVIDER: 'feishu',
+      WORKWISE_CANDIDATE_ALLOWED_FEISHU_CHAT_ID: 'oc_self_test'
     })).toBe(true)
     expect(isCandidateOutboundDisabled({})).toBe(false)
   })

@@ -4464,12 +4464,15 @@ describe('ClawRuntime', () => {
     expect(imHealth.outbound).toHaveBeenCalledWith('channel_weixin')
   })
 
-  it('blocks candidate Feishu local mirroring before calling the SDK', async () => {
+  it('blocks candidate Feishu local mirroring outside the exact allowed chat', async () => {
     const previousCandidate = process.env.WORKWISE_CANDIDATE
     const previousOutbound = process.env.WORKWISE_CANDIDATE_OUTBOUND_DISABLED
+    const previousProvider = process.env.WORKWISE_CANDIDATE_OUTBOUND_PROVIDER
+    const previousChatId = process.env.WORKWISE_CANDIDATE_ALLOWED_FEISHU_CHAT_ID
     process.env.WORKWISE_CANDIDATE = '1'
-    process.env.WORKWISE_CANDIDATE_OUTBOUND_DISABLED = '1'
-    delete process.env.WORKWISE_CANDIDATE_OUTBOUND_PROVIDER
+    process.env.WORKWISE_CANDIDATE_OUTBOUND_DISABLED = '0'
+    process.env.WORKWISE_CANDIDATE_OUTBOUND_PROVIDER = 'feishu'
+    process.env.WORKWISE_CANDIDATE_ALLOWED_FEISHU_CHAT_ID = 'oc_self_test'
     try {
       const settings = buildSettings()
       settings.claw.im.enabled = true
@@ -4508,6 +4511,10 @@ describe('ClawRuntime', () => {
       else process.env.WORKWISE_CANDIDATE = previousCandidate
       if (previousOutbound === undefined) delete process.env.WORKWISE_CANDIDATE_OUTBOUND_DISABLED
       else process.env.WORKWISE_CANDIDATE_OUTBOUND_DISABLED = previousOutbound
+      if (previousProvider === undefined) delete process.env.WORKWISE_CANDIDATE_OUTBOUND_PROVIDER
+      else process.env.WORKWISE_CANDIDATE_OUTBOUND_PROVIDER = previousProvider
+      if (previousChatId === undefined) delete process.env.WORKWISE_CANDIDATE_ALLOWED_FEISHU_CHAT_ID
+      else process.env.WORKWISE_CANDIDATE_ALLOWED_FEISHU_CHAT_ID = previousChatId
     }
   })
 

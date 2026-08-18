@@ -1694,7 +1694,7 @@ export class ClawRuntime {
     outboundId?: string,
     leaseGuard?: InboundLeaseGuard
   ): Promise<SendResult> {
-    if (isCandidateOutboundDisabled('feishu')) {
+    if (isCandidateOutboundDisabled('feishu', to)) {
       throw new Error('Candidate IM outbound is disabled.')
     }
     leaseGuard?.assertOwned()
@@ -2571,7 +2571,7 @@ export class ClawRuntime {
     // Failure is logged but NOT re-thrown — we never want a reaction
     // failure to drop the user's message or abort the agent run.
     try {
-      if (!isCandidateOutboundDisabled('feishu')) await bridge.addReaction(message.messageId, 'OnIt')
+      if (!isCandidateOutboundDisabled('feishu', message.chatId)) await bridge.addReaction(message.messageId, 'OnIt')
     } catch (error) {
       this.deps.logError('claw-feishu', 'Failed to add Feishu / Lark pending reaction; continuing with the agent run.', {
         message: errorMessage(error),

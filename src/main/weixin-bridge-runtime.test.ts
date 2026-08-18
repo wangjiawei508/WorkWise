@@ -351,11 +351,15 @@ describe('weixin bridge runtime', () => {
     expect(new Set(attemptedRunIds)).toEqual(new Set(['run-1']))
   })
 
-  it('blocks candidate WeChat attachment delivery before invoking the uploader', async () => {
+  it('blocks candidate WeChat attachment delivery outside the exact allowed chat', async () => {
     const previousCandidate = process.env.WORKWISE_CANDIDATE
     const previousOutbound = process.env.WORKWISE_CANDIDATE_OUTBOUND_DISABLED
+    const previousProvider = process.env.WORKWISE_CANDIDATE_OUTBOUND_PROVIDER
+    const previousChatId = process.env.WORKWISE_CANDIDATE_ALLOWED_WEIXIN_CHAT_ID
     process.env.WORKWISE_CANDIDATE = '1'
-    delete process.env.WORKWISE_CANDIDATE_OUTBOUND_DISABLED
+    process.env.WORKWISE_CANDIDATE_OUTBOUND_DISABLED = '0'
+    process.env.WORKWISE_CANDIDATE_OUTBOUND_PROVIDER = 'weixin'
+    process.env.WORKWISE_CANDIDATE_ALLOWED_WEIXIN_CHAT_ID = 'wx-self-test'
     const loadMediaFile = vi.fn(async () => vi.fn(async () => ({ messageId: 'should-not-send' })))
     try {
       await expect(weixinBridgeRuntimeInternals.sendGeneratedFilesWeixin(
@@ -384,6 +388,10 @@ describe('weixin bridge runtime', () => {
       else process.env.WORKWISE_CANDIDATE = previousCandidate
       if (previousOutbound === undefined) delete process.env.WORKWISE_CANDIDATE_OUTBOUND_DISABLED
       else process.env.WORKWISE_CANDIDATE_OUTBOUND_DISABLED = previousOutbound
+      if (previousProvider === undefined) delete process.env.WORKWISE_CANDIDATE_OUTBOUND_PROVIDER
+      else process.env.WORKWISE_CANDIDATE_OUTBOUND_PROVIDER = previousProvider
+      if (previousChatId === undefined) delete process.env.WORKWISE_CANDIDATE_ALLOWED_WEIXIN_CHAT_ID
+      else process.env.WORKWISE_CANDIDATE_ALLOWED_WEIXIN_CHAT_ID = previousChatId
     }
   })
 

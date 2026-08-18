@@ -156,14 +156,24 @@ export function isCandidateRuntimeProbe(env: NodeJS.ProcessEnv = process.env): b
  */
 export function isCandidateOutboundDisabled(
   providerOrEnv?: 'feishu' | 'weixin' | NodeJS.ProcessEnv,
+  recipientOrEnv?: string | NodeJS.ProcessEnv,
   configuredEnv: NodeJS.ProcessEnv = process.env
 ): boolean {
   const provider = typeof providerOrEnv === 'string' ? providerOrEnv : undefined
-  const env = typeof providerOrEnv === 'string' ? configuredEnv : providerOrEnv ?? configuredEnv
+  const recipient = typeof recipientOrEnv === 'string' ? recipientOrEnv.trim() : ''
+  const env = typeof providerOrEnv === 'string'
+    ? typeof recipientOrEnv === 'object' && recipientOrEnv !== null
+      ? recipientOrEnv
+      : configuredEnv
+    : providerOrEnv ?? configuredEnv
   if (env.WORKWISE_CANDIDATE !== '1') return false
   if (env.WORKWISE_CANDIDATE_OUTBOUND_DISABLED !== '0') return true
   const allowedProvider = env.WORKWISE_CANDIDATE_OUTBOUND_PROVIDER?.trim().toLowerCase()
-  return !provider || allowedProvider !== provider
+  if (!provider || allowedProvider !== provider || !recipient) return true
+  const allowedChatId = provider === 'feishu'
+    ? env.WORKWISE_CANDIDATE_ALLOWED_FEISHU_CHAT_ID?.trim()
+    : env.WORKWISE_CANDIDATE_ALLOWED_WEIXIN_CHAT_ID?.trim()
+  return !allowedChatId || allowedChatId !== recipient
 }
 
 /**

@@ -1197,7 +1197,7 @@ async function sendMessageWeixin(params: {
   timeoutMs?: number
   clientId?: string
 }): Promise<{ messageId: string }> {
-  if (isCandidateOutboundDisabled('weixin')) {
+  if (isCandidateOutboundDisabled('weixin', params.to)) {
     throw new Error('Candidate IM outbound is disabled.')
   }
   const messageId = params.clientId?.trim() || generateMessageId()
@@ -1569,7 +1569,7 @@ async function sendGeneratedFilesWeixin(
   loadMediaFile: LoadWeixinMediaFile = loadSendWeixinMediaFile,
   beforeSend?: () => void
 ): Promise<WeixinMediaDelivery> {
-  if (isCandidateOutboundDisabled('weixin')) {
+  if (isCandidateOutboundDisabled('weixin', to)) {
     const message = 'Candidate IM outbound is disabled.'
     return {
       sent: [],
@@ -2423,7 +2423,7 @@ export async function sendWeixinBridgeMessage(options: {
   clientId?: string
   files?: WeixinOutboundFile[]
 }): Promise<WeixinBridgeSendResult> {
-  if (isCandidateOutboundDisabled('weixin')) {
+  if (isCandidateOutboundDisabled('weixin', options.to)) {
     return { ok: false, message: 'Candidate IM outbound is disabled.' }
   }
   const accountId = normalizeAccountId(options.accountId)
