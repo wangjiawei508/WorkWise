@@ -50,7 +50,7 @@ export function sanitizeAttachmentEvidenceText(value: string): string {
   return value
     .replace(
       /data:[^\s"'<>]+(?:[ \t]*\r?\n[ \t]*[A-Za-z0-9+/_=-]+)*/gi,
-      '[data-url]'
+      redactDataUrlCandidate
     )
     .replace(
       /(?:https?|ftp|file):\/\/[^\s"'<>]+(?:[ \t]*\r?\n[ \t]*[A-Za-z0-9%._~!$&'()*+,;=:@/?+-]+)*/gi,
@@ -75,18 +75,80 @@ export function sanitizeAttachmentEvidenceText(value: string): string {
 
 function redactUrlCandidate(candidate: string): string {
   const lines = candidate.split(/(\r?\n[ \t]*)/)
-  let consumed = lines[0]?.length ?? 0
-  if (!urlEndsWithCredentialAssignment(lines[0] ?? '')) return `[url]${candidate.slice(consumed)}`
+  const firstLine = lines[0] ?? ''
+  let consumed = firstLine.length
+  if (!urlEndsWithCredentialAssignment(firstLine)) return `[url]${candidate.slice(consumed)}`
+  consumed = consumeExplicitlyFramedContinuations(lines, consumed)
+  return `[url]${candidate.slice(consumed)}`
+}
+
+function redactDataUrlCandidate(candidate: string): string {
+  const lines = candidate.split(/(\r?\n[ \t]*)/)
+  const firstLine = lines[0] ?? ''
+  let consumed = consumeIndentedContinuations(lines, firstLine.length)
+  if (/;base64,$/i.test(firstLine)) {
+    consumed = consumeVerifiedEncodedContinuations(lines, consumed)
+  }
+  return `[data-url]${candidate.slice(consumed)}`
+}
+
+function consumeExplicitlyFramedContinuations(lines: string[], initial: number): number {
+  const consumed = consumeIndentedContinuations(lines, initial)
+  return consumeVerifiedEncodedContinuations(lines, consumed)
+}
+
+function consumeIndentedContinuations(lines: string[], initial: number): number {
+  let consumed = initial
   for (let index = 1; index + 1 < lines.length; index += 2) {
     const separator = lines[index] ?? ''
     if (!/^\r?\n[ \t]+$/.test(separator)) break
     consumed += (lines[index]?.length ?? 0) + (lines[index + 1]?.length ?? 0)
   }
-  return `[url]${candidate.slice(consumed)}`
+  return consumed
+}
+
+function consumeVerifiedEncodedContinuations(lines: string[], initial: number): number {
+  let offset = lines[0]?.length ?? 0
+  let startIndex = 1
+  while (startIndex + 1 < lines.length && offset < initial) {
+    offset += (lines[startIndex]?.length ?? 0) + (lines[startIndex + 1]?.length ?? 0)
+    startIndex += 2
+  }
+  if (offset !== initial) return initial
+
+  let candidate = ''
+  let candidateLength = 0
+  let verifiedLength = 0
+  for (let index = startIndex; index + 1 < lines.length; index += 2) {
+    const separator = lines[index] ?? ''
+    if (!/^\r?\n[ \t]*$/.test(separator)) break
+    const fragment = lines[index + 1] ?? ''
+    candidate += fragment
+    candidateLength += separator.length + fragment.length
+    if (isVerifiedPrintableBase64(candidate)) verifiedLength = candidateLength
+  }
+  return initial + verifiedLength
 }
 
 function urlEndsWithCredentialAssignment(value: string): boolean {
   return /[?&](?:x-amz-(?:signature|credential|security-token)|signature|sig|token|access_token|key)=$/i.test(value)
+}
+
+function isVerifiedPrintableBase64(candidate: string): boolean {
+  const normalized = candidate.replace(/-/g, '+').replace(/_/g, '/')
+  if (!normalized || normalized.length % 4 === 1 || !/^[A-Za-z0-9+/]+={0,2}$/.test(normalized)) {
+    return false
+  }
+  const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, '=')
+  const decoded = Buffer.from(padded, 'base64')
+  if (decoded.length === 0) return false
+  if (decoded.toString('base64').replace(/=+$/, '') !== normalized.replace(/=+$/, '')) return false
+  const text = decoded.toString('utf8')
+  if (Buffer.from(text, 'utf8').compare(decoded) !== 0) return false
+  return [...text].every((character) => {
+    const codePoint = character.codePointAt(0) ?? 0
+    return character === '\n' || character === '\r' || character === '\t' || codePoint >= 0x20
+  })
 }
 
 function isEncodedData(candidate: string): boolean {

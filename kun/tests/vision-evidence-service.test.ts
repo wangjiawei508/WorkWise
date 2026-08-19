@@ -78,6 +78,30 @@ describe('HttpVisionEvidenceService', () => {
     expect(evidence.uncertainty[1]).toBe('[url]\nBridgePierA123\nSettlement2026')
   })
 
+  it('redacts verified unindented Base64 continuations without consuming following OCR', () => {
+    const evidence = sanitizeAttachmentEvidence({
+      version: 1,
+      attachmentId: 'att-unindented-base64',
+      summary: 'https://files.example.test/evidence.png?token=\nYWJjMTIz\neHl6NDU2\nBridgePierA123',
+      ocr: 'data:image/png;base64,YWJj\nBridgePierA123\nSettlement2026',
+      layout: [],
+      semantics: [],
+      visual: '',
+      uncertainty: [],
+      source: {
+        kind: 'configured-endpoint',
+        analyzer: 'local-vision',
+        configFingerprint: 'a'.repeat(64)
+      },
+      status: 'ready'
+    })
+
+    expect(evidence.summary).toBe('[url]\nBridgePierA123')
+    expect(evidence.summary).not.toContain('YWJjMTIz')
+    expect(evidence.summary).not.toContain('eHl6NDU2')
+    expect(evidence.ocr).toBe('[data-url]\nBridgePierA123\nSettlement2026')
+  })
+
   it('validates magic bytes and shares in-flight analysis by content hash', async () => {
     let resolveResponse!: (response: Response) => void
     const response = new Promise<Response>((resolve) => { resolveResponse = resolve })
