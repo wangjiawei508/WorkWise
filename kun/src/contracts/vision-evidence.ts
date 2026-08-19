@@ -85,10 +85,9 @@ function redactUrlCandidate(candidate: string): string {
 function redactDataUrlCandidate(candidate: string): string {
   const lines = candidate.split(/(\r?\n[ \t]*)/)
   const firstLine = lines[0] ?? ''
-  let consumed = consumeIndentedContinuations(lines, firstLine.length)
-  if (/;base64,$/i.test(firstLine)) {
-    consumed = consumeVerifiedEncodedContinuations(lines, consumed)
-  }
+  const consumed = /;base64,$/i.test(firstLine)
+    ? consumeExplicitlyFramedContinuations(lines, firstLine.length)
+    : firstLine.length
   return `[data-url]${candidate.slice(consumed)}`
 }
 
@@ -116,16 +115,13 @@ function consumeVerifiedEncodedContinuations(lines: string[], initial: number): 
   }
   if (offset !== initial) return initial
 
-  let candidate = ''
-  let candidateLength = 0
   let verifiedLength = 0
   for (let index = startIndex; index + 1 < lines.length; index += 2) {
     const separator = lines[index] ?? ''
     if (!/^\r?\n[ \t]*$/.test(separator)) break
     const fragment = lines[index + 1] ?? ''
-    candidate += fragment
-    candidateLength += separator.length + fragment.length
-    if (isVerifiedPrintableBase64(candidate)) verifiedLength = candidateLength
+    if (!isVerifiedEncodedContinuation(fragment)) break
+    verifiedLength += separator.length + fragment.length
   }
   return initial + verifiedLength
 }
@@ -134,7 +130,7 @@ function urlEndsWithCredentialAssignment(value: string): boolean {
   return /[?&](?:x-amz-(?:signature|credential|security-token)|signature|sig|token|access_token|key)=$/i.test(value)
 }
 
-function isVerifiedPrintableBase64(candidate: string): boolean {
+function isVerifiedEncodedContinuation(candidate: string): boolean {
   const normalized = candidate.replace(/-/g, '+').replace(/_/g, '/')
   if (!normalized || normalized.length % 4 === 1 || !/^[A-Za-z0-9+/]+={0,2}$/.test(normalized)) {
     return false
@@ -143,6 +139,7 @@ function isVerifiedPrintableBase64(candidate: string): boolean {
   const decoded = Buffer.from(padded, 'base64')
   if (decoded.length === 0) return false
   if (decoded.toString('base64').replace(/=+$/, '') !== normalized.replace(/=+$/, '')) return false
+  if (/[-_+/=]/.test(candidate)) return true
   const text = decoded.toString('utf8')
   if (Buffer.from(text, 'utf8').compare(decoded) !== 0) return false
   return [...text].every((character) => {
