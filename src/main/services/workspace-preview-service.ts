@@ -4,6 +4,7 @@ import JSZip from 'jszip'
 import MarkdownIt from 'markdown-it'
 import type {
   DocumentParseErrorCode,
+  DocumentParseResultV1,
   DocumentParsingMode,
   WorkspacePreviewResultV1
 } from '../../shared/agent-workbench'
@@ -43,6 +44,7 @@ export class WorkspacePreviewService {
     workspaceRoot: string
     relativePath: string
     parsingMode?: DocumentParsingMode
+    priorSwitchReasons?: string[]
     unlimitedOcrServerUrl?: string
     idempotencyKey: string
   }): Promise<WorkspacePreviewResultV1> {
@@ -71,6 +73,7 @@ export class WorkspacePreviewService {
     workspaceRoot: string
     relativePath: string
     parsingMode?: DocumentParsingMode
+    priorSwitchReasons?: string[]
     unlimitedOcrServerUrl?: string
     idempotencyKey: string
   }, signal: AbortSignal): Promise<WorkspacePreviewResultV1> {
@@ -149,7 +152,7 @@ export class WorkspacePreviewService {
               engine: document.engine,
               engineVersion: document.engineVersion,
               quality: document.quality,
-              route: document.route,
+              route: mergePriorSwitchReasons(document.route, request.priorSwitchReasons),
               headings: document.headings,
               references: document.references
             }
@@ -199,6 +202,14 @@ export class WorkspacePreviewService {
     }
     return metadata(path, info.size, undefined, 'Preview is unavailable for this file type; open it in the system application.')
   }
+}
+
+function mergePriorSwitchReasons(
+  route: DocumentParseResultV1['route'],
+  priorSwitchReasons: string[] | undefined
+): DocumentParseResultV1['route'] {
+  const switchReason = [...new Set([...(route.switchReason ?? []), ...(priorSwitchReasons ?? [])])]
+  return switchReason.length > 0 ? { ...route, switchReason } : route
 }
 
 function throwIfPreviewCancelled(signal: AbortSignal): void {

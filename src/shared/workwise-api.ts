@@ -511,6 +511,7 @@ export type WorkWiseApi = {
     workspaceRoot: string
     relativePath: string
     parsingMode?: DocumentParsingMode
+    priorSwitchReasons?: string[]
     idempotencyKey: string
   }) => Promise<WorkspacePreviewResultV1>
   openSkillRoot: (rootPath: string) => Promise<PathOpenResult>

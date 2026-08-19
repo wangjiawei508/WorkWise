@@ -1476,5 +1476,6 @@ export const workspacePreviewPayloadSchema = z.object({
   workspaceRoot: trimmedString(MAX_PATH_LENGTH),
   relativePath: trimmedString(MAX_PATH_LENGTH),
   parsingMode: z.enum(['auto', 'fast', 'accurate']).optional(),
+  priorSwitchReasons: z.array(trimmedString(64)).max(32).optional(),
   idempotencyKey: trimmedString(MAX_ID_LENGTH)
 }).strict()

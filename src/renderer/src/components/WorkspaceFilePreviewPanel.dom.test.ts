@@ -9,7 +9,10 @@ import { WorkspaceFilePreviewPanel } from './WorkspaceFilePreviewPanel'
 let container: HTMLDivElement
 let root: Root
 
-function pdf(relativePath: string, pageCount: number): WorkspacePreviewResultV1 {
+function pdf(
+  relativePath: string,
+  pageCount: number
+): Extract<WorkspacePreviewResultV1, { kind: 'pdf' }> {
   return {
     kind: 'pdf',
     relativePath,
@@ -42,6 +45,68 @@ afterEach(async () => {
 })
 
 describe('WorkspaceFilePreviewPanel PDF retries', () => {
+  it('preserves the scanned-document reason after a successful accurate retry', async () => {
+    const automatic: WorkspacePreviewResultV1 = {
+      ...pdf('scan.pdf', 1),
+      document: {
+        engine: 'markitdown',
+        engineVersion: 'fixture-fast',
+        quality: { status: 'degraded', reasons: ['scanned_document'] },
+        route: {
+          requestedMode: 'auto',
+          selectedEngine: 'markitdown',
+          switchReason: ['scanned_document']
+        },
+        headings: [],
+        references: []
+      }
+    }
+    const accurate: WorkspacePreviewResultV1 = {
+      ...pdf('scan.pdf', 1),
+      document: {
+        engine: 'unlimited-ocr-local',
+        engineVersion: 'fixture-accurate',
+        quality: { status: 'enhanced', reasons: [] },
+        route: { requestedMode: 'accurate', selectedEngine: 'unlimited-ocr-local' },
+        headings: [],
+        references: []
+      }
+    }
+    const previewWorkspaceFile = vi.fn((request: { parsingMode?: string }) =>
+      Promise.resolve(request.parsingMode === 'accurate' ? accurate : automatic)
+    )
+    vi.stubGlobal('window', Object.assign(window, {
+      workwise: {
+        previewWorkspaceFile,
+        cancelDocumentParse: vi.fn(async () => true),
+        readWorkspaceFile: vi.fn(),
+        openWorkspacePathInEditor: vi.fn(),
+        logError: vi.fn()
+      }
+    }))
+
+    await act(async () => {
+      root.render(createElement(WorkspaceFilePreviewPanel, {
+        target: { path: 'scan.pdf', workspaceRoot: '/workspace' },
+        workspaceRoot: '/workspace',
+        onClose: vi.fn()
+      }))
+    })
+    await settle()
+    await vi.waitFor(() => expect(container.textContent).toContain('使用高精度解析'))
+
+    const accurateButton = [...container.querySelectorAll('button')]
+      .find((button) => button.textContent?.includes('使用高精度解析'))
+    await act(async () => accurateButton?.click())
+    await settle()
+
+    expect(previewWorkspaceFile).toHaveBeenLastCalledWith(expect.objectContaining({
+      parsingMode: 'accurate',
+      priorSwitchReasons: ['scanned_document']
+    }))
+    expect(container.textContent).toContain('切换原因：扫描件或 OCR 需求')
+  })
+
   it('cancels an accurate retry and ignores its late result after switching files', async () => {
     let resolveAccurate: ((result: WorkspacePreviewResultV1) => void) | undefined
     const accurate = new Promise<WorkspacePreviewResultV1>((resolve) => {

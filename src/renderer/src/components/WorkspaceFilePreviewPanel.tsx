@@ -216,6 +216,9 @@ export function WorkspaceFilePreviewPanel({
     if (!target || target.path.split('.').at(-1)?.toLowerCase() !== 'pdf') return
     const workspace = target.workspaceRoot ?? workspaceRoot
     const parseId = `preview:${workspace}:${target.path}:accurate`
+    const priorSwitchReasons = richResult?.kind === 'pdf'
+      ? richResult.document?.route.switchReason ?? richResult.document?.quality.reasons
+      : undefined
     const previewGeneration = ++previewGenerationRef.current
     activeParseIdRef.current = parseId
     setLoading(true)
@@ -223,11 +226,25 @@ export function WorkspaceFilePreviewPanel({
       workspaceRoot: workspace,
       relativePath: target.path,
       parsingMode: 'accurate' as DocumentParsingMode,
+      ...(priorSwitchReasons?.length ? { priorSwitchReasons } : {}),
       idempotencyKey: parseId
     }).then((next) => {
       if (previewGenerationRef.current !== previewGeneration) return
+      const switchReason = [...new Set([
+        ...(next.kind === 'pdf' ? next.document?.route.switchReason ?? [] : []),
+        ...(priorSwitchReasons ?? [])
+      ])]
+      const accurateResult = next.kind === 'pdf' && next.document && switchReason.length > 0
+        ? {
+            ...next,
+            document: {
+              ...next.document,
+              route: { ...next.document.route, switchReason }
+            }
+          }
+        : next
       setResult(null)
-      setRichResult(next)
+      setRichResult(accurateResult)
     }).catch((error) => {
       if (previewGenerationRef.current !== previewGeneration) return
       setResult({ ok: false, message: error instanceof Error ? error.message : String(error) })
