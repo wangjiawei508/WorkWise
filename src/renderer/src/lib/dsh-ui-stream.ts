@@ -24,6 +24,10 @@ type DshUiNode = z.infer<typeof LeafNode> | {
   children: DshUiNode[]
 }
 
+function isSensitiveDshUiFieldName(name: string): boolean {
+  return /(?:password|passwd|passcode|token|secret|apikey|api[-_]?key|authorization|cookie)/i.test(name)
+}
+
 const ContainerNode: z.ZodType<DshUiNode> = z.lazy(() => z.discriminatedUnion('type', [
   LeafNode,
   z.object({ id: UiId, type: z.enum(['row', 'col', 'grid', 'tabs']), children: z.array(ContainerNode).min(1).max(50) }).strict()
@@ -35,8 +39,8 @@ const DshUiBlock = z.object({
   specFingerprint: z.string().regex(/^[a-f0-9]{16}$/).optional()
 }).strict().superRefine((block, context) => {
   const visit = (node: DshUiNode): void => {
-    if (node.type === 'input' && node.inputType === 'password' && node.value !== undefined) {
-      context.addIssue({ code: 'custom', message: 'password controls cannot define persisted values' })
+    if (node.type === 'input' && (node.inputType === 'password' || isSensitiveDshUiFieldName(node.name)) && node.value !== undefined) {
+      context.addIssue({ code: 'custom', message: 'credential controls cannot define persisted values' })
     }
     if ('children' in node) node.children.forEach(visit)
   }
@@ -52,8 +56,10 @@ export type DshUiProjectionDiagnostic = {
 const MAX_DEPTH = 8
 const MAX_NODES = 200
 const MAX_BLOCKS = 20
-const CLOSED_FENCE = /```dsh-ui[ \t]*\n([\s\S]*?)```/g
-const OPEN_FENCE = /```dsh-ui[ \t]*\n/g
+export const MAX_DSH_UI_CANDIDATES = 200
+export const MAX_DSH_UI_DIAGNOSTICS = 50
+const CLOSED_FENCE = /```dsh-ui[ \t]*\r?\n([\s\S]*?)```/g
+const OPEN_FENCE = /```dsh-ui[ \t]*\r?\n/g
 
 export function projectDshUiText(
   text: string,
@@ -70,8 +76,19 @@ export function projectDshUiText(
   const diagnostics: DshUiProjectionDiagnostic[] = []
   const output: string[] = []
   let cursor = 0
+  let candidates = 0
+  let candidateScanTruncated = false
+
+  const addDiagnostic = (diagnostic: DshUiProjectionDiagnostic): void => {
+    if (diagnostics.length < MAX_DSH_UI_DIAGNOSTICS) diagnostics.push(diagnostic)
+  }
 
   for (const match of text.matchAll(CLOSED_FENCE)) {
+    if (candidates >= MAX_DSH_UI_CANDIDATES) {
+      candidateScanTruncated = true
+      break
+    }
+    candidates += 1
     const start = match.index
     const source = match[0]
     if (start === undefined || !source) continue
@@ -84,7 +101,7 @@ export function projectDshUiText(
     const withinLimit = blocks.length < MAX_BLOCKS
     if (!parsed || duplicate || !withinLimit) {
       output.push(source)
-      if (options.settled) diagnostics.push({ code: 'invalid_block' })
+      if (options.settled) addDiagnostic({ code: 'invalid_block' })
       continue
     }
     seenBlockIds.add(parsed.id)
@@ -94,7 +111,7 @@ export function projectDshUiText(
         continue
       }
       output.push(source)
-      diagnostics.push({ code: 'runtime_rejected', blockId: parsed.id })
+      addDiagnostic({ code: 'runtime_rejected', blockId: parsed.id })
       continue
     }
     blocks.push(parsed)
@@ -105,7 +122,7 @@ export function projectDshUiText(
     const hasUnclosedFence = [...text.matchAll(OPEN_FENCE)].some((match) =>
       match.index !== undefined && !closedStarts.has(match.index)
     )
-    if (hasUnclosedFence) diagnostics.push({ code: 'unclosed_fence' })
+    if (hasUnclosedFence && !candidateScanTruncated) addDiagnostic({ code: 'unclosed_fence' })
   }
 
   return { markdown: output.join(''), blocks, diagnostics }
@@ -118,6 +135,7 @@ function parseBlock(source: string): StreamingDshUiBlock | null {
   } catch {
     return null
   }
+  if (!isDshUiRawTreeWithinBounds(raw)) return null
   const parsed = DshUiBlock.safeParse(raw)
   if (!parsed.success) return null
   try {
@@ -130,6 +148,29 @@ function parseBlock(source: string): StreamingDshUiBlock | null {
     ...spec,
     specFingerprint: stableFingerprint(stableStringify(spec))
   }
+}
+
+function isDshUiRawTreeWithinBounds(raw: unknown): boolean {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return false
+  const root = (raw as Record<string, unknown>).root
+  if (!root || typeof root !== 'object' || Array.isArray(root)) return false
+  const pending: Array<{ node: unknown; depth: number }> = [{ node: root, depth: 1 }]
+  let nodes = 0
+  while (pending.length > 0) {
+    const current = pending.pop()
+    if (!current) continue
+    if (!current.node || typeof current.node !== 'object' || Array.isArray(current.node)) return false
+    if (current.depth > MAX_DEPTH) return false
+    nodes += 1
+    if (nodes > MAX_NODES) return false
+    const children = (current.node as Record<string, unknown>).children
+    if (children === undefined) continue
+    if (!Array.isArray(children) || children.length > MAX_NODES) return false
+    for (let index = children.length - 1; index >= 0; index -= 1) {
+      pending.push({ node: children[index], depth: current.depth + 1 })
+    }
+  }
+  return true
 }
 
 function validateTree(root: DshUiNode): void {

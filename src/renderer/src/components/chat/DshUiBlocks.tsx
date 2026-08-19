@@ -3,6 +3,7 @@ import {
   runtimeUiActionClient,
   uiActionCardCacheKey,
   UiActionInteractionCache,
+  isSensitiveUiFieldName,
   type UiActionClient,
   type UiActionInput
 } from '../../lib/ui-action-client'
@@ -114,20 +115,21 @@ function InteractiveNode({
   const type = String(node.type)
   const label = String(node.label ?? '')
   const fieldName = String(node.name ?? node.id)
+  const isPassword = type === 'input' && node.inputType === 'password'
+  const isSensitive = type === 'input' && (isPassword || isSensitiveUiFieldName(fieldName))
   const cached = cardId ? cache.getValue(cardId, fieldName) : undefined
   const [value, setValue] = useState<string | boolean>(() => {
     if (cached !== undefined) return cached
     if (type === 'checkbox' || type === 'switch') return node.checked === true
-    if (type === 'input' && node.inputType === 'password') return ''
+    if (isSensitive) return ''
     return String(node.value ?? '')
   })
   const [status, setStatus] = useState<ActionStatus>({ pending: false, submitted: false, error: null })
-  const isPassword = type === 'input' && node.inputType === 'password'
-  const disabled = !available || context === null || node.disabled === true || isPassword || status.pending
+  const disabled = !available || context === null || node.disabled === true || isSensitive || status.pending
 
   const rememberValue = (next: string | boolean): void => {
     setValue(next)
-    if (cardId) cache.setValue(cardId, fieldName, next)
+    if (cardId && !isSensitive) cache.setValue(cardId, fieldName, next)
   }
   const submit = async (nextValue?: string | boolean): Promise<void> => {
     if (disabled || !context) return
@@ -157,7 +159,7 @@ function InteractiveNode({
     event.preventDefault()
     void submit(String(value))
   }
-  return <label className="flex flex-col gap-1 text-[12px]">{label}<input disabled={disabled} type={isPassword ? 'password' : 'text'} value={String(value)} placeholder={String(node.placeholder ?? '')} onChange={(event) => rememberValue(event.currentTarget.value)} onKeyDown={onInputKeyDown} className="rounded border border-ds-border bg-ds-main px-2 py-1.5" />{statusText ? <ActionStatusText error={Boolean(status.error)}>{statusText}</ActionStatusText> : null}</label>
+  return <label className="flex flex-col gap-1 text-[12px]">{label}<input disabled={disabled} type={isPassword ? 'password' : 'text'} value={isSensitive ? '' : String(value)} placeholder={String(node.placeholder ?? '')} onChange={(event) => rememberValue(event.currentTarget.value)} onKeyDown={onInputKeyDown} className="rounded border border-ds-border bg-ds-main px-2 py-1.5" />{statusText ? <ActionStatusText error={Boolean(status.error)}>{statusText}</ActionStatusText> : null}</label>
 }
 
 function ActionStatusText({ children, error }: { children: string; error: boolean }): ReactElement {

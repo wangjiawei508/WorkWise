@@ -318,4 +318,22 @@ describe('switchGitBranch / createAndSwitchGitBranch — integration with real g
     expect(result.currentBranch).toBe('feature/y')
     expect(readdirSync(join(repoRoot, '.git', 'refs', 'heads'))).toContain('feature')
   })
+
+  it('does not mutate a parent repository outside the active workspace', async () => {
+    execFileSync('git', ['-C', repoRoot, 'branch', 'feature/outside-workspace'], { stdio: 'pipe' })
+    const sub = join(repoRoot, 'authorized-child')
+    await mkdir(sub, { recursive: true })
+
+    await expect(switchGitBranch(sub, 'feature/outside-workspace', sub)).resolves.toMatchObject({
+      ok: false,
+      reason: 'workspace_not_allowed'
+    })
+    await expect(createAndSwitchGitBranch(sub, 'feature/must-not-exist', sub)).resolves.toMatchObject({
+      ok: false,
+      reason: 'workspace_not_allowed'
+    })
+
+    expect(execFileSync('git', ['-C', repoRoot, 'branch', '--show-current'], { encoding: 'utf8' }).trim()).toBe('main')
+    expect(execFileSync('git', ['-C', repoRoot, 'branch', '--list', 'feature/must-not-exist'], { encoding: 'utf8' }).trim()).toBe('')
+  })
 })

@@ -24,6 +24,11 @@ export type DshUiNode = z.infer<typeof LeafNode> | {
   children: DshUiNode[]
 }
 
+/** Credential-shaped names are treated as secrets even when a model lies about inputType. */
+export function isSensitiveDshUiFieldName(name: string): boolean {
+  return /(?:password|passwd|passcode|token|secret|apikey|api[-_]?key|authorization|cookie)/i.test(name)
+}
+
 const ContainerNode: z.ZodType<DshUiNode> = z.lazy(() => z.discriminatedUnion('type', [
   LeafNode,
   z.object({ id: UiId, type: z.enum(['row', 'col', 'grid', 'tabs']), children: z.array(ContainerNode).min(1).max(50) }).strict()
@@ -36,10 +41,10 @@ export const DshUiBlock = z.object({
   specFingerprint: z.string().regex(/^[a-f0-9]{16}$/).optional()
 }).strict().superRefine((block, context) => {
   const visit = (node: DshUiNode): void => {
-    if (node.type === 'input' && node.inputType === 'password' && node.value !== undefined) {
+    if (node.type === 'input' && (node.inputType === 'password' || isSensitiveDshUiFieldName(node.name)) && node.value !== undefined) {
       context.addIssue({
         code: 'custom',
-        message: 'password controls cannot define persisted values'
+        message: 'credential controls cannot define persisted values'
       })
     }
     if ('children' in node) node.children.forEach(visit)
@@ -66,6 +71,7 @@ export function parseDshUiBlocks(text: string): DshUiBlock[] {
     } catch {
       continue
     }
+    if (!isDshUiRawTreeWithinBounds(raw)) continue
     const parsed = DshUiBlock.safeParse(raw)
     if (!parsed.success || seenBlockIds.has(parsed.data?.id ?? '')) continue
     try {
@@ -80,6 +86,29 @@ export function parseDshUiBlocks(text: string): DshUiBlock[] {
     }
   }
   return blocks
+}
+
+function isDshUiRawTreeWithinBounds(raw: unknown): boolean {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return false
+  const root = (raw as Record<string, unknown>).root
+  if (!root || typeof root !== 'object' || Array.isArray(root)) return false
+  const pending: Array<{ node: unknown; depth: number }> = [{ node: root, depth: 1 }]
+  let nodes = 0
+  while (pending.length > 0) {
+    const current = pending.pop()
+    if (!current) continue
+    if (!current.node || typeof current.node !== 'object' || Array.isArray(current.node)) return false
+    if (current.depth > MAX_DEPTH) return false
+    nodes += 1
+    if (nodes > MAX_NODES) return false
+    const children = (current.node as Record<string, unknown>).children
+    if (children === undefined) continue
+    if (!Array.isArray(children) || children.length > MAX_NODES) return false
+    for (let index = children.length - 1; index >= 0; index -= 1) {
+      pending.push({ node: children[index], depth: current.depth + 1 })
+    }
+  }
+  return true
 }
 
 /**

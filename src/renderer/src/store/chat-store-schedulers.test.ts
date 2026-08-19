@@ -212,4 +212,71 @@ describe('background turn completion polling', () => {
       ], expect.anything(), h.set, h.get)
     })
   })
+
+  it('ignores an in-flight poll result after the thread is no longer watched', async () => {
+    const h = makeHarness({
+      activeThreadId: 'thread-foreground',
+      runtimeConnection: 'ready',
+      watchTurnCompletion: { 'thread-background': true }
+    })
+    let resolveThreadState!: (value: {
+      blocks: Array<{
+        kind: 'approval'
+        id: string
+        approvalId: string
+        summary: string
+        status: 'pending'
+      }>
+      threadStatus: 'idle'
+      latestTurnId: string
+      latestTurnStatus: 'completed'
+    }) => void
+    const loadThreadState = vi.fn(() => new Promise<{
+      blocks: Array<{
+        kind: 'approval'
+        id: string
+        approvalId: string
+        summary: string
+        status: 'pending'
+      }>
+      threadStatus: 'idle'
+      latestTurnId: string
+      latestTurnStatus: 'completed'
+    }>((resolve) => {
+      resolveThreadState = resolve
+    }))
+    const onCompletedThreads = vi.fn()
+    const onWaitingApprovals = vi.fn()
+
+    syncTurnCompletionPoll(h.set, h.get, {
+      loadThreadState,
+      threadLooksRunning: () => false,
+      onCompletedThreads,
+      onWaitingApprovals
+    })
+    await vi.waitFor(() => expect(loadThreadState).toHaveBeenCalledOnce())
+
+    h.set({
+      activeThreadId: 'thread-background',
+      watchTurnCompletion: {},
+      unreadThreadIds: {}
+    })
+    resolveThreadState({
+      blocks: [{
+        kind: 'approval',
+        id: 'approval-block',
+        approvalId: 'approval-background',
+        summary: 'Run command',
+        status: 'pending'
+      }],
+      threadStatus: 'idle',
+      latestTurnId: 'turn-background',
+      latestTurnStatus: 'completed'
+    })
+
+    await vi.waitFor(() => expect(loadThreadState).toHaveBeenCalledOnce())
+    await Promise.resolve()
+    expect(onWaitingApprovals).not.toHaveBeenCalled()
+    expect(onCompletedThreads).not.toHaveBeenCalled()
+  })
 })

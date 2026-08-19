@@ -6,6 +6,7 @@ import { buildHarness } from './http-server-test-harness.js'
 
 const SELECT_CARD = '```dsh-ui\n{"id":"filters","root":{"id":"layout","type":"col","children":[{"id":"kind","type":"select","label":"Kind","name":"kind","actionId":"choose-kind","options":[{"label":"One","value":"one"},{"label":"Two","value":"two"}]}]}}\n```'
 const PASSWORD_CARD = '```dsh-ui\n{"id":"secret","root":{"id":"layout","type":"col","children":[{"id":"password","type":"input","label":"Password","name":"password","actionId":"set-password","inputType":"password"}]}}\n```'
+const PLAINTEXT_SECRET_CARD = '```dsh-ui\n{"id":"secret","root":{"id":"layout","type":"col","children":[{"id":"token-field","type":"input","label":"Token","name":"token","actionId":"set-token","inputType":"text"}]}}\n```'
 
 async function seededActionCard(card = SELECT_CARD, options: { messageCreatedAt?: string; now?: number } = {}) {
   const h = buildHarness()
@@ -116,6 +117,27 @@ describe('UiActionService', () => {
       events: await h.sessionStore.loadEventsSince('thr_ui_action', 0)
     })
     expect(persisted).not.toContain('do-not-persist-this-secret')
+  })
+
+  it('rejects credential-shaped input names even when inputType says text', async () => {
+    const { h, block, service } = await seededActionCard(PLAINTEXT_SECRET_CARD)
+    await expect(service.execute({
+      threadId: 'thr_ui_action',
+      request: {
+        messageId: 'item_card',
+        blockId: block.id,
+        actionId: 'set-token',
+        specFingerprint: fingerprintDshUiBlock(block),
+        value: 'must-not-persist-this-token',
+        idempotencyKey: 'ui-action-token-1'
+      }
+    })).rejects.toMatchObject({ code: 'ui_action_unavailable' })
+
+    const persisted = JSON.stringify({
+      items: await h.sessionStore.loadItems('thr_ui_action'),
+      events: await h.sessionStore.loadEventsSince('thr_ui_action', 0)
+    })
+    expect(persisted).not.toContain('must-not-persist-this-token')
   })
 
   it('rejects an action addressed to a different thread', async () => {

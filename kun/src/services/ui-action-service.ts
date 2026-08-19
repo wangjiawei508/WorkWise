@@ -8,6 +8,7 @@ import {
 import {
   findDshUiActionNode,
   fingerprintDshUiBlock,
+  isSensitiveDshUiFieldName,
   type DshUiActionNode,
   type DshUiBlock
 } from '../contracts/dsh-ui.js'
@@ -130,7 +131,7 @@ function validateAction(
       }
       return common
     case 'input':
-      if (node.inputType === 'password') {
+      if (node.inputType === 'password' || isSensitiveDshUiFieldName(node.name)) {
         throw new UiActionError('ui_action_unavailable', 'password UI actions are unavailable without an ephemeral secret transport')
       }
       if (typeof request.value !== 'string') {

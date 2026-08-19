@@ -1,5 +1,8 @@
 import { describe, expect, it, vi } from 'vitest'
-import { sanitizeAttachmentEvidence } from '../src/contracts/vision-evidence.js'
+import {
+  sanitizeAttachmentEvidence,
+  sanitizeAttachmentEvidenceText
+} from '../src/contracts/vision-evidence.js'
 import { HttpVisionEvidenceService, normalizeVisionEvidenceEndpoint } from '../src/vision/vision-evidence-service.js'
 
 const PNG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3])
@@ -66,8 +69,8 @@ describe('HttpVisionEvidenceService', () => {
       status: 'ready'
     })
 
-    expect(evidence.summary).toBe('[url]\n  abcdef0123456789\n  0123456789abcdef\n  [encoded-data]\n  abcd\nBridgePierA123\nSettlement2026')
-    expect(evidence.summary).toContain('abcdef0123456789')
+    expect(evidence.summary).toBe('[url]\n  abcd\nBridgePierA123\nSettlement2026')
+    expect(evidence.summary).not.toContain('abcdef0123456789')
     expect(evidence.summary).not.toContain(opaqueBase64)
     expect(JSON.stringify(evidence)).toContain('WorkWise2026')
     expect(JSON.stringify(evidence)).toContain('BridgePierA123')
@@ -271,6 +274,84 @@ describe('HttpVisionEvidenceService', () => {
 
     expect(evidence.summary).toBe('[url]\nPier\nA123\nWork\nBridge-Pier-A123\nSettlement2026')
     expect(evidence.ocr).toBe('Pier\nA123\nWork')
+  })
+
+  it('redacts opaque unpadded Base64 after explicit credential framing', () => {
+    const encoded = 'RYggCQipkQLNzxUO'
+
+    expect(sanitizeAttachmentEvidenceText(
+      `data:image/png;base64,\n${encoded}\nBridgePierA123`
+    )).toBe('[data-url]\nBridgePierA123')
+    expect(sanitizeAttachmentEvidenceText(
+      `https://files.example.test/evidence.png?token=\n${encoded}\nBridgePierA123`
+    )).toBe('[url]\nBridgePierA123')
+  })
+
+  it('redacts wrapped Base64URL credentials with a four-character final fragment', () => {
+    expect(sanitizeAttachmentEvidenceText([
+      'https://files.example.test/evidence.png?token=',
+      'Qee9jl_BU1',
+      '1zgu-pb22m',
+      'SYQW',
+      'BridgePierA123'
+    ].join('\n'))).toBe('[url]\nBridgePierA123')
+  })
+
+  it('sanitizes many URLs without recursive stack growth', () => {
+    const input = Array.from({ length: 2_000 }, () => 'https://a.co').join('\n')
+    const output = sanitizeAttachmentEvidenceText(input)
+
+    expect(output.split('\n')).toHaveLength(2_000)
+    expect(output).not.toContain('https://')
+  })
+
+  it('redacts very short padded Base64 while preserving ordinary OCR', () => {
+    expect(sanitizeAttachmentEvidenceText('Evidence YQ== done')).toBe('Evidence [encoded-data] done')
+    expect(sanitizeAttachmentEvidenceText('StationA\nStationB')).toBe('StationA\nStationB')
+    expect(sanitizeAttachmentEvidenceText('Bridge/Pier/A123')).toBe('Bridge/Pier/A123')
+  })
+
+  it('redacts framed credentials after horizontal whitespace and hex payloads', () => {
+    expect(sanitizeAttachmentEvidenceText(
+      'https://files.example.test/a?token=                \nRYggCQipkQLNzxUO\nBridgePierA123'
+    )).toBe('[url]\nBridgePierA123')
+    expect(sanitizeAttachmentEvidenceText(
+      'https://files.example.test/a?X-Amz-Signature=\nabcdef0123456789abcdef0123456789\nBridgePierA123'
+    )).toBe('[url]\nBridgePierA123')
+    expect(sanitizeAttachmentEvidenceText(
+      'data:image/png;base64,\ndeadbeef\nBridgePierA123'
+    )).toBe('[data-url]\nBridgePierA123')
+  })
+
+  it('redacts short opaque Base64 in explicit data framing', () => {
+    expect(sanitizeAttachmentEvidenceText(
+      'data:image/png;base64,\nPF6B\nBridgePierA123'
+    )).toBe('[data-url]\nBridgePierA123')
+    expect(sanitizeAttachmentEvidenceText(
+      'data:image/png;base64,\nRYggCQip\nBridgePierA123'
+    )).toBe('[data-url]\nBridgePierA123')
+  })
+
+  it('redacts wrapped Base64URL when middle fragments are alphanumeric', () => {
+    expect(sanitizeAttachmentEvidenceText([
+      'https://files.example.test/a?token=',
+      'Qee9jl_BU1',
+      '1zguApb22m',
+      'SYQW',
+      'BridgePierA123'
+    ].join('\n'))).toBe('[url]\nBridgePierA123')
+  })
+
+  it('preserves lowercase and numeric slash-delimited OCR', () => {
+    expect(sanitizeAttachmentEvidenceText('stations\nmonitors')).toBe('stations\nmonitors')
+    expect(sanitizeAttachmentEvidenceText('settling\nmovement')).toBe('settling\nmovement')
+    expect(sanitizeAttachmentEvidenceText('building\nplatform')).toBe('building\nplatform')
+    expect(sanitizeAttachmentEvidenceText('Bridge/Pier/1234')).toBe('Bridge/Pier/1234')
+    expect(sanitizeAttachmentEvidenceText('Station/Platform/123')).toBe('Station/Platform/123')
+  })
+
+  it('does not match data URLs inside ordinary words', () => {
+    expect(sanitizeAttachmentEvidenceText('metadata:image/png')).toBe('metadata:image/png')
   })
 
   it('validates magic bytes and shares in-flight analysis by content hash', async () => {

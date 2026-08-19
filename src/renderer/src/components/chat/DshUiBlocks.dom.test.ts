@@ -45,7 +45,7 @@ describe('DshUiBlocks actions', () => {
         threadId: 'thr_1',
         messageId: 'item_card',
         client: client(submit),
-        blocks: [{
+      blocks: [{
           id: 'filters',
           specFingerprint: fingerprint,
           root: { id: 'apply', type: 'button', label: 'Apply', actionId: 'apply-filter' }
@@ -111,7 +111,9 @@ describe('DshUiBlocks actions', () => {
             type: 'col',
             children: [
               { id: 'disabled', type: 'button', label: 'Disabled', actionId: 'disabled-action', disabled: true },
-              { id: 'password', type: 'input', label: 'Password', name: 'password', actionId: 'save-password', inputType: 'password', value: 'must-not-render' }
+              { id: 'password', type: 'input', label: 'Password', name: 'password', actionId: 'save-password', inputType: 'password', value: 'must-not-render' },
+              { id: 'token', type: 'input', label: 'Token', name: 'token', inputType: 'text', actionId: 'save-token', value: 'must-not-render' },
+              { id: 'api-key', type: 'input', label: 'API key', name: 'apiKey', inputType: 'text', actionId: 'save-api-key', value: 'must-not-render' }
             ]
           }
         }]

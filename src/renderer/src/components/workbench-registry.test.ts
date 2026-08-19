@@ -53,6 +53,19 @@ describe('WorkbenchRegistry', () => {
     expect(onClose).toHaveBeenCalledWith(context)
   })
 
+  it('renders the resolved tab through its descriptor contract', () => {
+    const registry = new WorkbenchRegistry<{ label: string }, void, string>()
+    registry.registerTab({
+      id: 'plan', order: 1, single: true, dedupeKey: () => 'plan', availability: () => true,
+      load: async () => ({ prefix: 'Panel' }),
+      render: (module: { prefix: string }, context) => `${module.prefix}: ${context.label}`,
+      onOpen: () => undefined, onClose: () => undefined
+    })
+
+    expect(registry.renderTab('plan', { prefix: 'Panel' }, { label: 'Ready' })).toBe('Panel: Ready')
+    expect(() => registry.renderTab('missing', null, { label: 'Ready' })).toThrow('Unknown Workbench tab id')
+  })
+
   it('deduplicates non-single activations by dedupeKey and closes after the last lease', () => {
     const registry = new WorkbenchRegistry<{ route: string }, void>()
     const onOpen = vi.fn()

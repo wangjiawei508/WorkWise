@@ -52,6 +52,18 @@ describe('UiActionClient', () => {
     expect(transport.post).not.toHaveBeenCalled()
   })
 
+  it('never stores credential-shaped field names in the interaction cache', () => {
+    const cache = new UiActionInteractionCache()
+    cache.setValue('card', 'password', 'secret')
+    cache.setValue('card', 'token', 'secret')
+    cache.setValue('card', 'apiKey', 'secret')
+
+    expect(cache.size).toBe(0)
+    expect(cache.getValue('card', 'password')).toBeUndefined()
+    expect(cache.getValue('card', 'token')).toBeUndefined()
+    expect(cache.getValue('card', 'apiKey')).toBeUndefined()
+  })
+
   it('bounds uncertain interaction records and removes a record after success', async () => {
     const transport: UiActionTransport = {
       post: vi.fn(async () => ({ threadId: 'thr_1', turnId: 'turn_1', uiActionItemId: 'item_action_1' }))

@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process'
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -118,5 +118,19 @@ describe('GitCheckpointService', () => {
     } finally {
       await rm(otherWorkspace, { recursive: true, force: true })
     }
+  })
+
+  it('rejects a checkpoint whose repository is above the active workspace', async () => {
+    const workspaceRoot = join(root, 'authorized-child')
+    await mkdir(workspaceRoot, { recursive: true })
+    const service = new GitCheckpointService(storage)
+
+    await expect(service.create({
+      taskId: 'task-parent-repository',
+      workspaceRoot,
+      repositoryRoot: root,
+      relatedPaths: [],
+      idempotencyKey: 'create-parent-repository'
+    }, workspaceRoot)).rejects.toMatchObject({ code: 'workspace_not_allowed' })
   })
 })

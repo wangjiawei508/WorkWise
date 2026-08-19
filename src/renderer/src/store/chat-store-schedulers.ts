@@ -186,12 +186,21 @@ async function pollTurnCompletionWatch(
     }
   }
 
-  if (waitingApprovals.length > 0) {
-    await options.onWaitingApprovals?.(waitingApprovals, state, set, get)
+  const currentState = get()
+  const watchGenerationUnchanged = currentState.watchTurnCompletion === state.watchTurnCompletion
+  const currentWaitingApprovals = watchGenerationUnchanged
+    ? waitingApprovals.filter((approval) => currentState.watchTurnCompletion[approval.threadId])
+    : []
+  const currentDoneThreads = watchGenerationUnchanged
+    ? doneThreads.filter((done) => currentState.watchTurnCompletion[done.threadId])
+    : []
+
+  if (currentWaitingApprovals.length > 0) {
+    await options.onWaitingApprovals?.(currentWaitingApprovals, currentState, set, get)
   }
 
-  if (doneThreads.length > 0) {
-    await options.onCompletedThreads(doneThreads, state, set, get)
+  if (currentDoneThreads.length > 0) {
+    await options.onCompletedThreads(currentDoneThreads, currentState, set, get)
   }
 
   if (Object.keys(get().watchTurnCompletion).filter((id) => get().watchTurnCompletion[id]).length === 0) {

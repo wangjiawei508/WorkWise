@@ -78,4 +78,22 @@ describe('streaming dsh-ui projection', () => {
 
     expect(streaming?.specFingerprint).toBe(runtime?.specFingerprint)
   })
+
+  it('accepts CRLF dsh-ui fences like the Runtime parser', () => {
+    const raw = `\`\`\`dsh-ui\r\n${JSON.stringify(block())}\r\n\`\`\``
+    const result = projectDshUiText(raw, { settled: false })
+
+    expect(result.blocks).toHaveLength(1)
+    expect(result.markdown).not.toContain('status_card')
+  })
+
+  it('caps invalid candidate scanning and diagnostics independently of valid blocks', () => {
+    const invalid = Array.from({ length: 1_000 }, (_, index) => (
+      `\`\`\`dsh-ui\n${JSON.stringify({ id: `invalid_${index}`, root: { id: 'bad', type: 'unknown' } })}\n\`\`\``
+    )).join('\n')
+    const result = projectDshUiText(invalid, { settled: true })
+
+    expect(result.markdown).toContain('invalid_999')
+    expect(result.diagnostics.length).toBeLessThanOrEqual(50)
+  })
 })

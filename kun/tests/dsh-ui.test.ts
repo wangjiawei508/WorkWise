@@ -45,6 +45,27 @@ describe('dsh-ui', () => {
     expect(parseDshUiBlocks('```dsh-ui\n{"id":"secret","root":{"id":"password","type":"input","label":"Password","name":"password","actionId":"set-password","inputType":"password","value":"must-not-persist"}}\n```')).toEqual([])
   })
 
+  it('treats credential-shaped field names as secret even without password metadata', () => {
+    for (const name of ['password', 'token', 'apiKey']) {
+      const blocks = parseDshUiBlocks(`\`\`\`dsh-ui\n${JSON.stringify({
+        id: `secret_${name}`,
+        root: { id: 'field', type: 'input', label: name, name, actionId: `set_${name}`, inputType: 'text', value: 'must-not-persist' }
+      })}\n\`\`\``)
+      expect(blocks).toEqual([])
+    }
+  })
+
+  it('rejects deeply nested raw trees before recursive schema parsing', () => {
+    let root: Record<string, unknown> = { id: 'leaf', type: 'text', text: 'safe' }
+    for (let index = 0; index < 2_000; index += 1) {
+      root = { id: `level_${index}`, type: 'col', children: [root] }
+    }
+    const raw = `\`\`\`dsh-ui\n${JSON.stringify({ id: 'deep', root })}\n\`\`\``
+
+    expect(() => parseDshUiBlocks(raw)).not.toThrow()
+    expect(parseDshUiBlocks(raw)).toEqual([])
+  })
+
   it('caps parsed blocks at the persisted assistant item limit', () => {
     const blocks = Array.from({ length: 21 }, (_, index) => (
       `\`\`\`dsh-ui\n${JSON.stringify({

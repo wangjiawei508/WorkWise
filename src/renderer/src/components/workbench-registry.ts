@@ -67,6 +67,12 @@ export class WorkbenchRegistry<TabContext, ViewerContext, Rendered = unknown> {
       .sort((left, right) => left.order - right.order || left.id.localeCompare(right.id))[0] ?? null
   }
 
+  renderTab<Module = unknown>(id: string, module: Module, context: unknown): Rendered {
+    const descriptor = this.tabs.get(id)
+    if (!descriptor) throw new Error(`Unknown Workbench tab id: ${id}`)
+    return descriptor.render(module, context as TabContext)
+  }
+
   resolveFileViewer(input: FileViewerInput): FileViewerDescriptor<ViewerContext, unknown, Rendered> | null {
     const ordered = [...this.viewers.values()]
       .sort((left, right) => right.priority - left.priority || left.id.localeCompare(right.id))

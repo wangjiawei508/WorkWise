@@ -1742,11 +1742,10 @@ export function registerAppIpcHandlers(options: RegisterAppIpcHandlersOptions): 
   ipcMain.handle(
     'git:switch-branch',
     async (_, payload: unknown) => {
-      const request = parseIpcPayload('git:switch-branch', gitBranchPayloadSchema, payload)
+        const request = parseIpcPayload('git:switch-branch', gitBranchPayloadSchema, payload)
       try {
         const settings = await store.load()
-        await assertGitWorkspaceAllowed(request.workspaceRoot, settings.workspaceRoot)
-        return await switchGitBranch(request.workspaceRoot, request.branch)
+        return await switchGitBranch(request.workspaceRoot, request.branch, settings.workspaceRoot)
       } catch (error) {
         return {
           ok: false as const,
@@ -1766,8 +1765,7 @@ export function registerAppIpcHandlers(options: RegisterAppIpcHandlersOptions): 
       )
       try {
         const settings = await store.load()
-        await assertGitWorkspaceAllowed(request.workspaceRoot, settings.workspaceRoot)
-        return await createAndSwitchGitBranch(request.workspaceRoot, request.branch)
+        return await createAndSwitchGitBranch(request.workspaceRoot, request.branch, settings.workspaceRoot)
       } catch (error) {
         return {
           ok: false as const,

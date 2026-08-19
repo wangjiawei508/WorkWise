@@ -110,10 +110,12 @@ export class UiActionInteractionCache {
   }
 
   getValue(cardId: string, fieldName: string): string | boolean | undefined {
+    if (isSensitiveUiFieldName(fieldName)) return undefined
     return this.values.get(cacheKey(cardId, fieldName))
   }
 
   setValue(cardId: string, fieldName: string, value: string | boolean): void {
+    if (isSensitiveUiFieldName(fieldName)) return
     const key = cacheKey(cardId, fieldName)
     this.values.delete(key)
     this.values.set(key, value)
@@ -123,6 +125,10 @@ export class UiActionInteractionCache {
       this.values.delete(oldest)
     }
   }
+}
+
+export function isSensitiveUiFieldName(name: string): boolean {
+  return /(?:password|passwd|passcode|token|secret|apikey|api[-_]?key|authorization|cookie)/i.test(name)
 }
 
 export function uiActionCardCacheKey(input: {

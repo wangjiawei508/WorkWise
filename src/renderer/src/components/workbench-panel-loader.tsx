@@ -12,6 +12,7 @@ import { useMemo, useRef, useState } from 'react'
 export type WorkbenchPanelRegistry = {
   loadTab: <Module = unknown>(id: string) => Promise<Module>
   loadFileViewer: <Module = unknown>(id: string) => Promise<Module>
+  renderTab: <Module = unknown>(id: string, module: Module, context: unknown) => unknown
   retry: (id: string, kind: 'tab' | 'viewer') => void
 }
 
@@ -81,6 +82,7 @@ export function WorkbenchPanelLoader<Module>({
   title,
   retryLabel,
   fallback,
+  context,
   children
 }: {
   registry: WorkbenchPanelRegistry
@@ -89,17 +91,26 @@ export function WorkbenchPanelLoader<Module>({
   title: string
   retryLabel: string
   fallback?: ReactNode
-  children: (module: Module) => ReactNode
+  context?: unknown
+  children?: (module: Module) => ReactNode
 }): ReactElement {
   const [generation, setGeneration] = useState(0)
   const renderRef = useRef(children)
   renderRef.current = children
+  const contextRef = useRef(context)
+  contextRef.current = context
   const LazyPanel = useMemo(() => lazy(async () => {
     const module = kind === 'viewer'
       ? await registry.loadFileViewer<Module>(panelId)
       : await registry.loadTab<Module>(panelId)
     return {
-      default: () => <Fragment key={generation}>{renderRef.current(module)}</Fragment>
+      default: () => (
+        <Fragment key={generation}>
+          {renderRef.current
+            ? renderRef.current(module)
+            : registry.renderTab(panelId, module, contextRef.current) as ReactNode}
+        </Fragment>
+      )
     }
   }), [generation, kind, panelId, registry])
   const resetKey = `${kind}:${panelId}:${generation}`

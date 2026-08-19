@@ -12,6 +12,7 @@ import type {
 import { atomicWriteFile, readRecoveredFile } from './durable-file'
 import {
   canonicalizeContainmentRoot,
+  isCanonicalPathContained,
   recheckContainedParent,
   resolveContainedPath
 } from './canonical-containment'
@@ -112,6 +113,11 @@ export class GitCheckpointService {
       : await findNearestGitRoot(workspaceRoot)
     if (!repositoryCandidate) {
       throw Object.assign(new Error('No Git repository was found for this workspace.'), { code: 'not_found' })
+    }
+    if (!isCanonicalPathContained(workspaceRoot, repositoryCandidate)) {
+      throw Object.assign(new Error('Git repository must stay within the active workspace.'), {
+        code: 'workspace_not_allowed'
+      })
     }
     const repositoryRoot = await resolveContainedPath({
       root: workspaceRoot,
@@ -314,6 +320,11 @@ export class GitCheckpointService {
   ): Promise<void> {
     if (activeWorkspaceRoot) {
       await assertGitWorkspaceAllowed(stored.checkpoint.workspaceRoot, activeWorkspaceRoot)
+    }
+    if (!isCanonicalPathContained(stored.checkpoint.workspaceRoot, stored.checkpoint.repositoryRoot)) {
+      throw Object.assign(new Error('Git repository must stay within the active workspace.'), {
+        code: 'workspace_not_allowed'
+      })
     }
     await resolveContainedPath({
       root: stored.checkpoint.workspaceRoot,

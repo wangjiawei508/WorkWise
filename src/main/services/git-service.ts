@@ -20,6 +20,24 @@ export async function assertGitWorkspaceAllowed(workspaceRoot: string, activeWor
   }
 }
 
+export async function assertGitMutationTargetAllowed(
+  workspaceRoot: string,
+  activeWorkspaceRoot: string
+): Promise<void> {
+  await assertGitWorkspaceAllowed(workspaceRoot, activeWorkspaceRoot)
+  const repositoryRoot = await findNearestGitRoot(workspaceRoot)
+  if (!repositoryRoot) return
+  const [repository, active] = await Promise.all([
+    canonicalizeContainmentRoot(repositoryRoot),
+    canonicalizeContainmentRoot(activeWorkspaceRoot)
+  ])
+  if (!isCanonicalPathContained(active, repository)) {
+    throw Object.assign(new Error('Git repository must stay within the active workspace.'), {
+      code: 'workspace_not_allowed'
+    })
+  }
+}
+
 /**
  * Resolve a workspaceRoot to a directory that sits inside a Git working tree.
  *
@@ -56,6 +74,12 @@ async function runGit(
 
 function gitFailure(error: unknown): GitBranchesResult {
   const message = error instanceof Error ? error.message : String(error)
+  const code = typeof error === 'object' && error !== null && 'code' in error
+    ? String(error.code)
+    : ''
+  if (code === 'workspace_not_allowed') {
+    return { ok: false, reason: 'workspace_not_allowed', message: 'Git repository must stay within the active workspace.' }
+  }
   if (/not a git repository/i.test(message)) {
     return { ok: false, reason: 'not_git_repo', message: 'The working directory is not a Git repository.' }
   }
@@ -298,13 +322,16 @@ export async function getGitBranches(workspaceRoot: string): Promise<GitBranches
 
 export async function switchGitBranch(
   workspaceRoot: string,
-  branchName: string
+  branchName: string,
+  activeWorkspaceRoot?: string
 ): Promise<GitBranchesResult> {
-  const cwd = await resolveGitCwd(workspaceRoot)
   const branch = branchName.trim()
-  if (!cwd) return { ok: false, reason: 'no_workspace', message: 'No working directory selected.' }
+  if (!workspaceRoot.trim()) return { ok: false, reason: 'no_workspace', message: 'No working directory selected.' }
   if (!branch) return { ok: false, reason: 'invalid_branch', message: 'Branch name is required.' }
   try {
+    if (activeWorkspaceRoot) await assertGitMutationTargetAllowed(workspaceRoot, activeWorkspaceRoot)
+    const cwd = await resolveGitCwd(workspaceRoot)
+    if (!cwd) return { ok: false, reason: 'no_workspace', message: 'No working directory selected.' }
     const blocked = await preflightGitBranchSwitch(cwd, branch)
     if (blocked) return blocked
     await runGit(cwd, ['switch', '--no-guess', branch], 20_000)
@@ -316,18 +343,21 @@ export async function switchGitBranch(
 
 export async function createAndSwitchGitBranch(
   workspaceRoot: string,
-  branchName: string
+  branchName: string,
+  activeWorkspaceRoot?: string
 ): Promise<GitBranchesResult> {
-  const cwd = await resolveGitCwd(workspaceRoot)
   const branch = branchName.trim()
-  if (!cwd) return { ok: false, reason: 'no_workspace', message: 'No working directory selected.' }
+  if (!workspaceRoot.trim()) return { ok: false, reason: 'no_workspace', message: 'No working directory selected.' }
   if (!branch) return { ok: false, reason: 'invalid_branch', message: 'Branch name is required.' }
   try {
-    await runGit(cwd, ['check-ref-format', '--branch', branch])
-  } catch {
-    return preflightFailure('invalid_branch', 'The branch name is not valid.')
-  }
-  try {
+    if (activeWorkspaceRoot) await assertGitMutationTargetAllowed(workspaceRoot, activeWorkspaceRoot)
+    const cwd = await resolveGitCwd(workspaceRoot)
+    if (!cwd) return { ok: false, reason: 'no_workspace', message: 'No working directory selected.' }
+    try {
+      await runGit(cwd, ['check-ref-format', '--branch', branch])
+    } catch {
+      return preflightFailure('invalid_branch', 'The branch name is not valid.')
+    }
     const blocked = await preflightGitWorkspaceState(cwd)
     if (blocked) return blocked
     await runGit(cwd, ['switch', '--no-guess', '-c', branch], 20_000)
