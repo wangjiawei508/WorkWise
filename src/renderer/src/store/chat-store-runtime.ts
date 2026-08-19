@@ -612,11 +612,13 @@ export function syncTurnCompletionPoll(
       setState((snapshot) => {
         const watchTurnCompletion = { ...snapshot.watchTurnCompletion }
         const unreadThreadIds = { ...snapshot.unreadThreadIds }
+        const liveUsageByThreadId = { ...(snapshot.liveUsageByThreadId ?? {}) }
         for (const done of doneThreads) {
           delete watchTurnCompletion[done.threadId]
+          delete liveUsageByThreadId[done.threadId]
           unreadThreadIds[done.threadId] = true
         }
-        return { watchTurnCompletion, unreadThreadIds }
+        return { watchTurnCompletion, unreadThreadIds, liveUsageByThreadId }
       })
       void getState().refreshThreads()
     }
@@ -698,7 +700,7 @@ export function buildThreadEventSink(
           busy: true,
           currentTurnId: ev.turnId ?? s.currentTurnId,
           currentTurnUserId: ev.itemId,
-          ...(s.activeThreadId && ev.turnId && ev.turnId !== s.currentTurnId
+          ...(s.activeThreadId && ev.turnId && s.liveUsageByThreadId?.[s.activeThreadId]?.turnId !== ev.turnId
             ? {
                 liveUsageByThreadId: {
                   ...(s.liveUsageByThreadId ?? {}),

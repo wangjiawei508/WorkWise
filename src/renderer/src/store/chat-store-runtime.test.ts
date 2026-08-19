@@ -9,10 +9,16 @@ import {
   MAX_PENDING_CLAW_FEISHU_MIRRORS,
   MAX_WATCHED_COMPLETION_NOTIFICATIONS,
   rememberPendingClawFeishuMirror,
+  syncTurnCompletionPoll,
   takePendingClawFeishuMirror,
   watchTurnCompletionNotification
 } from './chat-store-runtime'
+import { stopTurnCompletionPoll } from './chat-store-schedulers'
+import { applyLiveUsageDelta } from './live-usage-projection'
 import type { ChatState, ChatStoreSet } from './chat-store-types'
+
+const registryMock = vi.hoisted(() => ({ getProvider: vi.fn() }))
+vi.mock('../agent/registry', () => ({ getProvider: registryMock.getProvider }))
 
 function makeSinkHarness(overrides: Partial<ChatState> = {}): {
   getState: () => ChatState
@@ -56,7 +62,34 @@ function makeSinkHarness(overrides: Partial<ChatState> = {}): {
 }
 
 afterEach(() => {
+  stopTurnCompletionPoll()
   vi.unstubAllGlobals()
+})
+
+it('clears live usage when a watched background thread completes', async () => {
+  registryMock.getProvider.mockReturnValue({
+    getThreadDetail: vi.fn(async () => ({
+      blocks: [],
+      threadStatus: 'idle',
+      latestTurnId: 'turn-background',
+      latestTurnStatus: 'completed'
+    }))
+  })
+  vi.stubGlobal('window', { workwise: { showTurnCompleteNotification: vi.fn(async () => ({ ok: true })) } })
+  const harness = makeSinkHarness({
+    runtimeConnection: 'ready',
+    activeThreadId: 'thread-current',
+    watchTurnCompletion: { 'thread-background': true },
+    liveUsageByThreadId: {
+      'thread-background': applyLiveUsageDelta(undefined, 'turn-background', 'partial output')
+    }
+  })
+
+  syncTurnCompletionPoll(harness.set, harness.get)
+
+  await vi.waitFor(() => {
+    expect(harness.getState().liveUsageByThreadId['thread-background']).toBeUndefined()
+  })
 })
 
 describe('thread event sink binding', () => {
@@ -220,6 +253,24 @@ describe('thread event sink binding', () => {
 
     harness.set({ busy: true, currentTurnId: null })
     sink.onUserMessage({ itemId: 'user-next', turnId: 'turn-next', text: 'next' })
+    expect(harness.getState().liveUsageByThreadId['thread-current']).toMatchObject({
+      turnId: 'turn-next',
+      estimatedOutputTokens: 0,
+      tokensPerSecond: null
+    })
+  })
+
+  it('resets stale usage when the next turn id was assigned before user replay', () => {
+    const harness = makeSinkHarness({
+      currentTurnId: 'turn-next',
+      liveUsageByThreadId: {
+        'thread-current': applyLiveUsageDelta(undefined, 'turn-old', 'old output')
+      }
+    })
+    const sink = buildThreadEventSink(harness.set, harness.get, { threadId: 'thread-current' })
+
+    sink.onUserMessage({ itemId: 'user-next', turnId: 'turn-next', text: 'next' })
+
     expect(harness.getState().liveUsageByThreadId['thread-current']).toMatchObject({
       turnId: 'turn-next',
       estimatedOutputTokens: 0,
