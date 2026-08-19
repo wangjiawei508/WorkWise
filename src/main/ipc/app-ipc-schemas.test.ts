@@ -222,7 +222,7 @@ describe('app-ipc-schemas', () => {
     })).toThrow(/runtime request path is not allowed/)
   })
 
-  it('allows only POST for the thread-scoped workspace reference search endpoint', () => {
+  it('allows only POST for workspace reference search endpoints', () => {
     expect(runtimeRequestPayloadSchema.parse({
       path: '/v1/threads/thr_1/workspace/references/search',
       method: 'POST',
@@ -232,10 +232,14 @@ describe('app-ipc-schemas', () => {
       path: '/v1/threads/thr_1/workspace/references/search',
       method: 'GET'
     })).toThrow(/runtime request path is not allowed/)
-    expect(() => runtimeRequestPayloadSchema.parse({
+    expect(runtimeRequestPayloadSchema.parse({
       path: '/v1/workspace/references/search',
       method: 'POST',
-      body: '{"workspaceRoot":"/"}'
+      body: '{"workspaceRoot":"/tmp/workspace","query":"src","limit":20}'
+    }).path).toBe('/v1/workspace/references/search')
+    expect(() => runtimeRequestPayloadSchema.parse({
+      path: '/v1/workspace/references/search',
+      method: 'GET'
     })).toThrow(/runtime request path is not allowed/)
   })
 

@@ -22,9 +22,14 @@ export const WorkspaceReferenceSchema = z.object({
 })
 export type WorkspaceReference = z.infer<typeof WorkspaceReferenceSchema>
 
-export const WorkspaceReferenceSearchRequestSchema = z.object({
+export const WorkspaceReferenceSearchQuerySchema = z.object({
   query: z.string().max(256).default(''),
   limit: z.number().int().min(1).max(50).default(20)
+})
+export type WorkspaceReferenceSearchQuery = z.input<typeof WorkspaceReferenceSearchQuerySchema>
+
+export const WorkspaceReferenceSearchRequestSchema = WorkspaceReferenceSearchQuerySchema.extend({
+  workspaceRoot: z.string().trim().min(1).max(4096)
 })
 export type WorkspaceReferenceSearchRequest = z.input<typeof WorkspaceReferenceSearchRequestSchema>
 
@@ -34,9 +39,13 @@ export const WorkspaceReferenceSearchEntrySchema = WorkspaceReferenceSchema.exte
 })
 export type WorkspaceReferenceSearchEntry = z.infer<typeof WorkspaceReferenceSearchEntrySchema>
 
-export const WorkspaceReferenceSearchResponseSchema = z.object({
+export const WorkspaceReferenceSearchResultSchema = z.object({
   entries: z.array(WorkspaceReferenceSearchEntrySchema),
   truncated: z.boolean(),
   indexedAt: z.string()
 })
-export type WorkspaceReferenceSearchResponse = z.infer<typeof WorkspaceReferenceSearchResponseSchema>
+export type WorkspaceReferenceSearchResult = z.infer<typeof WorkspaceReferenceSearchResultSchema>
+
+// Compatibility aliases for callers compiled against the initial contract name.
+export const WorkspaceReferenceSearchResponseSchema = WorkspaceReferenceSearchResultSchema
+export type WorkspaceReferenceSearchResponse = WorkspaceReferenceSearchResult

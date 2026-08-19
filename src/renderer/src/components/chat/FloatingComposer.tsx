@@ -413,6 +413,29 @@ async function loadWorkspaceFileIndex(workspaceRoot: string): Promise<WorkspaceF
   }
 }
 
+export async function loadComposerWorkspaceReferenceSuggestions(input: {
+  threadId: string | null
+  workspaceRoot: string
+  query: string
+  allowLegacyFallback: boolean
+  runtimeSearch?: typeof rendererRuntimeClient.searchWorkspaceReferences
+  legacySearch?: () => Promise<ComposerFileReference[]>
+}): Promise<ComposerFileReference[]> {
+  const runtimeSearch = input.runtimeSearch ?? rendererRuntimeClient.searchWorkspaceReferences.bind(rendererRuntimeClient)
+  const result = await runtimeSearch(input.threadId, input.workspaceRoot, input.query, 20)
+  if (result) {
+    return result.entries.map((entry) => ({
+      path: entry.path,
+      relativePath: entry.path,
+      name: entry.name,
+      kind: entry.kind,
+      source: 'runtime'
+    }))
+  }
+  if (input.allowLegacyFallback && input.legacySearch) return input.legacySearch()
+  throw new Error('Runtime workspace reference search is unavailable')
+}
+
 export function imageFilesFromTransfer(source: ComposerImageTransferSource | null | undefined): File[] {
   if (!source) return []
   const files: File[] = []
@@ -914,27 +937,16 @@ export function FloatingComposer({
     const timer = window.setTimeout(() => {
       setFileMentionLoading(true)
       setFileMentionError(null)
-      const loadSuggestions = async (): Promise<ComposerFileReference[]> => {
-        if (activeThreadId) {
-          const runtimeResult = await rendererRuntimeClient.searchWorkspaceReferences(
-            activeThreadId,
-            activeFileMention.query,
-            20
-          )
-          if (runtimeResult) {
-            return runtimeResult.entries.map((entry) => ({
-              path: entry.path,
-              relativePath: entry.path,
-              name: entry.name,
-              kind: entry.kind,
-              source: 'runtime'
-            }))
-          }
+      void loadComposerWorkspaceReferenceSuggestions({
+        threadId: activeThreadId,
+        workspaceRoot: effectiveWorkspaceRoot,
+        query: activeFileMention.query,
+        allowLegacyFallback: import.meta.env.VITE_WORKWISE_LEGACY_INLINE_FILE_CONTEXT === '1',
+        legacySearch: async () => {
+          const index = await loadWorkspaceFileIndex(effectiveWorkspaceRoot)
+          return filterWorkspaceFileMentionSuggestions(index.files, activeFileMention.query, fileReferences)
         }
-        const index = await loadWorkspaceFileIndex(effectiveWorkspaceRoot)
-        return filterWorkspaceFileMentionSuggestions(index.files, activeFileMention.query, fileReferences)
-      }
-      void loadSuggestions()
+      })
         .then((suggestions) => {
           if (cancelled) return
           setFileMentionSuggestions(

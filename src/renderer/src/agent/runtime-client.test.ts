@@ -58,13 +58,43 @@ describe('rendererRuntimeClient', () => {
     }))
     vi.stubGlobal('window', { workwise: { runtimeRequest } })
 
-    await expect(rendererRuntimeClient.searchWorkspaceReferences('thr /1', '投标', 10)).resolves.toMatchObject({
+    await expect(rendererRuntimeClient.searchWorkspaceReferences(
+      'thr /1',
+      '/tmp/workspace',
+      '投标',
+      10
+    )).resolves.toMatchObject({
       entries: [{ path: 'docs/投标.md', kind: 'file' }]
     })
     expect(runtimeRequest).toHaveBeenCalledWith(
       '/v1/threads/thr%20%2F1/workspace/references/search',
       'POST',
       JSON.stringify({ query: '投标', limit: 10 })
+    )
+  })
+
+  it('searches the workspace-scoped Runtime route before a thread exists', async () => {
+    const runtimeRequest = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      body: JSON.stringify({
+        entries: [{ path: '资料', name: '资料', kind: 'directory', depth: 1 }],
+        truncated: false,
+        indexedAt: '2026-08-19T00:00:00.000Z'
+      })
+    }))
+    vi.stubGlobal('window', { workwise: { runtimeRequest } })
+
+    await expect(rendererRuntimeClient.searchWorkspaceReferences(
+      null,
+      '/tmp/投标 workspace',
+      '资料',
+      20
+    )).resolves.toMatchObject({ entries: [{ path: '资料', kind: 'directory' }] })
+    expect(runtimeRequest).toHaveBeenCalledWith(
+      '/v1/workspace/references/search',
+      'POST',
+      JSON.stringify({ workspaceRoot: '/tmp/投标 workspace', query: '资料', limit: 20 })
     )
   })
 
@@ -76,7 +106,9 @@ describe('rendererRuntimeClient', () => {
     }))
     vi.stubGlobal('window', { workwise: { runtimeRequest } })
 
-    await expect(rendererRuntimeClient.searchWorkspaceReferences('thr_1', '', 20)).resolves.toBeNull()
+    await expect(rendererRuntimeClient.searchWorkspaceReferences(
+      'thr_1', '/tmp/workspace', '', 20
+    )).resolves.toBeNull()
   })
 
   it('surfaces a missing thread instead of treating the Runtime as legacy', async () => {
@@ -87,7 +119,9 @@ describe('rendererRuntimeClient', () => {
     }))
     vi.stubGlobal('window', { workwise: { runtimeRequest } })
 
-    await expect(rendererRuntimeClient.searchWorkspaceReferences('thr_missing', '', 20))
+    await expect(rendererRuntimeClient.searchWorkspaceReferences(
+      'thr_missing', '/tmp/workspace', '', 20
+    ))
       .rejects.toThrow('thread not found: thr_missing')
   })
 
@@ -99,7 +133,9 @@ describe('rendererRuntimeClient', () => {
     }))
     vi.stubGlobal('window', { workwise: { runtimeRequest } })
 
-    await expect(rendererRuntimeClient.searchWorkspaceReferences('thr_1', '', 20))
+    await expect(rendererRuntimeClient.searchWorkspaceReferences(
+      'thr_1', '/tmp/workspace', '', 20
+    ))
       .rejects.toThrow('index unavailable')
   })
 

@@ -7,6 +7,7 @@ import {
   handleComposerImagePaste,
   imageFilesFromTransfer,
   imageTransferHasImages,
+  loadComposerWorkspaceReferenceSuggestions,
   parseCompactCommand,
   parseGoalCommand,
   parseReviewCommand
@@ -92,6 +93,32 @@ describe('FloatingComposer goal helpers', () => {
 })
 
 describe('FloatingComposer file references', () => {
+  it('does not silently use the legacy scanner when the Runtime route is unavailable', async () => {
+    const runtimeSearch = vi.fn(async () => null)
+    const legacySearch = vi.fn(async () => [])
+
+    await expect(loadComposerWorkspaceReferenceSuggestions({
+      threadId: null,
+      workspaceRoot: '/tmp/workspace',
+      query: 'src',
+      allowLegacyFallback: false,
+      runtimeSearch,
+      legacySearch
+    })).rejects.toThrow(/Runtime workspace reference search is unavailable/)
+    expect(runtimeSearch).toHaveBeenCalledWith(null, '/tmp/workspace', 'src', 20)
+    expect(legacySearch).not.toHaveBeenCalled()
+
+    await expect(loadComposerWorkspaceReferenceSuggestions({
+      threadId: null,
+      workspaceRoot: '/tmp/workspace',
+      query: 'src',
+      allowLegacyFallback: true,
+      runtimeSearch,
+      legacySearch
+    })).resolves.toEqual([])
+    expect(legacySearch).toHaveBeenCalledTimes(1)
+  })
+
   it('parses @ file mention queries at the current cursor', () => {
     expect(getFileMentionAtCursor('please inspect @src/ren', 'please inspect @src/ren'.length)).toEqual({
       start: 15,

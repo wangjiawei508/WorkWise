@@ -18,6 +18,7 @@ import {
   KunErrorBody,
   KunCapabilitiesConfig,
   RuntimeCapabilityManifest,
+  WorkspaceReferenceSearchResultSchema,
   buildRuntimeCapabilityManifest,
   emptyUsageSnapshot,
   type RuntimeEvent as RuntimeEventType
@@ -36,6 +37,17 @@ import {
 } from '../src/cli/serve.js'
 
 describe('contracts', () => {
+  it('publishes the workspace reference search result contract', () => {
+    expect(WorkspaceReferenceSearchResultSchema.parse({
+      entries: [{ path: '资料/报价.md', name: '报价.md', kind: 'file', depth: 2 }],
+      truncated: false,
+      indexedAt: '2026-08-19T10:00:00.000Z'
+    })).toMatchObject({
+      entries: [{ path: '资料/报价.md', kind: 'file' }],
+      truncated: false
+    })
+  })
+
   it('preserves exact local document parser provenance', () => {
     expect(AttachmentParserProvenance.parse({
       engine: 'unlimited-ocr-local',

@@ -1,6 +1,9 @@
 import { jsonResponse, type JsonResponse } from '../response.js'
 import type { WorkspaceInspector } from '../../ports/workspace-inspector.js'
-import { WorkspaceReferenceSearchRequestSchema } from '../../contracts/workspace-references.js'
+import {
+  WorkspaceReferenceSearchQuerySchema,
+  WorkspaceReferenceSearchRequestSchema
+} from '../../contracts/workspace-references.js'
 import type { WorkspaceReferenceService } from '../../services/workspace-reference-service.js'
 import type { ThreadService } from '../../services/thread-service.js'
 import { readJsonBody } from '../read-json-body.js'
@@ -40,7 +43,7 @@ export async function searchWorkspaceReferences(input: {
 }): Promise<JsonResponse | Response> {
   const body = await readJsonBody(input.request)
   if (!body.ok) return body.response
-  const parsed = WorkspaceReferenceSearchRequestSchema.safeParse(body.value)
+  const parsed = WorkspaceReferenceSearchQuerySchema.safeParse(body.value)
   if (!parsed.success) {
     return ERRORS.validation('invalid workspace reference search body', parsed.error.issues)
   }
@@ -55,6 +58,26 @@ export async function searchWorkspaceReferences(input: {
   } catch (error) {
     if ((error as { code?: unknown })?.code === 'workspace_reference_invalid') {
       return ERRORS.validation(error instanceof Error ? error.message : 'invalid thread workspace')
+    }
+    throw error
+  }
+}
+
+export async function searchWorkspaceReferencesForWorkspace(input: {
+  service: WorkspaceReferenceService
+  request: Request
+}): Promise<JsonResponse | Response> {
+  const body = await readJsonBody(input.request)
+  if (!body.ok) return body.response
+  const parsed = WorkspaceReferenceSearchRequestSchema.safeParse(body.value)
+  if (!parsed.success) {
+    return ERRORS.validation('invalid workspace reference search body', parsed.error.issues)
+  }
+  try {
+    return jsonResponse(await input.service.search(parsed.data))
+  } catch (error) {
+    if ((error as { code?: unknown })?.code === 'workspace_reference_invalid') {
+      return ERRORS.validation(error instanceof Error ? error.message : 'invalid workspace')
     }
     throw error
   }

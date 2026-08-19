@@ -5,7 +5,10 @@ import type {
   SseErrorPayload,
   SseEventPayload
 } from '@shared/workwise-api'
-import { runtimeThreadWorkspaceReferenceSearchPath } from '@shared/runtime-endpoints'
+import {
+  RUNTIME_WORKSPACE_REFERENCE_SEARCH_PATH,
+  runtimeThreadWorkspaceReferenceSearchPath
+} from '@shared/runtime-endpoints'
 import type { CoreWorkspaceReferenceSearchResponseJson } from './runtime-contract'
 
 class RendererRuntimeClient {
@@ -78,14 +81,21 @@ class RendererRuntimeClient {
   }
 
   async searchWorkspaceReferences(
-    threadId: string,
+    threadId: string | null,
+    workspaceRoot: string,
     query: string,
     limit = 20
   ): Promise<CoreWorkspaceReferenceSearchResponseJson | null> {
+    const path = threadId
+      ? runtimeThreadWorkspaceReferenceSearchPath(threadId)
+      : RUNTIME_WORKSPACE_REFERENCE_SEARCH_PATH
+    const body = threadId
+      ? { query, limit }
+      : { workspaceRoot, query, limit }
     const response = await this.runtimeRequest(
-      runtimeThreadWorkspaceReferenceSearchPath(threadId),
+      path,
       'POST',
-      JSON.stringify({ query, limit })
+      JSON.stringify(body)
     )
     const errorMessage = readRuntimeErrorMessage(response.body, 'workspace reference search failed')
     if (response.status === 501 || (response.status === 404 && errorMessage === 'route not found')) {

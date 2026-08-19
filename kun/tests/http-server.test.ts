@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { dispatchRequest } from '../src/server/http-server.js'
@@ -384,6 +384,60 @@ describe('HTTP server', () => {
       kind: 'user_message',
       workspaceReferences: [{ path: '报价 表.md', kind: 'file' }]
     })
+  })
+
+  it('searches a validated workspace before a thread exists', async () => {
+    const h = buildHarness()
+    await mkdir(join(dataDir, '资料 目录'))
+    await writeFile(join(dataDir, '资料 目录', '报价 表.md'), 'PRIVATE-WORKSPACE-BODY')
+    await symlink(join(dataDir, '资料 目录'), join(dataDir, 'linked-directory'))
+
+    const response = await dispatchRequest(
+      h.router,
+      new Request('http://localhost/v1/workspace/references/search', {
+        method: 'POST',
+        headers: { authorization: 'Bearer tok-1', 'content-type': 'application/json' },
+        body: JSON.stringify({ workspaceRoot: dataDir, query: '资料', limit: 20 })
+      })
+    )
+
+    expect(response.status).toBe(200)
+    expect(await readJson(response)).toMatchObject({
+      entries: expect.arrayContaining([
+        { path: '资料 目录', name: '资料 目录', kind: 'directory', depth: 1 }
+      ]),
+      truncated: false,
+      indexedAt: expect.any(String)
+    })
+    const body = await readJson(await dispatchRequest(
+      h.router,
+      new Request('http://localhost/v1/workspace/references/search', {
+        method: 'POST',
+        headers: { authorization: 'Bearer tok-1', 'content-type': 'application/json' },
+        body: JSON.stringify({ workspaceRoot: dataDir, query: '', limit: 20 })
+      })
+    )) as { entries: Array<{ path: string }> }
+    expect(body.entries).toEqual(expect.arrayContaining([
+      expect.objectContaining({ path: '资料 目录' }),
+      expect.objectContaining({ path: '资料 目录/报价 表.md' })
+    ]))
+    expect(body.entries.some((entry) => entry.path === 'linked-directory')).toBe(false)
+  })
+
+  it('rejects missing and invalid roots for workspace-scoped reference search', async () => {
+    const h = buildHarness()
+    const request = (body: unknown) => dispatchRequest(
+      h.router,
+      new Request('http://localhost/v1/workspace/references/search', {
+        method: 'POST',
+        headers: { authorization: 'Bearer tok-1', 'content-type': 'application/json' },
+        body: JSON.stringify(body)
+      })
+    )
+
+    await expect(request({ query: '' }).then((response) => response.status)).resolves.toBe(400)
+    await expect(request({ workspaceRoot: join(dataDir, 'missing'), query: '' })
+      .then((response) => response.status)).resolves.toBe(400)
   })
 
   it('rejects invalid workspace reference search limits and unknown threads', async () => {

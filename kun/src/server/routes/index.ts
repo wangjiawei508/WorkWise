@@ -1,6 +1,10 @@
 import { Router } from '../router.js'
 import { healthJsonResponse } from './health.js'
-import { buildWorkspaceStatusResponse, searchWorkspaceReferences } from './workspace.js'
+import {
+  buildWorkspaceStatusResponse,
+  searchWorkspaceReferences,
+  searchWorkspaceReferencesForWorkspace
+} from './workspace.js'
 import {
   createThread,
   clearThreadGoal,
@@ -188,6 +192,13 @@ export function buildRouter(runtime: ServerRuntime): Router {
     const url = new URL(request.url)
     const path = url.searchParams.get('path')
     return buildWorkspaceStatusResponse({ inspector: runtime.workspaceInspector, path })
+  })
+  router.add('POST', '/v1/workspace/references/search', async (request) => {
+    if (!authorize(request, runtime)) return ERRORS.unauthorized()
+    return searchWorkspaceReferencesForWorkspace({
+      service: runtime.workspaceReferenceService,
+      request
+    })
   })
   router.add('POST', '/v1/threads/:id/workspace/references/search', async (request, ctx) => {
     if (!authorize(request, runtime)) return ERRORS.unauthorized()

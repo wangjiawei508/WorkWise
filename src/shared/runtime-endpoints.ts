@@ -140,6 +140,9 @@ export function runtimeThreadWorkspaceReferenceSearchPath(threadId: string): str
   return `${runtimeThreadPath(threadId)}/workspace/references/search`
 }
 
+export const RUNTIME_WORKSPACE_REFERENCE_SEARCH_PATH = '/v1/workspace/references/search'
+export const RUNTIME_WORKSPACE_REFERENCE_SEARCH_TEMPLATE = RUNTIME_WORKSPACE_REFERENCE_SEARCH_PATH
+
 export const RUNTIME_THREAD_STEER_TEMPLATE = '/v1/threads/{id}/turns/{turn}/steer'
 export function runtimeThreadSteerPath(threadId: string, turnId: string): string {
   return `${runtimeThreadTurnsPath(threadId)}/${encodeURIComponent(turnId)}/steer`
