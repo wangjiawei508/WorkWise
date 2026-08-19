@@ -246,6 +246,8 @@ export type CoreRuntimeCapabilityManifestJson = {
   imageGen?: CoreRuntimeCapabilityStateJson & {
     model?: string
   }
+  /** Optional so the GUI remains compatible with older WorkWise Runtime builds. */
+  visionEvidence?: CoreRuntimeCapabilityStateJson
   /** Optional so the GUI can disable persisted controls against older runtimes. */
   uiActions?: CoreRuntimeCapabilityStateJson
 }
@@ -297,6 +299,11 @@ export type CoreRuntimeToolDiagnosticsJson = {
     enabled?: boolean
     active?: number
     childRuns?: Array<Record<string, unknown>>
+  }
+  visionEvidence?: {
+    enabled?: boolean
+    available?: boolean
+    reason?: string
   }
 }
 

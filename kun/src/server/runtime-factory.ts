@@ -294,7 +294,8 @@ export async function createKunServeRuntime(
       })
     : undefined
   await attachmentStore?.cleanupAbandoned()
-  const visionEvidence = createVisionEvidenceService(options.visionEvidence)
+  const visionEvidenceRuntime = createVisionEvidenceService(options.visionEvidence)
+  const visionEvidence = visionEvidenceRuntime.service
   const attachmentCleanupTimer = attachmentStore
     ? setInterval(() => { void attachmentStore.cleanupAbandoned() }, 24 * 60 * 60 * 1000)
     : undefined
@@ -429,6 +430,11 @@ export async function createKunServeRuntime(
     imageGen: {
       available: imageGenProviders.available,
       reason: imageGenProviders.diagnostics.find((diagnostic) => diagnostic.reason)?.reason
+    },
+    visionEvidence: {
+      enabled: visionEvidenceRuntime.enabled,
+      available: Boolean(visionEvidence),
+      reason: visionEvidenceRuntime.reason
     }
   })
   const registry = new CapabilityRegistry([
@@ -556,7 +562,12 @@ export async function createKunServeRuntime(
       memory: memoryStore
         ? await memoryStore.diagnostics()
         : { enabled: false, rootDir: '', activeCount: 0, tombstoneCount: 0, lastInjectedIds: [] },
-      imageGen: imageGenProviders.diagnostics
+      imageGen: imageGenProviders.diagnostics,
+      visionEvidence: {
+        enabled: visionEvidenceRuntime.enabled,
+        available: Boolean(visionEvidence),
+        ...(visionEvidenceRuntime.reason ? { reason: visionEvidenceRuntime.reason } : {})
+      }
     }),
     skills: async () => {
       await skillRuntime.refresh()
@@ -594,12 +605,19 @@ export async function createKunServeRuntime(
   return runtime
 }
 
-function createVisionEvidenceService(config: VisionEvidenceConfig | undefined): HttpVisionEvidenceService | undefined {
-  if (!config?.enabled) return undefined
+function createVisionEvidenceService(config: VisionEvidenceConfig | undefined): {
+  enabled: boolean
+  service?: HttpVisionEvidenceService
+  reason?: string
+} {
+  if (!config?.enabled) return { enabled: false, reason: 'vision evidence is disabled by config' }
   try {
-    return new HttpVisionEvidenceService(config)
-  } catch {
-    return undefined
+    return { enabled: true, service: new HttpVisionEvidenceService(config) }
+  } catch (error) {
+    return {
+      enabled: true,
+      reason: error instanceof Error ? error.message : String(error)
+    }
   }
 }
 

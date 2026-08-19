@@ -44,6 +44,32 @@ describe('HttpVisionEvidenceService', () => {
     expect(serialized).toContain('[url]')
   })
 
+  it('preserves ordinary OCR identifiers around redacted URLs', () => {
+    const evidence = sanitizeAttachmentEvidence({
+      version: 1,
+      attachmentId: 'att-WorkWise2026',
+      summary: 'https://example.test/page?X-Amz-Signature=\nYWJjMTIz\neHl6NDU2\nBridgePierA123\nSettlement2026',
+      ocr: 'WorkWise2026 BridgePierA123 Settlement2026',
+      layout: [{ type: 'BridgePierA123', text: 'Settlement2026' }],
+      semantics: ['WorkWise2026'],
+      visual: 'BridgePierA123',
+      uncertainty: ['Settlement2026'],
+      source: {
+        kind: 'configured-endpoint',
+        analyzer: 'WorkWise2026',
+        configFingerprint: 'a'.repeat(64)
+      },
+      status: 'ready'
+    })
+
+    expect(evidence.summary).toBe('[url]\nBridgePierA123\nSettlement2026')
+    expect(evidence.summary).not.toContain('YWJjMTIz')
+    expect(evidence.summary).not.toContain('eHl6NDU2')
+    expect(JSON.stringify(evidence)).toContain('WorkWise2026')
+    expect(JSON.stringify(evidence)).toContain('BridgePierA123')
+    expect(JSON.stringify(evidence)).toContain('Settlement2026')
+  })
+
   it('validates magic bytes and shares in-flight analysis by content hash', async () => {
     let resolveResponse!: (response: Response) => void
     const response = new Promise<Response>((resolve) => { resolveResponse = resolve })

@@ -54,7 +54,7 @@ export function sanitizeAttachmentEvidenceText(value: string): string {
     )
     .replace(
       /(?:https?|ftp|file):\/\/[^\s"'<>]+(?:[ \t]*\r?\n[ \t]*[A-Za-z0-9%._~!$&'()*+,;=:@/?+-]+)*/gi,
-      '[url]'
+      redactUrlCandidate
     )
     .replace(
       /\b(?:x-amz-(?:signature|credential|security-token)|signature|sig|token|access_token|key)\s*=\s*(?:\r?\n[ \t]*)?[^\s&"'<>]+/gi,
@@ -73,13 +73,53 @@ export function sanitizeAttachmentEvidenceText(value: string): string {
     )
 }
 
+function redactUrlCandidate(candidate: string): string {
+  const lines = candidate.split(/(\r?\n[ \t]*)/)
+  let consumed = lines[0]?.length ?? 0
+  let previous = lines[0] ?? ''
+  let consumingCredential = false
+  for (let index = 1; index + 1 < lines.length; index += 2) {
+    const continuation = lines[index + 1] ?? ''
+    if (!/[?&=]$/.test(previous) && !(consumingCredential && isEncodedCredentialContinuation(continuation))) {
+      break
+    }
+    consumed += (lines[index]?.length ?? 0) + (lines[index + 1]?.length ?? 0)
+    consumingCredential = true
+    previous = continuation
+  }
+  return `[url]${candidate.slice(consumed)}`
+}
+
+function isEncodedCredentialContinuation(candidate: string): boolean {
+  const compact = candidate.trim()
+  if (!/^[A-Za-z0-9+/_-]+={0,2}$/.test(compact) || compact.length < 4 || compact.length % 4 === 1) {
+    return false
+  }
+  const encoding = /[-_]/.test(compact) ? 'base64url' : 'base64'
+  const payload = compact.replace(/=+$/, '')
+  const decoded = Buffer.from(compact, encoding)
+  if (decoded.length === 0 || decoded.toString(encoding).replace(/=+$/, '') !== payload) return false
+  const text = decoded.toString('utf8')
+  return Buffer.from(text, 'utf8').compare(decoded) === 0 && [...text].every((character) => {
+    const codePoint = character.codePointAt(0) ?? 0
+    return character === '\n' || character === '\r' || character === '\t' || codePoint >= 0x20
+  })
+}
+
 function isEncodedData(candidate: string): boolean {
   const compact = candidate.replace(/\s/g, '')
   const payload = compact.replace(/=+$/, '')
   if (compact.length < 12 || compact.length % 4 === 1) return false
-  return compact.endsWith('=') ||
-    /[+/]/.test(payload) ||
-    (/[A-Z]/.test(payload) && /[a-z]/.test(payload) && /\d/.test(payload))
+  if (compact.endsWith('=') || /[+/]/.test(payload)) return true
+  if (!(/[A-Z]/.test(payload) && /[a-z]/.test(payload) && /\d/.test(payload))) return false
+  const decoded = Buffer.from(compact, 'base64')
+  if (decoded.length === 0 || decoded.toString('base64').replace(/=+$/, '') !== payload) return false
+  const text = decoded.toString('utf8')
+  if (Buffer.from(text, 'utf8').compare(decoded) !== 0) return false
+  return /[^A-Za-z0-9]/.test(text) && [...text].every((character) => {
+    const codePoint = character.codePointAt(0) ?? 0
+    return character === '\n' || character === '\r' || character === '\t' || codePoint >= 0x20
+  })
 }
 
 export type VisionEvidenceInput = {

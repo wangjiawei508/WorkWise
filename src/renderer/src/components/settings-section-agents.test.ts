@@ -459,6 +459,37 @@ describe('AgentsSettingsSection WorkWise Runtime diagnostics smoke', () => {
     expect(html).toContain('Image analysis is unavailable')
   })
 
+  it('shows the runtime validation reason for an invalid configured analyzer', () => {
+    const ctx = baseCtx()
+    const html = renderToStaticMarkup(createElement(AgentsSettingsSection, {
+      ctx: {
+        ...ctx,
+        kun: {
+          ...(ctx.kun as Record<string, unknown>),
+          visionEvidence: {
+            enabled: true,
+            endpoint: 'https://vision.example.com/analyze',
+            timeoutMs: 120000,
+            analyzer: 'workwise-vision-evidence'
+          }
+        },
+        runtimeInfo: {
+          capabilities: {
+            visionEvidence: {
+              enabled: true,
+              available: false,
+              status: 'unavailable',
+              reason: 'vision evidence endpoint must use a loopback IP address'
+            }
+          }
+        }
+      }
+    }))
+
+    expect(html).toContain('Image analysis is unavailable')
+    expect(html).toContain('vision evidence endpoint must use a loopback IP address')
+  })
+
   it('does not render image generation settings inside the agent section', () => {
     const html = renderToStaticMarkup(createElement(AgentsSettingsSection, { ctx: baseCtx() }))
 

@@ -406,6 +406,13 @@ export function AgentsSettingsSection({ ctx }: { ctx: Record<string, any> }): Re
     timeoutMs: 120000,
     analyzer: 'workwise-vision-evidence'
   }
+  const visionEvidenceRuntime = runtimeInfo?.capabilities?.visionEvidence
+  const visionEvidenceUnavailable = !visionEvidence.enabled ||
+    !visionEvidence.endpoint.trim() ||
+    visionEvidenceRuntime?.available === false
+  const visionEvidenceUnavailableReason = visionEvidence.enabled && visionEvidence.endpoint.trim()
+    ? visionEvidenceRuntime?.reason
+    : undefined
   const updateMcpSearch = (patch: Record<string, unknown>): void => {
     updateKun({
       mcpSearch: {
@@ -1050,13 +1057,14 @@ export function AgentsSettingsSection({ ctx }: { ctx: Record<string, any> }): Re
                           checked={visionEvidence.enabled}
                           onChange={(enabled) => updateVisionEvidence({ enabled })}
                         />
-                        {!visionEvidence.enabled || !visionEvidence.endpoint.trim() ? (
+                        {visionEvidenceUnavailable ? (
                           <span
                             role="status"
                             className="inline-flex items-center gap-1.5 text-[12px] font-medium text-red-700 dark:text-red-200"
                           >
                             <Ban className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
                             {t('kunVisionEvidenceUnavailable')}
+                            {visionEvidenceUnavailableReason ? `: ${visionEvidenceUnavailableReason}` : ''}
                           </span>
                         ) : null}
                       </div>

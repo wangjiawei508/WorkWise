@@ -36,6 +36,11 @@ export type RuntimeToolDiagnostics = {
   attachments: AttachmentDiagnostics
   memory: MemoryDiagnostics
   imageGen?: ImageGenDiagnostic[]
+  visionEvidence?: {
+    enabled: boolean
+    available: boolean
+    reason?: string
+  }
 }
 
 /**

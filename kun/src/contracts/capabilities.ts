@@ -272,6 +272,7 @@ export const RuntimeCapabilityManifest = z
     imageGen: RuntimeCapabilityState.extend({
       model: z.string().optional()
     }).strict(),
+    visionEvidence: RuntimeCapabilityState.optional(),
     uiActions: RuntimeCapabilityState
   })
   .strict()
@@ -315,6 +316,11 @@ export function buildRuntimeCapabilityManifest(input: {
     reason?: string
   }
   imageGen?: {
+    available?: boolean
+    reason?: string
+  }
+  visionEvidence?: {
+    enabled?: boolean
     available?: boolean
     reason?: string
   }
@@ -416,6 +422,12 @@ export function buildRuntimeCapabilityManifest(input: {
       ),
       ...(config.imageGen.model ? { model: config.imageGen.model } : {})
     },
+    visionEvidence: providerCapabilityState(
+      input.visionEvidence?.enabled === true,
+      'vision evidence is disabled by config',
+      input.visionEvidence?.available === true,
+      input.visionEvidence?.reason ?? 'vision evidence analyzer is not configured'
+    ),
     uiActions: available()
   })
 }

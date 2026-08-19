@@ -156,6 +156,46 @@ describe('runtime factory vision evidence configuration', () => {
       await rm(dataDir, { recursive: true, force: true })
     }
   })
+
+  it('reports an enabled non-loopback analyzer as unavailable with its validation reason', async () => {
+    const dataDir = await mkdtemp(join(tmpdir(), 'kun-runtime-vision-diagnostic-'))
+    let runtime: Awaited<ReturnType<typeof createKunServeRuntime>> | undefined
+    try {
+      runtime = await createKunServeRuntime({
+        host: '127.0.0.1',
+        port: 0,
+        dataDir,
+        runtimeToken: 'test-token',
+        apiKey: 'not-used',
+        baseUrl: 'http://127.0.0.1:9',
+        model: 'deepseek-v4-pro',
+        approvalPolicy: 'on-request',
+        sandboxMode: 'workspace-write',
+        tokenEconomyMode: false,
+        insecure: false,
+        storage: { backend: 'file' },
+        capabilities: KunCapabilitiesConfig.parse({ attachments: { enabled: true } }),
+        visionEvidence: { enabled: true, endpoint: 'https://vision.example.com/analyze' }
+      })
+
+      expect(runtime.info().capabilities.visionEvidence).toMatchObject({
+        enabled: true,
+        available: false,
+        status: 'unavailable',
+        reason: expect.stringContaining('loopback')
+      })
+      await expect(runtime.toolDiagnostics?.()).resolves.toMatchObject({
+        visionEvidence: {
+          enabled: true,
+          available: false,
+          reason: expect.stringContaining('loopback')
+        }
+      })
+    } finally {
+      await runtime?.shutdown?.()
+      await rm(dataDir, { recursive: true, force: true })
+    }
+  })
 })
 
 function png(width: number, height: number): Buffer {
