@@ -139,7 +139,8 @@ function isVerifiedEncodedContinuation(candidate: string): boolean {
   const decoded = Buffer.from(padded, 'base64')
   if (decoded.length === 0) return false
   if (decoded.toString('base64').replace(/=+$/, '') !== normalized.replace(/=+$/, '')) return false
-  if (/[-_+/=]/.test(candidate)) return true
+  if (/[+/=]/.test(candidate)) return true
+  if (/[-_]/.test(candidate) && (candidate.length >= 24 || /^[-_]|[-_]$/.test(candidate))) return true
   const text = decoded.toString('utf8')
   if (Buffer.from(text, 'utf8').compare(decoded) !== 0) return false
   return [...text].every((character) => {

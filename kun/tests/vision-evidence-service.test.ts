@@ -125,6 +125,27 @@ describe('HttpVisionEvidenceService', () => {
     expect(evidence.ocr).toBe('[data-url]\n  BridgePierA123\nSettlement2026')
   })
 
+  it('preserves hyphenated OCR after an opaque Base64URL credential continuation', () => {
+    const evidence = sanitizeAttachmentEvidence({
+      version: 1,
+      attachmentId: 'att-hyphenated-ocr',
+      summary: 'https://files.example.test/evidence.png?token=\n_-7dzLuqmYg\nBridge-Pier-A123\nSettlement2026',
+      ocr: '',
+      layout: [],
+      semantics: [],
+      visual: '',
+      uncertainty: [],
+      source: {
+        kind: 'configured-endpoint',
+        analyzer: 'local-vision',
+        configFingerprint: 'a'.repeat(64)
+      },
+      status: 'ready'
+    })
+
+    expect(evidence.summary).toBe('[url]\nBridge-Pier-A123\nSettlement2026')
+  })
+
   it('validates magic bytes and shares in-flight analysis by content hash', async () => {
     let resolveResponse!: (response: Response) => void
     const response = new Promise<Response>((resolve) => { resolveResponse = resolve })
