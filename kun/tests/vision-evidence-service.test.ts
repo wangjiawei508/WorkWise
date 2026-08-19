@@ -66,9 +66,8 @@ describe('HttpVisionEvidenceService', () => {
       status: 'ready'
     })
 
-    expect(evidence.summary).toBe('[url]\n  abcd\nBridgePierA123\nSettlement2026')
-    expect(evidence.summary).not.toContain('abcdef0123456789')
-    expect(evidence.summary).not.toContain('0123456789abcdef')
+    expect(evidence.summary).toBe('[url]\n  abcdef0123456789\n  0123456789abcdef\n  [encoded-data]\n  abcd\nBridgePierA123\nSettlement2026')
+    expect(evidence.summary).toContain('abcdef0123456789')
     expect(evidence.summary).not.toContain(opaqueBase64)
     expect(JSON.stringify(evidence)).toContain('WorkWise2026')
     expect(JSON.stringify(evidence)).toContain('BridgePierA123')
@@ -128,7 +127,7 @@ describe('HttpVisionEvidenceService', () => {
     const evidence = sanitizeAttachmentEvidence({
       version: 1,
       attachmentId: 'att-hyphenated-ocr',
-      summary: 'https://files.example.test/evidence.png?token=\nAQAAAP_-_fw\nBridge-Pier-A123\nPier/A12\nI001\nSettlement2026',
+      summary: 'https://files.example.test/evidence.png?token=\nVftjjHf-4LY\nBridge-Pier-A123\nPier/A12\nI001',
       ocr: 'data:image/png;base64,\n  BridgePierA123\nSettlement2026',
       layout: [],
       semantics: [],
@@ -142,9 +141,32 @@ describe('HttpVisionEvidenceService', () => {
       status: 'ready'
     })
 
-    expect(evidence.summary).toBe('[url]\nBridge-Pier-A123\nPier/A12\nI001\nSettlement2026')
-    expect(evidence.summary).not.toContain('AQAAAP_-_fw')
+    expect(evidence.summary).toBe('[url]\nBridge-Pier-A123\nPier/A12\nI001')
+    expect(evidence.summary).not.toContain('VftjjHf-4LY')
     expect(evidence.ocr).toBe('[data-url]\n  BridgePierA123\nSettlement2026')
+  })
+
+  it('redacts four-character wrapped Base64 and short final chunks', () => {
+    const evidence = sanitizeAttachmentEvidence({
+      version: 1,
+      attachmentId: 'att-short-wrap',
+      summary: 'https://files.example.test/evidence.png?token=\nc2Vj\ncmV0\nSecretariat\nABCDEF12',
+      ocr: 'data:image/png;base64,\nc2Vj\ncmV0',
+      layout: [],
+      semantics: ['encoded Y29uZmlk\nZW50aWFs'],
+      visual: '',
+      uncertainty: [],
+      source: {
+        kind: 'configured-endpoint',
+        analyzer: 'local-vision',
+        configFingerprint: 'a'.repeat(64)
+      },
+      status: 'ready'
+    })
+
+    expect(evidence.summary).toBe('[url]\nSecretariat\nABCDEF12')
+    expect(evidence.ocr).toBe('[data-url]')
+    expect(evidence.semantics[0]).toBe('encoded [encoded-data]')
   })
 
   it('validates magic bytes and shares in-flight analysis by content hash', async () => {

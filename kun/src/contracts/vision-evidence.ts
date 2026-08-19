@@ -68,7 +68,7 @@ export function sanitizeAttachmentEvidenceText(value: string): string {
       (candidate) => isLineWrappedEncodedData(candidate) ? '[encoded-data]' : candidate
     )
     .replace(
-      /(?<![A-Za-z0-9+/])[A-Za-z0-9+/]{12,}={0,2}(?![A-Za-z0-9+/=])/g,
+      /(?<![A-Za-z0-9+/])(?:[A-Za-z0-9+/]{12,}={0,2}|[A-Za-z0-9+/]{6,}={1,2})(?![A-Za-z0-9+/=])/g,
       (candidate) => isEncodedData(candidate) ? '[encoded-data]' : candidate
     )
 }
@@ -105,12 +105,22 @@ function consumeVerifiedEncodedContinuations(lines: string[], initial: number): 
   if (offset !== initial) return initial
 
   let verifiedLength = 0
+  let base64Width: number | null = null
   for (let index = startIndex; index + 1 < lines.length; index += 2) {
     const separator = lines[index] ?? ''
     if (!/^\r?\n[ \t]*$/.test(separator)) break
     const fragment = lines[index + 1] ?? ''
-    if (!isVerifiedEncodedContinuation(fragment)) break
+    const kind = encodedContinuationKind(fragment)
+    if (!kind) break
+    if (base64Width === null) {
+      verifiedLength += separator.length + fragment.length
+      if (kind !== 'base64') break
+      base64Width = fragment.length
+      continue
+    }
+    if (kind !== 'base64' || fragment.length > base64Width) break
     verifiedLength += separator.length + fragment.length
+    if (fragment.length < base64Width) break
   }
   return initial + verifiedLength
 }
@@ -119,28 +129,35 @@ function urlEndsWithCredentialAssignment(value: string): boolean {
   return /[?&](?:x-amz-(?:signature|credential|security-token)|signature|sig|token|access_token|key)=$/i.test(value)
 }
 
-function isVerifiedEncodedContinuation(candidate: string): boolean {
-  if (/(?:secret|signature|credential|access[-_]?token)/i.test(candidate)) return true
-  if (candidate.length < 8) return false
+function encodedContinuationKind(candidate: string): 'base64' | 'base64url' | 'explicit-secret' | null {
+  if (/(?:^|[-_])(?:secret|signature|credential|access[-_]?token)(?:$|[-_])/i.test(candidate)) {
+    return 'explicit-secret'
+  }
+  if (candidate.length < 4) return null
   const normalized = candidate.replace(/-/g, '+').replace(/_/g, '/')
   if (!normalized || normalized.length % 4 === 1 || !/^[A-Za-z0-9+/]+={0,2}$/.test(normalized)) {
-    return false
+    return null
   }
   const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, '=')
   const decoded = Buffer.from(padded, 'base64')
-  if (decoded.length === 0) return false
-  if (decoded.toString('base64').replace(/=+$/, '') !== normalized.replace(/=+$/, '')) return false
-  if (/[-_]/.test(candidate)) return candidate.includes('-') && candidate.includes('_')
+  if (decoded.length === 0) return null
+  if (decoded.toString('base64').replace(/=+$/, '') !== normalized.replace(/=+$/, '')) return null
+  if (/[-_]/.test(candidate)) {
+    const hyphenCount = candidate.match(/-/g)?.length ?? 0
+    if (hyphenCount >= 2 && !candidate.includes('_')) return null
+    return candidate.length >= 8 ? 'base64url' : null
+  }
   if (/[+/=]/.test(candidate)) {
     return /[+=]/.test(candidate) || (candidate.match(/\//g)?.length ?? 0) > 1
+      ? 'base64'
+      : null
   }
-  if (/^[0-9a-f]+$/i.test(candidate)) return true
   const text = decoded.toString('utf8')
-  if (Buffer.from(text, 'utf8').compare(decoded) !== 0) return false
-  return [...text].every((character) => {
+  if (Buffer.from(text, 'utf8').compare(decoded) !== 0) return null
+  return /^[A-Za-z0-9]+$/.test(text) && [...text].every((character) => {
     const codePoint = character.codePointAt(0) ?? 0
     return character === '\n' || character === '\r' || character === '\t' || codePoint >= 0x20
-  })
+  }) ? 'base64' : null
 }
 
 function isLineWrappedEncodedData(candidate: string): boolean {
@@ -148,19 +165,31 @@ function isLineWrappedEncodedData(candidate: string): boolean {
   if (fragments.length < 2) return false
   const width = fragments[0]?.length ?? 0
   if (width < 4) return false
+  if (fragments.length === 2 && fragments[1]?.length !== width && !fragments[1]?.endsWith('=')) return false
   if (fragments.slice(0, -1).some((fragment) => fragment.length !== width)) return false
   if ((fragments.at(-1)?.length ?? 0) > width) return false
-  return isEncodedData(candidate)
+  const compact = fragments.join('')
+  if (compact.length % 4 === 1 || !/^[A-Za-z0-9+/]+={0,2}$/.test(compact)) return false
+  const decoded = Buffer.from(compact, 'base64')
+  if (decoded.length === 0 || decoded.toString('base64').replace(/=+$/, '') !== compact.replace(/=+$/, '')) {
+    return false
+  }
+  const text = decoded.toString('utf8')
+  return Buffer.from(text, 'utf8').compare(decoded) === 0 && [...text].every((character) => {
+    const codePoint = character.codePointAt(0) ?? 0
+    return character === '\n' || character === '\r' || character === '\t' || codePoint >= 0x20
+  })
 }
 
 function isEncodedData(candidate: string): boolean {
   const compact = candidate.replace(/\s/g, '')
   const payload = compact.replace(/=+$/, '')
-  if (compact.length < 12 || compact.length % 4 === 1) return false
-  if (compact.endsWith('=') || /[+/]/.test(payload)) return true
-  if (!(/[A-Z]/.test(payload) && /[a-z]/.test(payload) && /\d/.test(payload))) return false
+  const minimumLength = compact.endsWith('=') ? 8 : 12
+  if (compact.length < minimumLength || compact.length % 4 === 1) return false
   const decoded = Buffer.from(compact, 'base64')
   if (decoded.length === 0 || decoded.toString('base64').replace(/=+$/, '') !== payload) return false
+  if (compact.endsWith('=') || /[+/]/.test(payload)) return true
+  if (!(/[A-Z]/.test(payload) && /[a-z]/.test(payload) && /\d/.test(payload))) return false
   const text = decoded.toString('utf8')
   if (Buffer.from(text, 'utf8').compare(decoded) !== 0) return false
   return /[^A-Za-z0-9]/.test(text) && [...text].every((character) => {
