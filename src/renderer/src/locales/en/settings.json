@@ -448,6 +448,7 @@
   "kunToolArgumentRepairDesc": "Single string arguments longer than this byte count are truncated before tool execution, avoiding unusually large arguments.",
   "kunVisionEvidence": "Analyze images for text-only models",
   "kunVisionEvidenceDesc": "Use an explicitly configured local analyzer to turn images into structured evidence. If analysis is unavailable, the turn fails clearly instead of sending raw image data to a text-only model.",
+  "kunVisionEvidenceUnavailable": "Image analysis is unavailable",
   "kunVisionEvidenceEndpoint": "Local visual evidence analyzer",
   "kunVisionEvidenceEndpointDesc": "Only loopback IP addresses (127.0.0.1 or ::1) are accepted. WorkWise does not download or start an analyzer automatically.",
   "kunVisionEvidenceEndpointLabel": "Analyzer endpoint",

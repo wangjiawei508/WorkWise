@@ -139,6 +139,7 @@ const labels: Record<string, string> = {
   kunToolStormThreshold: 'Tool storm threshold',
   kunToolArgumentRepair: 'Tool argument repair',
   kunToolArgumentRepairDesc: 'Tool argument repair description',
+  kunVisionEvidenceUnavailable: 'Image analysis is unavailable',
   kunDiagnostics: 'WorkWise Runtime diagnostics',
   kunDiagnosticsAdvanced: 'Detailed diagnostics',
   kunDiagnosticsAdvancedDesc: 'Detailed diagnostics description',
@@ -450,6 +451,12 @@ describe('AgentsSettingsSection WorkWise Runtime diagnostics smoke', () => {
     expect(html).toContain('Token-saving advanced settings')
     expect(html).toContain('MCP advanced settings')
     expect(html).not.toContain('<details open')
+  })
+
+  it('clearly marks image analysis unavailable when no analyzer is configured', () => {
+    const html = renderToStaticMarkup(createElement(AgentsSettingsSection, { ctx: baseCtx() }))
+
+    expect(html).toContain('Image analysis is unavailable')
   })
 
   it('does not render image generation settings inside the agent section', () => {

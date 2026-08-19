@@ -448,6 +448,7 @@
   "kunToolArgumentRepairDesc": "模型传给工具的单个字符串参数超过此字节数时会被截断，避免异常长参数拖慢或撑爆上下文。",
   "kunVisionEvidence": "为纯文本模型分析图片",
   "kunVisionEvidenceDesc": "使用明确配置的本地分析器，把图片转换为结构化证据。分析不可用时会明确终止本次任务，不会把原始图片数据发给纯文本模型。",
+  "kunVisionEvidenceUnavailable": "图片分析当前不可用",
   "kunVisionEvidenceEndpoint": "本地视觉证据分析器",
   "kunVisionEvidenceEndpointDesc": "只接受回环 IP 地址（127.0.0.1 或 ::1）。WorkWise 不会自动下载或启动分析器。",
   "kunVisionEvidenceEndpointLabel": "分析器地址",

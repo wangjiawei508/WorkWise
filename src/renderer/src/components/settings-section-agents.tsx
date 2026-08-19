@@ -1045,10 +1045,21 @@ export function AgentsSettingsSection({ ctx }: { ctx: Record<string, any> }): Re
                     title={t('kunVisionEvidence')}
                     description={t('kunVisionEvidenceDesc')}
                     control={
-                      <Toggle
-                        checked={visionEvidence.enabled}
-                        onChange={(enabled) => updateVisionEvidence({ enabled })}
-                      />
+                      <div className="flex min-w-0 flex-col items-start gap-2 sm:items-end">
+                        <Toggle
+                          checked={visionEvidence.enabled}
+                          onChange={(enabled) => updateVisionEvidence({ enabled })}
+                        />
+                        {!visionEvidence.enabled || !visionEvidence.endpoint.trim() ? (
+                          <span
+                            role="status"
+                            className="inline-flex items-center gap-1.5 text-[12px] font-medium text-red-700 dark:text-red-200"
+                          >
+                            <Ban className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                            {t('kunVisionEvidenceUnavailable')}
+                          </span>
+                        ) : null}
+                      </div>
                     }
                   />
                   <SettingRow

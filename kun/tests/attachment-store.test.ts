@@ -432,6 +432,14 @@ describe('Attachment store and multimodal input', () => {
     expect(serialized).not.toContain('attachmentTextFallbacks')
     expect(serialized).toContain('A weather dashboard')
     expect(serialized).toContain('Ningbo 31 C')
+    const evidenceInstruction = request?.contextInstructions
+      ?.find((instruction) => instruction.includes('structured visual evidence'))
+    expect(evidenceInstruction).toBeDefined()
+    expect(JSON.parse(evidenceInstruction?.split('\n').at(-1) ?? '{}')).toMatchObject({
+      version: 1,
+      attachmentId: attachment.id,
+      status: 'ready'
+    })
     expect(serialized).not.toContain(imageBase64)
     expect(serialized).not.toContain('127.0.0.1')
     expect(serialized).not.toContain('token=')
