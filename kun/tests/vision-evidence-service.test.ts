@@ -45,10 +45,11 @@ describe('HttpVisionEvidenceService', () => {
   })
 
   it('preserves ordinary OCR identifiers around redacted URLs', () => {
+    const opaqueBase64 = Buffer.from([0xff, 0xee, 0xdd, 0xcc]).toString('base64')
     const evidence = sanitizeAttachmentEvidence({
       version: 1,
       attachmentId: 'att-WorkWise2026',
-      summary: 'https://example.test/page?X-Amz-Signature=\nabcdef0123456789\n0123456789abcdef\nBridgePierA123\nSettlement2026',
+      summary: `https://example.test/page?X-Amz-Signature=abcdef0123456789\n0123456789abcdef\n${opaqueBase64}\nabcd\nBridgePierA123\nSettlement2026`,
       ocr: 'WorkWise2026 BridgePierA123 Settlement2026',
       layout: [{ type: 'BridgePierA123', text: 'Settlement2026' }],
       semantics: ['WorkWise2026'],
@@ -65,6 +66,8 @@ describe('HttpVisionEvidenceService', () => {
     expect(evidence.summary).toBe('[url]\nBridgePierA123\nSettlement2026')
     expect(evidence.summary).not.toContain('abcdef0123456789')
     expect(evidence.summary).not.toContain('0123456789abcdef')
+    expect(evidence.summary).not.toContain(opaqueBase64)
+    expect(evidence.summary).not.toContain('abcd')
     expect(JSON.stringify(evidence)).toContain('WorkWise2026')
     expect(JSON.stringify(evidence)).toContain('BridgePierA123')
     expect(JSON.stringify(evidence)).toContain('Settlement2026')

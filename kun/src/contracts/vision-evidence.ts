@@ -79,7 +79,7 @@ function redactUrlCandidate(candidate: string): string {
   let consumingCredential = false
   for (let index = 1; index + 1 < lines.length; index += 2) {
     const continuation = lines[index + 1] ?? ''
-    if (!consumingCredential && !urlEndsWithCredentialAssignment(lines[0] ?? '')) break
+    if (!consumingCredential && !urlHasCredentialAssignment(lines[0] ?? '')) break
     if (consumingCredential && !isEncodedCredentialContinuation(continuation)) {
       break
     }
@@ -89,13 +89,14 @@ function redactUrlCandidate(candidate: string): string {
   return `[url]${candidate.slice(consumed)}`
 }
 
-function urlEndsWithCredentialAssignment(value: string): boolean {
-  return /[?&](?:x-amz-(?:signature|credential|security-token)|signature|sig|token|access_token|key)=$/i.test(value)
+function urlHasCredentialAssignment(value: string): boolean {
+  return /[?&](?:x-amz-(?:signature|credential|security-token)|signature|sig|token|access_token|key)=/i.test(value)
 }
 
 function isEncodedCredentialContinuation(candidate: string): boolean {
   const compact = candidate.trim()
-  if (/^[A-Fa-f0-9]{8,}$/.test(compact)) return true
+  if (/^[A-Z][a-z]+(?:[A-Z][a-z]+)+\d*$/.test(compact)) return false
+  if (/^[A-Fa-f0-9]{4,}$/.test(compact)) return true
   if (/^[A-Za-z0-9]+(?:[-_][A-Za-z0-9]+)+$/.test(compact) && compact.length >= 16) return true
   if (!/^[A-Za-z0-9+/_-]+={0,2}$/.test(compact) || compact.length < 4 || compact.length % 4 === 1) {
     return false
@@ -103,12 +104,7 @@ function isEncodedCredentialContinuation(candidate: string): boolean {
   const encoding = /[-_]/.test(compact) ? 'base64url' : 'base64'
   const payload = compact.replace(/=+$/, '')
   const decoded = Buffer.from(compact, encoding)
-  if (decoded.length === 0 || decoded.toString(encoding).replace(/=+$/, '') !== payload) return false
-  const text = decoded.toString('utf8')
-  return Buffer.from(text, 'utf8').compare(decoded) === 0 && [...text].every((character) => {
-    const codePoint = character.codePointAt(0) ?? 0
-    return character === '\n' || character === '\r' || character === '\t' || codePoint >= 0x20
-  })
+  return decoded.length > 0 && decoded.toString(encoding).replace(/=+$/, '') === payload
 }
 
 function isEncodedData(candidate: string): boolean {
