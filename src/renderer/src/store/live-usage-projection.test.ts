@@ -99,4 +99,30 @@ describe('live usage projection', () => {
     expect(resolveUsageTokenDisplay(null, exact)).toEqual({ tokens: 22, estimated: false })
     expect(resolveUsageTokenDisplay(null, afterExact)).toEqual({ tokens: 23, estimated: true })
   })
+
+  it('does not let a replayed exact usage event absorb newer estimated output', () => {
+    const beforeExact = applyLiveUsageDelta(undefined, 'turn-1', 'abcdefgh', 1_000)
+    const usage = {
+      inputTokens: 20,
+      outputTokens: 2,
+      reasoningTokens: 0,
+      cachedTokens: 0,
+      cacheMissTokens: 20,
+      cacheHitRate: 0,
+      totalTokens: 22,
+      costUsd: 0.01,
+      costCny: null,
+      cacheSavingsUsd: 0,
+      cacheSavingsCny: null,
+      tokenEconomySavingsTokens: 0,
+      tokenEconomySavingsUsd: 0,
+      tokenEconomySavingsCny: null,
+      turns: 1
+    }
+    const exact = applyExactLiveUsage(beforeExact, 'turn-1', usage, 40)
+    const afterExact = applyLiveUsageDelta(exact, 'turn-1', 'ijkl', 2_000)
+    const replayed = applyExactLiveUsage(afterExact, 'turn-1', usage, 40)
+
+    expect(resolveUsageTokenDisplay(null, replayed)).toEqual({ tokens: 23, estimated: true })
+  })
 })

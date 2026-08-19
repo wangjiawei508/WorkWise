@@ -48,7 +48,7 @@ import {
 import {
   applyExactLiveUsage,
   applyLiveUsageDelta,
-  applyLiveUsageItemSnapshot
+  emptyLiveUsageProjection
 } from './live-usage-projection'
 
 const BUSY_WATCHDOG_MS = 180_000
@@ -338,7 +338,7 @@ function notifyTerminal(
       turnId: turnId ?? undefined,
       approvalId: approvalId ?? undefined,
       reason,
-      activeThread: state.activeThreadId === threadId,
+      activeThread: state.route === 'chat' && state.activeThreadId === threadId,
       title: reason === 'completed'
         ? i18n.t('common:turnCompleteNotificationTitle')
         : i18n.t(`common:turnTerminalNotificationTitle_${reason}`),
@@ -574,6 +574,22 @@ export function syncTurnCompletionPoll(
       return provider.getThreadDetail(threadId)
     },
     threadLooksRunning: threadSnapshotLooksRunning,
+    onWaitingApprovals: async (approvals, state, setState) => {
+      for (const approval of approvals) {
+        notifyTerminal(
+          approval.threadId,
+          state,
+          'waiting_approval',
+          approval.turnId,
+          approval.approvalId
+        )
+      }
+      setState((snapshot) => {
+        const unreadThreadIds = { ...snapshot.unreadThreadIds }
+        for (const approval of approvals) unreadThreadIds[approval.threadId] = true
+        return { unreadThreadIds }
+      })
+    },
     onCompletedThreads: async (doneThreads, state, setState, getState) => {
       for (const done of doneThreads) {
         const reason = terminalReasonForTurnSnapshot(done.turnStatus, done.turnError)
@@ -682,6 +698,14 @@ export function buildThreadEventSink(
           busy: true,
           currentTurnId: ev.turnId ?? s.currentTurnId,
           currentTurnUserId: ev.itemId,
+          ...(s.activeThreadId && ev.turnId && ev.turnId !== s.currentTurnId
+            ? {
+                liveUsageByThreadId: {
+                  ...(s.liveUsageByThreadId ?? {}),
+                  [s.activeThreadId]: emptyLiveUsageProjection(ev.turnId)
+                }
+              }
+            : {}),
           turnStartedAtByUserId: {
             ...s.turnStartedAtByUserId,
             [ev.itemId]: s.turnStartedAtByUserId[ev.itemId] ?? startedAt
@@ -772,15 +796,6 @@ export function buildThreadEventSink(
         resetBusyRecoveryAttempts()
         // Restore busy state on tool events (same reasoning as onDelta).
         const base: Partial<ChatState> = {}
-        if (s.activeThreadId && s.currentTurnId) {
-          const liveUsage = applyLiveUsageItemSnapshot(
-            s.liveUsageByThreadId?.[s.activeThreadId],
-            s.currentTurnId,
-            ev.itemId,
-            `${ev.summary} ${ev.detail ?? ''}`
-          )
-          base.liveUsageByThreadId = { ...(s.liveUsageByThreadId ?? {}), [s.activeThreadId]: liveUsage }
-        }
         if (!s.busy) {
           base.busy = true
           armBusyWatchdog(set, get)
@@ -1157,7 +1172,7 @@ export function buildThreadEventSink(
       const completedThreadId = completedState.activeThreadId
       const completedTurnId = completedState.currentTurnId
       const completedKey = completedState.currentTurnId
-        ? `turn:${completedState.currentTurnId}`
+        ? `turn:${completedThreadId ?? 'unknown'}:${completedState.currentTurnId}`
         : `active:${completedThreadId ?? 'unknown'}:${completedState.lastSeq}`
       const pendingMirror = takePendingClawFeishuMirror(completedTurnId)
       const assistantMirrorText =
@@ -1185,6 +1200,9 @@ export function buildThreadEventSink(
           const u = { ...s.unreadThreadIds }
           delete u[id]
           base.unreadThreadIds = u
+          const liveUsageByThreadId = { ...(s.liveUsageByThreadId ?? {}) }
+          delete liveUsageByThreadId[id]
+          base.liveUsageByThreadId = liveUsageByThreadId
         }
         return base
       })
@@ -1276,7 +1294,7 @@ export function buildThreadEventSink(
       // permanently in the busy state.
       if (get().busy) armBusyWatchdog(set, get)
     },
-    onUsage: (usage) => {
+    onUsage: (usage, seq) => {
       if (!isCurrentStream()) return
       set((s) => {
         const threadId = s.activeThreadId
@@ -1287,7 +1305,7 @@ export function buildThreadEventSink(
             ? {
                 liveUsageByThreadId: {
                   ...(s.liveUsageByThreadId ?? {}),
-                  [threadId]: applyExactLiveUsage(s.liveUsageByThreadId?.[threadId], turnId, usage)
+                  [threadId]: applyExactLiveUsage(s.liveUsageByThreadId?.[threadId], turnId, usage, seq)
                 }
               }
             : {})

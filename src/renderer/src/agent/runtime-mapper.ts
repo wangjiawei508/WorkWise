@@ -1314,7 +1314,7 @@ export async function dispatchRuntimeEvent(
       })
       return
     case 'usage':
-      if (event.usage) sink.onUsage?.(usageFromCore(event.usage))
+      if (event.usage) sink.onUsage?.(usageFromCore(event.usage), event.seq)
       return
     case 'turn_completed':
     case 'turn_aborted':

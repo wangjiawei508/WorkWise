@@ -283,7 +283,7 @@ export class TaskController {
     if (code === 'operation_cancelled' || code === 'turn_total_timeout') {
       return this.finish(task, code === 'operation_cancelled' ? 'cancelled' : 'failed', message)
     }
-    if (code === 'web_access_exhausted') {
+    if (code === 'web_access_exhausted' || code === 'max_tokens') {
       return this.finish(task, 'failed', message)
     }
     return this.retry(

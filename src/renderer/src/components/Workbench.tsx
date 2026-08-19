@@ -463,6 +463,7 @@ export function Workbench(): ReactElement {
   const sddUpgradeInFlightRef = useRef(false)
   const sddUpgradeTargetRef = useRef<PendingSddPlanTarget | null>(null)
   const writeContextGenerationRef = useRef(0)
+  const pendingNotificationThreadRef = useRef<string | null>(null)
 
   useEffect(() => {
     if (route !== 'write' || runtimeConnection !== 'ready' || busy) return
@@ -1800,7 +1801,19 @@ export function Workbench(): ReactElement {
   }
 
   const notificationOpenThreadRef = useRef(openThread)
-  notificationOpenThreadRef.current = openThread
+  notificationOpenThreadRef.current = (threadId) => {
+    pendingNotificationThreadRef.current = threadId
+    if (runtimeConnection !== 'ready') return
+    pendingNotificationThreadRef.current = null
+    openThread(threadId)
+  }
+
+  useEffect(() => {
+    if (runtimeConnection !== 'ready') return
+    const threadId = pendingNotificationThreadRef.current
+    if (!threadId) return
+    notificationOpenThreadRef.current(threadId)
+  }, [runtimeConnection])
 
   useEffect(() => {
     if (typeof window.workwise?.onNotificationOpenThread !== 'function') return

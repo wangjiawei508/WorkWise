@@ -15,6 +15,7 @@ import { createAppIcon, pickTrayIcon } from './app-icon'
 import { configureLinuxWaylandImeSwitches } from './app-command-line'
 import { configureAppIdentity } from './app-identity'
 import { dispatchNotificationOpenThread } from './notification-navigation'
+import { isActiveThreadActuallyVisible } from './notification-visibility'
 import {
   shouldCloseMainWindowToTray,
   shouldShowStartupErrorDialog,
@@ -696,7 +697,11 @@ async function showTurnCompleteNotification(
   payload: TurnCompleteNotificationPayload
 ): Promise<{ ok: true; shown: boolean; reason?: string } | { ok: false; message: string }> {
   const settings = await store.load()
-  if (!shouldShowTerminalNotification(settings.notifications, payload)) {
+  const visibilityAwarePayload = {
+    ...payload,
+    activeThread: isActiveThreadActuallyVisible(mainWindow, payload.activeThread)
+  }
+  if (!shouldShowTerminalNotification(settings.notifications, visibilityAwarePayload)) {
     return { ok: true, shown: false, reason: 'filtered' }
   }
   if (!Notification.isSupported()) {

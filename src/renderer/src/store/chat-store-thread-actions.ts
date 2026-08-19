@@ -85,6 +85,7 @@ import {
   syncTurnCompletionPoll,
   watchTurnCompletionNotification
 } from './chat-store-runtime'
+import { terminalReasonForTurnSnapshot } from './terminal-notification-projection'
 
 type SseAbortRef = { current: AbortController | null }
 
@@ -197,6 +198,8 @@ export function createThreadActions(
         latestSeq,
         threadStatus,
         latestTurnId,
+        latestTurnStatus,
+        latestTurnError,
         latestUserMessageId,
         turnDurationByUserId = {},
         goal,
@@ -204,10 +207,17 @@ export function createThreadActions(
       } = await p.getThreadDetail(activeThreadId)
       const blocks = hydrateBlockModelLabels(activeThreadId, rawBlocks)
       const busy = threadSnapshotLooksRunning(blocks, threadStatus)
-      const currentTurnUserId = busy
+      const recoveredTerminalTurn = !busy &&
+        Boolean(latestTurnId) &&
+        latestTurnId === state.currentTurnId &&
+        ['completed', 'failed', 'aborted', 'cancelled', 'canceled', 'blocked', 'max_tokens', 'error']
+          .includes(latestTurnStatus?.trim().toLowerCase() ?? '')
+      const currentTurnUserId = busy || recoveredTerminalTurn
         ? state.currentTurnUserId ?? latestUserMessageId ?? findLatestUserBlockId(blocks)
         : null
-      const currentTurnId = busy ? state.currentTurnId ?? latestTurnId ?? null : null
+      const currentTurnId = busy || recoveredTerminalTurn
+        ? state.currentTurnId ?? latestTurnId ?? null
+        : null
 
       set((s) => ({
         activeThreadId,
@@ -228,6 +238,19 @@ export function createThreadActions(
       const ac = new AbortController()
       sseAbortRef.current = ac
       const sink = buildThreadEventSink(set, get, { threadId: activeThreadId, signal: ac.signal, sinceSeq: latestSeq })
+      if (recoveredTerminalTurn && latestTurnId) {
+        const reason = terminalReasonForTurnSnapshot(latestTurnStatus, latestTurnError)
+        if (reason === 'completed' || reason === 'aborted') {
+          sink.onTurnComplete({ reason, threadId: activeThreadId, turnId: latestTurnId })
+        } else {
+          sink.onError(new Error(latestTurnError?.trim() || 'WorkWise Runtime turn failed'), {
+            terminal: true,
+            terminalReason: reason,
+            threadId: activeThreadId,
+            turnId: latestTurnId
+          })
+        }
+      }
       subscribeThreadEventsWithRecovery(p, activeThreadId, latestSeq, sink, ac.signal, get)
       if (busy) {
         armBusyWatchdog(set, get)

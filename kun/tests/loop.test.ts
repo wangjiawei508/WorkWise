@@ -23,7 +23,7 @@ import { createImmutablePrefix, setSystemPrompt } from '../src/cache/immutable-p
 import { InflightTracker } from '../src/loop/inflight-tracker.js'
 import { SteeringQueue } from '../src/loop/steering-queue.js'
 import { SequentialIdGenerator } from '../src/ports/id-generator.js'
-import { TurnService } from '../src/services/turn-service.js'
+import { MAX_TERMINAL_TURN_IDS, TurnService } from '../src/services/turn-service.js'
 import type { TurnItem } from '../src/contracts/items.js'
 import type { ModelRequest, ModelStreamChunk } from '../src/ports/model-client.js'
 import {
@@ -35,12 +35,44 @@ import {
 } from './loop-test-harness.js'
 
 describe('AgentLoop', () => {
+  it('bounds terminal turn dedupe retention for long-running runtimes', () => {
+    const h = makeHarness(makeSilentModel())
+    const terminalTurns = (h.turns as unknown as { terminalTurns: Set<string> }).terminalTurns
+    const rememberTerminalTurn = (h.turns as unknown as {
+      rememberTerminalTurn(turnId: string): boolean
+    }).rememberTerminalTurn.bind(h.turns)
+    for (let index = 0; index < MAX_TERMINAL_TURN_IDS + 25; index += 1) {
+      rememberTerminalTurn(`turn-${index}`)
+    }
+
+    expect(terminalTurns.size).toBeLessThanOrEqual(MAX_TERMINAL_TURN_IDS)
+  })
+
   it('finishes a silent model run as completed', async () => {
     const h = makeHarness(makeSilentModel())
     await bootstrapThread(h)
     const status = await h.loop.runTurn(h.threadId, h.turnId)
     expect(status).toBe('completed')
     expect(h.inflight.size()).toBe(0)
+  })
+
+  it('reports model length exhaustion as a max-token terminal failure', async () => {
+    const h = makeHarness(makeFakeModel([
+      { kind: 'assistant_text_delta', text: 'partial answer' },
+      { kind: 'completed', stopReason: 'length' }
+    ]))
+    await bootstrapThread(h)
+
+    await expect(h.loop.runTurn(h.threadId, h.turnId)).resolves.toBe('failed')
+    const thread = await h.threadStore.get(h.threadId)
+    expect(thread?.turns.at(-1)).toMatchObject({
+      status: 'failed',
+      error: expect.stringContaining('max_tokens')
+    })
+    expect(h.bus.snapshotSince(h.threadId, 0).at(-1)).toMatchObject({
+      kind: 'turn_failed',
+      reason: 'max_tokens'
+    })
   })
 
   it('revalidates workspace references before calling the model without an injected validator', async () => {

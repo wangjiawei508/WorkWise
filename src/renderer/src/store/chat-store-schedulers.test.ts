@@ -176,4 +176,40 @@ describe('background turn completion polling', () => {
       ], expect.anything(), h.set, h.get)
     })
   })
+
+  it('reports a pending approval while the watched background turn is still running', async () => {
+    const h = makeHarness({
+      runtimeConnection: 'ready',
+      watchTurnCompletion: { 'thread-background': true }
+    })
+    const onWaitingApprovals = vi.fn()
+
+    syncTurnCompletionPoll(h.set, h.get, {
+      loadThreadState: vi.fn(async () => ({
+        blocks: [{
+          kind: 'approval' as const,
+          id: 'approval-block',
+          approvalId: 'approval-background',
+          summary: 'Run command',
+          status: 'pending' as const
+        }],
+        threadStatus: 'running',
+        latestTurnId: 'turn-background',
+        latestTurnStatus: 'running'
+      })),
+      threadLooksRunning: () => true,
+      onCompletedThreads: vi.fn(),
+      onWaitingApprovals
+    })
+
+    await vi.waitFor(() => {
+      expect(onWaitingApprovals).toHaveBeenCalledWith([
+        {
+          threadId: 'thread-background',
+          turnId: 'turn-background',
+          approvalId: 'approval-background'
+        }
+      ], expect.anything(), h.set, h.get)
+    })
+  })
 })

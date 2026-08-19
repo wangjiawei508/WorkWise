@@ -32,6 +32,8 @@ export type TurnServiceDeps = {
   workspaceReferences?: Pick<WorkspaceReferenceService, 'validateReferences'>
 }
 
+export const MAX_TERMINAL_TURN_IDS = 1_000
+
 function terminalReason(status: Extract<TurnStatus, 'completed' | 'failed' | 'aborted'>, error?: string): 'completed' | 'error' | 'aborted' | 'blocked' | 'max_tokens' {
   if (status === 'completed') return 'completed'
   if (status === 'aborted') return 'aborted'
@@ -59,6 +61,17 @@ export class TurnService {
   constructor(deps: TurnServiceDeps) {
     this.deps = deps
     this.workspaceReferences = deps.workspaceReferences ?? new WorkspaceReferenceService()
+  }
+
+  private rememberTerminalTurn(turnId: string): boolean {
+    if (this.terminalTurns.has(turnId)) return false
+    this.terminalTurns.add(turnId)
+    while (this.terminalTurns.size > MAX_TERMINAL_TURN_IDS) {
+      const oldest = this.terminalTurns.values().next().value
+      if (!oldest) break
+      this.terminalTurns.delete(oldest)
+    }
+    return true
   }
 
   async startTurn(input: {
@@ -344,8 +357,7 @@ export class TurnService {
   }
 
   async interruptTurn(input: { threadId: string; turnId: string; discard?: boolean }): Promise<{ status: TurnStatus }> {
-    if (this.terminalTurns.has(input.turnId)) return { status: 'aborted' }
-    this.terminalTurns.add(input.turnId)
+    if (!this.rememberTerminalTurn(input.turnId)) return { status: 'aborted' }
     try {
       const controller = this.inflightTurns.get(input.turnId)
       if (controller) controller.abort('operation_cancelled')
@@ -460,8 +472,7 @@ export class TurnService {
     status: Extract<TurnStatus, 'completed' | 'failed' | 'aborted'>
     error?: string
   }): Promise<void> {
-    if (this.terminalTurns.has(input.turnId)) return
-    this.terminalTurns.add(input.turnId)
+    if (!this.rememberTerminalTurn(input.turnId)) return
     try {
     this.inflightTurns.delete(input.turnId)
     this.deps.inflight.end(input.turnId)
@@ -634,7 +645,7 @@ export class TurnService {
     error: unknown
   ): Promise<void> {
     const message = error instanceof Error ? error.message : String(error)
-    this.terminalTurns.add(turnId)
+    this.rememberTerminalTurn(turnId)
     this.inflightTurns.delete(turnId)
     this.deps.inflight.end(turnId)
     this.deps.steering.clear()

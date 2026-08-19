@@ -34,6 +34,8 @@ describe('Workbench responsive panel contract', () => {
     )?.[1] ?? ''
 
     expect(notificationHandler).toContain('notificationOpenThreadRef.current(threadId)')
+    expect(workbench).toContain("if (runtimeConnection !== 'ready') return")
+    expect(workbench).toContain('pendingNotificationThreadRef.current')
     expect(openThread).toContain("setRoute('chat')")
     expect(openThread).toContain('selectThread(id)')
   })

@@ -725,6 +725,13 @@ export class AgentLoop {
           message: '在线搜索连续失败，无法核实当前资讯。本次任务未完成，请稍后重试或提供可访问的信息来源。'
         }
       }
+      if (stepResult === 'max_tokens') {
+        return {
+          kind: 'retryable',
+          code: 'max_tokens',
+          message: 'max_tokens: model output reached the configured token limit before completing the response.'
+        }
+      }
       if (stepResult === 'failed') {
         return {
           kind: 'retryable',
@@ -741,7 +748,7 @@ export class AgentLoop {
     turnId: string,
     signal: AbortSignal,
     stepIndex = 0
-  ): Promise<'continue' | 'stop' | 'failed' | 'web_failed' | 'aborted'> {
+  ): Promise<'continue' | 'stop' | 'failed' | 'web_failed' | 'max_tokens' | 'aborted'> {
     if (shouldVerifyImmutablePrefix()) {
       verifyImmutablePrefix(this.opts.prefix)
     }
@@ -1237,6 +1244,7 @@ export class AgentLoop {
       )
     }
     if (stopReason === 'error') return 'failed'
+    if (stopReason === 'length') return 'max_tokens'
     if (completedToolCalls.length === 0) {
       if (request.requiredToolName) {
         if (

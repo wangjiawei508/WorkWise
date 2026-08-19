@@ -4,8 +4,8 @@ export type LiveUsageProjection = {
   turnId: string
   estimatedOutputCharacters: number
   estimatedOutputTokens: number
-  estimatedItemCharacters: Record<string, number>
   estimatedOutputTokensAtExactUsage: number | null
+  exactUsageSeq: number | null
   exactTotalTokens: number | null
   exactOutputTokens: number | null
   firstOutputAt: number | null
@@ -18,8 +18,8 @@ export function emptyLiveUsageProjection(turnId: string): LiveUsageProjection {
     turnId,
     estimatedOutputCharacters: 0,
     estimatedOutputTokens: 0,
-    estimatedItemCharacters: {},
     estimatedOutputTokensAtExactUsage: null,
+    exactUsageSeq: null,
     exactTotalTokens: null,
     exactOutputTokens: null,
     firstOutputAt: null,
@@ -55,39 +55,18 @@ export function applyLiveUsageDelta(
   }
 }
 
-export function applyLiveUsageItemSnapshot(
-  current: LiveUsageProjection | undefined,
-  turnId: string,
-  itemId: string,
-  text: string,
-  now = Date.now()
-): LiveUsageProjection {
-  const base = current?.turnId === turnId ? current : emptyLiveUsageProjection(turnId)
-  const normalizedItemId = itemId.trim()
-  if (!normalizedItemId) return base
-  const textCharacters = Array.from(text)
-  const characters = textCharacters.length
-  const previousCharacters = base.estimatedItemCharacters[normalizedItemId] ?? 0
-  if (characters <= previousCharacters) return base
-  const next = applyLiveUsageDelta(base, turnId, textCharacters.slice(previousCharacters).join(''), now)
-  return {
-    ...next,
-    estimatedItemCharacters: {
-      ...base.estimatedItemCharacters,
-      [normalizedItemId]: characters
-    }
-  }
-}
-
 export function applyExactLiveUsage(
   current: LiveUsageProjection | undefined,
   turnId: string,
-  usage: ThreadUsageSnapshot
+  usage: ThreadUsageSnapshot,
+  seq?: number
 ): LiveUsageProjection {
   const base = current?.turnId === turnId ? current : emptyLiveUsageProjection(turnId)
+  if (seq !== undefined && base.exactUsageSeq !== null && seq <= base.exactUsageSeq) return base
   return {
     ...base,
     estimatedOutputTokensAtExactUsage: base.estimatedOutputTokens,
+    exactUsageSeq: seq ?? base.exactUsageSeq,
     exactTotalTokens: usage.totalTokens,
     exactOutputTokens: usage.outputTokens
   }

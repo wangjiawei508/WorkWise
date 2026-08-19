@@ -37,6 +37,16 @@ type TurnCompletionPollOptions = {
     set: ChatStoreSet,
     get: ChatStoreGet
   ) => void | Promise<void>
+  onWaitingApprovals?: (
+    approvals: Array<{
+      threadId: string
+      turnId?: string
+      approvalId: string
+    }>,
+    state: ChatState,
+    set: ChatStoreSet,
+    get: ChatStoreGet
+  ) => void | Promise<void>
 }
 
 export function scheduleStartupRuntimeProbe(get: ChatStoreGet): void {
@@ -140,6 +150,11 @@ async function pollTurnCompletionWatch(
     turnStatus?: string
     turnError?: string
   }> = []
+  const waitingApprovals: Array<{
+    threadId: string
+    turnId?: string
+    approvalId: string
+  }> = []
   for (const threadId of ids) {
     try {
       const {
@@ -149,6 +164,15 @@ async function pollTurnCompletionWatch(
         latestTurnStatus,
         latestTurnError
       } = await options.loadThreadState(state, threadId)
+      for (const block of blocks) {
+        if (block.kind === 'approval' && block.status === 'pending') {
+          waitingApprovals.push({
+            threadId,
+            turnId: latestTurnId,
+            approvalId: block.approvalId
+          })
+        }
+      }
       if (!options.threadLooksRunning(blocks, threadStatus)) {
         doneThreads.push({
           threadId,
@@ -160,6 +184,10 @@ async function pollTurnCompletionWatch(
     } catch {
       /* ignore */
     }
+  }
+
+  if (waitingApprovals.length > 0) {
+    await options.onWaitingApprovals?.(waitingApprovals, state, set, get)
   }
 
   if (doneThreads.length > 0) {
