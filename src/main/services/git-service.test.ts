@@ -164,6 +164,10 @@ describe('switchGitBranch / createAndSwitchGitBranch — integration with real g
       ok: false,
       reason: 'branch_not_found'
     })
+    await expect(createAndSwitchGitBranch(repoRoot, 'bad branch')).resolves.toMatchObject({
+      ok: false,
+      reason: 'invalid_branch'
+    })
     expect(execFileSync('git', ['-C', repoRoot, 'branch', '--show-current'], { encoding: 'utf8' }).trim()).toBe('main')
   })
 

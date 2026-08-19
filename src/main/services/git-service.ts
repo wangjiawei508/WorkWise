@@ -14,7 +14,9 @@ export async function assertGitWorkspaceAllowed(workspaceRoot: string, activeWor
     canonicalizeContainmentRoot(activeWorkspaceRoot)
   ])
   if (!isCanonicalPathContained(active, workspace)) {
-    throw new Error('Git workspace must stay within the active workspace.')
+    throw Object.assign(new Error('Git workspace must stay within the active workspace.'), {
+      code: 'workspace_not_allowed'
+    })
   }
 }
 
@@ -60,7 +62,19 @@ function gitFailure(error: unknown): GitBranchesResult {
   if (/ENOENT/i.test(message) || /spawn git/i.test(message)) {
     return { ok: false, reason: 'git_unavailable', message: 'Git executable was not found.' }
   }
-  return { ok: false, reason: 'error', message }
+  if (/not a valid branch name|invalid branch|not a valid ref/i.test(message)) {
+    return { ok: false, reason: 'invalid_branch', message: 'The branch name is not valid.' }
+  }
+  if (/already exists/i.test(message)) {
+    return { ok: false, reason: 'invalid_branch', message: 'A branch with this name already exists.' }
+  }
+  if (/already checked out at/i.test(message)) {
+    return { ok: false, reason: 'branch_in_other_worktree', message: 'The branch is already checked out in another worktree.' }
+  }
+  if (/would be overwritten by (?:checkout|switch)|please move or remove them before you switch branches/i.test(message)) {
+    return { ok: false, reason: 'would_overwrite_files', message: 'Switching branches would overwrite local files.' }
+  }
+  return { ok: false, reason: 'error', message: 'Git operation failed.' }
 }
 
 function preflightFailure(
@@ -310,6 +324,10 @@ export async function createAndSwitchGitBranch(
   if (!branch) return { ok: false, reason: 'invalid_branch', message: 'Branch name is required.' }
   try {
     await runGit(cwd, ['check-ref-format', '--branch', branch])
+  } catch {
+    return preflightFailure('invalid_branch', 'The branch name is not valid.')
+  }
+  try {
     const blocked = await preflightGitWorkspaceState(cwd)
     if (blocked) return blocked
     await runGit(cwd, ['switch', '--no-guess', '-c', branch], 20_000)

@@ -215,13 +215,23 @@ type GuiUpdaterModule = typeof import('../gui-updater')
 
 function stableGitIpcError(error: unknown): string {
   const message = error instanceof Error ? error.message : String(error)
-  if (/active workspace/i.test(message)) return 'Git workspace must stay within the active workspace.'
+  const code = typeof error === 'object' && error !== null && 'code' in error
+    ? String(error.code)
+    : ''
+  if (code === 'workspace_not_allowed' || /active workspace/i.test(message)) {
+    return 'Git workspace must stay within the active workspace.'
+  }
   return 'Git operation is temporarily unavailable.'
 }
 
 function stableGitIpcReason(error: unknown): 'workspace_not_allowed' | 'error' {
   const message = error instanceof Error ? error.message : String(error)
-  return /active workspace/i.test(message) ? 'workspace_not_allowed' : 'error'
+  const code = typeof error === 'object' && error !== null && 'code' in error
+    ? String(error.code)
+    : ''
+  return code === 'workspace_not_allowed' || /active workspace/i.test(message)
+    ? 'workspace_not_allowed'
+    : 'error'
 }
 
 type WorkspaceFileWatchRecord = {
@@ -1769,15 +1779,19 @@ export function registerAppIpcHandlers(options: RegisterAppIpcHandlersOptions): 
   )
   ipcMain.handle('git:checkpoint:create', async (_, payload: unknown) => {
     const request = parseIpcPayload('git:checkpoint:create', gitCheckpointCreatePayloadSchema, payload)
-    return gitCheckpointService.create(request)
+    const settings = await store.load()
+    await assertGitWorkspaceAllowed(request.workspaceRoot, settings.workspaceRoot)
+    return gitCheckpointService.create(request, settings.workspaceRoot)
   })
   ipcMain.handle('git:rollback:preview', async (_, payload: unknown) => {
     const request = parseIpcPayload('git:rollback:preview', gitRollbackPreviewPayloadSchema, payload)
-    return gitCheckpointService.preview(request)
+    const settings = await store.load()
+    return gitCheckpointService.preview(request, settings.workspaceRoot)
   })
   ipcMain.handle('git:rollback:apply', async (_, payload: unknown) => {
     const request = parseIpcPayload('git:rollback:apply', gitRollbackApplyPayloadSchema, payload)
-    return gitCheckpointService.apply(request)
+    const settings = await store.load()
+    return gitCheckpointService.apply(request, settings.workspaceRoot)
   })
   ipcMain.handle('repo-map:build', async (_, payload: unknown) => {
     const request = parseIpcPayload('repo-map:build', repoMapBuildPayloadSchema, payload)

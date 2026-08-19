@@ -213,6 +213,23 @@ describe('registerAppIpcHandlers', () => {
       })
   })
 
+  it('rejects Git checkpoint creation outside the active workspace', async () => {
+    const { registerAppIpcHandlers } = await import('./register-app-ipc-handlers')
+    const configured = settings()
+    configured.workspaceRoot = '/tmp'
+    registerAppIpcHandlers(registerOptions({
+      store: { load: vi.fn(async () => configured) } as never
+    }))
+
+    await expect(handlers.get('git:checkpoint:create')?.({}, {
+      taskId: 'task-outside',
+      workspaceRoot: '/private/var',
+      repositoryRoot: '/private/var',
+      relatedPaths: [],
+      idempotencyKey: 'checkpoint-outside'
+    })).rejects.toMatchObject({ code: 'workspace_not_allowed' })
+  })
+
   it('passes valid settings patches through to applySettingsPatch', async () => {
     const { registerAppIpcHandlers } = await import('./register-app-ipc-handlers')
     const applySettingsPatch = vi.fn(async () => settings())

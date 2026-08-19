@@ -97,4 +97,26 @@ describe('GitCheckpointService', () => {
       .rejects.toMatchObject({ code: 'stale_request' })
     await expect(readFile(join(root, 'README.md'), 'utf8')).resolves.toBe('task change\n')
   })
+
+  it('rejects preview and apply when the stored checkpoint is outside the active workspace', async () => {
+    const service = new GitCheckpointService(storage)
+    const checkpoint = await service.create({
+      taskId: 'task-workspace-gate',
+      workspaceRoot: root,
+      relatedPaths: ['README.md'],
+      idempotencyKey: 'create-workspace-gate'
+    })
+    const otherWorkspace = await mkdtemp(join(tmpdir(), 'workwise-git-checkpoint-other-'))
+    try {
+      await expect(service.preview({ checkpointId: checkpoint.id }, otherWorkspace))
+        .rejects.toMatchObject({ code: 'workspace_not_allowed' })
+      await expect(service.apply({
+        checkpointId: checkpoint.id,
+        expectedRevision: 0,
+        idempotencyKey: 'apply-workspace-gate'
+      }, otherWorkspace)).rejects.toMatchObject({ code: 'workspace_not_allowed' })
+    } finally {
+      await rm(otherWorkspace, { recursive: true, force: true })
+    }
+  })
 })
