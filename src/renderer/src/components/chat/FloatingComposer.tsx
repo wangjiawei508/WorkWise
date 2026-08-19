@@ -604,7 +604,11 @@ export function FloatingComposer({
     `${activeThread?.updatedAt ?? ''}:${busy ? 'busy' : 'idle'}:${usageRefreshKey}`
   )
   const threadUsage = threadUsageState.usage
-  const usageTokenDisplay = resolveUsageTokenDisplay(threadUsage?.totalTokens ?? null, liveUsage)
+  const usageTokenDisplay = resolveUsageTokenDisplay(
+    threadUsage?.totalTokens ?? null,
+    liveUsage,
+    busy
+  )
   const effectiveWorkspaceRoot = normalizeWorkspaceRoot(activeThreadWorkspace || workspaceRootOverride || workspaceRoot)
   const clawAgentName =
     activeClawChannel?.agentProfile.name.trim()

@@ -45,7 +45,11 @@ import {
   terminalReasonForTurnSnapshot,
   type TerminalNotificationReason
 } from './terminal-notification-projection'
-import { applyExactLiveUsage, applyLiveUsageDelta } from './live-usage-projection'
+import {
+  applyExactLiveUsage,
+  applyLiveUsageDelta,
+  applyLiveUsageItemSnapshot
+} from './live-usage-projection'
 
 const BUSY_WATCHDOG_MS = 180_000
 const MAX_BUSY_RECOVERY_ATTEMPTS = 3
@@ -769,9 +773,10 @@ export function buildThreadEventSink(
         // Restore busy state on tool events (same reasoning as onDelta).
         const base: Partial<ChatState> = {}
         if (s.activeThreadId && s.currentTurnId) {
-          const liveUsage = applyLiveUsageDelta(
+          const liveUsage = applyLiveUsageItemSnapshot(
             s.liveUsageByThreadId?.[s.activeThreadId],
             s.currentTurnId,
+            ev.itemId,
             `${ev.summary} ${ev.detail ?? ''}`
           )
           base.liveUsageByThreadId = { ...(s.liveUsageByThreadId ?? {}), [s.activeThreadId]: liveUsage }

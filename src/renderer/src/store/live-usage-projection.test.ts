@@ -14,6 +14,21 @@ describe('live usage projection', () => {
     expect(unchanged.tokensPerSecond).toBe(second.tokensPerSecond)
   })
 
+  it('produces the same estimate regardless of stream chunk boundaries', () => {
+    const whole = applyLiveUsageDelta(undefined, 'turn-1', 'abcdefgh', 1_000)
+    const fragmented = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'].reduce(
+      (projection, text, index) => applyLiveUsageDelta(
+        projection,
+        'turn-1',
+        text,
+        1_000 + index * 100
+      ),
+      undefined as ReturnType<typeof applyLiveUsageDelta> | undefined
+    )
+
+    expect(fragmented?.estimatedOutputTokens).toBe(whole.estimatedOutputTokens)
+  })
+
   it('resets estimates for a new turn and replaces them with exact usage', () => {
     const first = applyLiveUsageDelta(undefined, 'turn-1', 'abcdefgh', 1_000)
     const nextTurn = applyLiveUsageDelta(first, 'turn-2', 'abcd', 2_000)
@@ -50,5 +65,38 @@ describe('live usage projection', () => {
       'estimated output',
       1_000
     ))).toEqual({ tokens: 4, estimated: true })
+  })
+
+  it('adds the active turn estimate to the last exact thread total', () => {
+    expect(resolveUsageTokenDisplay(
+      100,
+      applyLiveUsageDelta(undefined, 'turn-1', 'abcdefgh', 1_000),
+      true
+    )).toEqual({ tokens: 102, estimated: true })
+  })
+
+  it('continues projecting deltas received after an intermediate exact usage event', () => {
+    const beforeExact = applyLiveUsageDelta(undefined, 'turn-1', 'abcdefgh', 1_000)
+    const exact = applyExactLiveUsage(beforeExact, 'turn-1', {
+      inputTokens: 20,
+      outputTokens: 2,
+      reasoningTokens: 0,
+      cachedTokens: 0,
+      cacheMissTokens: 20,
+      cacheHitRate: 0,
+      totalTokens: 22,
+      costUsd: 0.01,
+      costCny: null,
+      cacheSavingsUsd: 0,
+      cacheSavingsCny: null,
+      tokenEconomySavingsTokens: 0,
+      tokenEconomySavingsUsd: 0,
+      tokenEconomySavingsCny: null,
+      turns: 1
+    })
+    const afterExact = applyLiveUsageDelta(exact, 'turn-1', 'ijkl', 2_000)
+
+    expect(resolveUsageTokenDisplay(null, exact)).toEqual({ tokens: 22, estimated: false })
+    expect(resolveUsageTokenDisplay(null, afterExact)).toEqual({ tokens: 23, estimated: true })
   })
 })

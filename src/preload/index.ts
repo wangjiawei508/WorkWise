@@ -1,5 +1,6 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import type { WorkWiseApi } from '../shared/workwise-api'
+import { createNotificationOpenThreadBuffer } from './notification-open-thread-buffer'
 import {
   parseWindowAppearanceArguments,
   parseWindowLocaleArgument
@@ -16,6 +17,11 @@ import {
   runtimeThreadAgentPath,
   runtimeThreadPath
 } from '../shared/runtime-endpoints'
+
+const notificationOpenThreadBuffer = createNotificationOpenThreadBuffer()
+ipcRenderer.on('notification:open-thread', (_event, threadId: unknown) => {
+  if (typeof threadId === 'string') notificationOpenThreadBuffer.push(threadId)
+})
 
 async function runtimeJson<T>(path: string, method = 'GET', body?: unknown): Promise<T> {
   const result = await ipcRenderer.invoke('runtime:request', {
@@ -65,9 +71,7 @@ const api = {
     return () => ipcRenderer.removeListener('app:menu-action', wrapped)
   },
   onNotificationOpenThread: (handler) => {
-    const wrapped = (_event: Electron.IpcRendererEvent, threadId: string): void => handler(threadId)
-    ipcRenderer.on('notification:open-thread', wrapped)
-    return () => ipcRenderer.removeListener('notification:open-thread', wrapped)
+    return notificationOpenThreadBuffer.subscribe(handler)
   },
   getSettings: () => ipcRenderer.invoke('settings:get'),
   setSettings: (partial, expectedRevision) =>

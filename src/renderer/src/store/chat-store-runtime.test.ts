@@ -265,6 +265,24 @@ describe('thread event sink binding', () => {
     expect(getState().liveAssistant).toBe('hello world')
   })
 
+  it('does not count a replayed tool snapshot twice in live usage', () => {
+    const { getState, set, get } = makeSinkHarness({ activeThreadId: 'thread-current' })
+    const sink = buildThreadEventSink(set, get, { threadId: 'thread-current' })
+    const tool = {
+      itemId: 'tool-1',
+      summary: 'read_file',
+      status: 'running' as const,
+      detail: 'package.json'
+    }
+
+    sink.onTool(tool)
+    const firstEstimate = getState().liveUsageByThreadId['thread-current']?.estimatedOutputTokens
+    sink.onTool(tool)
+
+    expect(getState().liveUsageByThreadId['thread-current']?.estimatedOutputTokens)
+      .toBe(firstEstimate)
+  })
+
   it('never rewinds lastSeq when a stale heartbeat seq arrives', () => {
     const { getState, set, get } = makeSinkHarness({ activeThreadId: 'thread-current', lastSeq: 500 })
     const sink = buildThreadEventSink(set, get, { threadId: 'thread-current' })
