@@ -46,6 +46,27 @@ export function selectComposerWorkspaceReference(
   }
 }
 
+export type LegacyInlineFallbackUpdate =
+  | { type: 'add'; reference: ComposerFileReference }
+  | { type: 'remove'; relativePath: string }
+  | { type: 'clear' }
+
+export function updateLegacyInlineFallbackKeys(
+  current: readonly string[],
+  update: LegacyInlineFallbackUpdate
+): string[] {
+  if (update.type === 'clear') return []
+  const key = normalizeForCompare(update.type === 'add' ? update.reference.relativePath : update.relativePath)
+  const keys = new Set(current.map(normalizeForCompare))
+  if (update.type === 'add') {
+    if (update.reference.source === 'legacy') keys.add(key)
+    else keys.delete(key)
+  } else {
+    keys.delete(key)
+  }
+  return [...keys]
+}
+
 const FILE_MENTION_BOUNDARY = /(^|[\s([{，。；：、])@([^\s@"']*)$/u
 const QUOTED_FILE_MENTION_BOUNDARY = /(^|[\s([{，。；：、])@"([^"\n\r]*)$/u
 const TOKEN_SPECIAL_CHARS = /[\s"']/u

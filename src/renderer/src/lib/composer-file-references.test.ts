@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   buildComposerFileContextPrompt,
+  updateLegacyInlineFallbackKeys,
   runtimeWorkspaceReferences,
   selectComposerWorkspaceReference,
   type ComposerFileReference
@@ -15,6 +16,29 @@ const runtimeFile: ComposerFileReference = {
 }
 
 describe('composer workspace references', () => {
+  it('clears legacy fallback provenance when legacy selections are removed or replaced', () => {
+    const legacy = { ...runtimeFile, source: 'legacy' as const }
+    const runtime = { ...runtimeFile, source: 'runtime' as const }
+    const otherRuntime = {
+      ...runtime,
+      path: 'docs/runtime.md',
+      relativePath: 'docs/runtime.md',
+      name: 'runtime.md'
+    }
+
+    const selectedLegacy = updateLegacyInlineFallbackKeys([], { type: 'add', reference: legacy })
+    expect(selectedLegacy).toEqual(['docs/投标 说明.md'])
+    expect(updateLegacyInlineFallbackKeys(selectedLegacy, { type: 'add', reference: runtime })).toEqual([])
+
+    const mixed = updateLegacyInlineFallbackKeys(selectedLegacy, { type: 'add', reference: otherRuntime })
+    expect(mixed).toEqual(['docs/投标 说明.md'])
+    expect(updateLegacyInlineFallbackKeys(mixed, {
+      type: 'remove',
+      relativePath: legacy.relativePath
+    })).toEqual([])
+    expect(updateLegacyInlineFallbackKeys(mixed, { type: 'clear' })).toEqual([])
+  })
+
   it('stores only the relative path and kind from a search candidate', () => {
     expect(selectComposerWorkspaceReference(runtimeFile)).toEqual({
       relativePath: 'docs/投标 说明.md',

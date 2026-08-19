@@ -83,6 +83,7 @@ import {
   runtimeWorkspaceReferences,
   mergeComposerFileReferences,
   selectComposerWorkspaceReference,
+  updateLegacyInlineFallbackKeys,
   type ComposerWorkspaceReference,
   type ComposerFileContextEntry
 } from '../lib/composer-file-references'
@@ -410,7 +411,7 @@ export function Workbench(): ReactElement {
   const [composerAttachments, setComposerAttachments] = useState<AttachmentReference[]>([])
   const [writeAttachments, setWriteAttachments] = useState<AttachmentReference[]>([])
   const [composerFileReferences, setComposerFileReferences] = useState<ComposerWorkspaceReference[]>([])
-  const [composerLegacyFileReferenceFallback, setComposerLegacyFileReferenceFallback] = useState(false)
+  const [composerLegacyInlineFallbackKeys, setComposerLegacyInlineFallbackKeys] = useState<string[]>([])
   const [composerExecutionSettings, setComposerExecutionSettings] =
     useState<ComposerExecutionSettings | null>(null)
   const [composerExecutionApplying, setComposerExecutionApplying] = useState(false)
@@ -971,13 +972,16 @@ export function Workbench(): ReactElement {
 
   const clearComposerFileReferences = (): void => {
     setComposerFileReferences([])
-    setComposerLegacyFileReferenceFallback(false)
+    setComposerLegacyInlineFallbackKeys([])
   }
 
   const addComposerFileReference = (reference: ComposerFileReference): void => {
     const selected = selectComposerWorkspaceReference(reference)
     setComposerFileReferences((current) => mergeComposerFileReferences(current, selected))
-    if (reference.source === 'legacy') setComposerLegacyFileReferenceFallback(true)
+    setComposerLegacyInlineFallbackKeys((current) => updateLegacyInlineFallbackKeys(current, {
+      type: 'add',
+      reference
+    }))
   }
 
   const removeComposerFileReference = (relativePath: string): void => {
@@ -987,10 +991,14 @@ export function Workbench(): ReactElement {
         reference.relativePath.trim().replaceAll('\\', '/').replace(/\/+/g, '/').toLowerCase() !== key
       )
     )
+    setComposerLegacyInlineFallbackKeys((current) => updateLegacyInlineFallbackKeys(current, {
+      type: 'remove',
+      relativePath
+    }))
   }
 
   useEffect(() => {
-    if (route !== 'chat') setComposerFileReferences([])
+    if (route !== 'chat') clearComposerFileReferences()
   }, [route])
 
   const handlePickAttachments = async (
@@ -1629,7 +1637,7 @@ export function Workbench(): ReactElement {
       const displayText = v || emptyDisplayText
       const structuredReferences = runtimeWorkspaceReferences(activeThreadId, fileReferences, {
         allowLegacyInlineContext: import.meta.env.VITE_WORKWISE_LEGACY_INLINE_FILE_CONTEXT === '1',
-        legacyIndexFallback: composerLegacyFileReferenceFallback
+        legacyIndexFallback: composerLegacyInlineFallbackKeys.length > 0
       })
       if (structuredReferences) {
         return {
