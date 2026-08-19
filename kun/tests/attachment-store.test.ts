@@ -380,7 +380,7 @@ describe('Attachment store and multimodal input', () => {
     const wrappedBase64 = Buffer.from('line-wrapped-secret-material').toString('base64')
       .match(/.{1,8}/g)?.join('\n') ?? ''
     const analyzerUrl = 'https://vision.example.test/analyze?token=signed-secret'
-    const wrappedSignedUrl = 'https://files.example.test/evidence.png?X-Amz-Signature=\nsigned-url-secret'
+    const wrappedSignedUrl = 'https://files.example.test/evidence.png?X-Amz-Signature=\n  signed-url-secret'
     const analyzerMacPath = '/Users/tester/Private Evidence/input.png'
     const analyzerWindowsPath = 'C:\\Users\\tester\\Private Evidence\\input.png'
     const attachment = await store.create({
@@ -529,7 +529,7 @@ describe('Attachment store and multimodal input', () => {
     const shortBase64 = 'c21hbGwtc2VjcmV0'
     const wrappedBase64 = Buffer.from('line-wrapped-error-secret').toString('base64')
       .match(/.{1,8}/g)?.join('\n') ?? ''
-    const wrappedSignedUrl = 'https://files.example.test/error.png?X-Amz-Signature=\nsigned-error-secret'
+    const wrappedSignedUrl = 'https://files.example.test/error.png?X-Amz-Signature=\n  signed-error-secret'
     const usefulError = 'analyzer offline while processing the requested attachment'
     const attachment = await store.create({
       name: 'failed-evidence.png',

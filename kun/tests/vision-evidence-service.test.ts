@@ -16,7 +16,7 @@ describe('HttpVisionEvidenceService', () => {
     const shortBase64 = Buffer.from('small-secret').toString('base64')
     const wrappedBase64 = Buffer.from('line-wrapped-secret-material').toString('base64')
       .match(/.{1,8}/g)?.join('\n') ?? ''
-    const signedUrl = 'https://files.example.test/evidence.png?X-Amz-Signature=\nsigned-url-secret'
+    const signedUrl = 'https://files.example.test/evidence.png?X-Amz-Signature=\n  signed-url-secret'
     const evidence = sanitizeAttachmentEvidence({
       version: 1,
       attachmentId: `att-${shortBase64}`,
@@ -49,12 +49,15 @@ describe('HttpVisionEvidenceService', () => {
     const evidence = sanitizeAttachmentEvidence({
       version: 1,
       attachmentId: 'att-WorkWise2026',
-      summary: `https://example.test/page?X-Amz-Signature=abcdef0123456789\n0123456789abcdef\n${opaqueBase64}\nabcd\nBridgePierA123\nSettlement2026`,
+      summary: `https://example.test/page?X-Amz-Signature=\n  abcdef0123456789\n  0123456789abcdef\n  ${opaqueBase64}\n  abcd\nBridgePierA123\nSettlement2026`,
       ocr: 'WorkWise2026 BridgePierA123 Settlement2026',
       layout: [{ type: 'BridgePierA123', text: 'Settlement2026' }],
       semantics: ['WorkWise2026'],
       visual: 'BridgePierA123',
-      uncertainty: ['https://example.test/page?x=\nBridgePierA123\nSettlement2026'],
+      uncertainty: [
+        'https://example.test/page?x=\nBridgePierA123\nSettlement2026',
+        'https://example.test/page?token=already-present\nBridgePierA123\nSettlement2026'
+      ],
       source: {
         kind: 'configured-endpoint',
         analyzer: 'WorkWise2026',
@@ -72,6 +75,7 @@ describe('HttpVisionEvidenceService', () => {
     expect(JSON.stringify(evidence)).toContain('BridgePierA123')
     expect(JSON.stringify(evidence)).toContain('Settlement2026')
     expect(evidence.uncertainty[0]).toBe('[url]\nBridgePierA123\nSettlement2026')
+    expect(evidence.uncertainty[1]).toBe('[url]\nBridgePierA123\nSettlement2026')
   })
 
   it('validates magic bytes and shares in-flight analysis by content hash', async () => {

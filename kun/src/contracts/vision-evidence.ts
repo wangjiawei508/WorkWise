@@ -76,35 +76,17 @@ export function sanitizeAttachmentEvidenceText(value: string): string {
 function redactUrlCandidate(candidate: string): string {
   const lines = candidate.split(/(\r?\n[ \t]*)/)
   let consumed = lines[0]?.length ?? 0
-  let consumingCredential = false
+  if (!urlEndsWithCredentialAssignment(lines[0] ?? '')) return `[url]${candidate.slice(consumed)}`
   for (let index = 1; index + 1 < lines.length; index += 2) {
-    const continuation = lines[index + 1] ?? ''
-    if (!consumingCredential && !urlHasCredentialAssignment(lines[0] ?? '')) break
-    if (consumingCredential && !isEncodedCredentialContinuation(continuation)) {
-      break
-    }
+    const separator = lines[index] ?? ''
+    if (!/^\r?\n[ \t]+$/.test(separator)) break
     consumed += (lines[index]?.length ?? 0) + (lines[index + 1]?.length ?? 0)
-    consumingCredential = true
   }
   return `[url]${candidate.slice(consumed)}`
 }
 
-function urlHasCredentialAssignment(value: string): boolean {
-  return /[?&](?:x-amz-(?:signature|credential|security-token)|signature|sig|token|access_token|key)=/i.test(value)
-}
-
-function isEncodedCredentialContinuation(candidate: string): boolean {
-  const compact = candidate.trim()
-  if (/^[A-Z][a-z]+(?:[A-Z][a-z]+)+\d*$/.test(compact)) return false
-  if (/^[A-Fa-f0-9]{4,}$/.test(compact)) return true
-  if (/^[A-Za-z0-9]+(?:[-_][A-Za-z0-9]+)+$/.test(compact) && compact.length >= 16) return true
-  if (!/^[A-Za-z0-9+/_-]+={0,2}$/.test(compact) || compact.length < 4 || compact.length % 4 === 1) {
-    return false
-  }
-  const encoding = /[-_]/.test(compact) ? 'base64url' : 'base64'
-  const payload = compact.replace(/=+$/, '')
-  const decoded = Buffer.from(compact, encoding)
-  return decoded.length > 0 && decoded.toString(encoding).replace(/=+$/, '') === payload
+function urlEndsWithCredentialAssignment(value: string): boolean {
+  return /[?&](?:x-amz-(?:signature|credential|security-token)|signature|sig|token|access_token|key)=$/i.test(value)
 }
 
 function isEncodedData(candidate: string): boolean {
