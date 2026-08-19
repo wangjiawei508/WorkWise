@@ -21,13 +21,14 @@ import {
 } from './app-lifecycle'
 import { runLegacyDataImport } from './legacy-data-migration'
 import {
-  candidateProcessUserDataPath,
+  configureCandidateApplicationPaths,
   candidateEnvironmentFromArgv,
   isCandidateHeadless,
   isCandidateRuntimeProbe,
   isUnconfiguredRecoveryCandidate,
   resolveCandidateRuntimePaths,
   runCandidateRuntimeProbe,
+  sanitizeCandidateProcessEnvironment,
   UNCONFIGURED_RECOVERY_CANDIDATE_EXIT_CODE
 } from './candidate-runtime'
 import {
@@ -231,6 +232,7 @@ traceStartup('main module evaluated')
 let candidateLaunchConfigurationError = ''
 try {
   Object.assign(process.env, candidateEnvironmentFromArgv(process.execPath, process.argv, process.env, process.resourcesPath))
+  sanitizeCandidateProcessEnvironment(process.env)
 } catch (error) {
   candidateLaunchConfigurationError = error instanceof Error ? error.message : String(error)
 }
@@ -261,11 +263,12 @@ if (candidateRuntimePaths) {
   // The credential helper receives its own --user-data-dir so it never
   // contends with the GUI's Chromium profile while initializing safeStorage.
   // Keep the candidate's normal paths for every other process.
-  app.setPath('userData', candidateProcessUserDataPath(
+  configureCandidateApplicationPaths(
     candidateRuntimePaths,
     process.argv,
-    runningImCredentialHelper
-  ))
+    runningImCredentialHelper,
+    (name, path) => app.setPath(name, path)
+  )
   process.env.WORKWISE_TOOLS_ROOT = candidateRuntimePaths.toolsRoot
   process.env.WORKWISE_UPDATE_PROVIDER = 'none'
   configureManagedRuntimeStartOptions({

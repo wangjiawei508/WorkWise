@@ -3,6 +3,7 @@ import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { describe, expect, it, vi } from 'vitest'
 import {
+  configureCandidateApplicationPaths,
   candidateProcessUserDataPath,
   candidateEnvironmentFromArgv,
   isCandidateHeadless,
@@ -12,6 +13,7 @@ import {
   isUnconfiguredRecoveryCandidate,
   resolveCandidateRuntimePaths,
   runCandidateRuntimeProbe,
+  sanitizeCandidateProcessEnvironment,
   UNCONFIGURED_RECOVERY_CANDIDATE_EXIT_CODE
 } from './candidate-runtime'
 
@@ -271,10 +273,36 @@ describe('resolveCandidateRuntimePaths', () => {
       root: '/private/tmp/workwise-candidate',
       userData: '/private/tmp/workwise-candidate/user-data',
       cache: '/private/tmp/workwise-candidate/cache',
+      sessionData: '/private/tmp/workwise-candidate/session-data',
+      crashDumps: '/private/tmp/workwise-candidate/crash-dumps',
       logs: '/private/tmp/workwise-candidate/logs',
       home: '/private/tmp/workwise-candidate/home',
       workwiseHome: '/private/tmp/workwise-candidate/home/.workwise',
       toolsRoot: '/private/tmp/workwise-candidate/home/.workwise/tools'
+    })
+  })
+
+  it('redirects every Electron profile path before a candidate window starts', () => {
+    const root = mkdtempSync(join(tmpdir(), 'workwise-candidate-profile-'))
+    const paths = resolveCandidateRuntimePaths({
+      WORKWISE_CANDIDATE: '1',
+      WORKWISE_CANDIDATE_ROOT: root
+    })!
+    const configured = new Map<string, string>()
+
+    configureCandidateApplicationPaths(
+      paths,
+      ['WorkWise'],
+      false,
+      (name, path) => configured.set(name, path)
+    )
+
+    expect(Object.fromEntries(configured)).toEqual({
+      userData: join(root, 'user-data'),
+      cache: join(root, 'cache'),
+      sessionData: join(root, 'session-data'),
+      crashDumps: join(root, 'crash-dumps'),
+      logs: join(root, 'logs')
     })
   })
 
@@ -320,5 +348,25 @@ describe('resolveCandidateRuntimePaths', () => {
 
   it('does not change normal application paths outside candidate mode', () => {
     expect(resolveCandidateRuntimePaths({})).toBeNull()
+  })
+
+  it('does not inherit the production API key into a candidate process', () => {
+    const candidateEnv = {
+      WORKWISE_CANDIDATE: '1',
+      DEEPSEEK_API_KEY: 'production-secret',
+      PATH: '/usr/bin'
+    }
+    const productionEnv = {
+      DEEPSEEK_API_KEY: 'production-secret'
+    }
+
+    sanitizeCandidateProcessEnvironment(candidateEnv)
+    sanitizeCandidateProcessEnvironment(productionEnv)
+
+    expect(candidateEnv).toEqual({
+      WORKWISE_CANDIDATE: '1',
+      PATH: '/usr/bin'
+    })
+    expect(productionEnv.DEEPSEEK_API_KEY).toBe('production-secret')
   })
 })

@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs'
+import { mkdirSync, readFileSync } from 'node:fs'
 import { basename, isAbsolute, join, relative, resolve } from 'node:path'
 
 export const UNCONFIGURED_RECOVERY_CANDIDATE_EXIT_CODE = 78
@@ -7,6 +7,8 @@ export type CandidateRuntimePaths = {
   root: string
   userData: string
   cache: string
+  sessionData: string
+  crashDumps: string
   logs: string
   home: string
   workwiseHome: string
@@ -209,6 +211,13 @@ export function isUnconfiguredRecoveryCandidate(
   return isRecoveryCandidateExecutable(executablePath, resourcesPath)
 }
 
+export function sanitizeCandidateProcessEnvironment(
+  env: NodeJS.ProcessEnv = process.env
+): void {
+  if (env.WORKWISE_CANDIDATE !== '1') return
+  delete env.DEEPSEEK_API_KEY
+}
+
 function containedPath(root: string, name: string, raw: string | undefined, fallback: string): string {
   const value = raw?.trim() || join(root, fallback)
   if (!isAbsolute(value)) throw new Error(`${name} must be an absolute path in candidate mode.`)
@@ -232,16 +241,41 @@ export function resolveCandidateRuntimePaths(
   if (root === resolve(root, '..')) throw new Error('WORKWISE_CANDIDATE_ROOT cannot be a filesystem root.')
   const userData = containedPath(root, 'WORKWISE_CANDIDATE_USER_DATA', env.WORKWISE_CANDIDATE_USER_DATA, 'user-data')
   const cache = containedPath(root, 'WORKWISE_CANDIDATE_CACHE', env.WORKWISE_CANDIDATE_CACHE, 'cache')
+  const sessionData = containedPath(root, 'WORKWISE_CANDIDATE_SESSION_DATA', undefined, 'session-data')
+  const crashDumps = containedPath(root, 'WORKWISE_CANDIDATE_CRASH_DUMPS', undefined, 'crash-dumps')
   const logs = containedPath(root, 'WORKWISE_CANDIDATE_LOGS', env.WORKWISE_CANDIDATE_LOGS, 'logs')
   const home = containedPath(root, 'WORKWISE_CANDIDATE_HOME', env.WORKWISE_CANDIDATE_HOME, 'home')
   return {
     root,
     userData,
     cache,
+    sessionData,
+    crashDumps,
     logs,
     home,
     workwiseHome: join(home, '.workwise'),
     toolsRoot: join(home, '.workwise', 'tools')
+  }
+}
+
+type CandidateApplicationPathName = 'userData' | 'cache' | 'sessionData' | 'crashDumps' | 'logs'
+
+export function configureCandidateApplicationPaths(
+  paths: CandidateRuntimePaths,
+  argv: readonly string[],
+  credentialHelper: boolean,
+  setPath: (name: CandidateApplicationPathName, path: string) => void
+): void {
+  const applicationPaths: Record<CandidateApplicationPathName, string> = {
+    userData: candidateProcessUserDataPath(paths, argv, credentialHelper),
+    cache: paths.cache,
+    sessionData: paths.sessionData,
+    crashDumps: paths.crashDumps,
+    logs: paths.logs
+  }
+  for (const [name, path] of Object.entries(applicationPaths) as Array<[CandidateApplicationPathName, string]>) {
+    mkdirSync(path, { recursive: true, mode: 0o700 })
+    setPath(name, path)
   }
 }
 
