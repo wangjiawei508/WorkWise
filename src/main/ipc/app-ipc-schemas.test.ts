@@ -16,6 +16,7 @@ import {
   workspaceDirectoryTargetPayloadSchema,
   workspaceEntryDeletePayloadSchema,
   workspaceEntryRenamePayloadSchema,
+  workspacePreviewPayloadSchema,
   writeExportPayloadSchema,
   writeRichClipboardPayloadSchema,
   writeInlineCompletionPayloadSchema
@@ -26,6 +27,29 @@ import {
 } from '../../shared/design-document'
 
 describe('app-ipc-schemas', () => {
+  it('accepts only bounded known PDF retry reasons', () => {
+    expect(workspacePreviewPayloadSchema.parse({
+      workspaceRoot: '/tmp/workspace',
+      relativePath: 'scan.pdf',
+      parsingMode: 'accurate',
+      retryReasons: ['scanned_document', 'weak_text_layer'],
+      idempotencyKey: 'preview-scan'
+    }).retryReasons).toEqual(['scanned_document', 'weak_text_layer'])
+
+    expect(() => workspacePreviewPayloadSchema.parse({
+      workspaceRoot: '/tmp/workspace',
+      relativePath: 'scan.pdf',
+      retryReasons: ['renderer_supplied_reason'],
+      idempotencyKey: 'preview-unknown'
+    })).toThrow()
+    expect(() => workspacePreviewPayloadSchema.parse({
+      workspaceRoot: '/tmp/workspace',
+      relativePath: 'scan.pdf',
+      retryReasons: Array.from({ length: 33 }, () => 'scanned_document'),
+      idempotencyKey: 'preview-too-many'
+    })).toThrow()
+  })
+
   it('accepts the renderer terminal notification active-thread flag', () => {
     expect(notificationPayloadSchema.parse({
       threadId: 'thread-1',

@@ -107,6 +107,59 @@ describe('WorkspacePreviewService', () => {
     if (preview.kind === 'pdf') expect(preview.document).toBeUndefined()
   }, 15_000)
 
+  it('preserves bounded retry reasons when accurate parsing fails', async () => {
+    const workspace = await root()
+    await writeFile(join(workspace, 'scan.pdf'), minimalPdf('PDF.js remains available'))
+    const service = new WorkspacePreviewService(new DocumentEngineService({ runner: async () => ({ ok: false }) }))
+
+    const preview = await service.preview({
+      workspaceRoot: workspace,
+      relativePath: 'scan.pdf',
+      parsingMode: 'accurate',
+      retryReasons: ['scanned_document', 'weak_text_layer'],
+      idempotencyKey: 'pdf-accurate-fallback'
+    })
+
+    expect(preview).toMatchObject({
+      kind: 'pdf',
+      retryReasons: ['scanned_document', 'weak_text_layer'],
+      documentError: { code: 'document_parse_failed' }
+    })
+  }, 15_000)
+
+  it('merges retry reasons into a successful accurate route', async () => {
+    const workspace = await root()
+    await writeFile(join(workspace, 'scan.pdf'), minimalPdf('Accurate preview'))
+    const service = new WorkspacePreviewService(new DocumentEngineService({ runner: async (input) => {
+      const output = join(input.outputDirectory, 'document.md')
+      await mkdir(input.outputDirectory, { recursive: true })
+      await writeFile(output, '# Accurate')
+      return {
+        ok: true,
+        engine: input.engine,
+        engineVersion: 'fixture',
+        sourceSha256: 'hash',
+        markdownPath: relative(input.workspaceRoot, output),
+        durationMs: 1
+      }
+    } }))
+
+    const preview = await service.preview({
+      workspaceRoot: workspace,
+      relativePath: 'scan.pdf',
+      parsingMode: 'accurate',
+      retryReasons: ['scanned_document'],
+      unlimitedOcrServerUrl: 'http://127.0.0.1:3000',
+      idempotencyKey: 'pdf-accurate-reason'
+    })
+
+    expect(preview).toMatchObject({
+      kind: 'pdf',
+      retryReasons: ['scanned_document'],
+      document: { route: { switchReason: ['scanned_document'] } }
+    })
+  }, 15_000)
+
   it('preserves a structured and redacted parser failure while keeping PDF.js available', async () => {
     const workspace = await root()
     await writeFile(join(workspace, 'document.pdf'), minimalPdf('PDF.js remains available'))

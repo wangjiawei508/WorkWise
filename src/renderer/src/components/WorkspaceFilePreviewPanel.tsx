@@ -1,5 +1,10 @@
 import type { WorkspaceFileReadResult, WorkspaceFileTarget } from '@shared/workspace-file'
-import type { DocumentParsingMode, WorkspacePreviewResultV1 } from '@shared/agent-workbench'
+import {
+  isDocumentQualityReasonV1,
+  type DocumentParsingMode,
+  type DocumentQualityReasonV1,
+  type WorkspacePreviewResultV1
+} from '@shared/agent-workbench'
 import {
   Check,
   ChevronRight,
@@ -216,9 +221,13 @@ export function WorkspaceFilePreviewPanel({
     if (!target || target.path.split('.').at(-1)?.toLowerCase() !== 'pdf') return
     const workspace = target.workspaceRoot ?? workspaceRoot
     const parseId = `preview:${workspace}:${target.path}:accurate`
-    const priorSwitchReasons = richResult?.kind === 'pdf'
-      ? richResult.document?.route.switchReason ?? richResult.document?.quality.reasons
-      : undefined
+    const retryReasons: DocumentQualityReasonV1[] = richResult?.kind === 'pdf'
+      ? [...new Set([
+          ...(richResult.retryReasons ?? []),
+          ...(richResult.document?.route.switchReason ?? []),
+          ...(richResult.document?.quality.reasons ?? [])
+        ].filter(isDocumentQualityReasonV1))]
+      : []
     const previewGeneration = ++previewGenerationRef.current
     activeParseIdRef.current = parseId
     setLoading(true)
@@ -226,21 +235,17 @@ export function WorkspaceFilePreviewPanel({
       workspaceRoot: workspace,
       relativePath: target.path,
       parsingMode: 'accurate' as DocumentParsingMode,
-      ...(priorSwitchReasons?.length ? { priorSwitchReasons } : {}),
+      ...(retryReasons.length ? { retryReasons } : {}),
       idempotencyKey: parseId
     }).then((next) => {
       if (previewGenerationRef.current !== previewGeneration) return
-      const switchReason = [...new Set([
-        ...(next.kind === 'pdf' ? next.document?.route.switchReason ?? [] : []),
-        ...(priorSwitchReasons ?? [])
-      ])]
-      const accurateResult = next.kind === 'pdf' && next.document && switchReason.length > 0
+      const mergedRetryReasons: DocumentQualityReasonV1[] = next.kind === 'pdf'
+        ? [...new Set([...(next.retryReasons ?? []), ...retryReasons])]
+        : []
+      const accurateResult = next.kind === 'pdf' && mergedRetryReasons.length > 0
         ? {
             ...next,
-            document: {
-              ...next.document,
-              route: { ...next.document.route, switchReason }
-            }
+            retryReasons: mergedRetryReasons
           }
         : next
       setResult(null)

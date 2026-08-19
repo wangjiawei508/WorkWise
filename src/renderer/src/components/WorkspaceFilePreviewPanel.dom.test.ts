@@ -45,6 +45,64 @@ afterEach(async () => {
 })
 
 describe('WorkspaceFilePreviewPanel PDF retries', () => {
+  it('keeps the retry reason visible when accurate parsing fails', async () => {
+    const automatic: WorkspacePreviewResultV1 = {
+      ...pdf('scan.pdf', 1),
+      document: {
+        engine: 'markitdown',
+        engineVersion: 'fixture-fast',
+        quality: { status: 'degraded', reasons: ['scanned_document'] },
+        route: {
+          requestedMode: 'auto',
+          selectedEngine: 'markitdown',
+          switchReason: ['scanned_document']
+        },
+        headings: [],
+        references: []
+      }
+    }
+    const failed: WorkspacePreviewResultV1 = {
+      ...pdf('scan.pdf', 1),
+      documentError: {
+        code: 'document_engine_unavailable',
+        message: 'No high-accuracy document engine is configured.'
+      },
+      warnings: ['High-accuracy parsing failed.']
+    }
+    const previewWorkspaceFile = vi.fn((request: { parsingMode?: string }) =>
+      Promise.resolve(request.parsingMode === 'accurate' ? failed : automatic)
+    )
+    vi.stubGlobal('window', Object.assign(window, {
+      workwise: {
+        previewWorkspaceFile,
+        cancelDocumentParse: vi.fn(async () => true),
+        readWorkspaceFile: vi.fn(),
+        openWorkspacePathInEditor: vi.fn(),
+        logError: vi.fn()
+      }
+    }))
+
+    await act(async () => {
+      root.render(createElement(WorkspaceFilePreviewPanel, {
+        target: { path: 'scan.pdf', workspaceRoot: '/workspace' },
+        workspaceRoot: '/workspace',
+        onClose: vi.fn()
+      }))
+    })
+    await settle()
+    await vi.waitFor(() => expect(container.textContent).toContain('使用高精度解析'))
+    const accurateButton = [...container.querySelectorAll('button')]
+      .find((button) => button.textContent?.includes('使用高精度解析'))
+    await act(async () => accurateButton?.click())
+    await settle()
+
+    expect(previewWorkspaceFile).toHaveBeenLastCalledWith(expect.objectContaining({
+      retryReasons: ['scanned_document']
+    }))
+    expect(container.textContent).toContain('切换原因：扫描件或 OCR 需求')
+    expect(container.textContent).toContain('No high-accuracy document engine is configured.')
+  })
+
   it('preserves the scanned-document reason after a successful accurate retry', async () => {
     const automatic: WorkspacePreviewResultV1 = {
       ...pdf('scan.pdf', 1),
@@ -102,7 +160,7 @@ describe('WorkspaceFilePreviewPanel PDF retries', () => {
 
     expect(previewWorkspaceFile).toHaveBeenLastCalledWith(expect.objectContaining({
       parsingMode: 'accurate',
-      priorSwitchReasons: ['scanned_document']
+      retryReasons: ['scanned_document']
     }))
     expect(container.textContent).toContain('切换原因：扫描件或 OCR 需求')
   })

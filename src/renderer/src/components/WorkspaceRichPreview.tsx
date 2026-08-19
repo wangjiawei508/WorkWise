@@ -86,7 +86,11 @@ function PdfJsPreview({ result, onRequestAccuratePdf }: {
       .slice(0, 24),
     [result.document?.headings, result.pageCount]
   )
-  const switchReasons = result.document?.route.switchReason ?? result.document?.quality.reasons ?? []
+  const switchReasons = [...new Set([
+    ...(result.document?.route.switchReason ?? []),
+    ...(result.retryReasons ?? []),
+    ...(result.document?.quality.reasons ?? [])
+  ])]
 
   useEffect(() => {
     if (!result.dataUrl) return
@@ -167,9 +171,6 @@ function PdfJsPreview({ result, onRequestAccuratePdf }: {
           <span>质量：{result.document.quality.status}</span>
           <span>解析模式：{documentParsingModeLabel(result.document.route.requestedMode)}</span>
           {result.document.route.fallbackFrom ? <span>降级来源：{result.document.route.fallbackFrom}</span> : null}
-          {switchReasons.length > 0 ? (
-            <span>切换原因：{switchReasons.map(documentQualityReasonLabel).join('、')}</span>
-          ) : null}
           {headingPages.length > 0 ? (
             <span className="flex min-w-0 flex-wrap items-center gap-1">
               标题页：
@@ -192,6 +193,9 @@ function PdfJsPreview({ result, onRequestAccuratePdf }: {
             解析失败 [{result.documentError.code}]：{result.documentError.message}
           </span>
         ) : <span>解析元数据暂不可用，仍可使用 PDF 阅读和搜索。</span>}
+        {switchReasons.length > 0 ? (
+          <span>切换原因：{switchReasons.map(documentQualityReasonLabel).join('、')}</span>
+        ) : null}
         {onRequestAccuratePdf && (!result.document || result.document.route.requestedMode !== 'accurate') ? (
           <button type="button" className="ml-auto inline-flex items-center gap-1 rounded border border-ds-border-muted px-2 py-1 text-ds-text-primary hover:bg-ds-hover" onClick={onRequestAccuratePdf}>
             <RefreshCw className="h-3 w-3" /> 使用高精度解析

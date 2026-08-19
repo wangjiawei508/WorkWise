@@ -6,6 +6,7 @@ import type {
   DocumentParseErrorCode,
   DocumentParseResultV1,
   DocumentParsingMode,
+  DocumentQualityReasonV1,
   WorkspacePreviewResultV1
 } from '../../shared/agent-workbench'
 import { resolveContainedPath } from './canonical-containment'
@@ -44,7 +45,7 @@ export class WorkspacePreviewService {
     workspaceRoot: string
     relativePath: string
     parsingMode?: DocumentParsingMode
-    priorSwitchReasons?: string[]
+    retryReasons?: DocumentQualityReasonV1[]
     unlimitedOcrServerUrl?: string
     idempotencyKey: string
   }): Promise<WorkspacePreviewResultV1> {
@@ -73,7 +74,7 @@ export class WorkspacePreviewService {
     workspaceRoot: string
     relativePath: string
     parsingMode?: DocumentParsingMode
-    priorSwitchReasons?: string[]
+    retryReasons?: DocumentQualityReasonV1[]
     unlimitedOcrServerUrl?: string
     idempotencyKey: string
   }, signal: AbortSignal): Promise<WorkspacePreviewResultV1> {
@@ -146,13 +147,14 @@ export class WorkspacePreviewService {
               ? [`Document parsing failed (${documentError.code}): ${documentError.message} PDF.js reading and search remain available.`]
               : [])
           ],
+          ...(request.retryReasons?.length ? { retryReasons: request.retryReasons } : {}),
           ...(documentError ? { documentError } : {}),
           ...(document ? {
             document: {
               engine: document.engine,
               engineVersion: document.engineVersion,
               quality: document.quality,
-              route: mergePriorSwitchReasons(document.route, request.priorSwitchReasons),
+              route: mergeRetryReasons(document.route, request.retryReasons),
               headings: document.headings,
               references: document.references
             }
@@ -204,11 +206,11 @@ export class WorkspacePreviewService {
   }
 }
 
-function mergePriorSwitchReasons(
+function mergeRetryReasons(
   route: DocumentParseResultV1['route'],
-  priorSwitchReasons: string[] | undefined
+  retryReasons: DocumentQualityReasonV1[] | undefined
 ): DocumentParseResultV1['route'] {
-  const switchReason = [...new Set([...(route.switchReason ?? []), ...(priorSwitchReasons ?? [])])]
+  const switchReason = [...new Set([...(route.switchReason ?? []), ...(retryReasons ?? [])])]
   return switchReason.length > 0 ? { ...route, switchReason } : route
 }
 

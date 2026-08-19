@@ -52,6 +52,7 @@ import {
 } from '../../shared/app-settings'
 import { DESKTOP_COMMANDS } from '../../shared/workwise-api'
 import { GUI_UPDATE_CHANNELS } from '../../shared/gui-update'
+import { DOCUMENT_QUALITY_REASONS_V1 } from '../../shared/agent-workbench'
 import { KEYBOARD_SHORTCUT_COMMANDS } from '../../shared/keyboard-shortcuts'
 import { WRITE_EXPORT_FORMATS } from '../../shared/write-export'
 import {
@@ -1476,6 +1477,6 @@ export const workspacePreviewPayloadSchema = z.object({
   workspaceRoot: trimmedString(MAX_PATH_LENGTH),
   relativePath: trimmedString(MAX_PATH_LENGTH),
   parsingMode: z.enum(['auto', 'fast', 'accurate']).optional(),
-  priorSwitchReasons: z.array(trimmedString(64)).max(32).optional(),
+  retryReasons: z.array(z.enum(DOCUMENT_QUALITY_REASONS_V1)).max(32).optional(),
   idempotencyKey: trimmedString(MAX_ID_LENGTH)
 }).strict()

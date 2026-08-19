@@ -18,6 +18,25 @@ export type WorkspaceTrustLevel = 'read-only' | 'workspace-write' | 'trusted' | 
 export type DocumentEngineId = 'markitdown' | 'unlimited-ocr-local' | 'mineru-local' | 'mineru-private'
 export type DocumentParsingMode = 'auto' | 'fast' | 'accurate'
 
+export const DOCUMENT_QUALITY_REASONS_V1 = [
+  'low_text_density',
+  'weak_text_layer',
+  'scanned_document',
+  'scanned_or_sparse_pages',
+  'garbled_text',
+  'formula_dense',
+  'table_dense',
+  'complex_layout',
+  'engine_fallback'
+] as const
+
+export type DocumentQualityReasonV1 = typeof DOCUMENT_QUALITY_REASONS_V1[number]
+
+export function isDocumentQualityReasonV1(value: unknown): value is DocumentQualityReasonV1 {
+  return typeof value === 'string'
+    && (DOCUMENT_QUALITY_REASONS_V1 as readonly string[]).includes(value)
+}
+
 export type RevisionMutation = {
   expectedRevision: number
   idempotencyKey: string
@@ -363,6 +382,7 @@ export type WorkspacePreviewResultV1 =
       dataUrl?: string
       truncated: boolean
       warnings: string[]
+      retryReasons?: DocumentQualityReasonV1[]
       documentError?: { code: DocumentParseErrorCode; message: string }
       document?: Pick<DocumentParseResultV1, 'engine' | 'engineVersion' | 'quality' | 'route' | 'headings' | 'references'>
       sizeBytes: number

@@ -96,6 +96,7 @@ import type {
   DocumentParseRequestV1,
   DocumentParseResultV1,
   DocumentParsingMode,
+  DocumentQualityReasonV1,
   WorkspaceTrustLevel,
   WorkspaceTrustV1
 } from './agent-workbench'
@@ -511,7 +512,7 @@ export type WorkWiseApi = {
     workspaceRoot: string
     relativePath: string
     parsingMode?: DocumentParsingMode
-    priorSwitchReasons?: string[]
+    retryReasons?: DocumentQualityReasonV1[]
     idempotencyKey: string
   }) => Promise<WorkspacePreviewResultV1>
   openSkillRoot: (rootPath: string) => Promise<PathOpenResult>
