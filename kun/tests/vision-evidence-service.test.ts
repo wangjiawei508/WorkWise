@@ -66,11 +66,10 @@ describe('HttpVisionEvidenceService', () => {
       status: 'ready'
     })
 
-    expect(evidence.summary).toBe('[url]\nBridgePierA123\nSettlement2026')
+    expect(evidence.summary).toBe('[url]\n  abcd\nBridgePierA123\nSettlement2026')
     expect(evidence.summary).not.toContain('abcdef0123456789')
     expect(evidence.summary).not.toContain('0123456789abcdef')
     expect(evidence.summary).not.toContain(opaqueBase64)
-    expect(evidence.summary).not.toContain('abcd')
     expect(JSON.stringify(evidence)).toContain('WorkWise2026')
     expect(JSON.stringify(evidence)).toContain('BridgePierA123')
     expect(JSON.stringify(evidence)).toContain('Settlement2026')
@@ -129,8 +128,8 @@ describe('HttpVisionEvidenceService', () => {
     const evidence = sanitizeAttachmentEvidence({
       version: 1,
       attachmentId: 'att-hyphenated-ocr',
-      summary: 'https://files.example.test/evidence.png?token=\n_-7dzLuqmYg\nBridge-Pier-A123\nSettlement2026',
-      ocr: '',
+      summary: 'https://files.example.test/evidence.png?token=\nAQAAAP_-_fw\nBridge-Pier-A123\nPier/A12\nI001\nSettlement2026',
+      ocr: 'data:image/png;base64,\n  BridgePierA123\nSettlement2026',
       layout: [],
       semantics: [],
       visual: '',
@@ -143,7 +142,9 @@ describe('HttpVisionEvidenceService', () => {
       status: 'ready'
     })
 
-    expect(evidence.summary).toBe('[url]\nBridge-Pier-A123\nSettlement2026')
+    expect(evidence.summary).toBe('[url]\nBridge-Pier-A123\nPier/A12\nI001\nSettlement2026')
+    expect(evidence.summary).not.toContain('AQAAAP_-_fw')
+    expect(evidence.ocr).toBe('[data-url]\n  BridgePierA123\nSettlement2026')
   })
 
   it('validates magic bytes and shares in-flight analysis by content hash', async () => {

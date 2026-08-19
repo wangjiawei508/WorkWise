@@ -65,7 +65,7 @@ export function sanitizeAttachmentEvidenceText(value: string): string {
     .replace(/[A-Za-z0-9+/_-]{80,}={0,2}/g, '[encoded-data]')
     .replace(
       /(?<![A-Za-z0-9+/])(?:[A-Za-z0-9+/]{4,}[ \t]*\r?\n[ \t]*)+[A-Za-z0-9+/]{4,}={0,2}(?![A-Za-z0-9+/=])/g,
-      (candidate) => isEncodedData(candidate) ? '[encoded-data]' : candidate
+      (candidate) => isLineWrappedEncodedData(candidate) ? '[encoded-data]' : candidate
     )
     .replace(
       /(?<![A-Za-z0-9+/])[A-Za-z0-9+/]{12,}={0,2}(?![A-Za-z0-9+/=])/g,
@@ -86,24 +86,13 @@ function redactDataUrlCandidate(candidate: string): string {
   const lines = candidate.split(/(\r?\n[ \t]*)/)
   const firstLine = lines[0] ?? ''
   const consumed = /;base64,$/i.test(firstLine)
-    ? consumeExplicitlyFramedContinuations(lines, firstLine.length)
+    ? consumeVerifiedEncodedContinuations(lines, firstLine.length)
     : firstLine.length
   return `[data-url]${candidate.slice(consumed)}`
 }
 
 function consumeExplicitlyFramedContinuations(lines: string[], initial: number): number {
-  const consumed = consumeIndentedContinuations(lines, initial)
-  return consumeVerifiedEncodedContinuations(lines, consumed)
-}
-
-function consumeIndentedContinuations(lines: string[], initial: number): number {
-  let consumed = initial
-  for (let index = 1; index + 1 < lines.length; index += 2) {
-    const separator = lines[index] ?? ''
-    if (!/^\r?\n[ \t]+$/.test(separator)) break
-    consumed += (lines[index]?.length ?? 0) + (lines[index + 1]?.length ?? 0)
-  }
-  return consumed
+  return consumeVerifiedEncodedContinuations(lines, initial)
 }
 
 function consumeVerifiedEncodedContinuations(lines: string[], initial: number): number {
@@ -131,6 +120,8 @@ function urlEndsWithCredentialAssignment(value: string): boolean {
 }
 
 function isVerifiedEncodedContinuation(candidate: string): boolean {
+  if (/(?:secret|signature|credential|access[-_]?token)/i.test(candidate)) return true
+  if (candidate.length < 8) return false
   const normalized = candidate.replace(/-/g, '+').replace(/_/g, '/')
   if (!normalized || normalized.length % 4 === 1 || !/^[A-Za-z0-9+/]+={0,2}$/.test(normalized)) {
     return false
@@ -139,14 +130,27 @@ function isVerifiedEncodedContinuation(candidate: string): boolean {
   const decoded = Buffer.from(padded, 'base64')
   if (decoded.length === 0) return false
   if (decoded.toString('base64').replace(/=+$/, '') !== normalized.replace(/=+$/, '')) return false
-  if (/[+/=]/.test(candidate)) return true
-  if (/[-_]/.test(candidate) && (candidate.length >= 24 || /^[-_]|[-_]$/.test(candidate))) return true
+  if (/[-_]/.test(candidate)) return candidate.includes('-') && candidate.includes('_')
+  if (/[+/=]/.test(candidate)) {
+    return /[+=]/.test(candidate) || (candidate.match(/\//g)?.length ?? 0) > 1
+  }
+  if (/^[0-9a-f]+$/i.test(candidate)) return true
   const text = decoded.toString('utf8')
   if (Buffer.from(text, 'utf8').compare(decoded) !== 0) return false
   return [...text].every((character) => {
     const codePoint = character.codePointAt(0) ?? 0
     return character === '\n' || character === '\r' || character === '\t' || codePoint >= 0x20
   })
+}
+
+function isLineWrappedEncodedData(candidate: string): boolean {
+  const fragments = candidate.trim().split(/\s+/)
+  if (fragments.length < 2) return false
+  const width = fragments[0]?.length ?? 0
+  if (width < 4) return false
+  if (fragments.slice(0, -1).some((fragment) => fragment.length !== width)) return false
+  if ((fragments.at(-1)?.length ?? 0) > width) return false
+  return isEncodedData(candidate)
 }
 
 function isEncodedData(candidate: string): boolean {
