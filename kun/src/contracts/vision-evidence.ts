@@ -104,25 +104,34 @@ function consumeVerifiedEncodedContinuations(lines: string[], initial: number): 
   }
   if (offset !== initial) return initial
 
+  const firstSeparator = lines[startIndex] ?? ''
+  const firstFragment = lines[startIndex + 1] ?? ''
+  if (!/^\r?\n[ \t]*$/.test(firstSeparator)) return initial
+
+  const firstKind = encodedContinuationKind(firstFragment)
+  if (firstKind === 'base64url' || firstKind === 'explicit-secret') {
+    return initial + firstSeparator.length + firstFragment.length
+  }
+  if (!firstKind && /^[0-9a-f]+$/i.test(firstFragment)) return initial
+
+  const fragments: string[] = []
   let verifiedLength = 0
-  let base64Width: number | null = null
+  let wrapWidth: number | null = null
   for (let index = startIndex; index + 1 < lines.length; index += 2) {
     const separator = lines[index] ?? ''
-    if (!/^\r?\n[ \t]*$/.test(separator)) break
     const fragment = lines[index + 1] ?? ''
-    const kind = encodedContinuationKind(fragment)
-    if (!kind) break
-    if (base64Width === null) {
-      verifiedLength += separator.length + fragment.length
-      if (kind !== 'base64') break
-      base64Width = fragment.length
-      continue
-    }
-    if (kind !== 'base64' || fragment.length > base64Width) break
+    if (!/^\r?\n[ \t]*$/.test(separator) || !/^[A-Za-z0-9+/]+={0,2}$/.test(fragment)) break
+    if (wrapWidth === null) wrapWidth = fragment.length
+    if (fragment.length > wrapWidth) break
+    fragments.push(fragment)
     verifiedLength += separator.length + fragment.length
-    if (fragment.length < base64Width) break
+    if (fragment.length < wrapWidth) break
   }
-  return initial + verifiedLength
+  if (fragments.length >= 2 && isLineWrappedEncodedData(fragments.join('\n'))) {
+    return initial + verifiedLength
+  }
+  if (firstKind === 'base64') return initial + firstSeparator.length + firstFragment.length
+  return initial
 }
 
 function urlEndsWithCredentialAssignment(value: string): boolean {
@@ -143,9 +152,7 @@ function encodedContinuationKind(candidate: string): 'base64' | 'base64url' | 'e
   if (decoded.length === 0) return null
   if (decoded.toString('base64').replace(/=+$/, '') !== normalized.replace(/=+$/, '')) return null
   if (/[-_]/.test(candidate)) {
-    const hyphenCount = candidate.match(/-/g)?.length ?? 0
-    if (hyphenCount >= 2 && !candidate.includes('_')) return null
-    return candidate.length >= 8 ? 'base64url' : null
+    return candidate.length >= 10 ? 'base64url' : null
   }
   if (/[+/=]/.test(candidate)) {
     return /[+=]/.test(candidate) || (candidate.match(/\//g)?.length ?? 0) > 1
@@ -165,20 +172,28 @@ function isLineWrappedEncodedData(candidate: string): boolean {
   if (fragments.length < 2) return false
   const width = fragments[0]?.length ?? 0
   if (width < 4) return false
+  if (/^[0-9a-f]+$/i.test(fragments[0] ?? '')) return false
   if (fragments.length === 2 && fragments[1]?.length !== width && !fragments[1]?.endsWith('=')) return false
   if (fragments.slice(0, -1).some((fragment) => fragment.length !== width)) return false
   if ((fragments.at(-1)?.length ?? 0) > width) return false
   const compact = fragments.join('')
   if (compact.length % 4 === 1 || !/^[A-Za-z0-9+/]+={0,2}$/.test(compact)) return false
+  if (/^[0-9a-f]+$/i.test(compact)) return false
+  if (!/[a-z+/=]/.test(compact)) return false
   const decoded = Buffer.from(compact, 'base64')
   if (decoded.length === 0 || decoded.toString('base64').replace(/=+$/, '') !== compact.replace(/=+$/, '')) {
     return false
   }
   const text = decoded.toString('utf8')
-  return Buffer.from(text, 'utf8').compare(decoded) === 0 && [...text].every((character) => {
+  const validUtf8 = Buffer.from(text, 'utf8').compare(decoded) === 0
+  if (!validUtf8) return fragments.length >= 3 || compact.endsWith('=')
+  const printable = [...text].every((character) => {
     const codePoint = character.codePointAt(0) ?? 0
     return character === '\n' || character === '\r' || character === '\t' || codePoint >= 0x20
   })
+  if (!printable) return fragments.length >= 3 || compact.endsWith('=')
+  if (fragments.length === 2 && !compact.endsWith('=')) return /^[A-Za-z0-9]+$/.test(text)
+  return true
 }
 
 function isEncodedData(candidate: string): boolean {

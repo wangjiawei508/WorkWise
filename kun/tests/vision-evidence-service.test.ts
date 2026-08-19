@@ -169,6 +169,56 @@ describe('HttpVisionEvidenceService', () => {
     expect(evidence.semantics[0]).toBe('encoded [encoded-data]')
   })
 
+  it('redacts binary Base64 continuations and multi-hyphen Base64URL credentials', () => {
+    const binaryEvidence = sanitizeAttachmentEvidence({
+      version: 1,
+      attachmentId: 'att-binary-wrap',
+      summary: 'https://files.example.test/evidence.png?token=\niVBO\nRw0K\nGgoB\nAgM=\nBridgePierA123',
+      ocr: 'data:image/png;base64,\niVBO\nRw0K\nGgoB\nAgM=\nBridgePierA123',
+      layout: [],
+      semantics: [],
+      visual: '',
+      uncertainty: [],
+      source: {
+        kind: 'configured-endpoint',
+        analyzer: 'local-vision',
+        configFingerprint: 'a'.repeat(64)
+      },
+      status: 'ready'
+    })
+    const base64UrlEvidence = sanitizeAttachmentEvidence({
+      ...binaryEvidence,
+      attachmentId: 'att-base64url-multi-hyphen',
+      summary: 'https://files.example.test/evidence.png?token=\nC-lzY-Ynnvd-P9dR\nBridgePierA123'
+    })
+
+    expect(binaryEvidence.summary).toBe('[url]\nBridgePierA123')
+    expect(binaryEvidence.ocr).toBe('[data-url]\nBridgePierA123')
+    expect(base64UrlEvidence.summary).toBe('[url]\nBridgePierA123')
+  })
+
+  it('preserves short hyphenated OCR and adjacent uppercase identifiers', () => {
+    const evidence = sanitizeAttachmentEvidence({
+      version: 1,
+      attachmentId: 'att-short-ocr',
+      summary: 'https://files.example.test/evidence.png?token=\nPier-A12\nPier_A12\nI000\nI001',
+      ocr: 'I000\nI001',
+      layout: [],
+      semantics: [],
+      visual: '',
+      uncertainty: [],
+      source: {
+        kind: 'configured-endpoint',
+        analyzer: 'local-vision',
+        configFingerprint: 'a'.repeat(64)
+      },
+      status: 'ready'
+    })
+
+    expect(evidence.summary).toBe('[url]\nPier-A12\nPier_A12\nI000\nI001')
+    expect(evidence.ocr).toBe('I000\nI001')
+  })
+
   it('validates magic bytes and shares in-flight analysis by content hash', async () => {
     let resolveResponse!: (response: Response) => void
     const response = new Promise<Response>((resolve) => { resolveResponse = resolve })
