@@ -376,7 +376,11 @@ describe('Attachment store and multimodal input', () => {
     const image = png(1, 1)
     const imageBase64 = image.toString('base64')
     const analyzerBase64 = Buffer.alloc(96, 0xab).toString('base64')
+    const shortBase64 = Buffer.from('small-secret').toString('base64')
+    const wrappedBase64 = Buffer.from('line-wrapped-secret-material').toString('base64')
+      .match(/.{1,8}/g)?.join('\n') ?? ''
     const analyzerUrl = 'https://vision.example.test/analyze?token=signed-secret'
+    const wrappedSignedUrl = 'https://files.example.test/evidence.png?X-Amz-Signature=\nsigned-url-secret'
     const analyzerMacPath = '/Users/tester/Private Evidence/input.png'
     const analyzerWindowsPath = 'C:\\Users\\tester\\Private Evidence\\input.png'
     const attachment = await store.create({
@@ -400,11 +404,11 @@ describe('Attachment store and multimodal input', () => {
         return {
           version: 1,
           attachmentId: input.attachmentId,
-          summary: `A weather dashboard from ${analyzerUrl}`,
+          summary: `A weather dashboard from ${analyzerUrl}; ${wrappedSignedUrl}`,
           ocr: `Ningbo 31 C data:image/png;base64,${analyzerBase64}`,
-          layout: [{ type: 'heading', text: `Weather ${analyzerMacPath}` }],
-          semantics: [`current weather ${analyzerWindowsPath}`],
-          visual: `A compact weather card ${analyzerBase64}`,
+          layout: [{ type: `heading-${shortBase64}`, text: `Weather ${analyzerMacPath}` }],
+          semantics: [`current weather ${analyzerWindowsPath} ${wrappedBase64}`],
+          visual: `A compact weather card ${analyzerBase64} ${shortBase64}`,
           uncertainty: [`Small icon is ambiguous; source ${analyzerUrl}`],
           source: {
             kind: 'configured-endpoint',
@@ -444,7 +448,10 @@ describe('Attachment store and multimodal input', () => {
     expect(serialized).not.toContain('127.0.0.1')
     expect(serialized).not.toContain('token=')
     expect(serialized).not.toContain('signed-secret')
+    expect(serialized).not.toContain('signed-url-secret')
     expect(serialized).not.toContain(analyzerBase64)
+    expect(serialized).not.toContain(shortBase64)
+    expect(serialized.replace(/\\n/g, '')).not.toContain(wrappedBase64.replace(/\n/g, ''))
     expect(serialized).not.toContain(analyzerMacPath)
     expect(serialized).not.toContain(analyzerWindowsPath)
     expect(serialized).toContain('[url]')
@@ -465,7 +472,10 @@ describe('Attachment store and multimodal input', () => {
     const serializedEvent = JSON.stringify(event)
     expect(serializedEvent).not.toContain(imageBase64)
     expect(serializedEvent).not.toContain('signed-secret')
+    expect(serializedEvent).not.toContain('signed-url-secret')
     expect(serializedEvent).not.toContain(analyzerBase64)
+    expect(serializedEvent).not.toContain(shortBase64)
+    expect(serializedEvent.replace(/\\n/g, '')).not.toContain(wrappedBase64.replace(/\n/g, ''))
     expect(serializedEvent).not.toContain(analyzerMacPath)
     expect(serializedEvent).not.toContain(analyzerWindowsPath)
   })

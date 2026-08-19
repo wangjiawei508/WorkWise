@@ -294,9 +294,7 @@ export async function createKunServeRuntime(
       })
     : undefined
   await attachmentStore?.cleanupAbandoned()
-  const visionEvidence = options.visionEvidence?.enabled
-    ? new HttpVisionEvidenceService(options.visionEvidence)
-    : undefined
+  const visionEvidence = createVisionEvidenceService(options.visionEvidence)
   const attachmentCleanupTimer = attachmentStore
     ? setInterval(() => { void attachmentStore.cleanupAbandoned() }, 24 * 60 * 60 * 1000)
     : undefined
@@ -594,6 +592,15 @@ export async function createKunServeRuntime(
     })
   }
   return runtime
+}
+
+function createVisionEvidenceService(config: VisionEvidenceConfig | undefined): HttpVisionEvidenceService | undefined {
+  if (!config?.enabled) return undefined
+  try {
+    return new HttpVisionEvidenceService(config)
+  } catch {
+    return undefined
+  }
 }
 
 async function resumeRecoveredTasks(input: {

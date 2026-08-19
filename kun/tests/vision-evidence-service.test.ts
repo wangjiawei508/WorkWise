@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
+import { sanitizeAttachmentEvidence } from '../src/contracts/vision-evidence.js'
 import { HttpVisionEvidenceService, normalizeVisionEvidenceEndpoint } from '../src/vision/vision-evidence-service.js'
 
 const PNG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3])
@@ -9,6 +10,38 @@ describe('HttpVisionEvidenceService', () => {
     expect(normalizeVisionEvidenceEndpoint('http://[::1]:4000/analyze')).toBe('http://[::1]:4000/analyze')
     expect(() => normalizeVisionEvidenceEndpoint('https://vision.example.com')).toThrow(/loopback/)
     expect(() => normalizeVisionEvidenceEndpoint('http://localhost:4000')).toThrow(/loopback/)
+  })
+
+  it('sanitizes every analyzer-controlled evidence string including short and line-wrapped secrets', () => {
+    const shortBase64 = Buffer.from('small-secret').toString('base64')
+    const wrappedBase64 = Buffer.from('line-wrapped-secret-material').toString('base64')
+      .match(/.{1,8}/g)?.join('\n') ?? ''
+    const signedUrl = 'https://files.example.test/evidence.png?X-Amz-Signature=\nsigned-url-secret'
+    const evidence = sanitizeAttachmentEvidence({
+      version: 1,
+      attachmentId: `att-${shortBase64}`,
+      summary: signedUrl,
+      ocr: `data:image/png;base64,\n${wrappedBase64}`,
+      layout: [{ type: `heading-${shortBase64}`, text: `text ${signedUrl}` }],
+      semantics: [`semantic ${wrappedBase64}`],
+      visual: `visual ${shortBase64}`,
+      uncertainty: [`uncertain ${signedUrl}`],
+      source: {
+        kind: 'configured-endpoint',
+        analyzer: `analyzer-${shortBase64}`,
+        configFingerprint: 'a'.repeat(64)
+      },
+      status: 'ready'
+    })
+
+    const serialized = JSON.stringify(evidence)
+    expect(serialized).not.toContain(shortBase64)
+    expect(serialized.replace(/\\n/g, '')).not.toContain(wrappedBase64.replace(/\n/g, ''))
+    expect(serialized).not.toContain('signed-url-secret')
+    expect(evidence.layout[0]?.type).toContain('[encoded-data]')
+    expect(evidence.attachmentId).toContain('[encoded-data]')
+    expect(serialized).toContain('[data-url]')
+    expect(serialized).toContain('[url]')
   })
 
   it('validates magic bytes and shares in-flight analysis by content hash', async () => {
@@ -171,6 +204,48 @@ describe('HttpVisionEvidenceService', () => {
     }, { fetch: fetcher, maxCacheEntries: 1 })
     await otherConfig.analyze(input('a1', 'one'))
     expect(fetcher).toHaveBeenCalledTimes(4)
+  })
+
+  it.each([128, Number.NaN])('enforces the absolute 64-entry cache cap for injected limit %s', async (maxCacheEntries) => {
+    const fetcher = vi.fn(async () => new Response(JSON.stringify({
+      summary: 'diagram', ocr: 'hello', layout: [], semantics: [], visual: 'boxes', uncertainty: []
+    }), { status: 200 })) as unknown as typeof fetch
+    const service = new HttpVisionEvidenceService({
+      enabled: true,
+      endpoint: 'http://127.0.0.1:4000/analyze'
+    }, { fetch: fetcher, maxCacheEntries })
+    const input = (index: number) => ({
+      attachmentId: `a${index}`,
+      name: `${index}.png`,
+      mimeType: 'image/png',
+      data: Buffer.concat([PNG, Buffer.from([index])]),
+      signal: new AbortController().signal
+    })
+
+    for (let index = 0; index < 65; index += 1) await service.analyze(input(index))
+    await service.analyze(input(0))
+
+    expect(fetcher).toHaveBeenCalledTimes(66)
+  })
+
+  it('requires fetch to reject redirects and never follows analyzer responses', async () => {
+    const fetcher = vi.fn(async () => new Response('redirected', {
+      status: 302,
+      headers: { location: 'http://127.0.0.1:4001/other' }
+    })) as unknown as typeof fetch
+    const service = new HttpVisionEvidenceService({
+      enabled: true,
+      endpoint: 'http://127.0.0.1:4000/analyze'
+    }, { fetch: fetcher })
+
+    await expect(service.analyze({
+      attachmentId: 'redirect', name: 'one.png', mimeType: 'image/png', data: PNG,
+      signal: new AbortController().signal
+    })).rejects.toThrow('attachment_analysis_unavailable')
+    expect(fetcher).toHaveBeenCalledWith(
+      'http://127.0.0.1:4000/analyze',
+      expect.objectContaining({ redirect: 'error' })
+    )
   })
 
   it('rejects oversized image inputs before calling the analyzer', async () => {

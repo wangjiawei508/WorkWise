@@ -49,6 +49,7 @@ export class HttpVisionEvidenceService implements VisionEvidencePort {
   private readonly inflight = new Map<string, InflightAnalysis>()
   private readonly endpoint: string
   private readonly configFingerprint: string
+  private readonly maxCacheEntries: number
 
   constructor(private readonly config: VisionEvidenceConfig, private readonly options: {
     fetch?: FetchLike
@@ -57,6 +58,7 @@ export class HttpVisionEvidenceService implements VisionEvidencePort {
     if (!config.enabled) throw new Error('vision evidence is disabled')
     this.endpoint = normalizeVisionEvidenceEndpoint(config.endpoint)
     if (!this.endpoint) throw new Error('vision evidence endpoint is not configured')
+    this.maxCacheEntries = normalizeCacheEntries(options.maxCacheEntries)
     this.configFingerprint = createHash('sha256')
       .update(JSON.stringify({ endpoint: this.endpoint, analyzer: config.analyzer ?? '', timeoutMs: config.timeoutMs ?? DEFAULT_TIMEOUT_MS }))
       .digest('hex')
@@ -94,7 +96,7 @@ export class HttpVisionEvidenceService implements VisionEvidencePort {
     created.promise = this.request(input, controller)
       .then((evidence) => {
         this.cache.set(key, evidence)
-        while (this.cache.size > (this.options.maxCacheEntries ?? DEFAULT_CACHE_ENTRIES)) {
+        while (this.cache.size > this.maxCacheEntries) {
           const oldest = this.cache.keys().next().value
           if (typeof oldest !== 'string') break
           this.cache.delete(oldest)
@@ -190,6 +192,11 @@ export class HttpVisionEvidenceService implements VisionEvidencePort {
       clearTimeout(timer)
     }
   }
+}
+
+function normalizeCacheEntries(value: number | undefined): number {
+  if (value === undefined || !Number.isFinite(value)) return DEFAULT_CACHE_ENTRIES
+  return Math.min(DEFAULT_CACHE_ENTRIES, Math.max(0, Math.trunc(value)))
 }
 
 async function readResponseText(response: Response, maxBytes: number, signal: AbortSignal): Promise<string> {
