@@ -48,12 +48,12 @@ describe('HttpVisionEvidenceService', () => {
     const evidence = sanitizeAttachmentEvidence({
       version: 1,
       attachmentId: 'att-WorkWise2026',
-      summary: 'https://example.test/page?X-Amz-Signature=\nYWJjMTIz\neHl6NDU2\nBridgePierA123\nSettlement2026',
+      summary: 'https://example.test/page?X-Amz-Signature=\nabcdef0123456789\n0123456789abcdef\nBridgePierA123\nSettlement2026',
       ocr: 'WorkWise2026 BridgePierA123 Settlement2026',
       layout: [{ type: 'BridgePierA123', text: 'Settlement2026' }],
       semantics: ['WorkWise2026'],
       visual: 'BridgePierA123',
-      uncertainty: ['Settlement2026'],
+      uncertainty: ['https://example.test/page?x=\nBridgePierA123\nSettlement2026'],
       source: {
         kind: 'configured-endpoint',
         analyzer: 'WorkWise2026',
@@ -63,11 +63,12 @@ describe('HttpVisionEvidenceService', () => {
     })
 
     expect(evidence.summary).toBe('[url]\nBridgePierA123\nSettlement2026')
-    expect(evidence.summary).not.toContain('YWJjMTIz')
-    expect(evidence.summary).not.toContain('eHl6NDU2')
+    expect(evidence.summary).not.toContain('abcdef0123456789')
+    expect(evidence.summary).not.toContain('0123456789abcdef')
     expect(JSON.stringify(evidence)).toContain('WorkWise2026')
     expect(JSON.stringify(evidence)).toContain('BridgePierA123')
     expect(JSON.stringify(evidence)).toContain('Settlement2026')
+    expect(evidence.uncertainty[0]).toBe('[url]\nBridgePierA123\nSettlement2026')
   })
 
   it('validates magic bytes and shares in-flight analysis by content hash', async () => {
