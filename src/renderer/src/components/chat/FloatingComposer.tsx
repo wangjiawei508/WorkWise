@@ -49,7 +49,8 @@ import {
   removeComposerFileMentionToken,
   replaceFileMentionInInput,
   type ComposerFileMention,
-  type ComposerFileReference
+  type ComposerFileReference,
+  type ComposerWorkspaceReference
 } from '../../lib/composer-file-references'
 import {
   COMPACT_COMMAND_ALIASES,
@@ -131,7 +132,7 @@ type Props = {
   attachmentUploadBusy?: boolean
   attachmentUploadError?: string | null
   fileReferenceEnabled?: boolean
-  fileReferences?: ComposerFileReference[]
+  fileReferences?: ComposerWorkspaceReference[]
   webAccessAvailable?: boolean
   executionSettings?: ComposerExecutionSettings | null
   executionSettingsApplying?: boolean
@@ -179,7 +180,7 @@ type SkillCommand = NonNullable<Props['skillCommands']>[number]
 
 const EMPTY_MODEL_GROUPS: ModelProviderModelGroup[] = []
 const EMPTY_ATTACHMENTS: AttachmentReference[] = []
-const EMPTY_FILE_REFERENCES: ComposerFileReference[] = []
+const EMPTY_FILE_REFERENCES: ComposerWorkspaceReference[] = []
 const EMPTY_CHANGED_FILES: ComposerChangedFile[] = []
 const EMPTY_SKILL_COMMANDS: SkillCommand[] = []
 

@@ -101,6 +101,26 @@ describe('WorkspaceReferenceService', () => {
     expect(result.truncated).toBe(true)
   })
 
+  it('indexes through depth eight without traversing depth nine', async () => {
+    const root = await workspace()
+    let current = root
+    for (let depth = 1; depth <= 9; depth += 1) {
+      current = join(current, `level-${depth}`)
+      await mkdir(current)
+      await writeFile(join(current, `file-${depth}.txt`), String(depth))
+    }
+
+    const result = await new WorkspaceReferenceService().search({ workspaceRoot: root })
+
+    expect(result.entries).toContainEqual(expect.objectContaining({
+      path: 'level-1/level-2/level-3/level-4/level-5/level-6/level-7/level-8',
+      kind: 'directory',
+      depth: 8
+    }))
+    expect(result.entries.some((entry) => entry.path.includes('level-9'))).toBe(false)
+    expect(result.truncated).toBe(true)
+  })
+
   it('uses the cached index until TTL expiry and supports explicit invalidation', async () => {
     const root = await workspace()
     let now = 1_000
@@ -124,5 +144,22 @@ describe('WorkspaceReferenceService', () => {
       'second.txt',
       'third.txt'
     ])
+  })
+
+  it('reports the index build timestamp and refreshes it after the default 30 second TTL', async () => {
+    const root = await workspace()
+    let now = 1_000
+    const service = new WorkspaceReferenceService({
+      nowMs: () => now,
+      nowIso: () => new Date(now).toISOString()
+    })
+    await writeFile(join(root, 'first.txt'), 'first')
+
+    const first = await service.search({ workspaceRoot: root })
+    now += 30_000
+    const refreshed = await service.search({ workspaceRoot: root })
+
+    expect(first.indexedAt).toBe('1970-01-01T00:00:01.000Z')
+    expect(refreshed.indexedAt).toBe('1970-01-01T00:00:31.000Z')
   })
 })

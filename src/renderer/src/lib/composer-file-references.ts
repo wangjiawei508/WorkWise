@@ -1,3 +1,8 @@
+export type ComposerWorkspaceReference = {
+  relativePath: string
+  kind: 'file' | 'directory'
+}
+
 export type ComposerFileReference = {
   path: string
   relativePath: string
@@ -20,19 +25,25 @@ export type ComposerFileContextEntry = {
 }
 
 export function runtimeWorkspaceReferences(
-  activeThreadId: string | null,
-  references: ComposerFileReference[],
-  options: { allowLegacyInlineContext?: boolean } = {}
+  _activeThreadId: string | null,
+  references: readonly ComposerWorkspaceReference[],
+  options: { allowLegacyInlineContext?: boolean; legacyIndexFallback?: boolean } = {}
 ): Array<{ path: string; kind: 'file' | 'directory' }> | null {
   if (references.length === 0) return null
-  if (
-    options.allowLegacyInlineContext === true &&
-    (!activeThreadId || references.some((reference) => reference.source !== 'runtime'))
-  ) return null
+  if (options.allowLegacyInlineContext === true && options.legacyIndexFallback === true) return null
   return references.map((reference) => ({
     path: reference.relativePath,
-    kind: reference.kind ?? 'file'
+    kind: reference.kind
   }))
+}
+
+export function selectComposerWorkspaceReference(
+  reference: ComposerFileReference
+): ComposerWorkspaceReference {
+  return {
+    relativePath: reference.relativePath,
+    kind: reference.kind ?? 'file'
+  }
 }
 
 const FILE_MENTION_BOUNDARY = /(^|[\s([{，。；：、])@([^\s@"']*)$/u
@@ -122,10 +133,10 @@ export function removeComposerFileMentionToken(input: string, relativePath: stri
   return next
 }
 
-export function mergeComposerFileReferences(
-  current: ComposerFileReference[],
-  nextReference: ComposerFileReference
-): ComposerFileReference[] {
+export function mergeComposerFileReferences<T extends Pick<ComposerFileReference, 'relativePath'>>(
+  current: T[],
+  nextReference: T
+): T[] {
   const key = composerFileReferenceKey(nextReference)
   const existing = current.findIndex((reference) => composerFileReferenceKey(reference) === key)
   if (existing < 0) return [...current, nextReference]
@@ -152,7 +163,7 @@ function scoreFileSuggestion(reference: ComposerFileReference, query: string): n
 export function filterWorkspaceFileMentionSuggestions(
   files: ComposerFileReference[],
   query: string,
-  selected: ComposerFileReference[] = [],
+  selected: ComposerWorkspaceReference[] = [],
   limit = 20
 ): ComposerFileReference[] {
   const selectedKeys = new Set(selected.map(composerFileReferenceKey))

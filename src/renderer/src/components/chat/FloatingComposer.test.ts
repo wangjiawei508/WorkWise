@@ -798,9 +798,8 @@ describe('FloatingComposer capability controls', () => {
         onInterrupt: () => undefined,
         fileReferenceEnabled: true,
         fileReferences: [{
-          path: '/workspace/workwise/src/App.tsx',
           relativePath: 'src/App.tsx',
-          name: 'App.tsx'
+          kind: 'file'
         }],
         onRemoveFileReference: () => undefined,
         attachmentUploadEnabled: false,

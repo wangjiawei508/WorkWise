@@ -82,6 +82,8 @@ import {
   buildComposerFileContextPrompt,
   runtimeWorkspaceReferences,
   mergeComposerFileReferences,
+  selectComposerWorkspaceReference,
+  type ComposerWorkspaceReference,
   type ComposerFileContextEntry
 } from '../lib/composer-file-references'
 
@@ -407,7 +409,8 @@ export function Workbench(): ReactElement {
   const [agentSelectionApplying, setAgentSelectionApplying] = useState(false)
   const [composerAttachments, setComposerAttachments] = useState<AttachmentReference[]>([])
   const [writeAttachments, setWriteAttachments] = useState<AttachmentReference[]>([])
-  const [composerFileReferences, setComposerFileReferences] = useState<ComposerFileReference[]>([])
+  const [composerFileReferences, setComposerFileReferences] = useState<ComposerWorkspaceReference[]>([])
+  const [composerLegacyFileReferenceFallback, setComposerLegacyFileReferenceFallback] = useState(false)
   const [composerExecutionSettings, setComposerExecutionSettings] =
     useState<ComposerExecutionSettings | null>(null)
   const [composerExecutionApplying, setComposerExecutionApplying] = useState(false)
@@ -968,10 +971,13 @@ export function Workbench(): ReactElement {
 
   const clearComposerFileReferences = (): void => {
     setComposerFileReferences([])
+    setComposerLegacyFileReferenceFallback(false)
   }
 
   const addComposerFileReference = (reference: ComposerFileReference): void => {
-    setComposerFileReferences((current) => mergeComposerFileReferences(current, reference))
+    const selected = selectComposerWorkspaceReference(reference)
+    setComposerFileReferences((current) => mergeComposerFileReferences(current, selected))
+    if (reference.source === 'legacy') setComposerLegacyFileReferenceFallback(true)
   }
 
   const removeComposerFileReference = (relativePath: string): void => {
@@ -1540,7 +1546,7 @@ export function Workbench(): ReactElement {
   }
 
   const readComposerFileContextEntries = async (
-    references: ComposerFileReference[],
+    references: ComposerWorkspaceReference[],
     workspace: string
   ): Promise<ComposerFileContextEntry[]> => {
     const entries: ComposerFileContextEntry[] = []
@@ -1549,7 +1555,7 @@ export function Workbench(): ReactElement {
       if (remainingChars <= 0) break
       const result = await window.workwise.readWorkspaceFile({
         workspaceRoot: workspace,
-        path: reference.relativePath || reference.path
+        path: reference.relativePath
       })
       if (!result.ok) {
         throw new Error(t('composerFileReadFailed', {
@@ -1622,7 +1628,8 @@ export function Workbench(): ReactElement {
       }
       const displayText = v || emptyDisplayText
       const structuredReferences = runtimeWorkspaceReferences(activeThreadId, fileReferences, {
-        allowLegacyInlineContext: import.meta.env.VITE_WORKWISE_LEGACY_INLINE_FILE_CONTEXT === '1'
+        allowLegacyInlineContext: import.meta.env.VITE_WORKWISE_LEGACY_INLINE_FILE_CONTEXT === '1',
+        legacyIndexFallback: composerLegacyFileReferenceFallback
       })
       if (structuredReferences) {
         return {

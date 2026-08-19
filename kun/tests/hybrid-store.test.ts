@@ -267,6 +267,36 @@ describe('HybridThreadStore', () => {
     expect(items.filter((item) => item.kind === 'user_message')).toHaveLength(1)
   })
 
+  it('replays the same persisted workspace references for an idempotent reconnect', async () => {
+    const { threadStore, sessionStore } = await createHybridStores()
+    await writeFile(join(dataDir, 'reconnect brief.md'), 'PRIVATE-RECONNECT-BODY')
+    const thread = createThreadRecord({
+      id: 'thr_reference_reconnect',
+      title: 'Reference reconnect',
+      workspace: dataDir,
+      model: 'deepseek-chat',
+      createdAt: '2026-06-04T00:00:00.000Z'
+    })
+    await threadStore.upsert(thread)
+    const turns = createTurnService(threadStore, sessionStore)
+    const request = {
+      prompt: 'inspect the reconnect brief',
+      workspaceReferences: [{ path: 'reconnect brief.md', kind: 'file' as const }],
+      idempotencyKey: 'renderer:reconnect:reference-1'
+    }
+
+    const first = await turns.startTurn({ threadId: thread.id, request })
+    const replayed = await turns.startTurn({ threadId: thread.id, request })
+    const persisted = await threadStore.get(thread.id)
+
+    expect(replayed).toEqual(first)
+    expect(persisted?.turns).toHaveLength(1)
+    expect(persisted?.turns[0]?.workspaceReferences).toEqual([
+      { path: 'reconnect brief.md', kind: 'file' }
+    ])
+    expect(persisted?.turns[0]?.prompt).not.toContain('PRIVATE-RECONNECT-BODY')
+  })
+
   it('rejects reusing a generic idempotency key for a different prompt', async () => {
     const { threadStore, sessionStore } = await createHybridStores()
     const thread = createThreadRecord({
