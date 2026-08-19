@@ -28,25 +28,25 @@ export function sanitizeAttachmentEvidence(input: AttachmentEvidence): Attachmen
   const evidence = AttachmentEvidence.parse(input)
   return {
     ...evidence,
-    attachmentId: sanitizeEvidenceText(evidence.attachmentId),
-    summary: sanitizeEvidenceText(evidence.summary),
-    ocr: sanitizeEvidenceText(evidence.ocr),
+    attachmentId: sanitizeAttachmentEvidenceText(evidence.attachmentId),
+    summary: sanitizeAttachmentEvidenceText(evidence.summary),
+    ocr: sanitizeAttachmentEvidenceText(evidence.ocr),
     layout: evidence.layout.map((item) => ({
       ...item,
-      type: sanitizeEvidenceText(item.type),
-      ...(item.text !== undefined ? { text: sanitizeEvidenceText(item.text) } : {})
+      type: sanitizeAttachmentEvidenceText(item.type),
+      ...(item.text !== undefined ? { text: sanitizeAttachmentEvidenceText(item.text) } : {})
     })),
-    semantics: evidence.semantics.map(sanitizeEvidenceText),
-    visual: sanitizeEvidenceText(evidence.visual),
-    uncertainty: evidence.uncertainty.map(sanitizeEvidenceText),
+    semantics: evidence.semantics.map(sanitizeAttachmentEvidenceText),
+    visual: sanitizeAttachmentEvidenceText(evidence.visual),
+    uncertainty: evidence.uncertainty.map(sanitizeAttachmentEvidenceText),
     source: {
       ...evidence.source,
-      analyzer: sanitizeEvidenceText(evidence.source.analyzer)
+      analyzer: sanitizeAttachmentEvidenceText(evidence.source.analyzer)
     }
   }
 }
 
-function sanitizeEvidenceText(value: string): string {
+export function sanitizeAttachmentEvidenceText(value: string): string {
   return value
     .replace(
       /data:[^\s"'<>]+(?:[ \t]*\r?\n[ \t]*[A-Za-z0-9+/_=-]+)*/gi,

@@ -526,6 +526,11 @@ describe('Attachment store and multimodal input', () => {
     const store = createStore()
     const image = png(1, 1)
     const imageBase64 = image.toString('base64')
+    const shortBase64 = 'c21hbGwtc2VjcmV0'
+    const wrappedBase64 = Buffer.from('line-wrapped-error-secret').toString('base64')
+      .match(/.{1,8}/g)?.join('\n') ?? ''
+    const wrappedSignedUrl = 'https://files.example.test/error.png?X-Amz-Signature=\nsigned-error-secret'
+    const usefulError = 'analyzer offline while processing the requested attachment'
     const attachment = await store.create({
       name: 'failed-evidence.png',
       data: image,
@@ -545,7 +550,7 @@ describe('Attachment store and multimodal input', () => {
       modelCapabilities: () => ({ ...visionCapabilities(), inputModalities: ['text'] }),
       visionEvidence: {
         async analyze() {
-          throw new Error(`request to http://127.0.0.1:4000/analyze?token=signed-secret failed while reading /Users/alice/client/input.png and ${String.raw`C:\Users\alice\client\input.png`} ${imageBase64.repeat(4)}`)
+          throw new Error(`${usefulError}: request to http://127.0.0.1:4000/analyze?token=signed-secret failed while reading /Users/alice/client/input.png and ${String.raw`C:\Users\alice\client\input.png`} ${imageBase64.repeat(4)} ${shortBase64} ${wrappedBase64} ${wrappedSignedUrl}`)
         }
       }
     })
@@ -557,7 +562,11 @@ describe('Attachment store and multimodal input', () => {
     expect(await h.loop.runTurn(h.threadId, h.turnId)).toBe('failed')
     const events = await h.sessionStore.loadEventsSince(h.threadId, 0)
     const failed = events.find((item) => item.kind === 'attachment_evidence_failed')
-    expect(failed).toMatchObject({ attachmentId: attachment.id, status: 'failed' })
+    expect(failed).toMatchObject({
+      attachmentId: attachment.id,
+      status: 'failed',
+      message: expect.stringContaining(usefulError)
+    })
     const serializedEvents = JSON.stringify(events)
     expect(serializedEvents).toContain('attachment_evidence_failed')
     expect(serializedEvents).not.toContain('127.0.0.1')
@@ -565,6 +574,9 @@ describe('Attachment store and multimodal input', () => {
     expect(serializedEvents).not.toContain('/Users/alice/client/input.png')
     expect(serializedEvents).not.toContain('C:\\Users\\alice\\client\\input.png')
     expect(serializedEvents).not.toContain(imageBase64)
+    expect(serializedEvents).not.toContain(shortBase64)
+    expect(serializedEvents.replace(/\\n/g, '')).not.toContain(wrappedBase64.replace(/\n/g, ''))
+    expect(serializedEvents).not.toContain('signed-error-secret')
     const failedTurn = await h.turns.getTurn(h.threadId, h.turnId)
     expect(failedTurn).toMatchObject({
       status: 'failed',
@@ -572,6 +584,10 @@ describe('Attachment store and multimodal input', () => {
     })
     expect(failedTurn?.error).not.toContain('/Users/alice/client/input.png')
     expect(failedTurn?.error).not.toContain('C:\\Users\\alice\\client\\input.png')
+    expect(failedTurn?.error).toContain(usefulError)
+    expect(failedTurn?.error).not.toContain(shortBase64)
+    expect(failedTurn?.error?.replace(/\n/g, '')).not.toContain(wrappedBase64.replace(/\n/g, ''))
+    expect(failedTurn?.error).not.toContain('signed-error-secret')
   })
 
   it('rejects DeepSeek v4 image attachments without a configured evidence analyzer', async () => {

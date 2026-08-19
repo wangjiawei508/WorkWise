@@ -56,6 +56,7 @@ import { WorkspaceReferenceService } from '../services/workspace-reference-servi
 import type { AttachmentContent, AttachmentStore } from '../attachments/attachment-store.js'
 import {
   sanitizeAttachmentEvidence,
+  sanitizeAttachmentEvidenceText,
   type AttachmentEvidence,
   type VisionEvidencePort
 } from '../contracts/vision-evidence.js'
@@ -2532,12 +2533,9 @@ function attachmentEvidenceInstruction(evidence: AttachmentEvidence[]): string {
 
 function safeAttachmentEvidenceError(error: unknown): string {
   const message = error instanceof Error ? error.message : String(error)
-  return redactSecretText(message)
-    .replace(/data:[^\s]+/gi, '[data-url]')
-    .replace(/https?:\/\/[^\s)\]}>'"]+/gi, '[analyzer-endpoint]')
+  return sanitizeAttachmentEvidenceText(redactSecretText(message))
     .replace(/(?:\/(?:Users|private|tmp|var|home|Volumes)\/|[A-Za-z]:[\\/])[^\n"'<>]*?\.[A-Za-z0-9]{1,8}(?=$|[\s,;:)])/g, '[path]')
     .replace(/(?:\/(?:Users|private|tmp|var|home|Volumes)\/|[A-Za-z]:[\\/])[^\s)\]}>'"]+/g, '[path]')
-    .replace(/[A-Za-z0-9+/]{80,}={0,2}/g, '[encoded-data]')
     .slice(0, 500)
 }
 
