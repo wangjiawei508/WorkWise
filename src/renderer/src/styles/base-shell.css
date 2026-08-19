@@ -4,7 +4,7 @@
   --ds-write-titlebar-extra-inset: 0px;
   --ds-ui-scale: 1;
   --bg-app: #f2f4f7;
-  --bg-sidebar: #e9eef4;
+  --bg-sidebar: #f5f7fa;
   --bg-canvas: #ffffff;
   --surface-1: rgba(255, 255, 255, 0.9);
   --surface-2: rgba(255, 255, 255, 0.98);
@@ -55,17 +55,17 @@
     0 16px 42px rgba(15, 23, 42, 0.05),
     inset 0 1px 0 rgba(255, 255, 255, 0.64);
   --ds-sidebar-gradient:
-    linear-gradient(180deg, rgba(248, 251, 254, 0.98) 0%, rgba(242, 247, 252, 0.98) 100%);
+    linear-gradient(180deg, rgba(252, 253, 255, 0.92) 0%, rgba(246, 249, 252, 0.88) 100%);
   --ds-sidebar-haze:
     linear-gradient(180deg, rgba(255, 255, 255, 0.58), rgba(255, 255, 255, 0) 30%);
-  --ds-sidebar-border: rgba(128, 148, 170, 0.2);
+  --ds-sidebar-border: rgba(100, 116, 139, 0.12);
   --ds-sidebar-shadow: none;
-  --ds-sidebar-row-hover: rgba(73, 91, 115, 0.1);
-  --ds-sidebar-row-active: #dbe4ee;
-  --ds-sidebar-row-ring: rgba(73, 91, 115, 0.2);
-  --ds-sidebar-field-bg: rgba(255, 255, 255, 0.72);
+  --ds-sidebar-row-hover: rgba(73, 91, 115, 0.07);
+  --ds-sidebar-row-active: rgba(224, 232, 241, 0.78);
+  --ds-sidebar-row-ring: rgba(73, 91, 115, 0.14);
+  --ds-sidebar-field-bg: rgba(255, 255, 255, 0.6);
   --ds-sidebar-field-focus: rgba(255, 255, 255, 0.92);
-  --ds-sidebar-divider: rgba(73, 91, 115, 0.2);
+  --ds-sidebar-divider: rgba(100, 116, 139, 0.12);
   --ds-card-soft: rgba(255, 255, 255, 0.8);
   --ds-card-strong: rgba(255, 255, 255, 0.96);
   --ds-card-muted: rgba(247, 249, 252, 0.86);
