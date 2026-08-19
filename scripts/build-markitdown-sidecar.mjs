@@ -50,6 +50,9 @@ if (platform() !== 'win32') {
 }
 copyFileSync(join(sidecarRoot, 'requirements.lock'), join(packagedRoot, 'requirements.lock'))
 copyFileSync(join(sidecarRoot, 'README.md'), join(packagedRoot, 'README.md'))
-copyFileSync(join(root, 'THIRD_PARTY_NOTICES.md'), join(packagedRoot, 'THIRD_PARTY_NOTICES.md'))
+// Keep the sidecar's license bundle self-contained. The repository root notice
+// file may be intentionally omitted from a downstream fork, but a packaged
+// helper must still carry the notices for the components it ships.
+copyFileSync(join(sidecarRoot, 'THIRD_PARTY_NOTICES.md'), join(packagedRoot, 'THIRD_PARTY_NOTICES.md'))
 if (platform() === 'darwin') adHocSignMacSidecar(packagedRoot)
 verifyMarkItDownSidecar(packagedRoot, platform())

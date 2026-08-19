@@ -138,6 +138,7 @@ describe('document helper packaging policy', () => {
     const sidecar = await readFile(resolve(root, 'sidecars/markitdown/sidecar.py'), 'utf8')
     const spec = await readFile(resolve(root, 'sidecars/markitdown/workwise-markitdown.spec'), 'utf8')
     const requirements = await readFile(resolve(root, 'sidecars/markitdown/requirements.lock'), 'utf8')
+    const notices = await readFile(resolve(root, 'sidecars/markitdown/THIRD_PARTY_NOTICES.md'), 'utf8')
     expect(sidecar).toContain('convert_local')
     expect(sidecar).not.toMatch(/convert_uri|requests\.|urllib\./)
     expect(spec).toMatch(/"pymupdf".*"fitz"/)
@@ -146,6 +147,9 @@ describe('document helper packaging policy', () => {
     expect(sidecar).toContain('ppt-master-export-pptx')
     expect(sidecar).toContain('ppt-master-import-pptx')
     expect(requirements).not.toMatch(/markitdown-ocr|pymupdf|\bfitz\b/i)
+    expect(notices).toMatch(/Microsoft MarkItDown/i)
+    expect(notices).toMatch(/Mozilla PDF\.js/i)
+    expect(notices).toMatch(/MinerU/i)
   })
 
   it('rejects packaged helpers that omit the Magika model', async () => {

@@ -15,11 +15,11 @@
 - 受控回环权限下 `npx vitest run`：`272 passed | 2 skipped`，`2163 passed | 2 skipped`（包含本轮健康监督回归测试）。
 - `npm run build`：通过。
 - `npm run openspec:validate`：`10 passed, 0 failed`。
-- `npm run verify:brand-boundary`：通过，扫描 1380 个文件。
+- `npm run verify:brand-boundary`：通过，扫描 1381 个文件。
 - `git diff --check`：通过。
 - `bash scripts/authorize-workwise-candidate.sh --check`：通过；未执行 `--prepare`，未修改正式安装包或正式用户目录。
+- `npm run verify:document-licenses`：通过；sidecar 现在使用 `sidecars/markitdown/THIRD_PARTY_NOTICES.md` 自包含许可声明，不依赖已被用户删除的根目录声明文件。
 - `knip`、`shellcheck`、`gbrain`：本机未安装，未将其缺失冒充为通过。
-- `npm run verify:document-licenses`：当前不能通过，因为工作树保留了用户已有的 `THIRD_PARTY_NOTICES.md` 删除修改；本报告不恢复或覆盖该修改。
 
 ## 计划一：PDF 解析
 
@@ -68,5 +68,7 @@
 1. 在隔离候选目录中用当前构建重新验证钥匙串访问和候选 Runtime probe。
 2. 仅在用户明确指定一个飞书测试聊天、一个精确测试命令并确认后，进行一次当前版本飞书入站/出站闭环；不测试微信。
 3. 若无真实 Unlimited-OCR 或视觉端点，保留 `PARTIAL/UNVERIFIABLE`，不使用 mock 结果冒充真实能力。
+
+本轮另外修复了 sidecar 许可声明的构建边界：`scripts/build-markitdown-sidecar.mjs` 与 `scripts/verify-document-dependencies.mjs` 现在读取随 helper 分发的声明文件，保留用户对根目录 `THIRD_PARTY_NOTICES.md` 的删除。健康监督的并发恢复修复已由提交 `54c4235` 固化，并有回归测试覆盖重复恢复和 stale 失败后继续退避。
 
 本报告不改变运行逻辑，也不把历史消息、历史文件或历史状态投影为当前任务成功。
