@@ -1,7 +1,7 @@
 # WorkWise 两项计划完成度审计
 
-日期：2026-08-19  
-分支：`codex/workwise-plugin-marketplace-recovered`  
+日期：2026-08-19
+分支：`codex/workwise-plugin-marketplace-recovered`
 版本：`0.3.6`
 
 本报告按 `PLAN (1).md`（PDF 解析）和 `PLAN (2).md`（DeepSeek Harness 机制）逐项核对当前代码、测试和候选证据。`DONE` 只表示仓库内实现和自动化证据足够；`PARTIAL` 表示实现存在但仍缺少真实服务或人工验收；`UNVERIFIABLE` 表示当前环境没有足够证据。历史候选日志不作为当前版本的真实通信验收。
@@ -12,14 +12,15 @@
 
 - `npm run typecheck`：通过。
 - `npm run lint`：通过。
-- 受控回环权限下 `npm test -- --run`：`272 passed | 2 skipped`，`2165 passed | 2 skipped`（包含本轮健康监督回归测试）。沙箱内无回环监听权限时出现的 6 个失败已用同一隔离测试命令复核为环境权限问题。
+- 受控回环权限下 `npm test -- --run`：`272 passed | 2 skipped`，`2167 passed | 2 skipped`。首次运行还识别出打包后 `better-sqlite3` 的 Electron ABI 148 与测试 Node ABI 147 不匹配；重建 Node 原生模块后，全量测试通过。沙箱内无回环监听权限时出现的 6 个失败已用同一命令在授权环境中复核为权限问题。
 - `npm run build`：通过。
 - `WORKWISE_PYTHON=/private/tmp/workwise-markitdown-venv/bin/python npm run build:markitdown-sidecar`：通过；包含 PyInstaller 打包、Magika/PPT Master 资源、许可文件、framework symlink 和 helper 冷启动 smoke 检查。
 - `npm run openspec:validate`：`10 passed, 0 failed`。
-- `npm run verify:brand-boundary`：通过，扫描 1381 个文件。
+- `npm run verify:brand-boundary`：通过，扫描 1382 个文件。
 - `git diff --check`：通过。
 - `bash scripts/authorize-workwise-candidate.sh --check`：通过；未执行 `--prepare`，未修改正式安装包或正式用户目录。
 - `npm run verify:document-licenses`：通过；sidecar 现在使用 `sidecars/markitdown/THIRD_PARTY_NOTICES.md` 自包含许可声明，不依赖已被用户删除的根目录声明文件。
+- 当前 HEAD 候选包使用唯一 bundle ID `com.wangjiawei508.workwise.uireview.20260819`，版本 `0.3.6`；ASAR 完整性为 18,335 个文件和 457 个编译产物，MarkItDown helper、`codesign --verify --deep --strict` 和 packaged SQLite ABI 148 smoke 均通过。
 - `knip`、`shellcheck`、`gbrain`：本机未安装，未将其缺失冒充为通过。
 
 ## 计划一：PDF 解析
@@ -56,7 +57,7 @@
 | Runtime 幂等键、当前结果契约和历史文本隔离 | DONE | turn idempotency、空结果、失败/超时/授权等待和文件结果测试通过。 |
 | 稳定 outbound ID、文件发送重试和明确失败回复 | DONE（代码/单元证据） | Feishu/微信稳定 ID、文件先发、失败通知和账本重试测试通过；没有新的真实 IM 文件下载验收。 |
 | 健康状态、心跳、stale、退避、自动重连、self-check、diagnostics | DONE（代码/单元证据） | `ImHealthService`、IPC 入口和状态变化测试通过；需要当前候选版本实际连接后再证明真实链路。 |
-| 候选安全边界 | DONE | 候选默认禁止出站和入站，只有单一 provider、chat 和精确命令可放行；`--check` 通过。 |
+| 候选安全边界 | DONE（代码/包级证据） | 候选默认禁止出站和入站，只有单一 provider、chat 和精确命令可放行；当前 HEAD 进一步隔离 Electron 的 `userData`、`cache`、`sessionData`、`crashDumps` 和 `logs`，并删除候选进程继承的 `DEEPSEEK_API_KEY`。20 项专项测试和唯一标识候选包校验通过；不修改正式版第三方 API 配置。 |
 | 当前版本真实飞书收发 | UNVERIFIABLE | 现有日志来自早期候选包，且包含“候选入站安全门忽略非 `/status`”和“凭据存储暂不可用”；它们证明了历史失败模式，不能证明当前 HEAD 已真实收发成功。 |
 | 当前版本真实微信收发 | UNVERIFIABLE | 本轮按安全边界没有重新扫码、没有向微信发送消息，也没有使用正式用户数据。 |
 
@@ -66,7 +67,7 @@
 
 ## 下一步的唯一有效验收
 
-1. 在隔离候选目录中用当前构建重新验证钥匙串访问和候选 Runtime probe。
+1. 在隔离候选目录中启动当前唯一标识候选包，确认无正式 workspace、本地历史用量或 API 密钥继承，并完成浅色/深色 UI 截图验收。
 2. 仅在用户明确指定一个飞书测试聊天、一个精确测试命令并确认后，进行一次当前版本飞书入站/出站闭环；不测试微信。
 3. 若无真实 Unlimited-OCR 或视觉端点，保留 `PARTIAL/UNVERIFIABLE`，不使用 mock 结果冒充真实能力。
 
