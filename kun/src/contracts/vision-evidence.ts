@@ -77,9 +77,11 @@ function redactUrlCandidate(candidate: string): string {
   const lines = candidate.split(/(\r?\n[ \t]*)/)
   const firstLine = lines[0] ?? ''
   let consumed = firstLine.length
-  if (!urlEndsWithCredentialAssignment(firstLine)) return `[url]${candidate.slice(consumed)}`
-  consumed = consumeExplicitlyFramedContinuations(lines, consumed)
-  return `[url]${candidate.slice(consumed)}`
+  if (urlEndsWithCredentialAssignment(firstLine)) {
+    consumed = consumeExplicitlyFramedContinuations(lines, consumed)
+  }
+  const suffix = candidate.slice(consumed)
+  return `[url]${suffix ? sanitizeAttachmentEvidenceText(suffix) : ''}`
 }
 
 function redactDataUrlCandidate(candidate: string): string {
@@ -109,8 +111,27 @@ function consumeVerifiedEncodedContinuations(lines: string[], initial: number): 
   if (!/^\r?\n[ \t]*$/.test(firstSeparator)) return initial
 
   const firstKind = encodedContinuationKind(firstFragment)
-  if (firstKind === 'base64url' || firstKind === 'explicit-secret') {
+  if (firstKind === 'explicit-secret') {
     return initial + firstSeparator.length + firstFragment.length
+  }
+  if (firstKind === 'base64url') {
+    let encodedLength = firstFragment.length
+    let encodedValue = firstFragment
+    for (let index = startIndex + 2; index + 1 < lines.length; index += 2) {
+      const separator = lines[index] ?? ''
+      const fragment = lines[index + 1] ?? ''
+      if (!/^\r?\n[ \t]*$/.test(separator)) break
+      if (encodedContinuationKind(fragment) === 'base64url') {
+        encodedLength += separator.length + fragment.length
+        encodedValue += fragment
+        continue
+      }
+      if (/^[A-Za-z0-9]{1,3}$/.test(fragment) && isRoundTripBase64Url(`${encodedValue}${fragment}`)) {
+        encodedLength += separator.length + fragment.length
+      }
+      break
+    }
+    return initial + firstSeparator.length + encodedLength
   }
   if (!firstKind && /^[0-9a-f]+$/i.test(firstFragment)) return initial
 
@@ -152,7 +173,7 @@ function encodedContinuationKind(candidate: string): 'base64' | 'base64url' | 'e
   if (decoded.length === 0) return null
   if (decoded.toString('base64').replace(/=+$/, '') !== normalized.replace(/=+$/, '')) return null
   if (/[-_]/.test(candidate)) {
-    return candidate.length >= 10 ? 'base64url' : null
+    return candidate.length >= 10 && !looksLikeOcrIdentifier(candidate) ? 'base64url' : null
   }
   if (/[+/=]/.test(candidate)) {
     return /[+=]/.test(candidate) || (candidate.match(/\//g)?.length ?? 0) > 1
@@ -167,6 +188,20 @@ function encodedContinuationKind(candidate: string): 'base64' | 'base64url' | 'e
   }) ? 'base64' : null
 }
 
+function isRoundTripBase64Url(candidate: string): boolean {
+  const normalized = candidate.replace(/-/g, '+').replace(/_/g, '/')
+  if (!normalized || normalized.length % 4 === 1 || !/^[A-Za-z0-9+/]+$/.test(normalized)) return false
+  const decoded = Buffer.from(normalized.padEnd(Math.ceil(normalized.length / 4) * 4, '='), 'base64')
+  return decoded.length > 0 &&
+    decoded.toString('base64').replace(/=+$/, '') === normalized.replace(/=+$/, '')
+}
+
+function looksLikeOcrIdentifier(candidate: string): boolean {
+  return candidate.split(/[-_/]/).every((segment) =>
+    /^(?:[A-Z][a-z]{2,}(?:[A-Z][a-z]{2,})*(?:[A-Z]?\d+)?|[A-Z]\d+)$/.test(segment)
+  )
+}
+
 function isLineWrappedEncodedData(candidate: string): boolean {
   const fragments = candidate.trim().split(/\s+/)
   if (fragments.length < 2) return false
@@ -179,20 +214,12 @@ function isLineWrappedEncodedData(candidate: string): boolean {
   const compact = fragments.join('')
   if (compact.length % 4 === 1 || !/^[A-Za-z0-9+/]+={0,2}$/.test(compact)) return false
   if (/^[0-9a-f]+$/i.test(compact)) return false
+  if (fragments.every(looksLikeOcrIdentifier)) return false
   if (!/[a-z+/=]/.test(compact)) return false
   const decoded = Buffer.from(compact, 'base64')
   if (decoded.length === 0 || decoded.toString('base64').replace(/=+$/, '') !== compact.replace(/=+$/, '')) {
     return false
   }
-  const text = decoded.toString('utf8')
-  const validUtf8 = Buffer.from(text, 'utf8').compare(decoded) === 0
-  if (!validUtf8) return fragments.length >= 3 || compact.endsWith('=')
-  const printable = [...text].every((character) => {
-    const codePoint = character.codePointAt(0) ?? 0
-    return character === '\n' || character === '\r' || character === '\t' || codePoint >= 0x20
-  })
-  if (!printable) return fragments.length >= 3 || compact.endsWith('=')
-  if (fragments.length === 2 && !compact.endsWith('=')) return /^[A-Za-z0-9]+$/.test(text)
   return true
 }
 

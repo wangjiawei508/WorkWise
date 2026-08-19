@@ -219,6 +219,60 @@ describe('HttpVisionEvidenceService', () => {
     expect(evidence.ocr).toBe('I000\nI001')
   })
 
+  it('redacts two-part binary Base64 and wrapped Base64URL credentials', () => {
+    const evidence = sanitizeAttachmentEvidence({
+      version: 1,
+      attachmentId: 'att-wrapped-credentials',
+      summary: [
+        'https://files.example.test/a?token=',
+        'PF6B',
+        'tAxe',
+        'BridgePierA123',
+        'https://files.example.test/b?token=',
+        'Qee9jl_BU11z',
+        'gu-pb22mSYQ',
+        'W',
+        'Settlement2026'
+      ].join('\n'),
+      ocr: 'data:image/png;base64,\nPF6B\ntAxe\nBridgePierA123',
+      layout: [],
+      semantics: [],
+      visual: '',
+      uncertainty: [],
+      source: {
+        kind: 'configured-endpoint',
+        analyzer: 'local-vision',
+        configFingerprint: 'a'.repeat(64)
+      },
+      status: 'ready'
+    })
+
+    expect(evidence.summary).toBe('[url]\nBridgePierA123\n[url]\nSettlement2026')
+    expect(evidence.ocr).toBe('[data-url]\nBridgePierA123')
+  })
+
+  it('preserves multi-line OCR words and long hyphenated identifiers', () => {
+    const evidence = sanitizeAttachmentEvidence({
+      version: 1,
+      attachmentId: 'att-multiline-ocr',
+      summary: 'https://files.example.test/a?token=\nPier\nA123\nWork\nBridge-Pier-A123\nSettlement2026',
+      ocr: 'Pier\nA123\nWork',
+      layout: [],
+      semantics: [],
+      visual: '',
+      uncertainty: [],
+      source: {
+        kind: 'configured-endpoint',
+        analyzer: 'local-vision',
+        configFingerprint: 'a'.repeat(64)
+      },
+      status: 'ready'
+    })
+
+    expect(evidence.summary).toBe('[url]\nPier\nA123\nWork\nBridge-Pier-A123\nSettlement2026')
+    expect(evidence.ocr).toBe('Pier\nA123\nWork')
+  })
+
   it('validates magic bytes and shares in-flight analysis by content hash', async () => {
     let resolveResponse!: (response: Response) => void
     const response = new Promise<Response>((resolve) => { resolveResponse = resolve })
