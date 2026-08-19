@@ -269,7 +269,7 @@ Feature flags are intentionally explicit:
 - `serve.runtimeTuning.toolStorm` suppresses repeated identical tool calls within a turn so useless tool loops do not keep spending tokens.
 - `capabilities.web` exposes `web_fetch` and/or `web_search`. The built-in provider fetches HTTP(S) pages. GUI-managed official DeepSeek V4 Pro / Flash runtimes use the DeepSeek Responses API for server-side search; third-party runtimes still require their own search provider.
 - `capabilities.skills` scans configured roots for `skill.json` manifests and, when `legacySkillMd` is true, older `SKILL.md` directories.
-- `capabilities.attachments` stores image bytes outside thread logs and allows turns to reference `attachmentIds`. Vision-capable models receive image parts; text-only models receive a bounded compressed base64 text fallback.
+- `capabilities.attachments` stores image bytes outside thread logs and allows turns to reference `attachmentIds`. Vision-capable models receive image parts; text-only models require the explicitly configured loopback vision-evidence analyzer and receive sanitized structured evidence. If that analyzer is unavailable or fails, the turn fails explicitly; it never falls back to Base64 text. The legacy `textFallback*` settings are retained only for backward-compatible attachment metadata/config loading.
 - `capabilities.memory` stores long-term records under the data dir, retrieves scoped matches before turns, and exposes `memory_create`, `memory_update`, and `memory_delete` tools.
 - `capabilities.subagents` exposes `delegate_task` with `maxParallel` and `maxChildRuns` concurrency budgets.
 
@@ -400,9 +400,9 @@ stay local to one thread, leave it as a pinned constraint.
   Built-in fetch handles HTTP(S) pages; search may still be
   unavailable when no provider implementation is configured.
 - Image upload succeeds but the turn fails: check `maxImageBytes`,
-  `maxImageDimension`, `allowedMimeTypes`, and the text fallback limits.
-  Text-only models need a compressed fallback small enough to fit
-  `textFallbackMaxBase64Bytes`.
+  `maxImageDimension`, and `allowedMimeTypes`. Text-only image questions require
+  a configured loopback vision-evidence endpoint; `textFallback*` settings are
+  legacy compatibility fields and are not used as a model-context fallback.
 - Memory is not injected: enable `capabilities.memory`, confirm
   `/v1/memory/diagnostics.enabled`, make sure records are in the
   selected workspace scope and not disabled/deleted, then inspect

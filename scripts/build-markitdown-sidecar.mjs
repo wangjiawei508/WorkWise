@@ -42,7 +42,15 @@ mkdirSync(outputRoot, { recursive: true })
 const result = spawnSync(
   python,
   ['-m', 'PyInstaller', '--noconfirm', '--distpath', outputRoot, '--workpath', join(outputRoot, '.work'), 'workwise-markitdown.spec'],
-  { cwd: sidecarRoot, stdio: 'inherit', env: { ...process.env, PYTHONNOUSERSITE: '1' } }
+  {
+    cwd: sidecarRoot,
+    stdio: 'inherit',
+    env: {
+      ...process.env,
+      PYTHONNOUSERSITE: '1',
+      PYINSTALLER_CONFIG_DIR: join(outputRoot, '.pyinstaller')
+    }
+  }
 )
 if (result.status !== 0) process.exit(result.status ?? 1)
 if (platform() !== 'win32') {

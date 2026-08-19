@@ -161,6 +161,17 @@ describe('document helper packaging policy', () => {
     expect(packageVerifier).toContain("'ppt-master', 'scripts'")
   })
 
+  it('keeps PyInstaller caches inside the isolated sidecar output', async () => {
+    const buildScript = await readFile(resolve(root, 'scripts/build-markitdown-sidecar.mjs'), 'utf8')
+    expect(buildScript).toContain("PYINSTALLER_CONFIG_DIR: join(outputRoot, '.pyinstaller')")
+  })
+
+  it('allows a cold helper startup window without weakening the smoke contract', async () => {
+    const packageVerifier = await readFile(resolve(root, 'scripts/verify-packaged-markitdown.cjs'), 'utf8')
+    expect(packageVerifier).toContain('WORKWISE_MARKITDOWN_STARTUP_TIMEOUT_MS')
+    expect(packageVerifier).toContain('120_000')
+  })
+
   it('preserves sidecar notices, hidden dylibs, and framework links as extra resources', () => {
     const sidecarResource = builderConfig.extraResources.find(
       (resource: { to?: string }) => resource.to === 'app.asar.unpacked/sidecars/markitdown'

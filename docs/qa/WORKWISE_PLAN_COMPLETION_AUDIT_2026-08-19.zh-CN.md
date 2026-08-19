@@ -6,14 +6,15 @@
 
 本报告按 `PLAN (1).md`（PDF 解析）和 `PLAN (2).md`（DeepSeek Harness 机制）逐项核对当前代码、测试和候选证据。`DONE` 只表示仓库内实现和自动化证据足够；`PARTIAL` 表示实现存在但仍缺少真实服务或人工验收；`UNVERIFIABLE` 表示当前环境没有足够证据。历史候选日志不作为当前版本的真实通信验收。
 
-本机可读技能目录中没有名为 `Superpowers` 的技能包；本轮按可用的 Gstack 工程审查、调查、健康检查和发布门禁规则执行，并将缺失的技能包作为环境事实记录，不伪造其执行结果。
+本机已发现 Superpowers 插件缓存（`/Users/wangjiawei/.codex/.tmp/plugins/plugins/superpowers`），本轮按其中的系统调试、TDD、执行计划和完成前验证规则执行；同时按可用的 Gstack 工程审查、调查、健康检查和发布门禁规则执行。该插件没有在当前技能清单中注册，因此不把它描述为通过宿主 Skill 调用安装，而是记录实际读取和遵守的本地规则。
 
 ## 证据基线
 
 - `npm run typecheck`：通过。
 - `npm run lint`：通过。
-- 受控回环权限下 `npx vitest run`：`272 passed | 2 skipped`，`2163 passed | 2 skipped`（包含本轮健康监督回归测试）。
+- 受控回环权限下 `npm test -- --run`：`272 passed | 2 skipped`，`2165 passed | 2 skipped`（包含本轮健康监督回归测试）。沙箱内无回环监听权限时出现的 6 个失败已用同一隔离测试命令复核为环境权限问题。
 - `npm run build`：通过。
+- `WORKWISE_PYTHON=/private/tmp/workwise-markitdown-venv/bin/python npm run build:markitdown-sidecar`：通过；包含 PyInstaller 打包、Magika/PPT Master 资源、许可文件、framework symlink 和 helper 冷启动 smoke 检查。
 - `npm run openspec:validate`：`10 passed, 0 failed`。
 - `npm run verify:brand-boundary`：通过，扫描 1381 个文件。
 - `git diff --check`：通过。
@@ -38,7 +39,7 @@
 | 条目 | 状态 | 证据与边界 |
 |---|---|---|
 | `@file` 有界索引、目录引用、路径安全、延迟读取 | DONE | Runtime 重新验证 workspace reference；symlink、越界、中文/空格路径、截断和 TTL 测试通过。 |
-| 纯文本模型的视觉证据层 | PARTIAL | `VisionEvidencePort`、结构化证据、缓存、并发共享、超时、SSRF/大小/MIME 防护和失败契约已实现并测试；没有配置真实视觉端点，不能宣称 DeepSeek 真实图片问答验收。 |
+| 纯文本模型的视觉证据层 | PARTIAL | `VisionEvidencePort`、结构化证据、缓存、并发共享、超时、SSRF/大小/MIME 防护和失败契约已实现并测试；README 已与“不可用时明确失败、禁止 Base64 回退”的真实契约对齐；没有配置真实视觉端点，不能宣称 DeepSeek 真实图片问答验收。 |
 | 终态通知分类、去重、当前线程抑制和点击定位 | PARTIAL | 终态投影、设置迁移和 Renderer 去重测试通过；候选打包应用中的系统通知点击定位尚未完成真实人工验收。 |
 | 实时用量、精确 usage 替换估算、稳定 TPS | DONE（单元证据） | `LiveUsageProjection` 及流式更新测试通过；未完成候选包视觉验收。 |
 | Workbench 注册表、懒加载、错误边界、Viewer 优先级 | DONE（单元证据） | 注册/卸载、重复 ID、懒加载失败重试和 DOM 测试通过；未完成候选包全尺寸人工验收。 |

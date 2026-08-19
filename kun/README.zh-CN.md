@@ -243,7 +243,7 @@ Kun 默认使用混合存储：`threads/{threadId}/messages.jsonl` 与 `events.j
 - `serve.runtimeTuning.toolStorm` 会抑制同一回合内重复的相同工具调用，阻止无意义 tool loop 继续烧 token。
 - `capabilities.web` 暴露 `web_fetch` 与/或 `web_search`。内置 provider 负责 HTTP(S) 抓取；GUI 管理的官方 DeepSeek V4 Pro / Flash Runtime 使用 DeepSeek Responses API 执行服务端搜索，第三方 Runtime 仍需自行配置搜索 provider。
 - `capabilities.skills` 扫描 `roots` 下的 `skill.json`，并在 `legacySkillMd` 为 `true` 时兼容 `SKILL.md`。
-- `capabilities.attachments` 将图片二进制从线程日志剥离，允许回合记录引用 `attachmentIds`。视觉模型直接接收图片部分，纯文本模型走受限文本 fallback。
+- `capabilities.attachments` 将图片二进制从线程日志剥离，允许回合记录引用 `attachmentIds`。视觉模型直接接收图片部分；纯文本模型必须配置明确的本机回环视觉证据分析器，并只接收脱敏后的结构化证据。分析器不可用或失败时，本回合会明确失败，绝不会回退为 Base64 文本。旧版 `textFallback*` 设置仅为兼容读取旧配置/元数据保留。
 - `capabilities.memory` 在数据目录下持久化跨会话记忆，按作用域检索并注入上下文；也会公开 `memory_create`、`memory_update`、`memory_delete` 工具。
 - `capabilities.subagents` 通过 `maxParallel` 与 `maxChildRuns` 限制委派任务并发。
 
@@ -339,7 +339,7 @@ SSE 使用 `id: <seq>`、`event: <kind>` 与 `data:`。新连接可通过 `since
 
 - MCP 不出现：检查 `capabilities.mcp.enabled`、服务器的 `enabled` 开关、`transport` 字段（`stdio` 需检查 `command`，HTTP/SSE 需检查 `url`）、workspace 级服务器的 `trustedWorkspaceRoots`，以及 `/v1/runtime/tools` 的 `lastError`。
 - Web 工具不可用：检查 `capabilities.web.enabled`，并确保 `fetchEnabled` / `searchEnabled` 至少一项为 true。内置 provider 负责抓取 HTTP(S) 页面，搜索可能因未实现 provider 而不可用。
-- 图片上传失败：检查 `maxImageBytes`、`maxImageDimension`、`allowedMimeTypes` 与文本 fallback 的大小限制。纯文本模型需要足够小的 base64 文本 fallback。
+- 图片上传失败：检查 `maxImageBytes`、`maxImageDimension` 与 `allowedMimeTypes`。纯文本图片问答还必须配置本机回环视觉证据端点；`textFallback*` 是旧版兼容字段，不会作为模型上下文回退。
 - 记忆未注入：确认 `capabilities.memory` 为 true，`/v1/memory/diagnostics` 显示正常，作用域与工作区匹配且未被禁用；再看 `lastInjectedIds`。
 - `kun run`/`kun chat`/`kun exec` 报错：核对 `--config`、`--data-dir`、`--api-key`、`--base-url`、`--runtime-token` 一致；先用 `kun exec --list-tools --json` 检查工具注册表。
 - 功能显示为 disabled：通常表示配置标志为 false；显示为 unavailable 通常表示标志为 true，但 provider/存储/模型未就绪或初始化失败。

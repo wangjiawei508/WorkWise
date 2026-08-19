@@ -11,6 +11,7 @@ const { basename, dirname, join, resolve } = require('node:path')
 
 const REQUIRED_NOTICES = ['requirements.lock', 'README.md', 'THIRD_PARTY_NOTICES.md']
 const REQUIRED_PPT_SCRIPTS = ['svg_to_pptx.py', 'pptx_to_svg.py', 'preset_shape_svg.py']
+const DEFAULT_HELPER_STARTUP_TIMEOUT_MS = 120_000
 
 function normalizeTarget(target) {
   if (target === 'mac' || target === 'darwin') return 'mac'
@@ -44,11 +45,15 @@ function assertRequiredSymlink(path, label) {
 }
 
 function smokeMarkItDownHelper(executablePath) {
+  const configuredTimeout = Number(process.env.WORKWISE_MARKITDOWN_STARTUP_TIMEOUT_MS)
+  const startupTimeoutMs = Number.isSafeInteger(configuredTimeout) && configuredTimeout > 0
+    ? configuredTimeout
+    : DEFAULT_HELPER_STARTUP_TIMEOUT_MS
   const result = spawnSync(executablePath, [], {
     input: '{}\n',
     encoding: 'utf8',
     maxBuffer: 1024 * 1024,
-    timeout: 30_000,
+    timeout: startupTimeoutMs,
     windowsHide: true
   })
   if (result.error) {
