@@ -246,7 +246,7 @@ export class DocumentEngineService {
           ? health.identity ?? (health.identityUnverified
               ? UNLIMITED_OCR_UNVERIFIED_IDENTITY
               : UNLIMITED_OCR_UNVERSIONED_IDENTITY)
-          : undefined
+          : UNLIMITED_OCR_UNVERIFIED_IDENTITY
       } catch (error) {
         unlimitedOcrState = 'error'
         unlimitedOcrMessage = safeErrorMessage(error)

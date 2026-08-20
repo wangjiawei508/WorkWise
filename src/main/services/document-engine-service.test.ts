@@ -28,6 +28,16 @@ async function fixture(extension = '.pdf'): Promise<{ root: string; path: string
   return { root, path }
 }
 
+async function fileExists(path: string): Promise<boolean> {
+  try {
+    await readFile(path)
+    return true
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false
+    throw error
+  }
+}
+
 function runner(
   markdown = '# Parsed\n\n| A | B |\n|---|---|\n| 1 | 2 |',
   headings: DocumentSidecarResponse['headings'] = [{ level: 1, text: 'Parsed' }]
@@ -229,10 +239,17 @@ describe('DocumentEngineService', () => {
 
     const first = await service.parse(request)
     const second = await service.parse({ ...request, parseId: 'failed-ocr-health-cache-2' })
+    const third = await service.parse({ ...request, parseId: 'failed-ocr-health-cache-3' })
 
     expect(first).toMatchObject({ cacheHit: false, engineVersion: 'unlimited-ocr-api-v1-unversioned' })
     expect(second).toMatchObject({ cacheHit: false, engineVersion: 'unlimited-ocr-api-v1-unverified' })
-    expect(bridge).toHaveBeenCalledTimes(2)
+    expect(third).toMatchObject({ cacheHit: false, engineVersion: 'unlimited-ocr-api-v1-unverified' })
+    expect(bridge).toHaveBeenCalledTimes(3)
+    const cacheRoot = join(root, '.workwise', 'cache', 'documents')
+    const metadataFiles = await Promise.all((await readdir(cacheRoot)).map((directory) => (
+      fileExists(join(cacheRoot, directory, 'workwise-result.json'))
+    )))
+    expect(metadataFiles.filter(Boolean)).toHaveLength(1)
   }, 15_000)
 
   it('does not reuse an unversioned OCR cache when the current health identity exceeds its limit', async () => {
@@ -257,10 +274,54 @@ describe('DocumentEngineService', () => {
 
     const first = await service.parse(request)
     const second = await service.parse({ ...request, parseId: 'oversized-ocr-health-cache-2' })
+    const third = await service.parse({ ...request, parseId: 'oversized-ocr-health-cache-3' })
 
     expect(first).toMatchObject({ cacheHit: false, engineVersion: 'unlimited-ocr-api-v1-unversioned' })
     expect(second).toMatchObject({ cacheHit: false, engineVersion: 'unlimited-ocr-api-v1-unverified' })
-    expect(bridge).toHaveBeenCalledTimes(2)
+    expect(third).toMatchObject({ cacheHit: false, engineVersion: 'unlimited-ocr-api-v1-unverified' })
+    expect(bridge).toHaveBeenCalledTimes(3)
+    const cacheRoot = join(root, '.workwise', 'cache', 'documents')
+    const metadataFiles = await Promise.all((await readdir(cacheRoot)).map((directory) => (
+      fileExists(join(cacheRoot, directory, 'workwise-result.json'))
+    )))
+    expect(metadataFiles.filter(Boolean)).toHaveLength(1)
+  }, 15_000)
+
+  it('continues OCR without caching when the health identity probe times out', async () => {
+    vi.useFakeTimers()
+    try {
+      const { root } = await fixture()
+      const bridge = runner('OCR output after health timeout')
+      let markProbeStarted!: () => void
+      const probeStarted = new Promise<void>((resolve) => {
+        markProbeStarted = resolve
+      })
+      const healthFetch = vi.fn((_url: unknown, init?: { signal?: AbortSignal }) => new Promise<Response>((_, reject) => {
+        markProbeStarted()
+        init?.signal?.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')), { once: true })
+      })) as unknown as typeof fetch
+      const service = new DocumentEngineService({
+        runner: bridge,
+        unlimitedOcr: new UnlimitedOcrService({ fetch: healthFetch })
+      })
+      const pending = service.parse({
+        workspaceRoot: root,
+        relativePath: 'source.pdf',
+        mode: 'accurate',
+        unlimitedOcrServerUrl: 'http://127.0.0.1:3000',
+        idempotencyKey: 'timed-out-ocr-health-cache'
+      })
+
+      await probeStarted
+      await vi.advanceTimersByTimeAsync(2_001)
+      await expect(pending).resolves.toMatchObject({
+        cacheHit: false,
+        engineVersion: 'unlimited-ocr-api-v1-unverified'
+      })
+      expect(bridge).toHaveBeenCalledTimes(1)
+    } finally {
+      vi.useRealTimers()
+    }
   }, 15_000)
 
   it('rejects a current cache entry written before the document result revision', async () => {
@@ -548,7 +609,8 @@ describe('DocumentEngineService', () => {
     })
     await expect(unreachable.listEngines(undefined, 'http://127.0.0.1:3000')).resolves.toContainEqual(expect.objectContaining({
       id: 'unlimited-ocr-local',
-      state: 'error'
+      state: 'error',
+      version: 'unlimited-ocr-api-v1-unverified'
     }))
 
     const reachable = new DocumentEngineService({
