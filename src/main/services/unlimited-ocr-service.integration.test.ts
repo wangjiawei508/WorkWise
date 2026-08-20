@@ -20,12 +20,6 @@ async function readRequestBody(request: IncomingMessage): Promise<Buffer> {
 }
 
 it('runs the complete OCR protocol over a real loopback HTTP connection', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'workwise-ocr-loopback-'))
-  const inputPath = join(root, 'scan.pdf')
-  const outputDirectory = join(root, 'output')
-  await writeFile(inputPath, '%PDF-loopback-fixture')
-  await mkdir(outputDirectory)
-
   const requests: string[] = []
   const pollCounts = new Map<string, number>()
   let submissionContentType = ''
@@ -72,15 +66,22 @@ it('runs the complete OCR protocol over a real loopback HTTP connection', async 
     response.writeHead(404)
     response.end()
   })
+  const parseController = new AbortController()
+  const root = await mkdtemp(join(tmpdir(), 'workwise-ocr-loopback-'))
 
   try {
+    const inputPath = join(root, 'scan.pdf')
+    const outputDirectory = join(root, 'output')
+    await writeFile(inputPath, '%PDF-loopback-fixture')
+    await mkdir(outputDirectory)
+
     await new Promise<void>((resolve, reject) => {
       server.once('error', reject)
       server.listen(0, '127.0.0.1', resolve)
     })
     const port = (server.address() as AddressInfo).port
     const serverUrl = `http://127.0.0.1:${port}`
-    const service = new UnlimitedOcrService({ pollIntervalMs: 0 })
+    const service = new UnlimitedOcrService({ pollIntervalMs: 0, timeoutMs: 5_000 })
 
     const health = await service.checkHealth(serverUrl)
     expect(health).toEqual({
@@ -92,7 +93,7 @@ it('runs the complete OCR protocol over a real loopback HTTP connection', async 
       serverUrl,
       inputPath,
       outputDirectory,
-      signal: new AbortController().signal,
+      signal: parseController.signal,
       engineVersion: health.identity
     })
 
@@ -101,11 +102,17 @@ it('runs the complete OCR protocol over a real loopback HTTP connection', async 
       '<!-- page:1 -->\n\n# First page\n\n<!-- page:2 -->\n\nSecond page\n'
     )
     expect(submissionContentType).toMatch(/^multipart\/form-data; boundary=/)
-    expect(submissionBody.includes(Buffer.from('%PDF-loopback-fixture'))).toBe(true)
-    const multipartText = submissionBody.toString('utf8')
-    expect(multipartText).toContain('name="image"; filename="scan.pdf"')
-    expect(multipartText).toContain('name="text_input"')
-    expect(multipartText).toContain('<|grounding|><image>Convert the document to markdown.')
+    const multipartBytes = Uint8Array.from(submissionBody)
+    const multipart = await new Response(multipartBytes, {
+      headers: { 'content-type': submissionContentType }
+    }).formData()
+    const image = multipart.get('image')
+    expect(image).toBeInstanceOf(Blob)
+    if (!(image instanceof Blob)) throw new Error('OCR multipart image field is not a file.')
+    expect((image as Blob & { name?: string }).name).toBe('scan.pdf')
+    expect(image.type).toBe('application/pdf')
+    expect(Buffer.from(await image.arrayBuffer())).toEqual(Buffer.from('%PDF-loopback-fixture'))
+    expect(multipart.get('text_input')).toBe('<|grounding|><image>Convert the document to markdown.')
     expect(requests).toEqual([
       'GET /health',
       'POST /v1/infer',
@@ -115,6 +122,7 @@ it('runs the complete OCR protocol over a real loopback HTTP connection', async 
       'GET /v1/jobs/page-1'
     ])
   } finally {
+    parseController.abort()
     server.closeAllConnections()
     if (server.listening) {
       await new Promise<void>((resolve) => server.close(() => resolve()))
