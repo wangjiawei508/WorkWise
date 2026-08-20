@@ -52,6 +52,8 @@ export type ClawRuntimeDeps = {
     text: string,
     options?: { workspaceRoot?: string | null; modelHint?: string | null; mode?: ClawRunMode | null }
   ) => Promise<ScheduleTaskFromTextResult>
+  /** Candidate mode may reserve this listener before runtime handoff. */
+  webhookServer?: import('node:http').Server
 }
 
 export type ThreadRecordJson = {

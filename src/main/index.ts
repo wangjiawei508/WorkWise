@@ -23,13 +23,16 @@ import {
 } from './app-lifecycle'
 import { runLegacyDataImport } from './legacy-data-migration'
 import {
+  candidateServicePortPatch,
   configureCandidateApplicationPaths,
   candidateEnvironmentFromArgv,
   isCandidateHeadless,
   isCandidateRuntimeProbe,
   isUnconfiguredRecoveryCandidate,
   resolveCandidateRuntimePaths,
+  reserveCandidateServicePorts,
   runCandidateRuntimeProbe,
+  verifyCandidateServiceListeners,
   sanitizeCandidateProcessEnvironment,
   UNCONFIGURED_RECOVERY_CANDIDATE_EXIT_CODE
 } from './candidate-runtime'
@@ -65,6 +68,7 @@ import {
   runtimeAuthHeaders,
   runtimeRequestViaHost
 } from './runtime/managed-runtime-adapter'
+import { getManagedRuntimeActualPort } from './managed-runtime-process'
 import { waitForRuntimeTurnsIdle } from './runtime/managed-runtime-idle'
 import { configureLogger, logError, logWarn, pruneOnStartup } from './logger'
 import { createClawRuntime, type ClawRuntime } from './claw-runtime'
@@ -341,6 +345,7 @@ let appBehavior: AppBehaviorConfigV1 = normalizeAppBehaviorSettings()
 let tray: Tray | null = null
 let currentLocale: AppSettingsV1['locale'] = 'en'
 let isQuitting = false
+let candidateServiceReservations: Awaited<ReturnType<typeof reserveCandidateServicePorts>> | null = null
 let gracefulShutdownPromise: Promise<void> | null = null
 let imCredentialService: ImCredentialService | null = null
 let imDeliveryLedger: ImDeliveryLedger | null = null
@@ -433,6 +438,8 @@ async function stopManagedRuntimesForQuit(): Promise<void> {
       imDeliveryLedger?.close()
       imDeliveryLedger = null
       await managedRuntimeAdapter.stopAndWait()
+      await candidateServiceReservations?.close()
+      candidateServiceReservations = null
     })()
   }
   const timeout = new Promise<void>((resolve) => setTimeout(resolve, 5_000))
@@ -1235,6 +1242,11 @@ app.whenReady().then(async () => {
   })
   traceStartup('settings load:start')
   let initial = await store.load()
+  if (candidateRuntimePaths) {
+    candidateServiceReservations = await reserveCandidateServicePorts()
+    initial = await store.patch(candidateServicePortPatch(candidateServiceReservations.ports))
+    traceStartup('candidate service ports isolated', candidateServiceReservations.ports)
+  }
   imCredentialService = new ImCredentialService({
     root: join(app.getPath('userData'), 'communication', 'credentials')
   })
@@ -1301,7 +1313,13 @@ app.whenReady().then(async () => {
     patchSettings: (patch) => store!.patch(patch),
     logError
   })
-  scheduleRuntime = createScheduleRuntime({ store, runtimeRequest, logError, powerSaveBlocker })
+  scheduleRuntime = createScheduleRuntime({
+    store,
+    runtimeRequest,
+    logError,
+    powerSaveBlocker,
+    internalServer: candidateServiceReservations?.scheduleServer
+  })
   scheduleRuntime.sync(initial)
   clawRuntime = createClawRuntime({
     store,
@@ -1329,7 +1347,8 @@ app.whenReady().then(async () => {
       return undefined
     },
     createScheduledTaskFromText: (text, options) =>
-      scheduleRuntime?.createScheduledTaskFromText(text, options) ?? Promise.resolve({ kind: 'noop' })
+      scheduleRuntime?.createScheduledTaskFromText(text, options) ?? Promise.resolve({ kind: 'noop' }),
+    webhookServer: candidateServiceReservations?.imServer
   })
   traceStartup('claw runtime sync:start', {
     clawEnabled: initial.claw.enabled,
@@ -1576,10 +1595,19 @@ app.whenReady().then(async () => {
       traceStartup('candidate Runtime probe:start')
       await runCandidateRuntimeProbe({
         ensureRuntime: () => ensureRuntime(initial),
-        reportReady: () => {
+        verifyServices: async () => {
+          const runtimePort = getManagedRuntimeActualPort()
+          if (!runtimePort) throw new Error('Candidate Runtime did not expose an actual listening port.')
+          return verifyCandidateServiceListeners({
+            runtime: runtimePort,
+            schedule: initial.schedule.internal.port,
+            im: initial.claw.im.port
+          })
+        },
+        reportReady: (ports) => {
           console.info('[workwise candidate runtime probe]', JSON.stringify({
             ok: true,
-            port: getManagedRuntimeSettings(initial).port,
+            ports,
             authenticatedThreadApi: true
           }))
           traceStartup('candidate Runtime probe:ready')

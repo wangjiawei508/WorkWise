@@ -1,5 +1,8 @@
 import { mkdirSync, readFileSync } from 'node:fs'
+import { createServer as createHttpServer, type Server as HttpServer } from 'node:http'
 import { basename, isAbsolute, join, relative, resolve } from 'node:path'
+import type { AppSettingsPatch } from '../shared/app-settings'
+import { isRuntimeHealthResponseBody } from './runtime-health'
 
 export const UNCONFIGURED_RECOVERY_CANDIDATE_EXIT_CODE = 78
 
@@ -13,6 +16,19 @@ export type CandidateRuntimePaths = {
   home: string
   workwiseHome: string
   toolsRoot: string
+}
+
+export type CandidateServicePorts = {
+  runtime: number
+  schedule: number
+  im: number
+}
+
+export type CandidateServiceReservations = {
+  ports: CandidateServicePorts
+  scheduleServer: HttpServer
+  imServer: HttpServer
+  close: () => Promise<void>
 }
 
 const USER_DATA_ARG = '--user-data-dir='
@@ -37,6 +53,134 @@ const CANDIDATE_ENV_KEYS = new Set([
   'WORKWISE_CANDIDATE_ALLOWED_WEIXIN_COMMAND',
   'WORKWISE_CANDIDATE_CREDENTIAL_HELPER'
 ])
+
+export function candidateServicePortPatch(ports: CandidateServicePorts): AppSettingsPatch {
+  const values = [ports.runtime, ports.schedule, ports.im]
+  if (
+    !Number.isInteger(ports.runtime) ||
+    (ports.runtime !== 0 && (ports.runtime < 1_024 || ports.runtime > 65_535)) ||
+    !Number.isInteger(ports.schedule) || ports.schedule < 1_024 || ports.schedule > 65_535 ||
+    !Number.isInteger(ports.im) || ports.im < 1_024 || ports.im > 65_535
+  ) {
+    throw new Error('Candidate service ports must be valid user-space TCP ports.')
+  }
+  if (new Set(values).size !== values.length) {
+    throw new Error('Candidate service ports must be distinct.')
+  }
+  return {
+    agents: { kun: { port: ports.runtime } },
+    schedule: { internal: { port: ports.schedule } },
+    claw: { im: { port: ports.im } }
+  }
+}
+
+function reserveHttpLoopbackServer(): Promise<HttpServer> {
+  return new Promise<HttpServer>((resolveServer, reject) => {
+    const server = createHttpServer()
+    const onError = (error: Error): void => {
+      server.removeListener('error', onError)
+      try { server.close() } catch { /* listener never became active */ }
+      reject(error)
+    }
+    server.once('error', onError)
+    server.listen({ host: '127.0.0.1', port: 0, exclusive: true }, () => {
+      server.removeListener('error', onError)
+      resolveServer(server)
+    })
+  })
+}
+
+/**
+ * Reserve the candidate's HTTP ports and keep the listeners open until the
+ * corresponding runtime takes ownership of them. This closes the check/use
+ * race that allowed another process to claim a port between startup phases.
+ */
+export async function reserveCandidateServicePorts(): Promise<CandidateServiceReservations> {
+  let scheduleServer: HttpServer | null = null
+  let imServer: HttpServer | null = null
+  try {
+    scheduleServer = await reserveHttpLoopbackServer()
+    imServer = await reserveHttpLoopbackServer()
+    const scheduleAddress = scheduleServer.address()
+    const imAddress = imServer.address()
+    if (!scheduleAddress || typeof scheduleAddress === 'string' || !imAddress || typeof imAddress === 'string') {
+      throw new Error('Candidate service port reservation returned no TCP port.')
+    }
+    const ports = { runtime: 0, schedule: scheduleAddress.port, im: imAddress.port }
+    if (ports.schedule === ports.im) throw new Error('Candidate services require distinct loopback ports.')
+    let closed = false
+    const reservedServers = [scheduleServer, imServer]
+    return {
+      ports,
+      scheduleServer,
+      imServer,
+      close: async (): Promise<void> => {
+        if (closed) return
+        closed = true
+        await Promise.all(reservedServers.map((server) => new Promise<void>((resolveClose) => {
+          try {
+            if (!server.listening) {
+              resolveClose()
+              return
+            }
+            server.close(() => resolveClose())
+          } catch {
+            resolveClose()
+          }
+        })))
+      }
+    }
+  } catch (error) {
+    await Promise.all([scheduleServer, imServer].filter((server): server is HttpServer => Boolean(server)).map((server) => new Promise<void>((resolveClose) => {
+      try { server.close(() => resolveClose()) } catch { resolveClose() }
+    })))
+    throw error
+  }
+}
+
+async function probeCandidateListener(url: string, expectedService: 'kun' | 'schedule' | 'claw'): Promise<void> {
+  let response: Response
+  try {
+    response = await fetch(url, { method: 'GET', signal: AbortSignal.timeout(2_000) })
+  } catch (error) {
+    throw new Error(`Candidate service is not listening at ${url}: ${error instanceof Error ? error.message : String(error)}`)
+  }
+  if (!response.ok) {
+    throw new Error(`Candidate ${expectedService} health check failed at ${url} with HTTP ${response.status}.`)
+  }
+  const body = await response.text()
+  if (expectedService === 'kun') {
+    if (!isRuntimeHealthResponseBody(body)) {
+      throw new Error(`Candidate Runtime health check at ${url} returned an unexpected service identity.`)
+    }
+    return
+  }
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(body) as unknown
+  } catch {
+    parsed = null
+  }
+  const record = parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+    ? parsed as Record<string, unknown>
+    : null
+  if (record?.status !== 'ok' || record.service !== expectedService) {
+    throw new Error(`Candidate ${expectedService} health check at ${url} returned an unexpected service identity.`)
+  }
+}
+
+export async function verifyCandidateServiceListeners(ports: CandidateServicePorts): Promise<CandidateServicePorts> {
+  const values = [ports.runtime, ports.schedule, ports.im]
+  if (values.some((port) => !Number.isInteger(port) || port < 1_024 || port > 65_535) || new Set(values).size !== values.length) {
+    throw new Error('Candidate service probe requires three distinct listening ports.')
+  }
+  await Promise.all([
+    probeCandidateListener(`http://127.0.0.1:${ports.runtime}/health`, 'kun'),
+    probeCandidateListener(`http://127.0.0.1:${ports.schedule}/schedule/internal/health`, 'schedule'),
+    probeCandidateListener(`http://127.0.0.1:${ports.im}/claw/internal/health`, 'claw')
+  ])
+  return ports
+}
 
 function recoveryCandidateBundleIdentifier(resourcesPath: string | undefined): string {
   if (!resourcesPath) return ''
@@ -134,12 +278,14 @@ export function candidateEnvironmentFromArgv(
 
 export async function runCandidateRuntimeProbe(options: {
   ensureRuntime: () => Promise<void>
-  reportReady: () => void
+  verifyServices?: () => Promise<CandidateServicePorts | void>
+  reportReady: (ports?: CandidateServicePorts) => void
   stop: () => Promise<void>
   exit: (code: number) => void
 }): Promise<void> {
   await options.ensureRuntime()
-  options.reportReady()
+  const ports = await options.verifyServices?.() ?? undefined
+  options.reportReady(ports)
   await options.stop()
   options.exit(0)
 }

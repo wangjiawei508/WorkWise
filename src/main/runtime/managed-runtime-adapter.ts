@@ -12,6 +12,7 @@ import {
 } from '../resolve-managed-runtime'
 import {
   isManagedRuntimeChildRunning,
+  getManagedRuntimeActualPort,
   reclaimManagedRuntimePort,
   startManagedRuntimeChild,
   stopManagedRuntimeChildAndWait,
@@ -61,7 +62,7 @@ export const managedRuntimeAdapter = {
 
   getBaseUrl(settings: AppSettingsV1): string {
     const runtime = getManagedRuntimeSettings(settings)
-    return getManagedRuntimeBaseUrl(runtime.port)
+    return getManagedRuntimeBaseUrl(getManagedRuntimeActualPort() ?? runtime.port)
   },
 
   reclaimPort(port: number): Promise<{ ok: true } | { ok: false; message: string }> {

@@ -1,5 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { createHash } from 'node:crypto'
+import { createServer, type Server } from 'node:http'
+import type { AddressInfo } from 'node:net'
 import { mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
@@ -146,6 +148,19 @@ function mutableSettingsStore(initialSettings: AppSettingsV1): {
   return { current: () => currentSettings, store }
 }
 
+async function listenOnLoopback(server: Server): Promise<number> {
+  await new Promise<void>((resolve, reject) => {
+    server.once('error', reject)
+    server.listen(0, '127.0.0.1', () => resolve())
+  })
+  return (server.address() as AddressInfo).port
+}
+
+async function closeServer(server: Server): Promise<void> {
+  if (!server.listening) return
+  await new Promise<void>((resolve) => server.close(() => resolve()))
+}
+
 async function postRuntimeWebhook(
   runtime: ReturnType<typeof createClawRuntime>,
   url: string,
@@ -177,6 +192,44 @@ async function postRuntimeWebhook(
 }
 
 describe('ClawRuntime', () => {
+  it('rebinds to a changed IM port instead of reusing the candidate reservation', async () => {
+    const reservedServer = createServer()
+    const targetReservation = createServer()
+    const reservedPort = await listenOnLoopback(reservedServer)
+    const targetPort = await listenOnLoopback(targetReservation)
+    await closeServer(targetReservation)
+    const initial = buildSettings()
+    initial.claw.im = { ...initial.claw.im, port: reservedPort, secret: 'private-secret' }
+    const runtime = createClawRuntime({
+      store: mutableSettingsStore(initial).store as never,
+      runtimeRequest: vi.fn() as never,
+      logError: vi.fn(),
+      webhookServer: reservedServer
+    })
+    const internalRuntime = runtime as unknown as {
+      server: Server | null
+      syncWebhook: (settings: AppSettingsV1) => void
+      closeWebhook: () => Promise<void>
+    }
+    try {
+      internalRuntime.syncWebhook(initial)
+      expect(internalRuntime.server).toBe(reservedServer)
+      const moved = buildSettings()
+      moved.claw.im = { ...moved.claw.im, port: targetPort, secret: 'private-secret' }
+      internalRuntime.syncWebhook(moved)
+      const rebound = internalRuntime.server
+      expect(rebound).not.toBe(reservedServer)
+      if (!rebound?.listening) await new Promise<void>((resolve) => rebound?.once('listening', resolve))
+      expect((rebound?.address() as AddressInfo).port).toBe(targetPort)
+      const health = await fetch(`http://127.0.0.1:${targetPort}/claw/internal/health`)
+      expect(health.status).toBe(200)
+      expect(await health.json()).toMatchObject({ status: 'ok', service: 'claw' })
+    } finally {
+      await internalRuntime.closeWebhook()
+      await closeServer(reservedServer)
+    }
+  })
+
   it('bounds Feishu WebSocket handshakes and enables pong liveness detection', () => {
     expect(feishuWebSocketReliabilityOptions()).toEqual({
       transport: 'websocket',

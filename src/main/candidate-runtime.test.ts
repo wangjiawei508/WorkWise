@@ -1,8 +1,10 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { createServer as createNetServer, type AddressInfo } from 'node:net'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { describe, expect, it, vi } from 'vitest'
 import {
+  candidateServicePortPatch,
   configureCandidateApplicationPaths,
   candidateProcessUserDataPath,
   candidateEnvironmentFromArgv,
@@ -12,12 +14,110 @@ import {
   isCandidateRuntimeProbe,
   isUnconfiguredRecoveryCandidate,
   resolveCandidateRuntimePaths,
+  reserveCandidateServicePorts,
+  verifyCandidateServiceListeners,
   runCandidateRuntimeProbe,
   sanitizeCandidateProcessEnvironment,
   UNCONFIGURED_RECOVERY_CANDIDATE_EXIT_CODE
 } from './candidate-runtime'
 
 describe('resolveCandidateRuntimePaths', () => {
+  it('holds candidate schedule and IM ports until the reservation is closed', async () => {
+    const reservations = await reserveCandidateServicePorts()
+    const assertPortUnavailable = async (port: number): Promise<void> => {
+      const contender = createNetServer()
+      try {
+        await expect(new Promise<void>((resolve, reject) => {
+          contender.once('error', reject)
+          contender.listen({ host: '127.0.0.1', port, exclusive: true }, () => resolve())
+        })).rejects.toMatchObject({ code: 'EADDRINUSE' })
+      } finally {
+        await new Promise<void>((resolve) => contender.close(() => resolve()))
+      }
+    }
+    try {
+      await assertPortUnavailable(reservations.ports.schedule)
+      await assertPortUnavailable(reservations.ports.im)
+    } finally {
+      await reservations.close()
+    }
+  })
+
+  it('verifies all candidate listeners without sending an IM message', async () => {
+    const servers = [createNetServer(), createNetServer(), createNetServer()]
+    const ports: number[] = []
+    try {
+      await Promise.all(servers.map((server) => new Promise<void>((resolve, reject) => {
+        server.once('error', reject)
+        server.listen({ host: '127.0.0.1', port: 0, exclusive: true }, () => {
+          ports.push((server.address() as AddressInfo).port)
+          resolve()
+        })
+      })))
+      const healthBodies = [
+        { status: 'ok', service: 'kun', mode: 'serve', protocolVersion: 1 },
+        { status: 'ok', service: 'schedule', mode: 'embedded' },
+        { status: 'ok', service: 'claw', mode: 'embedded' }
+      ]
+      const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async () => ({
+        ok: true,
+        status: 200,
+        text: async () => JSON.stringify(healthBodies.shift())
+      } as Response))
+      await expect(verifyCandidateServiceListeners({
+        runtime: ports[0]!,
+        schedule: ports[1]!,
+        im: ports[2]!
+      })).resolves.toEqual({ runtime: ports[0], schedule: ports[1], im: ports[2] })
+      expect(fetchMock).toHaveBeenCalledTimes(3)
+      expect(fetchMock.mock.calls.map(([input]) => String(input))).toEqual([
+        `http://127.0.0.1:${ports[0]}/health`,
+        `http://127.0.0.1:${ports[1]}/schedule/internal/health`,
+        `http://127.0.0.1:${ports[2]}/claw/internal/health`
+      ])
+      fetchMock.mockRestore()
+    } finally {
+      await Promise.all(servers.map((server) => new Promise<void>((resolve) => server.close(() => resolve()))))
+    }
+  })
+
+  it.each([404, 405, 500])('rejects candidate health responses with HTTP %s', async (status) => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+      ok: false,
+      status,
+      text: async () => JSON.stringify({ status: 'error' })
+    } as Response)
+    await expect(verifyCandidateServiceListeners({ runtime: 20_001, schedule: 20_002, im: 20_003 }))
+      .rejects.toThrow(`HTTP ${status}`)
+    fetchMock.mockRestore()
+  })
+
+  it('rejects swapped candidate service identities', async () => {
+    const healthBodies = [
+      { status: 'ok', service: 'kun', mode: 'serve', protocolVersion: 1 },
+      { status: 'ok', service: 'claw', mode: 'embedded' },
+      { status: 'ok', service: 'schedule', mode: 'embedded' }
+    ]
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async () => ({
+      ok: true,
+      status: 200,
+      text: async () => JSON.stringify(healthBodies.shift())
+    } as Response))
+    await expect(verifyCandidateServiceListeners({ runtime: 20_001, schedule: 20_002, im: 20_003 }))
+      .rejects.toThrow('unexpected service identity')
+    fetchMock.mockRestore()
+  })
+
+  it('maps candidate-only ports onto Runtime, schedule and IM settings', () => {
+    expect(candidateServicePortPatch({ runtime: 20_001, schedule: 20_002, im: 20_003 })).toEqual({
+      agents: { kun: { port: 20_001 } },
+      schedule: { internal: { port: 20_002 } },
+      claw: { im: { port: 20_003 } }
+    })
+    expect(() => candidateServicePortPatch({ runtime: 20_001, schedule: 20_001, im: 20_003 }))
+      .toThrow('distinct')
+  })
+
   it('enables headless diagnostics only inside explicit candidate mode', () => {
     expect(isCandidateHeadless({ WORKWISE_CANDIDATE: '1', WORKWISE_CANDIDATE_HEADLESS: '1' })).toBe(true)
     expect(isCandidateHeadless({ WORKWISE_CANDIDATE_HEADLESS: '1' })).toBe(false)
@@ -109,6 +209,21 @@ describe('resolveCandidateRuntimePaths', () => {
     })
 
     expect(calls).toEqual(['ensure', 'report', 'stop', 'exit:0'])
+  })
+
+  it('verifies candidate services before reporting probe readiness', async () => {
+    const calls: string[] = []
+    const ports = { runtime: 20_101, schedule: 20_102, im: 20_103 }
+    let reported: unknown
+    await runCandidateRuntimeProbe({
+      ensureRuntime: async () => { calls.push('ensure') },
+      verifyServices: async () => { calls.push('verify'); return ports },
+      reportReady: (verifiedPorts) => { calls.push('report'); reported = verifiedPorts },
+      stop: async () => { calls.push('stop') },
+      exit: (code) => { calls.push(`exit:${code}`) }
+    })
+    expect(calls).toEqual(['ensure', 'verify', 'report', 'stop', 'exit:0'])
+    expect(reported).toEqual(ports)
   })
 
   it('does not report success or exit zero when the Runtime probe fails', async () => {

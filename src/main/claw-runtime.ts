@@ -491,6 +491,8 @@ export function imWelcomeText(settings: AppSettingsV1, channel?: ClawImChannelV1
 export class ClawRuntime {
   private readonly deps: ClawRuntimeDeps
   private server: Server | null = null
+  private serverOwned = false
+  private serverRequestHandler: ((req: IncomingMessage, res: ServerResponse) => void) | null = null
   private serverKey = ''
   private feishuChannels = new Map<string, LarkChannel>()
   private feishuChannelKeys = new Map<string, string>()
@@ -2891,6 +2893,24 @@ export class ClawRuntime {
     if (this.server && this.serverKey === key) return
     void this.closeWebhook()
 
+    const reservedServer = this.deps.webhookServer
+    const reservedAddress = reservedServer?.address()
+    const reservedPort = reservedAddress && typeof reservedAddress !== 'string'
+      ? reservedAddress.port
+      : null
+    if (reservedServer?.listening && reservedPort === im.port) {
+      const handler = (req: IncomingMessage, res: ServerResponse): void => {
+        void this.handleWebhook(req, res)
+      }
+      reservedServer.on('request', handler)
+      this.server = reservedServer
+      this.serverOwned = false
+      this.serverRequestHandler = handler
+      this.serverKey = key
+      traceImStartup('webhook reservation handed off', { port: im.port })
+      return
+    }
+
     const server = createServer((req, res) => {
       void this.handleWebhook(req, res)
     })
@@ -2906,14 +2926,21 @@ export class ClawRuntime {
     server.on('listening', () => traceImStartup('webhook listening', { port: im.port }))
     server.listen(im.port, '127.0.0.1')
     this.server = server
+    this.serverOwned = true
     this.serverKey = key
   }
 
   private closeWebhook(): Promise<void> {
     if (!this.server) return Promise.resolve()
     const server = this.server
+    const handler = this.serverRequestHandler
+    const owned = this.serverOwned
     this.server = null
+    this.serverOwned = false
+    this.serverRequestHandler = null
     this.serverKey = ''
+    if (handler) server.removeListener('request', handler)
+    if (!owned) return Promise.resolve()
     return new Promise((resolveClose) => {
       try {
         server.close(() => resolveClose())
@@ -2929,9 +2956,13 @@ export class ClawRuntime {
       assertOwned: () => undefined
     }
     try {
+      const url = new URL(req.url ?? '/', 'http://127.0.0.1')
+      if (url.pathname === '/claw/internal/health' && req.method === 'GET') {
+        writeJson(res, 200, { status: 'ok', service: 'claw', mode: 'embedded' })
+        return
+      }
       const settings = await this.deps.store.load()
       const im = settings.claw.im
-      const url = new URL(req.url ?? '/', 'http://127.0.0.1')
       if (url.pathname === '/claw/internal/gui-plan/create' && req.method === 'POST') {
         // The legacy `gui_plan_create` MCP bridge is no longer the
         // active plan path. GUI plan creation now flows through the

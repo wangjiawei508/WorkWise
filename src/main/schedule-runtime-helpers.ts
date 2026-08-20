@@ -26,6 +26,8 @@ export type ScheduleRuntimeDeps = {
   runtimeRequest: RuntimeRequestFn
   logError: (category: string, message: string, detail?: unknown) => void
   powerSaveBlocker?: PowerSaveBlockerLike
+  /** Candidate mode may reserve this listener before runtime handoff. */
+  internalServer?: import('node:http').Server
 }
 
 export type ThreadRecordJson = {

@@ -26,7 +26,7 @@ vi.mock('electron', () => ({
 
 let tempRoot: string | null = null
 
-function createSettings(binaryPath: string): AppSettingsV1 {
+function createSettings(binaryPath: string, port = 8899): AppSettingsV1 {
   if (!tempRoot) throw new Error('temp root not initialized')
   return {
     version: 1,
@@ -36,7 +36,7 @@ function createSettings(binaryPath: string): AppSettingsV1 {
     provider: defaultModelProviderSettings(),
     agents: {
       kun: {
-        ...defaultManagedRuntimeSettings(8899),
+        ...defaultManagedRuntimeSettings(port),
         binaryPath,
         dataDir: join(tempRoot, 'runtime-data'),
         autoStart: true
@@ -112,6 +112,78 @@ describe('startManagedRuntimeChild', () => {
     expect(logText).toContain('WorkWise Runtime listening')
     expect(logText).toContain('[runtime pid=')
     expect(logText).toContain('ready marker received on port 8899')
+  })
+
+  it('stores the actual Runtime port reported by the ready marker', async () => {
+    const script = writeScript(
+      'ephemeral-ready-child.js',
+      [
+        "const portIndex = process.argv.indexOf('--port')",
+        "if (portIndex < 0 || process.argv[portIndex + 1] !== '0') process.exit(32)",
+        "process.stdout.write('KUN_READY ' + JSON.stringify({ service: 'kun', mode: 'serve', port: 43127 }) + '\\n')",
+        'setInterval(() => {}, 1_000)'
+      ].join('\n')
+    )
+    const module = await import('./managed-runtime-process')
+    await expect(module.startManagedRuntimeChild(
+      createSettings(script, 8899),
+      {
+        candidateRoot: tempRoot!,
+        homeDir: join(tempRoot!, 'home'),
+        workwiseHome: join(tempRoot!, 'home', '.workwise'),
+        mcpConfigPath: join(tempRoot!, 'home', '.workwise', 'mcp.json'),
+        autoInstallBundledAgentPack: false,
+        autoInstallBundledSpecialistSkills: false,
+        skillRoots: []
+      }
+    )).resolves.toBeUndefined()
+    expect(module.getManagedRuntimeActualPort()).toBe(43127)
+    await module.stopManagedRuntimeChildAndWait()
+    expect(module.getManagedRuntimeActualPort()).toBeNull()
+  })
+
+  it('does not route fixed-port production through a mismatched ready-marker port', async () => {
+    const script = writeScript(
+      'fixed-port-mismatch-child.js',
+      [
+        "process.stdout.write('KUN_READY ' + JSON.stringify({ service: 'kun', mode: 'serve', port: 43129 }) + '\\n')",
+        'setInterval(() => {}, 1_000)'
+      ].join('\n')
+    )
+    const module = await import('./managed-runtime-process')
+    await expect(module.startManagedRuntimeChild(
+      createSettings(script, 8899),
+      { autoInstallBundledAgentPack: false }
+    )).resolves.toBeUndefined()
+    expect(module.getManagedRuntimeActualPort()).toBeNull()
+  })
+
+  it('clears the actual Runtime port when the child exits unexpectedly', async () => {
+    const script = writeScript(
+      'ephemeral-exit-child.js',
+      [
+        "const portIndex = process.argv.indexOf('--port')",
+        "if (portIndex < 0 || process.argv[portIndex + 1] !== '0') process.exit(33)",
+        "process.stdout.write('KUN_READY ' + JSON.stringify({ service: 'kun', mode: 'serve', port: 43128 }) + '\\n')",
+        'setTimeout(() => process.exit(0), 25)'
+      ].join('\n')
+    )
+    const module = await import('./managed-runtime-process')
+    await expect(module.startManagedRuntimeChild(
+      createSettings(script, 8899),
+      {
+        candidateRoot: tempRoot!,
+        homeDir: join(tempRoot!, 'home'),
+        workwiseHome: join(tempRoot!, 'home', '.workwise'),
+        mcpConfigPath: join(tempRoot!, 'home', '.workwise', 'mcp.json'),
+        autoInstallBundledAgentPack: false,
+        autoInstallBundledSpecialistSkills: false,
+        skillRoots: []
+      }
+    )).resolves.toBeUndefined()
+    expect(module.getManagedRuntimeActualPort()).toBe(43128)
+    await new Promise((resolve) => setTimeout(resolve, 100))
+    expect(module.getManagedRuntimeActualPort()).toBeNull()
   })
 
   it('rejects when the child exits before reporting ready', async () => {

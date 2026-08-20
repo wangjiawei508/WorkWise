@@ -64,6 +64,7 @@ import { McpConfigService } from './services/mcp-config-service'
 let child: ChildProcess | null = null
 let childLogCapture: RuntimeLogCapture | null = null
 let lastResolvedBinary: string | null = null
+let actualManagedRuntimePort: number | null = null
 const RUNTIME_READY_PREFIX = 'KUN_READY '
 // Cold starts on slow disks (Windows + antivirus scans, sqlite rebuilds,
 // MCP server connects) routinely exceed 15s; killing kun that early left
@@ -377,9 +378,15 @@ export async function startManagedRuntimeChild(
   options: StartManagedRuntimeChildOptions = {}
 ): Promise<void> {
   const candidateRoot = options.candidateRoot?.trim()
-  const runtime = resolveManagedRuntimeForStart(settings, Boolean(candidateRoot), options.runtimeToken)
+  const runtime = {
+    ...resolveManagedRuntimeForStart(settings, Boolean(candidateRoot), options.runtimeToken),
+    // Candidate Runtime deliberately asks the child for an ephemeral port;
+    // the persisted settings schema only accepts fixed user-space ports.
+    ...(candidateRoot ? { port: 0 } : {})
+  }
   if (isManagedRuntimeChildRunning()) return
   if (!runtime.autoStart) return
+  actualManagedRuntimePort = null
   if (childLogCapture) {
     await childLogCapture.close()
     childLogCapture = null
@@ -485,7 +492,10 @@ export async function startManagedRuntimeChild(
         : `exited with code ${code ?? 'unknown'}`
     )
     void startedLogCapture.close()
-    if (child === startedChild) child = null
+    if (child === startedChild) {
+      child = null
+      actualManagedRuntimePort = null
+    }
   })
   child.on('error', (error) => {
     startedLogCapture.logLifecycle(
@@ -493,7 +503,8 @@ export async function startManagedRuntimeChild(
     )
   })
   try {
-    await waitForRuntimeStartup(startedChild, runtime.port)
+    const readyPort = await waitForRuntimeStartup(startedChild, runtime.port)
+    actualManagedRuntimePort = runtime.port === 0 ? readyPort : null
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
     startedLogCapture.logLifecycle(`startup failed before ready: ${message}`)
@@ -502,7 +513,11 @@ export async function startManagedRuntimeChild(
     }
     throw error
   }
-  startedLogCapture.logLifecycle(`ready marker received on port ${runtime.port}`)
+  startedLogCapture.logLifecycle(`ready marker received on port ${actualManagedRuntimePort ?? runtime.port}`)
+}
+
+export function getManagedRuntimeActualPort(): number | null {
+  return actualManagedRuntimePort
 }
 
 async function ensureBundledAgentPackForRuntime(options: StartManagedRuntimeChildOptions): Promise<void> {
@@ -1116,6 +1131,7 @@ function objectValue(value: unknown): Record<string, unknown> {
 
 export async function stopManagedRuntimeChildAndWait(): Promise<void> {
   if (!child) {
+    actualManagedRuntimePort = null
     if (childLogCapture) {
       const capture = childLogCapture
       childLogCapture = null
@@ -1143,6 +1159,7 @@ export async function stopManagedRuntimeChildAndWait(): Promise<void> {
     await waitForChildExit(stoppingChild, RUNTIME_STOP_FORCE_MS)
   }
   if (child === stoppingChild) child = null
+  actualManagedRuntimePort = null
   if (capture) {
     childLogCapture = null
     await capture.close()
@@ -1197,11 +1214,11 @@ function canBindTcpPort(port: number, host: string): Promise<boolean> {
   })
 }
 
-async function waitForRuntimeStartup(startedChild: ChildProcess, port?: number): Promise<void> {
+async function waitForRuntimeStartup(startedChild: ChildProcess, port?: number): Promise<number> {
   if (startedChild.exitCode !== null) {
     throw new Error(describeRuntimeExit(startedChild.exitCode, null))
   }
-  await new Promise<void>((resolve, reject) => {
+  return await new Promise<number>((resolve, reject) => {
     let settled = false
     let stdoutBuffer = ''
     let stderrTail = ''
@@ -1221,7 +1238,7 @@ async function waitForRuntimeStartup(startedChild: ChildProcess, port?: number):
           healthProbeInFlight = true
           void probeRuntimeHealth(port)
             .then((healthy) => {
-              if (healthy) settleReady()
+              if (healthy && port > 0) settleReady(port)
             })
             .finally(() => {
               healthProbeInFlight = false
@@ -1236,30 +1253,33 @@ async function waitForRuntimeStartup(startedChild: ChildProcess, port?: number):
       startedChild.stdout?.removeListener('data', onStdout)
       startedChild.stderr?.removeListener('data', onStderr)
     }
-    const tryParseReady = (): boolean => {
+    const parseReadyPort = (): number | null => {
       const markerIndex = stdoutBuffer.indexOf(RUNTIME_READY_PREFIX)
-      if (markerIndex < 0) return false
+      if (markerIndex < 0) return null
       const afterPrefix = stdoutBuffer.slice(markerIndex + RUNTIME_READY_PREFIX.length)
       const newlineIndex = afterPrefix.indexOf('\n')
-      if (newlineIndex < 0) return false
+      if (newlineIndex < 0) return null
       const jsonLine = afterPrefix.slice(0, newlineIndex).trim()
-      if (!jsonLine) return false
+      if (!jsonLine) return null
       try {
         const parsed = JSON.parse(jsonLine) as { service?: string; mode?: string; port?: number }
-        return parsed.service === 'kun' && parsed.mode === 'serve' && typeof parsed.port === 'number'
+        return parsed.service === 'kun' && parsed.mode === 'serve' && typeof parsed.port === 'number' && parsed.port > 0
+          ? parsed.port
+          : null
       } catch {
-        return false
+        return null
       }
     }
-    const settleReady = (): void => {
+    const settleReady = (actualPort: number): void => {
       if (settled) return
       settled = true
       cleanup()
-      resolve()
+      resolve(actualPort)
     }
     const onStdout = (chunk: Buffer | string): void => {
       stdoutBuffer = appendTail(stdoutBuffer, String(chunk), STDERR_TAIL_MAX_CHARS * 2)
-      if (tryParseReady()) settleReady()
+      const actualPort = parseReadyPort()
+      if (actualPort !== null) settleReady(actualPort)
     }
     const onStderr = (chunk: Buffer | string): void => {
       stderrTail = appendTail(stderrTail, String(chunk))

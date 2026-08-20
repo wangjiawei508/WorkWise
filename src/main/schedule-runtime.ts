@@ -58,6 +58,8 @@ export class ScheduleRuntime {
   private readonly deps: ScheduleRuntimeDeps
   private scheduler: ReturnType<typeof setInterval> | null = null
   private server: Server | null = null
+  private serverOwned = false
+  private serverRequestHandler: ((req: IncomingMessage, res: ServerResponse) => void) | null = null
   private serverKey = ''
   private runningTaskIds = new Set<string>()
   private powerSaveBlockerId: number | null = null
@@ -560,6 +562,23 @@ export class ScheduleRuntime {
     if (this.server && this.serverKey === key) return
     this.closeInternalServer()
 
+    const reservedServer = this.deps.internalServer
+    const reservedAddress = reservedServer?.address()
+    const reservedPort = reservedAddress && typeof reservedAddress !== 'string'
+      ? reservedAddress.port
+      : null
+    if (reservedServer?.listening && reservedPort === internal.port) {
+      const handler = (req: IncomingMessage, res: ServerResponse): void => {
+        void this.handleInternalRequest(req, res)
+      }
+      reservedServer.on('request', handler)
+      this.server = reservedServer
+      this.serverOwned = false
+      this.serverRequestHandler = handler
+      this.serverKey = key
+      return
+    }
+
     const server = createServer((req, res) => {
       void this.handleInternalRequest(req, res)
     })
@@ -573,21 +592,30 @@ export class ScheduleRuntime {
     })
     server.listen(internal.port, '127.0.0.1')
     this.server = server
+    this.serverOwned = true
     this.serverKey = key
   }
 
   private closeInternalServer(): void {
     if (!this.server) return
     const server = this.server
+    const handler = this.serverRequestHandler
+    const owned = this.serverOwned
     this.server = null
+    this.serverOwned = false
+    this.serverRequestHandler = null
     this.serverKey = ''
-    server.close()
+    if (handler) server.removeListener('request', handler)
+    if (owned) server.close()
   }
 
   private async handleInternalRequest(req: IncomingMessage, res: ServerResponse): Promise<void> {
     try {
-      const settings = await this.deps.store.load()
       const url = new URL(req.url ?? '/', 'http://127.0.0.1')
+      if (url.pathname === '/schedule/internal/health' && req.method === 'GET') {
+        writeJson(res, 200, { status: 'ok', service: 'schedule', mode: 'embedded' })
+        return
+      }
       if (!url.pathname.startsWith('/schedule/internal/')) {
         writeJson(res, 404, { ok: false, message: 'Not found.' })
         return
@@ -596,6 +624,7 @@ export class ScheduleRuntime {
         writeJson(res, 405, { ok: false, message: 'Method not allowed.' })
         return
       }
+      const settings = await this.deps.store.load()
       const secret = settings.schedule.internal.secret.trim()
       if (secret) {
         const auth = req.headers.authorization ?? ''
