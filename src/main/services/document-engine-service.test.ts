@@ -287,6 +287,43 @@ describe('DocumentEngineService', () => {
     expect(metadataFiles.filter(Boolean)).toHaveLength(1)
   }, 15_000)
 
+  it('does not cache a partial OCR identity when any advertised field is rejected', async () => {
+    const { root } = await fixture()
+    const bridge = runner('OCR output after rejected health identity')
+    let healthProbeCount = 0
+    const healthFetch = vi.fn(async () => {
+      healthProbeCount += 1
+      return new Response(JSON.stringify(healthProbeCount === 1
+        ? { service: 'Unlimited-OCR', model: 'model-a' }
+        : { service: 'Unlimited-OCR', model: '/private/rejected-model' }), { status: 200 })
+    }) as unknown as typeof fetch
+    const service = new DocumentEngineService({
+      runner: bridge,
+      unlimitedOcr: new UnlimitedOcrService({ fetch: healthFetch })
+    })
+    const request = {
+      workspaceRoot: root,
+      relativePath: 'source.pdf',
+      mode: 'accurate' as const,
+      unlimitedOcrServerUrl: 'http://127.0.0.1:3000',
+      idempotencyKey: 'rejected-ocr-health-identity'
+    }
+
+    const first = await service.parse(request)
+    const second = await service.parse({ ...request, parseId: 'rejected-ocr-health-identity-2' })
+    const third = await service.parse({ ...request, parseId: 'rejected-ocr-health-identity-3' })
+
+    expect(first).toMatchObject({ cacheHit: false, engineVersion: 'service=Unlimited-OCR;model=model-a' })
+    expect(second).toMatchObject({ cacheHit: false, engineVersion: 'unlimited-ocr-api-v1-unverified' })
+    expect(third).toMatchObject({ cacheHit: false, engineVersion: 'unlimited-ocr-api-v1-unverified' })
+    expect(bridge).toHaveBeenCalledTimes(3)
+    const cacheRoot = join(root, '.workwise', 'cache', 'documents')
+    const metadataFiles = await Promise.all((await readdir(cacheRoot)).map((directory) => (
+      fileExists(join(cacheRoot, directory, 'workwise-result.json'))
+    )))
+    expect(metadataFiles.filter(Boolean)).toHaveLength(1)
+  }, 15_000)
+
   it('continues OCR without caching when the health identity probe times out', async () => {
     vi.useFakeTimers()
     try {
@@ -621,6 +658,12 @@ describe('DocumentEngineService', () => {
       id: 'unlimited-ocr-local',
       state: 'available',
       version: 'unlimited-ocr-api-v1-unversioned'
+    }))
+
+    await expect(reachable.listEngines(undefined, 'not a URL')).resolves.toContainEqual(expect.objectContaining({
+      id: 'unlimited-ocr-local',
+      state: 'error',
+      version: 'unlimited-ocr-api-v1-unverified'
     }))
   })
 

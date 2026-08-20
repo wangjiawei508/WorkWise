@@ -227,8 +227,7 @@ async function readHealthIdentity(
   signal: AbortSignal
 ): Promise<{ identity?: string; identityUnverified?: boolean }> {
   try {
-    const identity = extractHealthIdentity(await readResponseText(response, MAX_HEALTH_RESPONSE_BYTES, signal))
-    return identity ? { identity } : {}
+    return extractHealthIdentity(await readResponseText(response, MAX_HEALTH_RESPONSE_BYTES, signal))
   } catch (error) {
     if (error instanceof Error && error.message === 'Unlimited-OCR response exceeded the size limit.') {
       return { identityUnverified: true }
@@ -237,21 +236,24 @@ async function readHealthIdentity(
   }
 }
 
-function extractHealthIdentity(text: string): string | undefined {
+function extractHealthIdentity(text: string): { identity?: string; identityUnverified?: boolean } {
   let payload: unknown
   try {
     payload = JSON.parse(text)
   } catch {
-    return undefined
+    return {}
   }
-  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return undefined
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return {}
   const record = payload as Record<string, unknown>
   const fields = ['service', 'version', 'model', 'model_version'] as const
-  const identity = fields.flatMap((field) => {
+  const identity: string[] = []
+  for (const field of fields) {
+    if (!Object.prototype.hasOwnProperty.call(record, field)) continue
     const value = sanitizeHealthIdentityPart(record[field])
-    return value ? [`${field}=${value}`] : []
-  }).join(';')
-  return identity || undefined
+    if (!value) return { identityUnverified: true }
+    identity.push(`${field}=${value}`)
+  }
+  return identity.length > 0 ? { identity: identity.join(';') } : {}
 }
 
 function sanitizeHealthIdentityPart(value: unknown): string | undefined {

@@ -250,6 +250,7 @@ export class DocumentEngineService {
       } catch (error) {
         unlimitedOcrState = 'error'
         unlimitedOcrMessage = safeErrorMessage(error)
+        unlimitedOcrVersion = UNLIMITED_OCR_UNVERIFIED_IDENTITY
       }
     }
     return [

@@ -52,7 +52,7 @@ describe('UnlimitedOcrService', () => {
     })
   })
 
-  it('ignores nested, path-like, and overlong health metadata without leaking it', async () => {
+  it('marks rejected identity fields as unverified without leaking them', async () => {
     const fetcher = vi.fn(async () => new Response(JSON.stringify({
       service: 'Unlimited OCR',
       version: '/private/tmp/secret-version',
@@ -64,7 +64,7 @@ describe('UnlimitedOcrService', () => {
 
     await expect(service.checkHealth('http://127.0.0.1:3000')).resolves.toEqual({
       available: true,
-      identity: 'service=Unlimited-OCR'
+      identityUnverified: true
     })
   })
 
