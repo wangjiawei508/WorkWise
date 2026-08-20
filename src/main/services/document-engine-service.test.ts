@@ -28,7 +28,10 @@ async function fixture(extension = '.pdf'): Promise<{ root: string; path: string
   return { root, path }
 }
 
-function runner(markdown = '# Parsed\n\n| A | B |\n|---|---|\n| 1 | 2 |') {
+function runner(
+  markdown = '# Parsed\n\n| A | B |\n|---|---|\n| 1 | 2 |',
+  headings: DocumentSidecarResponse['headings'] = [{ level: 1, text: 'Parsed' }]
+) {
   return vi.fn<DocumentEngineRunner>(async (input) => {
     await mkdir(input.outputDirectory, { recursive: true })
     const markdownPath = join(input.outputDirectory, 'document.md')
@@ -39,7 +42,7 @@ function runner(markdown = '# Parsed\n\n| A | B |\n|---|---|\n| 1 | 2 |') {
       engineVersion: 'fixture-1',
       sourceSha256: createHash('sha256').update(await readFile(input.inputPath)).digest('hex'),
       markdownPath: relative(input.workspaceRoot, markdownPath),
-      headings: [{ level: 1, text: 'Parsed' }],
+      headings,
       tables: [],
       media: [],
       references: [],
@@ -122,6 +125,29 @@ describe('DocumentEngineService', () => {
     expect(first.cacheHit).toBe(false)
     expect(second.cacheHit).toBe(true)
     expect(bridge).toHaveBeenCalledTimes(1)
+  }, 15_000)
+
+  it('rejects a current cache entry written before the document result revision', async () => {
+    const { root } = await fixture()
+    const outputDirectory = join(root, '.workwise', 'cache', 'revision-upgrade')
+    const bridge = runner()
+    const service = new DocumentEngineService({ runner: bridge })
+    const request = {
+      workspaceRoot: root,
+      relativePath: 'source.pdf',
+      outputDirectory: relative(root, outputDirectory),
+      mode: 'fast' as const,
+      idempotencyKey: 'cache-revision-upgrade'
+    }
+    await service.parse(request)
+    const metadataPath = join(outputDirectory, 'workwise-result.json')
+    const metadata = JSON.parse(await readFile(metadataPath, 'utf8')) as { revision?: string }
+    delete metadata.revision
+    await writeFile(metadataPath, JSON.stringify(metadata))
+
+    await expect(service.parse({ ...request, parseId: 'cache-revision-upgrade-retry' }))
+      .resolves.toMatchObject({ cacheHit: false })
+    expect(bridge).toHaveBeenCalledTimes(2)
   }, 15_000)
 
   it('backfills PDF switch reasons when reading an older current cache entry', async () => {
@@ -673,27 +699,78 @@ describe('DocumentEngineService', () => {
     expect(result.headings.filter((heading) => heading.text !== 'Parsed')).toEqual([])
   })
 
-  it('prefers explicit PDF page markers over MarkItDown form-feed boundaries', async () => {
+  it('uses structural MarkItDown form-feed boundaries instead of untrusted page-marker text', async () => {
     const { root, path } = await fixture()
     await writeFile(path, twoPagePdf('First page body', 'Second page body'))
     const service = new DocumentEngineService({
-      runner: runner('<!-- page:2 -->\n# Explicit page\f# Form feed remains on explicit page')
+      runner: runner('# First page <!-- page:2 -->\f# Second page')
     })
 
     const result = await service.parse({
       workspaceRoot: root,
       relativePath: 'source.pdf',
       mode: 'fast',
-      idempotencyKey: 'explicit-page-marker-priority'
+      idempotencyKey: 'form-feed-priority'
     })
 
+    expect(result.references).toContainEqual({ page: 1, blockId: 'page-1', kind: 'text' })
     expect(result.references).toContainEqual({ page: 2, blockId: 'page-2', kind: 'text' })
-    expect(result.references).not.toContainEqual(expect.objectContaining({ blockId: 'page-1' }))
     expect(result.headings).toEqual(expect.arrayContaining([
-      expect.objectContaining({ text: 'Explicit page', page: 2 }),
-      expect.objectContaining({ text: 'Form feed remains on explicit page', page: 2 })
+      expect.objectContaining({ text: 'First page <!-- page:2 -->', page: 1 }),
+      expect.objectContaining({ text: 'Second page', page: 2 })
     ]))
   })
+
+  it('assigns MarkItDown page provenance to sidecar headings without duplicating them', async () => {
+    const { root, path } = await fixture()
+    await writeFile(path, twoPagePdf('First page body', 'Second page body'))
+    const service = new DocumentEngineService({
+      runner: runner(
+        '# First page\n\nFirst page body\f# Second page\n\nSecond page body',
+        [
+          { level: 1, text: 'First page' },
+          { level: 1, text: 'Second page' }
+        ]
+      )
+    })
+
+    const result = await service.parse({
+      workspaceRoot: root,
+      relativePath: 'source.pdf',
+      mode: 'fast',
+      idempotencyKey: 'deduplicate-sidecar-headings'
+    })
+
+    expect(result.headings).toEqual([
+      { level: 1, text: 'First page', page: 1 },
+      { level: 1, text: 'Second page', page: 2 }
+    ])
+  })
+
+  it('bounds form-feed PDF provenance and reuses its validated cache', async () => {
+    const pageCount = 1_001
+    const pages = Array.from({ length: pageCount }, (_, index) => `Page ${index + 1}`)
+    const { root, path } = await fixture()
+    await writeFile(path, pdfWithPages(pages))
+    const bridge = runner(pages.join('\f'), [])
+    const service = new DocumentEngineService({ runner: bridge })
+    const request = {
+      workspaceRoot: root,
+      relativePath: 'source.pdf',
+      mode: 'fast' as const,
+      idempotencyKey: 'bounded-page-provenance'
+    }
+
+    const first = await service.parse(request)
+    const second = await service.parse({ ...request, parseId: 'bounded-page-provenance-cache' })
+
+    expect(first.sourceStructure).toEqual({ pageCount })
+    expect(first.references).toHaveLength(1_000)
+    expect(first.references.at(-1)).toMatchObject({ page: 1_000, blockId: 'page-1000' })
+    expect(second).toMatchObject({ cacheHit: true })
+    expect(second.references).toHaveLength(1_000)
+    expect(bridge).toHaveBeenCalledTimes(1)
+  }, 30_000)
 
   it('drops parser-provided PDF provenance pages outside the analyzed document', async () => {
     const { root, path } = await fixture()
@@ -968,16 +1045,27 @@ function minimalPdf(text: string): Buffer {
 }
 
 function twoPagePdf(first: string, second: string): Buffer {
-  const streams = [first, second].map((text) => (
+  return pdfWithPages([first, second])
+}
+
+function pdfWithPages(pages: string[]): Buffer {
+  const streams = pages.map((text) => (
     `BT /F1 12 Tf 72 720 Td (${text.replace(/[()\\]/g, '\\$&')}) Tj ET`
   ))
+  const fontObject = 3 + pages.length * 2
+  const pageObjects = pages.flatMap((_, index) => {
+    const pageObject = 3 + index * 2
+    const streamObject = pageObject + 1
+    return [
+      `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 ${fontObject} 0 R >> >> /Contents ${streamObject} 0 R >>`,
+      `<< /Length ${Buffer.byteLength(streams[index])} >>\nstream\n${streams[index]}\nendstream`
+    ]
+  })
+  const kids = pages.map((_, index) => `${3 + index * 2} 0 R`).join(' ')
   const objects = [
     '<< /Type /Catalog /Pages 2 0 R >>',
-    '<< /Type /Pages /Kids [3 0 R 5 0 R] /Count 2 >>',
-    '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 7 0 R >> >> /Contents 4 0 R >>',
-    `<< /Length ${Buffer.byteLength(streams[0])} >>\nstream\n${streams[0]}\nendstream`,
-    '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 7 0 R >> >> /Contents 6 0 R >>',
-    `<< /Length ${Buffer.byteLength(streams[1])} >>\nstream\n${streams[1]}\nendstream`,
+    `<< /Type /Pages /Kids [${kids}] /Count ${pages.length} >>`,
+    ...pageObjects,
     '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>'
   ]
   let body = '%PDF-1.4\n'

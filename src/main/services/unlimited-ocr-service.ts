@@ -15,7 +15,7 @@ type SubmissionJob = {
 
 type JobResponse = {
   status: 'queued' | 'running' | 'succeeded' | 'failed'
-  document_page?: number
+  document_page?: unknown
   result?: {
     generated_text?: string
     result?: { text?: string } | string
@@ -124,6 +124,7 @@ export class UnlimitedOcrService {
       if (jobs.length === 0) throw new Error('Unlimited-OCR server returned no jobs.')
 
       const pages: Array<{ page: number; markdown: string }> = []
+      const claimedPages = new Set<number>()
       for (let index = 0; index < jobs.length; index += 1) {
         const job = jobs[index]
         const statusUrl = new URL(job.status_url, origin)
@@ -131,7 +132,12 @@ export class UnlimitedOcrService {
         const completed = await this.waitForJob(fetcher, statusUrl, signal, deadline)
         const markdown = extractJobText(completed)
         if (!markdown.trim()) throw new Error(`Unlimited-OCR returned an empty result for page ${index + 1}.`)
-        pages.push({ page: completed.document_page ?? index + 1, markdown: markdown.trim() })
+        const page = validatedDocumentPage(completed.document_page, index + 1, jobs.length)
+        if (claimedPages.has(page)) {
+          throw new Error('Unlimited-OCR returned a duplicate document page.')
+        }
+        claimedPages.add(page)
+        pages.push({ page, markdown: markdown.trim() })
       }
       pages.sort((left, right) => left.page - right.page)
       const markdown = pages
@@ -234,6 +240,14 @@ function extractJobText(job: JobResponse): string {
   if (nested && typeof nested === 'object' && typeof nested.text === 'string') return nested.text
   if (typeof nested === 'string') return nested
   return job.result?.generated_text ?? ''
+}
+
+function validatedDocumentPage(value: unknown, fallback: number, pageCount: number): number {
+  if (value === undefined) return fallback
+  if (!Number.isSafeInteger(value) || (value as number) < 1 || (value as number) > pageCount) {
+    throw new Error('Unlimited-OCR returned an invalid document page.')
+  }
+  return value as number
 }
 
 function abortableDelay(milliseconds: number, signal: AbortSignal): Promise<void> {

@@ -9,7 +9,11 @@ import {
   defaultModelProviderSettings
 } from '../shared/app-settings'
 import { DEFAULT_GUI_UPDATE_CHANNEL } from '../shared/gui-update'
-import { JsonSettingsStore, SettingsRevisionConflictError } from './settings-store'
+import {
+  JsonSettingsStore,
+  resolveWorkwiseHome,
+  SettingsRevisionConflictError
+} from './settings-store'
 
 async function writeIsolatedSettings(userDataDir: string, locale: 'en' | 'zh' = 'en'): Promise<{
   workwiseHome: string
@@ -37,6 +41,14 @@ async function writeIsolatedSettings(userDataDir: string, locale: 'en' | 'zh' = 
 }
 
 describe('JsonSettingsStore', () => {
+  it('keeps formal data under the runtime home unless an isolated root is explicit', () => {
+    const formalHome = '/Users/workwise-formal'
+    const candidateHome = '/private/tmp/workwise-candidate/home/.workwise'
+
+    expect(resolveWorkwiseHome(undefined, formalHome)).toBe(join(formalHome, '.workwise'))
+    expect(resolveWorkwiseHome(candidateHome, formalHome)).toBe(candidateHome)
+  })
+
   it('writes new settings with the WorkWise V2 envelope', async () => {
     const userDataDir = await mkdtemp(join(tmpdir(), 'workwise-settings-v2-'))
     const workwiseHome = join(userDataDir, '.workwise')
@@ -451,7 +463,9 @@ describe('JsonSettingsStore', () => {
       'utf8'
     )
 
-    const store = new JsonSettingsStore(currentUserDataDir)
+    const store = new JsonSettingsStore(currentUserDataDir, {
+      workwiseHome: join(currentUserDataDir, '.workwise')
+    })
     const loaded = await store.load()
 
     expect(loaded.provider.apiKey).toBe('sk-legacy-provider')

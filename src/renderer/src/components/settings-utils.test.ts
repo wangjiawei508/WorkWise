@@ -9,6 +9,7 @@ import {
   type AppSettingsV1
 } from '@shared/app-settings'
 import {
+  canPersistSettingsWithPort,
   coerceRendererSettings,
   guiUpdateFailureMessage,
   hasValidPort,
@@ -38,11 +39,13 @@ function legacySettings(): AppSettingsV1 {
 }
 
 describe('settings utils', () => {
-  it('allows settings to persist while the candidate runtime is waiting for an automatic port', () => {
+  it('separates a candidate automatic-port snapshot from an editable fixed-port patch', () => {
     const settings = legacySettings()
     settings.agents.kun.port = 0
 
-    expect(hasValidPort(settings)).toBe(true)
+    expect(hasValidPort(settings)).toBe(false)
+    expect(canPersistSettingsWithPort(settings, { theme: 'dark' })).toBe(true)
+    expect(canPersistSettingsWithPort(settings, { agents: { kun: { port: 0 } } })).toBe(false)
   })
 
   it('keeps the WorkWise V2 revision in renderer state', () => {

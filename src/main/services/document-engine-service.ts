@@ -22,6 +22,7 @@ import JSZip from 'jszip'
 import { z } from 'zod'
 
 const MARKITDOWN_ENGINE_VERSION = 'markitdown-v0.1.4-workwise-1'
+const DOCUMENT_RESULT_CACHE_REVISION = 'document-result-v2'
 const MAX_DOCUMENT_BYTES = 200 * 1024 * 1024
 const MAX_PROTOCOL_BYTES = 16 * 1024 * 1024
 const MAX_METADATA_BYTES = 1024 * 1024
@@ -87,6 +88,7 @@ const documentParseResultSchema = z.object({
   durationMs: finiteNonNegativeSchema
 })
 const workwiseCacheSchema = z.object({
+  revision: z.literal(DOCUMENT_RESULT_CACHE_REVISION),
   markdownPath: boundedStringSchema,
   result: documentParseResultSchema
 })
@@ -357,7 +359,7 @@ export class DocumentEngineService {
       }
       const engine = await this.selectEngine(request, extension, mineruAvailable, Boolean(unlimitedOcrServerUrl))
       const cacheKey = createHash('sha256')
-        .update(`${sourceSha256}\0${engine}\0${engineCacheVersion(engine)}\0${request.mode}\0${mineruAvailable}\0${unlimitedOcrServerUrl}`)
+        .update(`${sourceSha256}\0${engine}\0${engineCacheVersion(engine)}\0${DOCUMENT_RESULT_CACHE_REVISION}\0${request.mode}\0${mineruAvailable}\0${unlimitedOcrServerUrl}`)
         .digest('hex')
       const outputDirectory = await resolveContainedPath({
         root: workspaceRoot,
@@ -555,6 +557,7 @@ export class DocumentEngineService {
         })
       }
       const supplemented = supplementPageReferences({
+        engine: selectedEngine,
         markdown,
         headings: response.headings ?? [],
         tables: response.tables ?? [],
@@ -771,12 +774,14 @@ export class DocumentEngineService {
     result: DocumentParseResultV1,
     signal: AbortSignal
   ): Promise<void> {
+    const payload = workwiseCacheSchema.parse({
+      revision: DOCUMENT_RESULT_CACHE_REVISION,
+      markdownPath: relative(workspaceRoot, markdownPath).replaceAll('\\', '/'),
+      result: { ...result, markdown: '' }
+    })
     await atomicWriteFile(
       join(outputDirectory, 'workwise-result.json'),
-      `${JSON.stringify({
-        markdownPath: relative(workspaceRoot, markdownPath).replaceAll('\\', '/'),
-        result: { ...result, markdown: '' }
-      }, null, 2)}\n`,
+      `${JSON.stringify(payload, null, 2)}\n`,
       { beforeReplace: async () => throwIfDocumentParseAborted(signal) }
     )
   }
@@ -878,6 +883,7 @@ function engineCacheVersion(engine: DocumentEngineId): string {
 }
 
 function supplementPageReferences(input: {
+  engine: DocumentEngineId
   markdown: string
   headings: DocumentParseResultV1['headings']
   tables: DocumentParseResultV1['tables']
@@ -885,23 +891,47 @@ function supplementPageReferences(input: {
   analysis?: PdfDocumentAnalysisV1
 }): Pick<DocumentParseResultV1, 'headings' | 'tables' | 'references'> {
   const references = input.references.filter((reference) => isValidPdfPage(reference.page, input.analysis))
-  const markers = markdownPageMarkers(input.markdown, input.analysis?.pageCount)
+  const markers = markdownPageMarkers(
+    input.markdown,
+    input.analysis?.pageCount,
+    input.engine !== 'markitdown'
+  )
   for (const marker of markers) {
     if (!references.some((reference) => reference.blockId === `page-${marker.page}`)) {
       references.push({ page: marker.page, blockId: `page-${marker.page}`, kind: 'text' })
     }
   }
-  const headings = input.headings.filter((heading) => heading.page === undefined || isValidPdfPage(heading.page, input.analysis))
+  const headings = input.headings
+    .filter((heading) => heading.page === undefined || isValidPdfPage(heading.page, input.analysis))
+    .slice(0, MAX_METADATA_ARRAY_ITEMS)
+    .map((heading) => ({ ...heading }))
+  const claimedHeadings = new Set<number>()
   for (const marker of markers) {
     for (const heading of marker.headings) {
-      if (!headings.some((current) => current.level === heading.level && current.text === heading.text && current.page === marker.page)) {
+      const existingIndex = headings.findIndex((current, index) => (
+        !claimedHeadings.has(index) &&
+        current.level === heading.level &&
+        current.text === heading.text &&
+        (current.page === undefined || current.page === marker.page)
+      ))
+      if (existingIndex >= 0) {
+        if (headings[existingIndex]!.page === undefined) {
+          headings[existingIndex] = { ...headings[existingIndex]!, page: marker.page }
+        }
+        claimedHeadings.add(existingIndex)
+      } else if (headings.length < MAX_METADATA_ARRAY_ITEMS) {
         headings.push({ ...heading, page: marker.page })
+        claimedHeadings.add(headings.length - 1)
       }
     }
   }
   const supplementedHeadings = headings.map((heading, index) => {
     const page = heading.page ?? (input.analysis?.pages.length ? findPdfPage(input.analysis.pages, heading.text) : undefined)
-    if (page && !references.some((reference) => reference.blockId === `heading-${index + 1}`)) {
+    if (
+      page &&
+      references.length < MAX_METADATA_ARRAY_ITEMS &&
+      !references.some((reference) => reference.blockId === `heading-${index + 1}`)
+    ) {
       references.push({ page, blockId: `heading-${index + 1}`, kind: 'text' })
     }
     return page ? { ...heading, page } : heading
@@ -910,40 +940,61 @@ function supplementPageReferences(input: {
     .filter((table) => table.page === undefined || isValidPdfPage(table.page, input.analysis))
     .map((table, index) => {
     const page = table.page ?? (input.analysis?.pages.length ? findPdfPage(input.analysis.pages, table.markdown) : undefined)
-    if (page && !references.some((reference) => reference.blockId === `table-${index + 1}`)) {
+    if (
+      page &&
+      references.length < MAX_METADATA_ARRAY_ITEMS &&
+      !references.some((reference) => reference.blockId === `table-${index + 1}`)
+    ) {
       references.push({ page, blockId: `table-${index + 1}`, kind: 'table' })
     }
     return page ? { ...table, page } : table
   })
-  return { headings: supplementedHeadings, tables, references }
+  return {
+    headings: supplementedHeadings.slice(0, MAX_METADATA_ARRAY_ITEMS),
+    tables: tables.slice(0, MAX_METADATA_ARRAY_ITEMS),
+    references: references.slice(0, MAX_METADATA_ARRAY_ITEMS)
+  }
 }
 
 function isValidPdfPage(page: number, analysis?: PdfDocumentAnalysisV1): boolean {
   return !analysis || page >= 1 && page <= analysis.pageCount
 }
 
-function markdownPageMarkers(markdown: string, pageCount?: number): Array<{
+function markdownPageMarkers(
+  markdown: string,
+  pageCount?: number,
+  allowExplicitPageMarkers = false
+): Array<{
   page: number
   headings: Array<{ level: number; text: string }>
 }> {
+  if (pageCount) {
+    const pages = markdown.split('\f')
+    if (pages.length > 1 && pages.length === pageCount) {
+      let remainingHeadings = MAX_METADATA_ARRAY_ITEMS
+      return pages.slice(0, MAX_METADATA_ARRAY_ITEMS).map((page, index) => {
+        const headings = markdownHeadings(page).slice(0, remainingHeadings)
+        remainingHeadings -= headings.length
+        return { page: index + 1, headings }
+      })
+    }
+  }
+  if (!allowExplicitPageMarkers) return []
   const matches = [...markdown.matchAll(/<!--\s*page\s*:\s*(\d+)\s*-->/gi)]
   if (matches.length > 0) {
-    return matches.flatMap((match, index) => {
+    let remainingHeadings = MAX_METADATA_ARRAY_ITEMS
+    return matches.slice(0, MAX_METADATA_ARRAY_ITEMS).flatMap((match, index) => {
       const page = Number(match[1])
       const maximumPage = pageCount ?? MAX_METADATA_ARRAY_ITEMS
       if (!Number.isSafeInteger(page) || page < 1 || page > maximumPage) return []
       const start = (match.index ?? 0) + match[0].length
       const end = matches[index + 1]?.index ?? markdown.length
-      return [{ page, headings: markdownHeadings(markdown.slice(start, end)) }]
-    }).slice(0, MAX_METADATA_ARRAY_ITEMS)
+      const headings = markdownHeadings(markdown.slice(start, end)).slice(0, remainingHeadings)
+      remainingHeadings -= headings.length
+      return [{ page, headings }]
+    })
   }
-  if (!pageCount) return []
-  const pages = markdown.split('\f')
-  if (pages.length <= 1 || pages.length !== pageCount) return []
-  return pages.map((page, index) => ({
-    page: index + 1,
-    headings: markdownHeadings(page)
-  }))
+  return []
 }
 
 function markdownHeadings(markdown: string): Array<{ level: number; text: string }> {

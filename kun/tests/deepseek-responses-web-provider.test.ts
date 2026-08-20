@@ -122,4 +122,58 @@ describe('DeepSeek Responses web provider', () => {
       })
     ])
   })
+
+  it('cancels an oversized Responses body as soon as the byte limit is crossed', async () => {
+    let cancelled = false
+    const oneMiB = new Uint8Array(1024 * 1024).fill(0x61)
+    let emitted = 0
+    const stream = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        emitted += 1
+        controller.enqueue(oneMiB)
+        if (emitted === 20) controller.close()
+      },
+      cancel() {
+        cancelled = true
+      }
+    })
+    const provider = new DeepSeekResponsesWebProvider({
+      baseUrl: 'https://api.deepseek.com',
+      apiKey: 'sk-sensitive',
+      model: 'deepseek-v4-pro',
+      fetchImpl: async () => new Response(stream, { status: 200 })
+    })
+
+    await expect(provider.search(request())).rejects.toThrow(/size limit/u)
+    expect(cancelled).toBe(true)
+  })
+
+  it('rejects Responses JSON nested beyond the traversal limit', async () => {
+    let payload: Record<string, unknown> = {
+      type: 'url_citation',
+      url: 'https://news.example.com/deep'
+    }
+    for (let depth = 0; depth < 80; depth += 1) payload = { nested: payload }
+    const provider = new DeepSeekResponsesWebProvider({
+      baseUrl: 'https://api.deepseek.com',
+      apiKey: 'sk-sensitive',
+      model: 'deepseek-v4-pro',
+      fetchImpl: async () => new Response(JSON.stringify(payload), { status: 200 })
+    })
+
+    await expect(provider.search(request())).rejects.toThrow(/nesting limit/u)
+  })
+
+  it('rejects shallow Responses JSON that exceeds the traversal node limit', async () => {
+    const provider = new DeepSeekResponsesWebProvider({
+      baseUrl: 'https://api.deepseek.com',
+      apiKey: 'sk-sensitive',
+      model: 'deepseek-v4-pro',
+      fetchImpl: async () => new Response(JSON.stringify({
+        noise: new Array(100_001).fill(0)
+      }), { status: 200 })
+    })
+
+    await expect(provider.search(request())).rejects.toThrow(/node limit/u)
+  })
 })

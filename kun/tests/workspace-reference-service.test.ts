@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest'
-import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readdir, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { WorkspaceReferenceService } from '../src/services/workspace-reference-service.js'
@@ -98,6 +98,29 @@ describe('WorkspaceReferenceService', () => {
     const result = await new WorkspaceReferenceService({ maxEntries: 2 }).search({ workspaceRoot: root })
 
     expect(result.entries).toHaveLength(2)
+    expect(result.truncated).toBe(true)
+  })
+
+  it('marks an index truncated when a child directory cannot be read', async () => {
+    const root = await workspace()
+    const unreadable = join(root, 'unreadable')
+    await mkdir(unreadable)
+    await writeFile(join(root, 'visible.txt'), 'visible')
+    const service = new WorkspaceReferenceService({
+      readDirectory: async (path) => {
+        if (path.endsWith('/unreadable')) {
+          throw Object.assign(new Error('permission denied'), { code: 'EACCES' })
+        }
+        return readdir(path, { withFileTypes: true })
+      }
+    })
+
+    const result = await service.search({ workspaceRoot: root })
+
+    expect(result.entries).toEqual(expect.arrayContaining([
+      expect.objectContaining({ path: 'unreadable', kind: 'directory' }),
+      expect.objectContaining({ path: 'visible.txt', kind: 'file' })
+    ]))
     expect(result.truncated).toBe(true)
   })
 

@@ -3,6 +3,9 @@ import type { WebProvider, WebSearchRequest, WebSearchResult } from '../../ports
 import { sourceIdFor } from '../../ports/web-provider.js'
 
 const DEFAULT_DEEPSEEK_RESPONSES_BASE_URL = 'https://api.deepseek.com'
+const MAX_RESPONSE_BYTES = 4 * 1024 * 1024
+const MAX_JSON_DEPTH = 64
+const MAX_JSON_NODES = 100_000
 
 type DeepSeekResponsesWebProviderOptions = {
   baseUrl: string
@@ -38,6 +41,7 @@ export class DeepSeekResponsesWebProvider implements WebProvider {
     if (!isDeepSeekResponsesWebSearchConfig(this.options)) {
       throw new Error('DeepSeek Responses web search is unavailable for this provider or model.')
     }
+    const signal = AbortSignal.any([request.signal, AbortSignal.timeout(request.timeoutMs)])
     const response = await this.fetchImpl(deepSeekResponsesUrl(this.options.baseUrl), {
       method: 'POST',
       headers: {
@@ -52,9 +56,9 @@ export class DeepSeekResponsesWebProvider implements WebProvider {
         max_output_tokens: 4_096,
         stream: false
       }),
-      signal: AbortSignal.any([request.signal, AbortSignal.timeout(request.timeoutMs)])
+      signal
     })
-    const text = await response.text()
+    const text = await readBoundedResponseText(response, signal)
     let payload: unknown
     try {
       payload = text ? JSON.parse(text) : {}
@@ -166,14 +170,83 @@ function normalizedSourceUrl(value: string): string | null {
 }
 
 function walk(value: unknown, visit: (record: Record<string, unknown>) => void): void {
-  if (Array.isArray(value)) {
-    for (const entry of value) walk(entry, visit)
-    return
+  type WalkFrame =
+    | { kind: 'value'; value: unknown; depth: number }
+    | { kind: 'iterator'; iterator: Iterator<unknown>; depth: number }
+
+  const pending: WalkFrame[] = [{ kind: 'value', value, depth: 0 }]
+  let visitedNodes = 0
+  while (pending.length > 0) {
+    const current = pending.pop()
+    if (!current) break
+    if (current.kind === 'iterator') {
+      const next = current.iterator.next()
+      if (!next.done) {
+        pending.push(current, { kind: 'value', value: next.value, depth: current.depth })
+      }
+      continue
+    }
+    visitedNodes += 1
+    if (visitedNodes > MAX_JSON_NODES) {
+      throw new Error('DeepSeek Responses web search exceeded the JSON node limit.')
+    }
+    if (current.depth > MAX_JSON_DEPTH) {
+      throw new Error('DeepSeek Responses web search exceeded the JSON nesting limit.')
+    }
+    if (Array.isArray(current.value)) {
+      pending.push({ kind: 'iterator', iterator: current.value.values(), depth: current.depth + 1 })
+      continue
+    }
+    if (!current.value || typeof current.value !== 'object') continue
+    const record = current.value as Record<string, unknown>
+    visit(record)
+    pending.push({ kind: 'iterator', iterator: recordValues(record), depth: current.depth + 1 })
   }
-  if (!value || typeof value !== 'object') return
-  const record = value as Record<string, unknown>
-  visit(record)
-  for (const entry of Object.values(record)) walk(entry, visit)
+}
+
+function* recordValues(record: Record<string, unknown>): Generator<unknown> {
+  for (const key in record) {
+    if (Object.prototype.hasOwnProperty.call(record, key)) yield record[key]
+  }
+}
+
+async function readBoundedResponseText(response: Response, signal: AbortSignal): Promise<string> {
+  const advertisedBytes = Number(response.headers.get('content-length'))
+  if (Number.isFinite(advertisedBytes) && advertisedBytes > MAX_RESPONSE_BYTES) {
+    await response.body?.cancel().catch(() => undefined)
+    throw new Error('DeepSeek Responses web search response exceeded the size limit.')
+  }
+  if (!response.body) return ''
+
+  const reader = response.body.getReader()
+  const decoder = new TextDecoder()
+  let bytes = 0
+  let text = ''
+  const onAbort = (): void => {
+    void reader.cancel(signal.reason).catch(() => undefined)
+  }
+  signal.addEventListener('abort', onAbort, { once: true })
+  try {
+    while (true) {
+      if (signal.aborted) throw signal.reason
+      const { done, value } = await reader.read()
+      if (signal.aborted) throw signal.reason
+      if (done) break
+      bytes += value.byteLength
+      if (bytes > MAX_RESPONSE_BYTES) {
+        await reader.cancel().catch(() => undefined)
+        throw new Error('DeepSeek Responses web search response exceeded the size limit.')
+      }
+      text += decoder.decode(value, { stream: true })
+    }
+    return text + decoder.decode()
+  } catch (error) {
+    await reader.cancel().catch(() => undefined)
+    throw error
+  } finally {
+    signal.removeEventListener('abort', onAbort)
+    reader.releaseLock()
+  }
 }
 
 function stringValue(value: unknown): string {

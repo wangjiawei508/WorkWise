@@ -1,4 +1,5 @@
 import { lstat, readdir, realpath } from 'node:fs/promises'
+import type { Dirent } from 'node:fs'
 import { isAbsolute, relative, resolve, sep } from 'node:path'
 import type {
   WorkspaceReference,
@@ -33,6 +34,7 @@ export type WorkspaceReferenceServiceOptions = {
   ignoredDirectories?: ReadonlySet<string>
   nowMs?: () => number
   nowIso?: () => string
+  readDirectory?: (path: string) => Promise<Dirent[]>
 }
 
 export class WorkspaceReferenceService {
@@ -42,6 +44,7 @@ export class WorkspaceReferenceService {
   private readonly ignoredDirectories: ReadonlySet<string>
   private readonly nowMs: () => number
   private readonly nowIso: () => string
+  private readonly readDirectory: (path: string) => Promise<Dirent[]>
   private readonly cache = new Map<string, WorkspaceReferenceIndex | Promise<WorkspaceReferenceIndex>>()
 
   constructor(options: WorkspaceReferenceServiceOptions = {}) {
@@ -51,6 +54,7 @@ export class WorkspaceReferenceService {
     this.ignoredDirectories = options.ignoredDirectories ?? DEFAULT_IGNORED_DIRECTORIES
     this.nowMs = options.nowMs ?? Date.now
     this.nowIso = options.nowIso ?? (() => new Date().toISOString())
+    this.readDirectory = options.readDirectory ?? ((path) => readdir(path, { withFileTypes: true }))
   }
 
   async search(input: {
@@ -166,7 +170,10 @@ export class WorkspaceReferenceService {
     while (queue.length > 0) {
       const current = queue.shift()
       if (!current) break
-      const children = await readdir(current.absolutePath, { withFileTypes: true }).catch(() => [])
+      const children = await this.readDirectory(current.absolutePath).catch(() => {
+        truncated = true
+        return []
+      })
       children.sort((left, right) => left.name.localeCompare(right.name))
       for (const child of children) {
         if (child.isSymbolicLink()) continue

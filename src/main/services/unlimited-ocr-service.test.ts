@@ -77,6 +77,60 @@ describe('UnlimitedOcrService', () => {
     expect(fetcher).toHaveBeenCalledTimes(3)
   })
 
+  it.each([
+    ['a string', '1'],
+    ['zero', 0],
+    ['a negative number', -1],
+    ['a fractional number', 1.5],
+    ['an out-of-range number', 2]
+  ])('rejects %s as an OCR document page', async (_label, documentPage) => {
+    const root = await mkdtemp(join(tmpdir(), 'workwise-unlimited-ocr-page-'))
+    const inputPath = join(root, 'input.pdf')
+    await writeFile(inputPath, '%PDF-test')
+    const responses = [
+      { jobs: [{ id: 'page-1', status_url: '/v1/jobs/page-1' }] },
+      { status: 'succeeded', document_page: documentPage, result: { generated_text: 'page' } }
+    ]
+    const fetcher = vi.fn(async () => new Response(JSON.stringify(responses.shift()), {
+      status: 200,
+      headers: { 'content-type': 'application/json' }
+    })) as unknown as typeof fetch
+
+    await expect(new UnlimitedOcrService({ fetch: fetcher, pollIntervalMs: 0 }).parse({
+      serverUrl: 'http://127.0.0.1:3000',
+      inputPath,
+      outputDirectory: root,
+      signal: new AbortController().signal
+    })).rejects.toThrow(/invalid document page/u)
+  })
+
+  it('rejects duplicate OCR document pages', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'workwise-unlimited-ocr-duplicate-page-'))
+    const inputPath = join(root, 'input.pdf')
+    await writeFile(inputPath, '%PDF-test')
+    const responses = [
+      {
+        jobs: [
+          { id: 'page-1', status_url: '/v1/jobs/page-1' },
+          { id: 'page-2', status_url: '/v1/jobs/page-2' }
+        ]
+      },
+      { status: 'succeeded', document_page: 1, result: { generated_text: 'first' } },
+      { status: 'succeeded', document_page: 1, result: { generated_text: 'duplicate' } }
+    ]
+    const fetcher = vi.fn(async () => new Response(JSON.stringify(responses.shift()), {
+      status: 200,
+      headers: { 'content-type': 'application/json' }
+    })) as unknown as typeof fetch
+
+    await expect(new UnlimitedOcrService({ fetch: fetcher, pollIntervalMs: 0 }).parse({
+      serverUrl: 'http://127.0.0.1:3000',
+      inputPath,
+      outputDirectory: root,
+      signal: new AbortController().signal
+    })).rejects.toThrow(/duplicate document page/u)
+  })
+
   it('rejects cross-origin job URLs before polling', async () => {
     const root = await mkdtemp(join(tmpdir(), 'workwise-unlimited-ocr-origin-'))
     const inputPath = join(root, 'input.pdf')

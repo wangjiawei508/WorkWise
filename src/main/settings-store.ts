@@ -45,6 +45,13 @@ export function workwiseRuntimeHomeDirectory(env: NodeJS.ProcessEnv = process.en
   return candidateHome ? resolve(candidateHome) : homedir()
 }
 
+export function resolveWorkwiseHome(
+  explicitWorkwiseHome?: string,
+  runtimeHomeDirectory: string = workwiseRuntimeHomeDirectory()
+): string {
+  return explicitWorkwiseHome ?? join(runtimeHomeDirectory, '.workwise')
+}
+
 const SETTINGS_FILE_NAME = 'workwise-settings.json'
 const COMPATIBLE_SETTINGS_FILE_NAMES = ['workgpt-settings.json', 'kun-settings.json', 'deepseek-gui-settings.json'] as const
 const COMPATIBLE_USER_DATA_DIR_NAMES = ['workgpt', 'WORKGPT', 'Kun', 'deepseek-gui', 'DeepSeek GUI'] as const
@@ -467,7 +474,7 @@ export class JsonSettingsStore {
 
   constructor(userDataPath: string, options?: { workwiseHome?: string }) {
     this.path = join(userDataPath, SETTINGS_FILE_NAME)
-    this.workwiseHome = options?.workwiseHome ?? join(userDataPath, '.workwise')
+    this.workwiseHome = resolveWorkwiseHome(options?.workwiseHome)
   }
 
   async load(): Promise<WorkWiseSettingsV2> {
