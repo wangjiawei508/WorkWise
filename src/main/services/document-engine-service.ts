@@ -243,7 +243,9 @@ export class DocumentEngineService {
         unlimitedOcrState = health.available ? 'available' : 'error'
         unlimitedOcrMessage = health.available ? '' : health.message || 'Unlimited-OCR server health check failed.'
         unlimitedOcrVersion = health.available
-          ? health.identity ?? UNLIMITED_OCR_UNVERSIONED_IDENTITY
+          ? health.identity ?? (health.identityUnverified
+              ? UNLIMITED_OCR_UNVERIFIED_IDENTITY
+              : UNLIMITED_OCR_UNVERSIONED_IDENTITY)
           : undefined
       } catch (error) {
         unlimitedOcrState = 'error'
@@ -373,8 +375,8 @@ export class DocumentEngineService {
       if (engine === 'unlimited-ocr-local') {
         const health = await this.unlimitedOcr.checkHealth(unlimitedOcrServerUrl, controller.signal)
         throwIfDocumentParseAborted(controller.signal)
-        cacheEligible = health.available
-        unlimitedOcrEngineVersion = health.available
+        cacheEligible = health.available && !health.identityUnverified
+        unlimitedOcrEngineVersion = health.available && !health.identityUnverified
           ? health.identity ?? UNLIMITED_OCR_UNVERSIONED_IDENTITY
           : UNLIMITED_OCR_UNVERIFIED_IDENTITY
       }

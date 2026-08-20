@@ -40,13 +40,16 @@ describe('UnlimitedOcrService', () => {
     })
   })
 
-  it('ignores an oversized HTTP-200 health body while preserving server availability', async () => {
+  it('marks an oversized HTTP-200 health body as identity-unverified', async () => {
     const fetcher = vi.fn(async () => new Response('x'.repeat(16 * 1024 + 1), {
       status: 200
     })) as unknown as typeof fetch
     const service = new UnlimitedOcrService({ fetch: fetcher })
 
-    await expect(service.checkHealth('http://127.0.0.1:3000')).resolves.toEqual({ available: true })
+    await expect(service.checkHealth('http://127.0.0.1:3000')).resolves.toEqual({
+      available: true,
+      identityUnverified: true
+    })
   })
 
   it('ignores nested, path-like, and overlong health metadata without leaking it', async () => {

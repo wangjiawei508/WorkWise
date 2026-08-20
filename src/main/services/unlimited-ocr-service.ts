@@ -68,7 +68,7 @@ export class UnlimitedOcrService {
   async checkHealth(
     serverUrl: string,
     callerSignal?: AbortSignal
-  ): Promise<{ available: boolean; identity?: string; message?: string }> {
+  ): Promise<{ available: boolean; identity?: string; identityUnverified?: boolean; message?: string }> {
     let origin: string
     try {
       origin = normalizeUnlimitedOcrServerUrl(serverUrl)
@@ -97,7 +97,7 @@ export class UnlimitedOcrService {
         return { available: false, message: `Unlimited-OCR health check failed (HTTP ${response.status}).` }
       }
       const identity = await readHealthIdentity(response, controller.signal)
-      return identity ? { available: true, identity } : { available: true }
+      return { available: true, ...identity }
     } catch (error) {
       if (timedOut) return { available: false, message: 'Unlimited-OCR health check timed out.' }
       if (callerSignal?.aborted) return { available: false, message: 'Unlimited-OCR health check was cancelled.' }
@@ -222,12 +222,16 @@ export class UnlimitedOcrService {
   }
 }
 
-async function readHealthIdentity(response: Response, signal: AbortSignal): Promise<string | undefined> {
+async function readHealthIdentity(
+  response: Response,
+  signal: AbortSignal
+): Promise<{ identity?: string; identityUnverified?: boolean }> {
   try {
-    return extractHealthIdentity(await readResponseText(response, MAX_HEALTH_RESPONSE_BYTES, signal))
+    const identity = extractHealthIdentity(await readResponseText(response, MAX_HEALTH_RESPONSE_BYTES, signal))
+    return identity ? { identity } : {}
   } catch (error) {
     if (error instanceof Error && error.message === 'Unlimited-OCR response exceeded the size limit.') {
-      return undefined
+      return { identityUnverified: true }
     }
     throw error
   }

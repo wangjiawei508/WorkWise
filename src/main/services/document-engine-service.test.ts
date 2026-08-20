@@ -235,6 +235,34 @@ describe('DocumentEngineService', () => {
     expect(bridge).toHaveBeenCalledTimes(2)
   }, 15_000)
 
+  it('does not reuse an unversioned OCR cache when the current health identity exceeds its limit', async () => {
+    const { root } = await fixture()
+    const bridge = runner('OCR output after oversized health identity')
+    let healthProbeCount = 0
+    const healthFetch = vi.fn(async () => {
+      healthProbeCount += 1
+      return new Response(healthProbeCount === 1 ? 'ok' : 'x'.repeat(16 * 1024 + 1), { status: 200 })
+    }) as unknown as typeof fetch
+    const service = new DocumentEngineService({
+      runner: bridge,
+      unlimitedOcr: new UnlimitedOcrService({ fetch: healthFetch })
+    })
+    const request = {
+      workspaceRoot: root,
+      relativePath: 'source.pdf',
+      mode: 'accurate' as const,
+      unlimitedOcrServerUrl: 'http://127.0.0.1:3000',
+      idempotencyKey: 'oversized-ocr-health-cache'
+    }
+
+    const first = await service.parse(request)
+    const second = await service.parse({ ...request, parseId: 'oversized-ocr-health-cache-2' })
+
+    expect(first).toMatchObject({ cacheHit: false, engineVersion: 'unlimited-ocr-api-v1-unversioned' })
+    expect(second).toMatchObject({ cacheHit: false, engineVersion: 'unlimited-ocr-api-v1-unverified' })
+    expect(bridge).toHaveBeenCalledTimes(2)
+  }, 15_000)
+
   it('rejects a current cache entry written before the document result revision', async () => {
     const { root } = await fixture()
     const outputDirectory = join(root, '.workwise', 'cache', 'revision-upgrade')
@@ -551,6 +579,23 @@ describe('DocumentEngineService', () => {
       id: 'unlimited-ocr-local',
       state: 'available',
       version: 'service=Unlimited-OCR;version=1.4.0;model=PP-StructureV3;model_version=2026.08'
+    }))
+  })
+
+  it('reports an available OCR server with an oversized health identity as unverified', async () => {
+    const service = new DocumentEngineService({
+      runner: runner(),
+      unlimitedOcr: new UnlimitedOcrService({
+        fetch: vi.fn(async () => new Response('x'.repeat(16 * 1024 + 1), {
+          status: 200
+        })) as unknown as typeof fetch
+      })
+    })
+
+    await expect(service.listEngines(undefined, 'http://127.0.0.1:3000')).resolves.toContainEqual(expect.objectContaining({
+      id: 'unlimited-ocr-local',
+      state: 'available',
+      version: 'unlimited-ocr-api-v1-unverified'
     }))
   })
 
