@@ -8,7 +8,13 @@ import {
   defaultWriteSettings,
   type AppSettingsV1
 } from '@shared/app-settings'
-import { coerceRendererSettings, guiUpdateFailureMessage, mergeSettings, mergeSettingsPatches } from './settings-utils'
+import {
+  coerceRendererSettings,
+  guiUpdateFailureMessage,
+  hasValidPort,
+  mergeSettings,
+  mergeSettingsPatches
+} from './settings-utils'
 
 function legacySettings(): AppSettingsV1 {
   return {
@@ -32,6 +38,13 @@ function legacySettings(): AppSettingsV1 {
 }
 
 describe('settings utils', () => {
+  it('allows settings to persist while the candidate runtime is waiting for an automatic port', () => {
+    const settings = legacySettings()
+    settings.agents.kun.port = 0
+
+    expect(hasValidPort(settings)).toBe(true)
+  })
+
   it('keeps the WorkWise V2 revision in renderer state', () => {
     const settings = {
       ...legacySettings(),

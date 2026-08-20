@@ -41,7 +41,7 @@ export function listSettingsText(values: string[]): string {
 
 export function hasValidPort(settings: AppSettingsV1): boolean {
   const port = getManagedRuntimeSettings(settings).port
-  return Number.isFinite(port) && port >= 1 && port <= 65535
+  return Number.isInteger(port) && port >= 0 && port <= 65535
 }
 
 export function mergeSettings(current: AppSettingsV1, patch: SettingsPatch): WorkWiseSettingsV2 {
