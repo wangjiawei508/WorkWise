@@ -927,21 +927,33 @@ function markdownPageMarkers(markdown: string, pageCount?: number): Array<{
   headings: Array<{ level: number; text: string }>
 }> {
   const matches = [...markdown.matchAll(/<!--\s*page\s*:\s*(\d+)\s*-->/gi)]
-  return matches.flatMap((match, index) => {
-    const page = Number(match[1])
-    const maximumPage = pageCount ?? MAX_METADATA_ARRAY_ITEMS
-    if (!Number.isSafeInteger(page) || page < 1 || page > maximumPage) return []
-    const start = (match.index ?? 0) + match[0].length
-    const end = matches[index + 1]?.index ?? markdown.length
-    const headings = [...markdown.slice(start, end).matchAll(/^\s*(#{1,6})\s+(.+?)\s*$/gm)]
-      .slice(0, MAX_METADATA_ARRAY_ITEMS)
-      .map((heading) => ({
-        level: heading[1].length,
-        text: heading[2].replace(/\s+#+\s*$/, '').trim().slice(0, MAX_METADATA_STRING_LENGTH)
-      }))
-      .filter((heading) => heading.text.length > 0)
-    return [{ page, headings }]
-  }).slice(0, MAX_METADATA_ARRAY_ITEMS)
+  if (matches.length > 0) {
+    return matches.flatMap((match, index) => {
+      const page = Number(match[1])
+      const maximumPage = pageCount ?? MAX_METADATA_ARRAY_ITEMS
+      if (!Number.isSafeInteger(page) || page < 1 || page > maximumPage) return []
+      const start = (match.index ?? 0) + match[0].length
+      const end = matches[index + 1]?.index ?? markdown.length
+      return [{ page, headings: markdownHeadings(markdown.slice(start, end)) }]
+    }).slice(0, MAX_METADATA_ARRAY_ITEMS)
+  }
+  if (!pageCount) return []
+  const pages = markdown.split('\f')
+  if (pages.length <= 1 || pages.length !== pageCount) return []
+  return pages.map((page, index) => ({
+    page: index + 1,
+    headings: markdownHeadings(page)
+  }))
+}
+
+function markdownHeadings(markdown: string): Array<{ level: number; text: string }> {
+  return [...markdown.replace(/\f/g, '\n').matchAll(/^\s*(#{1,6})\s+(.+?)\s*$/gm)]
+    .slice(0, MAX_METADATA_ARRAY_ITEMS)
+    .map((heading) => ({
+      level: heading[1].length,
+      text: heading[2].replace(/\s+#+\s*$/, '').trim().slice(0, MAX_METADATA_STRING_LENGTH)
+    }))
+    .filter((heading) => heading.text.length > 0)
 }
 
 function findPdfPage(pages: PdfDocumentAnalysisV1['pages'], value: string): number | undefined {

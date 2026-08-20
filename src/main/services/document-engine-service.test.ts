@@ -628,6 +628,73 @@ describe('DocumentEngineService', () => {
     })
   })
 
+  it('maps MarkItDown form-feed page boundaries to bounded PDF references', async () => {
+    const { root, path } = await fixture()
+    await writeFile(path, twoPagePdf('First page body', 'Second page body'))
+    const service = new DocumentEngineService({
+      runner: runner('# First page\n\nFirst page body\f# Second page\n\nSecond page body')
+    })
+
+    const result = await service.parse({
+      workspaceRoot: root,
+      relativePath: 'source.pdf',
+      mode: 'fast',
+      idempotencyKey: 'form-feed-page-map'
+    })
+
+    expect(result.sourceStructure).toEqual({ pageCount: 2 })
+    expect(result.references).toEqual(expect.arrayContaining([
+      { page: 1, blockId: 'page-1', kind: 'text' },
+      { page: 2, blockId: 'page-2', kind: 'text' }
+    ]))
+    expect(result.headings).toEqual(expect.arrayContaining([
+      expect.objectContaining({ text: 'First page', page: 1 }),
+      expect.objectContaining({ text: 'Second page', page: 2 })
+    ]))
+  })
+
+  it('does not infer PDF pages when MarkItDown form-feed boundaries do not match the source page count', async () => {
+    const { root, path } = await fixture()
+    await writeFile(path, twoPagePdf('First page body', 'Second page body'))
+    const service = new DocumentEngineService({
+      runner: runner('# First page\n\nFirst page body\f# Unexpected extra page\f# Second page\n\nSecond page body')
+    })
+
+    const result = await service.parse({
+      workspaceRoot: root,
+      relativePath: 'source.pdf',
+      mode: 'fast',
+      idempotencyKey: 'mismatched-form-feed-page-map'
+    })
+
+    expect(result.sourceStructure).toEqual({ pageCount: 2 })
+    expect(result.references).not.toContainEqual(expect.objectContaining({ blockId: 'page-1' }))
+    expect(result.references).not.toContainEqual(expect.objectContaining({ blockId: 'page-2' }))
+    expect(result.headings.filter((heading) => heading.text !== 'Parsed')).toEqual([])
+  })
+
+  it('prefers explicit PDF page markers over MarkItDown form-feed boundaries', async () => {
+    const { root, path } = await fixture()
+    await writeFile(path, twoPagePdf('First page body', 'Second page body'))
+    const service = new DocumentEngineService({
+      runner: runner('<!-- page:2 -->\n# Explicit page\f# Form feed remains on explicit page')
+    })
+
+    const result = await service.parse({
+      workspaceRoot: root,
+      relativePath: 'source.pdf',
+      mode: 'fast',
+      idempotencyKey: 'explicit-page-marker-priority'
+    })
+
+    expect(result.references).toContainEqual({ page: 2, blockId: 'page-2', kind: 'text' })
+    expect(result.references).not.toContainEqual(expect.objectContaining({ blockId: 'page-1' }))
+    expect(result.headings).toEqual(expect.arrayContaining([
+      expect.objectContaining({ text: 'Explicit page', page: 2 }),
+      expect.objectContaining({ text: 'Form feed remains on explicit page', page: 2 })
+    ]))
+  })
+
   it('drops parser-provided PDF provenance pages outside the analyzed document', async () => {
     const { root, path } = await fixture()
     await writeFile(path, minimalPdf('Bounded parser provenance'))
@@ -885,6 +952,32 @@ function minimalPdf(text: string): Buffer {
     '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
     '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>',
     `<< /Length ${Buffer.byteLength(stream)} >>\nstream\n${stream}\nendstream`,
+    '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>'
+  ]
+  let body = '%PDF-1.4\n'
+  const offsets = [0]
+  objects.forEach((object, index) => {
+    offsets.push(Buffer.byteLength(body))
+    body += `${index + 1} 0 obj\n${object}\nendobj\n`
+  })
+  const xref = Buffer.byteLength(body)
+  body += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`
+  body += offsets.slice(1).map((offset) => `${String(offset).padStart(10, '0')} 00000 n \n`).join('')
+  body += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`
+  return Buffer.from(body, 'latin1')
+}
+
+function twoPagePdf(first: string, second: string): Buffer {
+  const streams = [first, second].map((text) => (
+    `BT /F1 12 Tf 72 720 Td (${text.replace(/[()\\]/g, '\\$&')}) Tj ET`
+  ))
+  const objects = [
+    '<< /Type /Catalog /Pages 2 0 R >>',
+    '<< /Type /Pages /Kids [3 0 R 5 0 R] /Count 2 >>',
+    '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 7 0 R >> >> /Contents 4 0 R >>',
+    `<< /Length ${Buffer.byteLength(streams[0])} >>\nstream\n${streams[0]}\nendstream`,
+    '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 7 0 R >> >> /Contents 6 0 R >>',
+    `<< /Length ${Buffer.byteLength(streams[1])} >>\nstream\n${streams[1]}\nendstream`,
     '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>'
   ]
   let body = '%PDF-1.4\n'
