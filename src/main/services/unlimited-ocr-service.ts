@@ -3,8 +3,13 @@ import { readFile } from 'node:fs/promises'
 import { atomicWriteFile } from './durable-file'
 
 const MAX_RESPONSE_BYTES = 16 * 1024 * 1024
+const MAX_HEALTH_RESPONSE_BYTES = 16 * 1024
+const MAX_HEALTH_IDENTITY_PART_LENGTH = 64
 const DEFAULT_POLL_INTERVAL_MS = 500
 const DEFAULT_TIMEOUT_MS = 20 * 60 * 1000
+
+// Stable cache/reporting identity for healthy API-v1 servers that expose no model metadata.
+export const UNLIMITED_OCR_UNVERSIONED_IDENTITY = 'unlimited-ocr-api-v1-unversioned'
 
 type FetchLike = typeof fetch
 
@@ -25,6 +30,7 @@ type JobResponse = {
 
 export type UnlimitedOcrParseResult = {
   markdownPath: string
+  engineVersion: string
   warnings: string[]
   durationMs: number
 }
@@ -58,7 +64,10 @@ export class UnlimitedOcrService {
     timeoutMs?: number
   } = {}) {}
 
-  async checkHealth(serverUrl: string): Promise<{ available: boolean; message?: string }> {
+  async checkHealth(
+    serverUrl: string,
+    callerSignal?: AbortSignal
+  ): Promise<{ available: boolean; identity?: string; message?: string }> {
     let origin: string
     try {
       origin = normalizeUnlimitedOcrServerUrl(serverUrl)
@@ -68,21 +77,33 @@ export class UnlimitedOcrService {
     if (!origin) return { available: false, message: 'Unlimited-OCR server is not configured.' }
 
     const controller = new AbortController()
-    const timeout = setTimeout(() => controller.abort('health_timeout'), 2_000)
+    let timedOut = false
+    const abortFromCaller = (): void => controller.abort(callerSignal?.reason)
+    callerSignal?.addEventListener('abort', abortFromCaller, { once: true })
+    if (callerSignal?.aborted) abortFromCaller()
+    const timeout = setTimeout(() => {
+      timedOut = true
+      controller.abort('health_timeout')
+    }, 2_000)
     try {
       const response = await (this.options.fetch ?? fetch)(new URL('/health', origin), {
         method: 'GET',
         redirect: 'error',
         signal: controller.signal
       })
-      await response.body?.cancel()
-      if (!response.ok) return { available: false, message: `Unlimited-OCR health check failed (HTTP ${response.status}).` }
-      return { available: true }
+      if (!response.ok) {
+        await response.body?.cancel()
+        return { available: false, message: `Unlimited-OCR health check failed (HTTP ${response.status}).` }
+      }
+      const identity = await readHealthIdentity(response, controller.signal)
+      return identity ? { available: true, identity } : { available: true }
     } catch (error) {
-      if (controller.signal.aborted) return { available: false, message: 'Unlimited-OCR health check timed out.' }
+      if (timedOut) return { available: false, message: 'Unlimited-OCR health check timed out.' }
+      if (callerSignal?.aborted) return { available: false, message: 'Unlimited-OCR health check was cancelled.' }
       return { available: false, message: safeHealthErrorMessage(error) }
     } finally {
       clearTimeout(timeout)
+      callerSignal?.removeEventListener('abort', abortFromCaller)
     }
   }
 
@@ -91,6 +112,7 @@ export class UnlimitedOcrService {
     inputPath: string
     outputDirectory: string
     signal: AbortSignal
+    engineVersion?: string
   }): Promise<UnlimitedOcrParseResult> {
     const startedAt = Date.now()
     const timeoutMs = this.options.timeoutMs ?? DEFAULT_TIMEOUT_MS
@@ -149,7 +171,12 @@ export class UnlimitedOcrService {
         beforeReplace: async () => throwIfAborted(signal)
       })
       throwIfAborted(signal)
-      return { markdownPath, warnings: [], durationMs: Date.now() - startedAt }
+      return {
+        markdownPath,
+        engineVersion: input.engineVersion ?? UNLIMITED_OCR_UNVERSIONED_IDENTITY,
+        warnings: [],
+        durationMs: Date.now() - startedAt
+      }
     })
   }
 
@@ -192,6 +219,42 @@ export class UnlimitedOcrService {
       throw new Error('Unlimited-OCR server returned invalid JSON.')
     }
   }
+}
+
+async function readHealthIdentity(response: Response, signal: AbortSignal): Promise<string | undefined> {
+  try {
+    return extractHealthIdentity(await readResponseText(response, MAX_HEALTH_RESPONSE_BYTES, signal))
+  } catch (error) {
+    if (error instanceof Error && error.message === 'Unlimited-OCR response exceeded the size limit.') {
+      return undefined
+    }
+    throw error
+  }
+}
+
+function extractHealthIdentity(text: string): string | undefined {
+  let payload: unknown
+  try {
+    payload = JSON.parse(text)
+  } catch {
+    return undefined
+  }
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return undefined
+  const record = payload as Record<string, unknown>
+  const fields = ['service', 'version', 'model', 'model_version'] as const
+  const identity = fields.flatMap((field) => {
+    const value = sanitizeHealthIdentityPart(record[field])
+    return value ? [`${field}=${value}`] : []
+  }).join(';')
+  return identity || undefined
+}
+
+function sanitizeHealthIdentityPart(value: unknown): string | undefined {
+  if (typeof value !== 'string') return undefined
+  const trimmed = value.trim()
+  if (!trimmed || trimmed.length > MAX_HEALTH_IDENTITY_PART_LENGTH) return undefined
+  const normalized = trimmed.replace(/\s+/g, '-')
+  return /^[A-Za-z0-9][A-Za-z0-9._+-]*$/.test(normalized) ? normalized : undefined
 }
 
 async function readResponseText(response: Response, maxBytes: number, signal: AbortSignal): Promise<string> {

@@ -127,6 +127,85 @@ describe('DocumentEngineService', () => {
     expect(bridge).toHaveBeenCalledTimes(1)
   }, 15_000)
 
+  it('invalidates the Unlimited-OCR cache when the observed service identity changes', async () => {
+    const { root } = await fixture()
+    const bridge = runner('observed OCR output')
+    const identities = ['model-a', 'model-b']
+    const healthFetch = vi.fn(async () => new Response(JSON.stringify({
+      service: 'Unlimited-OCR',
+      model: identities.shift()
+    }), { status: 200 })) as unknown as typeof fetch
+    const service = new DocumentEngineService({
+      runner: bridge,
+      unlimitedOcr: new UnlimitedOcrService({ fetch: healthFetch })
+    })
+    const request = {
+      workspaceRoot: root,
+      relativePath: 'source.pdf',
+      mode: 'accurate' as const,
+      unlimitedOcrServerUrl: 'http://127.0.0.1:3000',
+      idempotencyKey: 'ocr-identity-cache'
+    }
+
+    const first = await service.parse(request)
+    const second = await service.parse({ ...request, parseId: 'ocr-identity-cache-2' })
+
+    expect(first).toMatchObject({ cacheHit: false, engineVersion: 'service=Unlimited-OCR;model=model-a' })
+    expect(second).toMatchObject({ cacheHit: false, engineVersion: 'service=Unlimited-OCR;model=model-b' })
+    expect(bridge).toHaveBeenCalledTimes(2)
+  }, 15_000)
+
+  it('reuses the Unlimited-OCR cache when the URL and observed identity are unchanged', async () => {
+    const { root } = await fixture()
+    const bridge = runner('stable OCR output')
+    const healthFetch = vi.fn(async () => new Response(JSON.stringify({
+      service: 'Unlimited-OCR',
+      model: 'stable-model'
+    }), { status: 200 })) as unknown as typeof fetch
+    const service = new DocumentEngineService({
+      runner: bridge,
+      unlimitedOcr: new UnlimitedOcrService({ fetch: healthFetch })
+    })
+    const request = {
+      workspaceRoot: root,
+      relativePath: 'source.pdf',
+      mode: 'accurate' as const,
+      unlimitedOcrServerUrl: 'http://127.0.0.1:3000',
+      idempotencyKey: 'stable-ocr-identity-cache'
+    }
+
+    const first = await service.parse(request)
+    const second = await service.parse({ ...request, parseId: 'stable-ocr-identity-cache-2' })
+
+    expect(first).toMatchObject({ cacheHit: false, engineVersion: 'service=Unlimited-OCR;model=stable-model' })
+    expect(second).toMatchObject({ cacheHit: true, engineVersion: 'service=Unlimited-OCR;model=stable-model' })
+    expect(bridge).toHaveBeenCalledTimes(1)
+  }, 15_000)
+
+  it('uses a stable unversioned identity when a healthy OCR server reports no metadata', async () => {
+    const { root } = await fixture()
+    const bridge = runner('unversioned OCR output')
+    const healthFetch = vi.fn(async () => new Response('ok', { status: 200 })) as unknown as typeof fetch
+    const service = new DocumentEngineService({
+      runner: bridge,
+      unlimitedOcr: new UnlimitedOcrService({ fetch: healthFetch })
+    })
+    const request = {
+      workspaceRoot: root,
+      relativePath: 'source.pdf',
+      mode: 'accurate' as const,
+      unlimitedOcrServerUrl: 'http://127.0.0.1:3000',
+      idempotencyKey: 'unversioned-ocr-identity-cache'
+    }
+
+    const first = await service.parse(request)
+    const second = await service.parse({ ...request, parseId: 'unversioned-ocr-identity-cache-2' })
+
+    expect(first).toMatchObject({ cacheHit: false, engineVersion: 'unlimited-ocr-api-v1-unversioned' })
+    expect(second).toMatchObject({ cacheHit: true, engineVersion: 'unlimited-ocr-api-v1-unversioned' })
+    expect(bridge).toHaveBeenCalledTimes(1)
+  }, 15_000)
+
   it('rejects a current cache entry written before the document result revision', async () => {
     const { root } = await fixture()
     const outputDirectory = join(root, '.workwise', 'cache', 'revision-upgrade')
@@ -421,7 +500,28 @@ describe('DocumentEngineService', () => {
     })
     await expect(reachable.listEngines(undefined, 'http://127.0.0.1:3000')).resolves.toContainEqual(expect.objectContaining({
       id: 'unlimited-ocr-local',
-      state: 'available'
+      state: 'available',
+      version: 'unlimited-ocr-api-v1-unversioned'
+    }))
+  })
+
+  it('surfaces the observed Unlimited-OCR service and model identity', async () => {
+    const service = new DocumentEngineService({
+      runner: runner(),
+      unlimitedOcr: new UnlimitedOcrService({
+        fetch: vi.fn(async () => new Response(JSON.stringify({
+          service: 'Unlimited-OCR',
+          version: '1.4.0',
+          model: 'PP-StructureV3',
+          model_version: '2026.08'
+        }), { status: 200 })) as unknown as typeof fetch
+      })
+    })
+
+    await expect(service.listEngines(undefined, 'http://127.0.0.1:3000')).resolves.toContainEqual(expect.objectContaining({
+      id: 'unlimited-ocr-local',
+      state: 'available',
+      version: 'service=Unlimited-OCR;version=1.4.0;model=PP-StructureV3;model_version=2026.08'
     }))
   })
 
@@ -521,6 +621,39 @@ describe('DocumentEngineService', () => {
     await didStart
     expect(service.cancel('cancel-me')).toBe(true)
     await expect(pending).rejects.toMatchObject({ code: 'document_parse_cancelled' })
+  })
+
+  it('cancels the Unlimited-OCR identity probe with the document parse', async () => {
+    const { root } = await fixture()
+    let healthSignal: AbortSignal | undefined
+    let releaseHealth = (): void => undefined
+    const healthFetch = vi.fn((_url: string | URL | Request, init?: RequestInit) => new Promise<Response>((resolve) => {
+      healthSignal = init?.signal as AbortSignal
+      releaseHealth = () => resolve(new Response('ok', { status: 200 }))
+    })) as unknown as typeof fetch
+    const requestController = new AbortController()
+    const service = new DocumentEngineService({
+      runner: runner(),
+      unlimitedOcr: new UnlimitedOcrService({ fetch: healthFetch })
+    })
+    const pending = service.parse({
+      workspaceRoot: root,
+      relativePath: 'source.pdf',
+      mode: 'accurate',
+      unlimitedOcrServerUrl: 'http://127.0.0.1:3000',
+      signal: requestController.signal,
+      idempotencyKey: 'cancel-ocr-identity-probe'
+    })
+    const settled = pending.catch((error: unknown) => error)
+    await vi.waitFor(() => expect(healthFetch).toHaveBeenCalledTimes(1))
+
+    requestController.abort()
+    try {
+      expect(healthSignal?.aborted).toBe(true)
+    } finally {
+      releaseHealth()
+    }
+    await expect(settled).resolves.toMatchObject({ code: 'document_parse_cancelled' })
   })
 
   it('applies one total deadline even when a custom engine ignores cancellation', async () => {

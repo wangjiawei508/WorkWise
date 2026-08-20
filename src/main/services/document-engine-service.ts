@@ -17,7 +17,11 @@ import { MINERU_VERSION, MineruInstallerService, type MineruInstallPreflight } f
 import { analyzePdfDocument, type PdfDocumentAnalysisV1 } from './pdf-document-service'
 import { atomicWriteFile } from './durable-file'
 import { inspectOfficeArchive } from './office-archive-security'
-import { UnlimitedOcrService, normalizeUnlimitedOcrServerUrl } from './unlimited-ocr-service'
+import {
+  UNLIMITED_OCR_UNVERSIONED_IDENTITY,
+  UnlimitedOcrService,
+  normalizeUnlimitedOcrServerUrl
+} from './unlimited-ocr-service'
 import JSZip from 'jszip'
 import { z } from 'zod'
 
@@ -172,6 +176,7 @@ export type DocumentEngineRunner = (input: {
   parseId: string
   engine: 'markitdown' | 'unlimited-ocr-local' | 'mineru-local'
   unlimitedOcrServerUrl?: string
+  unlimitedOcrEngineVersion?: string
   workspaceRoot: string
   inputPath: string
   outputDirectory: string
@@ -229,12 +234,16 @@ export class DocumentEngineService {
     const mineru = this.options.runner ? true : await this.mineruInstaller.isInstalled()
     let unlimitedOcrState: DocumentEngineStatusV1['state'] = 'needs_configuration'
     let unlimitedOcrMessage = 'Configure an explicit loopback Unlimited-OCR server URL.'
+    let unlimitedOcrVersion: string | undefined
     if (unlimitedOcrServerUrl?.trim()) {
       try {
         const origin = normalizeUnlimitedOcrServerUrl(unlimitedOcrServerUrl)
         const health = await this.unlimitedOcr.checkHealth(origin)
         unlimitedOcrState = health.available ? 'available' : 'error'
         unlimitedOcrMessage = health.available ? '' : health.message || 'Unlimited-OCR server health check failed.'
+        unlimitedOcrVersion = health.available
+          ? health.identity ?? UNLIMITED_OCR_UNVERSIONED_IDENTITY
+          : undefined
       } catch (error) {
         unlimitedOcrState = 'error'
         unlimitedOcrMessage = safeErrorMessage(error)
@@ -256,7 +265,7 @@ export class DocumentEngineService {
         local: true,
         capabilities: ['pdf', 'ocr', 'layout', 'formula'],
         message: unlimitedOcrMessage || undefined,
-        version: unlimitedOcrState === 'available' ? 'unlimited-ocr-api-v1' : undefined,
+        version: unlimitedOcrVersion,
         attribution: 'Baidu Unlimited-OCR (MIT); local server configured by user'
       },
       {
@@ -358,8 +367,17 @@ export class DocumentEngineService {
         }
       }
       const engine = await this.selectEngine(request, extension, mineruAvailable, Boolean(unlimitedOcrServerUrl))
+      let unlimitedOcrEngineVersion: string | undefined
+      if (engine === 'unlimited-ocr-local') {
+        const health = await this.unlimitedOcr.checkHealth(unlimitedOcrServerUrl, controller.signal)
+        throwIfDocumentParseAborted(controller.signal)
+        unlimitedOcrEngineVersion = health.available
+          ? health.identity ?? UNLIMITED_OCR_UNVERSIONED_IDENTITY
+          : UNLIMITED_OCR_UNVERSIONED_IDENTITY
+      }
+      const cacheVersion = engineCacheVersion(engine, unlimitedOcrEngineVersion)
       const cacheKey = createHash('sha256')
-        .update(`${sourceSha256}\0${engine}\0${engineCacheVersion(engine)}\0${DOCUMENT_RESULT_CACHE_REVISION}\0${request.mode}\0${mineruAvailable}\0${unlimitedOcrServerUrl}`)
+        .update(`${sourceSha256}\0${engine}\0${cacheVersion}\0${DOCUMENT_RESULT_CACHE_REVISION}\0${request.mode}\0${mineruAvailable}\0${unlimitedOcrServerUrl}`)
         .digest('hex')
       const outputDirectory = await resolveContainedPath({
         root: workspaceRoot,
@@ -372,6 +390,7 @@ export class DocumentEngineService {
       const cached = await this.readCache(workspaceRoot, outputDirectory, parseId, {
         sourceSha256,
         engine,
+        engineVersion: unlimitedOcrEngineVersion,
         mode: request.mode,
         allowLegacyCache: !request.outputDirectory
       })
@@ -414,7 +433,8 @@ export class DocumentEngineService {
           inputPath,
           outputDirectory: attemptDirectory,
           signal: controller.signal,
-          unlimitedOcrServerUrl
+          unlimitedOcrServerUrl,
+          ...(unlimitedOcrEngineVersion ? { unlimitedOcrEngineVersion } : {})
         })
       } catch (error) {
         if (controller.signal.aborted) {
@@ -573,7 +593,7 @@ export class DocumentEngineService {
       const result: DocumentParseResultV1 = {
         id: parseId,
         engine: selectedEngine,
-        engineVersion: response.engineVersion || engineCacheVersion(selectedEngine),
+        engineVersion: response.engineVersion || engineCacheVersion(selectedEngine, unlimitedOcrEngineVersion),
         sourceSha256: response.sourceSha256 || sourceSha256,
         markdown,
         headings: supplemented.headings,
@@ -667,6 +687,7 @@ export class DocumentEngineService {
     expected: {
       sourceSha256: string
       engine: DocumentEngineId
+      engineVersion?: string
       mode: DocumentParseRequestV1['mode']
       allowLegacyCache: boolean
     }
@@ -685,6 +706,7 @@ export class DocumentEngineService {
       if (
         result.sourceSha256 !== expected.sourceSha256 ||
         result.engine !== expected.engine ||
+        (expected.engineVersion !== undefined && result.engineVersion !== expected.engineVersion) ||
         result.route.requestedMode !== expected.mode ||
         result.route.selectedEngine !== expected.engine ||
         result.degradedFrom ||
@@ -732,6 +754,7 @@ export class DocumentEngineService {
         !payload.ok ||
         !payload.markdownPath ||
         payload.engine !== expected.engine ||
+        (expected.engineVersion !== undefined && payload.engineVersion !== expected.engineVersion) ||
         payload.sourceSha256 !== expected.sourceSha256
       ) return null
       const markdownPath = await resolveContainedPath({
@@ -797,11 +820,12 @@ export class DocumentEngineService {
         serverUrl: input.unlimitedOcrServerUrl ?? '',
         inputPath: input.inputPath,
         outputDirectory: input.outputDirectory,
-        signal: input.signal
+        signal: input.signal,
+        engineVersion: input.unlimitedOcrEngineVersion
       }).then((result) => ({
         ok: true,
         engine: 'unlimited-ocr-local',
-        engineVersion: 'unlimited-ocr-api-v1',
+        engineVersion: result.engineVersion,
         markdownPath: relative(input.workspaceRoot, result.markdownPath).replaceAll('\\', '/'),
         warnings: result.warnings,
         durationMs: result.durationMs
@@ -814,7 +838,10 @@ export class DocumentEngineService {
     if (!parsed.success) {
       throw new DocumentEngineError('Document parser returned an invalid response.', 'document_parse_failed')
     }
-    return parsed.data as DocumentSidecarResponse
+    const parsedResponse = parsed.data as DocumentSidecarResponse
+    return input.engine === 'unlimited-ocr-local'
+      ? { ...parsedResponse, engineVersion: input.unlimitedOcrEngineVersion ?? UNLIMITED_OCR_UNVERSIONED_IDENTITY }
+      : parsedResponse
   }
 
   private markitdownExecutable(): string {
@@ -872,11 +899,11 @@ function decodeXmlEntities(value: string): string {
   })
 }
 
-function engineCacheVersion(engine: DocumentEngineId): string {
+function engineCacheVersion(engine: DocumentEngineId, unlimitedOcrEngineVersion?: string): string {
   return engine === 'markitdown'
     ? MARKITDOWN_ENGINE_VERSION
     : engine === 'unlimited-ocr-local'
-      ? 'unlimited-ocr-api-v1'
+      ? unlimitedOcrEngineVersion ?? UNLIMITED_OCR_UNVERSIONED_IDENTITY
     : engine === 'mineru-local'
       ? `mineru-${MINERU_VERSION}`
       : 'mineru-private-v1'

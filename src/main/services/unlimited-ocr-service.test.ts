@@ -25,6 +25,46 @@ describe('UnlimitedOcrService', () => {
     )
   })
 
+  it('extracts a canonical service and model identity from bounded health metadata', async () => {
+    const fetcher = vi.fn(async () => new Response(JSON.stringify({
+      service: 'Unlimited-OCR',
+      version: '1.4.0',
+      model: 'PP-StructureV3',
+      model_version: '2026.08'
+    }), { status: 200 })) as unknown as typeof fetch
+    const service = new UnlimitedOcrService({ fetch: fetcher })
+
+    await expect(service.checkHealth('http://127.0.0.1:3000')).resolves.toEqual({
+      available: true,
+      identity: 'service=Unlimited-OCR;version=1.4.0;model=PP-StructureV3;model_version=2026.08'
+    })
+  })
+
+  it('ignores an oversized HTTP-200 health body while preserving server availability', async () => {
+    const fetcher = vi.fn(async () => new Response('x'.repeat(16 * 1024 + 1), {
+      status: 200
+    })) as unknown as typeof fetch
+    const service = new UnlimitedOcrService({ fetch: fetcher })
+
+    await expect(service.checkHealth('http://127.0.0.1:3000')).resolves.toEqual({ available: true })
+  })
+
+  it('ignores nested, path-like, and overlong health metadata without leaking it', async () => {
+    const fetcher = vi.fn(async () => new Response(JSON.stringify({
+      service: 'Unlimited OCR',
+      version: '/private/tmp/secret-version',
+      model: { name: 'nested-secret-model' },
+      model_version: 'x'.repeat(65),
+      diagnostic: 'untrusted-secret-diagnostic'
+    }), { status: 200 })) as unknown as typeof fetch
+    const service = new UnlimitedOcrService({ fetch: fetcher })
+
+    await expect(service.checkHealth('http://127.0.0.1:3000')).resolves.toEqual({
+      available: true,
+      identity: 'service=Unlimited-OCR'
+    })
+  })
+
   it('reports an unreachable local OCR server without throwing', async () => {
     const fetcher = vi.fn(async () => { throw new Error('connection refused') }) as unknown as typeof fetch
     const service = new UnlimitedOcrService({ fetch: fetcher })
@@ -68,9 +108,11 @@ describe('UnlimitedOcrService', () => {
       serverUrl: 'http://127.0.0.1:3000',
       inputPath,
       outputDirectory: root,
-      signal: new AbortController().signal
+      signal: new AbortController().signal,
+      engineVersion: 'service=Unlimited-OCR;model=selected-model'
     })
 
+    expect(result.engineVersion).toBe('service=Unlimited-OCR;model=selected-model')
     expect(await readFile(result.markdownPath, 'utf8')).toBe(
       '<!-- page:1 -->\n\nfirst page\n\n<!-- page:2 -->\n\nsecond page\n'
     )
