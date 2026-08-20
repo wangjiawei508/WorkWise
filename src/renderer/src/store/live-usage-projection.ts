@@ -38,11 +38,23 @@ export function applyLiveUsageDelta(
   text: string,
   now = Date.now()
 ): LiveUsageProjection {
+  return applyLiveUsageCharacters(current, turnId, Array.from(text).length, now)
+}
+
+/** Apply a usage-only character count without retaining the source text. */
+export function applyLiveUsageCharacters(
+  current: LiveUsageProjection | undefined,
+  turnId: string,
+  addedCharacters: number,
+  now = Date.now()
+): LiveUsageProjection {
   const base = current?.turnId === turnId ? current : emptyLiveUsageProjection(turnId)
-  const addedCharacters = Array.from(text).length
-  if (addedCharacters === 0) return base
+  const boundedCharacters = Number.isFinite(addedCharacters)
+    ? Math.max(0, Math.floor(addedCharacters))
+    : 0
+  if (boundedCharacters === 0) return base
   const firstOutputAt = base.firstOutputAt ?? now
-  const estimatedOutputCharacters = base.estimatedOutputCharacters + addedCharacters
+  const estimatedOutputCharacters = base.estimatedOutputCharacters + boundedCharacters
   const total = estimatedTokens(estimatedOutputCharacters)
   const elapsedSeconds = Math.max(0.25, (now - firstOutputAt) / 1000)
   return {

@@ -197,6 +197,65 @@ describe('turnRequestForRouting', () => {
 })
 
 describe('AgentLoop completion guard', () => {
+  it('persists bounded tool-call character deltas without argument contents', async () => {
+    const threadId = 'thread_tool_delta_usage'
+    const nowIso = () => '2026-08-20T00:00:00.000Z'
+    const threadStore = new InMemoryThreadStore()
+    const sessionStore = new InMemorySessionStore()
+    const eventBus = new InMemoryEventBus()
+    const ids = new SequentialIdGenerator()
+    const inflight = new InflightTracker()
+    const steering = new SteeringQueue()
+    const compactor = new ContextCompactor()
+    const approvalGate = new InMemoryApprovalGate()
+    const userInputGate = new InMemoryUserInputGate()
+    const events = new RuntimeEventRecorder({
+      eventBus, sessionStore, allocateSeq: (id) => eventBus.allocateSeq(id), nowIso
+    })
+    const turns = new TurnService({
+      threadStore, sessionStore, events, inflight, steering, compactor, ids, nowIso
+    })
+    const model: ModelClient = {
+      provider: 'test',
+      model: 'fixture-model',
+      async *stream() {
+        yield { kind: 'tool_call_delta', callId: 'call_1', toolName: 'read_file', argumentsDelta: '{"token":"secret"}' }
+        yield { kind: 'assistant_text_delta', text: 'done' }
+        yield { kind: 'completed', stopReason: 'stop' }
+      }
+    }
+    const toolHost: ToolHost = {
+      id: 'tool-delta-host',
+      async listTools() { return [] },
+      async execute() { throw new Error('no tool should be called') }
+    }
+    await threadStore.upsert(createThreadRecord({
+      id: threadId,
+      title: 'tool delta usage',
+      workspace: '',
+      model: model.model,
+      createdAt: nowIso()
+    }))
+    const started = await turns.startTurn({ threadId, request: { prompt: 'estimate' } })
+    const loop = new AgentLoop({
+      threadStore, sessionStore, approvalGate, userInputGate, model, toolHost,
+      usage: new UsageService(), events, turns, inflight, steering, compactor,
+      prefix: createImmutablePrefix(), ids, nowIso
+    })
+
+    await expect(loop.runTurn(threadId, started.turnId)).resolves.toBe('completed')
+    const persistedEvents = await sessionStore.loadEventsSince(threadId, 0)
+    const toolDelta = persistedEvents.find((event) => event.kind === 'tool_call_delta')
+    expect(toolDelta).toMatchObject({
+      kind: 'tool_call_delta',
+      callId: 'call_1',
+      toolName: 'read_file',
+      characterCount: 18
+    })
+    expect(JSON.stringify(toolDelta)).not.toContain('secret')
+    expect(JSON.stringify(toolDelta)).not.toContain('argumentsDelta')
+  })
+
   it('records redacted model and MCP spans around the actual stream and tool execution', async () => {
     const threadId = 'thread_runtime_spans'
     const nowIso = () => '2026-07-18T00:00:00.000Z'

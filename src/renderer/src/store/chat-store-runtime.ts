@@ -47,6 +47,7 @@ import {
 } from './terminal-notification-projection'
 import {
   applyExactLiveUsage,
+  applyLiveUsageCharacters,
   applyLiveUsageDelta,
   emptyLiveUsageProjection
 } from './live-usage-projection'
@@ -645,6 +646,7 @@ export function buildThreadEventSink(
 ): ThreadEventSink {
   const boundThreadId = binding.threadId?.trim() ?? ''
   let appliedDeltaSeqFloor = binding.sinceSeq ?? 0
+  let appliedUsageDeltaSeqFloor = binding.sinceSeq ?? 0
   const isCurrentStream = (): boolean => {
     if (binding.signal?.aborted) return false
     return !boundThreadId || get().activeThreadId === boundThreadId
@@ -1311,6 +1313,29 @@ export function buildThreadEventSink(
                 }
               }
             : {})
+        }
+      })
+    },
+    onUsageDelta: (characters, seq, eventTurnId) => {
+      if (!isCurrentStream()) return
+      if (eventTurnId && !isCurrentTurn(eventTurnId)) return
+      if (typeof seq === 'number') {
+        if (seq <= appliedUsageDeltaSeqFloor) return
+        appliedUsageDeltaSeqFloor = seq
+      }
+      set((s) => {
+        const threadId = s.activeThreadId
+        const turnId = eventTurnId?.trim() || s.currentTurnId?.trim()
+        if (!threadId || !turnId) return {}
+        return {
+          liveUsageByThreadId: {
+            ...(s.liveUsageByThreadId ?? {}),
+            [threadId]: applyLiveUsageCharacters(
+              s.liveUsageByThreadId?.[threadId],
+              turnId,
+              characters
+            )
+          }
         }
       })
     }

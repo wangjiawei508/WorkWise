@@ -101,6 +101,9 @@ import {
   requiredFileExtensionsForPrompt
 } from './turn-completion-guard.js'
 
+// Tool argument fragments are projected to usage as bounded character counts;
+// raw fragments never cross the runtime event boundary.
+const MAX_TOOL_CALL_DELTA_CHARACTERS = 1_000_000
 const PARALLEL_READ_ONLY_TOOL_NAMES = new Set(['read', 'grep', 'find', 'ls'])
 const MAX_PARALLEL_TOOL_CALLS = 3
 const MAX_TURN_MODEL_STEPS = 64
@@ -1113,6 +1116,22 @@ export class AgentLoop {
           })
           break
         case 'tool_call_delta':
+          if (chunk.argumentsDelta) {
+            const characterCount = Math.min(
+              Array.from(chunk.argumentsDelta).length,
+              MAX_TOOL_CALL_DELTA_CHARACTERS
+            )
+            if (characterCount > 0) {
+              await this.opts.events.record({
+                kind: 'tool_call_delta',
+                threadId,
+                turnId,
+                callId: chunk.callId,
+                ...(chunk.toolName ? { toolName: chunk.toolName } : {}),
+                characterCount
+              })
+            }
+          }
           break
         case 'tool_call_complete': {
           const provider = toolProviderMetadata.get(chunk.toolName)

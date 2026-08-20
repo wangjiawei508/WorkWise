@@ -20,6 +20,29 @@ function makeSink(): ThreadEventSink {
   }
 }
 
+describe('tool-call usage delta mapping', () => {
+  it('forwards only the bounded argument character count to live usage', async () => {
+    const deltas: Array<{ characters: number; seq?: number; turnId?: string }> = []
+    const sink: ThreadEventSink = {
+      ...makeSink(),
+      onUsageDelta: (characters, seq, turnId) => deltas.push({ characters, seq, turnId })
+    }
+
+    await dispatchRuntimeEvent({
+      kind: 'tool_call_delta',
+      seq: 9,
+      timestamp: '2026-08-20T00:00:00.000Z',
+      threadId: 'thr_1',
+      turnId: 'turn_1',
+      callId: 'call_1',
+      toolName: 'read_file',
+      characterCount: 37
+    } as CoreRuntimeEventJson, sink, async () => undefined)
+
+    expect(deltas).toEqual([{ characters: 37, seq: 9, turnId: 'turn_1' }])
+  })
+})
+
 describe('assistant stream mapping', () => {
   it('does not append completed assistant snapshots after streaming deltas', async () => {
     const deltas: unknown[] = []

@@ -93,6 +93,43 @@ it('clears live usage when a watched background thread completes', async () => {
 })
 
 describe('thread event sink binding', () => {
+  it('projects tool-call character deltas without exposing argument text and ignores replay duplicates', () => {
+    const initial = makeSinkHarness()
+    const sink = buildThreadEventSink(initial.set, initial.get, { threadId: 'thread-current' })
+    sink.onUsageDelta?.(12, 8, 'turn-current')
+    sink.onUsageDelta?.(12, 8, 'turn-current')
+    expect(initial.getState().liveUsageByThreadId['thread-current']).toMatchObject({ estimatedOutputCharacters: 12, estimatedOutputTokens: 3, exactTotalTokens: null })
+  })
+
+  it('keeps tool-call estimates after exact usage and projects only subsequent deltas', () => {
+    const initial = makeSinkHarness()
+    const sink = buildThreadEventSink(initial.set, initial.get, { threadId: 'thread-current' })
+    sink.onUsageDelta?.(8, 8, 'turn-current')
+    sink.onUsage?.({
+      inputTokens: 10,
+      outputTokens: 2,
+      reasoningTokens: 0,
+      cachedTokens: 0,
+      cacheMissTokens: 10,
+      cacheHitRate: null,
+      totalTokens: 12,
+      costUsd: 0,
+      costCny: null,
+      cacheSavingsUsd: 0,
+      cacheSavingsCny: null,
+      tokenEconomySavingsTokens: 0,
+      tokenEconomySavingsUsd: 0,
+      tokenEconomySavingsCny: null,
+      turns: 1
+    }, 9)
+    sink.onUsageDelta?.(4, 10, 'turn-current')
+    expect(initial.getState().liveUsageByThreadId['thread-current']).toMatchObject({
+      estimatedOutputCharacters: 12,
+      exactTotalTokens: 12,
+      exactOutputTokens: 2
+    })
+  })
+
   it('projects attachment evidence status onto the matching user attachment', () => {
     const initial = makeSinkHarness({
       blocks: [{

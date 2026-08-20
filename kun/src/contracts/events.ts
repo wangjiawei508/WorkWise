@@ -24,6 +24,7 @@ export const RuntimeEventKind = z.enum([
   'item_completed',
   'assistant_text_delta',
   'assistant_reasoning_delta',
+  'tool_call_delta',
   'tool_call_ready',
   'tool_result_upload_wait',
   'tool_storm_suppressed',
@@ -166,6 +167,19 @@ export const UserInputEvent = RuntimeEventBase.extend({
 })
 export type UserInputEvent = z.infer<typeof UserInputEvent>
 
+/**
+ * Usage-only projection of a streamed tool call. Raw argument fragments can
+ * contain credentials or user data, so the persisted event carries only a
+ * bounded Unicode character count.
+ */
+export const ToolCallDeltaEvent = RuntimeEventBase.extend({
+  kind: z.literal('tool_call_delta'),
+  callId: z.string().min(1),
+  toolName: z.string().min(1).optional(),
+  characterCount: z.number().int().nonnegative().max(1_000_000)
+})
+export type ToolCallDeltaEvent = z.infer<typeof ToolCallDeltaEvent>
+
 export const ToolCallReadyEvent = RuntimeEventBase.extend({
   kind: z.literal('tool_call_ready'),
   toolName: z.string().min(1),
@@ -269,6 +283,7 @@ export const RuntimeEvent = z.discriminatedUnion('kind', [
   UiActionEvent,
   ApprovalEvent,
   UserInputEvent,
+  ToolCallDeltaEvent,
   ToolCallReadyEvent,
   ToolUploadStatusEvent,
   ToolStormSuppressedEvent,

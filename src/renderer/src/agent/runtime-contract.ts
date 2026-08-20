@@ -559,6 +559,8 @@ export type CoreRuntimeEventJson = {
   sandboxMode?: string
   toolName?: string
   callId?: string
+  /** Bounded character count only; raw tool arguments are never sent to renderer. */
+  characterCount?: number
   readyCount?: number
   toolResultCount?: number
 	attachmentId?: string

@@ -38,6 +38,8 @@ import type {
   CoreUsageSnapshotJson
 } from './runtime-contract'
 
+const MAX_TOOL_CALL_DELTA_CHARACTERS = 1_000_000
+
 export function buildQuery(options: Record<string, string | number | boolean | undefined>): string {
   const params = new URLSearchParams()
   for (const [key, value] of Object.entries(options)) {
@@ -1230,6 +1232,15 @@ export async function dispatchRuntimeEvent(
     case 'assistant_reasoning_delta':
       emitDelta(event, sink, 'agent_reasoning')
       return
+    case 'tool_call_delta': {
+      const characterCount = typeof event.characterCount === 'number' && Number.isFinite(event.characterCount)
+        ? Math.min(MAX_TOOL_CALL_DELTA_CHARACTERS, Math.max(0, Math.floor(event.characterCount)))
+        : 0
+      if (characterCount > 0) {
+        sink.onUsageDelta?.(characterCount, event.seq, event.turnId)
+      }
+      return
+    }
     case 'item_created':
     case 'item_updated':
     case 'item_completed':

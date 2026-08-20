@@ -146,6 +146,7 @@ export function applyRuntimeEvent(
     case 'compaction_completed':
       applyCompactionEvent(next, event)
       break
+	    case 'tool_call_delta':
 	    case 'tool_call_ready':
 	    case 'tool_result_upload_wait':
 	    case 'tool_storm_suppressed':
