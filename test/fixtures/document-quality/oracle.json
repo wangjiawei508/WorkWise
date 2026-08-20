@@ -1,0 +1,51 @@
+{
+  "version": 1,
+  "cases": [
+    {
+      "id": "synthetic-image-only-scan",
+      "file": "synthetic-image-only-scan.pdf",
+      "sha256": "8fc69369293677833c955a405c194a9cd3a4a4eb4ebc67d87e66665a24ae1948",
+      "parserMarkdown": "",
+      "expectedAnalysis": {
+        "pageCount": 1,
+        "searchable": false,
+        "textCharacters": 0,
+        "textSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "textIncludes": []
+      },
+      "expectedQuality": {
+        "needsAccurateEngine": true,
+        "reasons": [
+          "low_text_density",
+          "scanned_document"
+        ]
+      }
+    },
+    {
+      "id": "synthetic-complex-layout",
+      "file": "synthetic-complex-layout.pdf",
+      "sha256": "32fae4c66dec4f97c27fda889af7c870ef90768c819a1c8e44f93572bb455468",
+      "parserMarkdown": "# Complex Layout Fixture\n\nThis deterministic technical report contains enough readable body text to avoid a low-density classification while preserving explicit structure signals for the quality oracle.\n\n$$ \\frac{a}{b} = \\sum_{i=1}^{n} x_i $$\n\n$$ \\sqrt{x^2 + y^2} $$\n\n| Item | Value | Status |\n| --- | --- | --- |\n| Table row A | 100 | Verified |\n| Table row B | 200 | Review |\n| Table row C | 300 | Pending |\n\nLeft column\tMiddle evidence\tRight column\nBaseline data\tThreshold review\tEngineering notes",
+      "expectedAnalysis": {
+        "pageCount": 1,
+        "searchable": true,
+        "textCharacters": 1065,
+        "textSha256": "d1cf110d89569a5cede98cd4eb5c68c256194fd5e7118b6d8940c02f347d75c4",
+        "textIncludes": [
+          "Complex Layout Fixture",
+          "Left column line 1",
+          "Right column line 1",
+          "Table row A"
+        ]
+      },
+      "expectedQuality": {
+        "needsAccurateEngine": true,
+        "reasons": [
+          "formula_dense",
+          "table_dense",
+          "complex_layout"
+        ]
+      }
+    }
+  ]
+}
