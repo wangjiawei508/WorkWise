@@ -513,7 +513,7 @@ describe('Kun built-in tools', () => {
     const output = await executeTool(host, workspace, 'bash', {
       command: 'cat cmd.txt'
     })
-    expect(output.command).toBe('cat cmd.txt')
+    expect(output.command).toBeUndefined()
     expect(typeof output.shell).toBe('string')
     expect(String(output.output)).toContain('from bash')
     expect(output.truncation).toBe(null)

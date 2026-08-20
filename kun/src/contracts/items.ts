@@ -89,6 +89,7 @@ export const ToolCallTurnItem = TurnItemBase.extend({
   callId: z.string().min(1),
   toolKind: z.enum(['tool_call', 'command_execution', 'file_change']),
   arguments: z.record(z.string(), z.unknown()),
+  argumentSummary: z.string().max(1_000).optional(),
   summary: z.string().optional()
 })
 export type ToolCallTurnItem = z.infer<typeof ToolCallTurnItem>

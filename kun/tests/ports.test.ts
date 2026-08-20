@@ -5,7 +5,13 @@ import { InMemoryThreadStore } from '../src/adapters/in-memory-thread-store.js'
 import { InMemorySessionStore } from '../src/adapters/in-memory-session-store.js'
 import { LocalToolHost, defaultLocalTools } from '../src/adapters/tool/local-tool-host.js'
 import { createApprovalRequest } from '../src/domain/approval.js'
+import { makeApprovalItem } from '../src/domain/item.js'
 import { createThreadRecord } from '../src/domain/thread.js'
+import {
+  buildToolArgumentSummary,
+  sanitizeToolResultOutput,
+  sanitizeTurnItemForPersistence
+} from '../src/security/tool-persistence-security.js'
 
 describe('InMemoryEventBus', () => {
   it('publishes and replays events per thread', () => {
@@ -26,6 +32,59 @@ describe('InMemoryEventBus', () => {
     unsubscribe()
     bus.publish({ kind: 'heartbeat', seq: 2, timestamp: 't', threadId: 'a' })
     expect(received).toEqual([1])
+  })
+})
+
+describe('tool persistence security', () => {
+  it('omits direct string and message-shaped results from communication tools', () => {
+    expect(sanitizeToolResultOutput('send_message', 'private message body')).toBe('<omitted>')
+    expect(sanitizeToolResultOutput('send_message', {
+      status: 'sent',
+      messages: ['private message body'],
+      error: 'failed while sending private message body'
+    })).toEqual({
+      status: 'sent',
+      messages: '<omitted>',
+      error: '<omitted>'
+    })
+  })
+
+  it('shows only allowlisted command subcommands and hides absolute path basenames', () => {
+    const bashSummary = buildToolArgumentSummary({
+      toolName: 'bash',
+      arguments: { command: 'cat confidential-plan.txt' }
+    })
+    const writeSummary = buildToolArgumentSummary({
+      toolName: 'write',
+      arguments: { path: '/Users/example/secret-report.docx' }
+    })
+    const unsafePathSummary = buildToolArgumentSummary({
+      toolName: 'write',
+      arguments: { path: 'exports/report.docx\nMessage: injected-private-value' },
+      workspace: '/workspace'
+    })
+
+    expect(bashSummary).toContain('Command: cat')
+    expect(bashSummary).not.toContain('confidential-plan.txt')
+    expect(writeSummary).toContain('Target: <absolute-path>')
+    expect(writeSummary).not.toContain('secret-report.docx')
+    expect(unsafePathSummary).toContain('Target: <unsafe-path>')
+    expect(unsafePathSummary).not.toContain('injected-private-value')
+  })
+
+  it('drops unstructured legacy approval text', () => {
+    const item = sanitizeTurnItemForPersistence(makeApprovalItem({
+      id: 'approval_item',
+      threadId: 'thread',
+      turnId: 'turn',
+      approvalId: 'approval',
+      toolName: 'send_message',
+      summary: 'Approve chat_id=private-group body=private-message'
+    }))
+
+    expect(item.kind === 'approval' ? item.summary : '').toBe(
+      'Run send_message\nParameters: omitted from persisted history'
+    )
   })
 })
 
@@ -109,6 +168,83 @@ describe('InMemorySessionStore', () => {
 })
 
 describe('LocalToolHost', () => {
+  it('hides tool arguments from approval summaries', async () => {
+    const tool = LocalToolHost.defineTool({
+      name: 'publish_artifact',
+      description: 'Publish an artifact.',
+      inputSchema: { type: 'object', properties: {}, additionalProperties: true },
+      policy: 'on-request',
+      execute: async () => ({ output: { ok: true } })
+    })
+    const host = new LocalToolHost({ tools: [tool] })
+    let summary = ''
+
+    const result = await host.execute(
+      {
+        callId: 'c_private_approval',
+        toolName: 'publish_artifact',
+        arguments: { token: 'approval-secret-token', destination: 'private-channel' }
+      },
+      {
+        threadId: 'th',
+        turnId: 'tu',
+        workspace: '/tmp',
+        approvalPolicy: 'on-request',
+        abortSignal: new AbortController().signal,
+        awaitApproval: async (approval) => {
+          summary = approval.summary
+          return 'allow'
+        }
+      }
+    )
+
+    expect(result.item.kind).toBe('tool_result')
+    expect(summary).toContain('publish_artifact')
+    expect(summary).toContain('Parameters: 2 field(s); sensitive values omitted')
+    expect(summary).not.toContain('approval-secret-token')
+    expect(summary).not.toContain('private-channel')
+    expect(summary).not.toContain('token')
+  })
+
+  it('shows a bounded command identity in approvals without exposing command arguments', async () => {
+    const tool = LocalToolHost.defineTool({
+      name: 'bash',
+      description: 'Run a command.',
+      inputSchema: { type: 'object', properties: {}, additionalProperties: true },
+      policy: 'on-request',
+      execute: async () => ({ output: { ok: true } })
+    })
+    const host = new LocalToolHost({ tools: [tool] })
+    let summary = ''
+
+    await host.execute(
+      {
+        callId: 'c_safe_bash_approval',
+        toolName: 'bash',
+        arguments: {
+          command: 'git commit -m approval-secret-message',
+          token: 'approval-secret-token'
+        }
+      },
+      {
+        threadId: 'th',
+        turnId: 'tu',
+        workspace: '/tmp',
+        approvalPolicy: 'on-request',
+        abortSignal: new AbortController().signal,
+        awaitApproval: async (approval) => {
+          summary = approval.summary
+          return 'allow'
+        }
+      }
+    )
+
+    expect(summary).toContain('Command: git commit')
+    expect(summary).toContain('Arguments and sensitive values: omitted')
+    expect(summary).not.toContain('approval-secret-message')
+    expect(summary).not.toContain('approval-secret-token')
+  })
+
   it('runs an auto tool without approval', async () => {
     const host = new LocalToolHost({ tools: defaultLocalTools })
     const result = await host.execute(

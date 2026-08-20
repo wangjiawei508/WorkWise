@@ -3,6 +3,7 @@ import type { EventBus } from '../../ports/event-bus.js'
 import type { SessionStore } from '../../ports/session-store.js'
 import type { RuntimeEvent } from '../../contracts/events.js'
 import { RUNTIME_RESOURCE_LIMITS_V1 } from '../../contracts/resource-limits.js'
+import { sanitizeRuntimeEventForPersistence } from '../../security/tool-persistence-security.js'
 
 const HEARTBEAT_INTERVAL_MS = 15_000
 
@@ -63,7 +64,8 @@ export function buildEventStreamResponse(input: {
         let pendingLiveBytes = 0
         let pendingLiveHighWaterSeq = sinceSeq
         let replayOverflowed = false
-        const deliver = (event: RuntimeEvent): void => {
+        const deliver = (unsafeEvent: RuntimeEvent): void => {
+          const event = sanitizeRuntimeEventForPersistence(unsafeEvent)
           if (closed) return
           if (typeof event.seq === 'number') {
             if (event.seq <= lastDeliveredSeq) return

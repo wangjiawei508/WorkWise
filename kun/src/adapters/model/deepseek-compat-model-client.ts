@@ -12,6 +12,7 @@ import {
   type ModelEndpointFormat
 } from '../../contracts/model-endpoint-format.js'
 import { RUNTIME_RESOURCE_LIMITS_V1 } from '../../contracts/resource-limits.js'
+import { modelVisibleToolArguments } from '../../security/tool-persistence-security.js'
 
 /**
  * Configuration for the compatible HTTP model client. Chat
@@ -595,7 +596,7 @@ export class DeepseekCompatModelClient implements ModelClient {
     return {
       id: item.callId,
       type: 'function',
-      function: { name: item.toolName, arguments: JSON.stringify(item.arguments) }
+      function: { name: item.toolName, arguments: JSON.stringify(modelVisibleToolArguments(item)) }
     }
   }
 

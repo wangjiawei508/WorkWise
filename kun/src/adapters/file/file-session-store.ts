@@ -6,6 +6,10 @@ import type { TurnItem } from '../../contracts/items.js'
 import type { AgentSession } from '../../domain/session.js'
 import { readJsonl } from './file-thread-store.js'
 import { atomicWriteFile, atomicWriteFileLocked, serializeFileOperation } from './atomic-write.js'
+import {
+  sanitizeRuntimeEventForPersistence,
+  sanitizeTurnItemForPersistence
+} from '../../security/tool-persistence-security.js'
 
 const DEFAULT_USAGE_EVENT_COMPACTION_MAX_BYTES = 5 * 1024 * 1024
 const DEFAULT_USAGE_EVENT_RETENTION_DAYS = 365
@@ -47,6 +51,7 @@ export class FileSessionStore implements SessionStore {
   }
 
   async appendEvent(threadId: string, event: RuntimeEvent): Promise<void> {
+    event = sanitizeRuntimeEventForPersistence(event)
     await this.ensureDir(this.threadDir(threadId))
     const path = this.eventsPath(threadId)
     await serializeFileOperation(path, async () => {
@@ -60,6 +65,7 @@ export class FileSessionStore implements SessionStore {
   }
 
   async appendItem(threadId: string, item: TurnItem): Promise<void> {
+    item = sanitizeTurnItemForPersistence(item)
     await this.ensureDir(this.threadDir(threadId))
     const path = this.messagesPath(threadId)
     await serializeFileOperation(path, () => appendJsonlLine(path, item))
@@ -67,7 +73,7 @@ export class FileSessionStore implements SessionStore {
 
   async rewriteItems(threadId: string, items: TurnItem[]): Promise<void> {
     await this.ensureDir(this.threadDir(threadId))
-    const contents = items.map((item) => JSON.stringify(item)).join('\n')
+    const contents = items.map(sanitizeTurnItemForPersistence).map((item) => JSON.stringify(item)).join('\n')
     await this.atomicWrite(this.messagesPath(threadId), contents ? `${contents}\n` : '')
   }
 
@@ -77,7 +83,7 @@ export class FileSessionStore implements SessionStore {
       const items = await this.loadItemsUnlocked(threadId)
       const current = items.find((item) => item.id === itemId)
       if (!current) return null
-      const updated = { ...current, ...patch } as TurnItem
+      const updated = sanitizeTurnItemForPersistence({ ...current, ...patch } as TurnItem)
       await this.ensureDir(this.threadDir(threadId))
       await appendJsonlLine(path, updated)
       return updated
@@ -85,18 +91,31 @@ export class FileSessionStore implements SessionStore {
   }
 
   async loadEventsSince(threadId: string, sinceSeq: number): Promise<RuntimeEvent[]> {
-    const all = await readJsonl<RuntimeEvent>(this.eventsPath(threadId))
-    return all
-      .filter((event) => event.seq > sinceSeq)
-      .sort((a, b) => a.seq - b.seq)
+    const path = this.eventsPath(threadId)
+    return serializeFileOperation(path, async () => {
+      const raw = await readJsonl<RuntimeEvent>(path)
+      const all = raw.map(sanitizeRuntimeEventForPersistence)
+      if (JSON.stringify(raw) !== JSON.stringify(all)) {
+        await atomicWriteFileLocked(path, jsonlContents(all))
+      }
+      return all
+        .filter((event) => event.seq > sinceSeq)
+        .sort((a, b) => a.seq - b.seq)
+    })
   }
 
   async loadItems(threadId: string): Promise<TurnItem[]> {
-    return this.loadItemsUnlocked(threadId)
+    const path = this.messagesPath(threadId)
+    return serializeFileOperation(path, () => this.loadItemsUnlocked(threadId))
   }
 
   private async loadItemsUnlocked(threadId: string): Promise<TurnItem[]> {
-    const raw = await readJsonl<TurnItem>(this.messagesPath(threadId))
+    const path = this.messagesPath(threadId)
+    const unsafeRaw = await readJsonl<TurnItem>(path)
+    const raw = unsafeRaw.map(sanitizeTurnItemForPersistence)
+    if (JSON.stringify(unsafeRaw) !== JSON.stringify(raw)) {
+      await atomicWriteFileLocked(path, jsonlContents(raw))
+    }
     const latestById = new Map<string, TurnItem>()
     for (const item of raw) {
       latestById.set(item.id, item)
@@ -115,7 +134,12 @@ export class FileSessionStore implements SessionStore {
   async loadSession(threadId: string): Promise<AgentSession | null> {
     try {
       const raw = await readFile(this.sessionPath(threadId), 'utf-8')
-      return JSON.parse(raw) as AgentSession
+      const parsed = JSON.parse(raw) as AgentSession
+      const session = sanitizeSession(parsed)
+      if (JSON.stringify(parsed) !== JSON.stringify(session)) {
+        await this.atomicWrite(this.sessionPath(threadId), JSON.stringify(session))
+      }
+      return session
     } catch {
       return null
     }
@@ -123,7 +147,7 @@ export class FileSessionStore implements SessionStore {
 
   async upsertSession(session: AgentSession): Promise<void> {
     await this.ensureDir(this.threadDir(session.threadId))
-    await this.atomicWrite(this.sessionPath(session.threadId), JSON.stringify(session))
+    await this.atomicWrite(this.sessionPath(session.threadId), JSON.stringify(sanitizeSession(session)))
   }
 
   async highestSeq(threadId: string): Promise<number> {
@@ -191,6 +215,19 @@ async function appendJsonlLine(path: string, value: unknown): Promise<void> {
     await handle.sync()
   } finally {
     await handle.close()
+  }
+}
+
+function jsonlContents(values: readonly unknown[]): string {
+  const contents = values.map((value) => JSON.stringify(value)).join('\n')
+  return contents ? `${contents}\n` : ''
+}
+
+function sanitizeSession(session: AgentSession): AgentSession {
+  return {
+    ...session,
+    items: session.items.map(sanitizeTurnItemForPersistence),
+    events: session.events.map(sanitizeRuntimeEventForPersistence)
   }
 }
 

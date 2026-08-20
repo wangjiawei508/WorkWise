@@ -43,7 +43,7 @@ function fewShotText(item: TurnItem): string {
     case 'ui_action':
       return `${item.actionId} ${item.value === undefined ? '' : stableStringify(item.value)}`
     case 'tool_call':
-      return `${item.toolName} ${stableStringify(item.arguments)}`
+      return `${item.toolName} ${item.argumentSummary || stableStringify(item.arguments)}`
     case 'tool_result':
       return `${item.toolName} ${stableStringify(item.output)}`
     case 'approval':

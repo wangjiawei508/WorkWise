@@ -1139,6 +1139,67 @@ describe('DeepseekCompatModelClient', () => {
     expect(messages.some((message) => message.role === 'tool' && message.tool_call_id === 'call_ok')).toBe(true)
   })
 
+  it('sends a durable safe argument summary for redacted tool calls after restart', async () => {
+    const sentBodies: Array<{ messages?: Array<Record<string, unknown>> }> = []
+    const fetchImpl: typeof fetch = async (_url, init) => {
+      sentBodies.push(JSON.parse(String(init?.body ?? '{}')))
+      return new Response(JSON.stringify({
+        id: 'r-safe-summary',
+        model: 'deepseek-chat',
+        choices: [{
+          index: 0,
+          finish_reason: 'stop',
+          message: { role: 'assistant', content: 'done' }
+        }],
+        usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 }
+      }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' }
+      })
+    }
+    const client = new DeepseekCompatModelClient({
+      baseUrl: 'https://example.com/beta',
+      apiKey: 'k',
+      model: 'deepseek-chat',
+      fetchImpl,
+      nonStreaming: true
+    })
+    const request = buildRequest(new AbortController().signal)
+    request.history = [
+      makeToolCallItem({
+        id: 'safe_summary_call',
+        turnId: 'turn_old',
+        threadId: 'thr_1',
+        callId: 'call_safe_summary',
+        toolName: 'write',
+        arguments: {},
+        argumentSummary: 'Run write\nTarget: <workspace>/exports/report.docx\nContent: omitted (12480 chars)'
+      }),
+      makeToolResultItem({
+        id: 'safe_summary_result',
+        turnId: 'turn_old',
+        threadId: 'thr_1',
+        callId: 'call_safe_summary',
+        toolName: 'write',
+        output: { ok: true }
+      })
+    ]
+
+    for await (const _chunk of client.stream(request)) {
+      // drain
+    }
+
+    const toolMessage = sentBodies[0]?.messages?.find((message) => Array.isArray(message.tool_calls))
+    const wireCall = (toolMessage?.tool_calls as Array<{
+      function?: { arguments?: string }
+    }> | undefined)?.[0]
+    const wireArguments = JSON.parse(wireCall?.function?.arguments ?? '{}') as Record<string, unknown>
+    expect(wireArguments).toEqual({
+      _workwise_summary: 'Run write\nTarget: <workspace>/exports/report.docx\nContent: omitted (12480 chars)'
+    })
+    expect(JSON.stringify(sentBodies)).not.toContain('raw-secret')
+  })
+
   it('groups completed multi-tool blocks into one assistant tool_calls message', async () => {
     const sentBodies: Array<{ messages?: Array<Record<string, unknown>> }> = []
     const response = {

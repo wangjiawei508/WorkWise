@@ -87,6 +87,7 @@ import { parseDshUiBlocks } from '../contracts/dsh-ui.js'
 import { shellRuntimeInstruction } from '../adapters/tool/builtin-tool-utils.js'
 import { RUNTIME_RESOURCE_LIMITS_V1 } from '../contracts/resource-limits.js'
 import { redactSecretText } from '../config/secret-redaction.js'
+import { buildToolArgumentSummary } from '../security/tool-persistence-security.js'
 import {
   formatWorkspaceInstructions,
   loadWorkspaceInstructions
@@ -458,6 +459,15 @@ export class AgentLoop {
   private readonly toolCatalogSnapshots = new Map<string, ToolCatalogSnapshot>()
   private readonly lastNoToolTextByTurn = new Map<string, string>()
   private readonly incompleteCompletionRecoveriesByTurn = new Map<string, number>()
+  /**
+   * Execution-private tool arguments for the active turn. Persisted history
+   * deliberately contains `{}`; this map repairs the provider-visible call /
+   * result pair until the turn finishes without crossing the Runtime boundary.
+   */
+  private readonly ephemeralToolArgumentsByTurn = new Map<
+    string,
+    Map<string, Record<string, unknown>>
+  >()
 
   constructor(opts: AgentLoopOptions) {
     this.opts = opts
@@ -621,7 +631,31 @@ export class AgentLoop {
       this.toolStormBreakers.delete(turnId)
       this.lastNoToolTextByTurn.delete(turnId)
       this.incompleteCompletionRecoveriesByTurn.delete(turnId)
+      this.ephemeralToolArgumentsByTurn.delete(turnId)
     }
+  }
+
+  private rememberEphemeralToolArguments(
+    turnId: string,
+    callId: string,
+    argumentsValue: Record<string, unknown>
+  ): void {
+    let byCall = this.ephemeralToolArgumentsByTurn.get(turnId)
+    if (!byCall) {
+      byCall = new Map()
+      this.ephemeralToolArgumentsByTurn.set(turnId, byCall)
+    }
+    byCall.set(callId, argumentsValue)
+  }
+
+  private restoreEphemeralToolArguments(turnId: string, items: TurnItem[]): TurnItem[] {
+    const byCall = this.ephemeralToolArgumentsByTurn.get(turnId)
+    if (!byCall || byCall.size === 0) return items
+    return items.map((item) => {
+      if (item.kind !== 'tool_call' || item.turnId !== turnId) return item
+      const argumentsValue = byCall.get(item.callId)
+      return argumentsValue ? { ...item, arguments: { ...argumentsValue } } : item
+    })
   }
 
   private async failTurn(threadId: string, turnId: string, message: string): Promise<void> {
@@ -987,8 +1021,11 @@ export class AgentLoop {
     const effectiveToolSpecs = webFailureGuard?.isBlocked()
       ? planModeToolSpecs.filter((tool) => !isWebToolName(tool.name))
       : planModeToolSpecs
-    const history = await this.compactIfNeeded(items, model, signal, { threadId, turnId })
+    const compactedHistory = await this.compactIfNeeded(items, model, signal, { threadId, turnId })
     if (signal.aborted) return 'aborted'
+    // Compaction must see the redacted representation. Restore execution-only
+    // arguments only after compaction and before request history hygiene.
+    const history = this.restoreEphemeralToolArguments(turnId, compactedHistory)
     await this.recordPipelineStage(threadId, turnId, 'input_compressed', {
       historyItems: history.length
     })
@@ -1160,7 +1197,13 @@ export class AgentLoop {
             toolKind,
             arguments: repaired.arguments
           })
+          this.rememberEphemeralToolArguments(turnId, chunk.callId, repaired.arguments)
           const itemId = `item_tool_${turnId}_${chunk.callId}`
+          const argumentSummary = buildToolArgumentSummary({
+            toolName: chunk.toolName,
+            arguments: repaired.arguments,
+            workspace: thread?.workspace
+          })
           await this.opts.turns.applyItem(
             threadId,
             makeToolCallItem({
@@ -1170,7 +1213,11 @@ export class AgentLoop {
               callId: chunk.callId,
               toolName: chunk.toolName,
               toolKind,
-              arguments: repaired.arguments,
+              // Raw arguments stay in the in-memory ToolCallLike above for
+              // policy checks and execution. Persisting them would expose
+              // credentials and user data through thread reads and SSE replay.
+              arguments: {},
+              argumentSummary,
               ...(repaired.notes.length
                 ? { summary: `Repaired tool arguments: ${repaired.notes.join('; ')}` }
                 : {})
@@ -1308,7 +1355,13 @@ export class AgentLoop {
             toolKind,
             arguments: argumentsForFallback
           }
+          this.rememberEphemeralToolArguments(turnId, callId, argumentsForFallback)
           const itemId = `item_tool_${turnId}_${callId}`
+          const argumentSummary = buildToolArgumentSummary({
+            toolName: CREATE_PLAN_TOOL_NAME,
+            arguments: argumentsForFallback,
+            workspace: thread?.workspace
+          })
           await this.opts.turns.applyItem(
             threadId,
             makeToolCallItem({
@@ -1318,7 +1371,8 @@ export class AgentLoop {
               callId,
               toolName: CREATE_PLAN_TOOL_NAME,
               toolKind,
-              arguments: argumentsForFallback,
+              arguments: {},
+              argumentSummary,
               summary: 'Materialized assistant plan text into the required GUI plan.'
             })
           )
@@ -1889,7 +1943,10 @@ export class AgentLoop {
       callId: input.call.callId,
       toolName: input.call.toolName,
       toolKind: input.call.toolKind ?? 'tool_call',
-      output: { error: input.reason ?? 'duplicate tool call suppressed by repeat-loop guard' },
+      output: {
+        code: 'tool_storm_suppressed',
+        error: input.reason ?? 'duplicate tool call suppressed by repeat-loop guard'
+      },
       isError: true
     })
     const message = input.reason ?? 'duplicate tool call suppressed by repeat-loop guard'
@@ -2791,7 +2848,7 @@ function compactionPromptLine(item: TurnItem): string {
     case 'assistant_reasoning':
       return ''
     case 'tool_call':
-      return `[tool_call:${item.toolName}] ${clipForPrompt(item.summary || stringifyForPrompt(item.arguments), 1_200)}`
+      return `[tool_call:${item.toolName}] ${clipForPrompt(item.argumentSummary || item.summary || 'parameters omitted', 1_200)}`
     case 'tool_result':
       return `[tool_result:${item.toolName}${item.isError ? ':error' : ''}] ${clipForPrompt(stringifyForPrompt(item.output), 2_000)}`
     case 'approval':

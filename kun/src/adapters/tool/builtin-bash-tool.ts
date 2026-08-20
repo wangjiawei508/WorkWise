@@ -25,6 +25,7 @@ import {
 } from './builtin-tool-utils.js'
 import { safeSpawn } from './safe-spawn.js'
 import { RUNTIME_RESOURCE_LIMITS_V1 } from '../../contracts/resource-limits.js'
+import { summarizeBashCommandForPersistence } from '../../security/tool-persistence-security.js'
 
 const DEFAULT_BASH_YIELD_SECONDS = 10
 const MAX_BASH_YIELD_SECONDS = 60
@@ -55,7 +56,6 @@ type BashSession = {
 }
 
 type BashPayload = {
-  command: string
   cwd: string
   shell: string
   exit_code: number | null
@@ -178,7 +178,6 @@ async function bashExecute(
     const snapshot = output.snapshot({ persistIfTruncated: true })
     await onUpdate({
       output: {
-        command,
         cwd,
         shell: resultShell,
         exit_code: null,
@@ -342,7 +341,6 @@ function truncationPayload(truncated: TextSlice): BashPayload['truncation'] {
 }
 
 function resultPayload(input: {
-  command: string
   cwd: string
   shell: string
   exitCode: number | null
@@ -351,7 +349,6 @@ function resultPayload(input: {
   fullOutputPath?: string
 }): BashPayload {
   return {
-    command: input.command,
     cwd: input.cwd,
     shell: input.shell,
     exit_code: input.exitCode,
@@ -379,7 +376,6 @@ async function sessionPayload(
   const snapshot = session.output.snapshot({ persistIfTruncated: true })
   const truncated = textSliceFromSnapshot(snapshot)
   return {
-    command: session.command,
     cwd: session.cwd,
     shell: session.shell,
     exit_code: session.exitCode,
@@ -528,7 +524,7 @@ async function startBashSession(
         turnId: input.turnId,
         workspaceRoot: input.workspaceRoot,
         cwd: input.cwd,
-        commandSummary: input.command.replace(/\s+/g, ' ').trim().slice(0, 240),
+        commandSummary: summarizeBashCommandForPersistence(input.command),
         outputPath: outputFilePath,
         startedAt: session.startedAt
       })
@@ -723,7 +719,6 @@ export function createBashLocalTool(options: BashLocalToolOptions = {}): LocalTo
           bashOps.exec
         )
         const payload = resultPayload({
-          command,
           cwd,
           shell: result.shell,
           exitCode: result.exitCode ?? 0,
@@ -743,7 +738,6 @@ export function createBashLocalTool(options: BashLocalToolOptions = {}): LocalTo
       } catch (error) {
         return {
           output: {
-            command,
             cwd,
             error: error instanceof Error ? error.message : String(error)
           },

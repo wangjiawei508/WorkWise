@@ -310,12 +310,14 @@ describe('AgentLoop completion guard', () => {
         yield { kind: 'completed', stopReason: 'stop' }
       }
     }
+    let dispatchedArguments: Record<string, unknown> | undefined
     const toolHost: ToolHost = {
       id: 'span-host',
       async listTools() {
         return [{ ...spec('knowledge_search'), providerId: 'mcp:knowledge', providerKind: 'mcp' }]
       },
       async execute(call) {
+        dispatchedArguments = call.arguments
         return {
           item: makeToolResultItem({
             id: `item_${call.callId}`,
@@ -352,6 +354,11 @@ describe('AgentLoop completion guard', () => {
     expect(finishes.find((entry) => entry.id.includes('span_tool'))?.input).toMatchObject({
       status: 'ok', attributes: { approved: true, isError: false }
     })
+    expect(dispatchedArguments).toEqual({ token: 'secret' })
+    const persistedItems = await sessionStore.loadItems(threadId)
+    const persistedEvents = await sessionStore.loadEventsSince(threadId, 0)
+    expect(JSON.stringify(persistedItems)).not.toContain('secret')
+    expect(JSON.stringify(persistedEvents)).not.toContain('secret')
   })
 
   it('applies the selected Agent model, prompt, tool/MCP allowlists, and trust cap', async () => {

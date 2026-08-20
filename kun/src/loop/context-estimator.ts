@@ -32,7 +32,7 @@ export class ContextEstimator {
       case 'ui_action':
         return `Untrusted UI action ${item.actionId}: ${item.value === undefined ? '' : JSON.stringify(item.value)}`
       case 'tool_call':
-        return `${item.toolName} ${JSON.stringify(item.arguments)}`
+        return `${item.toolName} ${item.argumentSummary || 'parameters omitted'}`
       case 'tool_result':
         return typeof item.output === 'string' ? item.output : JSON.stringify(item.output)
       case 'approval':

@@ -2,6 +2,10 @@ import type { SessionStore } from '../ports/session-store.js'
 import type { RuntimeEvent } from '../contracts/events.js'
 import type { TurnItem } from '../contracts/items.js'
 import type { AgentSession } from '../domain/session.js'
+import {
+  sanitizeRuntimeEventForPersistence,
+  sanitizeTurnItemForPersistence
+} from '../security/tool-persistence-security.js'
 
 /**
  * In-memory session store used by tests and the default runtime.
@@ -17,6 +21,7 @@ export class InMemorySessionStore implements SessionStore {
   private readonly sessions = new Map<string, AgentSession>()
 
   async appendEvent(threadId: string, event: RuntimeEvent): Promise<void> {
+    event = sanitizeRuntimeEventForPersistence(event)
     const list = this.events.get(threadId) ?? []
     if (list.some((existing) => existing.seq === event.seq)) return
     list.push(event)
@@ -32,6 +37,7 @@ export class InMemorySessionStore implements SessionStore {
   }
 
   async appendItem(threadId: string, item: TurnItem): Promise<void> {
+    item = sanitizeTurnItemForPersistence(item)
     const list = this.items.get(threadId) ?? []
     const existingIndex = list.findIndex((existing) => existing.id === item.id)
     const nextList = existingIndex >= 0
@@ -51,7 +57,7 @@ export class InMemorySessionStore implements SessionStore {
   }
 
   async rewriteItems(threadId: string, items: TurnItem[]): Promise<void> {
-    const nextItems = [...items]
+    const nextItems = items.map(sanitizeTurnItemForPersistence)
     this.items.set(threadId, nextItems)
     const session = this.sessions.get(threadId)
     if (session) {
@@ -68,7 +74,7 @@ export class InMemorySessionStore implements SessionStore {
     let updated: TurnItem | null = null
     const nextList = list.map((item) => {
       if (item.id !== itemId) return item
-      updated = { ...item, ...patch } as TurnItem
+      updated = sanitizeTurnItemForPersistence({ ...item, ...patch } as TurnItem)
       return updated
     })
     if (!updated) return null
@@ -100,12 +106,17 @@ export class InMemorySessionStore implements SessionStore {
   }
 
   async upsertSession(session: AgentSession): Promise<void> {
-    this.sessions.set(session.threadId, session)
+    const safeSession = {
+      ...session,
+      items: session.items.map(sanitizeTurnItemForPersistence),
+      events: session.events.map(sanitizeRuntimeEventForPersistence)
+    }
+    this.sessions.set(session.threadId, safeSession)
     if (!this.events.has(session.threadId)) {
-      this.events.set(session.threadId, [...session.events])
+      this.events.set(session.threadId, [...safeSession.events])
     }
     if (!this.items.has(session.threadId)) {
-      this.items.set(session.threadId, [...session.items])
+      this.items.set(session.threadId, [...safeSession.items])
     }
   }
 

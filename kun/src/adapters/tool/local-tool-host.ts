@@ -7,6 +7,7 @@ import type {
 } from '../../ports/tool-host.js'
 import type { ApprovalRequest } from '../../domain/approval.js'
 import { createApprovalRequest } from '../../domain/approval.js'
+import { buildToolArgumentSummary } from '../../security/tool-persistence-security.js'
 import type { TurnItem } from '../../contracts/items.js'
 import { makeToolResultItem, makeApprovalItem } from '../../domain/item.js'
 import { buildBuiltinLocalTools } from './builtin-tools.js'
@@ -176,7 +177,7 @@ export class LocalToolHost implements ToolHost {
         threadId: context.threadId,
         turnId: context.turnId,
         toolName: activeCall.toolName,
-        summary: this.buildApprovalSummary(activeCall)
+        summary: this.buildApprovalSummary(activeCall, context.workspace)
       })
       const decision = await context.awaitApproval(approval)
       if (decision !== 'allow') {
@@ -304,11 +305,12 @@ export class LocalToolHost implements ToolHost {
     return toolName === 'user_input' || toolName === 'request_user_input'
   }
 
-  private buildApprovalSummary(call: ToolCallLike): string {
-    const args = Object.entries(call.arguments)
-      .map(([key, value]) => `${key}=${JSON.stringify(value)}`)
-      .join(', ')
-    return `Run ${call.toolName}(${args})`
+  private buildApprovalSummary(call: ToolCallLike, workspace?: string): string {
+    return buildToolArgumentSummary({
+      toolName: call.toolName,
+      arguments: call.arguments,
+      workspace
+    })
   }
 
   private errorToolResult(

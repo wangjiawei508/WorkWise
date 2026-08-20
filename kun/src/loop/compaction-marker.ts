@@ -38,7 +38,7 @@ function compactionDigestShape(item: TurnItem): unknown {
         kind: item.kind,
         callId: item.callId,
         toolName: item.toolName,
-        arguments: stableShape(item.arguments),
+        argumentSummary: item.argumentSummary,
         summary: item.summary
       }
     case 'tool_result':

@@ -946,14 +946,16 @@ describe('AgentLoop', () => {
     expect(resultCallIds).toEqual(['call_read', 'call_grep'])
   })
 
-	  it('repairs wrapped tool arguments before persisting and dispatching calls', async () => {
+	  it('repairs wrapped tool arguments for same-turn dispatch and model history without persisting them', async () => {
 	    let observedArguments: Record<string, unknown> | null = null
+	    const observedRequests: ModelRequest[] = []
 	    let calls = 0
 	    const h = makeHarness(
 	      {
 	        provider: 'wrapped-tool-args',
 	        model: 'wrapped-tool-args',
-	        async *stream(): AsyncIterable<ModelStreamChunk> {
+	        async *stream(request: ModelRequest): AsyncIterable<ModelStreamChunk> {
+	          observedRequests.push(request)
 	          calls += 1
 	          if (calls > 1) {
 	            yield { kind: 'completed', stopReason: 'stop' }
@@ -994,10 +996,63 @@ describe('AgentLoop', () => {
     expect(observedArguments).toEqual({ path: 'src/main.ts' })
     const items = await h.sessionStore.loadItems(h.threadId)
     const toolCall = items.find((item) => item.kind === 'tool_call' && item.callId === 'call_wrapped')
+    const secondRequestCall = observedRequests[1]?.history.find(
+      (item) => item.kind === 'tool_call' && item.callId === 'call_wrapped'
+    )
     expect(toolCall).toMatchObject({
-      arguments: { path: 'src/main.ts' },
+      arguments: {},
+      argumentSummary: expect.stringContaining('Target: <workspace>/src/main.ts'),
       summary: expect.stringContaining('flattened arguments wrapper')
     })
+    expect(secondRequestCall?.kind === 'tool_call' ? secondRequestCall.arguments : null)
+      .toEqual({ path: 'src/main.ts' })
+    const persistedEvents = JSON.stringify(await h.sessionStore.loadEventsSince(h.threadId, 0))
+    expect(persistedEvents).toContain('Target: <workspace>/src/main.ts')
+    expect(persistedEvents).not.toContain('"arguments":{"path"')
+  })
+
+  it('uses raw tool arguments only in the active turn and safe summaries in the next turn', async () => {
+    const requests: ModelRequest[] = []
+    let modelCall = 0
+    const h = makeHarness({
+      provider: 'tool-argument-lifetime',
+      model: 'tool-argument-lifetime',
+      async *stream(request: ModelRequest): AsyncIterable<ModelStreamChunk> {
+        requests.push(request)
+        modelCall += 1
+        if (modelCall === 1) {
+          yield {
+            kind: 'tool_call_complete',
+            callId: 'call_argument_lifetime',
+            toolName: 'echo',
+            arguments: { text: 'active-turn-secret' }
+          }
+          yield { kind: 'completed', stopReason: 'tool_calls' }
+          return
+        }
+        yield { kind: 'completed', stopReason: 'stop' }
+      }
+    })
+    await bootstrapThread(h)
+    await expect(h.loop.runTurn(h.threadId, h.turnId)).resolves.toBe('completed')
+    const secondTurn = await h.turns.startTurn({
+      threadId: h.threadId,
+      request: { prompt: 'continue in a new turn' }
+    })
+    await expect(h.loop.runTurn(h.threadId, secondTurn.turnId)).resolves.toBe('completed')
+
+    const sameTurnCall = requests[1]?.history.find(
+      (item) => item.kind === 'tool_call' && item.callId === 'call_argument_lifetime'
+    )
+    const nextTurnCall = requests[2]?.history.find(
+      (item) => item.kind === 'tool_call' && item.callId === 'call_argument_lifetime'
+    )
+    expect(sameTurnCall?.kind === 'tool_call' ? sameTurnCall.arguments : null)
+      .toEqual({ text: 'active-turn-secret' })
+    expect(nextTurnCall?.kind === 'tool_call' ? nextTurnCall.arguments : null).toEqual({})
+    expect(nextTurnCall?.kind === 'tool_call' ? nextTurnCall.argumentSummary : '')
+      .toContain('Message content: omitted (18 chars)')
+    expect(JSON.stringify(await h.sessionStore.loadItems(h.threadId))).not.toContain('active-turn-secret')
   })
 
 	  it('suppresses repeated identical tool calls within a turn', async () => {
@@ -1054,8 +1109,8 @@ describe('AgentLoop', () => {
     expect(executions).toBe(2)
     expect(thirdCall).toMatchObject({ kind: 'tool_call', status: 'failed' })
 	    expect(stormResult?.kind === 'tool_result' ? stormResult.isError : false).toBe(true)
-	    expect(stormResult?.kind === 'tool_result' ? JSON.stringify(stormResult.output) : '')
-	      .toContain('repeat-loop guard suppressed')
+      expect(stormResult?.kind === 'tool_result' ? stormResult.output : null)
+        .toMatchObject({ code: 'tool_storm_suppressed' })
 	    expect(events.find((event) => event.kind === 'tool_storm_suppressed')).toMatchObject({
 	      kind: 'tool_storm_suppressed',
 	      callId: 'call_echo_3',
@@ -1239,6 +1294,8 @@ describe('AgentLoop', () => {
 
     expect(status).toBe('completed')
     expect(persisted?.kind === 'tool_result' ? JSON.stringify(persisted.output) : '').toContain('verbose output line 699')
+    expect(secondRequestCall?.kind === 'tool_call' ? secondRequestCall.arguments.command : null)
+      .toBe('npm test')
     expect(secondRequestCall?.kind === 'tool_call' ? String(secondRequestCall.arguments.transcript) : '')
       .toContain('cache hygiene')
     expect(secondRequestResult?.kind === 'tool_result' ? JSON.stringify(secondRequestResult.output) : '')
@@ -2281,6 +2338,45 @@ describe('AgentLoop', () => {
     expect(summary).toContain(result.summaryItem.kind === 'compaction' ? result.summaryItem.digestMarker : '')
   })
 
+  it('preserves safe tool intent in compaction without restoring raw arguments', () => {
+    const compactor = new ContextCompactor({ softThreshold: 1, hardThreshold: 2 })
+    const result = compactor.compact({
+      threadId: 'thr_tool_summary_compaction',
+      turnId: 'turn_tool_summary_compaction',
+      prefix: createImmutablePrefix({ systemPrompt: 'system' }),
+      keepRecent: 1,
+      history: [
+        makeToolCallItem({
+          id: 'call_compacted_write',
+          turnId: 'turn_tool_summary_compaction',
+          threadId: 'thr_tool_summary_compaction',
+          callId: 'call_compacted_write',
+          toolName: 'write',
+          arguments: {},
+          argumentSummary: 'Run write\nTarget: <workspace>/exports/report.docx\nContent: omitted (12480 chars)'
+        }),
+        makeToolResultItem({
+          id: 'result_compacted_write',
+          turnId: 'turn_tool_summary_compaction',
+          threadId: 'thr_tool_summary_compaction',
+          callId: 'call_compacted_write',
+          toolName: 'write',
+          output: { ok: true }
+        }),
+        makeUserItem({
+          id: 'user_after_compaction',
+          turnId: 'turn_tool_summary_compaction',
+          threadId: 'thr_tool_summary_compaction',
+          text: 'continue'
+        })
+      ]
+    })
+    const summary = result.summaryItem.kind === 'compaction' ? result.summaryItem.summary : ''
+    expect(summary).toContain('<workspace>/exports/report.docx')
+    expect(summary).toContain('Content: omitted (12480 chars)')
+    expect(summary).not.toContain('raw-secret')
+  })
+
   it('accepts configured context compaction thresholds and model profiles', () => {
     const compactor = new ContextCompactor({
       contextCompaction: {
@@ -2846,6 +2942,88 @@ describe('FileSessionStore', () => {
       await readFile(join(dataDir, 'threads', 'index.json'), 'utf-8')
     ) as { order: string[] }
     expect(index.order).toContain('thr_x')
+  })
+
+  it('migrates legacy raw tool arguments, bash commands, and approval summaries on load', async () => {
+    const sessionStore = new FileSessionStore({ dataDir })
+    const threadId = 'thr_legacy_tool_privacy'
+    const turnId = 'turn_legacy_tool_privacy'
+    const threadDir = join(dataDir, 'threads', threadId)
+    const secret = 'legacy-secret-token'
+    await mkdir(threadDir, { recursive: true })
+    const call = makeToolCallItem({
+      id: 'legacy_call',
+      turnId,
+      threadId,
+      callId: 'call_legacy',
+      toolName: 'bash',
+      arguments: {
+        command: `curl https://example.com/download?token=${secret}`,
+        token: secret
+      }
+    })
+    const result = makeToolResultItem({
+      id: 'legacy_result',
+      turnId,
+      threadId,
+      callId: 'call_legacy',
+      toolName: 'bash',
+      output: {
+        command: `curl https://example.com/download?token=${secret}`,
+        output: 'download complete',
+        token: secret
+      }
+    })
+    const approval = makeApprovalItem({
+      id: 'legacy_approval',
+      turnId,
+      threadId,
+      approvalId: 'approval_legacy',
+      toolName: 'send_message',
+      summary: `Run send_message(chat_id="group-${secret}", body="private message")`
+    })
+    await writeFile(
+      join(threadDir, 'messages.jsonl'),
+      [call, result, approval].map((item) => JSON.stringify(item)).join('\n') + '\n',
+      'utf-8'
+    )
+    await writeFile(
+      join(threadDir, 'events.jsonl'),
+      `${JSON.stringify({
+        kind: 'item_created',
+        seq: 1,
+        timestamp: '2026-08-20T00:00:00.000Z',
+        threadId,
+        turnId,
+        itemId: call.id,
+        item: call
+      })}\n`,
+      'utf-8'
+    )
+
+    const items = await sessionStore.loadItems(threadId)
+    const events = await sessionStore.loadEventsSince(threadId, 0)
+    const migratedCall = items.find((item) => item.kind === 'tool_call')
+    const migratedResult = items.find((item) => item.kind === 'tool_result')
+    const migratedApproval = items.find((item) => item.kind === 'approval')
+
+    expect(migratedCall).toMatchObject({
+      kind: 'tool_call',
+      arguments: {},
+      argumentSummary: expect.stringContaining('Command: curl')
+    })
+    expect(migratedResult?.kind === 'tool_result' ? migratedResult.output : {}).not.toHaveProperty('command')
+    expect(migratedApproval?.kind === 'approval' ? migratedApproval.summary : '')
+      .toBe('Run send_message\nParameters: omitted from legacy history')
+    expect(JSON.stringify(items)).not.toContain(secret)
+    expect(JSON.stringify(events)).not.toContain(secret)
+
+    const rewrittenMessages = await readFile(join(threadDir, 'messages.jsonl'), 'utf-8')
+    const rewrittenEvents = await readFile(join(threadDir, 'events.jsonl'), 'utf-8')
+    expect(rewrittenMessages).not.toContain(secret)
+    expect(rewrittenMessages).not.toContain('"command"')
+    expect(rewrittenEvents).not.toContain(secret)
+    expect(rewrittenEvents).toContain('argumentSummary')
   })
 
   it('handles concurrent file thread index writes in the same millisecond', async () => {

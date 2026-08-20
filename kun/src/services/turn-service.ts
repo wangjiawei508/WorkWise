@@ -1,6 +1,10 @@
 import type { ThreadRecord, ThreadStatus } from '../contracts/threads.js'
 import type { CompactRequest, CompactResponse, StartTurnRequest, StartTurnResponse, Turn, TurnStatus } from '../contracts/turns.js'
 import type { TurnItem } from '../contracts/items.js'
+import {
+  sanitizeToolResultOutput,
+  sanitizeTurnItemForPersistence
+} from '../security/tool-persistence-security.js'
 import type { UiActionAudit, UiActionStartResponse } from '../contracts/ui-actions.js'
 import type { SessionStore } from '../ports/session-store.js'
 import type { ThreadStore } from '../ports/thread-store.js'
@@ -33,6 +37,29 @@ export type TurnServiceDeps = {
 }
 
 export const MAX_TERMINAL_TURN_IDS = 1_000
+
+function persistentTurnItem(item: TurnItem): TurnItem {
+  return sanitizeTurnItemForPersistence(item)
+}
+
+function persistentTurnItemPatch(patch: Partial<TurnItem>): Partial<TurnItem> {
+  if (Object.prototype.hasOwnProperty.call(patch, 'arguments')) {
+    const toolPatch = patch as Partial<Extract<TurnItem, { kind: 'tool_call' }>>
+    return {
+      ...patch,
+      arguments: {},
+      ...(toolPatch.argumentSummary ? { argumentSummary: toolPatch.argumentSummary } : {})
+    } as Partial<TurnItem>
+  }
+  if (Object.prototype.hasOwnProperty.call(patch, 'output')) {
+    const resultPatch = patch as Partial<Extract<TurnItem, { kind: 'tool_result' }>>
+    return {
+      ...patch,
+      output: sanitizeToolResultOutput(resultPatch.toolName ?? 'tool', resultPatch.output)
+    } as Partial<TurnItem>
+  }
+  return patch
+}
 
 function terminalReason(status: Extract<TurnStatus, 'completed' | 'failed' | 'aborted'>, error?: string): 'completed' | 'error' | 'aborted' | 'blocked' | 'max_tokens' {
   if (status === 'completed') return 'completed'
@@ -570,13 +597,17 @@ export class TurnService {
    * calls this after each chunk so SSE consumers see live updates.
    */
   async applyItem(threadId: string, item: TurnItem): Promise<void> {
-    await this.appendItem(threadId, item)
+    // Tool arguments are execution-private. Thread reads and SSE replay use
+    // the same persisted projection, so enforce the boundary in one place
+    // regardless of which Runtime component produced the item.
+    const persistedItem = persistentTurnItem(item)
+    await this.appendItem(threadId, persistedItem)
     await this.deps.events.record({
       kind: 'item_created',
       threadId,
-      turnId: item.turnId,
-      itemId: item.id,
-      item
+      turnId: persistedItem.turnId,
+      itemId: persistedItem.id,
+      item: persistedItem
     })
   }
 
@@ -585,14 +616,16 @@ export class TurnService {
     itemId: string,
     patch: Partial<TurnItem>
   ): Promise<TurnItem | null> {
-    const updatedInSession = await this.deps.sessionStore.updateItem(threadId, itemId, patch)
+    const persistedPatch = persistentTurnItemPatch(patch)
+    const updatedInSession = await this.deps.sessionStore.updateItem(threadId, itemId, persistedPatch)
     const updatedItems: TurnItem[] = []
     await this.upsertThread(threadId, (current) => {
       const turns = current.turns.map((turn) => {
         const existing = turn.items.find((item) => item.id === itemId)
         if (!existing) return turn
-        updatedItems[0] = { ...existing, ...patch } as TurnItem
-        return replaceTurnItem(turn, itemId, patch)
+        const updatedItem = persistentTurnItem({ ...existing, ...persistedPatch } as TurnItem)
+        updatedItems[0] = updatedItem
+        return replaceTurnItem(turn, itemId, updatedItem)
       })
       return { ...current, turns }
     })

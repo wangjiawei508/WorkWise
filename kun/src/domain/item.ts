@@ -104,6 +104,7 @@ export function makeToolCallItem(input: {
   toolName: string
   toolKind?: 'tool_call' | 'command_execution' | 'file_change'
   arguments: Record<string, unknown>
+  argumentSummary?: string
   summary?: string
   status?: 'pending' | 'running' | 'completed' | 'failed'
 }): TurnItem {
@@ -119,6 +120,7 @@ export function makeToolCallItem(input: {
     callId: input.callId,
     toolKind: input.toolKind ?? 'tool_call',
     arguments: input.arguments,
+    ...(input.argumentSummary ? { argumentSummary: input.argumentSummary } : {}),
     summary: input.summary
   }
 }

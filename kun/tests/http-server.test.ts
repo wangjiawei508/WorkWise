@@ -811,6 +811,44 @@ describe('HTTP server', () => {
     })
   })
 
+  it('never persists or returns raw tool-call arguments from the Runtime boundary', async () => {
+    const h = buildHarness()
+    await h.threadService.create(
+      { workspace: '/tmp', model: 'deepseek-chat', mode: 'agent' },
+      { id: 'thr_private_args', title: 'Private args' }
+    )
+    const { turnId } = await h.turnService.startTurn({
+      threadId: 'thr_private_args',
+      request: { prompt: 'run a private tool' }
+    })
+    await h.turnService.applyItem(
+      'thr_private_args',
+      makeToolCallItem({
+        id: 'item_private_args',
+        turnId,
+        threadId: 'thr_private_args',
+        callId: 'call_private_args',
+        toolName: 'private_tool',
+        arguments: { token: 'runtime-boundary-secret' }
+      })
+    )
+
+    const response = await dispatchRequest(
+      h.router,
+      new Request('http://localhost/v1/threads/thr_private_args', {
+        headers: { authorization: 'Bearer tok-1' }
+      })
+    )
+    const body = await readJson(response)
+    const events = await h.sessionStore.loadEventsSince('thr_private_args', 0)
+    const items = await h.sessionStore.loadItems('thr_private_args')
+
+    expect(response.status).toBe(200)
+    expect(JSON.stringify(body)).not.toContain('runtime-boundary-secret')
+    expect(JSON.stringify(events)).not.toContain('runtime-boundary-secret')
+    expect(JSON.stringify(items)).not.toContain('runtime-boundary-secret')
+  })
+
   it('heals stale open session items for finished turns when loading thread detail', async () => {
     const h = buildHarness()
     await h.threadService.create(
@@ -1045,6 +1083,63 @@ describe('HTTP server', () => {
     const frames = await readSseEvents(eventStream)
     const occurrences = frames.filter((frame) => frame.includes(`id: ${recorded.seq}\n`))
     expect(occurrences).toHaveLength(1)
+  })
+
+  it('sanitizes raw tool arguments and bash commands at the live SSE boundary', async () => {
+    const h = buildHarness()
+    const thread = await h.threadService.create(
+      { workspace: '/tmp', model: 'deepseek-chat', mode: 'agent' },
+      { id: 'thr_sse_tool_privacy', title: 'SSE tool privacy' }
+    )
+    const eventStream = await dispatchRequest(
+      h.router,
+      new Request(`http://localhost/v1/threads/${thread.id}/events?since_seq=0`, {
+        headers: { authorization: 'Bearer tok-1' }
+      })
+    )
+    const secret = 'sse-live-secret-token'
+    const turnId = 'turn_sse_tool_privacy'
+    const call = makeToolCallItem({
+      id: 'sse_raw_call',
+      turnId,
+      threadId: thread.id,
+      callId: 'call_sse_raw',
+      toolName: 'bash',
+      arguments: { command: `git push https://user:${secret}@example.com/repo`, token: secret }
+    })
+    const result = makeToolResultItem({
+      id: 'sse_raw_result',
+      turnId,
+      threadId: thread.id,
+      callId: 'call_sse_raw',
+      toolName: 'bash',
+      output: { command: `git push https://user:${secret}@example.com/repo`, output: 'ok' }
+    })
+    h.bus.publish({
+      kind: 'item_created',
+      seq: h.bus.allocateSeq(thread.id),
+      timestamp: h.nowIso(),
+      threadId: thread.id,
+      turnId,
+      itemId: call.id,
+      item: call
+    })
+    h.bus.publish({
+      kind: 'item_completed',
+      seq: h.bus.allocateSeq(thread.id),
+      timestamp: h.nowIso(),
+      threadId: thread.id,
+      turnId,
+      itemId: result.id,
+      item: result
+    })
+
+    const frames = await readSseEvents(eventStream)
+    const serialized = frames.join('\n')
+    expect(serialized).toContain('argumentSummary')
+    expect(serialized).toContain('Command: git push')
+    expect(serialized).not.toContain(secret)
+    expect(serialized).not.toContain('"command"')
   })
 
   it('does not lose a live event published while the replay backlog is loading', async () => {

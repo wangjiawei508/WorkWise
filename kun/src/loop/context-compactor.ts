@@ -290,7 +290,7 @@ function summarizeItem(item: TurnItem): string {
     case 'assistant_reasoning':
       return ''
     case 'tool_call':
-      return `- Tool call ${item.toolName}: ${clipText(item.summary || stringifyCompact(item.arguments))}`
+      return `- Tool call ${item.toolName}: ${clipText(item.argumentSummary || item.summary || 'parameters omitted')}`
     case 'tool_result':
       return `- Tool result ${item.toolName}${item.isError ? ' error' : ''}: ${clipText(stringifyCompact(item.output))}`
     case 'approval':

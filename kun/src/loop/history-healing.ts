@@ -1,5 +1,6 @@
 import type { TurnItem } from '../contracts/items.js'
 import { repairModelHistoryItems } from '../domain/model-history-repair.js'
+import { sanitizeTurnItemForPersistence } from '../security/tool-persistence-security.js'
 
 export type HistoryHealingResult = {
   items: TurnItem[]
@@ -10,6 +11,7 @@ export function healLoadedHistoryItems(items: readonly TurnItem[]): HistoryHeali
   const normalized = items
     .map((item, index) => normalizeLoadedItem(item, index))
     .filter((item): item is TurnItem => item !== null)
+    .map(sanitizeTurnItemForPersistence)
   const latestById = new Map(normalized.map((item) => [item.id, item]))
   const seenIds = new Set<string>()
   const collapsed = normalized.flatMap((item) => {
