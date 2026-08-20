@@ -783,6 +783,66 @@ describe('WorkWiseRuntimeProvider', () => {
     expect(sink.onDeltas).toHaveBeenCalledWith([{ text: 'he', kind: 'agent_message', seq: 3 }])
   })
 
+  it('dispatches SSE batches in sequence order when an earlier batch awaits', async () => {
+    let onData: ((payload: { streamId: string; events: unknown[] }) => void) | null = null
+    let releaseReplay!: () => void
+    const replayGate = new Promise<void>((resolve) => { releaseReplay = resolve })
+    const ac = new AbortController()
+    const usage: unknown[] = []
+    const sink: ThreadEventSink = {
+      onSeq: vi.fn(),
+      onReplayReset: vi.fn(() => replayGate),
+      onDeltas: vi.fn(),
+      onUserMessage: vi.fn(),
+      onTool: vi.fn(),
+      onCompaction: vi.fn(),
+      onApproval: vi.fn(),
+      onUserInput: vi.fn(),
+      onUserInputStatus: vi.fn(),
+      onGoal: vi.fn(),
+      onTodos: vi.fn(),
+      onUsage: vi.fn((snapshot) => usage.push(snapshot)),
+      onTurnComplete: vi.fn(() => ac.abort()),
+      onError: vi.fn()
+    }
+    installDsGui({
+      onSseEvent: vi.fn((handler) => {
+        onData = handler
+        return () => undefined
+      }),
+      startSse: vi.fn(async (_threadId, _sinceSeq, streamId) => {
+        queueMicrotask(() => {
+          onData?.({
+            streamId: streamId ?? 'stream-1',
+            events: [{ kind: 'replay_reset', seq: 1 }]
+          })
+          onData?.({
+            streamId: streamId ?? 'stream-1',
+            events: [
+              {
+                kind: 'usage',
+                seq: 2,
+                threadId: 'thr_1',
+                turnId: 'turn_1',
+                usage: { promptTokens: 1, completionTokens: 1, totalTokens: 2, turns: 1 }
+              },
+              { kind: 'turn_completed', seq: 3, threadId: 'thr_1', turnId: 'turn_1' }
+            ]
+          })
+        })
+        return { streamId: streamId ?? 'stream-1' }
+      })
+    })
+    const provider = new WorkWiseRuntimeProvider()
+    const subscription = provider.subscribeThreadEvents('thr_1', 0, sink, ac.signal)
+    await vi.waitFor(() => expect(sink.onReplayReset).toHaveBeenCalledWith(1))
+    expect(usage).toEqual([])
+    releaseReplay()
+    await subscription
+    expect(usage).toHaveLength(1)
+    expect(sink.onTurnComplete).toHaveBeenCalledOnce()
+  })
+
   it('auto-approves approval requests when policy is auto', async () => {
     let onData: ((payload: { streamId: string; events: unknown[] }) => void) | null = null
     const runtimeRequest = vi.fn(async () => ({ ok: true, status: 200, body: '{}' }))

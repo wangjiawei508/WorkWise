@@ -131,6 +131,54 @@ describe('thread event sink binding', () => {
     })
   })
 
+  it('ignores a stale exact usage snapshot that arrives after a newer delta', () => {
+    const initial = makeSinkHarness()
+    const sink = buildThreadEventSink(initial.set, initial.get, { threadId: 'thread-current' })
+    sink.onUsageDelta?.(8, 10, 'turn-current')
+    sink.onUsage?.({
+      inputTokens: 10,
+      outputTokens: 2,
+      reasoningTokens: 0,
+      cachedTokens: 0,
+      cacheMissTokens: 10,
+      cacheHitRate: null,
+      totalTokens: 12,
+      costUsd: 0,
+      costCny: null,
+      cacheSavingsUsd: 0,
+      cacheSavingsCny: null,
+      tokenEconomySavingsTokens: 0,
+      tokenEconomySavingsUsd: 0,
+      tokenEconomySavingsCny: null,
+      turns: 1
+    }, 9, 'turn-current')
+    const projection = initial.getState().liveUsageByThreadId['thread-current']
+    expect(projection).toMatchObject({ estimatedOutputCharacters: 8, exactTotalTokens: null })
+  })
+
+  it('ignores exact usage from an older turn while a newer turn is active', () => {
+    const initial = makeSinkHarness()
+    const sink = buildThreadEventSink(initial.set, initial.get, { threadId: 'thread-current' })
+    sink.onUsage?.({
+      inputTokens: 10,
+      outputTokens: 2,
+      reasoningTokens: 0,
+      cachedTokens: 0,
+      cacheMissTokens: 10,
+      cacheHitRate: null,
+      totalTokens: 12,
+      costUsd: 0,
+      costCny: null,
+      cacheSavingsUsd: 0,
+      cacheSavingsCny: null,
+      tokenEconomySavingsTokens: 0,
+      tokenEconomySavingsUsd: 0,
+      tokenEconomySavingsCny: null,
+      turns: 1
+    }, 9, 'turn-old')
+    expect(initial.getState().liveUsageByThreadId['thread-current']).toBeUndefined()
+  })
+
   it('projects attachment evidence status onto the matching user attachment', () => {
     const initial = makeSinkHarness({
       blocks: [{

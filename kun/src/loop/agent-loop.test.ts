@@ -219,7 +219,7 @@ describe('AgentLoop completion guard', () => {
       provider: 'test',
       model: 'fixture-model',
       async *stream() {
-        yield { kind: 'tool_call_delta', callId: 'call_1', toolName: 'read_file', argumentsDelta: '{"token":"secret"}' }
+        yield { kind: 'tool_call_delta', callId: 'call_1', toolName: 'read_file', argumentsDelta: '{"token":"secret😀"}' }
         yield { kind: 'tool_call_delta', callId: 'call_1', argumentsDelta: 'x'.repeat(1_000_001) }
         yield { kind: 'assistant_text_delta', text: 'done' }
         yield { kind: 'completed', stopReason: 'stop' }
@@ -251,7 +251,7 @@ describe('AgentLoop completion guard', () => {
       kind: 'tool_call_delta',
       callId: 'call_1',
       toolName: 'read_file',
-      characterCount: 18
+      characterCount: 19
     })
     expect(JSON.stringify(toolDelta)).not.toContain('secret')
     expect(JSON.stringify(toolDelta)).not.toContain('argumentsDelta')

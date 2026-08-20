@@ -431,7 +431,7 @@ export type ThreadEventSink = {
   onTurnComplete(options?: ThreadCompleteOptions): void
   onError(err: Error, options?: ThreadErrorOptions): void
   /** Optional: cumulative usage update for the thread. */
-  onUsage?(usage: ThreadUsageSnapshot, seq?: number): void
+  onUsage?(usage: ThreadUsageSnapshot, seq?: number, turnId?: string): void
   /** Optional: usage-only character count from streamed tool arguments. */
   onUsageDelta?(characters: number, seq?: number, turnId?: string): void
 }

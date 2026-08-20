@@ -280,7 +280,7 @@ function buildSideSink(sideId: string, ctx: SideContext, sinceSeq = 0): ThreadEv
         }))
       )
     },
-    onUsage: (usage) => {
+    onUsage: (usage, _seq, _turnId) => {
       // Side usage is reported only to keep lastSeq cursors consistent;
       // a per-thread usage counter can be wired here in the future.
       void usage

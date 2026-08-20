@@ -1298,9 +1298,14 @@ export function buildThreadEventSink(
       // permanently in the busy state.
       if (get().busy) armBusyWatchdog(set, get)
     },
-    onUsage: (usage, seq) => {
+    onUsage: (usage, seq, eventTurnId) => {
       if (!isCurrentStream()) return
+      if (eventTurnId && !isCurrentTurn(eventTurnId)) return
       if (typeof seq === 'number') {
+        // A later delta may have been applied while this exact snapshot was
+        // waiting in another SSE batch. Do not reset its baseline with stale
+        // usage, which would hide valid post-usage output.
+        if (seq <= appliedUsageDeltaSeqFloor) return
         // Exact usage supersedes all earlier estimates, including deltas
         // whose dispatch may still be awaiting another runtime event.
         appliedUsageDeltaSeqFloor = Math.max(appliedUsageDeltaSeqFloor, seq)

@@ -770,6 +770,10 @@ export class WorkWiseRuntimeProvider implements AgentProvider {
     await new Promise<void>(async (resolve) => {
       let settled = false
       const pendingDispatches = new Set<Promise<void>>()
+      // Preserve runtime event order even when an earlier batch pauses for an
+      // approval/replay operation. Without a single chain, a later usage
+      // delta can arrive before the exact usage snapshot that precedes it.
+      let dispatchChain: Promise<void> = Promise.resolve()
       const finish = (): void => {
         if (settled) return
         settled = true
@@ -808,15 +812,19 @@ export class WorkWiseRuntimeProvider implements AgentProvider {
         const eventsToDispatch = replayReset
           ? batch.filter((event) => event.kind !== 'replay_reset')
           : batch
-        const task = Promise.resolve(
-          replayReset && typeof replayReset.seq === 'number'
-            ? sink.onReplayReset?.(replayReset.seq)
-            : undefined
-        ).then(() => dispatchRuntimeEvents(eventsToDispatch, sink, (runtimeEvent, eventSink) =>
-          this.handleApprovalRequest(runtimeEvent, eventSink)
-        )).finally(() => {
+        const task = dispatchChain.then(async () => {
+          if (replayReset && typeof replayReset.seq === 'number') {
+            await sink.onReplayReset?.(replayReset.seq)
+          }
+          await dispatchRuntimeEvents(eventsToDispatch, sink, (runtimeEvent, eventSink) =>
+            this.handleApprovalRequest(runtimeEvent, eventSink)
+          )
+        }).finally(() => {
           pendingDispatches.delete(task)
         })
+        // Keep the chain alive after a failed batch so a transient approval
+        // error cannot prevent subsequent runtime events from being applied.
+        dispatchChain = task.catch(() => undefined)
         pendingDispatches.add(task)
       })
       const offErr = rendererRuntimeClient.onSseError(({ streamId: sid, message, status }) => {
