@@ -19,6 +19,7 @@ import { atomicWriteFile } from './durable-file'
 import { inspectOfficeArchive } from './office-archive-security'
 import {
   UNLIMITED_OCR_UNVERSIONED_IDENTITY,
+  UNLIMITED_OCR_UNVERIFIED_IDENTITY,
   UnlimitedOcrService,
   normalizeUnlimitedOcrServerUrl
 } from './unlimited-ocr-service'
@@ -368,12 +369,14 @@ export class DocumentEngineService {
       }
       const engine = await this.selectEngine(request, extension, mineruAvailable, Boolean(unlimitedOcrServerUrl))
       let unlimitedOcrEngineVersion: string | undefined
+      let cacheEligible = true
       if (engine === 'unlimited-ocr-local') {
         const health = await this.unlimitedOcr.checkHealth(unlimitedOcrServerUrl, controller.signal)
         throwIfDocumentParseAborted(controller.signal)
+        cacheEligible = health.available
         unlimitedOcrEngineVersion = health.available
           ? health.identity ?? UNLIMITED_OCR_UNVERSIONED_IDENTITY
-          : UNLIMITED_OCR_UNVERSIONED_IDENTITY
+          : UNLIMITED_OCR_UNVERIFIED_IDENTITY
       }
       const cacheVersion = engineCacheVersion(engine, unlimitedOcrEngineVersion)
       const cacheKey = createHash('sha256')
@@ -387,13 +390,15 @@ export class DocumentEngineService {
         rejectFinalLink: true
       })
       throwIfDocumentParseAborted(controller.signal)
-      const cached = await this.readCache(workspaceRoot, outputDirectory, parseId, {
-        sourceSha256,
-        engine,
-        engineVersion: unlimitedOcrEngineVersion,
-        mode: request.mode,
-        allowLegacyCache: !request.outputDirectory
-      })
+      const cached = cacheEligible
+        ? await this.readCache(workspaceRoot, outputDirectory, parseId, {
+            sourceSha256,
+            engine,
+            engineVersion: unlimitedOcrEngineVersion,
+            mode: request.mode,
+            allowLegacyCache: !request.outputDirectory
+          })
+        : null
       throwIfDocumentParseAborted(controller.signal)
       if (cached) return cached
       // Isolate each attempt because a timed-out parser may ignore AbortSignal
@@ -622,7 +627,7 @@ export class DocumentEngineService {
         cacheHit: false,
         durationMs: response.durationMs ?? 0
       }
-      if (!degradedFrom && !routeFallbackFrom) {
+      if (cacheEligible && !degradedFrom && !routeFallbackFrom) {
         throwIfDocumentParseAborted(controller.signal)
         await this.writeCache(workspaceRoot, outputDirectory, markdownPath, result, controller.signal)
       }
@@ -840,7 +845,7 @@ export class DocumentEngineService {
     }
     const parsedResponse = parsed.data as DocumentSidecarResponse
     return input.engine === 'unlimited-ocr-local'
-      ? { ...parsedResponse, engineVersion: input.unlimitedOcrEngineVersion ?? UNLIMITED_OCR_UNVERSIONED_IDENTITY }
+      ? { ...parsedResponse, engineVersion: input.unlimitedOcrEngineVersion ?? UNLIMITED_OCR_UNVERIFIED_IDENTITY }
       : parsedResponse
   }
 
@@ -903,7 +908,7 @@ function engineCacheVersion(engine: DocumentEngineId, unlimitedOcrEngineVersion?
   return engine === 'markitdown'
     ? MARKITDOWN_ENGINE_VERSION
     : engine === 'unlimited-ocr-local'
-      ? unlimitedOcrEngineVersion ?? UNLIMITED_OCR_UNVERSIONED_IDENTITY
+      ? unlimitedOcrEngineVersion ?? UNLIMITED_OCR_UNVERIFIED_IDENTITY
     : engine === 'mineru-local'
       ? `mineru-${MINERU_VERSION}`
       : 'mineru-private-v1'

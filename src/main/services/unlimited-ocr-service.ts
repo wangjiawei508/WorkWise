@@ -10,6 +10,7 @@ const DEFAULT_TIMEOUT_MS = 20 * 60 * 1000
 
 // Stable cache/reporting identity for healthy API-v1 servers that expose no model metadata.
 export const UNLIMITED_OCR_UNVERSIONED_IDENTITY = 'unlimited-ocr-api-v1-unversioned'
+export const UNLIMITED_OCR_UNVERIFIED_IDENTITY = 'unlimited-ocr-api-v1-unverified'
 
 type FetchLike = typeof fetch
 
@@ -173,7 +174,7 @@ export class UnlimitedOcrService {
       throwIfAborted(signal)
       return {
         markdownPath,
-        engineVersion: input.engineVersion ?? UNLIMITED_OCR_UNVERSIONED_IDENTITY,
+        engineVersion: input.engineVersion ?? UNLIMITED_OCR_UNVERIFIED_IDENTITY,
         warnings: [],
         durationMs: Date.now() - startedAt
       }

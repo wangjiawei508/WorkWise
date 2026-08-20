@@ -206,6 +206,35 @@ describe('DocumentEngineService', () => {
     expect(bridge).toHaveBeenCalledTimes(1)
   }, 15_000)
 
+  it('does not reuse an unversioned OCR cache when the current health probe fails', async () => {
+    const { root } = await fixture()
+    const bridge = runner('OCR output after health failure')
+    let healthProbeCount = 0
+    const healthFetch = vi.fn(async () => {
+      healthProbeCount += 1
+      if (healthProbeCount === 1) return new Response('ok', { status: 200 })
+      throw new Error('connection refused')
+    }) as unknown as typeof fetch
+    const service = new DocumentEngineService({
+      runner: bridge,
+      unlimitedOcr: new UnlimitedOcrService({ fetch: healthFetch })
+    })
+    const request = {
+      workspaceRoot: root,
+      relativePath: 'source.pdf',
+      mode: 'accurate' as const,
+      unlimitedOcrServerUrl: 'http://127.0.0.1:3000',
+      idempotencyKey: 'failed-ocr-health-cache'
+    }
+
+    const first = await service.parse(request)
+    const second = await service.parse({ ...request, parseId: 'failed-ocr-health-cache-2' })
+
+    expect(first).toMatchObject({ cacheHit: false, engineVersion: 'unlimited-ocr-api-v1-unversioned' })
+    expect(second).toMatchObject({ cacheHit: false, engineVersion: 'unlimited-ocr-api-v1-unverified' })
+    expect(bridge).toHaveBeenCalledTimes(2)
+  }, 15_000)
+
   it('rejects a current cache entry written before the document result revision', async () => {
     const { root } = await fixture()
     const outputDirectory = join(root, '.workwise', 'cache', 'revision-upgrade')
