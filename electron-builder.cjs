@@ -116,6 +116,9 @@ const genericUpdateUrl = explicitUpdateUrl
 const releaseAppVersion = (
   process.env.WORKWISE_APP_VERSION || ''
 ).trim()
+const candidateSourceHead = (
+  process.env.WORKWISE_CANDIDATE_SOURCE_HEAD || ''
+).trim()
 const artifactVersion = releaseAppVersion || '${version}'
 
 function normalizeUpdateChannel(raw) {
@@ -128,6 +131,14 @@ if (releaseAppVersion && !/^\d+\.\d+\.\d+$/.test(releaseAppVersion)) {
   throw new Error(
     `WORKWISE_APP_VERSION must be a valid x.y.z semver for electron-updater, got: ${releaseAppVersion}`
   )
+}
+if (candidateSourceHead && !/^[0-9a-f]{40}$/.test(candidateSourceHead)) {
+  throw new Error(
+    `WORKWISE_CANDIDATE_SOURCE_HEAD must be a 40-character lowercase Git commit, got: ${candidateSourceHead}`
+  )
+}
+if (process.env.WORKWISE_CANDIDATE === '1' && !candidateSourceHead) {
+  throw new Error('Candidate packaging requires WORKWISE_CANDIDATE_SOURCE_HEAD from candidate.env.')
 }
 
 if (!['github', 'generic', 'none'].includes(updateProvider)) {
@@ -270,6 +281,7 @@ module.exports = {
   extraMetadata: {
     ...(releaseAppVersion ? { version: releaseAppVersion } : {}),
     updateChannel,
+    ...(candidateSourceHead ? { buildProvenance: { sourceHead: candidateSourceHead } } : {}),
     buildHints: {
       macSigningEnabled: hasExplicitMacSigningIdentity,
       notarizationEnabled: hasNotaryToolCredentials

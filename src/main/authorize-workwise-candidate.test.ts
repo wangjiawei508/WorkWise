@@ -32,6 +32,11 @@ describe('authorize-workwise-candidate.sh', () => {
       const envFile = join(candidateRoot, 'candidate.env')
       const raw = readFileSync(envFile, 'utf8')
       expect(raw).toContain('Application\\ Support')
+      const sourceHead = execFileSync('git', ['rev-parse', 'HEAD'], {
+        cwd: process.cwd(),
+        encoding: 'utf8'
+      }).trim()
+      expect(raw).toContain(`WORKWISE_CANDIDATE_SOURCE_HEAD=${sourceHead}`)
       const resolvedCandidateRoot = realpathSync(candidateRoot)
       const resolvedHelper = realpathSync(helper)
 
@@ -47,6 +52,26 @@ describe('authorize-workwise-candidate.sh', () => {
         join(resolvedCandidateRoot, 'user-data'),
         resolvedHelper
       ].join('\n') + '\n')
+    } finally {
+      rmSync(testRoot, { recursive: true, force: true })
+    }
+  })
+
+  it('rejects a candidate check when the expected source HEAD differs', () => {
+    const testRoot = mkdtempSync(join(tmpdir(), 'workwise-candidate-head-'))
+    const candidateRoot = join(testRoot, 'candidate')
+    const script = join(process.cwd(), 'scripts', 'authorize-workwise-candidate.sh')
+
+    try {
+      expect(() => execFileSync('bash', [script, '--check'], {
+        env: {
+          ...process.env,
+          WORKWISE_CANDIDATE_ROOT: candidateRoot,
+          WORKWISE_CANDIDATE_SOURCE_HEAD: '0000000000000000000000000000000000000000'
+        },
+        encoding: 'utf8',
+        stdio: 'pipe'
+      })).toThrow(/source HEAD/i)
     } finally {
       rmSync(testRoot, { recursive: true, force: true })
     }

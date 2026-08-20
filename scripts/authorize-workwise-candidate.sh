@@ -11,6 +11,8 @@ PACKAGE_JSON="${REPO_ROOT}/package.json"
 DEFAULT_CANDIDATE_ROOT="${HOME}/Library/Application Support/WorkWise-Candidate"
 CANDIDATE_ROOT="${WORKWISE_CANDIDATE_ROOT:-${DEFAULT_CANDIDATE_ROOT}}"
 CANDIDATE_CREDENTIAL_HELPER="${WORKWISE_CANDIDATE_CREDENTIAL_HELPER:-}"
+EXPECTED_SOURCE_HEAD="${WORKWISE_CANDIDATE_SOURCE_HEAD:-}"
+CURRENT_SOURCE_HEAD=""
 MODE="check"
 
 usage() {
@@ -29,6 +31,9 @@ Environment:
   WORKWISE_CANDIDATE_CREDENTIAL_HELPER
                            Optional previously authorized candidate executable.
                            It must exist inside WORKWISE_CANDIDATE_ROOT.
+  WORKWISE_CANDIDATE_SOURCE_HEAD
+                           Optional previously recorded 40-character source HEAD.
+                           Candidate checks fail if it differs from the worktree.
 
 This script never builds, installs, launches, signs, notarizes, publishes,
 changes versions, moves tags, edits releases, promotes feeds, or updates the
@@ -95,6 +100,10 @@ read_package_version() {
   node -e 'const fs=require("node:fs"); const p=JSON.parse(fs.readFileSync(process.argv[1], "utf8")); process.stdout.write(String(p.version || "unknown"));' "${PACKAGE_JSON}"
 }
 
+read_source_head() {
+  git -C "${REPO_ROOT}" rev-parse --verify HEAD
+}
+
 check_repo() {
   [[ "$(git -C "${REPO_ROOT}" rev-parse --is-inside-work-tree 2>/dev/null)" == "true" ]] || die "not a Git worktree: ${REPO_ROOT}"
   [[ -f "${PACKAGE_JSON}" ]] || die "missing package.json: ${PACKAGE_JSON}"
@@ -121,12 +130,20 @@ check() {
   local version branch
   version="$(read_package_version)"
   branch="$(git -C "${REPO_ROOT}" branch --show-current)"
+  CURRENT_SOURCE_HEAD="$(read_source_head)"
 
   [[ "${version}" != "" && "${version}" != "unknown" ]] || die "package version is unreadable"
   [[ "${branch}" != "main" ]] || die "candidate work must not run from main"
+  [[ "${CURRENT_SOURCE_HEAD}" =~ ^[0-9a-f]{40}$ ]] || die "source HEAD is not a 40-character Git commit: ${CURRENT_SOURCE_HEAD}"
+  if [[ -n "${EXPECTED_SOURCE_HEAD}" ]]; then
+    [[ "${EXPECTED_SOURCE_HEAD}" =~ ^[0-9a-f]{40}$ ]] || die "expected source HEAD is invalid: ${EXPECTED_SOURCE_HEAD}"
+    [[ "${EXPECTED_SOURCE_HEAD}" == "${CURRENT_SOURCE_HEAD}" ]] || \
+      die "candidate source HEAD ${EXPECTED_SOURCE_HEAD} does not match current source HEAD ${CURRENT_SOURCE_HEAD}"
+  fi
 
   info "source: ${REPO_ROOT}"
   info "branch: ${branch}"
+  info "source HEAD: ${CURRENT_SOURCE_HEAD}"
   info "package version: ${version}"
   info "isolated root: ${CANDIDATE_ROOT}"
   if [[ -n "${CANDIDATE_CREDENTIAL_HELPER}" ]]; then
@@ -167,6 +184,7 @@ prepare() {
 # are explicitly allowlisted for a bounded acceptance check.
 EOF
   write_env_assignment "${env_file}" WORKWISE_CANDIDATE 1
+  write_env_assignment "${env_file}" WORKWISE_CANDIDATE_SOURCE_HEAD "${CURRENT_SOURCE_HEAD}"
   write_env_assignment "${env_file}" WORKWISE_CANDIDATE_ROOT "${CANDIDATE_ROOT}"
   write_env_assignment "${env_file}" WORKWISE_CANDIDATE_USER_DATA "${CANDIDATE_ROOT}/user-data"
   write_env_assignment "${env_file}" WORKWISE_CANDIDATE_CACHE "${CANDIDATE_ROOT}/cache"

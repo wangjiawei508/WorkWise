@@ -190,7 +190,8 @@ async function afterPack(context) {
   copyBundledMarkdownConverters(context)
   const integrity = verifyAsarArchive(
     join(packedResourcesDir(context), 'app.asar'),
-    join(__dirname, '..', 'out')
+    join(__dirname, '..', 'out'),
+    process.env.WORKWISE_CANDIDATE_SOURCE_HEAD?.trim() || undefined
   )
   console.log(
     `[after-pack] ASAR integrity passed: ${integrity.files} files, ${integrity.compiledFiles} compiled files.`

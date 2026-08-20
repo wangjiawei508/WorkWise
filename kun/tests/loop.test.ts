@@ -104,6 +104,80 @@ describe('AgentLoop', () => {
     }
   })
 
+  it('inspects a referenced directory through the real ls and read tools without injecting file content', async () => {
+    const workspace = await mkdtemp(join(tmpdir(), 'kun-loop-workspace-reference-tools-'))
+    const directory = '项目 资料'
+    const file = '投标说明.txt'
+    const sentinel = 'WORKSPACE-DIRECTORY-REFERENCE-PROOF'
+    const observedRequests: ModelRequest[] = []
+    let calls = 0
+    try {
+      await mkdir(join(workspace, directory), { recursive: true })
+      await writeFile(join(workspace, directory, file), `${sentinel}\n`)
+      const h = makeHarness(
+        {
+          provider: 'workspace-reference-tool-proof',
+          model: 'workspace-reference-tool-proof',
+          async *stream(request: ModelRequest): AsyncIterable<ModelStreamChunk> {
+            observedRequests.push(request)
+            calls += 1
+            if (calls === 1) {
+              yield {
+                kind: 'tool_call_complete',
+                callId: 'call_reference_ls',
+                toolName: 'ls',
+                arguments: { path: directory }
+              }
+              yield { kind: 'completed', stopReason: 'tool_calls' }
+              return
+            }
+            if (calls === 2) {
+              yield {
+                kind: 'tool_call_complete',
+                callId: 'call_reference_read',
+                toolName: 'read',
+                arguments: { path: `${directory}/${file}` }
+              }
+              yield { kind: 'completed', stopReason: 'tool_calls' }
+              return
+            }
+            yield { kind: 'assistant_text_delta', text: '已通过工作区工具读取引用目录。' }
+            yield { kind: 'completed', stopReason: 'stop' }
+          }
+        },
+        { tools: buildDefaultLocalTools() }
+      )
+      await bootstrapThread(h, {
+        workspace,
+        request: {
+          prompt: '请检查引用目录中的说明文件',
+          workspaceReferences: [{ path: directory, kind: 'directory' }]
+        }
+      })
+
+      await expect(h.loop.runTurn(h.threadId, h.turnId)).resolves.toBe('completed')
+
+      expect(calls).toBe(3)
+      expect(observedRequests[0]?.contextInstructions?.join('\n')).toContain(
+        `<workspace-reference path="${directory}" kind="directory" />`
+      )
+      expect(JSON.stringify(observedRequests[0])).not.toContain(sentinel)
+      expect(JSON.stringify(observedRequests[1])).not.toContain(sentinel)
+      expect(JSON.stringify(observedRequests[2])).toContain(sentinel)
+
+      const results = (await h.sessionStore.loadItems(h.threadId))
+        .filter((item) => item.kind === 'tool_result')
+      expect(results.find((item) => item.kind === 'tool_result' && item.toolName === 'ls'))
+        .toMatchObject({ status: 'completed', isError: false })
+      expect(JSON.stringify(results.find((item) => item.kind === 'tool_result' && item.toolName === 'ls')))
+        .toContain(file)
+      expect(JSON.stringify(results.find((item) => item.kind === 'tool_result' && item.toolName === 'read')))
+        .toContain(sentinel)
+    } finally {
+      await rm(workspace, { recursive: true, force: true })
+    }
+  })
+
   it('continues a document task until the requested file is actually written', async () => {
     let calls = 0
     const observedInstructions: string[] = []

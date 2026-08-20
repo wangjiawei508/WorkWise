@@ -294,6 +294,45 @@ describe('thread event sink binding', () => {
     expect(showTurnCompleteNotification).toHaveBeenCalledTimes(2)
   })
 
+  it.each([
+    'completed',
+    'error',
+    'aborted',
+    'blocked',
+    'max_tokens'
+  ] as const)('projects the %s terminal reason through the real notification entry point', (reason) => {
+    const showTurnCompleteNotification = vi.fn(async () => ({ ok: true }))
+    vi.stubGlobal('window', { workwise: { showTurnCompleteNotification } })
+    const threadId = `thread-terminal-${reason}`
+    const turnId = `turn-terminal-${reason}`
+    const harness = makeSinkHarness({
+      activeThreadId: threadId,
+      currentTurnId: turnId,
+      currentTurnUserId: `user-terminal-${reason}`,
+      blocks: [{ kind: 'user', id: `user-terminal-${reason}`, text: 'run' }],
+      threads: [{ id: threadId, title: `Terminal ${reason}` }] as ChatState['threads']
+    })
+
+    const sink = buildThreadEventSink(harness.set, harness.get, { threadId })
+    if (reason === 'completed' || reason === 'aborted') {
+      sink.onTurnComplete({ reason, threadId, turnId })
+    } else {
+      sink.onError(new Error(`terminal ${reason}`), {
+        terminal: true,
+        terminalReason: reason,
+        threadId,
+        turnId
+      })
+    }
+
+    expect(showTurnCompleteNotification).toHaveBeenCalledTimes(1)
+    expect(showTurnCompleteNotification).toHaveBeenCalledWith(expect.objectContaining({
+      threadId,
+      turnId,
+      reason
+    }))
+  })
+
   it('does not label a selected thread active when another route is visible', () => {
     const showTurnCompleteNotification = vi.fn(async () => ({ ok: true }))
     vi.stubGlobal('window', { workwise: { showTurnCompleteNotification } })

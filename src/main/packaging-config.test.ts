@@ -250,6 +250,40 @@ describe('electron-builder WorkWise packaging', () => {
     )
   })
 
+  it('verifies that packaged candidate provenance matches the expected source HEAD', async () => {
+    const root = tempRoot()
+    const source = join(root, 'source')
+    const archive = join(root, 'app.asar')
+    const sourceHead = '1234567890abcdef1234567890abcdef12345678'
+    touch(join(source, 'out/main/index.js'))
+    mkdirSync(source, { recursive: true })
+    writeFileSync(join(source, 'package.json'), JSON.stringify({
+      name: 'workwise',
+      buildProvenance: { sourceHead }
+    }))
+    await asar.createPackage(source, archive)
+
+    expect(packagedAsar.verifyAsarArchive(archive, join(source, 'out'), sourceHead))
+      .toMatchObject({ sourceHead })
+    expect(() => packagedAsar.verifyAsarArchive(
+      archive,
+      join(source, 'out'),
+      '0000000000000000000000000000000000000000'
+    )).toThrow(/source HEAD/i)
+  })
+
+  it('carries the authorized source HEAD into candidate package metadata', () => {
+    const sourceHead = 'abcdef1234567890abcdef1234567890abcdef12'
+    const config = loadBuilderConfigWithEnv({
+      WORKWISE_CANDIDATE: '1',
+      WORKWISE_CANDIDATE_SOURCE_HEAD: sourceHead
+    })
+
+    expect(config.extraMetadata).toMatchObject({
+      buildProvenance: { sourceHead }
+    })
+  })
+
   it('normalizes Windows separators returned by the ASAR listing API', () => {
     expect(packagedAsar._internals.normalizeArchiveEntry('\\node_modules\\better-sqlite3\\package.json'))
       .toBe(join('node_modules', 'better-sqlite3', 'package.json'))

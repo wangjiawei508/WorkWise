@@ -254,6 +254,22 @@ describe('switchGitBranch / createAndSwitchGitBranch — integration with real g
     })
   })
 
+  it('caps untracked overwrite blockers at two paths', async () => {
+    const paths = ['incoming-a.txt', 'incoming-b.txt', 'incoming-c.txt']
+    execFileSync('git', ['-C', repoRoot, 'checkout', '-b', 'feature/many-overwrites'], { stdio: 'pipe' })
+    for (const path of paths) await writeFile(join(repoRoot, path), 'tracked on target')
+    execFileSync('git', ['-C', repoRoot, 'add', ...paths], { stdio: 'pipe' })
+    execFileSync('git', ['-C', repoRoot, 'commit', '-m', 'target files'], { stdio: 'pipe' })
+    execFileSync('git', ['-C', repoRoot, 'checkout', 'main'], { stdio: 'pipe' })
+    for (const path of paths) await writeFile(join(repoRoot, path), 'local untracked')
+
+    await expect(switchGitBranch(repoRoot, 'feature/many-overwrites')).resolves.toMatchObject({
+      ok: false,
+      reason: 'would_overwrite_files',
+      blockingPaths: paths.slice(0, 2)
+    })
+  })
+
   it('blocks an untracked path containing arrow text that the target branch would add', async () => {
     const path = 'incoming -> report.txt'
     execFileSync('git', ['-C', repoRoot, 'checkout', '-b', 'feature/arrow-overwrite'], { stdio: 'pipe' })
