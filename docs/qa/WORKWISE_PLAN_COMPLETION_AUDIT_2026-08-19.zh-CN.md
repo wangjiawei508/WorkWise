@@ -1,6 +1,6 @@
 # WorkWise 两项计划完成度审计
 
-日期：2026-08-19
+日期：2026-08-21
 分支：`codex/workwise-plugin-marketplace-recovered`
 版本：`0.3.6`
 
@@ -12,15 +12,19 @@
 
 - `npm run typecheck`：通过。
 - `npm run lint`：通过。
-- 受控回环权限下 `npm test -- --run`：`272 passed | 2 skipped`，`2167 passed | 2 skipped`。首次运行还识别出打包后 `better-sqlite3` 的 Electron ABI 148 与测试 Node ABI 147 不匹配；重建 Node 原生模块后，全量测试通过。沙箱内无回环监听权限时出现的 6 个失败已用同一命令在授权环境中复核为权限问题。
+- 受控回环权限下全量测试：`2228 passed | 2 skipped`。候选端口预留、Runtime 实际端口交接、三端口探针、MarkItDown 页码溯源和候选 `port: 0` 设置持久化专项测试通过。
 - `npm run build`：通过。
 - `WORKWISE_PYTHON=/private/tmp/workwise-markitdown-venv/bin/python npm run build:markitdown-sidecar`：通过；包含 PyInstaller 打包、Magika/PPT Master 资源、许可文件、framework symlink 和 helper 冷启动 smoke 检查。
 - `npm run openspec:validate`：`10 passed, 0 failed`。
-- `npm run verify:brand-boundary`：通过，扫描 1382 个文件。
+- `npm run verify:brand-boundary`：通过，扫描 1389 个文件。
 - `git diff --check`：通过。
+- 候选端口生命周期：候选 Schedule/IM 端口由持有监听器的 reservation 交接，Runtime 使用 `port: 0` 并从 `KUN_READY` 保存实际端口；候选探针同时验证 Runtime `/health`、Schedule 内部监听和 IM webhook 监听，退出和启动失败路径均幂等清理 reservation。
 - `bash scripts/authorize-workwise-candidate.sh --check`：通过；未执行 `--prepare`，未修改正式安装包或正式用户目录。
 - `npm run verify:document-licenses`：通过；sidecar 现在使用 `sidecars/markitdown/THIRD_PARTY_NOTICES.md` 自包含许可声明，不依赖已被用户删除的根目录声明文件。
-- 当前 HEAD 候选包使用唯一 bundle ID `com.wangjiawei508.workwise.uireview.20260819`，版本 `0.3.6`；ASAR 完整性为 18,335 个文件和 457 个编译产物，MarkItDown helper、`codesign --verify --deep --strict` 和 packaged SQLite ABI 148 smoke 均通过。
+- 当前 HEAD 候选包使用唯一 bundle ID `com.wangjiawei508.workwise.planacceptance.20260820`，版本 `0.3.6`；ASAR 完整性为 18,335 个文件和 457 个编译产物，MarkItDown helper、`codesign --verify --deep --strict` 和 packaged SQLite ABI 148 smoke 均通过。正式 `/Applications/WorkWise.app` 未被覆盖。
+- 打包候选完成浅色/深色/浅色往返，设置持久化为 `theme: light`；侧栏可读、分隔线细、全尺寸 Workbench 打开后无重叠。
+- 打包 PDF 预览实际显示 `markitdown-v0.1.4-workwise-1`、`degraded`、`low_text_density` 和 `scanned_document`；无 OCR/MinerU 时高精度解析明确返回 `document_engine_unavailable`，PDF.js 阅读和搜索仍可用。
+- 本地回环模型验收只监听 `127.0.0.1`，固定返回输入 37、输出 6、总计 43 tokens；界面先显示流式估算，完成后替换为精确 `43 tokens` 和 `Local usage acceptance passed.`。验收后已清除临时假密钥、恢复 `https://api.deepseek.com` 并退出候选。
 - `knip`、`shellcheck`、`gbrain`：本机未安装，未将其缺失冒充为通过。
 
 ## 计划一：PDF 解析
@@ -28,9 +32,9 @@
 | 条目 | 状态 | 证据与边界 |
 |---|---|---|
 | 细化文本层、扫描件、复杂版面、公式/表格信号 | DONE | `document-engine-service` 的质量评估与路由测试覆盖扫描、弱文本层、复杂版面和表格/公式警告。 |
-| 页码引用、标题页映射、警告和降级原因 | DONE | 解析结果合约、页码/标题溯源测试和降级诊断测试通过。 |
+| 页码引用、标题页映射、警告和降级原因 | DONE | 显式页码标记优先；MarkItDown 换页符仅在段数与 PDF 页数严格相等时映射，数量不符时拒绝推导，换页符也不会再把相邻标题粘连。相关专项测试和降级诊断测试通过。 |
 | PDF.js 保持阅读/搜索职责 | DONE | `workspace-preview-service` 与 PDF.js 预览路径测试通过。 |
-| 快解析 / 高精度解析 / 当前引擎 / 切换原因界面 | DONE（代码证据） | 设置卡和预览面板已展示解析模式、引擎状态和路由信息；尚缺最终候选包人工截图确认。 |
+| 快解析 / 高精度解析 / 当前引擎 / 切换原因界面 | DONE | 设置卡和预览面板已展示解析模式、引擎状态和路由信息；当前打包候选截图已确认 MarkItDown、质量等级和路由原因。 |
 | Unlimited-OCR 可选本机高精度协议 | PARTIAL | 回环 URL 校验、提交、轮询、超时、取消、大小上限和结果解析均已实现并测试；本机没有真实 Unlimited-OCR 服务，不能宣称真实服务验收。 |
 | MinerU 保留并作为回退 | DONE（代码证据） | MinerU 选择、失败回退和诊断测试通过；未进行真实 MinerU 长文档人工验收。 |
 | 电子 PDF、扫描 PDF、复杂版面、回退和安全限制 | PARTIAL | 合成 fixture 和边界测试通过；缺少一组真实用户 PDF 与真实 OCR 服务的端到端验收。 |
@@ -41,9 +45,9 @@
 |---|---|---|
 | `@file` 有界索引、目录引用、路径安全、延迟读取 | DONE | Runtime 重新验证 workspace reference；symlink、越界、中文/空格路径、截断和 TTL 测试通过。 |
 | 纯文本模型的视觉证据层 | PARTIAL | `VisionEvidencePort`、结构化证据、缓存、并发共享、超时、SSRF/大小/MIME 防护和失败契约已实现并测试；README 已与“不可用时明确失败、禁止 Base64 回退”的真实契约对齐；没有配置真实视觉端点，不能宣称 DeepSeek 真实图片问答验收。 |
-| 终态通知分类、去重、当前线程抑制和点击定位 | PARTIAL | 终态投影、设置迁移和 Renderer 去重测试通过；候选打包应用中的系统通知点击定位尚未完成真实人工验收。 |
-| 实时用量、精确 usage 替换估算、稳定 TPS | DONE（单元证据） | `LiveUsageProjection` 及流式更新测试通过；未完成候选包视觉验收。 |
-| Workbench 注册表、懒加载、错误边界、Viewer 优先级 | DONE（单元证据） | 注册/卸载、重复 ID、懒加载失败重试和 DOM 测试通过；未完成候选包全尺寸人工验收。 |
+| 终态通知分类、去重、当前线程抑制和点击定位 | PARTIAL | 终态投影、设置迁移和 Renderer 去重测试通过；本轮没有捕获到可明确归因并可点击的 macOS 通知，因此点击定位仍不冒充人工验收通过。 |
+| 实时用量、精确 usage 替换估算、稳定 TPS | DONE | `LiveUsageProjection` 及流式更新测试通过；打包候选中先出现估算值，最终被服务端精确 usage `37 + 6 = 43` 替换，TPS 不因空 chunk 归零。 |
+| Workbench 注册表、懒加载、错误边界、Viewer 优先级 | DONE | 注册/卸载、重复 ID、懒加载失败重试和 DOM 测试通过；打包候选已验证全尺寸 Workbench 打开后无重叠。 |
 | Git 切换安全预检 | DONE | 冲突、rebase/cherry-pick/bisect、其他 worktree、覆盖文件和稳定错误码测试通过；尚缺人工操作验收。 |
 | 声明式 `dsh-ui` 与 Runtime `ui_action` | DONE（安全合约证据） | 白名单、深度/节点/表格上限、密码隔离、fingerprint、过期/重放/错误 thread 拒绝和动作队列测试通过。 |
 | 不新增第二 Runtime、Remote Web、Provider Switcher 或任意 DOM 注入 | DONE | 代码边界测试和 `verify:brand-boundary` 通过。 |
@@ -67,9 +71,10 @@
 
 ## 下一步的唯一有效验收
 
-1. 在隔离候选目录中启动当前唯一标识候选包，确认无正式 workspace、本地历史用量或 API 密钥继承，并完成浅色/深色 UI 截图验收。
-2. 仅在用户明确指定一个飞书测试聊天、一个精确测试命令并确认后，进行一次当前版本飞书入站/出站闭环；不测试微信。
-3. 若无真实 Unlimited-OCR 或视觉端点，保留 `PARTIAL/UNVERIFIABLE`，不使用 mock 结果冒充真实能力。
+1. 配置真实 Unlimited-OCR 和真实视觉端点，使用真实扫描/复杂版面 PDF 与图片完成外部服务验收；没有服务时继续保留 `PARTIAL`。
+2. 在隔离候选中捕获一次可明确归因的系统完成通知，并验证点击后只定位原线程。
+3. 仅在用户明确指定一个飞书测试聊天、一个精确测试命令并确认后，进行一次当前版本飞书入站/出站闭环；不测试微信。
+4. 用户确认准确版本号和发布动作前，不推送、打标签、创建 Release、修改官网、稳定更新源或正式 App。
 
 本轮另外修复了 sidecar 许可声明的构建边界：`scripts/build-markitdown-sidecar.mjs` 与 `scripts/verify-document-dependencies.mjs` 现在读取随 helper 分发的声明文件，保留用户对根目录 `THIRD_PARTY_NOTICES.md` 的删除。健康监督的并发恢复修复已由提交 `54c4235` 固化，并有回归测试覆盖重复恢复和 stale 失败后继续退避。
 

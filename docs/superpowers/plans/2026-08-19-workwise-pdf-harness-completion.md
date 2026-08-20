@@ -1,6 +1,6 @@
 # WorkWise PDF 与 DeepSeek Harness 合并实施计划
 
-日期：2026-08-19
+日期：2026-08-21
 目标分支：`codex/workwise-plugin-marketplace-recovered`
 
 ## 目标
@@ -21,10 +21,12 @@
 
 - [x] 细分电子文本、弱文本层、扫描件、复杂版面、表格和公式质量信号。
 - [x] 返回页码引用、标题页映射、警告和降级原因。
+- [x] MarkItDown 显式页码标记优先；仅在换页符数量与 PDF 页数严格一致时推导页码，避免错误溯源和跨页标题粘连。
 - [x] 保留 PDF.js 阅读/搜索与 MarkItDown 快解析职责。
 - [x] 在设置和预览中展示解析模式、当前引擎和切换原因。
 - [x] 接入 Unlimited-OCR 本机回环协议，覆盖健康检查、提交、轮询、取消、超时和响应大小限制。
 - [x] 保留 MinerU 高精度路径和失败回退。
+- [x] 候选 Runtime/Schedule/IM 端口使用持有监听器的 reservation，Runtime `port: 0` 从 ready marker 交接真实端口，并在候选探针和退出路径验证/清理。
 - [ ] 使用真实 Unlimited-OCR 服务和真实扫描/复杂版面 PDF 完成人工端到端验收。
 
 ### 2. Workspace 引用
@@ -46,10 +48,12 @@
 
 - [x] 终态通知区分完成、错误、中止、阻塞和 max-token，并去重和抑制当前线程。
 - [x] 通知点击唤醒窗口并定位对应线程。
-- [x] 实时用量先估算、后由精确 usage 替换，TPS 不因空 chunk 归零。
+- [x] 实时用量先估算、后由精确 usage 替换，TPS 不因空 chunk 归零；文本、推理和 tool-call 增量均纳入有界计数估算，原始参数不跨 Runtime 边界。
 - [x] 内置 Workbench registry 支持注册、卸载、去重、懒加载共享、错误边界和 retry。
 - [x] File Viewer 使用 sniff、优先级和扩展名匹配。
-- [ ] 在当前候选包中人工验证通知点击、实时用量和全尺寸 Workbench 交互。
+- [ ] 在当前候选包中人工验证系统通知点击后定位原线程；本轮未取得可明确归因的系统通知证据，不用重复模型请求冒充通过。
+- [x] 在当前候选包中验证实时估算用量最终由精确 usage 替换：本地回环模型固定返回输入 37、输出 6、总计 43 tokens，界面最终显示 43 tokens。
+- [x] 在当前候选包中验证全尺寸 Workbench 可打开、无重叠，浅色侧栏可读且分隔线足够细。
 
 ### 5. Git 与声明式 UI
 
@@ -75,14 +79,15 @@ git diff --check origin/main...HEAD
 
 - [x] Electron 的 `userData`、`cache`、`sessionData`、`crashDumps` 和 `logs` 全部重定向到候选根目录，并在窗口创建前完成设置。
 - [x] 候选进程不继承父进程的 `DEEPSEEK_API_KEY`；正式版环境和用户保存的第三方配置保持原行为。
-- [x] 唯一 bundle ID `com.wangjiawei508.workwise.uireview.20260819` 的 macOS arm64 候选包已生成。
+- [x] 唯一 bundle ID `com.wangjiawei508.workwise.planacceptance.20260820` 的 macOS arm64 候选包已生成，正式 `/Applications/WorkWise.app` 未被覆盖。
 - [x] 候选 ASAR 完整性、MarkItDown sidecar、严格签名校验和 packaged SQLite ABI 148 smoke 通过。
-- [ ] 启动当前候选包并确认浅色/深色 UI、PDF 设置和零正式数据继承。
+- [x] 启动当前候选包并完成浅色/深色/浅色往返、PDF 设置、真实打包 PDF 预览和零正式数据继承检查；候选只使用隔离 userData、空正式历史与临时回环模型配置。
+- [x] 候选退出前已清空临时假密钥并把 Base URL 恢复为 `https://api.deepseek.com`；隔离设置文件中不再包含本地桩端口或假密钥。
 
 ## 发布门禁
 
 - [x] 自动化测试、类型检查、Lint、构建和仓库策略验证通过。
-- [ ] 当前候选包完成浅色/深色和支持窗口尺寸的人工 UI 验收。
+- [x] 当前候选包完成浅色/深色和支持窗口尺寸的人工 UI 验收。
 - [ ] 真实 OCR、视觉端点和指定飞书测试聊天的外部验收按可用环境完成。
 - [ ] 用户确认准确版本号和发布动作。
 
