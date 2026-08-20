@@ -104,6 +104,16 @@ import {
 // Tool argument fragments are projected to usage as bounded character counts;
 // raw fragments never cross the runtime event boundary.
 const MAX_TOOL_CALL_DELTA_CHARACTERS = 1_000_000
+
+function boundedUnicodeCharacterCount(value: string, max: number): number {
+  let count = 0
+  for (const _character of value) {
+    count += 1
+    if (count >= max) return max
+  }
+  return count
+}
+
 const PARALLEL_READ_ONLY_TOOL_NAMES = new Set(['read', 'grep', 'find', 'ls'])
 const MAX_PARALLEL_TOOL_CALLS = 3
 const MAX_TURN_MODEL_STEPS = 64
@@ -1117,8 +1127,8 @@ export class AgentLoop {
           break
         case 'tool_call_delta':
           if (chunk.argumentsDelta) {
-            const characterCount = Math.min(
-              Array.from(chunk.argumentsDelta).length,
+            const characterCount = boundedUnicodeCharacterCount(
+              chunk.argumentsDelta,
               MAX_TOOL_CALL_DELTA_CHARACTERS
             )
             if (characterCount > 0) {

@@ -122,6 +122,7 @@ describe('thread event sink binding', () => {
       tokenEconomySavingsCny: null,
       turns: 1
     }, 9)
+    sink.onUsageDelta?.(4, 8, 'turn-current')
     sink.onUsageDelta?.(4, 10, 'turn-current')
     expect(initial.getState().liveUsageByThreadId['thread-current']).toMatchObject({
       estimatedOutputCharacters: 12,

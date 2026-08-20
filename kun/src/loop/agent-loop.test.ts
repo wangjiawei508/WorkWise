@@ -220,6 +220,7 @@ describe('AgentLoop completion guard', () => {
       model: 'fixture-model',
       async *stream() {
         yield { kind: 'tool_call_delta', callId: 'call_1', toolName: 'read_file', argumentsDelta: '{"token":"secret"}' }
+        yield { kind: 'tool_call_delta', callId: 'call_1', argumentsDelta: 'x'.repeat(1_000_001) }
         yield { kind: 'assistant_text_delta', text: 'done' }
         yield { kind: 'completed', stopReason: 'stop' }
       }
@@ -254,6 +255,10 @@ describe('AgentLoop completion guard', () => {
     })
     expect(JSON.stringify(toolDelta)).not.toContain('secret')
     expect(JSON.stringify(toolDelta)).not.toContain('argumentsDelta')
+    expect(persistedEvents.filter((event) => event.kind === 'tool_call_delta'))
+      .toEqual(expect.arrayContaining([
+        expect.objectContaining({ characterCount: 1_000_000 })
+      ]))
   })
 
   it('records redacted model and MCP spans around the actual stream and tool execution', async () => {

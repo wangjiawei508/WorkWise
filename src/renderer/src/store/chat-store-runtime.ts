@@ -1300,6 +1300,11 @@ export function buildThreadEventSink(
     },
     onUsage: (usage, seq) => {
       if (!isCurrentStream()) return
+      if (typeof seq === 'number') {
+        // Exact usage supersedes all earlier estimates, including deltas
+        // whose dispatch may still be awaiting another runtime event.
+        appliedUsageDeltaSeqFloor = Math.max(appliedUsageDeltaSeqFloor, seq)
+      }
       set((s) => {
         const threadId = s.activeThreadId
         const turnId = s.currentTurnId
