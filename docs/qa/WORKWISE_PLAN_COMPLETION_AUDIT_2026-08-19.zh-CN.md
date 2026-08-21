@@ -1,8 +1,9 @@
 # WorkWise 两项计划完成度审计
 
-日期：2026-08-21
+日期：2026-08-22
 分支：`codex/workwise-plan-final-0.4.0`
-版本：`0.3.6`
+提交：`fa86d84`
+版本：`0.3.6`（当前候选仍未升级公共版本）
 
 本报告按 `PLAN (1).md`（PDF 解析）和 `PLAN (2).md`（DeepSeek Harness 机制）逐项核对当前代码、测试和候选证据。`DONE` 只表示仓库内实现和自动化证据足够；`PARTIAL` 表示实现存在但仍缺少真实服务或人工验收；`UNVERIFIABLE` 表示当前环境没有足够证据。历史候选日志不作为当前版本的真实通信验收。
 
@@ -12,17 +13,18 @@
 
 - `npm run typecheck`：通过。
 - `npm run lint`：通过。
-- 受控回环权限下全量测试：主工程 `2238 passed | 2 skipped`，Runtime `773 passed`，合计 `3011 passed | 2 skipped`。候选端口预留、Runtime 实际端口交接、三端口探针、MarkItDown 页码溯源、OCR 页码校验、工作区索引读错截断、DeepSeek 响应边界和候选 `port: 0` 设置持久化专项测试通过。
+- 受控回环权限下全量测试：主工程 `2281 passed | 2 skipped`，Runtime `780 passed`，合计 `3061 passed | 2 skipped`。候选端口预留、Runtime 实际端口交接、三端口探针、MarkItDown 页码溯源、OCR 页码校验、工作区索引读错截断、DeepSeek 响应边界和候选 `port: 0` 设置持久化专项测试通过。
+- 本轮修复增量回归：主工程 provider/微信运行时 `46 passed`，Runtime contracts `34 passed`；修复已提交于 `fa86d84`，覆盖稳定 DeepSeek HTTPS 默认地址、官方域名边界和微信重试取消传播。
 - `npm run build`：通过。
 - `WORKWISE_PYTHON=/private/tmp/workwise-markitdown-venv/bin/python npm run build:markitdown-sidecar`：通过；包含 PyInstaller 打包、Magika/PPT Master 资源、许可文件、framework symlink 和 helper 冷启动 smoke 检查。
 - `npm run openspec:validate`：`10 passed, 0 failed`。
-- `npm run verify:brand-boundary`：通过，扫描 1389 个文件。
+- `npm run verify:brand-boundary`：通过，扫描 1410 个文件。
 - `git diff --check`：通过。
 - 候选端口生命周期：候选 Schedule/IM 端口由持有监听器的 reservation 交接，Runtime 使用 `port: 0` 并从 `KUN_READY` 保存实际端口；候选探针同时验证 Runtime `/health`、Schedule 内部监听和 IM webhook 监听，退出和启动失败路径均幂等清理 reservation。
 - `bash scripts/authorize-workwise-candidate.sh --check`：通过；未执行 `--prepare`，未修改正式安装包或正式用户目录。
 - `npm run verify:document-licenses`：通过；sidecar 现在使用 `sidecars/markitdown/THIRD_PARTY_NOTICES.md` 自包含许可声明，不依赖已被用户删除的根目录声明文件。
 - 设置与 IM 凭据事务专项测试 `58 passed`；覆盖 stale revision 在凭据写入前拒绝、设置落盘失败回滚新凭据、落盘后旧凭据清理失败保留已提交替代凭据、并发删除/恢复同一账号，以及多 channel 部分失败等待全部保护任务完成后清理所有孤立凭据。Node 类型检查、定向 ESLint 和 `git diff --check` 同步通过。
-- 提交 `df4deb7` 的隔离候选包使用唯一 bundle ID `com.wangjiawei508.workwise.planacceptance.20260820`，版本 `0.3.6`；ASAR 完整性为 18,335 个文件和 457 个编译产物，MarkItDown helper、`codesign --verify --deep --strict` 和 packaged SQLite ABI 148 smoke 均通过。正式 `/Applications/WorkWise.app` 未被覆盖。本轮审查修复完成后重新通过源码构建，并恢复、校验同一 Electron ABI 148 原生模块；未用旧候选包冒充本轮新增代码的包级验收。
+- 提交 `df4deb7` 的隔离候选包使用唯一 bundle ID `com.wangjiawei508.workwise.planacceptance.20260820`，版本 `0.3.6`；ASAR 完整性为 18,335 个文件和 457 个编译产物，MarkItDown helper、`codesign --verify --deep --strict` 和 packaged SQLite ABI 148 smoke 均通过。正式 `/Applications/WorkWise.app` 未被覆盖。`fa86d84` 的源码回归已通过，但没有把旧候选包冒充为包含本轮修复的包级验收；最新包级验收仍待重新构建并安装后完成。
 - 打包候选完成浅色/深色/浅色往返，设置持久化为 `theme: light`；侧栏可读、分隔线细、全尺寸 Workbench 打开后无重叠。
 - 打包 PDF 预览实际显示 `markitdown-v0.1.4-workwise-1`、`degraded`、`low_text_density` 和 `scanned_document`；无 OCR/MinerU 时高精度解析明确返回 `document_engine_unavailable`，PDF.js 阅读和搜索仍可用。
 - 本地回环模型验收只监听 `127.0.0.1`，固定返回输入 37、输出 6、总计 43 tokens；界面先显示流式估算，完成后替换为精确 `43 tokens` 和 `Local usage acceptance passed.`。验收后已清除临时假密钥、恢复 `https://api.deepseek.com` 并退出候选。
@@ -69,14 +71,14 @@
 
 ## 发布门禁
 
-本轮不改公共版本号、不创建或移动标签、不编辑或发布 GitHub Release、不修改官网、不修改 `/Applications/WorkWise.app`。由于真实 OCR/视觉服务和当前候选 IM 人工验收缺失，发布门禁仍未满足，不能把本轮结果称为“完整产品已交付”。
+本轮不改公共版本号、不创建或移动标签、不编辑或发布 GitHub Release、不修改官网、不修改 `/Applications/WorkWise.app`；修复提交已固化在候选分支，是否合并或发布仍需单独的版本与动作确认。由于真实 OCR/视觉服务和当前候选 IM 人工验收缺失，发布门禁仍未满足，不能把本轮结果称为“完整产品已交付”。
 
 ## 下一步的唯一有效验收
 
 1. 配置真实 Unlimited-OCR 和真实视觉端点，使用真实扫描/复杂版面 PDF 与图片完成外部服务验收；没有服务时继续保留 `PARTIAL`。
 2. 在隔离候选中捕获一次可明确归因的系统完成通知，并验证点击后只定位原线程。
 3. 仅在用户明确指定一个飞书测试聊天、一个精确测试命令并确认后，进行一次当前版本飞书入站/出站闭环；不测试微信。
-4. 用户确认准确版本号和发布动作前，不推送、打标签、创建 Release、修改官网、稳定更新源或正式 App。
+4. 用户确认准确版本号和发布动作前，不打标签、创建 Release、修改官网、稳定更新源或正式 App；当前只维护候选分支和审查证据。
 
 本轮另外修复了 sidecar 许可声明的构建边界：`scripts/build-markitdown-sidecar.mjs` 与 `scripts/verify-document-dependencies.mjs` 现在读取随 helper 分发的声明文件，保留用户对根目录 `THIRD_PARTY_NOTICES.md` 的删除。健康监督的并发恢复修复已由提交 `54c4235` 固化，并有回归测试覆盖重复恢复和 stale 失败后继续退避。
 
