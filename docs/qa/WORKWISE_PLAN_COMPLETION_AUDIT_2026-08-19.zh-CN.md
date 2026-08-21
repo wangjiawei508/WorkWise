@@ -2,10 +2,10 @@
 
 日期：2026-08-22
 分支：`codex/workwise-plan-final-0.4.0`
-提交：`b5223101b2d4dab5638ad767fad4862ee6facc0a`
+提交：`fe3eacc`
 版本：`0.3.6`（当前候选仍未升级公共版本）
 
-本报告按 `PLAN (1).md`（PDF 解析）和 `PLAN (2).md`（DeepSeek Harness 机制）逐项核对当前代码、测试和候选证据。`DONE` 只表示仓库内实现和自动化证据足够；`PARTIAL` 表示实现存在但仍缺少真实服务或人工验收；`UNVERIFIABLE` 表示当前环境没有足够证据。历史候选日志不作为当前版本的真实通信验收。
+本报告按 `PLAN (1).md`（PDF 解析）和 `PLAN (2).md`（DeepSeek Harness 机制）逐项核对当前代码、测试和候选证据。用户已于 2026-08-22 授权取消原计划的开发阻塞项，允许继续接入真实服务和准备交付；`DONE` 只表示仓库内实现和自动化证据足够；`PARTIAL` 表示实现存在但仍缺少真实服务或人工验收；`UNVERIFIABLE` 表示当前环境没有足够证据。历史候选日志不作为当前版本的真实通信验收。
 
 本机已发现 Superpowers 插件缓存（`/Users/wangjiawei/.codex/.tmp/plugins/plugins/superpowers`），本轮按其中的系统调试、TDD、执行计划和完成前验证规则执行；同时按可用的 Gstack 工程审查、调查、健康检查和发布门禁规则执行。该插件没有在当前技能清单中注册，因此不把它描述为通过宿主 Skill 调用安装，而是记录实际读取和遵守的本地规则。
 
@@ -20,6 +20,7 @@
 - `npm run openspec:validate`：`10 passed, 0 failed`。
 - `npm run verify:brand-boundary`：通过，扫描 1411 个文件。
 - `git diff --check`：通过。
+- 本轮新增真实回环验收：macOS Vision `VNRecognizeTextRequest` 作为本机视觉服务，`HttpVisionEvidenceService` 对真实 PNG 完成 HTTP 请求、结构化证据校验，返回 `ready`、OCR 文本、18 个布局项和语义字段；同一 Vision 服务作为 Unlimited-OCR 后端，对两页图像型扫描 PDF 完成健康检查、提交、轮询、页码排序和 Markdown 输出，耗时 `2073 ms`。
 - 候选端口生命周期：候选 Schedule/IM 端口由持有监听器的 reservation 交接，Runtime 使用 `port: 0` 并从 `KUN_READY` 保存实际端口；候选探针同时验证 Runtime `/health`、Schedule 内部监听和 IM webhook 监听，退出和启动失败路径均幂等清理 reservation。
 - `bash scripts/authorize-workwise-candidate.sh --check`：通过；未执行 `--prepare`，未修改正式安装包或正式用户目录。
 - `npm run verify:document-licenses`：通过；sidecar 现在使用 `sidecars/markitdown/THIRD_PARTY_NOTICES.md` 自包含许可声明，不依赖已被用户删除的根目录声明文件。
@@ -39,7 +40,7 @@
 | 页码引用、标题页映射、警告和降级原因 | DONE | MarkItDown 只信任段数与 PDF 页数严格相等的结构性换页符，不接受正文伪造的显式页码标记；标题映射去重、元数据上限和缓存 revision 均有专项回归。其他具备可信标记合约的引擎仍可使用显式页码。 |
 | PDF.js 保持阅读/搜索职责 | DONE | `workspace-preview-service` 与 PDF.js 预览路径测试通过。 |
 | 快解析 / 高精度解析 / 当前引擎 / 切换原因界面 | DONE | 设置卡和预览面板已展示解析模式、引擎状态和路由信息；当前打包候选截图已确认 MarkItDown、质量等级和路由原因。 |
-| Unlimited-OCR 可选本机高精度协议 | PARTIAL | 回环 URL 校验、提交、轮询、超时、取消、大小上限，以及页码整数、范围和重复校验均已实现并测试；本机没有真实 Unlimited-OCR 服务，不能宣称真实服务验收。 |
+| Unlimited-OCR 可选本机高精度协议 | PARTIAL | 回环 URL 校验、提交、轮询、超时、取消、大小上限，以及页码整数、范围和重复校验均已实现并测试；本轮已用 macOS Vision 真模型完成本机服务和两页扫描 PDF 回环验收，但尚未用用户配置的供应商服务验收。 |
 | MinerU 保留并作为回退 | DONE（代码证据） | MinerU 选择、失败回退和诊断测试通过；未进行真实 MinerU 长文档人工验收。 |
 | 电子 PDF、扫描 PDF、复杂版面、回退和安全限制 | PARTIAL | 合成 fixture 和边界测试通过；缺少一组真实用户 PDF 与真实 OCR 服务的端到端验收。 |
 
@@ -48,7 +49,7 @@
 | 条目 | 状态 | 证据与边界 |
 |---|---|---|
 | `@file` 有界索引、目录引用、路径安全、延迟读取 | DONE | Runtime 重新验证 workspace reference；symlink、越界、中文/空格路径、上限、深度、TTL 和子目录读取失败时明确标记截断均有测试覆盖。 |
-| 纯文本模型的视觉证据层 | PARTIAL | `VisionEvidencePort`、结构化证据、缓存、并发共享、超时、SSRF/大小/MIME 防护和失败契约已实现并测试；README 已与“不可用时明确失败、禁止 Base64 回退”的真实契约对齐；没有配置真实视觉端点，不能宣称 DeepSeek 真实图片问答验收。 |
+| 纯文本模型的视觉证据层 | PARTIAL | `VisionEvidencePort`、结构化证据、缓存、并发共享、超时、SSRF/大小/MIME 防护和失败契约已实现并测试；本轮已用 macOS Vision 真模型完成真实图片到结构化证据的 HTTP 回环，但没有配置真实 DeepSeek 视觉问答端点，不能宣称 DeepSeek 图片问答验收。 |
 | 终态通知分类、去重、当前线程抑制和点击定位 | PARTIAL | 终态投影、设置迁移和 Renderer 去重测试通过；本轮没有捕获到可明确归因并可点击的 macOS 通知，因此点击定位仍不冒充人工验收通过。 |
 | 实时用量、精确 usage 替换估算、稳定 TPS | DONE | `LiveUsageProjection` 及流式更新测试通过；打包候选中先出现估算值，最终被服务端精确 usage `37 + 6 = 43` 替换，TPS 不因空 chunk 归零。 |
 | Workbench 注册表、懒加载、错误边界、Viewer 优先级 | DONE | 注册/卸载、重复 ID、懒加载失败重试和 DOM 测试通过；打包候选已验证全尺寸 Workbench 打开后无重叠。 |
@@ -69,9 +70,9 @@
 | 当前版本真实飞书收发 | UNVERIFIABLE | 现有日志来自早期候选包，且包含“候选入站安全门忽略非 `/status`”和“凭据存储暂不可用”；它们证明了历史失败模式，不能证明当前 HEAD 已真实收发成功。 |
 | 当前版本真实微信收发 | UNVERIFIABLE | 本轮按安全边界没有重新扫码、没有向微信发送消息，也没有使用正式用户数据。 |
 
-## 发布门禁
+## 交付状态
 
-本轮不改公共版本号、不创建或移动标签、不编辑或发布 GitHub Release、不修改官网、不修改 `/Applications/WorkWise.app`；修复提交已固化在候选分支，是否合并或发布仍需单独的版本与动作确认。由于真实 OCR/视觉服务和当前候选 IM 人工验收缺失，发布门禁仍未满足，不能把本轮结果称为“完整产品已交付”。
+本轮已解除原计划对版本准备、真实 OCR/视觉服务和 IM 验收的阻塞；修复提交已固化在候选分支。当前仍需把真实服务和人工验收结果写入证据，再决定具体版本和交付动作，不能用历史日志替代当前结果。
 
 ## 下一步的唯一有效验收
 
