@@ -2,7 +2,7 @@
 
 日期：2026-08-22  
 分支：`codex/workwise-plan-final-0.4.0`  
-提交：`fe3eacc`
+提交：`a8f1412`
 
 ## 验收范围
 
