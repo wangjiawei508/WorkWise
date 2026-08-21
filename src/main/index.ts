@@ -8,6 +8,7 @@ import {
   JsonSettingsStore,
   devServerHintUrl
 } from './settings-store'
+import { applySettingsApplicationTransaction } from './settings-application-transaction'
 import workwiseLogoPng from '../asset/img/workwise.png?url'
 import workwiseDockPng from '../asset/img/workwise_dock.png?url'
 import workwiseTrayPng from '../asset/img/workwise_tray.png?url'
@@ -37,19 +38,11 @@ import {
   UNCONFIGURED_RECOVERY_CANDIDATE_EXIT_CODE
 } from './candidate-runtime'
 import {
-  applyManagedRuntimePatch,
   kunSettingsEnvelope,
   getActiveAgentApiKey,
   getManagedRuntimeSettings,
   mergeManagedRuntimeSettings,
-  mergeClawSettings,
-  mergeModelProviderSettings,
-  mergeScheduleSettings,
-  mergeWriteSettings,
-  mergeNotificationSettings,
-  normalizeAppSettings,
   normalizeAppBehaviorSettings,
-  normalizeKeyboardShortcuts,
   shouldShowTerminalNotification,
   resolveManagedRuntimeSettings,
   type AppBehaviorConfigV1,
@@ -94,8 +87,7 @@ import { appCancellationRegistry } from './cancellation-registry'
 import { drainSerializedWrites } from './services/durable-file'
 import {
   ImCredentialService,
-  protectImChannelCredentials,
-  removeUnreferencedImCredentials
+  protectImChannelCredentials
 } from './services/im-credential-service'
 import {
   isImCredentialHelperProcess,
@@ -1448,82 +1440,34 @@ app.whenReady().then(async () => {
   const applySettingsPatch = async (
     partial: AppSettingsPatch,
     expectedRevision?: number
-  ): Promise<AppSettingsV1> => {
-    const prev = await store.load()
-    const {
-      agents: agentsPatch,
-      provider: providerPatch,
-      conversation: conversationPatch,
-      documents: documentsPatch,
-      ...restPatch
-    } = partial
-    const next = normalizeAppSettings({
-      ...applyManagedRuntimePatch(prev, agentsPatch?.kun),
-      ...restPatch,
-      provider: mergeModelProviderSettings(prev.provider, providerPatch),
-      log: { ...prev.log, ...(partial.log ?? {}) },
-      notifications: mergeNotificationSettings(prev.notifications, partial.notifications),
-      appBehavior: normalizeAppBehaviorSettings({
-        ...prev.appBehavior,
-        ...(partial.appBehavior ?? {})
-      }),
-      keyboardShortcuts: normalizeKeyboardShortcuts({
-        bindings: {
-          ...prev.keyboardShortcuts.bindings,
-          ...(partial.keyboardShortcuts?.bindings ?? {})
-        }
-      }),
-      write: mergeWriteSettings(prev.write, partial.write),
-      claw: mergeClawSettings(prev.claw, partial.claw),
-      schedule: mergeScheduleSettings(prev.schedule, partial.schedule),
-      guiUpdate: { ...prev.guiUpdate, ...(partial.guiUpdate ?? {}) },
-      conversation: { ...prev.conversation, ...(conversationPatch ?? {}) },
-      documents: {
-        ...prev.documents,
-        ...(documentsPatch ?? {}),
-        allowPrivateServerUploadByWorkspace: {
-          ...prev.documents.allowPrivateServerUploadByWorkspace,
-          ...(documentsPatch?.allowPrivateServerUploadByWorkspace ?? {})
-        }
+  ): Promise<AppSettingsV1> => applySettingsApplicationTransaction({
+    store,
+    credentialService: imCredentialService ?? undefined,
+    partial,
+    expectedRevision,
+    afterPersist: async (prev, saved) => {
+      if (prev.log.enabled !== saved.log.enabled || prev.log.retentionDays !== saved.log.retentionDays) {
+        configureLogger({ enabled: saved.log.enabled, retentionDays: saved.log.retentionDays })
       }
-    })
-    if (prev.log.enabled !== next.log.enabled || prev.log.retentionDays !== next.log.retentionDays) {
-      configureLogger({ enabled: next.log.enabled, retentionDays: next.log.retentionDays })
+      await syncClawScheduleMcpConfig(
+        saved,
+        getClawScheduleMcpLaunchConfig(),
+        clawScheduleMcpConfigPaths()
+      ).catch((error) => {
+        console.error('[claw-schedule-mcp] failed to sync config after settings change:', error)
+      })
+      if (prev.guiUpdate.channel !== saved.guiUpdate.channel && guiUpdaterModulePromise) {
+        void guiUpdaterModulePromise.then((module) => module.setGuiUpdateChannel(saved.guiUpdate.channel))
+      }
+      queueRuntimeSettingsApply(prev, saved)
+      scheduleRuntime?.sync(saved)
+      clawRuntime?.sync(saved)
+      syncWeixinBridgeRuntime(saved)
+      syncLoginItemSettings(saved)
+      syncApplicationMenu(saved)
+      syncTray(saved)
     }
-    const protectedPatch = partial.claw?.channels && imCredentialService
-      ? {
-          ...partial,
-          claw: {
-            ...partial.claw,
-            // A phone-connection authorization must survive a restart.
-            // Do not display a memory-only fallback as a saved connection.
-            channels: await protectImChannelCredentials(next.claw.channels, imCredentialService, { requirePersistent: true })
-          }
-        }
-      : partial
-    const saved = await store.patch(protectedPatch, expectedRevision)
-    if (imCredentialService) {
-      await removeUnreferencedImCredentials(prev.claw.channels, saved.claw.channels, imCredentialService)
-    }
-    await syncClawScheduleMcpConfig(
-      saved,
-      getClawScheduleMcpLaunchConfig(),
-      clawScheduleMcpConfigPaths()
-    ).catch((error) => {
-      console.error('[claw-schedule-mcp] failed to sync config after settings change:', error)
-    })
-    if (prev.guiUpdate.channel !== saved.guiUpdate.channel && guiUpdaterModulePromise) {
-      void guiUpdaterModulePromise.then((module) => module.setGuiUpdateChannel(saved.guiUpdate.channel))
-    }
-    queueRuntimeSettingsApply(prev, saved)
-    scheduleRuntime?.sync(saved)
-    clawRuntime?.sync(saved)
-    syncWeixinBridgeRuntime(saved)
-    syncLoginItemSettings(saved)
-    syncApplicationMenu(saved)
-    syncTray(saved)
-    return saved
-  }
+  })
 
   const fetchModels = async () => {
     const settings = await store.load()

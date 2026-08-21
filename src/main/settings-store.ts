@@ -560,11 +560,20 @@ export class JsonSettingsStore {
   }
 
   async patch(partial: AppSettingsPatch, expectedRevision?: number): Promise<WorkWiseSettingsV2> {
+    return this.patchPrepared(() => partial, expectedRevision)
+  }
+
+  async patchPrepared(
+    prepare: (current: WorkWiseSettingsV2) => AppSettingsPatch | Promise<AppSettingsPatch>,
+    expectedRevision?: number,
+    afterSave?: (previous: WorkWiseSettingsV2, saved: WorkWiseSettingsV2) => Promise<void> | void
+  ): Promise<WorkWiseSettingsV2> {
     return runSerialized(`settings:${this.path}`, async () => {
       const cur = await this.load()
       if (expectedRevision !== undefined && expectedRevision !== cur.revision) {
         throw new SettingsRevisionConflictError(expectedRevision, cur.revision)
       }
+      const partial = await prepare(cur)
       const {
         agents: agentsPatch,
         provider: providerPatch,
@@ -605,7 +614,9 @@ export class JsonSettingsStore {
           }
         }
       }, this.workwiseHome)
-      return this.save(next)
+      const saved = await this.save(next)
+      await afterSave?.(cur, saved)
+      return saved
     })
   }
 }

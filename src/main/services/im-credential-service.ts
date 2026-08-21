@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import { mkdir, readFile, rm } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import { safeStorage } from 'electron'
@@ -116,9 +116,14 @@ export class ImCredentialService {
     this.prepareProtectedStorageRetry()
   }
 
-  async set(namespace: string, key: string, value: string): Promise<ImCredentialRefV1> {
+  async set(
+    namespace: string,
+    key: string,
+    value: string,
+    options: { unique?: boolean } = {}
+  ): Promise<ImCredentialRefV1> {
     const secret = assertSecret(value)
-    const id = keyId(namespace, key)
+    const id = keyId(namespace, options.unique ? `${key}\0${randomUUID()}` : key)
     this.session.delete(id)
     const createdAt = new Date().toISOString()
     const storage = this.getStorage()
@@ -250,34 +255,55 @@ export class ImCredentialService {
 export async function protectImChannelCredentials(
   channels: readonly ClawImChannelV1[],
   service: ImCredentialService,
-  options: { requirePersistent?: boolean } = {}
+  options: {
+    requirePersistent?: boolean
+    rotate?: boolean
+    onProtectedCredential?: (ref: ImCredentialRefV1) => void
+  } = {}
 ): Promise<ClawImChannelV1[]> {
-  return Promise.all(channels.map(async (channel) => {
+  const results = await Promise.allSettled(channels.map(async (channel) => {
     const credential = channel.platformCredential
     if (credential?.kind === 'feishu' && credential.appSecret?.trim()) {
       if (options.requirePersistent) await service.retryProtectedStorage()
-      const ref = await service.set('feishu', credential.appId, credential.appSecret)
+      const ref = await service.set(
+        'feishu',
+        credential.appId,
+        credential.appSecret,
+        { unique: options.rotate }
+      )
       if (options.requirePersistent && ref.storage === 'session') {
+        if (options.rotate) await service.remove(ref)
         throw Object.assign(new Error('Protected IM credential storage must be authorized before this connection can be saved.'), {
           code: IM_PERSISTENT_CREDENTIAL_REQUIRED_CODE
         })
       }
+      options.onProtectedCredential?.(ref)
       const { appSecret: _appSecret, ...publicCredential } = credential
       return { ...channel, platformCredential: publicCredential, credentialRef: ref }
     }
     if (credential?.kind === 'weixin' && credential.sessionKey?.trim()) {
       if (options.requirePersistent) await service.retryProtectedStorage()
-      const ref = await service.set('weixin', credential.accountId, credential.sessionKey)
+      const ref = await service.set(
+        'weixin',
+        credential.accountId,
+        credential.sessionKey,
+        { unique: options.rotate }
+      )
       if (options.requirePersistent && ref.storage === 'session') {
+        if (options.rotate) await service.remove(ref)
         throw Object.assign(new Error('Protected IM credential storage must be authorized before this connection can be saved.'), {
           code: IM_PERSISTENT_CREDENTIAL_REQUIRED_CODE
         })
       }
+      options.onProtectedCredential?.(ref)
       const { sessionKey: _sessionKey, ...publicCredential } = credential
       return { ...channel, platformCredential: publicCredential, credentialRef: ref }
     }
     return channel
   }))
+  const failed = results.find((result): result is PromiseRejectedResult => result.status === 'rejected')
+  if (failed) throw failed.reason
+  return results.map((result) => (result as PromiseFulfilledResult<ClawImChannelV1>).value)
 }
 
 /**
