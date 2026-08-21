@@ -77,18 +77,19 @@ git diff --check origin/main...HEAD
 
 ## 当前候选隔离证据
 
+- [x] 当前候选包源码固定为提交 `dbd44ff3b872f583eb0cb7538ffbdf608292c8d2`；后续仅文档或版本元数据变更不冒充该候选包已重新验证。
 - [x] Electron 的 `userData`、`cache`、`sessionData`、`crashDumps` 和 `logs` 全部重定向到候选根目录，并在窗口创建前完成设置。
 - [x] 候选进程不继承父进程的 `DEEPSEEK_API_KEY`；正式版环境和用户保存的第三方配置保持原行为。
-- [x] 唯一 bundle ID `com.wangjiawei508.workwise.planacceptance.20260820` 的 macOS arm64 候选包已生成，正式 `/Applications/WorkWise.app` 未被覆盖。
+- [x] 唯一 bundle ID `com.wangjiawei508.workwise.candidate.headdbd44ff3b872` 的 macOS arm64 候选包 `WorkWise Candidate dbd44ff3b872.app` 已从干净 detached worktree 生成，正式 `/Applications/WorkWise.app` 未被覆盖。
 - [x] 候选 ASAR 完整性、MarkItDown sidecar、严格签名校验和 packaged SQLite ABI 148 smoke 通过。
-- [x] 启动当前候选包并完成浅色/深色/浅色往返、PDF 设置、真实打包 PDF 预览和零正式数据继承检查；候选只使用隔离 userData、空正式历史与临时回环模型配置。
-- [x] 候选退出前已清空临时假密钥并把 Base URL 恢复为 `https://api.deepseek.com`；隔离设置文件中不再包含本地桩端口或假密钥。
+- [x] 启动当前候选包并完成浅色/深色界面、PDF 设置、打包 PDF 预览、全尺寸 Workbench 和零正式数据继承检查；候选只使用隔离 userData、空正式历史与临时回环模型配置。
+- [x] 候选退出前已清空临时假密钥和本地模型桩地址；隔离设置文件中不再包含本地桩端口或假密钥。
 
 ## 发布门禁
 
 - [x] 自动化测试、类型检查、Lint、构建和仓库策略验证通过。
 - [x] 当前候选包完成浅色/深色和支持窗口尺寸的人工 UI 验收。
-- [ ] 真实 OCR、视觉端点和指定飞书测试聊天的外部验收按可用环境完成。
+- [ ] 真实 OCR、视觉端点和指定飞书自助手机器人测试聊天的外部验收按可用环境完成；当前候选配置中 OCR 与视觉端点均为空，本轮不通过重复扫码或发送消息制造证据。
 - [ ] 用户确认准确版本号和发布动作。
 
 未完成的人工或外部服务项不得被标记为 `DONE`，也不得阻塞继续完善仓库内可验证的代码与候选包。
