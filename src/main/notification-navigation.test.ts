@@ -1,5 +1,9 @@
 import { describe, expect, it, vi } from 'vitest'
-import { dispatchNotificationOpenThread } from './notification-navigation'
+import {
+  createNotificationClickHandler,
+  dispatchNotificationOpenThread
+} from './notification-navigation'
+import { createNotificationOpenThreadBuffer } from '../preload/notification-open-thread-buffer'
 
 function target(loading: boolean) {
   let didFinishLoad: (() => void) | undefined
@@ -22,6 +26,24 @@ function target(loading: boolean) {
 }
 
 describe('notification thread navigation', () => {
+  it('routes a system notification click through preload to the renderer subscriber', () => {
+    const loading = target(true)
+    const reveal = vi.fn()
+    const buffer = createNotificationOpenThreadBuffer()
+    const received = vi.fn()
+    buffer.subscribe(received)
+
+    createNotificationClickHandler(() => loading.window, reveal, ' thread-3 ')()
+
+    expect(reveal).toHaveBeenCalledOnce()
+    expect(received).not.toHaveBeenCalled()
+
+    loading.finishLoading()
+    buffer.push(loading.send.mock.calls[0]?.[1] as string)
+
+    expect(received).toHaveBeenCalledWith('thread-3')
+  })
+
   it('waits for a newly created renderer before sending the thread route', () => {
     const loading = target(true)
 

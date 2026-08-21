@@ -8,6 +8,17 @@ type NotificationNavigationTarget = {
   }
 }
 
+export function createNotificationClickHandler(
+  getTarget: () => NotificationNavigationTarget | null,
+  reveal: () => void,
+  threadId: string | null | undefined
+): () => void {
+  return () => {
+    reveal()
+    dispatchNotificationOpenThread(getTarget(), threadId)
+  }
+}
+
 export function dispatchNotificationOpenThread(
   target: NotificationNavigationTarget | null,
   rawThreadId: string | null | undefined

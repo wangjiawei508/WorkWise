@@ -15,7 +15,7 @@ import workwiseTrayPng from '../asset/img/workwise_tray.png?url'
 import { createAppIcon, pickTrayIcon } from './app-icon'
 import { configureLinuxWaylandImeSwitches } from './app-command-line'
 import { configureAppIdentity } from './app-identity'
-import { dispatchNotificationOpenThread } from './notification-navigation'
+import { createNotificationClickHandler } from './notification-navigation'
 import { isActiveThreadActuallyVisible } from './notification-visibility'
 import {
   shouldCloseMainWindowToTray,
@@ -716,10 +716,7 @@ async function showTurnCompleteNotification(
       body,
       icon: appIcon.isEmpty() ? undefined : appIcon
     })
-    notification.on('click', () => {
-      revealMainWindow()
-      dispatchNotificationOpenThread(mainWindow, payload.threadId)
-    })
+    notification.on('click', createNotificationClickHandler(() => mainWindow, revealMainWindow, payload.threadId))
     notification.show()
     return { ok: true, shown: true }
   } catch (e) {
