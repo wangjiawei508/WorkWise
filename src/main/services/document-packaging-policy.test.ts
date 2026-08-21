@@ -134,6 +134,11 @@ describe('document helper packaging policy', () => {
     expect(workflow).toMatch(/build-windows:[\s\S]*?runs-on: windows-2022/)
   })
 
+  it('pins Windows quality checks to the supported Visual Studio 2022 runner', async () => {
+    const workflow = await readFile(resolve(root, '.github/workflows/quality.yml'), 'utf8')
+    expect(workflow).toMatch(/windows-security:[\s\S]*?runs-on: windows-2022/)
+  })
+
   it('keeps the bridge local-only and excludes OCR/PyMuPDF', async () => {
     const sidecar = await readFile(resolve(root, 'sidecars/markitdown/sidecar.py'), 'utf8')
     const spec = await readFile(resolve(root, 'sidecars/markitdown/workwise-markitdown.spec'), 'utf8')
@@ -173,11 +178,7 @@ describe('document helper packaging policy', () => {
   })
 
   it('preserves sidecar notices, hidden dylibs, and framework links as extra resources', () => {
-    const sidecarResource = builderConfig.extraResources.find(
-      (resource: { to?: string }) => resource.to === 'app.asar.unpacked/sidecars/markitdown'
-    )
-
-    expect(sidecarResource?.filter).toEqual(expect.arrayContaining([
+    expect(builderConfig._internals.markitdownResourceFilter).toEqual(expect.arrayContaining([
       'workwise-markitdown',
       'requirements.lock',
       'README.md',
@@ -186,6 +187,7 @@ describe('document helper packaging policy', () => {
       '_internal/PIL/.dylibs/**/*',
       '_internal/Python.framework/**/*'
     ]))
+    expect(Object.isFrozen(builderConfig._internals.markitdownResourceFilter)).toBe(true)
   })
 
   it('runs the complete gate for build --verify-only against an isolated sidecar fixture', () => {
@@ -196,7 +198,8 @@ describe('document helper packaging policy', () => {
         env: {
           ...process.env,
           WORKWISE_MARKITDOWN_SIDECAR_ROOT: fixtureRoot,
-          WORKWISE_SIDECAR_ARCH: 'isolated-fixture'
+          WORKWISE_SIDECAR_ARCH: 'isolated-fixture',
+          WORKWISE_SIDECAR_PLATFORM: 'darwin'
         },
         stdio: 'pipe'
       })

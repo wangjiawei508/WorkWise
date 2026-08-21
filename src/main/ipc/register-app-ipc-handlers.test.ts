@@ -200,34 +200,48 @@ describe('registerAppIpcHandlers', () => {
   it('returns a stable Git result when the requested root is outside the active workspace', async () => {
     const { registerAppIpcHandlers } = await import('./register-app-ipc-handlers')
     const configured = settings()
-    configured.workspaceRoot = '/tmp'
-    registerAppIpcHandlers(registerOptions({
-      store: { load: vi.fn(async () => configured) } as never
-    }))
+    const activeRoot = mkdtempSync(join(tmpdir(), 'workwise-active-workspace-'))
+    const outsideRoot = mkdtempSync(join(tmpdir(), 'workwise-outside-workspace-'))
+    try {
+      configured.workspaceRoot = activeRoot
+      registerAppIpcHandlers(registerOptions({
+        store: { load: vi.fn(async () => configured) } as never
+      }))
 
-    await expect(handlers.get('git:branches')?.({}, '/private/var'))
-      .resolves.toMatchObject({
-        ok: false,
-        reason: 'workspace_not_allowed',
-        message: 'Git workspace must stay within the active workspace.'
-      })
+      await expect(handlers.get('git:branches')?.({}, outsideRoot))
+        .resolves.toMatchObject({
+          ok: false,
+          reason: 'workspace_not_allowed',
+          message: 'Git workspace must stay within the active workspace.'
+        })
+    } finally {
+      rmSync(activeRoot, { recursive: true, force: true })
+      rmSync(outsideRoot, { recursive: true, force: true })
+    }
   })
 
   it('rejects Git checkpoint creation outside the active workspace', async () => {
     const { registerAppIpcHandlers } = await import('./register-app-ipc-handlers')
     const configured = settings()
-    configured.workspaceRoot = '/tmp'
-    registerAppIpcHandlers(registerOptions({
-      store: { load: vi.fn(async () => configured) } as never
-    }))
+    const activeRoot = mkdtempSync(join(tmpdir(), 'workwise-active-workspace-'))
+    const outsideRoot = mkdtempSync(join(tmpdir(), 'workwise-outside-workspace-'))
+    try {
+      configured.workspaceRoot = activeRoot
+      registerAppIpcHandlers(registerOptions({
+        store: { load: vi.fn(async () => configured) } as never
+      }))
 
-    await expect(handlers.get('git:checkpoint:create')?.({}, {
-      taskId: 'task-outside',
-      workspaceRoot: '/private/var',
-      repositoryRoot: '/private/var',
-      relatedPaths: [],
-      idempotencyKey: 'checkpoint-outside'
-    })).rejects.toMatchObject({ code: 'workspace_not_allowed' })
+      await expect(handlers.get('git:checkpoint:create')?.({}, {
+        taskId: 'task-outside',
+        workspaceRoot: outsideRoot,
+        repositoryRoot: outsideRoot,
+        relatedPaths: [],
+        idempotencyKey: 'checkpoint-outside'
+      })).rejects.toMatchObject({ code: 'workspace_not_allowed' })
+    } finally {
+      rmSync(activeRoot, { recursive: true, force: true })
+      rmSync(outsideRoot, { recursive: true, force: true })
+    }
   })
 
   it('passes valid settings patches through to applySettingsPatch', async () => {

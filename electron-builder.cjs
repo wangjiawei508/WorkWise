@@ -58,6 +58,15 @@ const markitdownSidecarRoot = join(
   `markitdown-${process.platform}-${sidecarArch}`,
   'workwise-markitdown'
 )
+const markitdownResourceFilter = Object.freeze([
+  'workwise-markitdown',
+  'requirements.lock',
+  'README.md',
+  'THIRD_PARTY_NOTICES.md',
+  '_internal/**/*',
+  '_internal/PIL/.dylibs/**/*',
+  '_internal/Python.framework/**/*'
+])
 const markitdownExtraResources = existsSync(markitdownSidecarRoot)
   ? [{
       from: markitdownSidecarRoot,
@@ -65,15 +74,7 @@ const markitdownExtraResources = existsSync(markitdownSidecarRoot)
       // FileMatcher uses minimatch({ dot: true }) and preserves symlinks. Keep
       // the PyInstaller archive, notices, hidden PIL dylibs, and framework
       // links explicit so a future filter change cannot silently drop them.
-      filter: [
-        'workwise-markitdown',
-        'requirements.lock',
-        'README.md',
-        'THIRD_PARTY_NOTICES.md',
-        '_internal/**/*',
-        '_internal/PIL/.dylibs/**/*',
-        '_internal/Python.framework/**/*'
-      ]
+      filter: [...markitdownResourceFilter]
     }]
   : []
 if (process.env.WORKWISE_REQUIRE_DOCUMENT_SIDECAR === '1' && markitdownExtraResources.length === 0) {
@@ -160,7 +161,7 @@ if (updateProvider === 'generic' && !genericUpdateUrl) {
   throw new Error('A generic update provider requires WORKWISE_UPDATE_URL or WORKWISE_PUBLIC_BASE_URL.')
 }
 
-module.exports = {
+const builderConfig = {
   // Historical App ID must remain unchanged for in-place NSIS/Squirrel upgrades.
   //  - macOS 端 Squirrel.Mac 校验更新包签名时锚定 bundle identifier,
   //    换了 id 老版本会拒绝安装新版本;
@@ -301,3 +302,10 @@ module.exports = {
     }
   }
 }
+
+Object.defineProperty(builderConfig, '_internals', {
+  value: Object.freeze({ markitdownResourceFilter }),
+  enumerable: false
+})
+
+module.exports = builderConfig

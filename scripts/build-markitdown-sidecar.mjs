@@ -27,7 +27,8 @@ const packagedRoot = process.env.WORKWISE_MARKITDOWN_SIDECAR_ROOT
   : join(outputRoot, 'workwise-markitdown')
 
 if (process.argv.includes('--verify-only')) {
-  verifyMarkItDownSidecar(packagedRoot, platform())
+  const verificationTarget = process.env.WORKWISE_SIDECAR_PLATFORM || platform()
+  verifyMarkItDownSidecar(packagedRoot, verificationTarget)
   process.exit(0)
 }
 
