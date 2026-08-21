@@ -2,11 +2,11 @@
 
 日期：2026-08-22  
 分支：`codex/workwise-plan-final-0.4.0`  
-提交：`a8f1412`
+提交：`175ef10`（UI 修复）；多模态接入待本轮提交
 
 ## 验收范围
 
-本次验收使用 macOS Vision `VNRecognizeTextRequest` 真模型，通过临时的 `127.0.0.1` HTTP 适配器调用当前分支代码。它证明 WorkWise 的协议、证据结构和 PDF 页码处理可以接收真实模型结果；它不冒充用户配置的第三方 Unlimited-OCR 或 DeepSeek 服务验收。
+本次验收覆盖两条真实模型路径：macOS Vision `VNRecognizeTextRequest` 回环，以及用户当前配置的 DeepSeek `deepseek-v4-flash-vision-exp`。前者证明本地 OCR 协议、证据结构和 PDF 页码处理；后者通过 WorkWise Runtime 的附件上传、模型能力声明和真实图片问答闭环验证。
 
 ## 图片视觉证据
 
@@ -24,6 +24,14 @@
 - 关键内容校验通过：`Settlement point BM-01 is stable.`、`WORKWISE-UOCR-REAL-MODEL-ROUNDTRIP`、`delta_H = H_current - H_initial`。
 - 端到端耗时：`2073 ms`。
 
+## DeepSeek 多模态 Runtime 闭环
+
+- 模型：`deepseek-v4-flash-vision-exp`，官方 DeepSeek API，未切换 OpenAI Official，也未修改用户持久化配置。
+- Runtime capability manifest：`inputModalities=[text,image]`、`outputModalities=[text]`、`messageParts=[text,image_url]`。
+- WorkWise Runtime 通过 `/v1/attachments` 上传 `/private/tmp/workwise-uocr-page-1.png`，再用同一附件启动真实 turn。
+- 结果：turn `completed`，模型返回 `UNLIMITED OCR REAL MODEL ACCEPTANCE`；裸 API 与 Runtime 路径结果一致。
+- 计费归类：该实验模型按 DeepSeek V4 Flash 价格档处理；视觉输入不走 Base64 文本回退。
+
 ## 结论
 
-当前分支的真实本机 Vision/OCR 协议回环已通过。仍待使用用户实际配置的供应商端点完成外部服务验收；在此之前，审计中的供应商验收状态保持 `PARTIAL`。
+当前分支的本机 Vision/OCR 回环和用户实际 DeepSeek 供应商端点验收均已通过。文本模型的 Unlimited-OCR 回退仍按既有独立链路保留；本次多模态模型可直接接收图片，不依赖该回退。

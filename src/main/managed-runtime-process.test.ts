@@ -415,6 +415,13 @@ describe('syncManagedRuntimeConfig', () => {
         hardThreshold: 990_000
       }
     })
+    expect(parsed.models.profiles['deepseek-v4-flash-vision-exp']).toMatchObject({
+      contextWindowTokens: 1_000_000,
+      maxOutputTokens: 384_000,
+      inputModalities: ['text', 'image'],
+      outputModalities: ['text'],
+      messageParts: ['text', 'image_url']
+    })
     expect(parsed.runtime.toolStorm).toMatchObject({ enabled: true, windowSize: 8, threshold: 3 })
     expect(parsed.runtime.toolArgumentRepair).toMatchObject({ maxStringBytes: 524288 })
     expect(parsed.capabilities.attachments).toMatchObject({ enabled: true })

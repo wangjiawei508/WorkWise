@@ -11,6 +11,7 @@
 - 首批目录提供 GitHub、Playwright、Context7、DBHub、AntV、Filesystem、Memory、Sequential Thinking 等推荐项，并将已有 Lark CLI、OfficeCLI、Ego Browser 和 MarkItDown 标记为系统受管能力。
 - 新增固定 uv 0.12.3 和 Python 3.12.12 的受管 PyPI 运行时，隔离依赖索引、锁定 wheel/lock 哈希并验证实际运行时版本。
 - macOS 使用原生 vibrancy，Windows 使用 Mica/Acrylic；启动窗口、标题栏、侧栏和浮层采用玻璃效果，编辑器、终端和文档区域保持不透明，并支持降低透明度和 GPU 回退。
+- 接入 DeepSeek `deepseek-v4-flash-vision-exp` 多模态模型；模型列表、Runtime capability manifest、附件请求和 Flash 价格归类保持一致，图片问答可直接走 `image_url`。
 
 ## 验证
 
@@ -18,6 +19,7 @@
 - WorkWise Runtime：75 个测试文件、641 项测试全部通过。
 - OpenSpec、品牌边界、许可证策略、ESLint、主/运行时 TypeScript、生产构建和差异检查全部通过。
 - GitHub Actions 继续执行 Linux 全量质量门禁、Windows 安全测试、Electron smoke 和三客户端候选安装包验证。
+- 使用真实 DeepSeek 图片请求完成 WorkWise Runtime 闭环验收，返回 `UNLIMITED OCR REAL MODEL ACCEPTANCE`；未发送微信或飞书消息。
 
 ## 升级说明
 
