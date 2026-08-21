@@ -124,7 +124,7 @@ import {
 import type { JsonSettingsStore } from '../settings-store'
 import type { ClawRuntime } from '../claw-runtime'
 import type { ScheduleRuntime } from '../schedule-runtime'
-import { createAndSwitchGitBranch, getGitBranches, switchGitBranch } from '../services/git-service'
+import { assertGitWorkspaceAllowed, createAndSwitchGitBranch, getGitBranches, switchGitBranch } from '../services/git-service'
 import {
   createWorkspaceDirectory,
   createWorkspaceFile,
@@ -201,8 +201,38 @@ import { activatePluginPackage } from '../services/plugin-activation-service'
 import { MarketplaceCatalogService } from '../services/marketplace-catalog-service'
 import { PluginManagementService } from '../services/plugin-management-service'
 import type { CatalogSourceV1 } from '../../shared/marketplace'
+import type { DocumentEngineId } from '../../shared/agent-workbench'
+import {
+  hasLegacyImChannelCredential,
+  protectImChannelCredentials,
+  sanitizeImChannelCredentials,
+  type ImCredentialService
+} from '../services/im-credential-service'
+import type { ImDeliveryLedger } from '../services/im-delivery-ledger'
+import type { ImHealthService } from '../services/im-health-service'
 
 type GuiUpdaterModule = typeof import('../gui-updater')
+
+function stableGitIpcError(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error)
+  const code = typeof error === 'object' && error !== null && 'code' in error
+    ? String(error.code)
+    : ''
+  if (code === 'workspace_not_allowed' || /active workspace/i.test(message)) {
+    return 'Git workspace must stay within the active workspace.'
+  }
+  return 'Git operation is temporarily unavailable.'
+}
+
+function stableGitIpcReason(error: unknown): 'workspace_not_allowed' | 'error' {
+  const message = error instanceof Error ? error.message : String(error)
+  const code = typeof error === 'object' && error !== null && 'code' in error
+    ? String(error.code)
+    : ''
+  return code === 'workspace_not_allowed' || /active workspace/i.test(message)
+    ? 'workspace_not_allowed'
+    : 'error'
+}
 
 type WorkspaceFileWatchRecord = {
   watcher: FSWatcher
@@ -229,6 +259,12 @@ type RegisterAppIpcHandlersOptions = {
   pollFeishuInstall: (deviceCode: string) => Promise<ClawImInstallPollResult>
   startWeixinInstallQrcode: (weixinBridgeUrl?: string) => Promise<ClawImInstallQrResult>
   pollWeixinInstall: (deviceCode: string, weixinBridgeUrl?: string) => Promise<ClawImInstallPollResult>
+  getWeixinBridgeAccountStatuses: (accountId?: string) => Promise<import('../../shared/workwise-api').WeixinBridgeAccountStatusV1[]>
+  isWeixinBridgeAccountConfigured: (accountId: string) => Promise<boolean>
+  getImHealthService?: () => ImHealthService | null
+  getImCredentialService?: () => ImCredentialService | null
+  getImDeliveryLedger?: () => ImDeliveryLedger | null
+  getUserDataPath?: () => string
   resolveRuntimeConfigPath: () => string
   onRuntimeMcpConfigWritten?: (path: string, content: string) => Promise<void> | void
   showTurnCompleteNotification: (
@@ -325,22 +361,36 @@ function runtimeResponseMessage(result: RuntimeRequestResult): string {
 export function buildAttachmentSections(attachmentId: string, text: string, document?: {
   headings: Array<{ text: string; page?: number }>
   tables: Array<{ markdown: string; page?: number }>
-  sourceStructure?: { worksheets?: string[]; slideCount?: number }
+  sourceStructure?: { pageCount?: number; worksheets?: string[]; slideCount?: number }
 }): Array<{
   id: string; attachmentId: string; ordinal: number; text: string; tokenEstimate: number;
   provenance: { heading?: string; page?: number; table?: string; worksheet?: string; slide?: number }; createdAt: string
 }> {
-  const tokens = text.normalize('NFC').match(/[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}]|[^\s\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}]{1,4}/gu) ?? []
-  const tokenOffset = (characterOffset: number): number => text.slice(0, characterOffset).normalize('NFC').match(/[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}]|[^\s\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}]{1,4}/gu)?.length ?? 0
+  const pageMarkerPattern = /<!--\s*page\s*:\s*(\d+)\s*-->/gi
+  const pageAnchors: Array<{ token: number; page: number }> = []
+  let cleanText = ''
+  let sourceOffset = 0
+  for (const marker of text.matchAll(pageMarkerPattern)) {
+    cleanText += text.slice(sourceOffset, marker.index)
+    const page = Number(marker[1])
+    if (Number.isSafeInteger(page) && page > 0 && page <= (document?.sourceStructure?.pageCount ?? 0)) {
+      pageAnchors.push({ token: tokenizeAttachmentText(cleanText).length, page })
+    }
+    cleanText += ' '
+    sourceOffset = marker.index + marker[0].length
+  }
+  cleanText += text.slice(sourceOffset)
+  const tokens = tokenizeAttachmentText(cleanText)
+  const tokenOffset = (characterOffset: number): number => tokenizeAttachmentText(cleanText.slice(0, characterOffset)).length
   type ProvenanceAnchor = { token: number; heading?: string; page?: number; worksheet?: string; slide?: number }
   const anchors: ProvenanceAnchor[] = [
-    ...(document?.headings ?? []).flatMap((heading) => { const offset = text.indexOf(heading.text); return offset < 0 ? [] : [{ token: tokenOffset(offset), heading: heading.text, page: heading.page }] }),
-    ...(document?.sourceStructure?.worksheets ?? []).flatMap((worksheet) => { const offset = text.indexOf(worksheet); return offset < 0 ? [] : [{ token: tokenOffset(offset), worksheet }] }),
-    ...[...text.matchAll(/(?:<!--\s*)?slide(?:\s+number)?\s*[:#-]?\s*(\d+)(?:\s*-->)?/gi)].map((match) => ({ token: tokenOffset(match.index), slide: Number(match[1]) }))
+    ...(document?.headings ?? []).flatMap((heading) => { const offset = cleanText.indexOf(heading.text); return offset < 0 ? [] : [{ token: tokenOffset(offset), heading: heading.text, page: heading.page }] }),
+    ...(document?.sourceStructure?.worksheets ?? []).flatMap((worksheet) => { const offset = cleanText.indexOf(worksheet); return offset < 0 ? [] : [{ token: tokenOffset(offset), worksheet }] }),
+    ...[...cleanText.matchAll(/(?:<!--\s*)?slide(?:\s+number)?\s*[:#-]?\s*(\d+)(?:\s*-->)?/gi)].map((match) => ({ token: tokenOffset(match.index), slide: Number(match[1]) }))
   ].sort((left, right) => left.token - right.token)
   const tableAnchors = (document?.tables ?? []).flatMap((table, index) => {
     const probes = [table.markdown, ...table.markdown.split(/[|\n]/)].map((value) => value.trim()).filter((value) => value && !/^[-:]+$/.test(value))
-    const offset = probes.map((probe) => text.indexOf(probe)).find((candidate) => candidate >= 0) ?? -1
+    const offset = probes.map((probe) => cleanText.indexOf(probe)).find((candidate) => candidate >= 0) ?? -1
     return offset < 0 ? [] : [{ token: tokenOffset(offset), table: `table-${index + 1}`, page: table.page }]
   })
   const sections: Array<{ id: string; attachmentId: string; ordinal: number; text: string; tokenEstimate: number; provenance: { heading?: string; page?: number; table?: string; worksheet?: string; slide?: number }; createdAt: string }> = []; const createdAt = new Date().toISOString(); const target = 1200; const stride = 1050
@@ -352,15 +402,38 @@ export function buildAttachmentSections(attachmentId: string, text: string, docu
     const worksheetAnchor = [...activeAnchors].reverse().find((item) => item.worksheet)
     const slideAnchor = [...activeAnchors].reverse().find((item) => item.slide)
     const table = tableAnchors.find((item) => item.token >= cursor && item.token < cursor + target)
+    const pageAnchor = [...pageAnchors].reverse().find((item) => item.token <= cursor)
+      ?? pageAnchors.find((item) => item.token < cursor + target)
     const provenance = {
       ...(headingAnchor?.heading ? { heading: headingAnchor.heading } : {}), ...(worksheetAnchor?.worksheet ? { worksheet: worksheetAnchor.worksheet } : {}),
       ...(slideAnchor?.slide ? { slide: slideAnchor.slide } : {}), ...(table?.table ? { table: table.table } : {}),
-      ...((table?.page ?? headingAnchor?.page) ? { page: table?.page ?? headingAnchor?.page } : {})
+      ...((table?.page ?? headingAnchor?.page ?? pageAnchor?.page) ? { page: table?.page ?? headingAnchor?.page ?? pageAnchor?.page } : {})
     }
     sections.push({ id: `sec_${createHash('sha256').update(`${attachmentId}\0${ordinal}\0${sectionText}`).digest('hex').slice(0, 24)}`, attachmentId, ordinal, text: sectionText, tokenEstimate: chunk.length, provenance, createdAt })
     if (cursor + target >= tokens.length) break
   }
   return sections
+}
+
+function tokenizeAttachmentText(text: string): string[] {
+  return text.normalize('NFC').match(/[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}]|[^\s\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}]{1,4}/gu) ?? []
+}
+
+export function buildAttachmentParserProvenance(document: {
+  engine: DocumentEngineId
+  engineVersion: string
+}): {
+  engine: DocumentEngineId
+  version: string
+  local: boolean
+  parsedAt: string
+} {
+  return {
+    engine: document.engine,
+    version: document.engineVersion,
+    local: document.engine !== 'mineru-private',
+    parsedAt: new Date().toISOString()
+  }
 }
 
 function saveDialogFilters(fileName: string, mimeType: string | undefined): Electron.FileFilter[] {
@@ -577,6 +650,12 @@ export function registerAppIpcHandlers(options: RegisterAppIpcHandlersOptions): 
     pollFeishuInstall,
     startWeixinInstallQrcode,
     pollWeixinInstall,
+    getWeixinBridgeAccountStatuses,
+    isWeixinBridgeAccountConfigured,
+    getImHealthService,
+    getImCredentialService,
+    getImDeliveryLedger,
+    getUserDataPath,
     resolveRuntimeConfigPath,
     onRuntimeMcpConfigWritten,
     showTurnCompleteNotification,
@@ -704,7 +783,19 @@ export function registerAppIpcHandlers(options: RegisterAppIpcHandlersOptions): 
     }, 90)
   }
 
-  ipcMain.handle('settings:get', async () => store.load())
+  ipcMain.handle('settings:get', async () => {
+    const settings = await store.load()
+    return {
+      ...settings,
+      claw: {
+        ...settings.claw,
+        // The main process retains legacy values only to retry a durable
+        // migration. Renderer settings must never receive those secrets.
+        im: { ...settings.claw.im, secret: '' },
+        channels: sanitizeImChannelCredentials(settings.claw.channels)
+      }
+    }
+  })
   ipcMain.handle('settings:set', async (_, payload: unknown) => {
     const parsed = parseIpcPayload('settings:set', settingsSetPayloadSchema, payload)
     return parsed.expectedRevision === undefined
@@ -1008,18 +1099,27 @@ export function registerAppIpcHandlers(options: RegisterAppIpcHandlersOptions): 
   })
   ipcMain.handle('document-engine:list', async () => {
     const settings = await store.load()
-    return documentEngineService.listEngines(settings.documents.privateMineruServerUrl)
+    return documentEngineService.listEngines(
+      settings.documents.privateMineruServerUrl,
+      settings.documents.unlimitedOcrServerUrl
+    )
   })
   ipcMain.handle('document-engine:diagnose', async (_, payload: unknown) => {
     const id = parseIpcPayload('document-engine:diagnose', documentEngineIdSchema, payload)
     const settings = await store.load()
-    const status = await documentEngineService.listEngines(settings.documents.privateMineruServerUrl)
+    const status = await documentEngineService.listEngines(
+      settings.documents.privateMineruServerUrl,
+      settings.documents.unlimitedOcrServerUrl
+    )
     return status.find((entry) => entry.id === id)!
   })
   ipcMain.handle('document-engine:install', async (_, payload: unknown) => {
     const id = parseIpcPayload('document-engine:install', documentEngineIdSchema, payload)
     const settings = await store.load()
-    const status = await documentEngineService.listEngines(settings.documents.privateMineruServerUrl)
+    const status = await documentEngineService.listEngines(
+      settings.documents.privateMineruServerUrl,
+      settings.documents.unlimitedOcrServerUrl
+    )
     const current = status.find((entry) => entry.id === id)!
     if (id === 'mineru-local' && current.state === 'not_installed') {
       return documentEngineService.installMineru()
@@ -1032,12 +1132,15 @@ export function registerAppIpcHandlers(options: RegisterAppIpcHandlersOptions): 
     const allowed = settings.documents.allowPrivateServerUploadByWorkspace[request.workspaceRoot] === true
     return documentEngineService.parse({
       ...request,
+      unlimitedOcrServerUrl: settings.documents.unlimitedOcrServerUrl,
       allowPrivateServerUpload: request.allowPrivateServerUpload === true && allowed
     })
   })
   ipcMain.handle('document-engine:cancel', async (_, payload: unknown) => {
     const parseId = parseIpcPayload('document-engine:cancel', streamIdSchema, payload)
-    return documentEngineService.cancel(parseId)
+    const previewCancelled = workspacePreviewService.cancel(parseId)
+    const documentCancelled = documentEngineService.cancel(parseId)
+    return previewCancelled || documentCancelled
   })
   ipcMain.handle('attachment:import-file', async (_, payload: unknown) => {
     const request = parseIpcPayload('attachment:import-file', z.object({
@@ -1056,7 +1159,11 @@ export function registerAppIpcHandlers(options: RegisterAppIpcHandlersOptions): 
       })
       if (!imported.ok) throw new Error(runtimeResponseMessage(imported))
       const attachment = (JSON.parse(imported.body) as { attachment: { id: string } }).attachment
-      const parsed = await chatAttachmentImportService.parse(staged)
+      const settings = await store.load()
+      const parsed = await chatAttachmentImportService.parse(staged, {
+        mode: settings.documents.parsingMode,
+        unlimitedOcrServerUrl: settings.documents.unlimitedOcrServerUrl
+      })
       const sections = buildAttachmentSections(attachment.id, parsed.document?.markdown ?? parsed.text ?? '', parsed.document)
       for (let offset = 0; offset < sections.length || offset === 0; offset += 32) {
         const batch = sections.slice(offset, offset + 32)
@@ -1065,7 +1172,7 @@ export function registerAppIpcHandlers(options: RegisterAppIpcHandlersOptions): 
           replace: offset === 0, sections: batch, final,
           ...(final ? { metadata: {
             state: parsed.state,
-            parser: parsed.document ? { engine: parsed.document.engine === 'mineru-local' ? 'mineru' : 'markitdown', version: parsed.document.engineVersion, local: true, parsedAt: new Date().toISOString() } : { engine: 'safe-text', local: true, parsedAt: new Date().toISOString() },
+            parser: parsed.document ? buildAttachmentParserProvenance(parsed.document) : { engine: 'safe-text', local: true, parsedAt: new Date().toISOString() },
             sourceStructure: parsed.sourceStructure ?? {},
             degradationReasons: parsed.degradationReasons, parserWarnings: parsed.warnings,
             summary: (parsed.document?.markdown ?? parsed.text ?? '').replace(/\s+/g, ' ').slice(0, 1200)
@@ -1093,7 +1200,12 @@ export function registerAppIpcHandlers(options: RegisterAppIpcHandlersOptions): 
   })
   ipcMain.handle('file:preview-workspace', async (_, payload: unknown) => {
     const request = parseIpcPayload('file:preview-workspace', workspacePreviewPayloadSchema, payload)
-    return workspacePreviewService.preview(request)
+    const settings = await store.load()
+    return workspacePreviewService.preview({
+      ...request,
+      parsingMode: request.parsingMode ?? settings.documents.parsingMode,
+      unlimitedOcrServerUrl: settings.documents.unlimitedOcrServerUrl
+    })
   })
 
   ipcMain.handle('upstream:models', async () => fetchUpstreamModels())
@@ -1109,8 +1221,11 @@ export function registerAppIpcHandlers(options: RegisterAppIpcHandlersOptions): 
   ipcMain.handle('claw:task:run', async (_, taskId: unknown): Promise<ClawRunResult> => {
     const normalizedTaskId = parseIpcPayload('claw:task:run', streamIdSchema, taskId)
     const scheduleRuntime = getScheduleRuntime()
-    if (!scheduleRuntime) return { ok: false, message: 'Schedule runtime is not initialized.' }
-    return scheduleRuntime.runTask(normalizedTaskId)
+    if (!scheduleRuntime) {
+      return { ok: false, reason: 'failed', message: 'Schedule runtime is not initialized.' }
+    }
+    const result = await scheduleRuntime.runTask(normalizedTaskId)
+    return result.ok ? result : { ...result, reason: 'failed' }
   })
 
   ipcMain.handle('schedule:status', async (): Promise<ScheduleRuntimeStatus> =>
@@ -1138,7 +1253,8 @@ export function registerAppIpcHandlers(options: RegisterAppIpcHandlersOptions): 
       return clawRuntime.mirrorThreadMessageToIm(
         request.threadId,
         request.text,
-        request.direction
+        request.direction,
+        { turnId: request.turnId, requestText: request.requestText }
       )
     }
   )
@@ -1152,7 +1268,8 @@ export function registerAppIpcHandlers(options: RegisterAppIpcHandlersOptions): 
       return clawRuntime.mirrorThreadMessageToIm(
         request.threadId,
         request.text,
-        request.direction
+        request.direction,
+        { turnId: request.turnId, requestText: request.requestText }
       )
     }
   )
@@ -1222,6 +1339,194 @@ export function registerAppIpcHandlers(options: RegisterAppIpcHandlersOptions): 
       return pollFeishuInstall(request.deviceCode)
     }
   )
+
+  ipcMain.handle('claw:weixin-status', async (_, payload: unknown) => {
+    const request = parseIpcPayload(
+      'claw:weixin-status',
+      z.object({ accountId: z.string().trim().max(512).optional() }).strict(),
+      payload
+    )
+    return getWeixinBridgeAccountStatuses(request.accountId)
+  })
+
+  const imChannelIdSchema = z.object({ channelId: z.string().trim().max(512).optional() }).strict()
+  const imLifecycleChannelIdSchema = z.object({ channelId: z.string().trim().min(1).max(512) }).strict()
+  const resolveImHealth = (channelId?: string) => {
+    const service = getImHealthService?.()
+    if (!service) return []
+    const health = channelId ? service.get(channelId) : undefined
+    return health ? [health] : service.list()
+  }
+  const resolveImChannel = async (channelId?: string) => {
+    const settings = await store.load()
+    return channelId
+      ? settings.claw.channels.find((channel) => channel.id === channelId)
+      : settings.claw.channels.find((channel) => channel.enabled)
+  }
+  const migrateLegacyImCredentials = async (): Promise<void> => {
+    const credentialService = getImCredentialService?.()
+    if (!credentialService) return
+    const latest = await store.load()
+    if (!latest.claw.channels.some(hasLegacyImChannelCredential)) return
+    const migratedChannels = await protectImChannelCredentials(latest.claw.channels, credentialService, {
+      requirePersistent: true
+    })
+    if (migratedChannels.some((item, index) => item !== latest.claw.channels[index])) {
+      await applySettingsPatch({ claw: { channels: migratedChannels } })
+    }
+  }
+  const lifecycle = async (kind: 'start' | 'reconnect' | 'stop' | 'disconnect', channelId?: string) => {
+    const service = getImHealthService?.()
+    if (!service) return { ok: false as const, code: 'health_unavailable', message: 'IM health service is unavailable.' }
+    let channel: Awaited<ReturnType<typeof resolveImChannel>>
+    try {
+      channel = await resolveImChannel(channelId)
+    } catch {
+      return { ok: false as const, code: 'settings_unavailable', message: 'IM settings are temporarily unavailable.' }
+    }
+    if (!channel) return { ok: false as const, code: 'channel_missing', message: 'IM channel was not found.' }
+    const clawRuntime = getClawRuntime()
+    if (!clawRuntime) {
+      return {
+        ok: false as const,
+        code: 'runtime_unavailable',
+        message: 'IM Runtime is unavailable.',
+        health: service.get(channel.id)
+      }
+    }
+    const credential = channel.platformCredential
+    const accountId = credential?.kind === 'weixin' ? credential.accountId : credential?.kind === 'feishu' ? credential.appId : channel.id
+    const stopHealth = (message?: string) => {
+      const existing = service.stop(channel.id, message)
+      if (existing) return existing
+      service.start({
+        channelId: channel.id,
+        provider: channel.provider,
+        accountId,
+        credentialStorage: channel.credentialRef?.storage
+      })
+      return service.stop(channel.id, message)!
+    }
+    const persistChannelEnabled = async (enabled: boolean): Promise<void> => {
+      const latest = await store.load()
+      const current = latest.claw.channels.find((item) => item.id === channel.id)
+      if (!current || current.enabled === enabled) return
+      const updatedAt = new Date().toISOString()
+      await applySettingsPatch({
+        claw: {
+          channels: latest.claw.channels.map((item) =>
+            item.id === channel.id ? { ...item, enabled, updatedAt } : item
+          )
+        }
+      })
+    }
+    try {
+      if (kind === 'stop') {
+        await clawRuntime.stopChannel(channel.id)
+        await persistChannelEnabled(false)
+        return { ok: true as const, health: stopHealth() }
+      }
+      if (kind === 'disconnect') {
+        await clawRuntime.disconnectChannel(channel.id)
+        const latest = await store.load()
+        await applySettingsPatch({
+          claw: { channels: latest.claw.channels.filter((item) => item.id !== channel.id) }
+        })
+        return {
+          ok: true as const,
+          health: stopHealth('连接已断开，凭据已清除。')
+        }
+      }
+      if (kind === 'reconnect') {
+        await getImCredentialService?.()?.retryProtectedStorage()
+        await migrateLegacyImCredentials()
+        await persistChannelEnabled(true)
+        await clawRuntime.reconnectChannel(channel.id)
+      }
+      else {
+        await migrateLegacyImCredentials()
+        await persistChannelEnabled(true)
+        if (clawRuntime.startChannel) await clawRuntime.startChannel(channel.id)
+        else clawRuntime.sync(await store.load())
+      }
+      const health = service.get(channel.id) ?? service.start({ channelId: channel.id, provider: channel.provider, accountId, credentialStorage: channel.credentialRef?.storage })
+      return { ok: true as const, health }
+    } catch (error) {
+      return {
+        ok: false as const,
+        code: `${kind}_failed`,
+        message: error instanceof Error ? error.message : `IM ${kind} failed.`,
+        health: service.get(channel.id)
+      }
+    }
+  }
+  ipcMain.handle('claw:im:health', async (_, payload: unknown) => {
+    const request = parseIpcPayload('claw:im:health', imChannelIdSchema, payload)
+    return resolveImHealth(request.channelId)
+  })
+  for (const [channelName, kind] of [['claw:im:start', 'start'], ['claw:im:reconnect', 'reconnect'], ['claw:im:stop', 'stop'], ['claw:im:disconnect', 'disconnect'] ] as const) {
+    ipcMain.handle(channelName, async (_, payload: unknown) => {
+      const request = parseIpcPayload(channelName, imLifecycleChannelIdSchema, payload)
+      return lifecycle(kind, request.channelId)
+    })
+  }
+  ipcMain.handle('claw:im:self-check', async (_, payload: unknown) => {
+    const request = parseIpcPayload('claw:im:self-check', z.object({ channelId: z.string().trim().min(1).max(512) }).strict(), payload)
+    const service = getImHealthService?.()
+    const health = service?.get(request.channelId)
+    if (!service || !health) return { schema: 'workwise.im-self-check', version: 1, overall: 'FAIL', checkedAt: new Date().toISOString(), runId: '', checks: [{ id: 'channel', pass: false, code: 'channel_missing', summary: '未找到连接。' }] }
+    if (health.status === 'stopped') {
+      let runtimeAvailable = false
+      try {
+        runtimeAvailable = (await runtimeRequest('/health', 'GET')).ok
+      } catch {
+        runtimeAvailable = false
+      }
+      const ledgerHealthy = getImDeliveryLedger?.()?.integrityCheck() ?? false
+      return {
+        schema: 'workwise.im-self-check' as const,
+        version: 1 as const,
+        overall: runtimeAvailable && ledgerHealthy ? 'PASS' as const : 'FAIL' as const,
+        checkedAt: new Date().toISOString(),
+        runId: health.runId,
+        checks: [
+          { id: 'connection_state', pass: true, code: 'user_paused', summary: '连接已由用户暂停；未执行凭据、桥接和心跳在线检查。' },
+          { id: 'runtime', pass: runtimeAvailable, code: runtimeAvailable ? 'runtime_available' : 'runtime_unavailable', summary: runtimeAvailable ? 'WorkWise Runtime 可访问。' : 'WorkWise Runtime 不可访问。' },
+          { id: 'ledger', pass: ledgerHealthy, code: ledgerHealthy ? 'ledger_healthy' : 'ledger_unhealthy', summary: ledgerHealthy ? '通信账本完整性检查通过。' : '通信账本完整性检查失败。' }
+        ]
+      }
+    }
+    const channel = await resolveImChannel(request.channelId)
+    const ref = channel?.credentialRef
+    const platformCredential = channel?.platformCredential
+    let credentialAvailable = false
+    try {
+      credentialAvailable = platformCredential?.kind === 'weixin'
+        ? await isWeixinBridgeAccountConfigured(platformCredential.accountId)
+        : ref
+          ? Boolean(await getImCredentialService?.()?.resolve(ref))
+          : false
+    } catch {
+      credentialAvailable = false
+    }
+    let bridgeAvailable = false
+    try {
+      bridgeAvailable = await getClawRuntime()?.isChannelBridgeAvailable?.(request.channelId) ?? false
+    } catch {
+      bridgeAvailable = false
+    }
+    let runtimeAvailable = false
+    try {
+      runtimeAvailable = (await runtimeRequest('/health', 'GET')).ok
+    } catch {
+      runtimeAvailable = false
+    }
+    return service.selfCheck({ runId: health.runId, channelId: request.channelId, credentialAvailable, bridgeAvailable, runtimeAvailable, ledgerHealthy: getImDeliveryLedger?.()?.integrityCheck() ?? false, userDataFingerprint: getUserDataPath?.() ?? '' })
+  })
+  ipcMain.handle('claw:im:diagnostics', async () => {
+    const service = getImHealthService?.()
+    return service?.diagnostics(getAppVersion(), getUserDataPath?.() ?? '') ?? { schema: 'workwise.im-diagnostics', version: 1, generatedAt: new Date().toISOString(), appVersion: getAppVersion(), userDataFingerprint: '', channels: [] }
+  })
 
   ipcMain.handle('workspace:pick-directory', async (_, defaultPath: unknown): Promise<WorkspacePickResult> => {
     const normalizedDefaultPath = parseIpcPayload(
@@ -1420,14 +1725,34 @@ export function registerAppIpcHandlers(options: RegisterAppIpcHandlersOptions): 
     }
   })
 
-  ipcMain.handle('git:branches', async (_, workspaceRoot: unknown) =>
-    getGitBranches(parseIpcPayload('git:branches', workspaceRootSchema, workspaceRoot))
-  )
+  ipcMain.handle('git:branches', async (_, workspaceRoot: unknown) => {
+    const requestedRoot = parseIpcPayload('git:branches', workspaceRootSchema, workspaceRoot)
+    try {
+      const settings = await store.load()
+      await assertGitWorkspaceAllowed(requestedRoot, settings.workspaceRoot)
+      return await getGitBranches(requestedRoot)
+    } catch (error) {
+      return {
+        ok: false as const,
+        reason: stableGitIpcReason(error),
+        message: stableGitIpcError(error)
+      }
+    }
+  })
   ipcMain.handle(
     'git:switch-branch',
     async (_, payload: unknown) => {
-      const request = parseIpcPayload('git:switch-branch', gitBranchPayloadSchema, payload)
-      return switchGitBranch(request.workspaceRoot, request.branch)
+        const request = parseIpcPayload('git:switch-branch', gitBranchPayloadSchema, payload)
+      try {
+        const settings = await store.load()
+        return await switchGitBranch(request.workspaceRoot, request.branch, settings.workspaceRoot)
+      } catch (error) {
+        return {
+          ok: false as const,
+          reason: stableGitIpcReason(error),
+          message: stableGitIpcError(error)
+        }
+      }
     }
   )
   ipcMain.handle(
@@ -1438,20 +1763,33 @@ export function registerAppIpcHandlers(options: RegisterAppIpcHandlersOptions): 
         gitBranchPayloadSchema,
         payload
       )
-      return createAndSwitchGitBranch(request.workspaceRoot, request.branch)
+      try {
+        const settings = await store.load()
+        return await createAndSwitchGitBranch(request.workspaceRoot, request.branch, settings.workspaceRoot)
+      } catch (error) {
+        return {
+          ok: false as const,
+          reason: stableGitIpcReason(error),
+          message: stableGitIpcError(error)
+        }
+      }
     }
   )
   ipcMain.handle('git:checkpoint:create', async (_, payload: unknown) => {
     const request = parseIpcPayload('git:checkpoint:create', gitCheckpointCreatePayloadSchema, payload)
-    return gitCheckpointService.create(request)
+    const settings = await store.load()
+    await assertGitWorkspaceAllowed(request.workspaceRoot, settings.workspaceRoot)
+    return gitCheckpointService.create(request, settings.workspaceRoot)
   })
   ipcMain.handle('git:rollback:preview', async (_, payload: unknown) => {
     const request = parseIpcPayload('git:rollback:preview', gitRollbackPreviewPayloadSchema, payload)
-    return gitCheckpointService.preview(request)
+    const settings = await store.load()
+    return gitCheckpointService.preview(request, settings.workspaceRoot)
   })
   ipcMain.handle('git:rollback:apply', async (_, payload: unknown) => {
     const request = parseIpcPayload('git:rollback:apply', gitRollbackApplyPayloadSchema, payload)
-    return gitCheckpointService.apply(request)
+    const settings = await store.load()
+    return gitCheckpointService.apply(request, settings.workspaceRoot)
   })
   ipcMain.handle('repo-map:build', async (_, payload: unknown) => {
     const request = parseIpcPayload('repo-map:build', repoMapBuildPayloadSchema, payload)

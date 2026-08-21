@@ -1,7 +1,14 @@
+export type ComposerWorkspaceReference = {
+  relativePath: string
+  kind: 'file' | 'directory'
+}
+
 export type ComposerFileReference = {
   path: string
   relativePath: string
   name: string
+  kind?: 'file' | 'directory'
+  source?: 'runtime' | 'legacy'
 }
 
 export type ComposerFileMention = {
@@ -15,6 +22,49 @@ export type ComposerFileContextEntry = {
   relativePath: string
   content: string
   truncated?: boolean
+}
+
+export function runtimeWorkspaceReferences(
+  _activeThreadId: string | null,
+  references: readonly ComposerWorkspaceReference[],
+  options: { allowLegacyInlineContext?: boolean; legacyIndexFallback?: boolean } = {}
+): Array<{ path: string; kind: 'file' | 'directory' }> | null {
+  if (references.length === 0) return null
+  if (options.allowLegacyInlineContext === true && options.legacyIndexFallback === true) return null
+  return references.map((reference) => ({
+    path: reference.relativePath,
+    kind: reference.kind
+  }))
+}
+
+export function selectComposerWorkspaceReference(
+  reference: ComposerFileReference
+): ComposerWorkspaceReference {
+  return {
+    relativePath: reference.relativePath,
+    kind: reference.kind ?? 'file'
+  }
+}
+
+export type LegacyInlineFallbackUpdate =
+  | { type: 'add'; reference: ComposerFileReference }
+  | { type: 'remove'; relativePath: string }
+  | { type: 'clear' }
+
+export function updateLegacyInlineFallbackKeys(
+  current: readonly string[],
+  update: LegacyInlineFallbackUpdate
+): string[] {
+  if (update.type === 'clear') return []
+  const key = normalizeForCompare(update.type === 'add' ? update.reference.relativePath : update.relativePath)
+  const keys = new Set(current.map(normalizeForCompare))
+  if (update.type === 'add') {
+    if (update.reference.source === 'legacy') keys.add(key)
+    else keys.delete(key)
+  } else {
+    keys.delete(key)
+  }
+  return [...keys]
 }
 
 const FILE_MENTION_BOUNDARY = /(^|[\s([{，。；：、])@([^\s@"']*)$/u
@@ -104,10 +154,10 @@ export function removeComposerFileMentionToken(input: string, relativePath: stri
   return next
 }
 
-export function mergeComposerFileReferences(
-  current: ComposerFileReference[],
-  nextReference: ComposerFileReference
-): ComposerFileReference[] {
+export function mergeComposerFileReferences<T extends Pick<ComposerFileReference, 'relativePath'>>(
+  current: T[],
+  nextReference: T
+): T[] {
   const key = composerFileReferenceKey(nextReference)
   const existing = current.findIndex((reference) => composerFileReferenceKey(reference) === key)
   if (existing < 0) return [...current, nextReference]
@@ -134,7 +184,7 @@ function scoreFileSuggestion(reference: ComposerFileReference, query: string): n
 export function filterWorkspaceFileMentionSuggestions(
   files: ComposerFileReference[],
   query: string,
-  selected: ComposerFileReference[] = [],
+  selected: ComposerWorkspaceReference[] = [],
   limit = 20
 ): ComposerFileReference[] {
   const selectedKeys = new Set(selected.map(composerFileReferenceKey))

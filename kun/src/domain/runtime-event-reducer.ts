@@ -127,6 +127,9 @@ export function applyRuntimeEvent(
     case 'tool_call_finished':
       upsertItem(next, event.item, 'replace')
       break
+    case 'ui_action':
+      upsertItem(next, event.item, 'replace')
+      break
     case 'assistant_text_delta':
     case 'assistant_reasoning_delta':
       upsertItem(next, event.item, 'append-delta')
@@ -143,6 +146,7 @@ export function applyRuntimeEvent(
     case 'compaction_completed':
       applyCompactionEvent(next, event)
       break
+	    case 'tool_call_delta':
 	    case 'tool_call_ready':
 	    case 'tool_result_upload_wait':
 	    case 'tool_storm_suppressed':

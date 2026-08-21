@@ -400,6 +400,19 @@ export function AgentsSettingsSection({ ctx }: { ctx: Record<string, any> }): Re
       maxStringBytes: 524288
     }
   }
+  const visionEvidence = kun.visionEvidence ?? {
+    enabled: false,
+    endpoint: '',
+    timeoutMs: 120000,
+    analyzer: 'workwise-vision-evidence'
+  }
+  const visionEvidenceRuntime = runtimeInfo?.capabilities?.visionEvidence
+  const visionEvidenceUnavailable = !visionEvidence.enabled ||
+    !visionEvidence.endpoint.trim() ||
+    visionEvidenceRuntime?.available === false
+  const visionEvidenceUnavailableReason = visionEvidence.enabled && visionEvidence.endpoint.trim()
+    ? visionEvidenceRuntime?.reason
+    : undefined
   const updateMcpSearch = (patch: Record<string, unknown>): void => {
     updateKun({
       mcpSearch: {
@@ -447,6 +460,14 @@ export function AgentsSettingsSection({ ctx }: { ctx: Record<string, any> }): Re
     updateKun({
       runtimeTuning: {
         ...runtimeTuning,
+        ...patch
+      }
+    })
+  }
+  const updateVisionEvidence = (patch: Record<string, unknown>): void => {
+    updateKun({
+      visionEvidence: {
+        ...visionEvidence,
         ...patch
       }
     })
@@ -1025,6 +1046,59 @@ export function AgentsSettingsSection({ ctx }: { ctx: Record<string, any> }): Re
                         value={runtimeTuning.toolArgumentRepair.maxStringBytes}
                         onChange={(e) => updateToolArgumentRepair({ maxStringBytes: Number(e.target.value) })}
                       />
+                    }
+                  />
+                  <SettingRow
+                    title={t('kunVisionEvidence')}
+                    description={t('kunVisionEvidenceDesc')}
+                    control={
+                      <div className="flex min-w-0 flex-col items-start gap-2 sm:items-end">
+                        <Toggle
+                          checked={visionEvidence.enabled}
+                          onChange={(enabled) => updateVisionEvidence({ enabled })}
+                        />
+                        {visionEvidenceUnavailable ? (
+                          <span
+                            role="status"
+                            className="inline-flex items-center gap-1.5 text-[12px] font-medium text-red-700 dark:text-red-200"
+                          >
+                            <Ban className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                            {t('kunVisionEvidenceUnavailable')}
+                            {visionEvidenceUnavailableReason ? `: ${visionEvidenceUnavailableReason}` : ''}
+                          </span>
+                        ) : null}
+                      </div>
+                    }
+                  />
+                  <SettingRow
+                    title={t('kunVisionEvidenceEndpoint')}
+                    description={t('kunVisionEvidenceEndpointDesc')}
+                    wideControl
+                    control={
+                      <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_10rem]">
+                        <label className="flex min-w-0 flex-col gap-1.5 text-[12px] font-medium text-ds-muted">
+                          {t('kunVisionEvidenceEndpointLabel')}
+                          <input
+                            type="url"
+                            className="min-w-0 rounded-xl border border-ds-border bg-ds-card px-3 py-2 text-[14px] text-ds-ink shadow-sm focus:border-accent/40 focus:outline-none focus:ring-1 focus:ring-accent/30"
+                            value={visionEvidence.endpoint}
+                            placeholder="http://127.0.0.1:4000/analyze"
+                            onChange={(e) => updateVisionEvidence({ endpoint: e.target.value })}
+                          />
+                        </label>
+                        <label className="flex min-w-0 flex-col gap-1.5 text-[12px] font-medium text-ds-muted">
+                          {t('kunVisionEvidenceTimeout')}
+                          <input
+                            type="number"
+                            min={1000}
+                            max={600000}
+                            step={1000}
+                            className="rounded-xl border border-ds-border bg-ds-card px-3 py-2 text-[14px] text-ds-ink shadow-sm focus:border-accent/40 focus:outline-none focus:ring-1 focus:ring-accent/30"
+                            value={visionEvidence.timeoutMs}
+                            onChange={(e) => updateVisionEvidence({ timeoutMs: Number(e.target.value) })}
+                          />
+                        </label>
+                      </div>
                     }
                   />
                       </div>

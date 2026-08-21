@@ -5,7 +5,13 @@ import { readdirSync } from 'node:fs'
 import { realpath } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { getGitBranches, switchGitBranch, createAndSwitchGitBranch } from './git-service'
+import {
+  assertGitWorkspaceAllowed,
+  createAndSwitchGitBranch,
+  getGitBranches,
+  parseGitStatusPorcelainV1Z,
+  switchGitBranch
+} from './git-service'
 
 /**
  * Integration tests for git-service.ts that exercise the real `git` binary
@@ -22,6 +28,34 @@ import { getGitBranches, switchGitBranch, createAndSwitchGitBranch } from './git
 
 let sandbox = ''
 let repoRoot = ''
+
+describe('parseGitStatusPorcelainV1Z', () => {
+  it('preserves spaces, arrow text, and both sides of a rename', () => {
+    expect(parseGitStatusPorcelainV1Z(
+      'R  renamed file.txt\0old file.txt\0?? loose -> file.txt\0'
+    )).toEqual([
+      {
+        indexStatus: 'R',
+        worktreeStatus: ' ',
+        path: 'renamed file.txt',
+        originalPath: 'old file.txt'
+      },
+      {
+        indexStatus: '?',
+        worktreeStatus: '?',
+        path: 'loose -> file.txt'
+      }
+    ])
+    expect(parseGitStatusPorcelainV1Z(
+      ' R worktree renamed.txt\0worktree original.txt\0'
+    )).toEqual([{
+      indexStatus: ' ',
+      worktreeStatus: 'R',
+      path: 'worktree renamed.txt',
+      originalPath: 'worktree original.txt'
+    }])
+  })
+})
 
 beforeEach(async () => {
   sandbox = await mkdtemp(join(tmpdir(), 'workwise-git-service-'))
@@ -47,6 +81,17 @@ afterEach(async () => {
 })
 
 describe('getGitBranches — integration with real git', () => {
+  it('rejects a Git workspace outside the configured active workspace', async () => {
+    const allowed = await mkdtemp(join(tmpdir(), 'workwise-git-allowed-'))
+    const outside = await mkdtemp(join(tmpdir(), 'workwise-git-outside-'))
+    try {
+      await expect(assertGitWorkspaceAllowed(outside, allowed)).rejects.toThrow(/active workspace/)
+    } finally {
+      await rm(allowed, { recursive: true, force: true })
+      await rm(outside, { recursive: true, force: true })
+    }
+  })
+
   it('returns ok with the repo root when called from a nested subdirectory (issue #98)', async () => {
     // Build a 5-level nested subdirectory inside the repo: <root>/a/b/c/d/e
     const deep = join(repoRoot, 'a', 'b', 'c', 'd', 'e')
@@ -110,6 +155,131 @@ describe('getGitBranches — integration with real git', () => {
 })
 
 describe('switchGitBranch / createAndSwitchGitBranch — integration with real git', () => {
+  it('rejects invalid or missing branches before mutating the repository', async () => {
+    await expect(switchGitBranch(repoRoot, 'bad branch')).resolves.toMatchObject({
+      ok: false,
+      reason: 'invalid_branch'
+    })
+    await expect(switchGitBranch(repoRoot, 'does-not-exist')).resolves.toMatchObject({
+      ok: false,
+      reason: 'branch_not_found'
+    })
+    await expect(createAndSwitchGitBranch(repoRoot, 'bad branch')).resolves.toMatchObject({
+      ok: false,
+      reason: 'invalid_branch'
+    })
+    expect(execFileSync('git', ['-C', repoRoot, 'branch', '--show-current'], { encoding: 'utf8' }).trim()).toBe('main')
+  })
+
+  it('blocks switching while conflicts or another Git operation are active', async () => {
+    execFileSync('git', ['-C', repoRoot, 'checkout', '-b', 'feature/conflict'], { stdio: 'pipe' })
+    await writeFile(join(repoRoot, 'conflict.txt'), 'feature')
+    execFileSync('git', ['-C', repoRoot, 'add', 'conflict.txt'], { stdio: 'pipe' })
+    execFileSync('git', ['-C', repoRoot, 'commit', '-m', 'feature conflict'], { stdio: 'pipe' })
+    execFileSync('git', ['-C', repoRoot, 'checkout', 'main'], { stdio: 'pipe' })
+    await writeFile(join(repoRoot, 'conflict.txt'), 'main')
+    execFileSync('git', ['-C', repoRoot, 'add', 'conflict.txt'], { stdio: 'pipe' })
+    execFileSync('git', ['-C', repoRoot, 'commit', '-m', 'main conflict'], { stdio: 'pipe' })
+    try {
+      execFileSync('git', ['-C', repoRoot, 'merge', 'feature/conflict'], { stdio: 'ignore' })
+    } catch {
+      // Expected: the merge leaves an unresolved conflict for the preflight.
+    }
+
+    await expect(switchGitBranch(repoRoot, 'feature/conflict')).resolves.toMatchObject({
+      ok: false,
+      reason: 'unresolved_conflicts',
+      blockingPaths: ['conflict.txt']
+    })
+    execFileSync('git', ['-C', repoRoot, 'merge', '--abort'], { stdio: 'pipe' })
+    await writeFile(join(repoRoot, '.git', 'MERGE_HEAD'), '0000000000000000000000000000000000000000\n')
+    await expect(switchGitBranch(repoRoot, 'feature/conflict')).resolves.toMatchObject({
+      ok: false,
+      reason: 'operation_in_progress'
+    })
+  })
+
+  it('blocks every supported rebase, revert, and bisect operation marker', async () => {
+    execFileSync('git', ['-C', repoRoot, 'branch', 'feature/operation-target'], { stdio: 'pipe' })
+    const markers = [
+      { name: 'rebase-merge', directory: true, label: 'rebase' },
+      { name: 'rebase-apply', directory: true, label: 'rebase' },
+      { name: 'REVERT_HEAD', directory: false, label: 'revert' },
+      { name: 'BISECT_LOG', directory: false, label: 'bisect' }
+    ]
+
+    for (const marker of markers) {
+      const markerPath = execFileSync('git', ['-C', repoRoot, 'rev-parse', '--git-path', marker.name], { encoding: 'utf8' }).trim()
+      const absoluteMarkerPath = join(repoRoot, markerPath)
+      if (marker.directory) await mkdir(absoluteMarkerPath, { recursive: true })
+      else await writeFile(absoluteMarkerPath, 'fixture\n')
+
+      await expect(switchGitBranch(repoRoot, 'feature/operation-target')).resolves.toMatchObject({
+        ok: false,
+        reason: 'operation_in_progress',
+        message: expect.stringContaining(marker.label)
+      })
+      await rm(absoluteMarkerPath, { recursive: true, force: true })
+    }
+  })
+
+  it('blocks a branch already occupied by another worktree', async () => {
+    execFileSync('git', ['-C', repoRoot, 'branch', 'feature/occupied'], { stdio: 'pipe' })
+    const other = await realpath(await mkdtemp(join(tmpdir(), 'workwise-git-worktree-')))
+    try {
+      execFileSync('git', ['-C', repoRoot, 'worktree', 'add', other, 'feature/occupied'], { stdio: 'pipe' })
+      await expect(switchGitBranch(repoRoot, 'feature/occupied')).resolves.toMatchObject({
+        ok: false,
+        reason: 'branch_in_other_worktree',
+        blockingPaths: [other]
+      })
+    } finally {
+      execFileSync('git', ['-C', repoRoot, 'worktree', 'remove', '--force', other], { stdio: 'pipe' })
+      await rm(other, { recursive: true, force: true })
+    }
+  })
+
+  it('blocks an untracked file that the target branch would add', async () => {
+    execFileSync('git', ['-C', repoRoot, 'checkout', '-b', 'feature/overwrite'], { stdio: 'pipe' })
+    await writeFile(join(repoRoot, 'incoming.txt'), 'tracked on target')
+    execFileSync('git', ['-C', repoRoot, 'add', 'incoming.txt'], { stdio: 'pipe' })
+    execFileSync('git', ['-C', repoRoot, 'commit', '-m', 'target file'], { stdio: 'pipe' })
+    execFileSync('git', ['-C', repoRoot, 'checkout', 'main'], { stdio: 'pipe' })
+    await writeFile(join(repoRoot, 'incoming.txt'), 'local untracked')
+
+    await expect(switchGitBranch(repoRoot, 'feature/overwrite')).resolves.toMatchObject({
+      ok: false,
+      reason: 'would_overwrite_files',
+      blockingPaths: ['incoming.txt']
+    })
+  })
+
+  it('caps untracked overwrite blockers at two paths', async () => {
+    const paths = ['incoming-a.txt', 'incoming-b.txt', 'incoming-c.txt']
+    execFileSync('git', ['-C', repoRoot, 'checkout', '-b', 'feature/many-overwrites'], { stdio: 'pipe' })
+    for (const path of paths) await writeFile(join(repoRoot, path), 'tracked on target')
+    execFileSync('git', ['-C', repoRoot, 'add', ...paths], { stdio: 'pipe' })
+    execFileSync('git', ['-C', repoRoot, 'commit', '-m', 'target files'], { stdio: 'pipe' })
+    execFileSync('git', ['-C', repoRoot, 'checkout', 'main'], { stdio: 'pipe' })
+    for (const path of paths) await writeFile(join(repoRoot, path), 'local untracked')
+
+    await expect(switchGitBranch(repoRoot, 'feature/many-overwrites')).resolves.toMatchObject({
+      ok: false,
+      reason: 'would_overwrite_files',
+      blockingPaths: paths.slice(0, 2)
+    })
+  })
+
+  it('returns a stable operation_in_progress error before creating a branch', async () => {
+    await writeFile(join(repoRoot, '.git', 'CHERRY_PICK_HEAD'), '0000000000000000000000000000000000000000\n')
+
+    await expect(createAndSwitchGitBranch(repoRoot, 'feature/blocked-create')).resolves.toMatchObject({
+      ok: false,
+      reason: 'operation_in_progress'
+    })
+    expect(execFileSync('git', ['-C', repoRoot, 'branch', '--show-current'], { encoding: 'utf8' }).trim()).toBe('main')
+  })
+
   it('switches to an existing branch from a subdirectory', async () => {
     // Pre-create a feature branch with one commit on top of main.
     execFileSync('git', ['-C', repoRoot, 'checkout', '-b', 'feature/x'], { stdio: 'pipe' })
@@ -147,5 +317,23 @@ describe('switchGitBranch / createAndSwitchGitBranch — integration with real g
     expect(result.repositoryRoot).toBe(repoRoot)
     expect(result.currentBranch).toBe('feature/y')
     expect(readdirSync(join(repoRoot, '.git', 'refs', 'heads'))).toContain('feature')
+  })
+
+  it('does not mutate a parent repository outside the active workspace', async () => {
+    execFileSync('git', ['-C', repoRoot, 'branch', 'feature/outside-workspace'], { stdio: 'pipe' })
+    const sub = join(repoRoot, 'authorized-child')
+    await mkdir(sub, { recursive: true })
+
+    await expect(switchGitBranch(sub, 'feature/outside-workspace', sub)).resolves.toMatchObject({
+      ok: false,
+      reason: 'workspace_not_allowed'
+    })
+    await expect(createAndSwitchGitBranch(sub, 'feature/must-not-exist', sub)).resolves.toMatchObject({
+      ok: false,
+      reason: 'workspace_not_allowed'
+    })
+
+    expect(execFileSync('git', ['-C', repoRoot, 'branch', '--show-current'], { encoding: 'utf8' }).trim()).toBe('main')
+    expect(execFileSync('git', ['-C', repoRoot, 'branch', '--list', 'feature/must-not-exist'], { encoding: 'utf8' }).trim()).toBe('')
   })
 })

@@ -68,8 +68,7 @@ function findResultBlock(
   startIndex: number,
   options: { turnId: string; expectedCallIds: Set<string> }
 ): { resultCallIds: Set<string>; resultIndexes: number[] } {
-  const seenResultIds = new Set<string>()
-  const resultIndexes: number[] = []
+  const resultIndexByCallId = new Map<string, number>()
   let sawResult = false
   let index = startIndex
 
@@ -78,9 +77,15 @@ function findResultBlock(
     if (!item) break
     if (item.kind === 'tool_result') {
       sawResult = true
-      if (options.expectedCallIds.has(item.callId) && !seenResultIds.has(item.callId)) {
-        seenResultIds.add(item.callId)
-        resultIndexes.push(index)
+      if (options.expectedCallIds.has(item.callId)) {
+        const existingIndex = resultIndexByCallId.get(item.callId)
+        const existing = existingIndex === undefined ? undefined : items[existingIndex]
+        if (
+          existingIndex === undefined ||
+          (existing?.kind === 'tool_result' && existing.status !== 'completed' && item.status === 'completed')
+        ) {
+          resultIndexByCallId.set(item.callId, index)
+        }
       }
       index += 1
       continue
@@ -92,7 +97,10 @@ function findResultBlock(
     break
   }
 
-  return { resultCallIds: seenResultIds, resultIndexes }
+  return {
+    resultCallIds: new Set(resultIndexByCallId.keys()),
+    resultIndexes: [...resultIndexByCallId.values()].sort((left, right) => left - right)
+  }
 }
 
 export function isToolResultBridgeItem(
@@ -101,6 +109,7 @@ export function isToolResultBridgeItem(
 ): boolean {
   switch (item.kind) {
     case 'assistant_reasoning':
+    case 'ui_action':
     case 'approval':
     case 'user_input':
     case 'error':

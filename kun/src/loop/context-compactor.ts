@@ -283,12 +283,14 @@ function summarizeItem(item: TurnItem): string {
   switch (item.kind) {
     case 'user_message':
       return `- User: ${clipText(item.text)}`
+    case 'ui_action':
+      return `- Untrusted UI action ${item.actionId}: ${clipText(stringifyCompact(item.value))}`
     case 'assistant_text':
       return `- Assistant: ${clipText(item.text)}`
     case 'assistant_reasoning':
       return ''
     case 'tool_call':
-      return `- Tool call ${item.toolName}: ${clipText(item.summary || stringifyCompact(item.arguments))}`
+      return `- Tool call ${item.toolName}: ${clipText(item.argumentSummary || item.summary || 'parameters omitted')}`
     case 'tool_result':
       return `- Tool result ${item.toolName}${item.isError ? ' error' : ''}: ${clipText(stringifyCompact(item.output))}`
     case 'approval':

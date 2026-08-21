@@ -21,7 +21,12 @@ import {
   type WriteSettingsV1
 } from './app-settings-types'
 import { getActiveAgentApiKey, getManagedRuntimeSettings } from './app-settings-runtime'
-import { getModelProviderProfile, resolveModelProviderBaseUrl } from './app-settings-provider'
+import {
+  getModelProviderProfile,
+  resolveProviderModelId,
+  resolveManagedRuntimeSettings,
+  resolveModelProviderBaseUrl
+} from './app-settings-provider'
 import { compactStrings } from './app-settings-normalizers'
 import {
   BUILTIN_TEMPLATE_IDS,
@@ -216,20 +221,27 @@ export function resolveWriteInlineCompletionModel(
   settings: AppSettingsV1,
   requestedModel?: string | null
 ): string {
+  const resolveModel = (model: string): string => resolveProviderModelId(
+    {
+      ...resolveWriteInlineCompletionProviderProfile(settings),
+      baseUrl: resolveWriteInlineCompletionBaseUrl(settings)
+    },
+    normalizeWriteInlineCompletionModel(model)
+  )
   const requested = typeof requestedModel === 'string' ? requestedModel.trim() : ''
-  if (requested) return normalizeWriteInlineCompletionModel(requested)
+  if (requested) return resolveModel(requested)
   const configuredSettings = getNormalizedWriteInlineCompletionSettings(settings)
   const configured = configuredSettings.model.trim()
   if (!configuredSettings.inheritModel) {
-    return normalizeWriteInlineCompletionModel(configured)
+    return resolveModel(configured)
   }
   if (!configuredSettings.inheritProvider && configuredSettings.providerId.trim()) {
     const providerModel = resolveWriteInlineCompletionProviderProfile(settings).models[0]?.trim()
-    if (providerModel) return providerModel
+    if (providerModel) return resolveModel(providerModel)
   }
-  const runtimeModel = getManagedRuntimeSettings(settings).model?.trim() ?? ''
+  const runtimeModel = resolveManagedRuntimeSettings(settings).model?.trim() ?? ''
   if (runtimeModel) return runtimeModel
-  return normalizeWriteInlineCompletionModel(configured)
+  return resolveModel(configured)
 }
 
 export function normalizeWriteSettings(input: WriteSettingsPatchV1 | undefined): WriteSettingsV1 {

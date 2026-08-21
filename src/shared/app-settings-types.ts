@@ -2,6 +2,7 @@ import type { GuiUpdateChannel } from './gui-update'
 import type { KeyboardShortcutsConfigV1 } from './keyboard-shortcuts'
 import type { ApprovalPolicy, SandboxMode } from '../../kun/src/contracts/policy.js'
 import type { ModelEndpointFormat } from '../../kun/src/contracts/model-endpoint-format.js'
+import type { ImCredentialRefV1 } from './im-communication'
 export {
   DEFAULT_MODEL_ENDPOINT_FORMAT,
   MODEL_ENDPOINT_FORMATS,
@@ -135,6 +136,8 @@ export type KunRuntimeSettingsV1 = {
   runtimeTuning: KunRuntimeTuningSettingsV1
   /** OpenAI-compatible image generation provider shared by chat agents and Write image tools. */
   imageGeneration: KunImageGenerationSettingsV1
+  /** Optional structured image analysis for text-only models. */
+  visionEvidence: KunVisionEvidenceSettingsV1
 }
 
 /** WorkWise-owned selector view over the persisted `agents.kun` compatibility key. */
@@ -155,6 +158,13 @@ export type KunImageGenerationSettingsV1 = {
   /** Default "WxH" or "auto" used when the model omits aspect ratio and size. Empty means provider default. */
   defaultSize: string
   timeoutMs: number
+}
+
+export type KunVisionEvidenceSettingsV1 = {
+  enabled: boolean
+  endpoint: string
+  timeoutMs: number
+  analyzer: string
 }
 
 export type KunMcpSearchMode = 'direct' | 'search' | 'auto'
@@ -244,7 +254,7 @@ export type KunTokenEconomySettingsPatchV1 = Partial<
 export type KunRuntimeSettingsPatchV1 = Partial<
   Omit<
     KunRuntimeSettingsV1,
-    'mcpSearch' | 'storage' | 'contextCompaction' | 'runtimeTuning' | 'tokenEconomy' | 'imageGeneration'
+    'mcpSearch' | 'storage' | 'contextCompaction' | 'runtimeTuning' | 'tokenEconomy' | 'imageGeneration' | 'visionEvidence'
   >
 > & {
   mcpSearch?: Partial<KunMcpSearchSettingsV1>
@@ -253,6 +263,7 @@ export type KunRuntimeSettingsPatchV1 = Partial<
   contextCompaction?: Partial<KunContextCompactionSettingsV1>
   runtimeTuning?: KunRuntimeTuningSettingsPatchV1
   imageGeneration?: Partial<KunImageGenerationSettingsV1>
+  visionEvidence?: Partial<KunVisionEvidenceSettingsV1>
 }
 
 export type KunSettingsEnvelopePatchV1 = {
@@ -264,8 +275,31 @@ export type LogConfigV1 = {
   retentionDays: number
 }
 
+export type TerminalNotificationKindV1 =
+  | 'completed'
+  | 'error'
+  | 'aborted'
+  | 'blocked'
+  | 'max_tokens'
+  | 'waiting_approval'
+
+export type TurnTerminalNotificationConfigV1 = {
+  enabled: boolean
+  kinds: TerminalNotificationKindV1[]
+  suppressActiveThread: boolean
+  include: string[]
+  exclude: string[]
+}
+
 export type NotificationConfigV1 = {
+  /** Legacy mirror retained while older renderers still write this field. */
   turnComplete: boolean
+  turnTerminal?: TurnTerminalNotificationConfigV1
+}
+
+export type NotificationConfigPatchV1 = {
+  turnComplete?: boolean
+  turnTerminal?: Partial<TurnTerminalNotificationConfigV1>
 }
 
 export type AppBehaviorConfigV1 = {
@@ -362,7 +396,8 @@ export type ClawImAgentProfileV1 = {
 export type ClawImFeishuPlatformCredentialV1 = {
   kind: 'feishu'
   appId: string
-  appSecret: string
+  /** @deprecated Secrets are stored by the main-process credential service. */
+  appSecret?: string
   domain: string
   createdAt: string
 }
@@ -370,7 +405,8 @@ export type ClawImFeishuPlatformCredentialV1 = {
 export type ClawImWeixinPlatformCredentialV1 = {
   kind: 'weixin'
   accountId: string
-  sessionKey: string
+  /** @deprecated Secrets are stored by the main-process credential service. */
+  sessionKey?: string
   createdAt: string
 }
 
@@ -411,7 +447,9 @@ export type ClawImChannelV1 = {
   threadId: string
   workspaceRoot: string
   agentProfile: ClawImAgentProfileV1
+  /** Public identity and legacy compatibility fields. New writes omit secrets. */
   platformCredential?: ClawImPlatformCredentialV1
+  credentialRef?: ImCredentialRefV1
   remoteSession?: ClawImRemoteSessionV1
   conversations: ClawImConversationV1[]
   /** When the one-time IM welcome/intro message was delivered. */
@@ -494,11 +532,29 @@ export type ClawGeneratedFileV1 = {
   fileName: string
 }
 
-export type ClawRunResult =
-  | { ok: true; threadId: string; turnId?: string; text?: string; message?: string; files?: ClawGeneratedFileV1[] }
-  | { ok: false; message: string }
+export type ClawRunFailureReasonV1 =
+  | 'failed'
+  | 'timeout'
+  | 'authorization_required'
+  | 'user_input_required'
+  | 'empty_result'
 
-export type ScheduleRunResult = ClawRunResult
+type ClawRunSuccessV1 = {
+  ok: true
+  threadId: string
+  turnId?: string
+  text?: string
+  message?: string
+  files?: ClawGeneratedFileV1[]
+}
+
+export type ClawRunResult =
+  | ClawRunSuccessV1
+  | { ok: false; reason: ClawRunFailureReasonV1; message: string }
+
+export type ScheduleRunResult =
+  | ClawRunSuccessV1
+  | { ok: false; message: string }
 
 export type ScheduleTaskFromTextResult =
   | { kind: 'noop' }
@@ -530,6 +586,7 @@ export type ConversationSettingsV1 = {
 
 export type DocumentSettingsV1 = {
   parsingMode: import('./agent-workbench').DocumentParsingMode
+  unlimitedOcrServerUrl: string
   privateMineruServerUrl: string
   allowPrivateServerUploadByWorkspace: Record<string, boolean>
 }
@@ -576,7 +633,7 @@ export type AppSettingsPatch = Partial<
   provider?: ModelProviderSettingsPatchV1
   agents?: KunSettingsEnvelopePatchV1
   log?: Partial<LogConfigV1>
-  notifications?: Partial<NotificationConfigV1>
+  notifications?: NotificationConfigPatchV1
   appBehavior?: Partial<AppBehaviorConfigV1>
   keyboardShortcuts?: Partial<KeyboardShortcutsConfigV1>
   write?: WriteSettingsPatchV1

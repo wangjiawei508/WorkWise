@@ -1,5 +1,5 @@
 import type { TurnItem } from '../contracts/items.js'
-import type { ModelRequest, ModelTextAttachmentFallback, ModelToolSpec } from '../ports/model-client.js'
+import type { ModelRequest, ModelToolSpec } from '../ports/model-client.js'
 import { ContextEstimator } from './context-estimator.js'
 
 const CHARS_PER_TOKEN = 4
@@ -14,7 +14,6 @@ export function estimateModelRequestInputTokens(request: ModelRequest): number {
   tokens += estimateItems(request.prefix)
   tokens += estimateItems(request.history)
   tokens += estimateTools(request.tools)
-  tokens += estimateTextFallbacks(request.attachmentTextFallbacks)
   tokens += estimateText(request.requiredToolName)
   tokens += estimateText(request.reasoningEffort)
   return Math.max(0, tokens)
@@ -30,18 +29,6 @@ function estimateTools(tools: ModelToolSpec[]): number {
       tool.name,
       tool.description,
       JSON.stringify(tool.inputSchema)
-    ].join('\n'))
-  }, 0)
-}
-
-function estimateTextFallbacks(fallbacks?: ModelTextAttachmentFallback[]): number {
-  if (!fallbacks?.length) return 0
-  return fallbacks.reduce((sum, attachment) => {
-    return sum + estimateText([
-      attachment.name,
-      attachment.mimeType,
-      String(attachment.byteSize),
-      attachment.dataBase64
     ].join('\n'))
   }, 0)
 }

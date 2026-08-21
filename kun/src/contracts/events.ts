@@ -1,9 +1,10 @@
 import { z } from 'zod'
-import { TurnItem } from './items.js'
+import { TurnItem, UiActionTurnItem } from './items.js'
 import { ThreadGoalSchema, ThreadTodoListSchema } from './threads.js'
 import { UsageSnapshotSchema } from './usage.js'
 import { RuntimeErrorSeverity } from './errors.js'
 import { ApprovalPolicySchema, SandboxModeSchema } from './policy.js'
+import { AttachmentEvidence } from './vision-evidence.js'
 
 /**
  * Persisted runtime events. Every event has a per-thread `seq` so the
@@ -17,11 +18,13 @@ export const RuntimeEventKind = z.enum([
   'turn_failed',
   'turn_aborted',
   'turn_steered',
+  'ui_action',
   'item_created',
   'item_updated',
   'item_completed',
   'assistant_text_delta',
   'assistant_reasoning_delta',
+  'tool_call_delta',
   'tool_call_ready',
   'tool_result_upload_wait',
   'tool_storm_suppressed',
@@ -40,10 +43,21 @@ export const RuntimeEventKind = z.enum([
   'todos_cleared',
   'pipeline_stage',
   'usage',
+  'attachment_evidence_ready',
+  'attachment_evidence_failed',
   'error',
   'heartbeat'
 ])
 export type RuntimeEventKind = z.infer<typeof RuntimeEventKind>
+
+export const TurnTerminalReason = z.enum([
+  'completed',
+  'error',
+  'aborted',
+  'blocked',
+  'max_tokens'
+])
+export type TurnTerminalReason = z.infer<typeof TurnTerminalReason>
 
 export const PipelineStage = z.enum([
   'setup',
@@ -106,6 +120,7 @@ export const TurnLifecycleEvent = RuntimeEventBase.extend({
     'turn_steered'
   ]),
   status: z.string().optional(),
+  reason: TurnTerminalReason.optional(),
   text: z.string().optional(),
   message: z.string().optional(),
   code: z.string().optional(),
@@ -113,6 +128,12 @@ export const TurnLifecycleEvent = RuntimeEventBase.extend({
   severity: RuntimeErrorSeverity.optional()
 })
 export type TurnLifecycleEvent = z.infer<typeof TurnLifecycleEvent>
+
+export const UiActionEvent = RuntimeEventBase.extend({
+  kind: z.literal('ui_action'),
+  item: UiActionTurnItem
+})
+export type UiActionEvent = z.infer<typeof UiActionEvent>
 
 export const ApprovalEvent = RuntimeEventBase.extend({
   kind: z.enum(['approval_requested', 'approval_resolved']),
@@ -145,6 +166,19 @@ export const UserInputEvent = RuntimeEventBase.extend({
   ).optional()
 })
 export type UserInputEvent = z.infer<typeof UserInputEvent>
+
+/**
+ * Usage-only projection of a streamed tool call. Raw argument fragments can
+ * contain credentials or user data, so the persisted event carries only a
+ * bounded Unicode character count.
+ */
+export const ToolCallDeltaEvent = RuntimeEventBase.extend({
+  kind: z.literal('tool_call_delta'),
+  callId: z.string().min(1),
+  toolName: z.string().min(1).optional(),
+  characterCount: z.number().int().nonnegative().max(1_000_000)
+})
+export type ToolCallDeltaEvent = z.infer<typeof ToolCallDeltaEvent>
 
 export const ToolCallReadyEvent = RuntimeEventBase.extend({
   kind: z.literal('tool_call_ready'),
@@ -228,6 +262,15 @@ export const ErrorEvent = RuntimeEventBase.extend({
 })
 export type ErrorEvent = z.infer<typeof ErrorEvent>
 
+export const AttachmentEvidenceEvent = RuntimeEventBase.extend({
+  kind: z.enum(['attachment_evidence_ready', 'attachment_evidence_failed']),
+  attachmentId: z.string().min(1),
+  status: z.enum(['ready', 'failed']),
+  evidence: AttachmentEvidence.optional(),
+  message: z.string().max(500).optional()
+})
+export type AttachmentEvidenceEvent = z.infer<typeof AttachmentEvidenceEvent>
+
 export const HeartbeatEvent = RuntimeEventBase.extend({
   kind: z.literal('heartbeat')
 })
@@ -237,8 +280,10 @@ export const RuntimeEvent = z.discriminatedUnion('kind', [
   ItemEvent,
   ThreadLifecycleEvent,
   TurnLifecycleEvent,
+  UiActionEvent,
   ApprovalEvent,
   UserInputEvent,
+  ToolCallDeltaEvent,
   ToolCallReadyEvent,
   ToolUploadStatusEvent,
   ToolStormSuppressedEvent,
@@ -248,6 +293,7 @@ export const RuntimeEvent = z.discriminatedUnion('kind', [
   TodoEvent,
   PipelineStageEvent,
   UsageEvent,
+  AttachmentEvidenceEvent,
   ErrorEvent,
   HeartbeatEvent
 ])

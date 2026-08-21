@@ -31,6 +31,9 @@ import {
   RUNTIME_THREAD_INTERRUPT_TEMPLATE,
   RUNTIME_THREAD_STEER_TEMPLATE,
   RUNTIME_THREAD_TURNS_TEMPLATE,
+  RUNTIME_THREAD_UI_ACTIONS_TEMPLATE,
+  RUNTIME_THREAD_WORKSPACE_REFERENCE_SEARCH_TEMPLATE,
+  RUNTIME_WORKSPACE_REFERENCE_SEARCH_TEMPLATE,
   RUNTIME_THREAD_TEMPLATE,
   RUNTIME_USER_INPUT_TEMPLATE,
   RUNTIME_USAGE_TEMPLATE,
@@ -50,6 +53,7 @@ import {
 } from '../../shared/app-settings'
 import { DESKTOP_COMMANDS } from '../../shared/workwise-api'
 import { GUI_UPDATE_CHANNELS } from '../../shared/gui-update'
+import { DOCUMENT_QUALITY_REASONS_V1 } from '../../shared/agent-workbench'
 import { KEYBOARD_SHORTCUT_COMMANDS } from '../../shared/keyboard-shortcuts'
 import { WRITE_EXPORT_FORMATS } from '../../shared/write-export'
 import {
@@ -177,6 +181,9 @@ const ENDPOINTS: readonly EndpointTemplate[] = [
   compileEndpoint(RUNTIME_THREAD_COMPACT_TEMPLATE, ['POST']),
   compileEndpoint(RUNTIME_THREAD_REVIEW_TEMPLATE, ['POST']),
   compileEndpoint(RUNTIME_THREAD_TURNS_TEMPLATE, ['POST']),
+  compileEndpoint(RUNTIME_THREAD_UI_ACTIONS_TEMPLATE, ['POST']),
+  compileEndpoint(RUNTIME_THREAD_WORKSPACE_REFERENCE_SEARCH_TEMPLATE, ['POST']),
+  compileEndpoint(RUNTIME_WORKSPACE_REFERENCE_SEARCH_TEMPLATE, ['POST']),
   compileEndpoint(RUNTIME_THREAD_STEER_TEMPLATE, ['POST']),
   compileEndpoint(RUNTIME_THREAD_INTERRUPT_TEMPLATE, ['POST']),
   compileEndpoint(RUNTIME_APPROVAL_TEMPLATE, ['POST']),
@@ -340,6 +347,12 @@ const kunRuntimePatchSchema = z.object({
     model: z.string().trim().max(128).optional(),
     defaultSize: z.string().trim().max(16).optional(),
     timeoutMs: z.number().int().positive().max(600_000).optional()
+  }).strict().optional(),
+  visionEvidence: z.object({
+    enabled: z.boolean().optional(),
+    endpoint: z.string().trim().max(MAX_URL_LENGTH).optional(),
+    timeoutMs: z.number().int().min(1_000).max(600_000).optional(),
+    analyzer: z.string().trim().min(1).max(120).optional()
   }).strict().optional()
 }).strict()
 
@@ -349,7 +362,21 @@ const logPatchSchema = z.object({
 }).strict()
 
 const notificationsPatchSchema = z.object({
-  turnComplete: z.boolean().optional()
+  turnComplete: z.boolean().optional(),
+  turnTerminal: z.object({
+    enabled: z.boolean().optional(),
+    kinds: z.array(z.enum([
+      'completed',
+      'error',
+      'aborted',
+      'blocked',
+      'max_tokens',
+      'waiting_approval'
+    ])).max(6).optional(),
+    suppressActiveThread: z.boolean().optional(),
+    include: z.array(z.string().trim().min(1).max(200)).max(100).optional(),
+    exclude: z.array(z.string().trim().min(1).max(200)).max(100).optional()
+  }).strict().optional()
 }).strict()
 
 const appBehaviorPatchSchema = z.object({
@@ -516,6 +543,12 @@ const clawImConversationPatchSchema = z.object({
   updatedAt: z.string().max(128).optional()
 }).strict()
 
+const imCredentialRefPatchSchema = z.object({
+  id: trimmedString(256),
+  storage: z.enum(['keychain', 'dpapi', 'safe-storage', 'session']),
+  createdAt: trimmedString(128)
+}).strict()
+
 const clawImChannelPatchSchema = z.object({
   id: z.string().max(MAX_ID_LENGTH).optional(),
   provider: clawImProviderSchema.optional(),
@@ -526,6 +559,7 @@ const clawImChannelPatchSchema = z.object({
   workspaceRoot: defaultPathSchema,
   agentProfile: clawImAgentProfilePatchSchema.optional(),
   platformCredential: clawImPlatformCredentialPatchSchema.optional(),
+  credentialRef: imCredentialRefPatchSchema.optional(),
   remoteSession: clawImRemoteSessionPatchSchema.optional(),
   conversations: z.array(clawImConversationPatchSchema).max(512).optional(),
   welcomeSentAt: z.string().max(128).optional(),
@@ -663,6 +697,7 @@ const settingsPatchObjectSchema = z.object({
   }).strict().optional(),
   documents: z.object({
     parsingMode: z.enum(['auto', 'fast', 'accurate']).optional(),
+    unlimitedOcrServerUrl: z.string().trim().max(MAX_URL_LENGTH).optional(),
     privateMineruServerUrl: z.string().trim().max(MAX_URL_LENGTH).optional(),
     allowPrivateServerUploadByWorkspace: z.record(z.string().trim().min(1).max(MAX_PATH_LENGTH), z.boolean()).optional()
   }).strict().optional(),
@@ -1144,6 +1179,10 @@ export const shellOpenExternalUrlSchema = trimmedString(MAX_URL_LENGTH).refine(
 export const notificationPayloadSchema = z
   .object({
     threadId: optionalTrimmedString(MAX_ID_LENGTH),
+    turnId: optionalTrimmedString(MAX_ID_LENGTH),
+    approvalId: optionalTrimmedString(MAX_ID_LENGTH),
+    activeThread: z.boolean().optional(),
+    reason: z.enum(['completed', 'error', 'aborted', 'blocked', 'max_tokens', 'waiting_approval']).optional(),
     title: trimmedString(MAX_NOTIFICATION_TITLE_LENGTH),
     body: trimmedString(MAX_NOTIFICATION_BODY_LENGTH)
   })
@@ -1166,7 +1205,9 @@ export const clawMirrorPayloadSchema = z
   .object({
     threadId: trimmedString(MAX_ID_LENGTH),
     text: z.string().trim().min(1).max(MAX_CHANNEL_TEXT_LENGTH),
-    direction: z.enum(['user', 'assistant'])
+    direction: z.enum(['user', 'assistant']),
+    turnId: optionalTrimmedString(MAX_ID_LENGTH),
+    requestText: z.string().trim().min(1).max(MAX_CHANNEL_TEXT_LENGTH).optional()
   })
   .strict()
 
@@ -1421,7 +1462,7 @@ export const pluginPermissionsUpdatePayloadSchema = z.object({
   idempotencyKey: trimmedString(MAX_ID_LENGTH)
 }).strict()
 
-export const documentEngineIdSchema = z.enum(['markitdown', 'mineru-local', 'mineru-private'])
+export const documentEngineIdSchema = z.enum(['markitdown', 'unlimited-ocr-local', 'mineru-local', 'mineru-private'])
 
 export const documentParsePayloadSchema = z.object({
   parseId: optionalTrimmedString(MAX_ID_LENGTH),
@@ -1438,5 +1479,6 @@ export const workspacePreviewPayloadSchema = z.object({
   workspaceRoot: trimmedString(MAX_PATH_LENGTH),
   relativePath: trimmedString(MAX_PATH_LENGTH),
   parsingMode: z.enum(['auto', 'fast', 'accurate']).optional(),
+  retryReasons: z.array(z.enum(DOCUMENT_QUALITY_REASONS_V1)).max(32).optional(),
   idempotencyKey: trimmedString(MAX_ID_LENGTH)
 }).strict()

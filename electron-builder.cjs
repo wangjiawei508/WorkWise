@@ -1,5 +1,7 @@
 const { existsSync, readFileSync } = require('node:fs')
 const { join } = require('node:path')
+const { verifyCandidateSourceTree } = require('./scripts/candidate-source-provenance.cjs')
+const { markitdownResourceFilter } = require('./scripts/markitdown-packaging-policy.cjs')
 
 function loadLocalReleaseEnv() {
   const candidates = [
@@ -61,7 +63,10 @@ const markitdownExtraResources = existsSync(markitdownSidecarRoot)
   ? [{
       from: markitdownSidecarRoot,
       to: 'app.asar.unpacked/sidecars/markitdown',
-      filter: ['**/*']
+      // FileMatcher uses minimatch({ dot: true }) and preserves symlinks. Keep
+      // the PyInstaller archive, notices, hidden PIL dylibs, and framework
+      // links explicit so a future filter change cannot silently drop them.
+      filter: [...markitdownResourceFilter]
     }]
   : []
 if (process.env.WORKWISE_REQUIRE_DOCUMENT_SIDECAR === '1' && markitdownExtraResources.length === 0) {
@@ -105,6 +110,14 @@ const genericUpdateUrl = explicitUpdateUrl
 const releaseAppVersion = (
   process.env.WORKWISE_APP_VERSION || ''
 ).trim()
+const candidateSourceHead = (
+  process.env.WORKWISE_CANDIDATE_SOURCE_HEAD || ''
+).trim()
+const isCandidateBuild = process.env.WORKWISE_CANDIDATE === '1'
+const candidateIdentitySuffix = candidateSourceHead ? `head${candidateSourceHead.slice(0, 12)}` : ''
+const packagedProductName = isCandidateBuild
+  ? `WorkWise Candidate ${candidateSourceHead.slice(0, 12)}`
+  : 'WorkWise'
 const artifactVersion = releaseAppVersion || '${version}'
 
 function normalizeUpdateChannel(raw) {
@@ -118,6 +131,17 @@ if (releaseAppVersion && !/^\d+\.\d+\.\d+$/.test(releaseAppVersion)) {
     `WORKWISE_APP_VERSION must be a valid x.y.z semver for electron-updater, got: ${releaseAppVersion}`
   )
 }
+if (candidateSourceHead && !/^[0-9a-f]{40}$/.test(candidateSourceHead)) {
+  throw new Error(
+    `WORKWISE_CANDIDATE_SOURCE_HEAD must be a 40-character lowercase Git commit, got: ${candidateSourceHead}`
+  )
+}
+if (isCandidateBuild && !candidateSourceHead) {
+  throw new Error('Candidate packaging requires WORKWISE_CANDIDATE_SOURCE_HEAD from candidate.env.')
+}
+if (isCandidateBuild) {
+  verifyCandidateSourceTree(__dirname, candidateSourceHead, { label: 'electron-builder' })
+}
 
 if (!['github', 'generic', 'none'].includes(updateProvider)) {
   throw new Error(`WORKWISE_UPDATE_PROVIDER must be "github", "generic", or "none", got: ${updateProvider}`)
@@ -129,15 +153,17 @@ if (updateProvider === 'generic' && !genericUpdateUrl) {
   throw new Error('A generic update provider requires WORKWISE_UPDATE_URL or WORKWISE_PUBLIC_BASE_URL.')
 }
 
-module.exports = {
+const builderConfig = {
   // Historical App ID must remain unchanged for in-place NSIS/Squirrel upgrades.
   //  - macOS 端 Squirrel.Mac 校验更新包签名时锚定 bundle identifier,
   //    换了 id 老版本会拒绝安装新版本;
   //  - Windows 端 NSIS 以 appId 派生卸载 GUID,换了 id 升级安装不会
   //    卸载旧版本,用户会装出两份应用;
   //  - macOS TCC 权限、通知授权也都挂在这个 id 上。
-  appId: 'com.wangjiawei508.workgpt',
-  productName: 'WorkWise',
+  appId: isCandidateBuild
+    ? `com.wangjiawei508.workwise.candidate.${candidateIdentitySuffix}`
+    : 'com.wangjiawei508.workgpt',
+  productName: packagedProductName,
   asar: true,
   asarUnpack: [
     'src/asset/skills/**/*',
@@ -195,7 +221,9 @@ module.exports = {
       filter: ['**/*']
     }
   ],
-  artifactName: `WorkWise-${artifactVersion}-\${os}-\${arch}.\${ext}`,
+  artifactName: isCandidateBuild
+    ? `WorkWise-Candidate-${candidateSourceHead.slice(0, 12)}-${artifactVersion}-\${os}-\${arch}.\${ext}`
+    : `WorkWise-${artifactVersion}-\${os}-\${arch}.\${ext}`,
   publish: updateProvider === 'github'
     ? [
         {
@@ -247,8 +275,8 @@ module.exports = {
     // 明确创建快捷方式；always 在覆盖安装时也会重建（即使用户曾删掉桌面图标）
     createDesktopShortcut: 'always',
     createStartMenuShortcut: true,
-    shortcutName: 'WorkWise',
-    uninstallDisplayName: 'WorkWise',
+    shortcutName: packagedProductName,
+    uninstallDisplayName: packagedProductName,
     deleteAppDataOnUninstall: false
   },
   linux: {
@@ -259,9 +287,12 @@ module.exports = {
   extraMetadata: {
     ...(releaseAppVersion ? { version: releaseAppVersion } : {}),
     updateChannel,
+    ...(candidateSourceHead ? { buildProvenance: { sourceHead: candidateSourceHead } } : {}),
     buildHints: {
       macSigningEnabled: hasExplicitMacSigningIdentity,
       notarizationEnabled: hasNotaryToolCredentials
     }
   }
 }
+
+module.exports = builderConfig

@@ -39,7 +39,6 @@ export type ModelRequest = {
   prefix: TurnItem[]
   history: TurnItem[]
   attachments?: ModelInputAttachment[]
-  attachmentTextFallbacks?: ModelTextAttachmentFallback[]
   tools: ModelToolSpec[]
   /**
    * Optional loop-level requirement. The agent loop uses this to keep
@@ -71,17 +70,6 @@ export type ModelInputAttachment = {
   dataBase64: string
   width?: number
   height?: number
-}
-
-export type ModelTextAttachmentFallback = {
-  id: string
-  name: string
-  mimeType: string
-  dataBase64: string
-  byteSize: number
-  width?: number
-  height?: number
-  wasCompressed?: boolean
 }
 
 export type ModelToolSpec = {

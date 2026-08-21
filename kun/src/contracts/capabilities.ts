@@ -28,6 +28,7 @@ export const ModelCapabilityMetadata = z
     outputModalities: z.array(ModelInputModality).min(1),
     supportsToolCalling: z.boolean(),
     contextWindowTokens: z.number().int().positive().optional(),
+    maxOutputTokens: z.number().int().positive().optional(),
     messageParts: z.array(ModelMessagePartSupport).min(1)
   })
   .strict()
@@ -270,7 +271,9 @@ export const RuntimeCapabilityManifest = z
     }).strict(),
     imageGen: RuntimeCapabilityState.extend({
       model: z.string().optional()
-    }).strict()
+    }).strict(),
+    visionEvidence: RuntimeCapabilityState.optional(),
+    uiActions: RuntimeCapabilityState
   })
   .strict()
 export type RuntimeCapabilityManifest = z.infer<typeof RuntimeCapabilityManifest>
@@ -313,6 +316,11 @@ export function buildRuntimeCapabilityManifest(input: {
     reason?: string
   }
   imageGen?: {
+    available?: boolean
+    reason?: string
+  }
+  visionEvidence?: {
+    enabled?: boolean
     available?: boolean
     reason?: string
   }
@@ -413,7 +421,14 @@ export function buildRuntimeCapabilityManifest(input: {
         input.imageGen?.reason ?? 'image generation provider is not configured'
       ),
       ...(config.imageGen.model ? { model: config.imageGen.model } : {})
-    }
+    },
+    visionEvidence: providerCapabilityState(
+      input.visionEvidence?.enabled === true,
+      'vision evidence is disabled by config',
+      input.visionEvidence?.available === true,
+      input.visionEvidence?.reason ?? 'vision evidence analyzer is not configured'
+    ),
+    uiActions: available()
   })
 }
 

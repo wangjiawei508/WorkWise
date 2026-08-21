@@ -12,10 +12,12 @@ import type {
 import { atomicWriteFile, readRecoveredFile } from './durable-file'
 import {
   canonicalizeContainmentRoot,
+  isCanonicalPathContained,
   recheckContainedParent,
   resolveContainedPath
 } from './canonical-containment'
 import { findNearestGitRoot } from './git-discovery'
+import { assertGitWorkspaceAllowed } from './git-service'
 
 const execFileAsync = promisify(execFile)
 const MAX_CHECKPOINT_FILES = 512
@@ -100,16 +102,22 @@ export class GitCheckpointService {
     this.root = resolve(root)
   }
 
-  async create(request: CreateGitCheckpointRequest): Promise<GitCheckpointV1> {
+  async create(request: CreateGitCheckpointRequest, activeWorkspaceRoot?: string): Promise<GitCheckpointV1> {
     if (!request.taskId.trim() || !request.idempotencyKey.trim()) {
       throw Object.assign(new Error('taskId and idempotencyKey are required.'), { code: 'invalid_state' })
     }
+    if (activeWorkspaceRoot) await assertGitWorkspaceAllowed(request.workspaceRoot, activeWorkspaceRoot)
     const workspaceRoot = await canonicalizeContainmentRoot(request.workspaceRoot)
     const repositoryCandidate = request.repositoryRoot
       ? await canonicalizeContainmentRoot(request.repositoryRoot)
       : await findNearestGitRoot(workspaceRoot)
     if (!repositoryCandidate) {
       throw Object.assign(new Error('No Git repository was found for this workspace.'), { code: 'not_found' })
+    }
+    if (!isCanonicalPathContained(workspaceRoot, repositoryCandidate)) {
+      throw Object.assign(new Error('Git repository must stay within the active workspace.'), {
+        code: 'workspace_not_allowed'
+      })
     }
     const repositoryRoot = await resolveContainedPath({
       root: workspaceRoot,
@@ -186,8 +194,9 @@ export class GitCheckpointService {
     return checkpoint
   }
 
-  async preview(request: PreviewGitRollbackRequest): Promise<GitRollbackPreviewV1> {
+  async preview(request: PreviewGitRollbackRequest, activeWorkspaceRoot?: string): Promise<GitRollbackPreviewV1> {
     const stored = await this.read(request.checkpointId)
+    await this.validateStoredWorkspace(stored, activeWorkspaceRoot)
     const records = new Map(stored.snapshots.map((entry) => [entry.relativePath, entry]))
     for (const relativePath of request.relatedPaths ?? []) {
       const normalized = normalizedRelativePath(relativePath)
@@ -229,14 +238,15 @@ export class GitCheckpointService {
     }
   }
 
-  async apply(request: ApplyGitRollbackRequest): Promise<GitRollbackPreviewV1> {
+  async apply(request: ApplyGitRollbackRequest, activeWorkspaceRoot?: string): Promise<GitRollbackPreviewV1> {
     const stored = await this.read(request.checkpointId)
+    await this.validateStoredWorkspace(stored, activeWorkspaceRoot)
     const replay = stored.rollbackResults?.[request.idempotencyKey]
     if (replay) return replay
     if (request.expectedRevision !== stored.checkpoint.revision) {
       throw Object.assign(new Error('Git checkpoint revision conflict.'), { code: 'stale_request' })
     }
-    const preview = await this.preview(request)
+    const preview = await this.preview(request, activeWorkspaceRoot)
     if (!preview.safe) {
       const rescueRef = await this.createRescueRef(stored).catch(() => undefined)
       const result = { ...preview, ...(rescueRef ? { rescueRef } : {}) }
@@ -302,6 +312,27 @@ export class GitCheckpointService {
     if (!commit) return undefined
     await runGit(stored.checkpoint.repositoryRoot, ['update-ref', `refs/${rescueRef}`, commit])
     return rescueRef
+  }
+
+  private async validateStoredWorkspace(
+    stored: StoredGitCheckpoint,
+    activeWorkspaceRoot?: string
+  ): Promise<void> {
+    if (activeWorkspaceRoot) {
+      await assertGitWorkspaceAllowed(stored.checkpoint.workspaceRoot, activeWorkspaceRoot)
+    }
+    if (!isCanonicalPathContained(stored.checkpoint.workspaceRoot, stored.checkpoint.repositoryRoot)) {
+      throw Object.assign(new Error('Git repository must stay within the active workspace.'), {
+        code: 'workspace_not_allowed'
+      })
+    }
+    await resolveContainedPath({
+      root: stored.checkpoint.workspaceRoot,
+      target: stored.checkpoint.repositoryRoot,
+      allowRoot: true,
+      mustExist: true,
+      expect: 'directory'
+    })
   }
 
   private async read(id: string): Promise<StoredGitCheckpoint> {

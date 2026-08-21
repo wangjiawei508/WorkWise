@@ -5,7 +5,7 @@ const root = resolve(import.meta.dirname, '..')
 const requirements = readFileSync(resolve(root, 'sidecars/markitdown/requirements.lock'), 'utf8')
 const lock = JSON.parse(readFileSync(resolve(root, 'package-lock.json'), 'utf8'))
 const packageJson = JSON.parse(readFileSync(resolve(root, 'package.json'), 'utf8'))
-const notices = readFileSync(resolve(root, 'THIRD_PARTY_NOTICES.md'), 'utf8')
+const notices = readFileSync(resolve(root, 'sidecars/markitdown/THIRD_PARTY_NOTICES.md'), 'utf8')
 
 assert(requirements.includes('932084c88679aeda901c2903a151f3ed82f86081'), 'MarkItDown must use the audited upstream commit.')
 assert(/markitdown\[pdf,docx,pptx,xlsx\]/i.test(requirements), 'Only the required MarkItDown format extras may be installed.')

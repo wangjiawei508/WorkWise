@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process'
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -96,5 +96,41 @@ describe('GitCheckpointService', () => {
     await expect(service.apply({ checkpointId: checkpoint.id, expectedRevision: 9, idempotencyKey: 'apply-stale' }))
       .rejects.toMatchObject({ code: 'stale_request' })
     await expect(readFile(join(root, 'README.md'), 'utf8')).resolves.toBe('task change\n')
+  })
+
+  it('rejects preview and apply when the stored checkpoint is outside the active workspace', async () => {
+    const service = new GitCheckpointService(storage)
+    const checkpoint = await service.create({
+      taskId: 'task-workspace-gate',
+      workspaceRoot: root,
+      relatedPaths: ['README.md'],
+      idempotencyKey: 'create-workspace-gate'
+    })
+    const otherWorkspace = await mkdtemp(join(tmpdir(), 'workwise-git-checkpoint-other-'))
+    try {
+      await expect(service.preview({ checkpointId: checkpoint.id }, otherWorkspace))
+        .rejects.toMatchObject({ code: 'workspace_not_allowed' })
+      await expect(service.apply({
+        checkpointId: checkpoint.id,
+        expectedRevision: 0,
+        idempotencyKey: 'apply-workspace-gate'
+      }, otherWorkspace)).rejects.toMatchObject({ code: 'workspace_not_allowed' })
+    } finally {
+      await rm(otherWorkspace, { recursive: true, force: true })
+    }
+  })
+
+  it('rejects a checkpoint whose repository is above the active workspace', async () => {
+    const workspaceRoot = join(root, 'authorized-child')
+    await mkdir(workspaceRoot, { recursive: true })
+    const service = new GitCheckpointService(storage)
+
+    await expect(service.create({
+      taskId: 'task-parent-repository',
+      workspaceRoot,
+      repositoryRoot: root,
+      relatedPaths: [],
+      idempotencyKey: 'create-parent-repository'
+    }, workspaceRoot)).rejects.toMatchObject({ code: 'workspace_not_allowed' })
   })
 })

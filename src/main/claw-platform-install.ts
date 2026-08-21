@@ -9,7 +9,7 @@ type ClawPlatformInstallStartResult =
 type ClawPlatformInstallPollResult =
   | { done: true; kind: 'feishu'; appId: string; appSecret: string; domain: string }
   | { done: true; kind: 'weixin'; accountId: string; sessionKey: string }
-  | { done: false; error?: string }
+  | { done: false; error?: string; retryable?: boolean }
 
 let feishuInstallIsLark = false
 const feishuInstallTargets = new Map<string, boolean>()
@@ -20,6 +20,8 @@ const WEIXIN_ALREADY_CONNECTED_MESSAGE = '已连接过此 OpenClaw'
 const WEIXIN_BRIDGE_MISSING_MESSAGE =
   'WeChat login bridge is unavailable. Restart the app and try generating the WeChat QR code again.'
 const WEIXIN_CHANNEL_ID = 'openclaw-weixin'
+const FEISHU_INSTALL_REQUEST_TIMEOUT_MS = 10_000
+const FEISHU_INSTALL_POLL_TIMEOUT = 'IM_INSTALL_POLL_TIMEOUT'
 
 let managedWeixinBridgeUrlResolver: (() => Promise<string>) | null = null
 
@@ -43,6 +45,42 @@ async function readJsonResponse(res: Response): Promise<Record<string, unknown>>
   }
 }
 
+async function fetchJsonWithHardTimeout(
+  url: string,
+  init: RequestInit,
+  timeoutMs: number
+): Promise<{ response: Response; data: Record<string, unknown> }> {
+  const controller = new AbortController()
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      controller.abort()
+      reject(Object.assign(new Error(FEISHU_INSTALL_POLL_TIMEOUT), {
+        code: FEISHU_INSTALL_POLL_TIMEOUT
+      }))
+    }, timeoutMs)
+  })
+  try {
+    return await Promise.race([
+      (async () => {
+        const response = await fetch(url, { ...init, signal: controller.signal })
+        const data = await readJsonResponse(response)
+        return { response, data }
+      })(),
+      timeout
+    ])
+  } finally {
+    if (timer) clearTimeout(timer)
+  }
+}
+
+function isFeishuInstallPollTimeout(error: unknown): boolean {
+  return typeof error === 'object'
+    && error !== null
+    && 'code' in error
+    && error.code === FEISHU_INSTALL_POLL_TIMEOUT
+}
+
 async function postJson(url: string, body: Record<string, unknown>): Promise<Record<string, unknown>> {
   const res = await fetch(url, {
     method: 'POST',
@@ -58,13 +96,11 @@ async function postJson(url: string, body: Record<string, unknown>): Promise<Rec
 }
 
 async function postForm(url: string, body: Record<string, string>): Promise<Record<string, unknown>> {
-  const res = await fetch(url, {
+  const { response: res, data } = await fetchJsonWithHardTimeout(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams(body).toString(),
-    signal: AbortSignal.timeout(10_000)
-  })
-  const data = await readJsonResponse(res)
+    body: new URLSearchParams(body).toString()
+  }, FEISHU_INSTALL_REQUEST_TIMEOUT_MS)
   if (!res.ok) {
     throw new Error(recordString(data, 'error_description') || recordString(data, 'message') || `HTTP ${res.status}`)
   }
@@ -75,13 +111,11 @@ async function postFormResult(
   url: string,
   body: Record<string, string>
 ): Promise<{ ok: boolean; status: number; data: Record<string, unknown> }> {
-  const res = await fetch(url, {
+  const { response: res, data } = await fetchJsonWithHardTimeout(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams(body).toString(),
-    signal: AbortSignal.timeout(10_000)
-  })
-  const data = await readJsonResponse(res)
+    body: new URLSearchParams(body).toString()
+  }, FEISHU_INSTALL_REQUEST_TIMEOUT_MS)
   return { ok: res.ok, status: res.status, data }
 }
 
@@ -284,7 +318,13 @@ export async function pollFeishuInstall(deviceCode: string): Promise<ClawPlatfor
     }
     return { done: false }
   } catch (error) {
-    return { done: false, error: error instanceof Error ? error.message : String(error) }
+    return {
+      done: false,
+      error: isFeishuInstallPollTimeout(error)
+        ? FEISHU_INSTALL_POLL_TIMEOUT
+        : error instanceof Error ? error.message : String(error),
+      retryable: true
+    }
   }
 }
 

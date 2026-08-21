@@ -12,7 +12,8 @@ import {
   ModelConfigSchema,
   RuntimeTuningConfigSchema,
   StorageConfigSchema,
-  TokenEconomyConfigSchema
+  TokenEconomyConfigSchema,
+  VisionEvidenceConfigSchema
 } from '../config/kun-config.js'
 import {
   DEFAULT_KUN_CAPABILITIES_CONFIG,
@@ -42,7 +43,7 @@ export const ServeOptionsSchema = z.object({
   dataDir: z.string().min(1),
   runtimeToken: z.string().default(''),
   apiKey: z.string().default(''),
-  baseUrl: z.string().default('https://api.deepseek.com/beta'),
+  baseUrl: z.string().default('https://api.deepseek.com'),
   endpointFormat: z.preprocess(normalizeModelEndpointFormat, z.enum(MODEL_ENDPOINT_FORMATS)).default(DEFAULT_MODEL_ENDPOINT_FORMAT),
   model: z.string().default(DEFAULT_SERVE_MODEL),
   approvalPolicy: ApprovalPolicySchema.default(DEFAULT_APPROVAL_POLICY),
@@ -54,6 +55,7 @@ export const ServeOptionsSchema = z.object({
   models: ModelConfigSchema.optional(),
   contextCompaction: ContextCompactionConfigSchema.optional(),
   runtime: RuntimeTuningConfigSchema.optional(),
+  visionEvidence: VisionEvidenceConfigSchema.optional(),
   capabilities: KunCapabilitiesConfig.default(DEFAULT_KUN_CAPABILITIES_CONFIG)
 })
 export type ServeOptions = z.infer<typeof ServeOptionsSchema>
@@ -64,7 +66,7 @@ export const DEFAULT_SERVE_OPTIONS: ServeOptions = {
   dataDir: '',
   runtimeToken: '',
   apiKey: '',
-  baseUrl: 'https://api.deepseek.com/beta',
+  baseUrl: 'https://api.deepseek.com',
   endpointFormat: DEFAULT_MODEL_ENDPOINT_FORMAT,
   model: DEFAULT_SERVE_MODEL,
   approvalPolicy: DEFAULT_APPROVAL_POLICY,

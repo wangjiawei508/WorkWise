@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import type { ClawImChannelV1 } from '@shared/app-settings'
+import type { ClawImChannelV1, WorkWiseSettingsV2 } from '@shared/app-settings'
 import { CLAW_MANAGED_INSTRUCTIONS_HEADING } from '@shared/app-settings'
 import type { NormalizedThread } from '../agent/types'
 import { rendererRuntimeClient } from '../agent/runtime-client'
@@ -10,6 +10,7 @@ import {
   findRecoverableClawThread,
   resolveClawThreadId
 } from './chat-store-claw-actions'
+import { newClawChannel } from './chat-store-helpers'
 
 function channel(overrides: Partial<ClawImChannelV1> = {}): ClawImChannelV1 {
   const now = '2026-06-01T00:00:00.000Z'
@@ -213,5 +214,67 @@ describe('chat-store Claw actions helpers', () => {
         channels: [expect.objectContaining({ id: 'channel-1', threadId: '' })]
       }
     }, undefined)
+  })
+
+  it('preserves simultaneous Feishu and WeChat authorization saves from separate connection panels', async () => {
+    rendererRuntimeClient.invalidateSettings()
+    let settings = {
+      revision: 10,
+      claw: {
+        enabled: false,
+        im: { enabled: false, provider: 'feishu', workspaceRoot: '/tmp/claw' },
+        channels: [] as ClawImChannelV1[]
+      }
+    } as WorkWiseSettingsV2
+    const workwise = {
+      getSettings: vi.fn(async () => settings),
+      setSettings: vi.fn(async (
+        patch: { claw?: WorkWiseSettingsV2['claw'] },
+        expectedRevision?: number
+      ) => {
+        expect(expectedRevision).toBe(settings.revision)
+        settings = {
+          ...settings,
+          claw: patch.claw ?? settings.claw,
+          revision: settings.revision + 1
+        }
+        return settings
+      })
+    }
+    vi.stubGlobal('window', { workwise })
+
+    let state: Record<string, unknown> = {
+      runtimeConnection: 'ready',
+      route: 'chat',
+      clawChannels: [],
+      activeClawChannelId: ''
+    }
+    const set = vi.fn((partial: Record<string, unknown>) => {
+      state = { ...state, ...partial }
+    })
+    const actions = createClawActions({
+      set: set as never,
+      get: (() => state) as never,
+      i18n: { t: (key: string) => key },
+      getProvider: vi.fn() as never,
+      newClawChannel,
+      normalizeClawComposerModel: (raw: string) => raw,
+      activeClawChannel: vi.fn() as never,
+      normalizeWorkspaceRoot: (workspaceRoot?: string | null) => workspaceRoot?.trim() ?? '',
+      formatRuntimeError: (error: unknown) => error instanceof Error ? error.message : String(error),
+      shouldOpenSettingsForError: () => false,
+      clearedThreadSelection: vi.fn() as never,
+      sseAbortRef: { current: null },
+      clearBusyWatchdog: vi.fn()
+    })
+
+    await Promise.all([
+      actions.addClawChannel('feishu', undefined, undefined, { preserveRoute: true }),
+      actions.addClawChannel('weixin', undefined, undefined, { preserveRoute: true })
+    ])
+
+    expect(settings.claw.channels.map((item) => item.provider).sort()).toEqual(['feishu', 'weixin'])
+    expect(settings.revision).toBe(12)
+    expect(workwise.setSettings).toHaveBeenCalledTimes(2)
   })
 })

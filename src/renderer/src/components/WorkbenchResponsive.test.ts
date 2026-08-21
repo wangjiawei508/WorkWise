@@ -21,4 +21,22 @@ describe('Workbench responsive panel contract', () => {
     expect(baseShell).toMatch(/\.ds-workbench-divider::after\s*\{\s*content: none;/)
     expect(baseShell).not.toMatch(/\.ds-workbench-divider:hover::(before|after)/)
   })
+
+  it('routes notification clicks to the requested chat thread', async () => {
+    const nodeFs = 'node:fs/promises'
+    const { readFile } = await import(/* @vite-ignore */ nodeFs)
+    const workbench = await readFile(new URL('./Workbench.tsx', import.meta.url), 'utf8')
+    const notificationHandler = workbench.match(
+      /onNotificationOpenThread\(\(threadId\) => \{([\s\S]*?)\n\s*\}\)/
+    )?.[1] ?? ''
+    const openThread = workbench.match(
+      /const openThread = \(id: string\): void => \{([\s\S]*?)\n\s*\}/
+    )?.[1] ?? ''
+
+    expect(notificationHandler).toContain('notificationOpenThreadRef.current(threadId)')
+    expect(workbench).toContain("if (runtimeConnection !== 'ready') return")
+    expect(workbench).toContain('pendingNotificationThreadRef.current')
+    expect(openThread).toContain("setRoute('chat')")
+    expect(openThread).toContain('selectThread(id)')
+  })
 })

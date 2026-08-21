@@ -6,6 +6,8 @@ import { LocalToolHost } from './local-tool-host.js'
 import { SafeWebFetchError, safeWebFetch } from '../../network/safe-web-fetch.js'
 
 const DEFAULT_WEB_TIMEOUT_MS = 15_000
+const DEFAULT_DEEPSEEK_RESPONSES_SEARCH_TIMEOUT_MS = 90_000
+const MAX_DEEPSEEK_RESPONSES_SEARCH_TIMEOUT_MS = 120_000
 const DEFAULT_WEB_MAX_BYTES = 1024 * 1024
 // Models sometimes pass tiny max_bytes budgets (2000 was common in the
 // wild); below this floor the extracted text is too small to be useful.
@@ -33,6 +35,8 @@ export type WebToolProviderBuildResult = {
 
 export type WebToolProviderOptions = {
   provider?: WebProvider
+  fetchProvider?: WebProvider
+  searchProvider?: WebProvider
   nowIso?: () => string
 }
 
@@ -50,18 +54,20 @@ export function buildWebToolProviders(
     }
   }
 
-  const provider: WebProvider = options.provider ?? (web.fetchEnabled
+  const fallbackProvider: WebProvider = options.provider ?? (web.fetchEnabled
     ? new FetchWebProvider(web, options.nowIso)
     : new UnavailableWebProvider(web.provider))
+  const fetchProvider = options.fetchProvider ?? fallbackProvider
+  const searchProvider = options.searchProvider ?? fallbackProvider
   const tools = []
   if (web.fetchEnabled) {
-    tools.push(createFetchTool(web, provider))
+    tools.push(createFetchTool(web, fetchProvider))
   }
   if (web.searchEnabled) {
-    tools.push(createSearchTool(web, provider))
+    tools.push(createSearchTool(web, searchProvider))
   }
-  const fetchAvailable = Boolean(web.fetchEnabled && provider.fetch)
-  const searchAvailable = Boolean(web.searchEnabled && provider.search)
+  const fetchAvailable = Boolean(web.fetchEnabled && fetchProvider.fetch)
+  const searchAvailable = Boolean(web.searchEnabled && searchProvider.search)
   const reason = !tools.length
     ? 'web tools are disabled by config'
     : !fetchAvailable && !searchAvailable
@@ -85,13 +91,24 @@ export function buildWebToolProviders(
       available: fetchAvailable || searchAvailable,
       fetchAvailable,
       searchAvailable,
-      provider: provider.id,
+      provider: diagnosticProviderId(fetchProvider, searchProvider, web),
       ...(reason ? { reason } : {})
     }],
     fetchAvailable,
     searchAvailable,
-    provider: provider.id
+    provider: diagnosticProviderId(fetchProvider, searchProvider, web)
   }
+}
+
+function diagnosticProviderId(
+  fetchProvider: WebProvider,
+  searchProvider: WebProvider,
+  config: WebCapabilityConfig
+): string {
+  if (config.fetchEnabled && config.searchEnabled && fetchProvider.id !== searchProvider.id) {
+    return `${fetchProvider.id}+${searchProvider.id}`
+  }
+  return config.searchEnabled ? searchProvider.id : fetchProvider.id
 }
 
 function createFetchTool(config: WebCapabilityConfig, provider: WebProvider) {
@@ -174,7 +191,14 @@ function createSearchTool(config: WebCapabilityConfig, provider: WebProvider) {
       if (!query) return toolError('invalid_query', 'query is required')
       if (!provider.search) return toolError('provider_unavailable', 'web search provider is unavailable')
       const limit = boundedInt(args.limit, DEFAULT_SEARCH_LIMIT, 1, MAX_SEARCH_LIMIT)
-      const timeoutMs = boundedInt(args.timeout_ms, DEFAULT_WEB_TIMEOUT_MS, 1, DEFAULT_WEB_TIMEOUT_MS)
+      const deepSeekResponses = provider.id === 'deepseek-responses'
+      const defaultTimeoutMs = deepSeekResponses
+        ? DEFAULT_DEEPSEEK_RESPONSES_SEARCH_TIMEOUT_MS
+        : DEFAULT_WEB_TIMEOUT_MS
+      const maxTimeoutMs = deepSeekResponses
+        ? MAX_DEEPSEEK_RESPONSES_SEARCH_TIMEOUT_MS
+        : DEFAULT_WEB_TIMEOUT_MS
+      const timeoutMs = boundedInt(args.timeout_ms, defaultTimeoutMs, 1, maxTimeoutMs)
       try {
         const results = await provider.search({
           query,
@@ -251,6 +275,7 @@ function fetchOutput(result: WebFetchResult, toolTelemetry: Record<string, unkno
     retrievedAt: result.retrievedAt
   }
   return {
+    untrusted: true,
     sourceId: result.sourceId,
     url: result.url,
     finalUrl: result.finalUrl,
@@ -279,6 +304,7 @@ function searchOutput(
     retrievedAt: result.retrievedAt
   }))
   return {
+    untrusted: true,
     query,
     provider,
     results,

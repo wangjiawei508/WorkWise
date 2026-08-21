@@ -39,9 +39,9 @@ import { WriteDebugLogModal } from './settings-debug-log'
 import { useSettingsGuiUpdate } from './use-settings-gui-update'
 import {
   DEFAULT_WORKSPACE_ROOT,
+  canPersistSettingsWithPort,
   coerceRendererSettings,
   hasSettingsPatch,
-  hasValidPort,
   listSettingsText,
   mergeSettings,
   mergeSettingsPatches,
@@ -292,7 +292,7 @@ export function SettingsView(): ReactElement {
 
   const portError = useMemo(() => {
     if (!form || typeof formPort !== 'number') return null
-    if (!hasValidPort(form)) return t('portInvalid')
+    if (!canPersistSettingsWithPort(form, pendingSettingsPatch.current)) return t('portInvalid')
     return null
   }, [form, formPort, t])
 
@@ -486,7 +486,7 @@ export function SettingsView(): ReactElement {
     patch: AppSettingsPatch,
     version: number
   ): Promise<boolean> => {
-    if (!hasValidPort(snapshot)) return true
+    if (!canPersistSettingsWithPort(snapshot, patch)) return true
     setSaveStatus('saving')
     setSaveError(null)
 
@@ -524,7 +524,10 @@ export function SettingsView(): ReactElement {
   const startPendingSave = (): Promise<boolean> => {
     if (activeSettingsSave.current) return activeSettingsSave.current
     const snapshot = formRef.current
-    if (!snapshot || !hasValidPort(snapshot) || !hasSettingsPatch(pendingSettingsPatch.current)) {
+    if (!snapshot || !hasSettingsPatch(pendingSettingsPatch.current)) {
+      return Promise.resolve(true)
+    }
+    if (!canPersistSettingsWithPort(snapshot, pendingSettingsPatch.current)) {
       return Promise.resolve(true)
     }
 
@@ -553,7 +556,7 @@ export function SettingsView(): ReactElement {
     statusTimer.current = null
     setSaveError(null)
 
-    if (!hasValidPort(next)) {
+    if (!canPersistSettingsWithPort(next, patch)) {
       setSaveStatus('idle')
       return
     }
@@ -567,7 +570,11 @@ export function SettingsView(): ReactElement {
 
   const flushPendingSave = async (): Promise<boolean> => {
     const snapshot = formRef.current
-    if (!snapshot || !hasValidPort(snapshot)) return true
+    if (!snapshot) return true
+    if (
+      hasSettingsPatch(pendingSettingsPatch.current) &&
+      !canPersistSettingsWithPort(snapshot, pendingSettingsPatch.current)
+    ) return true
     if (saveTimer.current) {
       window.clearTimeout(saveTimer.current)
       saveTimer.current = null

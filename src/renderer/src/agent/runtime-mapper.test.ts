@@ -20,6 +20,29 @@ function makeSink(): ThreadEventSink {
   }
 }
 
+describe('tool-call usage delta mapping', () => {
+  it('forwards only the bounded argument character count to live usage', async () => {
+    const deltas: Array<{ characters: number; seq?: number; turnId?: string }> = []
+    const sink: ThreadEventSink = {
+      ...makeSink(),
+      onUsageDelta: (characters, seq, turnId) => deltas.push({ characters, seq, turnId })
+    }
+
+    await dispatchRuntimeEvent({
+      kind: 'tool_call_delta',
+      seq: 9,
+      timestamp: '2026-08-20T00:00:00.000Z',
+      threadId: 'thr_1',
+      turnId: 'turn_1',
+      callId: 'call_1',
+      toolName: 'read_file',
+      characterCount: 37
+    } as CoreRuntimeEventJson, sink, async () => undefined)
+
+    expect(deltas).toEqual([{ characters: 37, seq: 9, turnId: 'turn_1' }])
+  })
+})
+
 describe('assistant stream mapping', () => {
   it('does not append completed assistant snapshots after streaming deltas', async () => {
     const deltas: unknown[] = []
@@ -120,6 +143,50 @@ describe('todo event mapping', () => {
   })
 })
 
+describe('attachment evidence event mapping', () => {
+  it('surfaces ready and failed evidence states through the event sink', async () => {
+    const evidenceEvents: unknown[] = []
+    const sink = {
+      ...makeSink(),
+      onAttachmentEvidence: (event: unknown) => evidenceEvents.push(event)
+    } as ThreadEventSink
+
+    await dispatchRuntimeEvent({
+      kind: 'attachment_evidence_ready',
+      seq: 5,
+      timestamp: '2026-08-18T00:00:00.000Z',
+      threadId: 'thr_1',
+      turnId: 'turn_1',
+      attachmentId: 'att_1',
+      status: 'ready'
+    } as CoreRuntimeEventJson, sink, async () => undefined)
+    await dispatchRuntimeEvent({
+      kind: 'attachment_evidence_failed',
+      seq: 6,
+      timestamp: '2026-08-18T00:00:01.000Z',
+      threadId: 'thr_1',
+      turnId: 'turn_1',
+      attachmentId: 'att_2',
+      status: 'failed',
+      message: 'analysis unavailable'
+    } as CoreRuntimeEventJson, sink, async () => undefined)
+
+    expect(evidenceEvents).toEqual([
+      {
+        attachmentId: 'att_1',
+        status: 'ready',
+        createdAt: '2026-08-18T00:00:00.000Z'
+      },
+      {
+        attachmentId: 'att_2',
+        status: 'failed',
+        createdAt: '2026-08-18T00:00:01.000Z',
+        message: 'analysis unavailable'
+      }
+    ])
+  })
+})
+
 describe('review mapping', () => {
   const reviewItem: CoreTurnItemJson = {
     id: 'item_review_1',
@@ -210,7 +277,12 @@ describe('create_plan tool mapping', () => {
       message: 'model stream exploded',
       severity: 'error'
     })
-    expect(capturedErrorOptions).toEqual({ terminal: true })
+    expect(capturedErrorOptions).toEqual({
+      terminal: true,
+      terminalReason: 'error',
+      threadId: 'thr_1',
+      turnId: 'turn_1'
+    })
   })
 
   it('routes live error items to runtime error timeline events without fatal stream errors', async () => {

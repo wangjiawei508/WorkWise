@@ -11,6 +11,7 @@ import {
   defaultModelProviderSettings,
   defaultScheduleSettings,
   defaultWriteSettings,
+  isManagedRuntimeInsecure,
   type AppSettingsV1
 } from '../shared/app-settings'
 import { KunConfigSchema } from '../../kun/src/config/kun-config.js'
@@ -25,7 +26,7 @@ vi.mock('electron', () => ({
 
 let tempRoot: string | null = null
 
-function createSettings(binaryPath: string): AppSettingsV1 {
+function createSettings(binaryPath: string, port = 8899): AppSettingsV1 {
   if (!tempRoot) throw new Error('temp root not initialized')
   return {
     version: 1,
@@ -35,7 +36,7 @@ function createSettings(binaryPath: string): AppSettingsV1 {
     provider: defaultModelProviderSettings(),
     agents: {
       kun: {
-        ...defaultManagedRuntimeSettings(8899),
+        ...defaultManagedRuntimeSettings(port),
         binaryPath,
         dataDir: join(tempRoot, 'runtime-data'),
         autoStart: true
@@ -113,6 +114,101 @@ describe('startManagedRuntimeChild', () => {
     expect(logText).toContain('ready marker received on port 8899')
   })
 
+  it('routes host requests through the ephemeral Runtime port reported by a listening child', async () => {
+    const script = writeScript(
+      'ephemeral-ready-child.js',
+      [
+        "const { createServer } = require('node:http')",
+        "const portIndex = process.argv.indexOf('--port')",
+        "if (portIndex < 0 || process.argv[portIndex + 1] !== '0') process.exit(32)",
+        "const server = createServer((req, res) => {",
+        "  res.setHeader('content-type', 'application/json')",
+        "  res.end(JSON.stringify({ status: 'ok', service: 'kun', path: req.url }))",
+        '})',
+        "server.listen(0, '127.0.0.1', () => {",
+        "  const address = server.address()",
+        "  process.stdout.write('KUN_READY ' + JSON.stringify({ service: 'kun', mode: 'serve', port: address.port }) + '\\n')",
+        '})'
+      ].join('\n')
+    )
+    const module = await import('./managed-runtime-process')
+    const settings = createSettings(script, 8899)
+    await expect(module.startManagedRuntimeChild(
+      settings,
+      {
+        candidateRoot: tempRoot!,
+        homeDir: join(tempRoot!, 'home'),
+        workwiseHome: join(tempRoot!, 'home', '.workwise'),
+        mcpConfigPath: join(tempRoot!, 'home', '.workwise', 'mcp.json'),
+        autoInstallBundledAgentPack: false,
+        autoInstallBundledSpecialistSkills: false,
+        skillRoots: []
+      }
+    )).resolves.toBeUndefined()
+    const actualPort = module.getManagedRuntimeActualPort()
+    expect(actualPort).toEqual(expect.any(Number))
+    expect(actualPort).not.toBe(8899)
+
+    const { runtimeRequestViaHost } = await import('./runtime/managed-runtime-adapter')
+    await expect(runtimeRequestViaHost(
+      settings,
+      '/health',
+      { method: 'GET' },
+      async () => undefined
+    )).resolves.toMatchObject({
+      ok: true,
+      status: 200,
+      body: JSON.stringify({ status: 'ok', service: 'kun', path: '/health' })
+    })
+
+    await module.stopManagedRuntimeChildAndWait()
+    expect(module.getManagedRuntimeActualPort()).toBeNull()
+  })
+
+  it('does not route fixed-port production through a mismatched ready-marker port', async () => {
+    const script = writeScript(
+      'fixed-port-mismatch-child.js',
+      [
+        "process.stdout.write('KUN_READY ' + JSON.stringify({ service: 'kun', mode: 'serve', port: 43129 }) + '\\n')",
+        'setInterval(() => {}, 1_000)'
+      ].join('\n')
+    )
+    const module = await import('./managed-runtime-process')
+    await expect(module.startManagedRuntimeChild(
+      createSettings(script, 8899),
+      { autoInstallBundledAgentPack: false }
+    )).resolves.toBeUndefined()
+    expect(module.getManagedRuntimeActualPort()).toBeNull()
+  })
+
+  it('clears the actual Runtime port when the child exits unexpectedly', async () => {
+    const script = writeScript(
+      'ephemeral-exit-child.js',
+      [
+        "const portIndex = process.argv.indexOf('--port')",
+        "if (portIndex < 0 || process.argv[portIndex + 1] !== '0') process.exit(33)",
+        "process.stdout.write('KUN_READY ' + JSON.stringify({ service: 'kun', mode: 'serve', port: 43128 }) + '\\n')",
+        'setTimeout(() => process.exit(0), 25)'
+      ].join('\n')
+    )
+    const module = await import('./managed-runtime-process')
+    await expect(module.startManagedRuntimeChild(
+      createSettings(script, 8899),
+      {
+        candidateRoot: tempRoot!,
+        homeDir: join(tempRoot!, 'home'),
+        workwiseHome: join(tempRoot!, 'home', '.workwise'),
+        mcpConfigPath: join(tempRoot!, 'home', '.workwise', 'mcp.json'),
+        autoInstallBundledAgentPack: false,
+        autoInstallBundledSpecialistSkills: false,
+        skillRoots: []
+      }
+    )).resolves.toBeUndefined()
+    expect(module.getManagedRuntimeActualPort()).toBe(43128)
+    await new Promise((resolve) => setTimeout(resolve, 100))
+    expect(module.getManagedRuntimeActualPort()).toBeNull()
+  })
+
   it('rejects when the child exits before reporting ready', async () => {
     const script = writeScript(
       'exit-child.js',
@@ -133,6 +229,31 @@ describe('startManagedRuntimeChild', () => {
     const logText = await readRuntimeLog()
     expect(logText).toContain('bind failed on port 8899')
     expect(logText).toContain('exited with code 23')
+  })
+
+  it('passes a process-scoped Flow key to an isolated candidate Runtime', async () => {
+    if (!tempRoot) throw new Error('temp root not initialized')
+    const script = writeScript(
+      'candidate-flow-key-child.js',
+      [
+        "if (process.env.WORKWISE_FLOW_SECRET_STORE_KEY !== 'candidate-flow-key') process.exit(31)",
+        "process.stdout.write('KUN_READY ' + JSON.stringify({ service: 'kun', mode: 'serve', port: 8899 }) + '\\n')",
+        'setInterval(() => {}, 1_000)'
+      ].join('\n')
+    )
+    const module = await import('./managed-runtime-process')
+    const candidateHome = join(tempRoot, 'home')
+    await expect(module.startManagedRuntimeChild(createSettings(script), {
+      candidateRoot: tempRoot,
+      homeDir: candidateHome,
+      workwiseHome: join(candidateHome, '.workwise'),
+      mcpConfigPath: join(candidateHome, '.workwise', 'mcp.json'),
+      autoInstallBundledAgentPack: false,
+      autoInstallBundledSpecialistSkills: false,
+      skillRoots: [],
+      flowSecretStoreKey: 'candidate-flow-key'
+    })).resolves.toBeUndefined()
+    expect(module.isManagedRuntimeChildRunning()).toBe(true)
   })
 })
 
@@ -164,6 +285,29 @@ describe('reclaimManagedRuntimePort', () => {
 })
 
 describe('resolveManagedRuntimeDataDir', () => {
+  it('forces candidate runs into the guarded approval and sandbox policy', async () => {
+    if (!tempRoot) throw new Error('temp root not initialized')
+    const module = await import('./managed-runtime-process')
+    const settings = createSettings('/tmp/fake-kun-child.js')
+    settings.agents.kun.approvalPolicy = 'auto'
+    settings.agents.kun.sandboxMode = 'danger-full-access'
+    settings.agents.kun.insecure = true
+
+    const candidate = module.resolveManagedRuntimeForStart(settings, true, 'candidate-runtime-token')
+    expect(candidate).toMatchObject({
+      approvalPolicy: 'on-request',
+      sandboxMode: 'workspace-write',
+      insecure: false,
+      runtimeToken: 'candidate-runtime-token'
+    })
+    expect(isManagedRuntimeInsecure(candidate)).toBe(false)
+    expect(module.resolveManagedRuntimeForStart(settings, false)).toMatchObject({
+      approvalPolicy: 'auto',
+      sandboxMode: 'danger-full-access',
+      insecure: true
+    })
+  })
+
   it('expands Windows-style home-relative data directories', async () => {
     const module = await import('./managed-runtime-process')
 
@@ -174,6 +318,33 @@ describe('resolveManagedRuntimeDataDir', () => {
     const module = await import('./managed-runtime-process')
 
     expect(module.resolveManagedRuntimeDataDir({ dataDir: '~other\\kun' })).toBe('~other\\kun')
+  })
+
+  it('expands candidate runtime data under the explicitly supplied home', async () => {
+    if (!tempRoot) throw new Error('temp root not initialized')
+    const module = await import('./managed-runtime-process')
+    const candidateHome = join(tempRoot, 'candidate-home')
+
+    expect(module.resolveManagedRuntimeDataDir(
+      { dataDir: '~/.workwise/runtime' },
+      candidateHome
+    )).toBe(join(candidateHome, '.workwise', 'runtime'))
+  })
+
+  it('rejects candidate Runtime paths outside the candidate root before spawning', async () => {
+    if (!tempRoot) throw new Error('temp root not initialized')
+    const script = writeScript('never-started.js', 'setInterval(() => {}, 1_000)')
+    const module = await import('./managed-runtime-process')
+
+    await expect(module.startManagedRuntimeChild(createSettings(script), {
+      candidateRoot: join(tempRoot, 'candidate'),
+      homeDir: homedir(),
+      workwiseHome: join(tempRoot, 'candidate', 'home', '.workwise'),
+      autoInstallBundledAgentPack: false,
+      autoInstallBundledSpecialistSkills: false,
+      skillRoots: []
+    })).rejects.toThrow('candidate Runtime home must stay inside WORKWISE_CANDIDATE_ROOT')
+    expect(module.isManagedRuntimeChildRunning()).toBe(false)
   })
 })
 
@@ -200,7 +371,11 @@ describe('syncManagedRuntimeConfig', () => {
     const configPath = join(tempRoot, 'config.json')
     const module = await import('./managed-runtime-process')
 
-    await module.syncManagedRuntimeConfig(tempRoot, defaultManagedRuntimeSettings())
+    await module.syncManagedRuntimeConfig(tempRoot, {
+      ...defaultManagedRuntimeSettings(),
+      baseUrl: 'https://api.deepseek.com',
+      model: 'deepseek-v4-pro'
+    })
 
     const parsed = JSON.parse(readFileSync(configPath, 'utf8')) as any
     expect(parsed.serve.storage).toMatchObject({ backend: 'hybrid' })
@@ -225,6 +400,7 @@ describe('syncManagedRuntimeConfig', () => {
     })
     expect(parsed.models.profiles['deepseek-v4-pro']).toMatchObject({
       contextWindowTokens: 1_000_000,
+      maxOutputTokens: 384_000,
       contextCompaction: {
         softThreshold: 980_000,
         hardThreshold: 990_000
@@ -233,6 +409,7 @@ describe('syncManagedRuntimeConfig', () => {
     expect(parsed.models.profiles['deepseek-v4-flash']).toMatchObject({
       aliases: ['deepseek-chat', 'deepseek-reasoner'],
       contextWindowTokens: 1_000_000,
+      maxOutputTokens: 384_000,
       contextCompaction: {
         softThreshold: 980_000,
         hardThreshold: 990_000
@@ -241,7 +418,12 @@ describe('syncManagedRuntimeConfig', () => {
     expect(parsed.runtime.toolStorm).toMatchObject({ enabled: true, windowSize: 8, threshold: 3 })
     expect(parsed.runtime.toolArgumentRepair).toMatchObject({ maxStringBytes: 524288 })
     expect(parsed.capabilities.attachments).toMatchObject({ enabled: true })
-    expect(parsed.capabilities.web).toMatchObject({ enabled: true, fetchEnabled: true })
+    expect(parsed.capabilities.web).toMatchObject({
+      enabled: true,
+      fetchEnabled: true,
+      searchEnabled: true,
+      provider: 'deepseek-responses'
+    })
     expect(parsed.capabilities.mcp.search).toMatchObject({ enabled: false, mode: 'auto' })
     expect(parsed.capabilities.imageGen).toEqual({
       enabled: false,
@@ -848,5 +1030,20 @@ describe('syncManagedRuntimeConfig', () => {
       searchEnabled: true,
       provider: 'custom-search'
     })
+  })
+
+  it('does not enable DeepSeek Responses search for a third-party provider', async () => {
+    if (!tempRoot) throw new Error('temp root not initialized')
+    const module = await import('./managed-runtime-process')
+
+    await module.syncManagedRuntimeConfig(tempRoot, {
+      ...defaultManagedRuntimeSettings(),
+      baseUrl: 'https://third-party.example/v1',
+      model: 'deepseek-v4-pro'
+    })
+
+    const parsed = JSON.parse(readFileSync(join(tempRoot, 'config.json'), 'utf8')) as any
+    expect(parsed.capabilities.web.searchEnabled).not.toBe(true)
+    expect(parsed.capabilities.web.provider).not.toBe('deepseek-responses')
   })
 })

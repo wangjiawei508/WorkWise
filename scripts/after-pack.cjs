@@ -10,6 +10,11 @@ const {
 } = require('node:fs')
 const { join } = require('node:path')
 const { verifyAsarArchive } = require('./verify-packaged-asar.cjs')
+const {
+  adHocSignMacSidecar,
+  verifyMarkItDownSidecar
+} = require('./verify-packaged-markitdown.cjs')
+const { verifyCandidateSourceTree } = require('./candidate-source-provenance.cjs')
 
 const MANAGED_RUNTIME_REQUIRED_PATHS = [
   'kun/dist/cli/serve-entry.js',
@@ -99,6 +104,24 @@ function ensureBundledMarkItDownExecutable(context) {
   }
 }
 
+function validateBundledMarkItDownSidecar(context) {
+  const platform = normalizePlatform(context.electronPlatformName)
+  const sidecarRoot = join(unpackedAppRoot(context), 'sidecars', 'markitdown')
+  if (platform === 'darwin' && !hasDeveloperIdSigning()) {
+    adHocSignMacSidecar(sidecarRoot)
+  }
+  return verifyMarkItDownSidecar(sidecarRoot, platform)
+}
+
+function hasDeveloperIdSigning() {
+  return Boolean(
+    process.env.CSC_LINK ||
+    process.env.CSC_NAME ||
+    process.env.CSC_KEY_PASSWORD ||
+    process.env.MAC_SIGN === '1'
+  )
+}
+
 function activateBundledRuntimeDependencies(context) {
   const runtimeRoot = join(unpackedAppRoot(context), 'kun')
   const staged = join(runtimeRoot, 'runtime-deps')
@@ -161,13 +184,19 @@ function maybeAdhocSignMacApp(context) {
 }
 
 async function afterPack(context) {
+  const candidateSourceHead = process.env.WORKWISE_CANDIDATE_SOURCE_HEAD?.trim() || undefined
+  if (process.env.WORKWISE_CANDIDATE === '1') {
+    verifyCandidateSourceTree(join(__dirname, '..'), candidateSourceHead, { label: 'after-pack' })
+  }
   activateBundledRuntimeDependencies(context)
   validateBundledKunRuntime(context)
   ensureBundledMarkItDownExecutable(context)
+  validateBundledMarkItDownSidecar(context)
   copyBundledMarkdownConverters(context)
   const integrity = verifyAsarArchive(
     join(packedResourcesDir(context), 'app.asar'),
-    join(__dirname, '..', 'out')
+    join(__dirname, '..', 'out'),
+    candidateSourceHead
   )
   console.log(
     `[after-pack] ASAR integrity passed: ${integrity.files} files, ${integrity.compiledFiles} compiled files.`
@@ -184,7 +213,9 @@ module.exports._internals = {
   activateBundledRuntimeDependencies,
   validateBundledKunRuntime,
   ensureBundledMarkItDownExecutable,
+  validateBundledMarkItDownSidecar,
   copyBundledMarkdownConverters,
+  verifyCandidateSourceTree,
   converterDirNameForContext,
   normalizeArch
 }

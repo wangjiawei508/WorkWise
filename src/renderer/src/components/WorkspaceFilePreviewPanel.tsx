@@ -1,5 +1,10 @@
 import type { WorkspaceFileReadResult, WorkspaceFileTarget } from '@shared/workspace-file'
-import type { WorkspacePreviewResultV1 } from '@shared/agent-workbench'
+import {
+  isDocumentQualityReasonV1,
+  type DocumentParsingMode,
+  type DocumentQualityReasonV1,
+  type WorkspacePreviewResultV1
+} from '@shared/agent-workbench'
 import {
   Check,
   ChevronRight,
@@ -14,18 +19,17 @@ import {
   useMemo,
   useRef,
   useState,
-  type CSSProperties,
   type ReactElement
 } from 'react'
 import { useTranslation } from 'react-i18next'
 import { formatFilePathForDisplay } from '../lib/diff-stats'
 import { openWorkspacePathInEditor } from '../lib/open-workspace-path'
+import { languageFromFilePath } from '../lib/code-highlighting'
+import { WorkbenchPanelLoader } from './workbench-panel-loader'
 import {
-  highlightCodeHtml,
-  languageFromFilePath,
-  renderFallbackCodeHtml
-} from '../lib/code-highlighting'
-import { WorkspaceRichPreview } from './WorkspaceRichPreview'
+  builtinWorkspaceFileViewers,
+  resolveBuiltinWorkspaceFileViewer
+} from './workspace-file-viewers'
 
 type Props = {
   target: WorkspaceFileTarget | null
@@ -77,9 +81,22 @@ export function WorkspaceFilePreviewPanel({
   const [richResult, setRichResult] = useState<WorkspacePreviewResultV1 | null>(null)
   const [loading, setLoading] = useState(false)
   const [copied, setCopied] = useState(false)
-  const [highlightHtml, setHighlightHtml] = useState(() => renderFallbackCodeHtml(''))
-  const scrollRef = useRef<HTMLDivElement>(null)
   const copyResetRef = useRef<number | null>(null)
+  const activeParseIdRef = useRef<string | null>(null)
+  const previewGenerationRef = useRef(0)
+
+  const cancelActiveParse = (): void => {
+    previewGenerationRef.current += 1
+    const parseId = activeParseIdRef.current
+    if (!parseId) return
+    activeParseIdRef.current = null
+    void window.workwise.cancelDocumentParse(parseId).catch(() => undefined)
+  }
+
+  const closePreview = (): void => {
+    cancelActiveParse()
+    onClose()
+  }
 
   useEffect(() => {
     if (!target) {
@@ -90,6 +107,7 @@ export function WorkspaceFilePreviewPanel({
     }
 
     let cancelled = false
+    const previewGeneration = ++previewGenerationRef.current
     setLoading(true)
     setResult(null)
     setRichResult(null)
@@ -97,23 +115,25 @@ export function WorkspaceFilePreviewPanel({
     const extension = target.path.split('.').at(-1)?.toLowerCase() ?? ''
     const rich = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'md', 'markdown', 'txt', 'pdf', 'docx', 'pptx', 'xlsx'].includes(extension)
     const workspace = target.workspaceRoot ?? workspaceRoot
+    const parseId = `preview:${workspace}:${target.path}`
+    const documentBacked = ['pdf', 'docx', 'pptx', 'xlsx'].includes(extension)
+    activeParseIdRef.current = documentBacked ? parseId : null
     const pending = rich
       ? window.workwise.previewWorkspaceFile({
           workspaceRoot: workspace,
           relativePath: target.path,
-          parsingMode: 'fast',
-          idempotencyKey: `preview:${workspace}:${target.path}`
+          idempotencyKey: parseId
         })
       : window.workwise.readWorkspaceFile({ ...target, workspaceRoot: workspace })
 
     void pending
       .then((next) => {
-        if (cancelled) return
+        if (cancelled || previewGenerationRef.current !== previewGeneration) return
         if (rich) setRichResult(next as WorkspacePreviewResultV1)
         else setResult(next as WorkspaceFileReadResult)
       })
       .catch((error) => {
-        if (!cancelled) {
+        if (!cancelled && previewGenerationRef.current === previewGeneration) {
           setResult({
             ok: false,
             message: error instanceof Error ? error.message : String(error)
@@ -121,22 +141,15 @@ export function WorkspaceFilePreviewPanel({
         }
       })
       .finally(() => {
-        if (!cancelled) setLoading(false)
+        if (!cancelled && previewGenerationRef.current === previewGeneration) setLoading(false)
+        if (activeParseIdRef.current === parseId) activeParseIdRef.current = null
       })
 
     return () => {
       cancelled = true
+      cancelActiveParse()
     }
   }, [target, workspaceRoot])
-
-  useEffect(() => {
-    if (!result?.ok || !result.line) return
-    const id = window.requestAnimationFrame(() => {
-      const row = scrollRef.current?.querySelector(`[data-line="${result.line}"]`)
-      row?.scrollIntoView({ block: 'center' })
-    })
-    return () => window.cancelAnimationFrame(id)
-  }, [result])
 
   useEffect(
     () => () => {
@@ -153,7 +166,6 @@ export function WorkspaceFilePreviewPanel({
     if (result?.ok) return languageFromFilePath(result.path)
     return target?.path ? languageFromFilePath(target.path) : ''
   }, [result, target])
-  const lines = useMemo(() => (result?.ok ? result.content.split('\n') : []), [result])
   const breadcrumbSegments = useMemo(() => {
     const path = result?.ok ? result.path : target?.path ?? ''
     if (!path) return []
@@ -162,33 +174,15 @@ export function WorkspaceFilePreviewPanel({
   }, [result, target, workspaceRoot])
   const currentFileName = displayPath ? fileNameFromPath(displayPath) : t('filePreviewTitle')
   const badge = extensionBadge(result?.ok ? result.path : target?.path ?? '', language)
-  const activeLine = result?.ok && result.line && result.line >= 1 && result.line <= lines.length
-    ? result.line
-    : null
-  const codeSurfaceStyle = activeLine
-    ? ({
-        '--ds-file-preview-active-line': activeLine - 1
-      } as CSSProperties)
-    : undefined
-
-  useEffect(() => {
-    if (!result?.ok) {
-      setHighlightHtml(renderFallbackCodeHtml(''))
-      return
-    }
-
-    let cancelled = false
-    const fallback = renderFallbackCodeHtml(result.content)
-    setHighlightHtml(fallback)
-
-    void highlightCodeHtml(result.content, language).then((html) => {
-      if (!cancelled) setHighlightHtml(html)
+  const activeViewer = useMemo(() => {
+    if (!richResult && !result?.ok) return null
+    return resolveBuiltinWorkspaceFileViewer({
+      fileName: result?.ok ? result.path : target?.path ?? '',
+      ...(result?.ok
+        ? { bytes: new TextEncoder().encode(result.content.slice(0, 4096)) }
+        : {})
     })
-
-    return () => {
-      cancelled = true
-    }
-  }, [result, language])
+  }, [result, richResult, target])
 
   const openInEditor = (): void => {
     const path = result?.ok ? result.path : target?.path
@@ -221,6 +215,48 @@ export function WorkspaceFilePreviewPanel({
     } catch {
       setCopied(false)
     }
+  }
+
+  const requestAccuratePdf = (): void => {
+    if (!target || target.path.split('.').at(-1)?.toLowerCase() !== 'pdf') return
+    const workspace = target.workspaceRoot ?? workspaceRoot
+    const parseId = `preview:${workspace}:${target.path}:accurate`
+    const retryReasons: DocumentQualityReasonV1[] = richResult?.kind === 'pdf'
+      ? [...new Set([
+          ...(richResult.retryReasons ?? []),
+          ...(richResult.document?.route.switchReason ?? []),
+          ...(richResult.document?.quality.reasons ?? [])
+        ].filter(isDocumentQualityReasonV1))]
+      : []
+    const previewGeneration = ++previewGenerationRef.current
+    activeParseIdRef.current = parseId
+    setLoading(true)
+    void window.workwise.previewWorkspaceFile({
+      workspaceRoot: workspace,
+      relativePath: target.path,
+      parsingMode: 'accurate' as DocumentParsingMode,
+      ...(retryReasons.length ? { retryReasons } : {}),
+      idempotencyKey: parseId
+    }).then((next) => {
+      if (previewGenerationRef.current !== previewGeneration) return
+      const mergedRetryReasons: DocumentQualityReasonV1[] = next.kind === 'pdf'
+        ? [...new Set([...(next.retryReasons ?? []), ...retryReasons])]
+        : []
+      const accurateResult = next.kind === 'pdf' && mergedRetryReasons.length > 0
+        ? {
+            ...next,
+            retryReasons: mergedRetryReasons
+          }
+        : next
+      setResult(null)
+      setRichResult(accurateResult)
+    }).catch((error) => {
+      if (previewGenerationRef.current !== previewGeneration) return
+      setResult({ ok: false, message: error instanceof Error ? error.message : String(error) })
+    }).finally(() => {
+      if (previewGenerationRef.current === previewGeneration) setLoading(false)
+      if (activeParseIdRef.current === parseId) activeParseIdRef.current = null
+    })
   }
 
   return (
@@ -266,7 +302,7 @@ export function WorkspaceFilePreviewPanel({
           </button>
           <button
             type="button"
-            onClick={onClose}
+            onClick={closePreview}
             className="ds-code-sidebar-icon-button"
             title={t('rightPanelCollapse')}
             aria-label={t('rightPanelCollapse')}
@@ -320,50 +356,24 @@ export function WorkspaceFilePreviewPanel({
             <Loader2 className="h-4 w-4 animate-spin" strokeWidth={1.8} />
             {t('filePreviewLoading')}
           </div>
-        ) : richResult ? (
-          <WorkspaceRichPreview result={richResult} />
-        ) : result?.ok ? (
-          <div className="relative flex min-h-0 flex-1 flex-col">
-            {result.truncated ? (
-              <div className="shrink-0 border-b border-ds-border-muted/70 px-4 py-1.5 text-[11px] text-amber-700 dark:text-amber-300">
-                {t('filePreviewTruncated')}
-              </div>
-            ) : null}
-            <div
-              ref={scrollRef}
-              className="ds-file-preview-scroll min-h-0 flex-1 overflow-auto font-mono text-[12px] leading-[22px] text-ds-ink"
-            >
-              <div
-                className="ds-file-preview-code-surface"
-                style={codeSurfaceStyle}
-              >
-                {activeLine ? (
-                  <div className="ds-file-preview-active-line" aria-hidden="true" />
-                ) : null}
-                <div className="ds-file-preview-gutter">
-                  {lines.map((_, index) => {
-                    const lineNo = index + 1
-                    return (
-                      <div
-                        key={lineNo}
-                        data-line={lineNo}
-                        className={`ds-file-preview-line-number ${activeLine === lineNo ? 'is-active' : ''}`}
-                      >
-                        {lineNo}
-                      </div>
-                    )
-                  })}
-                </div>
-                <div
-                  className="ds-file-preview-code-html"
-                  dangerouslySetInnerHTML={{ __html: highlightHtml }}
-                />
-              </div>
-            </div>
-          </div>
+        ) : activeViewer && (richResult || result?.ok) ? (
+          <WorkbenchPanelLoader
+            registry={builtinWorkspaceFileViewers}
+            kind="viewer"
+            panelId={activeViewer.id}
+            title={t('workbenchPanelErrorTitle')}
+            retryLabel={t('workbenchPanelRetry')}
+          >
+            {(module) => activeViewer.render(module, {
+              richResult,
+              textResult: result?.ok ? result : null,
+              language,
+              onRequestAccuratePdf: requestAccuratePdf
+            })}
+          </WorkbenchPanelLoader>
         ) : (
           <div className="flex flex-1 items-center justify-center px-6 text-center text-[12px] leading-6 text-red-700 dark:text-red-300">
-            {result?.message ?? t('filePreviewFailed')}
+            {(result && !result.ok ? result.message : undefined) ?? t('filePreviewFailed')}
           </div>
         )}
       </div>

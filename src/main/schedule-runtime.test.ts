@@ -1,4 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { createServer, type Server } from 'node:http'
+import type { AddressInfo } from 'node:net'
 import {
   defaultClawSettings,
   defaultKeyboardShortcuts,
@@ -101,9 +103,58 @@ function createRuntime(initial: AppSettingsV1, runtimeRequest = vi.fn()) {
   return { runtime, store, runtimeRequest }
 }
 
+async function listenOnLoopback(server: Server): Promise<number> {
+  await new Promise<void>((resolve, reject) => {
+    server.once('error', reject)
+    server.listen(0, '127.0.0.1', () => resolve())
+  })
+  return (server.address() as AddressInfo).port
+}
+
+async function closeServer(server: Server): Promise<void> {
+  if (!server.listening) return
+  await new Promise<void>((resolve) => server.close(() => resolve()))
+}
+
 describe('ScheduleRuntime', () => {
   afterEach(() => {
     vi.unstubAllGlobals()
+  })
+
+  it('rebinds to a changed schedule port instead of reusing the candidate reservation', async () => {
+    const reservedServer = createServer()
+    const targetReservation = createServer()
+    const reservedPort = await listenOnLoopback(reservedServer)
+    const targetPort = await listenOnLoopback(targetReservation)
+    await closeServer(targetReservation)
+    const initial = settingsWith([], { internal: { port: reservedPort, secret: 'private-secret' } })
+    const runtime = new ScheduleRuntime({
+      store: createStore(initial) as never,
+      runtimeRequest: vi.fn() as never,
+      logError: vi.fn(),
+      internalServer: reservedServer
+    })
+    const internalRuntime = runtime as unknown as {
+      server: Server | null
+      syncInternalServer: (settings: AppSettingsV1) => void
+      closeInternalServer: () => void
+    }
+    try {
+      internalRuntime.syncInternalServer(initial)
+      expect(internalRuntime.server).toBe(reservedServer)
+      const moved = settingsWith([], { internal: { port: targetPort, secret: 'private-secret' } })
+      internalRuntime.syncInternalServer(moved)
+      const rebound = internalRuntime.server
+      expect(rebound).not.toBe(reservedServer)
+      if (!rebound?.listening) await new Promise<void>((resolve) => rebound?.once('listening', resolve))
+      expect((rebound?.address() as AddressInfo).port).toBe(targetPort)
+      const health = await fetch(`http://127.0.0.1:${targetPort}/schedule/internal/health`)
+      expect(health.status).toBe(200)
+      expect(await health.json()).toMatchObject({ status: 'ok', service: 'schedule' })
+    } finally {
+      internalRuntime.closeInternalServer()
+      await closeServer(reservedServer)
+    }
   })
 
   it('computes nextRunAt for supported schedule kinds', () => {

@@ -1,5 +1,6 @@
 import type {
   ChatBlock,
+  AttachmentEvidenceEventPayload,
   CompactionEventPayload,
   GeneratedFileReference,
   NormalizedThread,
@@ -20,11 +21,13 @@ import type {
   ToolEventPayload,
   UserInputQuestion
 } from './types'
+import { terminalReasonForFailure } from '../store/terminal-notification-projection'
 import { safeMediaPreviewUrl } from '../lib/safe-media-preview-url'
 import { redactSecrets, redactSecretText } from '@shared/secret-redaction'
 import type { DesignCanvasCommandV1 } from '@shared/design-workspace'
 import type {
   CoreChildRuntimeMetadataJson,
+  CoreAttachmentEvidenceJson,
   CoreRuntimeEventJson,
   CoreThreadGoalJson,
   CoreThreadTodoListJson,
@@ -34,6 +37,8 @@ import type {
   CoreReviewTargetJson,
   CoreUsageSnapshotJson
 } from './runtime-contract'
+
+const MAX_TOOL_CALL_DELTA_CHARACTERS = 1_000_000
 
 export function buildQuery(options: Record<string, string | number | boolean | undefined>): string {
   const params = new URLSearchParams()
@@ -736,7 +741,13 @@ function userMessageEventFromItem(item: CoreTurnItemJson): UserMessageEventPaylo
 
 function assistantTextBlockFromItem(item: CoreTurnItemJson): ChatBlock | null {
   if (!item.text?.trim()) return null
-  return { kind: 'assistant', id: item.id, createdAt: itemCreatedAt(item), text: item.text }
+  return {
+    kind: 'assistant',
+    id: item.id,
+    createdAt: itemCreatedAt(item),
+    text: item.text,
+    ...(Array.isArray(item.uiBlocks) ? { uiBlocks: item.uiBlocks } : {})
+  }
 }
 
 function reasoningBlockFromItem(item: CoreTurnItemJson): ChatBlock | null {
@@ -1193,6 +1204,22 @@ export async function dispatchRuntimeEvents(
   flushDeltas()
 }
 
+function attachmentEvidenceFromEvent(event: CoreRuntimeEventJson): AttachmentEvidenceEventPayload | null {
+  const attachmentId = typeof event.attachmentId === 'string' ? event.attachmentId.trim() : ''
+  if (!attachmentId) return null
+  const status = event.kind === 'attachment_evidence_ready' ? 'ready' : 'failed'
+  const message = typeof event.message === 'string' && event.message.trim()
+    ? redactSecretText(event.message)
+    : undefined
+  return {
+    attachmentId,
+    status,
+    ...(event.timestamp ? { createdAt: event.timestamp } : {}),
+    ...(event.evidence ? { evidence: event.evidence as CoreAttachmentEvidenceJson } : {}),
+    ...(message ? { message } : {})
+  }
+}
+
 export async function dispatchRuntimeEvent(
   event: CoreRuntimeEventJson,
   sink: ThreadEventSink,
@@ -1205,6 +1232,15 @@ export async function dispatchRuntimeEvent(
     case 'assistant_reasoning_delta':
       emitDelta(event, sink, 'agent_reasoning')
       return
+    case 'tool_call_delta': {
+      const characterCount = typeof event.characterCount === 'number' && Number.isFinite(event.characterCount)
+        ? Math.min(MAX_TOOL_CALL_DELTA_CHARACTERS, Math.max(0, Math.floor(event.characterCount)))
+        : 0
+      if (characterCount > 0) {
+        sink.onUsageDelta?.(characterCount, event.seq, event.turnId)
+      }
+      return
+    }
     case 'item_created':
     case 'item_updated':
     case 'item_completed':
@@ -1227,7 +1263,7 @@ export async function dispatchRuntimeEvent(
 	      if (status) sink.onRuntimeStatus?.(status)
 	      return
 	    }
-	    case 'tool_storm_suppressed': {
+    case 'tool_storm_suppressed': {
 	      const status = runtimeStatusFromEvent(event)
 	      if (status) sink.onRuntimeStatus?.(status)
 	      return
@@ -1289,16 +1325,33 @@ export async function dispatchRuntimeEvent(
       })
       return
     case 'usage':
-      if (event.usage) sink.onUsage?.(usageFromCore(event.usage))
+      if (event.usage) sink.onUsage?.(usageFromCore(event.usage), event.seq, event.turnId)
       return
     case 'turn_completed':
     case 'turn_aborted':
-      sink.onTurnComplete()
+      sink.onTurnComplete({
+        reason: event.reason === 'aborted' ? 'aborted' : event.kind === 'turn_aborted' ? 'aborted' : 'completed',
+        threadId: event.threadId,
+        turnId: event.turnId
+      })
       return
     case 'turn_failed': {
       const payload = runtimeErrorFromEvent(event, 'WorkWise Runtime turn failed')
       sink.onRuntimeError?.(payload)
-      sink.onError(errorForRuntimeEvent(payload), { terminal: true })
+      sink.onError(errorForRuntimeEvent(payload), {
+        terminal: true,
+        terminalReason: event.reason === 'blocked' || event.reason === 'max_tokens' || event.reason === 'error'
+          ? event.reason
+          : terminalReasonForFailure(payload.code, payload.message),
+        threadId: event.threadId,
+        turnId: event.turnId
+      })
+      return
+    }
+    case 'attachment_evidence_ready':
+    case 'attachment_evidence_failed': {
+      const evidence = attachmentEvidenceFromEvent(event)
+      if (evidence) sink.onAttachmentEvidence?.(evidence)
       return
     }
     case 'error':

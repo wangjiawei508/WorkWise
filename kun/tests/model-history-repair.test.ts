@@ -7,6 +7,10 @@ import {
   makeToolResultItem,
   makeUserItem
 } from '../src/domain/item.js'
+import type { TurnItem } from '../src/contracts/items.js'
+
+type ToolCallItem = Extract<TurnItem, { kind: 'tool_call' }>
+type ToolResultItem = Extract<TurnItem, { kind: 'tool_result' }>
 
 describe('model history repair', () => {
   it('keeps complete multi-tool blocks across assistant text bridges', () => {
@@ -125,6 +129,92 @@ describe('model history repair', () => {
     ])
 
     expect(repaired.map((item) => item.id)).toEqual(['assistant_text', 'user_next'])
+  })
+
+  it('prefers a completed tool-result snapshot over an earlier running snapshot', () => {
+    const toolCall = makeToolCallItem({
+      id: 'call_shell',
+      threadId: 'thr_1',
+      turnId: 'turn_1',
+      callId: 'call_shell',
+      toolName: 'bash',
+      arguments: { command: 'create deliverable' }
+    })
+    const runningResult: ToolResultItem = {
+      ...(makeToolResultItem({
+        id: 'result_shell',
+        threadId: 'thr_1',
+        turnId: 'turn_1',
+        callId: 'call_shell',
+        toolName: 'bash',
+        output: { status: 'running', exit_code: null }
+      }) as ToolResultItem),
+      status: 'running' as const
+    }
+    const completedResult = makeToolResultItem({
+      id: 'result_shell',
+      threadId: 'thr_1',
+      turnId: 'turn_1',
+      callId: 'call_shell',
+      toolName: 'bash',
+      output: { status: 'completed', exit_code: 0 }
+    })
+
+    const repaired = repairModelHistoryItems([toolCall, runningResult, completedResult])
+
+    expect(repaired).toHaveLength(2)
+    expect(repaired[1]).toMatchObject({
+      kind: 'tool_result',
+      status: 'completed',
+      output: { status: 'completed', exit_code: 0 }
+    })
+  })
+
+  it('collapses interleaved append-only tool snapshots before repairing history', () => {
+    const pendingCall = makeToolCallItem({
+      id: 'call_shell',
+      threadId: 'thr_1',
+      turnId: 'turn_1',
+      callId: 'call_shell',
+      toolName: 'bash',
+      arguments: { command: 'create deliverable' }
+    }) as ToolCallItem
+    const runningResult: ToolResultItem = {
+      ...(makeToolResultItem({
+        id: 'result_shell',
+        threadId: 'thr_1',
+        turnId: 'turn_1',
+        callId: 'call_shell',
+        toolName: 'bash',
+        output: { status: 'running', exit_code: null }
+      }) as ToolResultItem),
+      status: 'running' as const
+    }
+    const completedCall = { ...pendingCall, status: 'completed' as const }
+    const completedResult = makeToolResultItem({
+      id: 'result_shell',
+      threadId: 'thr_1',
+      turnId: 'turn_1',
+      callId: 'call_shell',
+      toolName: 'bash',
+      output: { status: 'completed', exit_code: 0 }
+    })
+
+    const healed = healLoadedHistoryItems([
+      pendingCall,
+      runningResult,
+      completedCall,
+      completedResult
+    ])
+
+    expect(healed.changed).toBe(true)
+    expect(healed.items).toHaveLength(2)
+    expect(healed.items[0]).toMatchObject({ kind: 'tool_call', status: 'completed' })
+    expect(healed.items[1]).toMatchObject({
+      kind: 'tool_result',
+      status: 'completed',
+      output: { status: 'completed', exit_code: 0 }
+    })
   })
 
   it('heals loaded history by adding missing ids and dropping invalid tool items', () => {

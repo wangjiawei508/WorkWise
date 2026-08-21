@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { ChatBlock } from '../agent/types'
 import {
   buildThreadEventSink,
@@ -9,10 +9,16 @@ import {
   MAX_PENDING_CLAW_FEISHU_MIRRORS,
   MAX_WATCHED_COMPLETION_NOTIFICATIONS,
   rememberPendingClawFeishuMirror,
+  syncTurnCompletionPoll,
   takePendingClawFeishuMirror,
   watchTurnCompletionNotification
 } from './chat-store-runtime'
+import { stopTurnCompletionPoll } from './chat-store-schedulers'
+import { applyLiveUsageDelta } from './live-usage-projection'
 import type { ChatState, ChatStoreSet } from './chat-store-types'
+
+const registryMock = vi.hoisted(() => ({ getProvider: vi.fn() }))
+vi.mock('../agent/registry', () => ({ getProvider: registryMock.getProvider }))
 
 function makeSinkHarness(overrides: Partial<ChatState> = {}): {
   getState: () => ChatState
@@ -26,6 +32,7 @@ function makeSinkHarness(overrides: Partial<ChatState> = {}): {
     liveAssistant: '',
     lastSeq: 0,
     usageRefreshKey: 0,
+    liveUsageByThreadId: {},
     busy: true,
     error: null,
     currentTurnId: 'turn-current',
@@ -37,7 +44,9 @@ function makeSinkHarness(overrides: Partial<ChatState> = {}): {
     watchTurnCompletion: {},
     unreadThreadIds: {},
     queuedMessages: [],
-    threads: []
+    threads: [],
+    refreshThreads: vi.fn(async () => undefined),
+    drainQueuedMessages: vi.fn(async () => undefined)
   } as unknown as ChatState
   state = { ...state, ...overrides }
   const get = (): ChatState => state
@@ -52,7 +61,385 @@ function makeSinkHarness(overrides: Partial<ChatState> = {}): {
   }
 }
 
+afterEach(() => {
+  stopTurnCompletionPoll()
+  vi.unstubAllGlobals()
+})
+
+it('clears live usage when a watched background thread completes', async () => {
+  registryMock.getProvider.mockReturnValue({
+    getThreadDetail: vi.fn(async () => ({
+      blocks: [],
+      threadStatus: 'idle',
+      latestTurnId: 'turn-background',
+      latestTurnStatus: 'completed'
+    }))
+  })
+  vi.stubGlobal('window', { workwise: { showTurnCompleteNotification: vi.fn(async () => ({ ok: true })) } })
+  const harness = makeSinkHarness({
+    runtimeConnection: 'ready',
+    activeThreadId: 'thread-current',
+    watchTurnCompletion: { 'thread-background': true },
+    liveUsageByThreadId: {
+      'thread-background': applyLiveUsageDelta(undefined, 'turn-background', 'partial output')
+    }
+  })
+
+  syncTurnCompletionPoll(harness.set, harness.get)
+
+  await vi.waitFor(() => {
+    expect(harness.getState().liveUsageByThreadId['thread-background']).toBeUndefined()
+  })
+})
+
 describe('thread event sink binding', () => {
+  it('projects tool-call character deltas without exposing argument text and ignores replay duplicates', () => {
+    const initial = makeSinkHarness()
+    const sink = buildThreadEventSink(initial.set, initial.get, { threadId: 'thread-current' })
+    sink.onUsageDelta?.(12, 8, 'turn-current')
+    sink.onUsageDelta?.(12, 8, 'turn-current')
+    expect(initial.getState().liveUsageByThreadId['thread-current']).toMatchObject({ estimatedOutputCharacters: 12, estimatedOutputTokens: 3, exactTotalTokens: null })
+  })
+
+  it('keeps tool-call estimates after exact usage and projects only subsequent deltas', () => {
+    const initial = makeSinkHarness()
+    const sink = buildThreadEventSink(initial.set, initial.get, { threadId: 'thread-current' })
+    sink.onUsageDelta?.(8, 8, 'turn-current')
+    sink.onUsage?.({
+      inputTokens: 10,
+      outputTokens: 2,
+      reasoningTokens: 0,
+      cachedTokens: 0,
+      cacheMissTokens: 10,
+      cacheHitRate: null,
+      totalTokens: 12,
+      costUsd: 0,
+      costCny: null,
+      cacheSavingsUsd: 0,
+      cacheSavingsCny: null,
+      tokenEconomySavingsTokens: 0,
+      tokenEconomySavingsUsd: 0,
+      tokenEconomySavingsCny: null,
+      turns: 1
+    }, 9)
+    sink.onUsageDelta?.(4, 8, 'turn-current')
+    sink.onUsageDelta?.(4, 10, 'turn-current')
+    expect(initial.getState().liveUsageByThreadId['thread-current']).toMatchObject({
+      estimatedOutputCharacters: 12,
+      exactTotalTokens: 12,
+      exactOutputTokens: 2
+    })
+  })
+
+  it('ignores a stale exact usage snapshot that arrives after a newer delta', () => {
+    const initial = makeSinkHarness()
+    const sink = buildThreadEventSink(initial.set, initial.get, { threadId: 'thread-current' })
+    sink.onUsageDelta?.(8, 10, 'turn-current')
+    sink.onUsage?.({
+      inputTokens: 10,
+      outputTokens: 2,
+      reasoningTokens: 0,
+      cachedTokens: 0,
+      cacheMissTokens: 10,
+      cacheHitRate: null,
+      totalTokens: 12,
+      costUsd: 0,
+      costCny: null,
+      cacheSavingsUsd: 0,
+      cacheSavingsCny: null,
+      tokenEconomySavingsTokens: 0,
+      tokenEconomySavingsUsd: 0,
+      tokenEconomySavingsCny: null,
+      turns: 1
+    }, 9, 'turn-current')
+    const projection = initial.getState().liveUsageByThreadId['thread-current']
+    expect(projection).toMatchObject({ estimatedOutputCharacters: 8, exactTotalTokens: null })
+  })
+
+  it('ignores exact usage from an older turn while a newer turn is active', () => {
+    const initial = makeSinkHarness()
+    const sink = buildThreadEventSink(initial.set, initial.get, { threadId: 'thread-current' })
+    sink.onUsage?.({
+      inputTokens: 10,
+      outputTokens: 2,
+      reasoningTokens: 0,
+      cachedTokens: 0,
+      cacheMissTokens: 10,
+      cacheHitRate: null,
+      totalTokens: 12,
+      costUsd: 0,
+      costCny: null,
+      cacheSavingsUsd: 0,
+      cacheSavingsCny: null,
+      tokenEconomySavingsTokens: 0,
+      tokenEconomySavingsUsd: 0,
+      tokenEconomySavingsCny: null,
+      turns: 1
+    }, 9, 'turn-old')
+    expect(initial.getState().liveUsageByThreadId['thread-current']).toBeUndefined()
+  })
+
+  it('projects attachment evidence status onto the matching user attachment', () => {
+    const initial = makeSinkHarness({
+      blocks: [{
+        kind: 'user',
+        id: 'user-current',
+        text: 'inspect these images',
+        meta: {
+          attachments: [
+            { id: 'att-ready', state: 'parsing' },
+            { id: 'att-failed', state: 'parsing' }
+          ]
+        }
+      }]
+    })
+    const sink = buildThreadEventSink(initial.set, initial.get, { threadId: 'thread-current' })
+
+    sink.onAttachmentEvidence?.({
+      attachmentId: 'att-ready',
+      status: 'ready',
+      createdAt: '2026-08-18T00:00:00.000Z'
+    })
+    sink.onAttachmentEvidence?.({
+      attachmentId: 'att-failed',
+      status: 'failed',
+      createdAt: '2026-08-18T00:00:01.000Z',
+      message: 'analysis unavailable'
+    })
+
+    const user = initial.getState().blocks[0]
+    expect(user?.kind).toBe('user')
+    if (user?.kind !== 'user') return
+    expect(user.meta?.attachments).toEqual([
+      { id: 'att-ready', state: 'ready' },
+      { id: 'att-failed', state: 'degraded', degradationReasons: ['analysis unavailable'] }
+    ])
+  })
+
+  it('seeds initial terminal history without notifying, then notifies for a new live turn', () => {
+    const showTurnCompleteNotification = vi.fn(async () => ({ ok: true }))
+    vi.stubGlobal('window', {
+      workwise: {
+        showTurnCompleteNotification,
+        mirrorClawChannelMessage: vi.fn(async () => undefined)
+      }
+    })
+    const shared = {
+      activeThreadId: 'thread-current',
+      threads: [{ id: 'thread-current', title: 'Current thread' }],
+      refreshThreads: vi.fn(async () => undefined),
+      drainQueuedMessages: vi.fn(async () => undefined),
+      queuedMessages: []
+    } as unknown as Partial<ChatState>
+    const initial = makeSinkHarness({
+      ...shared,
+      busy: false,
+      currentTurnId: null,
+      currentTurnUserId: null,
+      lastSeq: 100
+    })
+
+    buildThreadEventSink(initial.set, initial.get, {
+      threadId: 'thread-current',
+      sinceSeq: 100
+    }).onTurnComplete({
+      reason: 'completed',
+      threadId: 'thread-current',
+      turnId: 'historical-turn'
+    })
+
+    expect(showTurnCompleteNotification).not.toHaveBeenCalled()
+
+    const live = makeSinkHarness({
+      ...shared,
+      busy: true,
+      currentTurnId: 'live-turn',
+      currentTurnUserId: 'live-user',
+      blocks: [{ kind: 'user', id: 'live-user', text: 'new request' }]
+    })
+    buildThreadEventSink(live.set, live.get, {
+      threadId: 'thread-current',
+      sinceSeq: 100
+    }).onTurnComplete({
+      reason: 'completed',
+      threadId: 'thread-current',
+      turnId: 'live-turn'
+    })
+
+    expect(showTurnCompleteNotification).toHaveBeenCalledTimes(1)
+    expect(showTurnCompleteNotification).toHaveBeenCalledWith(expect.objectContaining({
+      threadId: 'thread-current',
+      turnId: 'live-turn',
+      reason: 'completed'
+    }))
+  })
+
+  it('dedupes terminal notifications by thread and turn together', () => {
+    const showTurnCompleteNotification = vi.fn(async () => ({ ok: true }))
+    vi.stubGlobal('window', { workwise: { showTurnCompleteNotification } })
+    for (const threadId of ['thread-a', 'thread-b']) {
+      const harness = makeSinkHarness({
+        activeThreadId: threadId,
+        currentTurnId: 'shared-turn',
+        currentTurnUserId: `user-${threadId}`,
+        threads: [{ id: threadId, title: threadId }] as ChatState['threads']
+      })
+      buildThreadEventSink(harness.set, harness.get, { threadId }).onTurnComplete({
+        reason: 'completed',
+        threadId,
+        turnId: 'shared-turn'
+      })
+    }
+
+    expect(showTurnCompleteNotification).toHaveBeenCalledTimes(2)
+  })
+
+  it.each([
+    'completed',
+    'error',
+    'aborted',
+    'blocked',
+    'max_tokens'
+  ] as const)('projects the %s terminal reason through the real notification entry point', (reason) => {
+    const showTurnCompleteNotification = vi.fn(async () => ({ ok: true }))
+    vi.stubGlobal('window', { workwise: { showTurnCompleteNotification } })
+    const threadId = `thread-terminal-${reason}`
+    const turnId = `turn-terminal-${reason}`
+    const harness = makeSinkHarness({
+      activeThreadId: threadId,
+      currentTurnId: turnId,
+      currentTurnUserId: `user-terminal-${reason}`,
+      blocks: [{ kind: 'user', id: `user-terminal-${reason}`, text: 'run' }],
+      threads: [{ id: threadId, title: `Terminal ${reason}` }] as ChatState['threads']
+    })
+
+    const sink = buildThreadEventSink(harness.set, harness.get, { threadId })
+    if (reason === 'completed' || reason === 'aborted') {
+      sink.onTurnComplete({ reason, threadId, turnId })
+    } else {
+      sink.onError(new Error(`terminal ${reason}`), {
+        terminal: true,
+        terminalReason: reason,
+        threadId,
+        turnId
+      })
+    }
+
+    expect(showTurnCompleteNotification).toHaveBeenCalledTimes(1)
+    expect(showTurnCompleteNotification).toHaveBeenCalledWith(expect.objectContaining({
+      threadId,
+      turnId,
+      reason
+    }))
+  })
+
+  it('does not label a selected thread active when another route is visible', () => {
+    const showTurnCompleteNotification = vi.fn(async () => ({ ok: true }))
+    vi.stubGlobal('window', { workwise: { showTurnCompleteNotification } })
+    const harness = makeSinkHarness({
+      activeThreadId: 'thread-current',
+      route: 'settings',
+      currentTurnId: 'route-turn',
+      threads: [{ id: 'thread-current', title: 'Current' }] as ChatState['threads']
+    })
+
+    buildThreadEventSink(harness.set, harness.get, { threadId: 'thread-current' }).onTurnComplete({
+      reason: 'completed',
+      threadId: 'thread-current',
+      turnId: 'route-turn'
+    })
+
+    expect(showTurnCompleteNotification).toHaveBeenCalledWith(expect.objectContaining({
+      activeThread: false
+    }))
+  })
+
+  it('clears completed-turn TPS and resets projection when a new turn starts', () => {
+    const harness = makeSinkHarness({
+      liveUsageByThreadId: {
+        'thread-current': {
+          turnId: 'turn-current',
+          estimatedOutputCharacters: 8,
+          estimatedOutputTokens: 2,
+          estimatedOutputTokensAtExactUsage: null,
+          exactUsageSeq: null,
+          exactTotalTokens: null,
+          exactOutputTokens: null,
+          firstOutputAt: 1_000,
+          lastOutputAt: 2_000,
+          tokensPerSecond: 2
+        }
+      }
+    })
+    const sink = buildThreadEventSink(harness.set, harness.get, { threadId: 'thread-current' })
+
+    sink.onTurnComplete({ threadId: 'thread-current', turnId: 'turn-current' })
+    expect(harness.getState().liveUsageByThreadId['thread-current']).toBeUndefined()
+
+    harness.set({ busy: true, currentTurnId: null })
+    sink.onUserMessage({ itemId: 'user-next', turnId: 'turn-next', text: 'next' })
+    expect(harness.getState().liveUsageByThreadId['thread-current']).toMatchObject({
+      turnId: 'turn-next',
+      estimatedOutputTokens: 0,
+      tokensPerSecond: null
+    })
+  })
+
+  it('resets stale usage when the next turn id was assigned before user replay', () => {
+    const harness = makeSinkHarness({
+      currentTurnId: 'turn-next',
+      liveUsageByThreadId: {
+        'thread-current': applyLiveUsageDelta(undefined, 'turn-old', 'old output')
+      }
+    })
+    const sink = buildThreadEventSink(harness.set, harness.get, { threadId: 'thread-current' })
+
+    sink.onUserMessage({ itemId: 'user-next', turnId: 'turn-next', text: 'next' })
+
+    expect(harness.getState().liveUsageByThreadId['thread-current']).toMatchObject({
+      turnId: 'turn-next',
+      estimatedOutputTokens: 0,
+      tokensPerSecond: null
+    })
+  })
+
+  it.each([
+    ['completed', (sink: ReturnType<typeof buildThreadEventSink>) => sink.onTurnComplete({
+      reason: 'completed', threadId: 'thread-current', turnId: 'turn-old'
+    })],
+    ['aborted', (sink: ReturnType<typeof buildThreadEventSink>) => sink.onTurnComplete({
+      reason: 'aborted', threadId: 'thread-current', turnId: 'turn-old'
+    })],
+    ['failed', (sink: ReturnType<typeof buildThreadEventSink>) => sink.onError(
+      new Error('old turn failed'),
+      { terminal: true, threadId: 'thread-current', turnId: 'turn-old' }
+    )]
+  ])('does not let an old %s event settle the current turn', (_kind, emit) => {
+    const initial = makeSinkHarness({
+      busy: true,
+      currentTurnId: 'turn-current',
+      currentTurnUserId: 'user-current',
+      liveAssistant: 'current answer',
+      liveReasoning: 'current reasoning',
+      blocks: [{ kind: 'user', id: 'user-current', text: 'current request' }],
+      watchTurnCompletion: { 'thread-current': true },
+      unreadThreadIds: { 'thread-current': true }
+    })
+
+    emit(buildThreadEventSink(initial.set, initial.get, { threadId: 'thread-current' }))
+
+    expect(initial.getState()).toMatchObject({
+      busy: true,
+      currentTurnId: 'turn-current',
+      currentTurnUserId: 'user-current',
+      liveAssistant: 'current answer',
+      liveReasoning: 'current reasoning',
+      error: null,
+      watchTurnCompletion: { 'thread-current': true },
+      unreadThreadIds: { 'thread-current': true }
+    })
+  })
+
   it('ignores reasoning deltas from a stream bound to a different active thread', () => {
     const { getState, set, get } = makeSinkHarness({ activeThreadId: 'thread-new' })
     const controller = new AbortController()
@@ -129,6 +516,22 @@ describe('thread event sink binding', () => {
     expect(getState().liveAssistant).toBe('hello world')
   })
 
+  it('does not count tool snapshots as generated model output', () => {
+    const { getState, set, get } = makeSinkHarness({ activeThreadId: 'thread-current' })
+    const sink = buildThreadEventSink(set, get, { threadId: 'thread-current' })
+    const tool = {
+      itemId: 'tool-1',
+      summary: 'read_file',
+      status: 'running' as const,
+      detail: 'package.json'
+    }
+
+    sink.onTool(tool)
+    sink.onTool(tool)
+
+    expect(getState().liveUsageByThreadId['thread-current']).toBeUndefined()
+  })
+
   it('never rewinds lastSeq when a stale heartbeat seq arrives', () => {
     const { getState, set, get } = makeSinkHarness({ activeThreadId: 'thread-current', lastSeq: 500 })
     const sink = buildThreadEventSink(set, get, { threadId: 'thread-current' })
@@ -136,6 +539,40 @@ describe('thread event sink binding', () => {
     sink.onSeq(3)
 
     expect(getState().lastSeq).toBe(500)
+  })
+
+  it('keeps a 10,000-delta long session bounded and ignores replayed history', () => {
+    const { getState, set, get } = makeSinkHarness({ activeThreadId: 'thread-current' })
+    const sink = buildThreadEventSink(set, get, { threadId: 'thread-current' })
+    const totalDeltas = 10_000
+    const batchSize = 100
+    const startedAt = performance.now()
+
+    for (let offset = 0; offset < totalDeltas; offset += batchSize) {
+      sink.onDeltas(Array.from({ length: batchSize }, (_, index) => ({
+        kind: 'agent_message' as const,
+        text: 'abcd',
+        seq: offset + index + 1
+      })))
+    }
+
+    const elapsedMs = performance.now() - startedAt
+    const settled = getState()
+    expect(settled.liveAssistant).toBe('abcd'.repeat(totalDeltas))
+    expect(settled.lastSeq).toBe(totalDeltas)
+    expect(settled.liveUsageByThreadId['thread-current']).toMatchObject({
+      turnId: 'turn-current',
+      estimatedOutputTokens: totalDeltas
+    })
+    expect(elapsedMs).toBeLessThan(2_000)
+
+    sink.onDeltas(Array.from({ length: batchSize }, (_, index) => ({
+      kind: 'agent_message' as const,
+      text: 'duplicate',
+      seq: totalDeltas - batchSize + index + 1
+    })))
+
+    expect(getState()).toBe(settled)
   })
 })
 

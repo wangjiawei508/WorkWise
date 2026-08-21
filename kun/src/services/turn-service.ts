@@ -1,6 +1,11 @@
 import type { ThreadRecord, ThreadStatus } from '../contracts/threads.js'
 import type { CompactRequest, CompactResponse, StartTurnRequest, StartTurnResponse, Turn, TurnStatus } from '../contracts/turns.js'
 import type { TurnItem } from '../contracts/items.js'
+import {
+  sanitizeToolResultOutput,
+  sanitizeTurnItemForPersistence
+} from '../security/tool-persistence-security.js'
+import type { UiActionAudit, UiActionStartResponse } from '../contracts/ui-actions.js'
 import type { SessionStore } from '../ports/session-store.js'
 import type { ThreadStore } from '../ports/thread-store.js'
 import type { IdGenerator } from '../ports/id-generator.js'
@@ -9,11 +14,13 @@ import type { UserInputGate } from '../ports/user-input-gate.js'
 import type { InflightTracker } from '../loop/inflight-tracker.js'
 import type { SteeringQueue } from '../loop/steering-queue.js'
 import { ContextCompactor } from '../loop/context-compactor.js'
-import { makeUserItem, makeErrorItem } from '../domain/item.js'
+import { makeUserItem, makeErrorItem, makeUiActionItem } from '../domain/item.js'
 import { appendTurnItem, createTurnRecord, finishTurn, replaceTurnItem, startTurn as startTurnRecord } from '../domain/turn.js'
 import { touchThread } from '../domain/thread.js'
 import type { RuntimeEventRecorder } from './runtime-event-recorder.js'
+import type { TurnTerminalReason } from '../contracts/events.js'
 import type { TaskController } from './task-controller.js'
+import { WorkspaceReferenceService } from './workspace-reference-service.js'
 
 export type TurnServiceDeps = {
   threadStore: ThreadStore
@@ -27,6 +34,47 @@ export type TurnServiceDeps = {
   tasks?: TaskController
   approvalGate?: ApprovalGate
   userInputGate?: UserInputGate
+  workspaceReferences?: Pick<WorkspaceReferenceService, 'validateReferences'>
+}
+
+export const MAX_TERMINAL_TURN_IDS = 1_000
+
+function persistentTurnItem(item: TurnItem): TurnItem {
+  return sanitizeTurnItemForPersistence(item)
+}
+
+function persistentTurnItemPatch(patch: Partial<TurnItem>): Partial<TurnItem> {
+  if (Object.prototype.hasOwnProperty.call(patch, 'arguments')) {
+    const toolPatch = patch as Partial<Extract<TurnItem, { kind: 'tool_call' }>>
+    return {
+      ...patch,
+      arguments: {},
+      ...(toolPatch.argumentSummary ? { argumentSummary: toolPatch.argumentSummary } : {})
+    } as Partial<TurnItem>
+  }
+  if (Object.prototype.hasOwnProperty.call(patch, 'output')) {
+    const resultPatch = patch as Partial<Extract<TurnItem, { kind: 'tool_result' }>>
+    return {
+      ...patch,
+      output: sanitizeToolResultOutput(resultPatch.toolName ?? 'tool', resultPatch.output)
+    } as Partial<TurnItem>
+  }
+  return patch
+}
+
+function terminalReason(
+  status: Extract<TurnStatus, 'completed' | 'failed' | 'aborted'>,
+  explicit?: TurnTerminalReason
+): TurnTerminalReason {
+  const fallback = status === 'completed' ? 'completed' : status === 'aborted' ? 'aborted' : 'error'
+  if (!explicit) return fallback
+  const valid = status === 'completed'
+    ? explicit === 'completed'
+    : status === 'aborted'
+      ? explicit === 'aborted'
+      : explicit === 'error' || explicit === 'blocked' || explicit === 'max_tokens'
+  if (!valid) throw new Error(`terminal reason ${explicit} is incompatible with turn status ${status}`)
+  return explicit
 }
 
 /**
@@ -37,54 +85,257 @@ export type TurnServiceDeps = {
  */
 export class TurnService {
   private readonly deps: TurnServiceDeps
+  private readonly workspaceReferences: Pick<WorkspaceReferenceService, 'validateReferences'>
   private readonly inflightTurns = new Map<string, AbortController>()
   private readonly terminalTurns = new Set<string>()
   private readonly threadMutationQueues = new Map<string, Promise<void>>()
+  private readonly startQueues = new Map<string, Promise<void>>()
+  private reservedTurnStarts = 0
 
   constructor(deps: TurnServiceDeps) {
     this.deps = deps
+    this.workspaceReferences = deps.workspaceReferences ?? new WorkspaceReferenceService()
+  }
+
+  private rememberTerminalTurn(turnId: string): boolean {
+    if (this.terminalTurns.has(turnId)) return false
+    this.terminalTurns.add(turnId)
+    while (this.terminalTurns.size > MAX_TERMINAL_TURN_IDS) {
+      const oldest = this.terminalTurns.values().next().value
+      if (!oldest) break
+      this.terminalTurns.delete(oldest)
+    }
+    return true
   }
 
   async startTurn(input: {
     threadId: string
     request: StartTurnRequest
   }): Promise<StartTurnResponse> {
+    const previous = this.startQueues.get(input.threadId) ?? Promise.resolve()
+    const run = previous.catch(() => undefined).then(() => this.startTurnInternal(input))
+    const guard = run.then(() => undefined, () => undefined)
+    this.startQueues.set(input.threadId, guard)
+    try {
+      return await run
+    } finally {
+      if (this.startQueues.get(input.threadId) === guard) this.startQueues.delete(input.threadId)
+    }
+  }
+
+  /**
+   * Starts a Runtime-validated structured UI action. Unlike startTurn it
+   * records no generic user_message: the completed ui_action audit item is
+   * the sole user-originated input for this turn.
+   */
+  async startUiActionTurn(input: {
+    threadId: string
+    action: UiActionAudit
+    idempotencyKey: string
+  }): Promise<UiActionStartResponse> {
+    const previous = this.startQueues.get(input.threadId) ?? Promise.resolve()
+    const run = previous.catch(() => undefined).then(() => this.startUiActionTurnInternal(input))
+    const guard = run.then(() => undefined, () => undefined)
+    this.startQueues.set(input.threadId, guard)
+    try {
+      return await run
+    } finally {
+      if (this.startQueues.get(input.threadId) === guard) this.startQueues.delete(input.threadId)
+    }
+  }
+
+  private async startUiActionTurnInternal(input: {
+    threadId: string
+    action: UiActionAudit
+    idempotencyKey: string
+  }): Promise<UiActionStartResponse> {
     const thread = await this.deps.threadStore.get(input.threadId)
     if (!thread) throw new Error(`thread not found: ${input.threadId}`)
+    const idempotencyKey = input.idempotencyKey.trim()
+    const existing = thread.turns.find((turn) => turn.idempotencyKey === idempotencyKey)
+    if (existing) {
+      const item = existing.items.find((candidate) => candidate.kind === 'ui_action')
+      if (!item || item.kind !== 'ui_action') {
+        throw Object.assign(new Error('idempotency key is already bound to a non-UI turn'), {
+          code: 'idempotency_conflict'
+        })
+      }
+      if (
+        item.messageId !== input.action.messageId ||
+        item.blockId !== input.action.blockId ||
+        item.actionId !== input.action.actionId ||
+        item.specFingerprint !== input.action.specFingerprint ||
+        item.nodeId !== input.action.nodeId ||
+        item.nodeType !== input.action.nodeType ||
+        item.fieldName !== input.action.fieldName ||
+        item.value !== input.action.value
+      ) {
+        throw Object.assign(new Error('idempotency key is already bound to a different UI action'), {
+          code: 'idempotency_conflict'
+        })
+      }
+      return { threadId: input.threadId, turnId: existing.id, uiActionItemId: item.id }
+    }
+    const consumed = thread.turns.some((turn) =>
+      Boolean(turn.idempotencyKey) &&
+      turn.items.some((item) =>
+        item.kind === 'ui_action' &&
+        item.messageId === input.action.messageId &&
+        item.blockId === input.action.blockId &&
+        item.actionId === input.action.actionId &&
+        item.specFingerprint === input.action.specFingerprint
+      )
+    )
+    if (consumed) {
+      throw Object.assign(new Error('the requested UI action has already been consumed'), {
+        code: 'ui_action_consumed'
+      })
+    }
     if (thread.turns.some((turn) => turn.status === 'running')) {
       throw Object.assign(new Error('a turn is already running for this thread'), {
         code: 'turn_in_progress'
       })
     }
-    if (this.inflightTurns.size >= 4) {
-      throw Object.assign(new Error('the application turn concurrency limit has been reached'), {
-        code: 'resource_limit'
+    const releaseReservation = this.reserveTurnSlot()
+    let turnId: string | undefined
+    let persisted = false
+
+    try {
+      turnId = this.deps.ids.next('turn')
+      this.terminalTurns.delete(turnId)
+      const turn = createTurnRecord({
+        id: turnId,
+        threadId: input.threadId,
+        prompt: '',
+        idempotencyKey,
+        uiAction: input.action
+      })
+      const actionItem = makeUiActionItem({
+        id: `item_${turnId}_ui_action`,
+        turnId,
+        threadId: input.threadId,
+        action: input.action,
+        createdAt: this.deps.nowIso()
+      })
+      const controller = new AbortController()
+      await this.upsertThread(input.threadId, (current) => ({
+        ...touchThread(current, this.deps.nowIso()),
+        status: 'running',
+        turns: [...current.turns, startTurnRecord(appendTurnItem(turn, actionItem))]
+      }))
+      persisted = true
+      await this.deps.sessionStore.appendItem(input.threadId, actionItem)
+      await this.deps.events.record({
+        kind: 'ui_action',
+        threadId: input.threadId,
+        turnId,
+        itemId: actionItem.id,
+        item: actionItem
+      })
+      await this.deps.events.record({
+        kind: 'turn_started',
+        threadId: input.threadId,
+        turnId
+      })
+      await this.deps.events.record({
+        kind: 'item_created',
+        threadId: input.threadId,
+        turnId,
+        itemId: actionItem.id,
+        item: actionItem
+      })
+      this.inflightTurns.set(turnId, controller)
+      this.deps.inflight.begin({ id: turnId, kind: 'model', threadId: input.threadId, turnId })
+      this.deps.steering.setTurn(turnId)
+      this.deps.tasks?.ensureTask({
+        thread,
+        turnId,
+        // This is internal task metadata only. The model receives the
+        // persisted structured ui_action item, never this label as a user
+        // message or turn prompt.
+        request: { prompt: uiActionTaskLabel(input.action), idempotencyKey }
+      })
+      return { threadId: input.threadId, turnId, uiActionItemId: actionItem.id }
+    } catch (error) {
+      if (persisted && turnId) {
+        await this.compensateTurnStartFailure(input.threadId, turnId, error)
+      }
+      throw error
+    } finally {
+      releaseReservation()
+    }
+  }
+
+  private async startTurnInternal(input: {
+    threadId: string
+    request: StartTurnRequest
+  }): Promise<StartTurnResponse> {
+    const thread = await this.deps.threadStore.get(input.threadId)
+    if (!thread) throw new Error(`thread not found: ${input.threadId}`)
+    const idempotencyKey = input.request.idempotencyKey?.trim()
+    if (idempotencyKey) {
+      const existing = thread.turns.find((turn) => turn.idempotencyKey === idempotencyKey)
+      if (existing) {
+        const userItem = existing.items.find((item) => item.kind === 'user_message')
+        if (!userItem) {
+          throw Object.assign(new Error('idempotency key is already bound to a UI action'), {
+            code: 'idempotency_conflict'
+          })
+        }
+        if (!sameIdempotentTurnRequest(existing, input.request)) {
+          throw Object.assign(new Error('idempotency key is already bound to a different Turn request'), {
+            code: 'idempotency_conflict'
+          })
+        }
+        return {
+          threadId: input.threadId,
+          turnId: existing.id,
+          userMessageItemId: userItem.id
+        }
+      }
+    }
+    if (thread.turns.some((turn) => turn.status === 'running')) {
+      throw Object.assign(new Error('a turn is already running for this thread'), {
+        code: 'turn_in_progress'
       })
     }
-    const turnId = this.deps.ids.next('turn')
-    this.terminalTurns.delete(turnId)
-    const turn = createTurnRecord({
+    const releaseReservation = this.reserveTurnSlot()
+    let turnId: string | undefined
+    let persisted = false
+    try {
+      const workspaceReferences = input.request.workspaceReferences?.length
+        ? await this.workspaceReferences.validateReferences(
+            thread.workspace,
+            input.request.workspaceReferences
+          )
+        : []
+      turnId = this.deps.ids.next('turn')
+      this.terminalTurns.delete(turnId)
+      const turn = createTurnRecord({
       id: turnId,
       threadId: input.threadId,
       prompt: input.request.prompt,
       model: input.request.model,
       reasoningEffort: input.request.reasoningEffort,
       attachmentIds: input.request.attachmentIds ?? [],
+      workspaceReferences,
       guiPlan: input.request.guiPlan,
       guiDesign: input.request.guiDesign,
       mode: input.request.mode,
-      disableUserInput: input.request.disableUserInput
-    })
-    const userItem = makeUserItem({
+      disableUserInput: input.request.disableUserInput,
+      idempotencyKey
+      })
+      const userItem = makeUserItem({
       id: `item_${turnId}_user`,
       turnId,
       threadId: input.threadId,
       text: input.request.prompt,
       displayText: input.request.displayText,
-      attachmentIds: input.request.attachmentIds ?? []
-    })
-    const controller = new AbortController()
-    await this.upsertThread(input.threadId, (current) => ({
+      attachmentIds: input.request.attachmentIds ?? [],
+      workspaceReferences
+      })
+      const controller = new AbortController()
+      await this.upsertThread(input.threadId, (current) => ({
       ...touchThread(current, this.deps.nowIso()),
       status: 'running',
       ...(input.request.approvalPolicy !== undefined
@@ -94,30 +345,39 @@ export class TurnService {
         ? { sandboxMode: input.request.sandboxMode }
         : {}),
       turns: [...current.turns, startTurnRecord(appendTurnItem(turn, userItem))]
-    }))
-    await this.deps.sessionStore.appendItem(input.threadId, userItem)
-    await this.deps.events.record({
+      }))
+      persisted = true
+      await this.deps.sessionStore.appendItem(input.threadId, userItem)
+      await this.deps.events.record({
       kind: 'turn_started',
       threadId: input.threadId,
       turnId
-    })
-    await this.deps.events.record({
+      })
+      await this.deps.events.record({
       kind: 'item_created',
       threadId: input.threadId,
       turnId,
       itemId: userItem.id,
       item: userItem
-    })
-    this.inflightTurns.set(turnId, controller)
-    this.deps.inflight.begin({
+      })
+      this.inflightTurns.set(turnId, controller)
+      this.deps.inflight.begin({
       id: turnId,
       kind: 'model',
       threadId: input.threadId,
       turnId
-    })
-    this.deps.steering.setTurn(turnId)
-    this.deps.tasks?.ensureTask({ thread, turnId, request: input.request })
-    return { threadId: input.threadId, turnId, userMessageItemId: userItem.id }
+      })
+      this.deps.steering.setTurn(turnId)
+      this.deps.tasks?.ensureTask({ thread, turnId, request: input.request })
+      return { threadId: input.threadId, turnId, userMessageItemId: userItem.id }
+    } catch (error) {
+      if (persisted && turnId) {
+        await this.compensateTurnStartFailure(input.threadId, turnId, error)
+      }
+      throw error
+    } finally {
+      releaseReservation()
+    }
   }
 
   async steerTurn(input: { threadId: string; turnId: string; text: string }): Promise<void> {
@@ -131,8 +391,7 @@ export class TurnService {
   }
 
   async interruptTurn(input: { threadId: string; turnId: string; discard?: boolean }): Promise<{ status: TurnStatus }> {
-    if (this.terminalTurns.has(input.turnId)) return { status: 'aborted' }
-    this.terminalTurns.add(input.turnId)
+    if (!this.rememberTerminalTurn(input.turnId)) return { status: 'aborted' }
     try {
       const controller = this.inflightTurns.get(input.turnId)
       if (controller) controller.abort('operation_cancelled')
@@ -149,7 +408,8 @@ export class TurnService {
       await this.deps.events.record({
         kind: 'turn_aborted',
         threadId: input.threadId,
-        turnId: input.turnId
+        turnId: input.turnId,
+        reason: 'aborted'
       })
       if (input.discard) {
         await this.discardTurnItems(input.threadId, input.turnId)
@@ -244,10 +504,10 @@ export class TurnService {
     threadId: string
     turnId: string
     status: Extract<TurnStatus, 'completed' | 'failed' | 'aborted'>
+    reason?: TurnTerminalReason
     error?: string
   }): Promise<void> {
-    if (this.terminalTurns.has(input.turnId)) return
-    this.terminalTurns.add(input.turnId)
+    if (!this.rememberTerminalTurn(input.turnId)) return
     try {
     this.inflightTurns.delete(input.turnId)
     this.deps.inflight.end(input.turnId)
@@ -265,6 +525,7 @@ export class TurnService {
       kind: input.status === 'completed' ? 'turn_completed' : input.status === 'aborted' ? 'turn_aborted' : 'turn_failed',
       threadId: input.threadId,
       turnId: input.turnId,
+      reason: terminalReason(input.status, input.reason),
       ...(input.error ? { message: input.error } : {})
     })
     if (input.error) {
@@ -344,13 +605,17 @@ export class TurnService {
    * calls this after each chunk so SSE consumers see live updates.
    */
   async applyItem(threadId: string, item: TurnItem): Promise<void> {
-    await this.appendItem(threadId, item)
+    // Tool arguments are execution-private. Thread reads and SSE replay use
+    // the same persisted projection, so enforce the boundary in one place
+    // regardless of which Runtime component produced the item.
+    const persistedItem = persistentTurnItem(item)
+    await this.appendItem(threadId, persistedItem)
     await this.deps.events.record({
       kind: 'item_created',
       threadId,
-      turnId: item.turnId,
-      itemId: item.id,
-      item
+      turnId: persistedItem.turnId,
+      itemId: persistedItem.id,
+      item: persistedItem
     })
   }
 
@@ -359,14 +624,16 @@ export class TurnService {
     itemId: string,
     patch: Partial<TurnItem>
   ): Promise<TurnItem | null> {
-    const updatedInSession = await this.deps.sessionStore.updateItem(threadId, itemId, patch)
+    const persistedPatch = persistentTurnItemPatch(patch)
+    const updatedInSession = await this.deps.sessionStore.updateItem(threadId, itemId, persistedPatch)
     const updatedItems: TurnItem[] = []
     await this.upsertThread(threadId, (current) => {
       const turns = current.turns.map((turn) => {
         const existing = turn.items.find((item) => item.id === itemId)
         if (!existing) return turn
-        updatedItems[0] = { ...existing, ...patch } as TurnItem
-        return replaceTurnItem(turn, itemId, patch)
+        const updatedItem = persistentTurnItem({ ...existing, ...persistedPatch } as TurnItem)
+        updatedItems[0] = updatedItem
+        return replaceTurnItem(turn, itemId, updatedItem)
       })
       return { ...current, turns }
     })
@@ -391,6 +658,60 @@ export class TurnService {
       const turns = current.turns.map((t) => (t.id === item.turnId ? nextTurn : t))
       return { ...current, turns }
     })
+  }
+
+  private reserveTurnSlot(): () => void {
+    if (this.inflightTurns.size + this.reservedTurnStarts >= 4) {
+      throw Object.assign(new Error('the application turn concurrency limit has been reached'), {
+        code: 'resource_limit'
+      })
+    }
+    this.reservedTurnStarts += 1
+    let released = false
+    return () => {
+      if (released) return
+      released = true
+      this.reservedTurnStarts -= 1
+    }
+  }
+
+  /**
+   * A Turn is written before its session/event fan-out. If that fan-out
+   * fails, leave an explicit terminal record instead of a non-runnable
+   * `running` Turn that blocks every later request on the thread.
+   */
+  private async compensateTurnStartFailure(
+    threadId: string,
+    turnId: string,
+    error: unknown
+  ): Promise<void> {
+    const message = error instanceof Error ? error.message : String(error)
+    this.rememberTerminalTurn(turnId)
+    this.inflightTurns.delete(turnId)
+    this.deps.inflight.end(turnId)
+    this.deps.steering.clear()
+    try {
+      await this.upsertThread(threadId, (current) => {
+        const turns = current.turns.map((turn) =>
+          turn.id === turnId
+            ? {
+                // The turn was persisted before its start fan-out completed.
+                // It is terminal bookkeeping, not a successfully claimed
+                // idempotent request, so a retry must be allowed to create a
+                // fresh runnable turn with the same key.
+                ...this.finalizeOpenItems(finishTurn(turn, 'failed'), 'failed'),
+                idempotencyKey: undefined,
+                error: message
+              }
+            : turn
+        )
+        const status = turns.some((turn) => turn.status === 'running') ? 'running' : 'idle'
+        return { ...touchThread(current, this.deps.nowIso()), turns, status }
+      })
+    } catch {
+      // The original start failure is more actionable. A later recovery pass
+      // will still see this failed fan-out as an interrupted persisted turn.
+    }
   }
 
   private async upsertThread(
@@ -475,4 +796,36 @@ export class TurnService {
   private isSystemOnly(item: TurnItem): boolean {
     return item.kind === 'compaction' || item.kind === 'error'
   }
+}
+
+function uiActionTaskLabel(action: UiActionAudit): string {
+  return `Structured UI action ${action.actionId} (${action.nodeType})`
+}
+
+function sameIdempotentTurnRequest(
+  existing: {
+    prompt: string
+    model?: string
+    reasoningEffort?: string
+    attachmentIds: string[]
+    workspaceReferences?: unknown
+    guiPlan?: unknown
+    guiDesign?: unknown
+    mode?: string
+    disableUserInput?: boolean
+  },
+  request: StartTurnRequest
+): boolean {
+  // These fields are persisted on the Turn and define the work a retry would
+  // execute. displayText is intentionally excluded because it is presentation
+  // metadata and does not change the requested operation.
+  return existing.prompt === request.prompt
+    && (existing.model ?? '') === (request.model ?? '')
+    && (existing.reasoningEffort ?? 'auto') === (request.reasoningEffort ?? 'auto')
+    && JSON.stringify(existing.attachmentIds ?? []) === JSON.stringify(request.attachmentIds ?? [])
+    && JSON.stringify(existing.workspaceReferences ?? []) === JSON.stringify(request.workspaceReferences ?? [])
+    && JSON.stringify(existing.guiPlan ?? null) === JSON.stringify(request.guiPlan ?? null)
+    && JSON.stringify(existing.guiDesign ?? null) === JSON.stringify(request.guiDesign ?? null)
+    && (existing.mode ?? '') === (request.mode ?? '')
+    && Boolean(existing.disableUserInput) === Boolean(request.disableUserInput)
 }

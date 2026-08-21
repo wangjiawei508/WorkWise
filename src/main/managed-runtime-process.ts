@@ -4,11 +4,12 @@ import { existsSync, readdirSync } from 'node:fs'
 import { mkdir, readFile } from 'node:fs/promises'
 import { createServer } from 'node:net'
 import { homedir } from 'node:os'
-import { delimiter, dirname, join } from 'node:path'
+import { delimiter, dirname, isAbsolute, join, relative, resolve } from 'node:path'
 import {
   defaultManagedRuntimeTokenEconomySettings,
   isManagedRuntimeInsecure,
   resolveManagedRuntimeSettings,
+  isOfficialDeepSeekBaseUrl,
   type ManagedRuntimeSettingsV1,
   type AppSettingsV1
 } from '../shared/app-settings'
@@ -21,7 +22,8 @@ import {
   KunServeConfigSchema as InternalRuntimeServeConfigSchema,
   ModelConfigSchema,
   ContextCompactionConfigSchema,
-  RuntimeTuningConfigSchema
+  RuntimeTuningConfigSchema,
+  VisionEvidenceConfigSchema
 } from '../../kun/src/config/kun-config.js'
 import {
   AttachmentsCapabilityConfig,
@@ -62,6 +64,7 @@ import { McpConfigService } from './services/mcp-config-service'
 let child: ChildProcess | null = null
 let childLogCapture: RuntimeLogCapture | null = null
 let lastResolvedBinary: string | null = null
+let actualManagedRuntimePort: number | null = null
 const RUNTIME_READY_PREFIX = 'KUN_READY '
 // Cold starts on slow disks (Windows + antivirus scans, sqlite rebuilds,
 // MCP server connects) routinely exceed 15s; killing kun that early left
@@ -77,6 +80,7 @@ const MCP_PATH_ENV_KEY = process.platform === 'win32' ? 'Path' : 'PATH'
 const DEFAULT_MANAGED_RUNTIME_MODEL_PROFILES: Record<string, Record<string, unknown>> = {
   'deepseek-v4-pro': {
     contextWindowTokens: 1_000_000,
+    maxOutputTokens: 384_000,
     contextCompaction: {
       softThreshold: 980_000,
       hardThreshold: 990_000
@@ -89,6 +93,7 @@ const DEFAULT_MANAGED_RUNTIME_MODEL_PROFILES: Record<string, Record<string, unkn
   'deepseek-v4-flash': {
     aliases: ['deepseek-chat', 'deepseek-reasoner'],
     contextWindowTokens: 1_000_000,
+    maxOutputTokens: 384_000,
     contextCompaction: {
       softThreshold: 980_000,
       hardThreshold: 990_000
@@ -237,8 +242,10 @@ function existingNodeVersionBins(root: string, childPath: string[]): string[] {
   }
 }
 
-function commonMcpToolPathEntries(env: NodeJS.ProcessEnv = process.env): string[] {
-  const home = homedir()
+function commonMcpToolPathEntries(
+  env: NodeJS.ProcessEnv = process.env,
+  home = homedir()
+): string[] {
   const managedToolsBin = join(
     env.WORKWISE_TOOLS_ROOT?.trim() || join(home, '.workwise', 'tools'),
     'bin'
@@ -282,12 +289,13 @@ function commonMcpToolPathEntries(env: NodeJS.ProcessEnv = process.env): string[
 }
 
 export function resolveMcpToolPath(
-  env: NodeJS.ProcessEnv = process.env
+  env: NodeJS.ProcessEnv = process.env,
+  home = homedir()
 ): string {
   const currentPath = env.PATH ?? env.Path ?? ''
   return uniquePathEntries([
     ...splitPathEntries(currentPath),
-    ...commonMcpToolPathEntries(env)
+    ...commonMcpToolPathEntries(env, home)
   ]).join(delimiter)
 }
 
@@ -302,18 +310,34 @@ function mcpServerEnvWithToolPath(env: Record<string, string>): Record<string, s
   }
 }
 
-export function resolveManagedRuntimeDataDir(runtime: { dataDir: string }): string {
+export function resolveManagedRuntimeDataDir(
+  runtime: { dataDir: string },
+  home = homedir()
+): string {
   const trimmed = runtime.dataDir?.trim()
-  if (trimmed) return expandHomePath(trimmed)
+  if (trimmed) return expandHomePath(trimmed, home)
   return defaultManagedRuntimeDataDir()
 }
 
-function expandHomePath(path: string): string {
-  if (path === '~') return homedir()
+function expandHomePath(path: string, home = homedir()): string {
+  if (path === '~') return home
   if (path.startsWith('~/') || path.startsWith('~\\')) {
-    return join(homedir(), path.slice(2).replace(/\\/g, '/'))
+    return join(home, path.slice(2).replace(/\\/g, '/'))
   }
   return path
+}
+
+function assertCandidatePath(root: string, name: string, path: string): string {
+  if (!isAbsolute(root) || !isAbsolute(path)) {
+    throw new Error(`${name} must be absolute in candidate mode.`)
+  }
+  const candidateRoot = resolve(root)
+  const target = resolve(path)
+  const rel = relative(candidateRoot, target)
+  if (rel === '..' || rel.startsWith(`..${process.platform === 'win32' ? '\\' : '/'}`) || isAbsolute(rel)) {
+    throw new Error(`${name} must stay inside WORKWISE_CANDIDATE_ROOT.`)
+  }
+  return target
 }
 
 export function isManagedRuntimeChildRunning(): boolean {
@@ -323,15 +347,46 @@ export function isManagedRuntimeChildRunning(): boolean {
 export type StartManagedRuntimeChildOptions = {
   autoInstallBundledAgentPack?: boolean
   autoInstallBundledSpecialistSkills?: boolean
+  candidateRoot?: string
+  homeDir?: string
+  workwiseHome?: string
+  mcpConfigPath?: string
+  skillRoots?: string[]
+  runtimeToken?: string
+  flowSecretStoreKey?: string
+}
+
+export function resolveManagedRuntimeForStart(
+  settings: AppSettingsV1,
+  candidateMode = false,
+  runtimeToken?: string
+): ManagedRuntimeSettingsV1 {
+  const runtime = resolveManagedRuntimeSettings(settings)
+  return candidateMode
+    ? {
+        ...runtime,
+        approvalPolicy: 'on-request',
+        sandboxMode: 'workspace-write',
+        insecure: false,
+        runtimeToken: runtimeToken?.trim() || runtime.runtimeToken
+      }
+    : runtime
 }
 
 export async function startManagedRuntimeChild(
   settings: AppSettingsV1,
   options: StartManagedRuntimeChildOptions = {}
 ): Promise<void> {
-  const runtime = resolveManagedRuntimeSettings(settings)
+  const candidateRoot = options.candidateRoot?.trim()
+  const runtime = {
+    ...resolveManagedRuntimeForStart(settings, Boolean(candidateRoot), options.runtimeToken),
+    // Candidate Runtime deliberately asks the child for an ephemeral port;
+    // the persisted settings schema only accepts fixed user-space ports.
+    ...(candidateRoot ? { port: 0 } : {})
+  }
   if (isManagedRuntimeChildRunning()) return
   if (!runtime.autoStart) return
+  actualManagedRuntimePort = null
   if (childLogCapture) {
     await childLogCapture.close()
     childLogCapture = null
@@ -343,12 +398,33 @@ export async function startManagedRuntimeChild(
       `WorkWise Runtime build is missing at ${resolution.args[0]}. Reinstall WorkWise or rebuild the bundled runtime.`
     )
   }
-  const dataDir = resolveManagedRuntimeDataDir(runtime)
+  const homeDir = candidateRoot
+    ? assertCandidatePath(candidateRoot, 'candidate Runtime home', options.homeDir ?? '')
+    : options.homeDir ?? homedir()
+  const workwiseHome = candidateRoot
+    ? assertCandidatePath(candidateRoot, 'candidate WorkWise home', options.workwiseHome ?? '')
+    : options.workwiseHome ?? join(homeDir, '.workwise')
+  const dataDir = candidateRoot
+    ? assertCandidatePath(candidateRoot, 'candidate Runtime data directory', join(workwiseHome, 'runtime'))
+    : resolveManagedRuntimeDataDir(runtime, homeDir)
+  const mcpConfigPath = candidateRoot
+    ? assertCandidatePath(
+        candidateRoot,
+        'candidate MCP config',
+        options.mcpConfigPath ?? join(workwiseHome, 'mcp.json')
+      )
+    : options.mcpConfigPath
   await ensureBundledAgentPackForRuntime(options)
   await ensureBundledSpecialistSkillsForRuntime(options)
-  const mcpV2 = await new McpConfigService().runtimeSnapshot()
+  const mcpV2 = await new McpConfigService(candidateRoot ? {
+    manifestPath: join(workwiseHome, 'mcp-v2.json'),
+    legacyPath: mcpConfigPath,
+    credentialRoot: join(workwiseHome, 'credentials', 'mcp')
+  } : {}).runtimeSnapshot()
   await syncManagedRuntimeConfig(dataDir, runtime, {
+    mcpConfigPath,
     mcpV2Servers: mcpV2.servers,
+    skillRoots: options.skillRoots,
     scheduleMcp: {
       settings,
       launch: {
@@ -375,12 +451,12 @@ export async function startManagedRuntimeChild(
     insecure: isManagedRuntimeInsecure(runtime)
   })
   const pptMasterSidecarExecutable = resolvePptMasterSidecarExecutable()
-  const flowSecretStoreKey = await loadOrCreateFlowSecretStoreKey()
+  const flowSecretStoreKey = options.flowSecretStoreKey ?? await loadOrCreateFlowSecretStoreKey()
   child = await safeSpawn(resolution.command, args, {
     env: {
       ...process.env,
       ...mcpV2.environment,
-      [MCP_PATH_ENV_KEY]: resolveMcpToolPath(),
+      [MCP_PATH_ENV_KEY]: resolveMcpToolPath(process.env, homeDir),
       ELECTRON_RUN_AS_NODE: '1',
       WORKWISE_RUNTIME_TOKEN: runtime.runtimeToken,
       WORKWISE_FLOW_SECRET_STORE_KEY: flowSecretStoreKey ?? '',
@@ -393,8 +469,7 @@ export async function startManagedRuntimeChild(
       // Managed Python interpreter for full-access workspaces that need to run
       // upstream PPT Master scripts directly (project_manager, quality checker).
       WORKWISE_PPT_MASTER_PYTHON: join(
-        homedir(),
-        '.workwise',
+        workwiseHome,
         'ppt-master-python',
         process.platform === 'win32' ? 'Scripts/python.exe' : 'bin/python'
       ),
@@ -402,7 +477,7 @@ export async function startManagedRuntimeChild(
     },
     stdio: ['ignore', 'pipe', 'pipe'],
     detached: false,
-    workspaceRoot: homedir()
+    workspaceRoot: homeDir
   })
   const startedChild = child
   const startedLogCapture = createRuntimeLogCapture(startedChild.pid)
@@ -417,7 +492,10 @@ export async function startManagedRuntimeChild(
         : `exited with code ${code ?? 'unknown'}`
     )
     void startedLogCapture.close()
-    if (child === startedChild) child = null
+    if (child === startedChild) {
+      child = null
+      actualManagedRuntimePort = null
+    }
   })
   child.on('error', (error) => {
     startedLogCapture.logLifecycle(
@@ -425,7 +503,8 @@ export async function startManagedRuntimeChild(
     )
   })
   try {
-    await waitForRuntimeStartup(startedChild, runtime.port)
+    const readyPort = await waitForRuntimeStartup(startedChild, runtime.port)
+    actualManagedRuntimePort = runtime.port === 0 ? readyPort : null
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
     startedLogCapture.logLifecycle(`startup failed before ready: ${message}`)
@@ -434,7 +513,11 @@ export async function startManagedRuntimeChild(
     }
     throw error
   }
-  startedLogCapture.logLifecycle(`ready marker received on port ${runtime.port}`)
+  startedLogCapture.logLifecycle(`ready marker received on port ${actualManagedRuntimePort ?? runtime.port}`)
+}
+
+export function getManagedRuntimeActualPort(): number | null {
+  return actualManagedRuntimePort
 }
 
 async function ensureBundledAgentPackForRuntime(options: StartManagedRuntimeChildOptions): Promise<void> {
@@ -461,7 +544,7 @@ async function ensureBundledSpecialistSkillsForRuntime(
       && options.autoInstallBundledAgentPack === false
     )
   ) return
-  const root = join(homedir(), '.workwise', 'skills')
+  const root = join(options.workwiseHome ?? join(homedir(), '.workwise'), 'skills')
   for (const source of AUTO_INSTALLED_SPECIALIST_SKILLS) {
     const result = await installBundledSkill(root, source)
     const message = result.ok
@@ -478,8 +561,8 @@ export async function syncManagedRuntimeConfig(
   dataDir: string,
   runtime: Pick<
     ManagedRuntimeSettingsV1,
-    'mcpSearch' | 'tokenEconomy' | 'storage' | 'contextCompaction' | 'runtimeTuning' | 'imageGeneration'
-  >,
+    'mcpSearch' | 'tokenEconomy' | 'storage' | 'contextCompaction' | 'runtimeTuning' | 'imageGeneration' | 'visionEvidence'
+  > & Partial<Pick<ManagedRuntimeSettingsV1, 'baseUrl' | 'model'>>,
   options?: {
     scheduleMcp?: {
       settings: AppSettingsV1
@@ -487,6 +570,7 @@ export async function syncManagedRuntimeConfig(
     }
     mcpConfigPath?: string
     mcpV2Servers?: Record<string, Record<string, unknown>>
+    skillRoots?: string[]
   }
 ): Promise<void> {
   const configPath = join(dataDir, 'config.json')
@@ -513,7 +597,17 @@ export async function syncManagedRuntimeConfig(
   const imageGen = objectValue(capabilities.imageGen)
   const storage = storageConfigForRuntime(runtime.storage)
   const mcpSearch = runtime.mcpSearch
-  const skillCapability = await skillCapabilityConfigForRuntime(skills, options?.scheduleMcp?.settings)
+  const skillCapability = await skillCapabilityConfigForRuntime(
+    skills,
+    options?.scheduleMcp?.settings,
+    options?.skillRoots
+  )
+  const managedDeepSeekSearch = Boolean(
+    runtime.baseUrl &&
+    runtime.model &&
+    isOfficialDeepSeekBaseUrl(runtime.baseUrl) &&
+    /^deepseek-v4-(?:pro|flash)$/i.test(runtime.model)
+  )
   const next = {
     serve: {
       ...serve,
@@ -523,6 +617,12 @@ export async function syncManagedRuntimeConfig(
     models: modelConfigForRuntime(existingModels),
     contextCompaction: contextCompactionConfigForRuntime(runtime.contextCompaction, existingContextCompaction),
     runtime: runtimeTuningConfigForRuntime(runtime.runtimeTuning, existingRuntimeTuning),
+    visionEvidence: {
+      enabled: runtime.visionEvidence.enabled,
+      endpoint: runtime.visionEvidence.endpoint,
+      timeoutMs: runtime.visionEvidence.timeoutMs,
+      analyzer: runtime.visionEvidence.analyzer
+    },
     capabilities: {
       ...capabilities,
       attachments: {
@@ -532,7 +632,13 @@ export async function syncManagedRuntimeConfig(
       web: {
         ...web,
         enabled: web.enabled === false ? false : true,
-        fetchEnabled: web.fetchEnabled === false ? false : true
+        fetchEnabled: web.fetchEnabled === false ? false : true,
+        ...(managedDeepSeekSearch
+          ? {
+              searchEnabled: true,
+              provider: 'deepseek-responses'
+            }
+          : {})
       },
       skills: skillCapability,
       imageGen: imageGenConfigForRuntime(runtime.imageGeneration, imageGen),
@@ -596,12 +702,15 @@ function buildGuiScheduleRuntimeMcpServer(
 
 async function skillCapabilityConfigForRuntime(
   existing: Record<string, unknown>,
-  settings?: AppSettingsV1
+  settings?: AppSettingsV1,
+  explicitRoots?: string[]
 ): Promise<Record<string, unknown>> {
-  const roots = uniqueStrings([
-    ...stringArrayValue(existing.roots).map(normalizeSkillRootPath),
-    ...(await guiSkillRootsForRuntime(settings)).map((root) => root.path)
-  ])
+  const roots = explicitRoots
+    ? uniqueStrings(explicitRoots.map(normalizeSkillRootPath))
+    : uniqueStrings([
+        ...stringArrayValue(existing.roots).map(normalizeSkillRootPath),
+        ...(await guiSkillRootsForRuntime(settings)).map((root) => root.path)
+      ])
   return {
     ...existing,
     enabled: existing.enabled === false ? false : roots.length > 0 || existing.enabled === true,
@@ -977,7 +1086,7 @@ function parseRuntimeConfigSection(
   value: unknown
 ): Record<string, unknown> {
   const parsed = schema.safeParse(objectValue(value))
-  return parsed.success ? objectValue(parsed.data) : {}
+  return parsed.success ? objectValue(value) : {}
 }
 
 function sanitizeRuntimeCapabilitiesConfig(value: unknown): Record<string, unknown> {
@@ -1009,6 +1118,7 @@ function sanitizeRuntimeConfigSections(
       existing.contextCompaction
     ),
     runtime: parseRuntimeConfigSection(RuntimeTuningConfigSchema, existing.runtime),
+    visionEvidence: parseRuntimeConfigSection(VisionEvidenceConfigSchema, existing.visionEvidence),
     capabilities: sanitizeRuntimeCapabilitiesConfig(existing.capabilities)
   }
 }
@@ -1021,6 +1131,7 @@ function objectValue(value: unknown): Record<string, unknown> {
 
 export async function stopManagedRuntimeChildAndWait(): Promise<void> {
   if (!child) {
+    actualManagedRuntimePort = null
     if (childLogCapture) {
       const capture = childLogCapture
       childLogCapture = null
@@ -1048,6 +1159,7 @@ export async function stopManagedRuntimeChildAndWait(): Promise<void> {
     await waitForChildExit(stoppingChild, RUNTIME_STOP_FORCE_MS)
   }
   if (child === stoppingChild) child = null
+  actualManagedRuntimePort = null
   if (capture) {
     childLogCapture = null
     await capture.close()
@@ -1102,11 +1214,11 @@ function canBindTcpPort(port: number, host: string): Promise<boolean> {
   })
 }
 
-async function waitForRuntimeStartup(startedChild: ChildProcess, port?: number): Promise<void> {
+async function waitForRuntimeStartup(startedChild: ChildProcess, port?: number): Promise<number> {
   if (startedChild.exitCode !== null) {
     throw new Error(describeRuntimeExit(startedChild.exitCode, null))
   }
-  await new Promise<void>((resolve, reject) => {
+  return await new Promise<number>((resolve, reject) => {
     let settled = false
     let stdoutBuffer = ''
     let stderrTail = ''
@@ -1126,7 +1238,7 @@ async function waitForRuntimeStartup(startedChild: ChildProcess, port?: number):
           healthProbeInFlight = true
           void probeRuntimeHealth(port)
             .then((healthy) => {
-              if (healthy) settleReady()
+              if (healthy && port > 0) settleReady(port)
             })
             .finally(() => {
               healthProbeInFlight = false
@@ -1141,30 +1253,33 @@ async function waitForRuntimeStartup(startedChild: ChildProcess, port?: number):
       startedChild.stdout?.removeListener('data', onStdout)
       startedChild.stderr?.removeListener('data', onStderr)
     }
-    const tryParseReady = (): boolean => {
+    const parseReadyPort = (): number | null => {
       const markerIndex = stdoutBuffer.indexOf(RUNTIME_READY_PREFIX)
-      if (markerIndex < 0) return false
+      if (markerIndex < 0) return null
       const afterPrefix = stdoutBuffer.slice(markerIndex + RUNTIME_READY_PREFIX.length)
       const newlineIndex = afterPrefix.indexOf('\n')
-      if (newlineIndex < 0) return false
+      if (newlineIndex < 0) return null
       const jsonLine = afterPrefix.slice(0, newlineIndex).trim()
-      if (!jsonLine) return false
+      if (!jsonLine) return null
       try {
         const parsed = JSON.parse(jsonLine) as { service?: string; mode?: string; port?: number }
-        return parsed.service === 'kun' && parsed.mode === 'serve' && typeof parsed.port === 'number'
+        return parsed.service === 'kun' && parsed.mode === 'serve' && typeof parsed.port === 'number' && parsed.port > 0
+          ? parsed.port
+          : null
       } catch {
-        return false
+        return null
       }
     }
-    const settleReady = (): void => {
+    const settleReady = (actualPort: number): void => {
       if (settled) return
       settled = true
       cleanup()
-      resolve()
+      resolve(actualPort)
     }
     const onStdout = (chunk: Buffer | string): void => {
       stdoutBuffer = appendTail(stdoutBuffer, String(chunk), STDERR_TAIL_MAX_CHARS * 2)
-      if (tryParseReady()) settleReady()
+      const actualPort = parseReadyPort()
+      if (actualPort !== null) settleReady(actualPort)
     }
     const onStderr = (chunk: Buffer | string): void => {
       stderrTail = appendTail(stderrTail, String(chunk))

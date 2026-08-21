@@ -17,12 +17,13 @@ export function GitBranchPicker({ workspaceRoot, onRepositoryRootChange }: Props
   const [loading, setLoading] = useState(false)
   const [actingBranch, setActingBranch] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [requestRoot, setRequestRoot] = useState(root)
   const [repositoryRoot, setRepositoryRoot] = useState(root)
   const [repositories, setRepositories] = useState<GitRepositoryRow[]>([])
   const wrapRef = useRef<HTMLDivElement | null>(null)
   const inputRef = useRef<HTMLInputElement | null>(null)
 
-  const load = useCallback(async (targetRoot = repositoryRoot): Promise<void> => {
+  const load = useCallback(async (targetRoot = root): Promise<void> => {
     const resolvedTargetRoot = targetRoot.trim() || root
     if (!resolvedTargetRoot || typeof window.workwise?.getGitBranches !== 'function') return
     setLoading(true)
@@ -33,6 +34,7 @@ export function GitBranchPicker({ workspaceRoot, onRepositoryRootChange }: Props
       if (!next.ok) {
         setError(next.message)
       } else {
+        setRequestRoot(resolvedTargetRoot)
         setRepositoryRoot(next.repositoryRoot)
         onRepositoryRootChange?.(next.repositoryRoot)
         setRepositories((previous) => {
@@ -45,7 +47,7 @@ export function GitBranchPicker({ workspaceRoot, onRepositoryRootChange }: Props
     } finally {
       setLoading(false)
     }
-  }, [onRepositoryRootChange, repositoryRoot, root])
+  }, [onRepositoryRootChange, root])
 
   useEffect(() => {
     setOpen(false)
@@ -53,19 +55,20 @@ export function GitBranchPicker({ workspaceRoot, onRepositoryRootChange }: Props
     setResult(null)
     setError(null)
     setActingBranch(null)
+    setRequestRoot(root)
     setRepositoryRoot(root)
     setRepositories([])
   }, [root])
 
   useEffect(() => {
-    void load()
-  }, [load])
+    void load(root)
+  }, [load, root])
 
   useEffect(() => {
     if (!open) return
-    void load()
+    void load(requestRoot)
     window.setTimeout(() => inputRef.current?.focus(), 0)
-  }, [load, open])
+  }, [load, open, requestRoot])
 
   useEffect(() => {
     if (!open) return
@@ -98,7 +101,7 @@ export function GitBranchPicker({ workspaceRoot, onRepositoryRootChange }: Props
     setActingBranch(branch)
     setError(null)
     try {
-      const next = await window.workwise.switchGitBranch(repositoryRoot, branch)
+      const next = await window.workwise.switchGitBranch(requestRoot, branch)
       setResult(next)
       if (!next.ok) {
         setError(next.message)
@@ -119,7 +122,7 @@ export function GitBranchPicker({ workspaceRoot, onRepositoryRootChange }: Props
     setActingBranch(branch)
     setError(null)
     try {
-      const next = await window.workwise.createAndSwitchGitBranch(repositoryRoot, branch)
+      const next = await window.workwise.createAndSwitchGitBranch(requestRoot, branch)
       setResult(next)
       if (!next.ok) {
         setError(next.message)

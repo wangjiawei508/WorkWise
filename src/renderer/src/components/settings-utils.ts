@@ -9,6 +9,7 @@ import {
   mergeModelProviderSettings,
   mergeScheduleSettings,
   mergeWriteSettings,
+  mergeNotificationSettings,
   normalizeAppBehaviorSettings,
   normalizeClawSettings,
   normalizeGuiUpdateChannel,
@@ -40,7 +41,14 @@ export function listSettingsText(values: string[]): string {
 
 export function hasValidPort(settings: AppSettingsV1): boolean {
   const port = getManagedRuntimeSettings(settings).port
-  return Number.isFinite(port) && port >= 1 && port <= 65535
+  return Number.isInteger(port) && port >= 1 && port <= 65535
+}
+
+export function canPersistSettingsWithPort(settings: AppSettingsV1, patch: SettingsPatch): boolean {
+  const port = getManagedRuntimeSettings(settings).port
+  return hasValidPort(settings) || (
+    port === 0 && patch.agents?.kun?.port === undefined
+  )
 }
 
 export function mergeSettings(current: AppSettingsV1, patch: SettingsPatch): WorkWiseSettingsV2 {
@@ -57,10 +65,7 @@ export function mergeSettings(current: AppSettingsV1, patch: SettingsPatch): Wor
       ...safeCurrent.log,
       ...(patch.log ?? {})
     },
-    notifications: {
-      ...safeCurrent.notifications,
-      ...(patch.notifications ?? {})
-    },
+    notifications: mergeNotificationSettings(safeCurrent.notifications, patch.notifications),
     appBehavior: normalizeAppBehaviorSettings({
       ...safeCurrent.appBehavior,
       ...(patch.appBehavior ?? {})
@@ -149,9 +154,10 @@ export function coerceRendererSettings(settings: AppSettingsV1): WorkWiseSetting
       enabled: raw.log?.enabled !== false,
       retentionDays: typeof raw.log?.retentionDays === 'number' ? raw.log.retentionDays : 2
     },
-    notifications: {
-      turnComplete: raw.notifications?.turnComplete !== false
-    },
+    notifications: mergeNotificationSettings(
+      { turnComplete: raw.notifications?.turnComplete !== false },
+      raw.notifications
+    ),
     appBehavior: normalizeAppBehaviorSettings(raw.appBehavior),
     keyboardShortcuts: normalizeKeyboardShortcuts(raw.keyboardShortcuts),
     write: normalizeWriteSettings(raw.write),
@@ -171,6 +177,10 @@ export function coerceRendererSettings(settings: AppSettingsV1): WorkWiseSetting
         raw.documents?.parsingMode === 'fast' || raw.documents?.parsingMode === 'accurate'
           ? raw.documents.parsingMode
           : 'auto',
+      unlimitedOcrServerUrl:
+        typeof raw.documents?.unlimitedOcrServerUrl === 'string'
+          ? raw.documents.unlimitedOcrServerUrl.trim()
+          : '',
       privateMineruServerUrl:
         typeof raw.documents?.privateMineruServerUrl === 'string'
           ? raw.documents.privateMineruServerUrl.trim()

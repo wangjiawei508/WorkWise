@@ -84,6 +84,7 @@ export async function runPptMasterSidecar(
   }
   let child: ChildProcess | undefined
   let timeout: NodeJS.Timeout | undefined
+  let stdinError: Error | undefined
   let protocolBytes = 0
   let errorBytes = 0
   const stdout: Buffer[] = []
@@ -116,6 +117,10 @@ export async function runPptMasterSidecar(
         HOME: process.env.HOME
       }
     })
+    const exitPromise = new Promise<number | null>((resolve, reject) => {
+      child?.once('error', reject)
+      child?.once('exit', resolve)
+    })
     child.stdout?.on('data', (chunk: Buffer) => {
       protocolBytes += chunk.byteLength
       if (protocolBytes <= MAX_PROTOCOL_BYTES) stdout.push(chunk)
@@ -125,13 +130,17 @@ export async function runPptMasterSidecar(
       errorBytes += chunk.byteLength
       if (errorBytes <= MAX_ERROR_BYTES) stderr.push(chunk)
     })
-    child.stdin?.end(JSON.stringify(request))
+    child.stdin?.on('error', (error: Error) => {
+      stdinError = error
+    })
+    try {
+      child.stdin?.end(JSON.stringify(request))
+    } catch (error) {
+      stdinError = error instanceof Error ? error : new Error(String(error))
+    }
     timeout = setTimeout(abort, options.timeoutMs ?? 5 * 60 * 1000)
     if (options.signal?.aborted) abort()
-    const exitCode = await new Promise<number | null>((resolve, reject) => {
-      child?.once('error', reject)
-      child?.once('exit', resolve)
-    })
+    const exitCode = await exitPromise
     if (options.signal?.aborted) throw new Error('PPT Master operation was cancelled.')
     if (protocolBytes > MAX_PROTOCOL_BYTES) {
       throw new Error('PPT Master response exceeded the 2 MiB limit.')
@@ -141,7 +150,8 @@ export async function runPptMasterSidecar(
     try {
       response = JSON.parse(text) as PptMasterSidecarResponse
     } catch {
-      const detail = Buffer.concat(stderr).toString('utf8').trim().slice(0, 500)
+      const stderrDetail = Buffer.concat(stderr).toString('utf8').trim().slice(0, 500)
+      const detail = stderrDetail || stdinError?.message.slice(0, 500) || ''
       throw new Error(`PPT Master runtime exited with ${exitCode ?? 'unknown'}${detail ? `: ${detail}` : ''}`)
     }
     if (exitCode !== 0 || !response.ok) {

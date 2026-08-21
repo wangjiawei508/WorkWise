@@ -129,6 +129,20 @@ export function runtimeThreadTurnsPath(threadId: string): string {
   return `${runtimeThreadPath(threadId)}/turns`
 }
 
+export const RUNTIME_THREAD_UI_ACTIONS_TEMPLATE = '/v1/threads/{id}/ui-actions'
+export function runtimeThreadUiActionsPath(threadId: string): string {
+  return `${runtimeThreadPath(threadId)}/ui-actions`
+}
+
+export const RUNTIME_THREAD_WORKSPACE_REFERENCE_SEARCH_TEMPLATE =
+  '/v1/threads/{id}/workspace/references/search'
+export function runtimeThreadWorkspaceReferenceSearchPath(threadId: string): string {
+  return `${runtimeThreadPath(threadId)}/workspace/references/search`
+}
+
+export const RUNTIME_WORKSPACE_REFERENCE_SEARCH_PATH = '/v1/workspace/references/search'
+export const RUNTIME_WORKSPACE_REFERENCE_SEARCH_TEMPLATE = RUNTIME_WORKSPACE_REFERENCE_SEARCH_PATH
+
 export const RUNTIME_THREAD_STEER_TEMPLATE = '/v1/threads/{id}/turns/{turn}/steer'
 export function runtimeThreadSteerPath(threadId: string, turnId: string): string {
   return `${runtimeThreadTurnsPath(threadId)}/${encodeURIComponent(turnId)}/steer`

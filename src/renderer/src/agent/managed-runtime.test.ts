@@ -35,7 +35,7 @@ function settings(): WorkWiseSettingsV2 {
     schedule: defaultScheduleSettings(),
     guiUpdate: { channel: 'stable' },
     conversation: { viewMode: 'concise' },
-    documents: { parsingMode: 'auto', privateMineruServerUrl: '', allowPrivateServerUploadByWorkspace: {} },
+    documents: { parsingMode: 'auto', unlimitedOcrServerUrl: '', privateMineruServerUrl: '', allowPrivateServerUploadByWorkspace: {} },
     codePromptPrefix: ''
   }
 }
@@ -146,7 +146,45 @@ describe('WorkWiseRuntimeProvider', () => {
     expect(detail.blocks.map((block) => block.kind)).toEqual(['user', 'assistant'])
     expect(detail.latestSeq).toBe(9)
     expect(detail.latestTurnId).toBe('turn_1')
+    expect(detail.latestTurnStatus).toBe('completed')
+    expect(detail.latestTurnError).toBeUndefined()
     expect(detail.latestUserMessageId).toBe('item_user')
+  })
+
+  it('preserves the latest terminal turn error for background completion polling', async () => {
+    installDsGui({
+      runtimeRequest: vi.fn(async () => ({
+        ok: true,
+        status: 200,
+        body: JSON.stringify({
+          id: 'thr_failed',
+          title: 'Failed background turn',
+          model: 'deepseek-chat',
+          mode: 'agent',
+          status: 'idle',
+          createdAt: 't0',
+          updatedAt: 't1',
+          latestSeq: 3,
+          turns: [{
+            id: 'turn_failed',
+            threadId: 'thr_failed',
+            status: 'failed',
+            prompt: 'finish in background',
+            createdAt: 't0',
+            finishedAt: 't1',
+            error: 'max tokens reached',
+            items: []
+          }]
+        })
+      }))
+    })
+    const provider = new WorkWiseRuntimeProvider()
+
+    await expect(provider.getThreadDetail('thr_failed')).resolves.toMatchObject({
+      latestTurnId: 'turn_failed',
+      latestTurnStatus: 'failed',
+      latestTurnError: 'max tokens reached'
+    })
   })
 
   it('coalesces tool_call and tool_result pairs into one tool block on thread load', async () => {
@@ -213,7 +251,7 @@ describe('WorkWiseRuntimeProvider', () => {
   })
 
   it('posts WorkWise Runtime turn requests and returns the deterministic user item id', async () => {
-    const runtimeRequest = vi.fn(async () => ({
+    const runtimeRequest = vi.fn(async (_path: string, _method?: string, _body?: string) => ({
       ok: true,
       status: 202,
       body: JSON.stringify({ threadId: 'thr_1', turnId: 'turn_abc', userMessageItemId: 'item_user_real' })
@@ -254,6 +292,27 @@ describe('WorkWiseRuntimeProvider', () => {
         attachmentIds: ['att_1']
       })
     )
+  })
+
+  it('posts path-only workspace references without inlining file content', async () => {
+    const runtimeRequest = vi.fn(async (_path: string, _method?: string, _body?: string) => ({
+      ok: true,
+      status: 202,
+      body: JSON.stringify({ threadId: 'thr_1', turnId: 'turn_ref', userMessageItemId: 'item_user_ref' })
+    }))
+    installDsGui({ runtimeRequest })
+    const provider = new WorkWiseRuntimeProvider()
+
+    await provider.sendUserMessage('thr_1', 'review this', {
+      workspaceReferences: [{ path: 'docs/投标.md', kind: 'file' }]
+    })
+
+    const requestBody = JSON.parse(runtimeRequest.mock.calls[0]?.[2] as string) as Record<string, unknown>
+    expect(requestBody).toMatchObject({
+      prompt: 'review this',
+      workspaceReferences: [{ path: 'docs/投标.md', kind: 'file' }]
+    })
+    expect(JSON.stringify(requestBody)).not.toContain('<workspace_file')
   })
 
   it('posts explicit reasoning effort with WorkWise Runtime turn requests', async () => {
@@ -722,6 +781,66 @@ describe('WorkWiseRuntimeProvider', () => {
     await provider.subscribeThreadEvents('thr_1', 2, sink, ac.signal)
     expect(sink.onSeq).toHaveBeenCalledWith(3)
     expect(sink.onDeltas).toHaveBeenCalledWith([{ text: 'he', kind: 'agent_message', seq: 3 }])
+  })
+
+  it('dispatches SSE batches in sequence order when an earlier batch awaits', async () => {
+    let onData: ((payload: { streamId: string; events: unknown[] }) => void) | null = null
+    let releaseReplay!: () => void
+    const replayGate = new Promise<void>((resolve) => { releaseReplay = resolve })
+    const ac = new AbortController()
+    const usage: unknown[] = []
+    const sink: ThreadEventSink = {
+      onSeq: vi.fn(),
+      onReplayReset: vi.fn(() => replayGate),
+      onDeltas: vi.fn(),
+      onUserMessage: vi.fn(),
+      onTool: vi.fn(),
+      onCompaction: vi.fn(),
+      onApproval: vi.fn(),
+      onUserInput: vi.fn(),
+      onUserInputStatus: vi.fn(),
+      onGoal: vi.fn(),
+      onTodos: vi.fn(),
+      onUsage: vi.fn((snapshot) => usage.push(snapshot)),
+      onTurnComplete: vi.fn(() => ac.abort()),
+      onError: vi.fn()
+    }
+    installDsGui({
+      onSseEvent: vi.fn((handler) => {
+        onData = handler
+        return () => undefined
+      }),
+      startSse: vi.fn(async (_threadId, _sinceSeq, streamId) => {
+        queueMicrotask(() => {
+          onData?.({
+            streamId: streamId ?? 'stream-1',
+            events: [{ kind: 'replay_reset', seq: 1 }]
+          })
+          onData?.({
+            streamId: streamId ?? 'stream-1',
+            events: [
+              {
+                kind: 'usage',
+                seq: 2,
+                threadId: 'thr_1',
+                turnId: 'turn_1',
+                usage: { promptTokens: 1, completionTokens: 1, totalTokens: 2, turns: 1 }
+              },
+              { kind: 'turn_completed', seq: 3, threadId: 'thr_1', turnId: 'turn_1' }
+            ]
+          })
+        })
+        return { streamId: streamId ?? 'stream-1' }
+      })
+    })
+    const provider = new WorkWiseRuntimeProvider()
+    const subscription = provider.subscribeThreadEvents('thr_1', 0, sink, ac.signal)
+    await vi.waitFor(() => expect(sink.onReplayReset).toHaveBeenCalledWith(1))
+    expect(usage).toEqual([])
+    releaseReplay()
+    await subscription
+    expect(usage).toHaveLength(1)
+    expect(sink.onTurnComplete).toHaveBeenCalledOnce()
   })
 
   it('auto-approves approval requests when policy is auto', async () => {

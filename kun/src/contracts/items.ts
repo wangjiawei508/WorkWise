@@ -1,6 +1,9 @@
 import { z } from 'zod'
 import { ReviewOutputSchema, ReviewTargetSchema } from './review.js'
 import { RuntimeErrorSeverity } from './errors.js'
+import { WorkspaceReferenceSchema } from './workspace-references.js'
+import { DshUiBlock } from './dsh-ui.js'
+import { UiActionAudit } from './ui-actions.js'
 
 /**
  * Conversation items returned as part of a thread or turn.
@@ -47,15 +50,32 @@ export const UserTurnItem = TurnItemBase.extend({
   kind: z.literal('user_message'),
   text: z.string(),
   displayText: z.string().optional(),
-  attachmentIds: z.array(z.string().min(1)).optional()
+  attachmentIds: z.array(z.string().min(1)).optional(),
+  workspaceReferences: z.array(WorkspaceReferenceSchema).max(32).optional()
 })
 export type UserTurnItem = z.infer<typeof UserTurnItem>
 
 export const AssistantTextTurnItem = TurnItemBase.extend({
   kind: z.literal('assistant_text'),
-  text: z.string()
+  text: z.string(),
+  uiBlocks: z.array(DshUiBlock).max(20).optional()
 })
 export type AssistantTextTurnItem = z.infer<typeof AssistantTextTurnItem>
+
+export const UiActionTurnItem = TurnItemBase.extend({
+  kind: z.literal('ui_action'),
+  role: z.literal('user'),
+  status: z.literal('completed'),
+  messageId: UiActionAudit.shape.messageId,
+  blockId: UiActionAudit.shape.blockId,
+  actionId: UiActionAudit.shape.actionId,
+  specFingerprint: UiActionAudit.shape.specFingerprint,
+  nodeId: UiActionAudit.shape.nodeId,
+  nodeType: UiActionAudit.shape.nodeType,
+  fieldName: UiActionAudit.shape.fieldName,
+  value: UiActionAudit.shape.value
+})
+export type UiActionTurnItem = z.infer<typeof UiActionTurnItem>
 
 export const AssistantReasoningTurnItem = TurnItemBase.extend({
   kind: z.literal('assistant_reasoning'),
@@ -69,6 +89,7 @@ export const ToolCallTurnItem = TurnItemBase.extend({
   callId: z.string().min(1),
   toolKind: z.enum(['tool_call', 'command_execution', 'file_change']),
   arguments: z.record(z.string(), z.unknown()),
+  argumentSummary: z.string().max(1_000).optional(),
   summary: z.string().optional()
 })
 export type ToolCallTurnItem = z.infer<typeof ToolCallTurnItem>
@@ -133,6 +154,7 @@ export type ErrorTurnItem = z.infer<typeof ErrorTurnItem>
 export const TurnItem = z.discriminatedUnion('kind', [
   UserTurnItem,
   AssistantTextTurnItem,
+  UiActionTurnItem,
   AssistantReasoningTurnItem,
   ToolCallTurnItem,
   ToolResultTurnItem,

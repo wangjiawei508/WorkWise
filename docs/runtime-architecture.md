@@ -150,7 +150,7 @@ Renderer 只应展示 WorkWise Agent Runtime。需要删除或保持删除的 UI
       "port": 8899,
       "autoStart": true,
       "apiKey": "",
-      "baseUrl": "https://api.deepseek.com/beta",
+      "baseUrl": "https://api.deepseek.com",
       "runtimeToken": "",
       "dataDir": "~/.workwise/runtime",
       "model": "deepseek-v4-pro",

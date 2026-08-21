@@ -7,6 +7,12 @@
 - 问题反馈：https://github.com/wangjiawei508/WorkWise/issues
 - 维护者：https://github.com/wangjiawei508
 
+## DeepSeek V4 Pro
+
+DeepSeek 已于 2026 年 8 月 13 日正式发布 `DeepSeek-V4-Pro-0813`。WorkWise 中继续选择 `deepseek-v4-pro` 即可使用正式服务端版本，不需要为模型更新重新安装应用。默认官方服务地址是 `https://api.deepseek.com`；只有 Write 的 FIM/前缀续写会使用 `/beta` 接口。
+
+正式模型提供 100 万 token 上下文和最高 384K 输出。公开 Stable `v0.3.6` 的稳定默认路径是 Chat Completions。模型菜单过滤、DeepSeek Responses 联网搜索、失败终态和其他协议的增强目前只在本地候选中完成验证，需以后续通过发布门禁的正式版本为准。
+
 ## 产品定位
 
 WorkWise 是面向工程、基础设施、城市更新与企业运营场景的智能体工作台。产品把 Code、Write、Design、Skills、知识库和文档解析放在同一个 Agent Runtime 中。
@@ -15,7 +21,7 @@ WorkWise 是面向工程、基础设施、城市更新与企业运营场景的�
 | --- | --- |
 | 正式可用 | Code、Write、Design、定时任务、持久化任务、Agent、权限、MCP V2、Git checkpoint、Repo Map、PDF/Office 解析与成果验证 |
 | Preview | Flow 画布、节点测试、发布、运行历史、审批和失败恢复 |
-| 可选能力 | MinerU 高精度解析、在线 Skill 更新、连接手机和外部 CLI |
+| 可选能力 | Unlimited-OCR / MinerU 高精度解析、在线 Skill 更新、连接手机和外部 CLI |
 | 路线图 | 新增多模态模型和更多行业智能体 |
 
 ## 下载安装
@@ -150,8 +156,8 @@ PPT Master 使用固定上游提交的受控瘦身快照，不是完整官方仓
 
 - 普通 PDF、DOCX、PPTX、XLSX 默认由随客户端分发的 MarkItDown 本地解析，不依赖系统 Python。
 - PDF.js 提供页面显示、缩放、搜索和按页定位；Agent 使用结构化 Markdown 和页码引用。
-- 自动模式发现扫描件、乱码、复杂多栏、公式或低文本密度时，会建议或切换本地 MinerU。
-- MinerU 不在安装包内。只有用户主动安装 `mineru-local`，或逐工作区授权企业私有服务后才会使用；不会自动上传官方公共云端。
+- 自动模式保持使用 MarkItDown 快解析；发现扫描件、弱文本层、乱码、复杂多栏、公式或低文本密度时，会明确提示用户选择高精度重试，不会强制切换。
+- 用户选择高精度解析后，优先使用已配置的本机 Unlimited-OCR，失败时回退 MinerU。两者都不在安装包内，WorkWise 不会自动上传到官方公共云端。
 - Office 压缩包会先检查路径穿越、链接、加密条目、异常压缩比和解压大小。密码文件、损坏文件或超限文件会返回明确错误，不会无限重试。
 
 ## 成果交付

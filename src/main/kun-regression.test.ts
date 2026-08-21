@@ -142,7 +142,9 @@ describe('WorkWise Runtime single-agent regression', () => {
       'utf-8'
     )
 
-    const store = new JsonSettingsStore(userDataDir)
+    const store = new JsonSettingsStore(userDataDir, {
+      workwiseHome: join(userDataDir, '.workwise')
+    })
     const loaded = await store.load()
 
     expect(loaded.agents).toEqual({

@@ -95,14 +95,12 @@ export function renderPresetShape(
           fill
         }, { timeoutMs: RENDER_TIMEOUT_MS })
         if (!response.stdout) {
-          return { ok: false, message: 'PPT Master returned an empty preset shape.' }
+          throw new Error('PPT Master returned an empty preset shape.')
         }
         return { ok: true, svg: response.stdout }
-      } catch (error) {
-        return {
-          ok: false,
-          message: error instanceof Error ? error.message : String(error)
-        }
+      } catch {
+        // A stale or locally invalid sidecar must not hide the verified Python
+        // implementation that is bundled with the PPT Master skill.
       }
     }
     const result = await executePython(pythonCmd, args)
@@ -130,9 +128,9 @@ export function listPresetShapes(): Promise<string[]> {
           workspaceRoot: tmpdir()
         }, { timeoutMs: RENDER_TIMEOUT_MS })
         cachedPresetShapes = (response.stdout ?? '').split('\n').filter(Boolean)
-        return [...cachedPresetShapes]
+        if (cachedPresetShapes.length > 0) return [...cachedPresetShapes]
       } catch {
-        return []
+        // Fall through to the Python implementation below.
       }
     }
     const result = await executePython(pythonCmd, [scriptPath, 'list'])

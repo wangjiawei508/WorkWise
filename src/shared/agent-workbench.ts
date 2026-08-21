@@ -15,8 +15,27 @@ export type TaskNodeKind = 'plan' | 'execute' | 'verify' | 'deliver'
 export type TaskNodeStatus = 'pending' | 'running' | 'completed' | 'failed' | 'cancelled' | 'blocked'
 export type ConversationViewMode = 'concise' | 'standard' | 'developer'
 export type WorkspaceTrustLevel = 'read-only' | 'workspace-write' | 'trusted' | 'full-access'
-export type DocumentEngineId = 'markitdown' | 'mineru-local' | 'mineru-private'
+export type DocumentEngineId = 'markitdown' | 'unlimited-ocr-local' | 'mineru-local' | 'mineru-private'
 export type DocumentParsingMode = 'auto' | 'fast' | 'accurate'
+
+export const DOCUMENT_QUALITY_REASONS_V1 = [
+  'low_text_density',
+  'weak_text_layer',
+  'scanned_document',
+  'scanned_or_sparse_pages',
+  'garbled_text',
+  'formula_dense',
+  'table_dense',
+  'complex_layout',
+  'engine_fallback'
+] as const
+
+export type DocumentQualityReasonV1 = typeof DOCUMENT_QUALITY_REASONS_V1[number]
+
+export function isDocumentQualityReasonV1(value: unknown): value is DocumentQualityReasonV1 {
+  return typeof value === 'string'
+    && (DOCUMENT_QUALITY_REASONS_V1 as readonly string[]).includes(value)
+}
 
 export type RevisionMutation = {
   expectedRevision: number
@@ -324,11 +343,21 @@ export type DocumentParseResultV1 = {
     requestedMode: DocumentParsingMode
     selectedEngine: DocumentEngineId
     fallbackFrom?: DocumentEngineId
+    switchReason?: string[]
   }
   degradedFrom?: DocumentEngineId
   cacheHit: boolean
   durationMs: number
 }
+
+export type DocumentParseErrorCode =
+  | 'document_engine_unavailable'
+  | 'document_parse_failed'
+  | 'document_parse_cancelled'
+  | 'document_parse_timeout'
+  | 'document_upload_not_allowed'
+  | 'resource_limit'
+  | 'unsupported_format'
 
 export type DocumentEngineStatusV1 = {
   id: DocumentEngineId
@@ -353,6 +382,9 @@ export type WorkspacePreviewResultV1 =
       dataUrl?: string
       truncated: boolean
       warnings: string[]
+      retryReasons?: DocumentQualityReasonV1[]
+      documentError?: { code: DocumentParseErrorCode; message: string }
+      document?: Pick<DocumentParseResultV1, 'engine' | 'engineVersion' | 'quality' | 'route' | 'headings' | 'references'>
       sizeBytes: number
     }
   | {

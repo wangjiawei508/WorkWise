@@ -10,6 +10,7 @@ import { createPortal } from 'react-dom'
 import { Brain, Check, ChevronDown, ChevronRight, Gauge } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import type { ModelProviderModelGroup } from '@shared/workwise-api'
+import { isVisibleComposerModelId } from '@shared/default-composer-models'
 
 export type ComposerReasoningEffort = 'low' | 'medium' | 'high' | 'max'
 
@@ -93,10 +94,10 @@ export function FloatingComposerModelPicker({
     const ordered = new Set<string>()
     for (const id of composerPickList) {
       const normalized = id.trim()
-      if (normalized) ordered.add(normalized)
+      if (normalized && isVisibleComposerModelId(normalized)) ordered.add(normalized)
     }
     const current = composerModel.trim()
-    if (current) ordered.add(current)
+    if (current && isVisibleComposerModelId(current)) ordered.add(current)
     return [...ordered]
   }, [composerModel, composerPickList])
   const providerMenuGroups = useMemo<ComposerModelMenuGroup[]>(() => {
@@ -106,7 +107,7 @@ export function FloatingComposerModelPicker({
         const ids = group.modelIds
           .map((id) => id.trim())
           .filter((id) => {
-            if (!id || seen.has(id)) return false
+            if (!id || !isVisibleComposerModelId(id) || seen.has(id)) return false
             seen.add(id)
             return true
           })
@@ -130,11 +131,12 @@ export function FloatingComposerModelPicker({
   const reasoningEnabled = Boolean(onComposerReasoningEffortChange)
   const currentReasoning = normalizeComposerReasoningEffort(composerReasoningEffort)
   const currentReasoningLabel = t(reasoningLabelKey(currentReasoning))
-  const modelLabel = fullModelLabel(composerModel, t('autoLabel'))
+  const currentModel = composerModel.trim()
+  const visibleCurrentModel = isVisibleComposerModelId(currentModel) ? currentModel : ''
+  const modelLabel = fullModelLabel(visibleCurrentModel, t('autoLabel'))
   const controlsTitle = reasoningEnabled
     ? `${modelLabel} / ${currentReasoningLabel}`
     : modelLabel
-  const currentModel = composerModel.trim()
   const selectedProviderId = providerMenuGroups.find((group) =>
     group.modelIds.includes(currentModel)
   )?.providerId ?? null

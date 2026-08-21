@@ -1,5 +1,6 @@
 import type {
   CoreAttachmentContentResponseJson,
+  CoreAttachmentEvidenceJson,
   CoreAttachmentMetadataJson,
   CoreAttachmentTextFallbackJson,
   CoreMemoryRecordJson,
@@ -69,6 +70,14 @@ export type RuntimeDisclosureMetadata = {
   sources?: WebCitationSource[]
 }
 
+export type AttachmentEvidenceEventPayload = {
+  attachmentId: string
+  status: 'ready' | 'failed'
+  createdAt?: string
+  evidence?: CoreAttachmentEvidenceJson
+  message?: string
+}
+
 export type UserInputOption = {
   label: string
   description: string
@@ -103,6 +112,7 @@ export type NormalizedThread = {
   preview?: string
   latestTurnId?: string
   latestTurnStatus?: string
+  latestTurnError?: string
   relation?: 'primary' | 'fork' | 'side'
   parentThreadId?: string
   forkedFromThreadId?: string
@@ -240,7 +250,7 @@ export type ChatBlock =
       managedBy?: 'claw'
       meta?: RuntimeDisclosureMetadata
     }
-  | { kind: 'assistant'; id: string; createdAt?: string; text: string }
+  | { kind: 'assistant'; id: string; createdAt?: string; text: string; uiBlocks?: unknown[] }
   | { kind: 'reasoning'; id: string; createdAt?: string; text: string }
   | ToolBlock
   | CompactionBlock
@@ -278,6 +288,8 @@ export type ChatBlock =
 
 export type ApprovalRequestPayload = {
   approvalId: string
+  threadId?: string
+  turnId?: string
   summary: string
   toolName?: string
   meta?: RuntimeDisclosureMetadata
@@ -370,6 +382,15 @@ export type ThreadDeltaEvent = {
 
 export type ThreadErrorOptions = {
   terminal?: boolean
+  terminalReason?: 'error' | 'blocked' | 'max_tokens'
+  threadId?: string
+  turnId?: string
+}
+
+export type ThreadCompleteOptions = {
+  reason?: 'completed' | 'aborted'
+  threadId?: string
+  turnId?: string
 }
 
 /** Cumulative usage/cost for a WorkWise Runtime thread. */
@@ -404,12 +425,15 @@ export type ThreadEventSink = {
   onUserInputStatus(ev: UserInputStatusPayload): void
   onRuntimeStatus?(ev: RuntimeStatusEventPayload): void
   onRuntimeError?(ev: RuntimeErrorEventPayload): void
+  onAttachmentEvidence?(ev: AttachmentEvidenceEventPayload): void
   onGoal(ev: { threadId: string; goal: ThreadGoal | null; cleared?: boolean; createdAt?: string }): void
   onTodos?(ev: { threadId: string; todos: ThreadTodoList | null; cleared?: boolean; createdAt?: string }): void
-  onTurnComplete(): void
+  onTurnComplete(options?: ThreadCompleteOptions): void
   onError(err: Error, options?: ThreadErrorOptions): void
   /** Optional: cumulative usage update for the thread. */
-  onUsage?(usage: ThreadUsageSnapshot): void
+  onUsage?(usage: ThreadUsageSnapshot, seq?: number, turnId?: string): void
+  /** Optional: usage-only character count from streamed tool arguments. */
+  onUsageDelta?(characters: number, seq?: number, turnId?: string): void
 }
 
 export interface AgentProvider {
@@ -430,6 +454,8 @@ export interface AgentProvider {
     latestSeq: number
     threadStatus?: string
     latestTurnId?: string
+    latestTurnStatus?: string
+    latestTurnError?: string
     latestUserMessageId?: string
     turnDurationByUserId?: Record<string, number>
     usage?: ThreadUsageSnapshot
@@ -459,6 +485,7 @@ export interface AgentProvider {
         expectedRevision: number
       }
       attachmentIds?: string[]
+      workspaceReferences?: Array<{ path: string; kind: 'file' | 'directory' }>
     }
   ): Promise<{ turnId: string; threadId: string; userMessageItemId?: string }>
   reviewThread?(

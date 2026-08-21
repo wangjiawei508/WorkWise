@@ -85,6 +85,8 @@ function registerOptions(overrides: Partial<Parameters<typeof import('./register
     pollFeishuInstall: vi.fn() as never,
     startWeixinInstallQrcode: vi.fn() as never,
     pollWeixinInstall: vi.fn() as never,
+    getWeixinBridgeAccountStatuses: vi.fn(async () => []),
+    isWeixinBridgeAccountConfigured: vi.fn(async () => false),
     resolveRuntimeConfigPath: () => '/tmp/kun.json',
     showTurnCompleteNotification: vi.fn() as never,
     getAppVersion: () => '0.1.0',
@@ -100,6 +102,21 @@ describe('registerAppIpcHandlers', () => {
   beforeEach(() => {
     handlers.clear()
     vi.clearAllMocks()
+  })
+
+  it('accepts the active-thread flag for terminal notifications', async () => {
+    const { registerAppIpcHandlers } = await import('./register-app-ipc-handlers')
+    const showTurnCompleteNotification = vi.fn(async () => ({ ok: true as const, shown: true }))
+    registerAppIpcHandlers(registerOptions({ showTurnCompleteNotification }))
+
+    await expect(handlers.get('notification:turn-complete')?.({}, {
+      threadId: 'thread-1',
+      reason: 'completed',
+      activeThread: true,
+      title: 'Done',
+      body: 'The turn completed.'
+    })).resolves.toEqual({ ok: true, shown: true })
+    expect(showTurnCompleteNotification).toHaveBeenCalledWith(expect.objectContaining({ activeThread: true }))
   })
 
   it('requires explicit confirmation when update preflight finds active Agent work', async () => {
@@ -129,7 +146,7 @@ describe('registerAppIpcHandlers', () => {
   })
 
   it('preserves heading, page, table, worksheet, and slide provenance in attachment sections', async () => {
-    const { buildAttachmentSections } = await import('./register-app-ipc-handlers')
+    const { buildAttachmentParserProvenance, buildAttachmentSections } = await import('./register-app-ipc-handlers')
     const sections = buildAttachmentSections(
       'att_fixture',
       '# 报价条款\n\n报价表\n\n<!-- Slide number: 3 -->\n\n| 条款 | 金额 |\n| --- | --- |\n| A | 100 |',
@@ -142,6 +159,28 @@ describe('registerAppIpcHandlers', () => {
     expect(sections[0]?.provenance).toEqual({
       heading: '报价条款', worksheet: '报价表', slide: 3, table: 'table-1', page: 8
     })
+    expect(buildAttachmentParserProvenance({
+      engine: 'unlimited-ocr-local',
+      engineVersion: 'unlimited-ocr-api-v1'
+    })).toMatchObject({
+      engine: 'unlimited-ocr-local',
+      version: 'unlimited-ocr-api-v1',
+      local: true
+    })
+  })
+
+  it('uses OCR page markers as attachment provenance without exposing marker syntax', async () => {
+    const { buildAttachmentSections } = await import('./register-app-ipc-handlers')
+    const sections = buildAttachmentSections(
+      'att_ocr',
+      '<!-- page:2 -->\n\n# 扫描标题\n\n扫描正文\n\n<!-- page:999 -->\n\n越界页',
+      { headings: [], tables: [], sourceStructure: { pageCount: 2 } }
+    )
+
+    expect(sections[0]?.provenance).toMatchObject({ page: 2 })
+    expect(sections[0]?.text).toMatch(/扫\s*描\s*正\s*文/)
+    expect(sections[0]?.text).not.toContain('page:2')
+    expect(sections.some((section) => section.provenance.page === 999)).toBe(false)
   })
 
   it('rejects invalid settings patches at the handler boundary', async () => {
@@ -156,6 +195,53 @@ describe('registerAppIpcHandlers', () => {
       handler?.({}, { agents: { kun: { mysteryFlag: true } } })
     ).rejects.toThrow(/Invalid payload for settings:set/)
     expect(applySettingsPatch).not.toHaveBeenCalled()
+  })
+
+  it('returns a stable Git result when the requested root is outside the active workspace', async () => {
+    const { registerAppIpcHandlers } = await import('./register-app-ipc-handlers')
+    const configured = settings()
+    const activeRoot = mkdtempSync(join(tmpdir(), 'workwise-active-workspace-'))
+    const outsideRoot = mkdtempSync(join(tmpdir(), 'workwise-outside-workspace-'))
+    try {
+      configured.workspaceRoot = activeRoot
+      registerAppIpcHandlers(registerOptions({
+        store: { load: vi.fn(async () => configured) } as never
+      }))
+
+      await expect(handlers.get('git:branches')?.({}, outsideRoot))
+        .resolves.toMatchObject({
+          ok: false,
+          reason: 'workspace_not_allowed',
+          message: 'Git workspace must stay within the active workspace.'
+        })
+    } finally {
+      rmSync(activeRoot, { recursive: true, force: true })
+      rmSync(outsideRoot, { recursive: true, force: true })
+    }
+  })
+
+  it('rejects Git checkpoint creation outside the active workspace', async () => {
+    const { registerAppIpcHandlers } = await import('./register-app-ipc-handlers')
+    const configured = settings()
+    const activeRoot = mkdtempSync(join(tmpdir(), 'workwise-active-workspace-'))
+    const outsideRoot = mkdtempSync(join(tmpdir(), 'workwise-outside-workspace-'))
+    try {
+      configured.workspaceRoot = activeRoot
+      registerAppIpcHandlers(registerOptions({
+        store: { load: vi.fn(async () => configured) } as never
+      }))
+
+      await expect(handlers.get('git:checkpoint:create')?.({}, {
+        taskId: 'task-outside',
+        workspaceRoot: outsideRoot,
+        repositoryRoot: outsideRoot,
+        relatedPaths: [],
+        idempotencyKey: 'checkpoint-outside'
+      })).rejects.toMatchObject({ code: 'workspace_not_allowed' })
+    } finally {
+      rmSync(activeRoot, { recursive: true, force: true })
+      rmSync(outsideRoot, { recursive: true, force: true })
+    }
   })
 
   it('passes valid settings patches through to applySettingsPatch', async () => {
@@ -175,6 +261,474 @@ describe('registerAppIpcHandlers', () => {
     const handler = handlers.get('settings:set')
     await expect(handler?.({}, payload)).resolves.toEqual(settings())
     expect(applySettingsPatch).toHaveBeenCalledWith(payload)
+  })
+
+  it('redacts legacy IM secrets from settings:get while keeping them in the main-process store', async () => {
+    const { registerAppIpcHandlers } = await import('./register-app-ipc-handlers')
+    const configured = settings()
+    configured.claw.im.secret = 'legacy-im-secret'
+    configured.claw.channels = [{
+      id: 'legacy-feishu', provider: 'feishu', label: 'Feishu', enabled: true, model: 'auto', threadId: '', workspaceRoot: '',
+      agentProfile: { name: 'Agent', description: '', identity: '', personality: '', userContext: '', replyRules: '' },
+      platformCredential: { kind: 'feishu', appId: 'app-1', appSecret: 'legacy-app-secret', domain: 'feishu', createdAt: new Date().toISOString() },
+      conversations: [], createdAt: new Date().toISOString(), updatedAt: new Date().toISOString()
+    }]
+    registerAppIpcHandlers(registerOptions({ store: { load: vi.fn(async () => configured) } as never }))
+
+    const exposed = await handlers.get('settings:get')?.({}) as AppSettingsV1
+
+    expect(exposed.claw.im.secret).toBe('')
+    expect(exposed.claw.channels[0]?.platformCredential).toEqual(expect.objectContaining({ appId: 'app-1' }))
+    expect(exposed.claw.channels[0]?.platformCredential).not.toHaveProperty('appSecret')
+    expect(JSON.stringify(exposed)).not.toContain('legacy-app-secret')
+    expect(JSON.stringify(exposed)).not.toContain('legacy-im-secret')
+  })
+
+  it('registers unified IM lifecycle, health, self-check, and diagnostics handlers', async () => {
+    const { registerAppIpcHandlers } = await import('./register-app-ipc-handlers')
+    const health = {
+      schema: 'workwise.im-health' as const,
+      version: 1 as const,
+      channelId: 'channel-1', provider: 'feishu' as const, accountId: 'app-1', status: 'connected' as const,
+      reasonCode: 'none' as const, message: '连接正常。', runId: 'run-1', updatedAt: new Date().toISOString(),
+      failureCount: 0, pendingMessages: 0, processingMessages: 0, deliveryMessages: 0
+    }
+    const service = {
+      list: vi.fn(() => [health]),
+      get: vi.fn(() => health),
+      start: vi.fn(() => health),
+      stop: vi.fn(() => ({ ...health, status: 'stopped' as const })),
+      selfCheck: vi.fn(() => ({ schema: 'workwise.im-self-check', version: 1, overall: 'PASS', checkedAt: new Date().toISOString(), runId: 'run-1', checks: [] })),
+      diagnostics: vi.fn(() => ({ schema: 'workwise.im-diagnostics', version: 1, generatedAt: new Date().toISOString(), appVersion: '0.1.0', userDataFingerprint: 'abc123', channels: [] }))
+    }
+    const configured = settings()
+    configured.claw.channels = [{
+      id: 'channel-1', provider: 'feishu', label: 'Feishu', enabled: true, model: 'deepseek-chat', threadId: '', workspaceRoot: '',
+      agentProfile: { name: 'Agent', description: '', identity: '', personality: '', userContext: '', replyRules: '' },
+      platformCredential: { kind: 'feishu', appId: 'app-1', domain: 'feishu', createdAt: new Date().toISOString() },
+      credentialRef: { id: 'credential-1', storage: 'keychain', createdAt: new Date().toISOString() },
+      conversations: [], createdAt: new Date().toISOString(), updatedAt: new Date().toISOString()
+    }]
+    const runtime = { sync: vi.fn(), stop: vi.fn(), isChannelBridgeAvailable: vi.fn(async () => true) }
+    registerAppIpcHandlers(registerOptions({
+      store: { load: vi.fn(async () => configured) } as never,
+      getClawRuntime: () => runtime as never,
+      getImHealthService: () => service as never,
+      getImCredentialService: () => ({ resolve: vi.fn(async () => 'secret') }) as never,
+      getImDeliveryLedger: () => ({ integrityCheck: () => true }) as never,
+      getUserDataPath: () => '/tmp/workwise-test',
+      runtimeRequest: vi.fn(async () => ({ ok: true, status: 200, body: '{}' })) as never
+    }))
+
+    for (const channel of ['claw:im:health', 'claw:im:start', 'claw:im:reconnect', 'claw:im:stop', 'claw:im:disconnect', 'claw:im:self-check', 'claw:im:diagnostics']) {
+      expect(handlers.get(channel), channel).toBeTypeOf('function')
+    }
+    await expect(handlers.get('claw:im:health')?.({}, { channelId: 'channel-1' })).resolves.toEqual([health])
+    await expect(handlers.get('claw:im:start')?.({}, { channelId: 'channel-1' })).resolves.toMatchObject({ ok: true })
+    await expect(handlers.get('claw:im:self-check')?.({}, { channelId: 'channel-1' })).resolves.toMatchObject({ overall: 'PASS' })
+    expect(service.selfCheck).toHaveBeenCalledWith(expect.objectContaining({
+      credentialAvailable: true,
+      bridgeAvailable: true,
+      runtimeAvailable: true,
+      ledgerHealthy: true
+    }))
+    await expect(handlers.get('claw:im:diagnostics')?.({})).resolves.toMatchObject({ schema: 'workwise.im-diagnostics' })
+    await expect(handlers.get('claw:im:stop')?.({}, { channelId: '' }))
+      .rejects.toThrow(/Invalid payload for claw:im:stop/)
+  })
+
+  it('returns a structured lifecycle failure when the IM Runtime is unavailable', async () => {
+    const { registerAppIpcHandlers } = await import('./register-app-ipc-handlers')
+    const configured = settings()
+    configured.claw.channels = [{
+      id: 'channel-offline', provider: 'feishu', label: 'Feishu', enabled: true, model: 'deepseek-chat', threadId: '', workspaceRoot: '',
+      agentProfile: { name: 'Agent', description: '', identity: '', personality: '', userContext: '', replyRules: '' },
+      conversations: [], createdAt: new Date().toISOString(), updatedAt: new Date().toISOString()
+    }]
+    const health = {
+      channelId: 'channel-offline',
+      provider: 'feishu',
+      accountId: 'channel-offline',
+      status: 'connected'
+    }
+    const imHealth = { get: vi.fn(() => health), list: vi.fn(() => [health]) }
+    registerAppIpcHandlers(registerOptions({
+      store: { load: vi.fn(async () => configured) } as never,
+      getClawRuntime: () => null,
+      getImHealthService: () => imHealth as never
+    }))
+
+    await expect(handlers.get('claw:im:stop')?.({}, { channelId: 'channel-offline' }))
+      .resolves.toEqual({
+        ok: false,
+        code: 'runtime_unavailable',
+        message: 'IM Runtime is unavailable.',
+        health
+      })
+  })
+
+  it('reports a paused IM connection without probing its credential or bridge as a failure', async () => {
+    const { registerAppIpcHandlers } = await import('./register-app-ipc-handlers')
+    const health = {
+      schema: 'workwise.im-health' as const,
+      version: 1 as const,
+      channelId: 'channel-paused', provider: 'feishu' as const, accountId: 'app-1', status: 'stopped' as const,
+      reasonCode: 'user_stopped' as const, message: '连接已暂停。', runId: 'run-paused', updatedAt: new Date().toISOString(),
+      failureCount: 0, pendingMessages: 0, processingMessages: 0, deliveryMessages: 0
+    }
+    const selfCheck = vi.fn()
+    const isChannelBridgeAvailable = vi.fn()
+    const resolveCredential = vi.fn()
+    const runtimeRequest = vi.fn(async () => ({ ok: true, status: 200, body: '{}' }))
+    registerAppIpcHandlers(registerOptions({
+      getClawRuntime: () => ({ isChannelBridgeAvailable }) as never,
+      getImHealthService: () => ({ get: vi.fn(() => health), selfCheck }) as never,
+      getImCredentialService: () => ({ resolve: resolveCredential }) as never,
+      getImDeliveryLedger: () => ({ integrityCheck: () => true }) as never,
+      runtimeRequest: runtimeRequest as never
+    }))
+
+    await expect(handlers.get('claw:im:self-check')?.({}, { channelId: 'channel-paused' }))
+      .resolves.toMatchObject({
+        overall: 'PASS',
+        runId: 'run-paused',
+        checks: expect.arrayContaining([
+          expect.objectContaining({ id: 'connection_state', code: 'user_paused', pass: true }),
+          expect.objectContaining({ id: 'runtime', pass: true }),
+          expect.objectContaining({ id: 'ledger', pass: true })
+        ])
+      })
+    expect(runtimeRequest).toHaveBeenCalledWith('/health', 'GET')
+    expect(selfCheck).not.toHaveBeenCalled()
+    expect(isChannelBridgeAvailable).not.toHaveBeenCalled()
+    expect(resolveCredential).not.toHaveBeenCalled()
+  })
+
+  it('reports failed WeChat self-check inputs when credentials and bridge are unavailable', async () => {
+    const { registerAppIpcHandlers } = await import('./register-app-ipc-handlers')
+    const health = {
+      schema: 'workwise.im-health' as const,
+      version: 1 as const,
+      channelId: 'channel-wx', provider: 'weixin' as const, accountId: 'wx-1', status: 'disconnected' as const,
+      reasonCode: 'credential_missing' as const, message: '凭据不可用。', runId: 'run-wx', updatedAt: new Date().toISOString(),
+      failureCount: 1, pendingMessages: 0, processingMessages: 0, deliveryMessages: 0
+    }
+    const selfCheck = vi.fn((input: { credentialAvailable: boolean; bridgeAvailable: boolean }) => ({
+      schema: 'workwise.im-self-check' as const,
+      version: 1 as const,
+      overall: input.credentialAvailable && input.bridgeAvailable ? 'PASS' as const : 'FAIL' as const,
+      checkedAt: new Date().toISOString(),
+      runId: 'run-wx',
+      checks: []
+    }))
+    const configured = settings()
+    configured.claw.channels = [{
+      id: 'channel-wx', provider: 'weixin', label: '微信', enabled: true, model: 'deepseek-chat', threadId: '', workspaceRoot: '',
+      agentProfile: { name: 'Agent', description: '', identity: '', personality: '', userContext: '', replyRules: '' },
+      platformCredential: { kind: 'weixin', accountId: 'wx-1', createdAt: new Date().toISOString() },
+      conversations: [], createdAt: new Date().toISOString(), updatedAt: new Date().toISOString()
+    }]
+    registerAppIpcHandlers(registerOptions({
+      store: { load: vi.fn(async () => configured) } as never,
+      getClawRuntime: () => ({ isChannelBridgeAvailable: vi.fn(async () => false) }) as never,
+      getImHealthService: () => ({ get: vi.fn(() => health), selfCheck }) as never,
+      isWeixinBridgeAccountConfigured: vi.fn(async () => false),
+      getImDeliveryLedger: () => ({ integrityCheck: () => true }) as never,
+      getUserDataPath: () => '/tmp/workwise-test',
+      runtimeRequest: vi.fn(async () => ({ ok: true, status: 200, body: '{}' })) as never
+    }))
+
+    await expect(
+      handlers.get('claw:im:self-check')?.({}, { channelId: 'channel-wx' })
+    ).resolves.toMatchObject({ overall: 'FAIL' })
+    expect(selfCheck).toHaveBeenCalledWith(expect.objectContaining({
+      channelId: 'channel-wx',
+      credentialAvailable: false,
+      bridgeAvailable: false,
+      runtimeAvailable: true,
+      ledgerHealthy: true
+    }))
+  })
+
+  it('trusts an active WeChat bridge credential without resolving the redundant channel credential ref', async () => {
+    const { registerAppIpcHandlers } = await import('./register-app-ipc-handlers')
+    const health = {
+      schema: 'workwise.im-health' as const,
+      version: 1 as const,
+      channelId: 'channel-wx', provider: 'weixin' as const, accountId: 'wx-1', status: 'connected' as const,
+      reasonCode: 'none' as const, message: '微信已连接。', runId: 'run-wx', updatedAt: new Date().toISOString(),
+      lastSuccessfulHeartbeatAt: new Date().toISOString(),
+      failureCount: 0, pendingMessages: 0, processingMessages: 0, deliveryMessages: 0
+    }
+    const selfCheck = vi.fn((input: { credentialAvailable: boolean; bridgeAvailable: boolean }) => ({
+      schema: 'workwise.im-self-check' as const,
+      version: 1 as const,
+      overall: input.credentialAvailable && input.bridgeAvailable ? 'PASS' as const : 'FAIL' as const,
+      checkedAt: new Date().toISOString(),
+      runId: 'run-wx',
+      checks: []
+    }))
+    const configured = settings()
+    configured.claw.channels = [{
+      id: 'channel-wx', provider: 'weixin', label: '微信', enabled: true, model: 'deepseek-chat', threadId: '', workspaceRoot: '',
+      agentProfile: { name: 'Agent', description: '', identity: '', personality: '', userContext: '', replyRules: '' },
+      platformCredential: { kind: 'weixin', accountId: 'wx-1', createdAt: new Date().toISOString() },
+      credentialRef: { id: 'redundant-ref', storage: 'keychain', createdAt: new Date().toISOString() },
+      conversations: [], createdAt: new Date().toISOString(), updatedAt: new Date().toISOString()
+    }]
+    const resolveCredential = vi.fn(async () => { throw new Error('helper unavailable') })
+    const configuredAccount = vi.fn(async () => true)
+    registerAppIpcHandlers(registerOptions({
+      store: { load: vi.fn(async () => configured) } as never,
+      getClawRuntime: () => ({ isChannelBridgeAvailable: vi.fn(async () => true) }) as never,
+      getImHealthService: () => ({ get: vi.fn(() => health), selfCheck }) as never,
+      getImCredentialService: () => ({ resolve: resolveCredential }) as never,
+      isWeixinBridgeAccountConfigured: configuredAccount,
+      getImDeliveryLedger: () => ({ integrityCheck: () => true }) as never,
+      getUserDataPath: () => '/tmp/workwise-test',
+      runtimeRequest: vi.fn(async () => ({ ok: true, status: 200, body: '{}' })) as never
+    }))
+
+    await expect(
+      handlers.get('claw:im:self-check')?.({}, { channelId: 'channel-wx' })
+    ).resolves.toMatchObject({ overall: 'PASS' })
+    expect(configuredAccount).toHaveBeenCalledWith('wx-1')
+    expect(resolveCredential).not.toHaveBeenCalled()
+    expect(selfCheck).toHaveBeenCalledWith(expect.objectContaining({
+      credentialAvailable: true,
+      bridgeAvailable: true,
+      runtimeAvailable: true,
+      ledgerHealthy: true
+    }))
+  })
+
+  it('removes a disconnected IM channel through the protected settings path', async () => {
+    const { registerAppIpcHandlers } = await import('./register-app-ipc-handlers')
+    const configured = settings()
+    configured.claw.channels = [{
+      id: 'channel-disconnect', provider: 'feishu', label: 'Feishu', enabled: true, model: 'deepseek-chat', threadId: '', workspaceRoot: '',
+      agentProfile: { name: 'Agent', description: '', identity: '', personality: '', userContext: '', replyRules: '' },
+      platformCredential: { kind: 'feishu', appId: 'app-1', domain: 'feishu', createdAt: new Date().toISOString() },
+      credentialRef: { id: 'credential-1', storage: 'keychain', createdAt: new Date().toISOString() },
+      conversations: [], createdAt: new Date().toISOString(), updatedAt: new Date().toISOString()
+    }]
+    const applySettingsPatch = vi.fn(async () => ({ ...configured, claw: { ...configured.claw, channels: [] } }))
+    const disconnectChannel = vi.fn(async () => undefined)
+    const health = {
+      schema: 'workwise.im-health' as const,
+      version: 1 as const,
+      channelId: 'channel-disconnect', provider: 'feishu' as const, accountId: 'app-1', status: 'connected' as const,
+      reasonCode: 'none' as const, message: '连接正常。', runId: 'run-1', updatedAt: new Date().toISOString(),
+      failureCount: 0, pendingMessages: 0, processingMessages: 0, deliveryMessages: 0
+    }
+    const stop = vi.fn(() => ({ ...health, status: 'stopped' as const }))
+    registerAppIpcHandlers(registerOptions({
+      store: { load: vi.fn(async () => configured) } as never,
+      applySettingsPatch,
+      getClawRuntime: () => ({ disconnectChannel }) as never,
+      getImHealthService: () => ({ get: () => health, stop }) as never
+    }))
+
+    await expect(handlers.get('claw:im:disconnect')?.({}, { channelId: 'channel-disconnect' }))
+      .resolves.toMatchObject({ ok: true })
+    expect(disconnectChannel).toHaveBeenCalledWith('channel-disconnect')
+    expect(applySettingsPatch).toHaveBeenCalledWith({ claw: { channels: [] } })
+    expect(stop).toHaveBeenCalledWith('channel-disconnect', '连接已断开，凭据已清除。')
+  })
+
+  it('returns stopped health when stop begins without a persisted health snapshot', async () => {
+    const { registerAppIpcHandlers } = await import('./register-app-ipc-handlers')
+    const configured = settings()
+    configured.claw.channels = [{
+      id: 'channel-stop', provider: 'feishu', label: 'Feishu', enabled: true, model: 'deepseek-chat', threadId: '', workspaceRoot: '',
+      agentProfile: { name: 'Agent', description: '', identity: '', personality: '', userContext: '', replyRules: '' },
+      platformCredential: { kind: 'feishu', appId: 'app-1', domain: 'feishu', createdAt: new Date().toISOString() },
+      conversations: [], createdAt: new Date().toISOString(), updatedAt: new Date().toISOString()
+    }]
+    let health: Record<string, unknown> | undefined
+    const service = {
+      stop: vi.fn((_channelId: string, message = '连接已暂停。') => {
+        if (!health) return undefined
+        health = { ...health, status: 'stopped', reasonCode: 'user_stopped', message }
+        return health
+      }),
+      start: vi.fn(() => {
+        health = { channelId: 'channel-stop', provider: 'feishu', accountId: 'app-1', status: 'starting' }
+        return health
+      })
+    }
+    const stopChannel = vi.fn(async () => undefined)
+    const applySettingsPatch = vi.fn(async () => configured)
+    registerAppIpcHandlers(registerOptions({
+      store: { load: vi.fn(async () => configured) } as never,
+      applySettingsPatch,
+      getClawRuntime: () => ({ stopChannel }) as never,
+      getImHealthService: () => service as never
+    }))
+
+    await expect(handlers.get('claw:im:stop')?.({}, { channelId: 'channel-stop' }))
+      .resolves.toMatchObject({ ok: true, health: { status: 'stopped', reasonCode: 'user_stopped' } })
+    expect(service.start).toHaveBeenCalledTimes(1)
+    expect(service.stop).toHaveBeenCalledTimes(2)
+    expect(stopChannel).toHaveBeenCalledWith('channel-stop')
+    expect(applySettingsPatch).toHaveBeenCalledWith({
+      claw: {
+        channels: [expect.objectContaining({ id: 'channel-stop', enabled: false })]
+      }
+    })
+  })
+
+  it('persists a stopped channel as enabled before reconnecting it', async () => {
+    const { registerAppIpcHandlers } = await import('./register-app-ipc-handlers')
+    const configured = settings()
+    configured.claw.channels = [{
+      id: 'channel-reconnect', provider: 'feishu', label: 'Feishu', enabled: false, model: 'deepseek-chat', threadId: '', workspaceRoot: '',
+      agentProfile: { name: 'Agent', description: '', identity: '', personality: '', userContext: '', replyRules: '' },
+      platformCredential: { kind: 'feishu', appId: 'app-1', domain: 'feishu', createdAt: new Date().toISOString() },
+      conversations: [], createdAt: new Date().toISOString(), updatedAt: new Date().toISOString()
+    }]
+    const health = {
+      schema: 'workwise.im-health' as const,
+      version: 1 as const,
+      channelId: 'channel-reconnect', provider: 'feishu' as const, accountId: 'app-1', status: 'starting' as const,
+      reasonCode: 'none' as const, message: '正在建立连接。', runId: 'runtime-run', updatedAt: new Date().toISOString(),
+      failureCount: 0, pendingMessages: 0, processingMessages: 0, deliveryMessages: 0
+    }
+    const reconnectChannel = vi.fn(async () => undefined)
+    const retryProtectedStorage = vi.fn(async () => undefined)
+    const start = vi.fn(() => ({ ...health, runId: 'ipc-reset-run' }))
+    const applySettingsPatch = vi.fn(async () => ({
+      ...configured,
+      claw: {
+        ...configured.claw,
+        channels: configured.claw.channels.map((channel) => ({ ...channel, enabled: true }))
+      }
+    }))
+    registerAppIpcHandlers(registerOptions({
+      store: { load: vi.fn(async () => configured) } as never,
+      applySettingsPatch,
+      getClawRuntime: () => ({ reconnectChannel }) as never,
+      getImCredentialService: () => ({ retryProtectedStorage }) as never,
+      getImHealthService: () => ({ get: vi.fn(() => health), start }) as never
+    }))
+
+    await expect(handlers.get('claw:im:reconnect')?.({}, { channelId: 'channel-reconnect' }))
+      .resolves.toMatchObject({ ok: true, health: { runId: 'runtime-run' } })
+    expect(reconnectChannel).toHaveBeenCalledWith('channel-reconnect')
+    expect(retryProtectedStorage).toHaveBeenCalledTimes(1)
+    expect(retryProtectedStorage.mock.invocationCallOrder[0]).toBeLessThan(
+      reconnectChannel.mock.invocationCallOrder[0]
+    )
+    expect(applySettingsPatch).toHaveBeenCalledWith({
+      claw: {
+        channels: [expect.objectContaining({ id: 'channel-reconnect', enabled: true })]
+      }
+    })
+    expect(applySettingsPatch.mock.invocationCallOrder[0]).toBeLessThan(
+      reconnectChannel.mock.invocationCallOrder[0]
+    )
+    expect(start).not.toHaveBeenCalled()
+  })
+
+  it('migrates a legacy Feishu secret to protected storage before reconnecting', async () => {
+    const { registerAppIpcHandlers } = await import('./register-app-ipc-handlers')
+    const configured = settings()
+    configured.claw.channels = [{
+      id: 'channel-legacy', provider: 'feishu', label: 'Feishu', enabled: true, model: 'deepseek-chat', threadId: '', workspaceRoot: '',
+      agentProfile: { name: 'Agent', description: '', identity: '', personality: '', userContext: '', replyRules: '' },
+      platformCredential: { kind: 'feishu', appId: 'app-legacy', appSecret: 'legacy-secret', domain: 'feishu', createdAt: new Date().toISOString() },
+      conversations: [], createdAt: new Date().toISOString(), updatedAt: new Date().toISOString()
+    }]
+    const retryProtectedStorage = vi.fn(async () => undefined)
+    const set = vi.fn(async () => ({
+      id: 'protected-ref', storage: 'keychain' as const, createdAt: new Date().toISOString()
+    }))
+    const applySettingsPatch = vi.fn(async (_patch: AppSettingsPatch) => configured)
+    const reconnectChannel = vi.fn(async () => undefined)
+    const health = { channelId: 'channel-legacy', status: 'starting' }
+    registerAppIpcHandlers(registerOptions({
+      store: { load: vi.fn(async () => configured) } as never,
+      applySettingsPatch,
+      getClawRuntime: () => ({ reconnectChannel }) as never,
+      getImCredentialService: () => ({ retryProtectedStorage, set }) as never,
+      getImHealthService: () => ({ get: vi.fn(() => health) }) as never
+    }))
+
+    await expect(handlers.get('claw:im:reconnect')?.({}, { channelId: 'channel-legacy' }))
+      .resolves.toMatchObject({ ok: true })
+
+    expect(set).toHaveBeenCalledWith('feishu', 'app-legacy', 'legacy-secret')
+    expect(applySettingsPatch).toHaveBeenCalledWith({
+      claw: {
+        channels: [expect.objectContaining({
+          credentialRef: expect.objectContaining({ id: 'protected-ref', storage: 'keychain' }),
+          platformCredential: expect.not.objectContaining({ appSecret: expect.anything() })
+        })]
+      }
+    })
+    expect(reconnectChannel).toHaveBeenCalledWith('channel-legacy')
+    expect(applySettingsPatch.mock.invocationCallOrder[0]).toBeLessThan(
+      reconnectChannel.mock.invocationCallOrder[0]
+    )
+  })
+
+  it('returns an explicit reconnect failure instead of rejecting the IPC call', async () => {
+    const { registerAppIpcHandlers } = await import('./register-app-ipc-handlers')
+    const configured = settings()
+    configured.claw.channels = [{
+      id: 'channel-reconnect', provider: 'feishu', label: 'Feishu', enabled: true, model: 'deepseek-chat', threadId: '', workspaceRoot: '',
+      agentProfile: { name: 'Agent', description: '', identity: '', personality: '', userContext: '', replyRules: '' },
+      platformCredential: { kind: 'feishu', appId: 'app-1', domain: 'feishu', createdAt: new Date().toISOString() },
+      conversations: [], createdAt: new Date().toISOString(), updatedAt: new Date().toISOString()
+    }]
+    const health = { channelId: 'channel-reconnect', status: 'retrying' }
+    registerAppIpcHandlers(registerOptions({
+      store: { load: vi.fn(async () => configured) } as never,
+      getClawRuntime: () => ({ reconnectChannel: vi.fn(async () => { throw new Error('bridge unavailable') }) }) as never,
+      getImHealthService: () => ({ get: vi.fn(() => health) }) as never
+    }))
+
+    await expect(handlers.get('claw:im:reconnect')?.({}, { channelId: 'channel-reconnect' }))
+      .resolves.toEqual({
+        ok: false,
+        code: 'reconnect_failed',
+        message: 'bridge unavailable',
+        health
+      })
+  })
+
+  it('reports a failed self-check when Feishu protected storage rejects', async () => {
+    const { registerAppIpcHandlers } = await import('./register-app-ipc-handlers')
+    const configured = settings()
+    configured.claw.channels = [{
+      id: 'channel-keychain', provider: 'feishu', label: 'Feishu', enabled: true, model: 'deepseek-chat', threadId: '', workspaceRoot: '',
+      agentProfile: { name: 'Agent', description: '', identity: '', personality: '', userContext: '', replyRules: '' },
+      platformCredential: { kind: 'feishu', appId: 'app-1', domain: 'feishu', createdAt: new Date().toISOString() },
+      credentialRef: { id: 'credential-1', storage: 'keychain', createdAt: new Date().toISOString() },
+      conversations: [], createdAt: new Date().toISOString(), updatedAt: new Date().toISOString()
+    }]
+    const health = { channelId: 'channel-keychain', runId: 'run-1' }
+    const selfCheck = vi.fn((input: { credentialAvailable: boolean }) => ({
+      schema: 'workwise.im-self-check', version: 1, overall: input.credentialAvailable ? 'PASS' : 'FAIL',
+      checkedAt: new Date().toISOString(), runId: 'run-1', checks: []
+    }))
+    registerAppIpcHandlers(registerOptions({
+      store: { load: vi.fn(async () => configured) } as never,
+      getClawRuntime: () => ({ isChannelBridgeAvailable: vi.fn(async () => true) }) as never,
+      getImHealthService: () => ({ get: vi.fn(() => health), selfCheck }) as never,
+      getImCredentialService: () => ({ resolve: vi.fn(async () => { throw new Error('credential_unavailable') }) }) as never,
+      getImDeliveryLedger: () => ({ integrityCheck: () => true }) as never,
+      runtimeRequest: vi.fn(async () => ({ ok: true, status: 200, body: '{}' })) as never
+    }))
+
+    await expect(handlers.get('claw:im:self-check')?.({}, { channelId: 'channel-keychain' }))
+      .resolves.toMatchObject({ overall: 'FAIL' })
+    expect(selfCheck).toHaveBeenCalledWith(expect.objectContaining({
+      credentialAvailable: false,
+      bridgeAvailable: true,
+      runtimeAvailable: true,
+      ledgerHealthy: true
+    }))
   })
 
   it('registers every managed-tool IPC handler and validates tool ids', async () => {

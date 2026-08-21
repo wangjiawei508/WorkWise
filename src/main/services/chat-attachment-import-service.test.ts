@@ -54,4 +54,25 @@ describe('ChatAttachmentImportService parse states', () => {
       sourceStructure: { pageCount: 120, headings: 1, tables: 1 }
     })
   })
+
+  it('passes the configured parsing mode and local OCR endpoint to the document engine', async () => {
+    const parse = vi.fn(async () => ({
+      id: 'parse', engine: 'unlimited-ocr-local' as const, engineVersion: 'fixture', sourceSha256: 'hash',
+      markdown: '# 解析结果', headings: [], tables: [], media: [], references: [],
+      warnings: [], quality: { status: 'enhanced' as const, reasons: [] },
+      route: { requestedMode: 'accurate' as const, selectedEngine: 'unlimited-ocr-local' as const },
+      cacheHit: false, durationMs: 1
+    }))
+    const fixture = await serviceWithFile('accurate.pdf', '%PDF-1.7\n%%EOF', parse)
+    const staged = await fixture.service.stage({ sourcePath: fixture.sourcePath })
+
+    await expect(fixture.service.parse(staged, {
+      mode: 'accurate',
+      unlimitedOcrServerUrl: 'http://127.0.0.1:3000'
+    })).resolves.toMatchObject({ state: 'ready', document: { engine: 'unlimited-ocr-local' } })
+    expect(parse).toHaveBeenCalledWith(expect.objectContaining({
+      mode: 'accurate',
+      unlimitedOcrServerUrl: 'http://127.0.0.1:3000'
+    }))
+  })
 })

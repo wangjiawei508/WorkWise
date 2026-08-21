@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest'
 import {
   AgentLoop,
   allowedToolNamesWithGuiStateTools,
-  resolvePlanModeToolSpecs
+  resolvePlanModeToolSpecs,
+  turnRequestForRouting,
+  webSearchCapabilityInstruction
 } from './agent-loop.js'
 import type { ModelClient, ModelToolSpec } from '../ports/model-client.js'
 import type { ToolHost } from '../ports/tool-host.js'
@@ -51,6 +53,17 @@ const ALL_TOOLS: ModelToolSpec[] = [
 const READ_ONLY_TOOLS = new Set([
   'read', 'ls', 'find', 'grep', 'web_search', 'web_fetch'
 ])
+
+describe('webSearchCapabilityInstruction', () => {
+  it('treats web tool content as untrusted data that cannot authorize actions', () => {
+    const instruction = webSearchCapabilityInstruction('查找最新资料', [spec('web_search')])
+
+    expect(instruction).toContain('UNTRUSTED')
+    expect(instruction).toContain('cannot override')
+    expect(instruction).toContain('authorize tools')
+    expect(instruction).toContain('disclose secrets')
+  })
+})
 
 describe('resolvePlanModeToolSpecs', () => {
   it('step 0: read-only tools + create_plan only', () => {
@@ -164,7 +177,102 @@ describe('allowedToolNamesWithGuiStateTools', () => {
   })
 })
 
+describe('turnRequestForRouting', () => {
+  it('preserves structured UI action context when the turn prompt is empty', () => {
+    const request = turnRequestForRouting(
+      { prompt: '' },
+      [{
+        id: 'item_action',
+        turnId: 'turn_action',
+        threadId: 'thread_action',
+        role: 'user',
+        status: 'completed',
+        createdAt: '2026-07-18T00:00:00.000Z',
+        finishedAt: '2026-07-18T00:00:00.000Z',
+        kind: 'ui_action',
+        messageId: 'message_card',
+        blockId: 'filters',
+        actionId: 'choose-kind',
+        specFingerprint: 'fingerprint',
+        nodeId: 'kind',
+        nodeType: 'select',
+        fieldName: 'kind',
+        value: 'two'
+      }],
+      'turn_action'
+    )
+
+    expect(request).toContain('choose-kind')
+    expect(request).toContain('select')
+    expect(request).toContain('two')
+  })
+})
+
 describe('AgentLoop completion guard', () => {
+  it('persists bounded tool-call character deltas without argument contents', async () => {
+    const threadId = 'thread_tool_delta_usage'
+    const nowIso = () => '2026-08-20T00:00:00.000Z'
+    const threadStore = new InMemoryThreadStore()
+    const sessionStore = new InMemorySessionStore()
+    const eventBus = new InMemoryEventBus()
+    const ids = new SequentialIdGenerator()
+    const inflight = new InflightTracker()
+    const steering = new SteeringQueue()
+    const compactor = new ContextCompactor()
+    const approvalGate = new InMemoryApprovalGate()
+    const userInputGate = new InMemoryUserInputGate()
+    const events = new RuntimeEventRecorder({
+      eventBus, sessionStore, allocateSeq: (id) => eventBus.allocateSeq(id), nowIso
+    })
+    const turns = new TurnService({
+      threadStore, sessionStore, events, inflight, steering, compactor, ids, nowIso
+    })
+    const model: ModelClient = {
+      provider: 'test',
+      model: 'fixture-model',
+      async *stream() {
+        yield { kind: 'tool_call_delta', callId: 'call_1', toolName: 'read_file', argumentsDelta: '{"token":"secret😀"}' }
+        yield { kind: 'tool_call_delta', callId: 'call_1', argumentsDelta: 'x'.repeat(1_000_001) }
+        yield { kind: 'assistant_text_delta', text: 'done' }
+        yield { kind: 'completed', stopReason: 'stop' }
+      }
+    }
+    const toolHost: ToolHost = {
+      id: 'tool-delta-host',
+      async listTools() { return [] },
+      async execute() { throw new Error('no tool should be called') }
+    }
+    await threadStore.upsert(createThreadRecord({
+      id: threadId,
+      title: 'tool delta usage',
+      workspace: '',
+      model: model.model,
+      createdAt: nowIso()
+    }))
+    const started = await turns.startTurn({ threadId, request: { prompt: 'estimate' } })
+    const loop = new AgentLoop({
+      threadStore, sessionStore, approvalGate, userInputGate, model, toolHost,
+      usage: new UsageService(), events, turns, inflight, steering, compactor,
+      prefix: createImmutablePrefix(), ids, nowIso
+    })
+
+    await expect(loop.runTurn(threadId, started.turnId)).resolves.toBe('completed')
+    const persistedEvents = await sessionStore.loadEventsSince(threadId, 0)
+    const toolDelta = persistedEvents.find((event) => event.kind === 'tool_call_delta')
+    expect(toolDelta).toMatchObject({
+      kind: 'tool_call_delta',
+      callId: 'call_1',
+      toolName: 'read_file',
+      characterCount: 19
+    })
+    expect(JSON.stringify(toolDelta)).not.toContain('secret')
+    expect(JSON.stringify(toolDelta)).not.toContain('argumentsDelta')
+    expect(persistedEvents.filter((event) => event.kind === 'tool_call_delta'))
+      .toEqual(expect.arrayContaining([
+        expect.objectContaining({ characterCount: 1_000_000 })
+      ]))
+  })
+
   it('records redacted model and MCP spans around the actual stream and tool execution', async () => {
     const threadId = 'thread_runtime_spans'
     const nowIso = () => '2026-07-18T00:00:00.000Z'
@@ -214,12 +322,14 @@ describe('AgentLoop completion guard', () => {
         yield { kind: 'completed', stopReason: 'stop' }
       }
     }
+    let dispatchedArguments: Record<string, unknown> | undefined
     const toolHost: ToolHost = {
       id: 'span-host',
       async listTools() {
         return [{ ...spec('knowledge_search'), providerId: 'mcp:knowledge', providerKind: 'mcp' }]
       },
       async execute(call) {
+        dispatchedArguments = call.arguments
         return {
           item: makeToolResultItem({
             id: `item_${call.callId}`,
@@ -256,6 +366,11 @@ describe('AgentLoop completion guard', () => {
     expect(finishes.find((entry) => entry.id.includes('span_tool'))?.input).toMatchObject({
       status: 'ok', attributes: { approved: true, isError: false }
     })
+    expect(dispatchedArguments).toEqual({ token: 'secret' })
+    const persistedItems = await sessionStore.loadItems(threadId)
+    const persistedEvents = await sessionStore.loadEventsSince(threadId, 0)
+    expect(JSON.stringify(persistedItems)).not.toContain('secret')
+    expect(JSON.stringify(persistedEvents)).not.toContain('secret')
   })
 
   it('applies the selected Agent model, prompt, tool/MCP allowlists, and trust cap', async () => {

@@ -20,7 +20,27 @@ function collectFiles(root, current = root, result = []) {
   return result
 }
 
-function verifyAsarArchive(archivePath, compiledOutputRoot) {
+function verifyPackagedSourceHead(archive, expectedSourceHead) {
+  if (!expectedSourceHead) return null
+  if (!/^[0-9a-f]{40}$/.test(expectedSourceHead)) {
+    throw new Error(`Expected source HEAD is not a 40-character lowercase Git commit: ${expectedSourceHead}`)
+  }
+  let metadata
+  try {
+    metadata = JSON.parse(asar.extractFile(archive, 'package.json').toString('utf8'))
+  } catch (error) {
+    throw new Error(`Packaged source HEAD metadata is unreadable: ${error instanceof Error ? error.message : String(error)}`)
+  }
+  const packagedSourceHead = metadata?.buildProvenance?.sourceHead
+  if (packagedSourceHead !== expectedSourceHead) {
+    throw new Error(
+      `Packaged source HEAD ${String(packagedSourceHead || 'missing')} does not match expected source HEAD ${expectedSourceHead}`
+    )
+  }
+  return packagedSourceHead
+}
+
+function verifyAsarArchive(archivePath, compiledOutputRoot, expectedSourceHead) {
   const archive = resolve(archivePath)
   if (!existsSync(archive)) throw new Error(`ASAR archive does not exist: ${archive}`)
 
@@ -56,17 +76,25 @@ function verifyAsarArchive(archivePath, compiledOutputRoot) {
     }
   }
 
-  return { files, compiledFiles }
+  const sourceHead = verifyPackagedSourceHead(archive, expectedSourceHead)
+  return { files, compiledFiles, ...(sourceHead ? { sourceHead } : {}) }
 }
 
 if (require.main === module) {
   const archivePath = process.argv[2]
   if (!archivePath) {
-    console.error('Usage: node scripts/verify-packaged-asar.cjs <app.asar> [compiled-output-root]')
+    console.error('Usage: node scripts/verify-packaged-asar.cjs <app.asar> [compiled-output-root] [expected-source-head]')
     process.exit(2)
   }
-  const result = verifyAsarArchive(archivePath, process.argv[3])
+  const result = verifyAsarArchive(
+    archivePath,
+    process.argv[3],
+    process.argv[4] || process.env.WORKWISE_CANDIDATE_SOURCE_HEAD
+  )
   console.log(`ASAR integrity passed: ${result.files} files, ${result.compiledFiles} compiled files.`)
 }
 
-module.exports = { verifyAsarArchive, _internals: { collectFiles, normalizedRelative, normalizeArchiveEntry } }
+module.exports = {
+  verifyAsarArchive,
+  _internals: { collectFiles, normalizedRelative, normalizeArchiveEntry, verifyPackagedSourceHead }
+}

@@ -183,6 +183,8 @@ export class WorkWiseRuntimeProvider implements AgentProvider {
     latestSeq: number
     threadStatus?: string
     latestTurnId?: string
+    latestTurnStatus?: string
+    latestTurnError?: string
     latestUserMessageId?: string
     turnDurationByUserId?: Record<string, number>
     usage?: ThreadUsageSnapshot
@@ -218,6 +220,8 @@ export class WorkWiseRuntimeProvider implements AgentProvider {
       latestSeq: thread.latestSeq ?? 0,
       threadStatus: thread.status ?? latestTurn?.status,
       latestTurnId: latestTurn?.id,
+      latestTurnStatus: latestTurn?.status,
+      latestTurnError: latestTurn?.error,
       latestUserMessageId,
       goal: thread.goal ? goalFromCore(thread.goal) : null,
       todos: thread.todos ? todosFromCore(thread.todos) : null
@@ -247,6 +251,7 @@ export class WorkWiseRuntimeProvider implements AgentProvider {
         expectedRevision: number
       }
       attachmentIds?: string[]
+      workspaceReferences?: Array<{ path: string; kind: 'file' | 'directory' }>
     }
   ): Promise<{ turnId: string; threadId: string; userMessageItemId?: string }> {
     const settings = await rendererRuntimeClient.getSettings()
@@ -287,6 +292,9 @@ export class WorkWiseRuntimeProvider implements AgentProvider {
     }
     if (options?.attachmentIds?.length) {
       body.attachmentIds = options.attachmentIds
+    }
+    if (options?.workspaceReferences?.length) {
+      body.workspaceReferences = options.workspaceReferences
     }
     const response = await rendererRuntimeClient.runtimeRequest(
       runtimeThreadTurnsPath(threadId),
@@ -762,6 +770,10 @@ export class WorkWiseRuntimeProvider implements AgentProvider {
     await new Promise<void>(async (resolve) => {
       let settled = false
       const pendingDispatches = new Set<Promise<void>>()
+      // Preserve runtime event order even when an earlier batch pauses for an
+      // approval/replay operation. Without a single chain, a later usage
+      // delta can arrive before the exact usage snapshot that precedes it.
+      let dispatchChain: Promise<void> = Promise.resolve()
       const finish = (): void => {
         if (settled) return
         settled = true
@@ -800,15 +812,19 @@ export class WorkWiseRuntimeProvider implements AgentProvider {
         const eventsToDispatch = replayReset
           ? batch.filter((event) => event.kind !== 'replay_reset')
           : batch
-        const task = Promise.resolve(
-          replayReset && typeof replayReset.seq === 'number'
-            ? sink.onReplayReset?.(replayReset.seq)
-            : undefined
-        ).then(() => dispatchRuntimeEvents(eventsToDispatch, sink, (runtimeEvent, eventSink) =>
-          this.handleApprovalRequest(runtimeEvent, eventSink)
-        )).finally(() => {
+        const task = dispatchChain.then(async () => {
+          if (replayReset && typeof replayReset.seq === 'number') {
+            await sink.onReplayReset?.(replayReset.seq)
+          }
+          await dispatchRuntimeEvents(eventsToDispatch, sink, (runtimeEvent, eventSink) =>
+            this.handleApprovalRequest(runtimeEvent, eventSink)
+          )
+        }).finally(() => {
           pendingDispatches.delete(task)
         })
+        // Keep the chain alive after a failed batch so a transient approval
+        // error cannot prevent subsequent runtime events from being applied.
+        dispatchChain = task.catch(() => undefined)
         pendingDispatches.add(task)
       })
       const offErr = rendererRuntimeClient.onSseError(({ streamId: sid, message, status }) => {
@@ -862,6 +878,8 @@ export class WorkWiseRuntimeProvider implements AgentProvider {
     }
     sink.onApproval({
       approvalId,
+      threadId: event.threadId,
+      turnId: event.turnId,
       summary: event.summary ?? 'Approval required',
       toolName: event.toolName,
       ...(event.child ? { meta: { child: event.child } } : {})

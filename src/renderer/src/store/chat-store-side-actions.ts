@@ -204,22 +204,27 @@ function buildSideSink(sideId: string, ctx: SideContext, sinceSeq = 0): ThreadEv
     },
     onApproval: (req) => {
       ctx.set((s) =>
-        patchSide(s, sideId, (side) => ({
-          ...side,
-          blocks: [
-            ...side.blocks,
-            {
-              kind: 'approval',
-              id: `appr_${Date.now()}`,
-              createdAt: new Date().toISOString(),
-              approvalId: req.approvalId,
-              summary: req.summary,
-              toolName: req.toolName,
-              status: 'pending',
-              ...(req.meta ? { meta: req.meta } : {})
-            }
-          ]
-        }))
+        patchSide(s, sideId, (side) => {
+          if (side.blocks.some((block) => block.kind === 'approval' && block.approvalId === req.approvalId)) {
+            return side
+          }
+          return {
+            ...side,
+            blocks: [
+              ...side.blocks,
+              {
+                kind: 'approval',
+                id: `appr_${Date.now()}`,
+                createdAt: new Date().toISOString(),
+                approvalId: req.approvalId,
+                summary: req.summary,
+                toolName: req.toolName,
+                status: 'pending',
+                ...(req.meta ? { meta: req.meta } : {})
+              }
+            ]
+          }
+        })
       )
     },
     onUserInput: (req) => {
@@ -275,7 +280,7 @@ function buildSideSink(sideId: string, ctx: SideContext, sinceSeq = 0): ThreadEv
         }))
       )
     },
-    onUsage: (usage) => {
+    onUsage: (usage, _seq, _turnId) => {
       // Side usage is reported only to keep lastSeq cursors consistent;
       // a per-thread usage counter can be wired here in the future.
       void usage

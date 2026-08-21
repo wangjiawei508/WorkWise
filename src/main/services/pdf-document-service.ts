@@ -23,11 +23,19 @@ export async function analyzePdfDocument(
   signal?: AbortSignal
 ): Promise<PdfDocumentAnalysisV1> {
   if (signal?.aborted) throw cancelledError()
-  const bytes = await readFile(path)
+  let bytes: Buffer
+  try {
+    bytes = await readFile(path, { signal })
+  } catch (error) {
+    if (signal?.aborted || (error instanceof Error && error.name === 'AbortError')) throw cancelledError()
+    throw normalizePdfError(error)
+  }
+  if (signal?.aborted) throw cancelledError()
   // pdfjs probes optional native canvas bindings while the module loads. Keep
   // that work out of the desktop bootstrap so one missing cross-arch optional
   // package cannot prevent WorkWise itself from reaching app.whenReady().
   const { getDocument } = await import('pdfjs-dist/legacy/build/pdf.mjs')
+  if (signal?.aborted) throw cancelledError()
   const loadingTask = getDocument({
     data: new Uint8Array(bytes),
     isEvalSupported: false,
@@ -40,6 +48,7 @@ export async function analyzePdfDocument(
   signal?.addEventListener('abort', abort, { once: true })
   try {
     const document = await loadingTask.promise
+    if (signal?.aborted) throw cancelledError()
     const pages: PdfPageTextV1[] = []
     const warnings: string[] = []
     let totalBytes = 0
@@ -47,7 +56,9 @@ export async function analyzePdfDocument(
     for (let pageNumber = 1; pageNumber <= limit; pageNumber += 1) {
       if (signal?.aborted) throw cancelledError()
       const page = await document.getPage(pageNumber)
+      if (signal?.aborted) throw cancelledError()
       const content = await page.getTextContent({ disableNormalization: false })
+      if (signal?.aborted) throw cancelledError()
       const raw = content.items
         .map((item) => ('str' in item && typeof item.str === 'string' ? item.str : ''))
         .filter(Boolean)

@@ -1,5 +1,6 @@
 import {
   chmodSync,
+  copyFileSync,
   mkdirSync,
   mkdtempSync,
   rmSync,
@@ -7,6 +8,7 @@ import {
   writeFileSync
 } from 'node:fs'
 import { createRequire } from 'node:module'
+import { execFileSync } from 'node:child_process'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -64,6 +66,57 @@ function loadBuilderConfigWithEnv(env: Record<string, string | undefined>): type
       }
     }
     require(configPath)
+  }
+}
+
+function createCandidatePackagingRepo(): { repo: string; sourceHead: string } {
+  const fixtureRoot = tempRoot()
+  const repo = join(fixtureRoot, 'repo')
+  mkdirSync(join(repo, 'kun'), { recursive: true })
+  mkdirSync(join(repo, 'scripts'), { recursive: true })
+  copyFileSync(join(process.cwd(), 'electron-builder.cjs'), join(repo, 'electron-builder.cjs'))
+  copyFileSync(join(process.cwd(), 'kun', 'package-lock.json'), join(repo, 'kun', 'package-lock.json'))
+  copyFileSync(
+    join(process.cwd(), 'scripts', 'candidate-source-provenance.cjs'),
+    join(repo, 'scripts', 'candidate-source-provenance.cjs')
+  )
+  copyFileSync(
+    join(process.cwd(), 'scripts', 'markitdown-packaging-policy.cjs'),
+    join(repo, 'scripts', 'markitdown-packaging-policy.cjs')
+  )
+  execFileSync('git', ['init', '-b', 'candidate-test'], { cwd: repo, stdio: 'pipe' })
+  execFileSync('git', ['config', 'user.name', 'WorkWise Test'], { cwd: repo })
+  execFileSync('git', ['config', 'user.email', 'test@workwise.invalid'], { cwd: repo })
+  execFileSync('git', ['add', '.'], { cwd: repo })
+  execFileSync('git', ['commit', '-m', 'fixture'], { cwd: repo, stdio: 'pipe' })
+  const sourceHead = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: repo, encoding: 'utf8' }).trim()
+  return { repo, sourceHead }
+}
+
+function loadCandidateBuilderConfig(
+  repo: string,
+  sourceHead: string
+): typeof builderConfig {
+  const configPath = join(repo, 'electron-builder.cjs')
+  const previousCandidate = process.env.WORKWISE_CANDIDATE
+  const previousSourceHead = process.env.WORKWISE_CANDIDATE_SOURCE_HEAD
+  const previousReleaseEnv = process.env.WORKWISE_RELEASE_ENV
+  const releaseEnv = join(tempRoot(), 'release.local.env')
+  writeFileSync(releaseEnv, '# isolated candidate packaging test\n')
+  process.env.WORKWISE_CANDIDATE = '1'
+  process.env.WORKWISE_CANDIDATE_SOURCE_HEAD = sourceHead
+  process.env.WORKWISE_RELEASE_ENV = releaseEnv
+  delete require.cache[configPath]
+  try {
+    return require(configPath)
+  } finally {
+    delete require.cache[configPath]
+    if (previousCandidate === undefined) delete process.env.WORKWISE_CANDIDATE
+    else process.env.WORKWISE_CANDIDATE = previousCandidate
+    if (previousSourceHead === undefined) delete process.env.WORKWISE_CANDIDATE_SOURCE_HEAD
+    else process.env.WORKWISE_CANDIDATE_SOURCE_HEAD = previousSourceHead
+    if (previousReleaseEnv === undefined) delete process.env.WORKWISE_RELEASE_ENV
+    else process.env.WORKWISE_RELEASE_ENV = previousReleaseEnv
   }
 }
 
@@ -248,6 +301,76 @@ describe('electron-builder WorkWise packaging', () => {
     expect(() => packagedAsar.verifyAsarArchive(archive, join(source, 'out'))).toThrow(
       /ASAR entry is unreadable/
     )
+  })
+
+  it('verifies that packaged candidate provenance matches the expected source HEAD', async () => {
+    const root = tempRoot()
+    const source = join(root, 'source')
+    const archive = join(root, 'app.asar')
+    const sourceHead = '1234567890abcdef1234567890abcdef12345678'
+    touch(join(source, 'out/main/index.js'))
+    mkdirSync(source, { recursive: true })
+    writeFileSync(join(source, 'package.json'), JSON.stringify({
+      name: 'workwise',
+      buildProvenance: { sourceHead }
+    }))
+    await asar.createPackage(source, archive)
+
+    expect(packagedAsar.verifyAsarArchive(archive, join(source, 'out'), sourceHead))
+      .toMatchObject({ sourceHead })
+    expect(() => packagedAsar.verifyAsarArchive(
+      archive,
+      join(source, 'out'),
+      '0000000000000000000000000000000000000000'
+    )).toThrow(/source HEAD/i)
+  })
+
+  it('carries the authorized source HEAD into candidate package metadata', () => {
+    const { repo, sourceHead } = createCandidatePackagingRepo()
+    const config = loadCandidateBuilderConfig(repo, sourceHead)
+    const shortHead = sourceHead.slice(0, 12)
+
+    expect(config.extraMetadata).toMatchObject({
+      buildProvenance: { sourceHead }
+    })
+    expect(config.appId).toBe(`com.wangjiawei508.workwise.candidate.head${shortHead}`)
+    expect(config.productName).toBe(`WorkWise Candidate ${shortHead}`)
+    expect(config.artifactName).toContain(`WorkWise-Candidate-${shortHead}-`)
+    expect(config.nsis.shortcutName).toBe(`WorkWise Candidate ${shortHead}`)
+    expect(config.nsis.uninstallDisplayName).toBe(`WorkWise Candidate ${shortHead}`)
+  })
+
+  it('rejects candidate config loading at a stale source HEAD', () => {
+    const { repo } = createCandidatePackagingRepo()
+    expect(() => loadCandidateBuilderConfig(repo, '0'.repeat(40)))
+      .toThrow(/does not match expected source HEAD/i)
+  })
+
+  it.each([
+    {
+      label: 'tracked',
+      dirty(repo: string) {
+        writeFileSync(join(repo, 'electron-builder.cjs'), '\n', { flag: 'a' })
+      }
+    },
+    {
+      label: 'staged',
+      dirty(repo: string) {
+        writeFileSync(join(repo, 'staged.ts'), 'export {}\n')
+        execFileSync('git', ['add', 'staged.ts'], { cwd: repo })
+      }
+    },
+    {
+      label: 'untracked',
+      dirty(repo: string) {
+        writeFileSync(join(repo, 'untracked.ts'), 'export {}\n')
+      }
+    }
+  ])('rejects candidate config loading from a $label source tree', ({ dirty }) => {
+    const { repo, sourceHead } = createCandidatePackagingRepo()
+    dirty(repo)
+    expect(() => loadCandidateBuilderConfig(repo, sourceHead))
+      .toThrow(/uncommitted changes/i)
   })
 
   it('normalizes Windows separators returned by the ASAR listing API', () => {

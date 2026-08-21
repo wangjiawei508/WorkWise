@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { dispatchRequest } from '../src/server/http-server.js'
@@ -9,6 +9,8 @@ import { encodeSseEvent } from '../src/server/sse.js'
 import { buildHarness, readJson, readSseEvents, usageSnapshot } from './http-server-test-harness.js'
 import { WORKWISE_RUNTIME_PROTOCOL_VERSION } from '../src/contracts/runtime-protocol.js'
 import type { TurnItem } from '../src/contracts/items.js'
+import { fingerprintDshUiBlock } from '../src/contracts/dsh-ui.js'
+import { RUNTIME_RESOURCE_LIMITS_V1 } from '../src/contracts/resource-limits.js'
 
 describe('HTTP server', () => {
   let dataDir = ''
@@ -64,6 +66,106 @@ describe('HTTP server', () => {
     expect(body.capabilities?.attachments?.allowedMimeTypes).toContain('image/png')
     expect(body.capabilities?.cli?.serve?.available).toBe(true)
     expect(body.capabilities?.cli?.run?.available).toBe(false)
+  })
+
+  it('starts validated UI actions through the authenticated route and replays their audit event', async () => {
+    const h = buildHarness()
+    await h.threadService.create(
+      { workspace: '/tmp', model: 'deepseek-chat', mode: 'agent' },
+      { id: 'thr_ui_route', title: 'UI route' }
+    )
+    const { turnId } = await h.turnService.startTurn({
+      threadId: 'thr_ui_route',
+      request: { prompt: 'Show controls' }
+    })
+    const uiBlocks = [{
+      id: 'card',
+      root: {
+        id: 'button',
+        type: 'button' as const,
+        label: 'Apply',
+        actionId: 'apply'
+      }
+    }]
+    await h.turnService.applyItem(
+      'thr_ui_route',
+      makeAssistantTextItem({
+        id: 'item_ui_route_card',
+        turnId,
+        threadId: 'thr_ui_route',
+        text: 'Apply the change.',
+        uiBlocks,
+        status: 'completed'
+      })
+    )
+    await h.turnService.finishTurn({ threadId: 'thr_ui_route', turnId, status: 'completed' })
+
+    const response = await dispatchRequest(
+      h.router,
+      new Request('http://localhost/v1/threads/thr_ui_route/ui-actions', {
+        method: 'POST',
+        headers: { authorization: 'Bearer tok-1', 'content-type': 'application/json' },
+        body: JSON.stringify({
+          messageId: 'item_ui_route_card',
+          blockId: 'card',
+          actionId: 'apply',
+          specFingerprint: fingerprintDshUiBlock(uiBlocks[0]!),
+          idempotencyKey: 'ui-route-1'
+        })
+      })
+    )
+
+    expect(response.status).toBe(202)
+    const body = await readJson(response) as { turnId: string; uiActionItemId: string }
+    expect(body.turnId).toBeTruthy()
+    expect(body.uiActionItemId).toBeTruthy()
+    const events = await h.sessionStore.loadEventsSince('thr_ui_route', 0)
+    expect(events.some((event) => event.kind === 'ui_action')).toBe(true)
+
+    const genericConflict = await dispatchRequest(
+      h.router,
+      new Request('http://localhost/v1/threads/thr_ui_route/turns', {
+        method: 'POST',
+        headers: { authorization: 'Bearer tok-1', 'content-type': 'application/json' },
+        body: JSON.stringify({ prompt: 'must not reuse a UI action key', idempotencyKey: 'ui-route-1' })
+      })
+    )
+    expect(genericConflict.status).toBe(409)
+    expect(await readJson(genericConflict)).toMatchObject({ code: 'conflict' })
+
+    const staleAction = await dispatchRequest(
+      h.router,
+      new Request('http://localhost/v1/threads/thr_ui_route/ui-actions', {
+        method: 'POST',
+        headers: { authorization: 'Bearer tok-1', 'content-type': 'application/json' },
+        body: JSON.stringify({
+          messageId: 'item_ui_route_card',
+          blockId: 'card',
+          actionId: 'apply',
+          specFingerprint: '0'.repeat(16),
+          idempotencyKey: 'ui-route-stale'
+        })
+      })
+    )
+    expect(staleAction.status).toBe(409)
+    expect(await readJson(staleAction)).toMatchObject({ code: 'stale_request' })
+
+    const consumedAction = await dispatchRequest(
+      h.router,
+      new Request('http://localhost/v1/threads/thr_ui_route/ui-actions', {
+        method: 'POST',
+        headers: { authorization: 'Bearer tok-1', 'content-type': 'application/json' },
+        body: JSON.stringify({
+          messageId: 'item_ui_route_card',
+          blockId: 'card',
+          actionId: 'apply',
+          specFingerprint: fingerprintDshUiBlock(uiBlocks[0]!),
+          idempotencyKey: 'ui-route-second-click'
+        })
+      })
+    )
+    expect(consumedAction.status).toBe(409)
+    expect(await readJson(consumedAction)).toMatchObject({ code: 'conflict' })
   })
 
   it('requires auth for runtime info', async () => {
@@ -234,6 +336,131 @@ describe('HTTP server', () => {
     const body = await readJson(response) as { turnId: string; userMessageItemId: string }
     expect(body.turnId).toMatch(/^turn_/)
     expect(body.userMessageItemId).toBe(`item_${body.turnId}_user`)
+  })
+
+  it('searches only the authoritative thread workspace and persists bounded references', async () => {
+    const h = buildHarness()
+    await writeFile(join(dataDir, '报价 表.md'), 'PRIVATE-FILE-BODY')
+    await h.threadService.create({
+      workspace: dataDir,
+      model: 'deepseek-chat',
+      mode: 'agent',
+      approvalPolicy: 'on-request',
+      sandboxMode: 'workspace-write'
+    }, { id: 'thr_workspace', title: 'workspace' })
+
+    const searchResponse = await dispatchRequest(
+      h.router,
+      new Request('http://localhost/v1/threads/thr_workspace/workspace/references/search', {
+        method: 'POST',
+        headers: { authorization: 'Bearer tok-1', 'content-type': 'application/json' },
+        body: JSON.stringify({ query: '报价', limit: 10 })
+      })
+    )
+    expect(searchResponse.status).toBe(200)
+    expect(await readJson(searchResponse)).toMatchObject({
+      entries: [{ path: '报价 表.md', name: '报价 表.md', kind: 'file', depth: 1 }],
+      truncated: false
+    })
+
+    const startResponse = await dispatchRequest(
+      h.router,
+      new Request('http://localhost/v1/threads/thr_workspace/turns', {
+        method: 'POST',
+        headers: { authorization: 'Bearer tok-1', 'content-type': 'application/json' },
+        body: JSON.stringify({
+          prompt: 'Review the referenced file.',
+          workspaceReferences: [{ path: '报价 表.md', kind: 'file' }]
+        })
+      })
+    )
+    expect(startResponse.status).toBe(202)
+    const started = await readJson(startResponse) as { turnId: string }
+    const turn = await h.turnService.getTurn('thr_workspace', started.turnId)
+    expect(turn?.prompt).toBe('Review the referenced file.')
+    expect(turn?.prompt).not.toContain('PRIVATE-FILE-BODY')
+    expect(turn?.workspaceReferences).toEqual([{ path: '报价 表.md', kind: 'file' }])
+    expect(turn?.items[0]).toMatchObject({
+      kind: 'user_message',
+      workspaceReferences: [{ path: '报价 表.md', kind: 'file' }]
+    })
+  })
+
+  it('searches a validated workspace before a thread exists', async () => {
+    const h = buildHarness()
+    await mkdir(join(dataDir, '资料 目录'))
+    await writeFile(join(dataDir, '资料 目录', '报价 表.md'), 'PRIVATE-WORKSPACE-BODY')
+    await symlink(join(dataDir, '资料 目录'), join(dataDir, 'linked-directory'))
+
+    const response = await dispatchRequest(
+      h.router,
+      new Request('http://localhost/v1/workspace/references/search', {
+        method: 'POST',
+        headers: { authorization: 'Bearer tok-1', 'content-type': 'application/json' },
+        body: JSON.stringify({ workspaceRoot: dataDir, query: '资料', limit: 20 })
+      })
+    )
+
+    expect(response.status).toBe(200)
+    expect(await readJson(response)).toMatchObject({
+      entries: expect.arrayContaining([
+        { path: '资料 目录', name: '资料 目录', kind: 'directory', depth: 1 }
+      ]),
+      truncated: false,
+      indexedAt: expect.any(String)
+    })
+    const body = await readJson(await dispatchRequest(
+      h.router,
+      new Request('http://localhost/v1/workspace/references/search', {
+        method: 'POST',
+        headers: { authorization: 'Bearer tok-1', 'content-type': 'application/json' },
+        body: JSON.stringify({ workspaceRoot: dataDir, query: '', limit: 20 })
+      })
+    )) as { entries: Array<{ path: string }> }
+    expect(body.entries).toEqual(expect.arrayContaining([
+      expect.objectContaining({ path: '资料 目录' }),
+      expect.objectContaining({ path: '资料 目录/报价 表.md' })
+    ]))
+    expect(body.entries.some((entry) => entry.path === 'linked-directory')).toBe(false)
+  })
+
+  it('rejects missing and invalid roots for workspace-scoped reference search', async () => {
+    const h = buildHarness()
+    const request = (body: unknown) => dispatchRequest(
+      h.router,
+      new Request('http://localhost/v1/workspace/references/search', {
+        method: 'POST',
+        headers: { authorization: 'Bearer tok-1', 'content-type': 'application/json' },
+        body: JSON.stringify(body)
+      })
+    )
+
+    await expect(request({ query: '' }).then((response) => response.status)).resolves.toBe(400)
+    await expect(request({ workspaceRoot: join(dataDir, 'missing'), query: '' })
+      .then((response) => response.status)).resolves.toBe(400)
+  })
+
+  it('rejects invalid workspace reference search limits and unknown threads', async () => {
+    const h = buildHarness()
+    const invalid = await dispatchRequest(
+      h.router,
+      new Request('http://localhost/v1/threads/missing/workspace/references/search', {
+        method: 'POST',
+        headers: { authorization: 'Bearer tok-1', 'content-type': 'application/json' },
+        body: JSON.stringify({ query: '', limit: 51 })
+      })
+    )
+    expect(invalid.status).toBe(400)
+
+    const missing = await dispatchRequest(
+      h.router,
+      new Request('http://localhost/v1/threads/missing/workspace/references/search', {
+        method: 'POST',
+        headers: { authorization: 'Bearer tok-1', 'content-type': 'application/json' },
+        body: JSON.stringify({ query: '', limit: 10 })
+      })
+    )
+    expect(missing.status).toBe(404)
   })
 
   it('applies per-turn execution policy to the active thread', async () => {
@@ -584,6 +811,44 @@ describe('HTTP server', () => {
     })
   })
 
+  it('never persists or returns raw tool-call arguments from the Runtime boundary', async () => {
+    const h = buildHarness()
+    await h.threadService.create(
+      { workspace: '/tmp', model: 'deepseek-chat', mode: 'agent' },
+      { id: 'thr_private_args', title: 'Private args' }
+    )
+    const { turnId } = await h.turnService.startTurn({
+      threadId: 'thr_private_args',
+      request: { prompt: 'run a private tool' }
+    })
+    await h.turnService.applyItem(
+      'thr_private_args',
+      makeToolCallItem({
+        id: 'item_private_args',
+        turnId,
+        threadId: 'thr_private_args',
+        callId: 'call_private_args',
+        toolName: 'private_tool',
+        arguments: { token: 'runtime-boundary-secret' }
+      })
+    )
+
+    const response = await dispatchRequest(
+      h.router,
+      new Request('http://localhost/v1/threads/thr_private_args', {
+        headers: { authorization: 'Bearer tok-1' }
+      })
+    )
+    const body = await readJson(response)
+    const events = await h.sessionStore.loadEventsSince('thr_private_args', 0)
+    const items = await h.sessionStore.loadItems('thr_private_args')
+
+    expect(response.status).toBe(200)
+    expect(JSON.stringify(body)).not.toContain('runtime-boundary-secret')
+    expect(JSON.stringify(events)).not.toContain('runtime-boundary-secret')
+    expect(JSON.stringify(items)).not.toContain('runtime-boundary-secret')
+  })
+
   it('heals stale open session items for finished turns when loading thread detail', async () => {
     const h = buildHarness()
     await h.threadService.create(
@@ -818,6 +1083,192 @@ describe('HTTP server', () => {
     const frames = await readSseEvents(eventStream)
     const occurrences = frames.filter((frame) => frame.includes(`id: ${recorded.seq}\n`))
     expect(occurrences).toHaveLength(1)
+  })
+
+  it('sanitizes raw tool arguments and bash commands at the live SSE boundary', async () => {
+    const h = buildHarness()
+    const thread = await h.threadService.create(
+      { workspace: '/tmp', model: 'deepseek-chat', mode: 'agent' },
+      { id: 'thr_sse_tool_privacy', title: 'SSE tool privacy' }
+    )
+    const eventStream = await dispatchRequest(
+      h.router,
+      new Request(`http://localhost/v1/threads/${thread.id}/events?since_seq=0`, {
+        headers: { authorization: 'Bearer tok-1' }
+      })
+    )
+    const secret = 'sse-live-secret-token'
+    const turnId = 'turn_sse_tool_privacy'
+    const call = makeToolCallItem({
+      id: 'sse_raw_call',
+      turnId,
+      threadId: thread.id,
+      callId: 'call_sse_raw',
+      toolName: 'bash',
+      arguments: { command: `git push https://user:${secret}@example.com/repo`, token: secret }
+    })
+    const result = makeToolResultItem({
+      id: 'sse_raw_result',
+      turnId,
+      threadId: thread.id,
+      callId: 'call_sse_raw',
+      toolName: 'bash',
+      output: { command: `git push https://user:${secret}@example.com/repo`, output: 'ok' }
+    })
+    h.bus.publish({
+      kind: 'item_created',
+      seq: h.bus.allocateSeq(thread.id),
+      timestamp: h.nowIso(),
+      threadId: thread.id,
+      turnId,
+      itemId: call.id,
+      item: call
+    })
+    h.bus.publish({
+      kind: 'item_completed',
+      seq: h.bus.allocateSeq(thread.id),
+      timestamp: h.nowIso(),
+      threadId: thread.id,
+      turnId,
+      itemId: result.id,
+      item: result
+    })
+
+    const frames = await readSseEvents(eventStream)
+    const serialized = frames.join('\n')
+    expect(serialized).toContain('argumentSummary')
+    expect(serialized).toContain('Command: git push')
+    expect(serialized).not.toContain(secret)
+    expect(serialized).not.toContain('"command"')
+  })
+
+  it('does not lose a live event published while the replay backlog is loading', async () => {
+    const h = buildHarness()
+    const thread = await h.threadService.create(
+      { workspace: '/tmp', model: 'deepseek-chat', mode: 'agent' },
+      { id: 'thr_replay_race', title: 'Replay race' }
+    )
+    const originalLoadEventsSince = h.sessionStore.loadEventsSince.bind(h.sessionStore)
+    let replayStartedResolve: (() => void) | undefined
+    const replayStarted = new Promise<void>((resolve) => {
+      replayStartedResolve = resolve
+    })
+    let releaseReplayResolve: (() => void) | undefined
+    const releaseReplay = new Promise<void>((resolve) => {
+      releaseReplayResolve = resolve
+    })
+    vi.spyOn(h.sessionStore, 'loadEventsSince').mockImplementation(async (threadId, sinceSeq) => {
+      const backlog = await originalLoadEventsSince(threadId, sinceSeq)
+      replayStartedResolve?.()
+      await releaseReplay
+      return backlog
+    })
+
+    const responsePromise = dispatchRequest(
+      h.router,
+      new Request(`http://localhost/v1/threads/${thread.id}/events?since_seq=0`, {
+        headers: { authorization: 'Bearer tok-1' }
+      })
+    )
+    await replayStarted
+    const recorded = await h.runtime.events.record({ kind: 'heartbeat', threadId: thread.id })
+    releaseReplayResolve?.()
+
+    const frames = await readSseEvents(await responsePromise)
+    expect(frames.filter((frame) => frame.includes(`id: ${recorded.seq}\n`))).toHaveLength(1)
+  })
+
+  it('closes cleanly when the client aborts while replay is loading', async () => {
+    const h = buildHarness()
+    const thread = await h.threadService.create(
+      { workspace: '/tmp', model: 'deepseek-chat', mode: 'agent' },
+      { id: 'thr_replay_abort', title: 'Replay abort' }
+    )
+    const originalLoadEventsSince = h.sessionStore.loadEventsSince.bind(h.sessionStore)
+    let replayStartedResolve: (() => void) | undefined
+    const replayStarted = new Promise<void>((resolve) => {
+      replayStartedResolve = resolve
+    })
+    let releaseReplayResolve: (() => void) | undefined
+    const releaseReplay = new Promise<void>((resolve) => {
+      releaseReplayResolve = resolve
+    })
+    vi.spyOn(h.sessionStore, 'loadEventsSince').mockImplementation(async (threadId, sinceSeq) => {
+      const backlog = await originalLoadEventsSince(threadId, sinceSeq)
+      replayStartedResolve?.()
+      await releaseReplay
+      return backlog
+    })
+    const unsubscribe = vi.fn()
+    const subscribe = h.bus.subscribe.bind(h.bus)
+    vi.spyOn(h.bus, 'subscribe').mockImplementation((threadId, handler) => {
+      const actualUnsubscribe = subscribe(threadId, handler)
+      return () => {
+        unsubscribe()
+        actualUnsubscribe()
+      }
+    })
+    const abortController = new AbortController()
+    const responsePromise = dispatchRequest(
+      h.router,
+      new Request(`http://localhost/v1/threads/${thread.id}/events?since_seq=0`, {
+        headers: { authorization: 'Bearer tok-1' },
+        signal: abortController.signal
+      })
+    )
+    await replayStarted
+    abortController.abort()
+    releaseReplayResolve?.()
+
+    const response = await responsePromise
+    const reader = response.body!.getReader()
+    await expect(reader.read()).resolves.toMatchObject({ done: true })
+    expect(unsubscribe).toHaveBeenCalledTimes(1)
+  })
+
+  it('bounds live events buffered while replay is loading', async () => {
+    const h = buildHarness()
+    const thread = await h.threadService.create(
+      { workspace: '/tmp', model: 'deepseek-chat', mode: 'agent' },
+      { id: 'thr_replay_overflow', title: 'Replay overflow' }
+    )
+    await h.runtime.events.record({ kind: 'heartbeat', threadId: thread.id })
+    const originalLoadEventsSince = h.sessionStore.loadEventsSince.bind(h.sessionStore)
+    let replayStartedResolve: (() => void) | undefined
+    const replayStarted = new Promise<void>((resolve) => {
+      replayStartedResolve = resolve
+    })
+    let releaseReplayResolve: (() => void) | undefined
+    const releaseReplay = new Promise<void>((resolve) => {
+      releaseReplayResolve = resolve
+    })
+    vi.spyOn(h.sessionStore, 'loadEventsSince').mockImplementation(async (threadId, sinceSeq) => {
+      const backlog = await originalLoadEventsSince(threadId, sinceSeq)
+      replayStartedResolve?.()
+      await releaseReplay
+      return backlog
+    })
+    const responsePromise = dispatchRequest(
+      h.router,
+      new Request(`http://localhost/v1/threads/${thread.id}/events?since_seq=0`, {
+        headers: { authorization: 'Bearer tok-1' }
+      })
+    )
+    await replayStarted
+    const firstLiveSeq = 2
+    for (let index = 0; index <= RUNTIME_RESOURCE_LIMITS_V1.sseReplayEvents; index += 1) {
+      h.bus.publish({
+        kind: 'heartbeat',
+        threadId: thread.id,
+        seq: firstLiveSeq + index,
+        timestamp: new Date().toISOString()
+      })
+    }
+    releaseReplayResolve?.()
+
+    const frames = await readSseEvents(await responsePromise, { idleMs: 100 })
+    expect(frames.filter((frame) => frame.includes('event: replay_reset'))).toHaveLength(1)
+    expect(frames.some((frame) => frame.includes('event: heartbeat'))).toBe(false)
   })
 
   it('skips SSE backlog replay when the client is already caught up', async () => {

@@ -1,5 +1,5 @@
 import type { IncomingMessage, ServerResponse } from 'node:http'
-import { basename, isAbsolute, join } from 'node:path'
+import { basename, extname, isAbsolute, join } from 'node:path'
 import type { NormalizedMessage } from '@larksuiteoapi/node-sdk'
 import type {
   AppSettingsV1,
@@ -10,8 +10,11 @@ import type {
   ClawRunMode,
   ScheduleTaskFromTextResult
 } from '../shared/app-settings'
+import type { WeixinBridgeAccountStatusV1 } from '../shared/workwise-api'
 import { CLAW_FEISHU_INBOUND_MESSAGE_HEADING } from '../shared/app-settings'
 import type { JsonSettingsStore } from './settings-store'
+import type { ImDeliveryLedger } from './services/im-delivery-ledger'
+import type { ImHealthService } from './services/im-health-service'
 
 export type RuntimeRequestResult = { ok: boolean; status: number; body: string }
 
@@ -25,18 +28,32 @@ export type ClawRuntimeDeps = {
   store: JsonSettingsStore
   runtimeRequest: RuntimeRequestFn
   logError: (category: string, message: string, detail?: unknown) => void
+  createFeishuChannel?: typeof import('@larksuiteoapi/node-sdk').createLarkChannel
   notifyChannelActivity?: (payload: { channelId: string; threadId: string }) => void
   sendWeixinBridgeMessage?: (options: {
     accountId: string
     to: string
     text: string
+    clientId?: string
+    files?: ClawGeneratedFileV1[]
   }) => Promise<{ ok: true; messageId: string } | { ok: false; message: string }>
   /** WeChat owner (`ilink_user_id`) for a bridge account; '' when unknown. */
   resolveWeixinAccountUserId?: (accountId: string) => Promise<string>
+  getWeixinBridgeAccountStatuses?: (accountId?: string) => Promise<WeixinBridgeAccountStatusV1[]>
+  startWeixinBridgeAccount?: (accountId: string) => Promise<void>
+  stopWeixinBridgeAccount?: (accountId: string) => Promise<void>
+  reconnectWeixinBridgeAccount?: (accountId: string) => Promise<void>
+  disconnectWeixinBridgeAccount?: (accountId: string) => Promise<void>
+  imLedger?: ImDeliveryLedger
+  imHealth?: ImHealthService
+  imMaxConcurrency?: number
+  resolveImCredential?: (channel: ClawImChannelV1) => Promise<string | undefined>
   createScheduledTaskFromText?: (
     text: string,
     options?: { workspaceRoot?: string | null; modelHint?: string | null; mode?: ClawRunMode | null }
   ) => Promise<ScheduleTaskFromTextResult>
+  /** Candidate mode may reserve this listener before runtime handoff. */
+  webhookServer?: import('node:http').Server
 }
 
 export type ThreadRecordJson = {
@@ -54,6 +71,7 @@ export type TurnRecordJson = {
 export type TurnItemJson = {
   kind: string
   turnId?: string
+  status?: string
   toolName?: string
   toolKind?: string
   output?: unknown
@@ -82,7 +100,11 @@ export type RunPromptOptions = {
   responseTimeoutMs: number
   source: 'task' | 'im'
   threadId?: string
+  /** Stable provider message key used to recover a headless turn after a restart. */
+  idempotencyKey?: string
   channel?: ClawImChannelV1
+  /** Persist the selected Runtime thread before starting the idempotent Turn. */
+  onThreadSelected?: (payload: { threadId: string }) => Promise<void> | void
   onTurnStarted?: (payload: { threadId: string; turnId: string }) => Promise<void> | void
 }
 
@@ -195,9 +217,13 @@ function generatedFileFromRecord(
   record: Record<string, unknown>,
   workspaceRoot: string
 ): ClawGeneratedFileV1 | null {
-  const path = asString(record.path) || asString(record.absolutePath) || asString(record.absolute_path)
+  const path = asString(record.path)
+  const absolutePath = asString(record.absolutePath) || asString(record.absolute_path)
   const relativePath = asString(record.relativePath) || asString(record.relative_path)
-  const resolvedPath = path || (workspaceRoot && relativePath ? join(workspaceRoot, relativePath) : '')
+  const relativeCandidate = relativePath || (!isAbsolute(path) ? path : '')
+  const resolvedPath = absolutePath ||
+    (isAbsolute(path) ? path : '') ||
+    (workspaceRoot && relativeCandidate ? join(workspaceRoot, relativeCandidate) : path)
   if (!resolvedPath) return null
   return {
     path: resolvedPath,
@@ -217,12 +243,37 @@ function generatedFilesFromToolResult(
     const file = generatedFileFromRecord(output, workspaceRoot)
     return file ? [file] : []
   }
-  if (item.toolName === 'generate_image' && Array.isArray(output.files)) {
-    return output.files
-      .map((entry) => outputRecord(entry))
-      .filter((entry): entry is Record<string, unknown> => entry != null)
-      .map((entry) => generatedFileFromRecord(entry, workspaceRoot))
+  for (const key of ['files', 'generatedFiles', 'artifacts']) {
+    const entries = output[key]
+    if (!Array.isArray(entries)) continue
+    const files = entries
+      .map((entry) => {
+        if (typeof entry === 'string' && entry.trim()) {
+          return generatedFileFromRecord({ path: entry.trim() }, workspaceRoot)
+        }
+        const record = outputRecord(entry)
+        return record ? generatedFileFromRecord(record, workspaceRoot) : null
+      })
       .filter((file): file is ClawGeneratedFileV1 => file != null)
+    if (files.length > 0) return files
+  }
+  if (item.toolKind === 'command_execution' && Number(output.exit_code ?? 0) === 0) {
+    const stdout = asString(output.output)
+    const files: ClawGeneratedFileV1[] = []
+    const seen = new Set<string>()
+    // Command-based generators often report their final Office/PDF archive
+    // only in stdout. Capture explicit absolute paths; the caller still
+    // realpaths, size-checks, and confines every candidate to the IM workspace.
+    const deliverablePath = /((?:\/|[A-Za-z]:[\\/])[^"'\r\n]*?\.(?:pptx?|docx?|xlsx?|pdf|csv|md|txt|svg|png|jpe?g|webp|gif|zip))(?=$|[\s"'`])/ig
+    for (const line of stdout.split(/\r?\n/)) {
+      for (const match of line.matchAll(deliverablePath)) {
+        const path = match[1]?.trim()
+        if (!path || seen.has(path)) continue
+        seen.add(path)
+        files.push({ path, fileName: basename(path) })
+      }
+    }
+    return files
   }
   return []
 }
@@ -270,7 +321,7 @@ function extractGeneratedFiles(
 
 export function latestGeneratedFiles(
   detail: ThreadDetailJson,
-  options: { turnId?: string; workspaceRoot?: string; maxFiles?: number } = {}
+  options: { turnId?: string; workspaceRoot?: string; maxFiles?: number; fallbackToThread?: boolean } = {}
 ): ClawGeneratedFileV1[] {
   const maxFiles = Math.max(1, Math.floor(options.maxFiles ?? 3))
   const workspaceRoot = options.workspaceRoot?.trim() ?? ''
@@ -283,8 +334,58 @@ export function latestGeneratedFiles(
       maxFiles
     )
     if (currentTurnFiles.length > 0) return currentTurnFiles
+    if (options.fallbackToThread === false) return []
   }
   return extractGeneratedFiles(items, workspaceRoot, maxFiles)
+}
+
+export function generatedFilesFromTaskRuns(
+  payload: unknown,
+  options: { turnId: string; workspaceRoot: string; maxFiles?: number }
+): ClawGeneratedFileV1[] {
+  if (!Array.isArray(payload)) return []
+  const turnId = options.turnId.trim()
+  const workspaceRoot = options.workspaceRoot.trim()
+  const maxFiles = Math.max(1, Math.floor(options.maxFiles ?? 3))
+  if (!turnId || !workspaceRoot) return []
+
+  const files: ClawGeneratedFileV1[] = []
+  for (const entry of payload) {
+    const task = outputRecord(entry)
+    if (
+      !task ||
+      asString(task.activeTurnId) !== turnId ||
+      asString(task.status) !== 'completed' ||
+      !Array.isArray(task.artifacts)
+    ) continue
+    // Existing Runtime threads can retain the channel-level workspace they
+    // were created with even after IM conversations gain isolated subfolders.
+    // Task artifacts are relative to the Task's recorded workspace, which is
+    // authoritative for that completed turn.
+    const taskWorkspaceRoot = asString(task.workspaceRoot) || workspaceRoot
+    for (const artifactEntry of task.artifacts) {
+      const artifact = outputRecord(artifactEntry)
+      if (!artifact || asString(artifact.validation) !== 'valid') continue
+      const relativePath = asString(artifact.relativePath)
+      if (!relativePath) continue
+      const file = generatedFileFromRecord({ relativePath }, taskWorkspaceRoot)
+      if (!file || files.some((existing) => isPathLikeDuplicate(existing, file))) continue
+      files.push(file)
+      if (files.length >= maxFiles) return files
+    }
+  }
+  return files
+}
+
+export function pendingTurnInteraction(
+  detail: ThreadDetailJson,
+  turnId: string
+): 'approval' | 'user_input' | undefined {
+  for (const item of threadItems(detail)) {
+    if (item.turnId !== turnId || item.status !== 'pending') continue
+    if (item.kind === 'approval' || item.kind === 'user_input') return item.kind
+  }
+  return undefined
 }
 
 export function shouldSendGeneratedFilesForPrompt(prompt: string): boolean {
@@ -300,16 +401,69 @@ export function shouldSendGeneratedFilesForPrompt(prompt: string): boolean {
 export function shouldDirectSendExistingGeneratedFilesForPrompt(prompt: string): boolean {
   const text = prompt.trim()
   if (!text) return false
-  return /发给我|发送给我|发一下|发来|发过来|传给我|传过来|上传|附件|以附件|直接发|发文件|文件发|文档发/i.test(text) ||
+  const requestsDelivery =
+    /发给我|发送给我|发一下|发来|发过来|传给我|传过来|上传|附件|以附件|直接发|发文件|文件发|文档发/i.test(text) ||
     /\b(send|attach|attachment|upload)\b/i.test(text)
+  if (!requestsDelivery) return false
+
+  // A request that also asks for new work must start a new Turn. Treating it
+  // as "send the previous file" can deliver stale artifacts with a false
+  // success conclusion before the Runtime has created the requested result.
+  const requestsNewWork =
+    /(创建|新建|生成|制作|写入|导出|转换|修改|编辑|更新|重做|另存(?:为)?|保存为|做(?:好|成|一个|一份|个|份)).{0,100}(文件|文档|附件|演示文稿|幻灯片|表格|图片|图像|\.(?:md|txt|pdf|docx|xlsx|csv|pptx|svg|png|jpe?g|webp|gif|zip))/i.test(text) ||
+    /\b(create|generate|make|write|export|convert|edit|modify|update|produce|build)\b.{0,100}\b(file|document|attachment|presentation|slide|spreadsheet|image|md|txt|pdf|docx|xlsx|csv|pptx|svg|png|jpe?g|webp|gif|zip)\b/i.test(text)
+  return !requestsNewWork
+}
+
+export function filterGeneratedFilesForPrompt(
+  prompt: string,
+  files: readonly ClawGeneratedFileV1[]
+): ClawGeneratedFileV1[] {
+  const text = prompt.trim().toLowerCase()
+  if (!text || files.length === 0) return [...files]
+
+  const explicitlyNamed = files.filter((file) => {
+    const fileName = (file.fileName || basename(file.path)).trim().toLowerCase()
+    return fileName.length > 0 && text.includes(fileName)
+  })
+  if (explicitlyNamed.length > 0) return explicitlyNamed
+
+  const requested = new Set<string>()
+  const add = (...extensions: string[]): void => {
+    for (const extension of extensions) requested.add(extension)
+  }
+  for (const match of text.matchAll(/\.(pptx?|pdf|docx?|xlsx?|csv|md|txt|svg|png|jpe?g|webp|gif|zip)\b/g)) {
+    add(`.${match[1]}`)
+  }
+  if (/\bpptx?\b|演示文稿|幻灯片/.test(text)) add('.ppt', '.pptx')
+  if (/\bpdf\b/.test(text)) add('.pdf')
+  if (/\b(?:docx?|word)\b|word\s*文档|文字文档/.test(text)) add('.doc', '.docx')
+  if (/\b(?:xlsx?|excel)\b|电子表格/.test(text)) add('.xls', '.xlsx')
+  if (/\bcsv\b/.test(text)) add('.csv')
+  if (/\b(?:markdown|md)\b/.test(text)) add('.md')
+  if (/\btxt\b|纯文本/.test(text)) add('.txt')
+  if (/\bsvg\b|矢量图/.test(text)) add('.svg')
+  if (/\b(?:image|picture|photo|png|jpe?g|webp|gif)\b|图片|图像|照片|海报|插画/.test(text)) {
+    add('.png', '.jpg', '.jpeg', '.webp', '.gif', '.svg')
+  }
+  if (/\bzip\b|压缩包/.test(text)) add('.zip')
+  if (requested.size === 0) return [...files]
+  return files.filter((file) => requested.has(extname(file.fileName || file.path).toLowerCase()))
 }
 
 export function replyTextForGeneratedFiles(replyText: string, files: readonly ClawGeneratedFileV1[]): string {
   const trimmed = replyText.trim()
   if (files.length === 0) return trimmed
   const names = files.map((file) => file.fileName).join(', ')
-  if (!trimmed || /(无法|不能|没办法).{0,20}(直接)?(通过)?(飞书|Lark|发送|发).{0,20}(文件|文档|附件)/i.test(trimmed)) {
-    return `可以，我把 ${names} 作为附件发给你。`
+  const flattened = trimmed.replace(/\s+/g, ' ')
+  const deniesFileDelivery =
+    /(无法|不能|没办法).{0,40}(直接|通过)?(飞书|Lark|微信)?(发送|发|推送|传|送达).{0,30}(文件|文档|附件)/i.test(flattened) ||
+    /(无法|不能|没办法).{0,40}(文件|文档|附件).{0,30}(发送|发|推送|传|送达)/i.test(flattened) ||
+    /(没有|缺少|不具备).{0,40}(发送附件|推送文件|附件.{0,15}(工具|通道)|文件.{0,15}(工具|通道))/i.test(flattened) ||
+    /(附件|文件).{0,40}(发送|送达).{0,40}(超出|不在).{0,20}(工具|能力|执行)?边界/i.test(flattened) ||
+    /验收契约.{0,30}(未满足|未全部满足|没有满足)/i.test(flattened)
+  if (!trimmed || deniesFileDelivery) {
+    return `文件已生成并发送：${names}。请在当前会话中下载并打开附件。`
   }
   return trimmed
 }
@@ -329,6 +483,11 @@ export function webhookUrl(settings: AppSettingsV1): string {
 
 export function asString(value: unknown): string {
   return typeof value === 'string' ? value.trim() : ''
+}
+
+function asMessageIdentifier(value: unknown): string {
+  if (typeof value === 'string') return value.trim()
+  return typeof value === 'number' && Number.isFinite(value) ? String(value) : ''
 }
 
 export function asRawString(value: unknown): string {
@@ -434,7 +593,7 @@ export function extractIncomingRemoteSession(
     eventMessage.chat_id ||
     eventMessage.chatId
   )
-  const messageId = asString(
+  const messageId = asMessageIdentifier(
     payload.messageId ||
     payload.message_id ||
     message.messageId ||

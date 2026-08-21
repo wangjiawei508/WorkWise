@@ -3,6 +3,8 @@ import { TurnItem } from './items.js'
 import { isGuiPlanRelativePath } from '../shared/gui-plan.js'
 import { ApprovalPolicySchema, SandboxModeSchema } from './policy.js'
 import { RUNTIME_RESOURCE_LIMITS_V1 } from './resource-limits.js'
+import { WorkspaceReferenceSchema } from './workspace-references.js'
+import { UiActionAudit } from './ui-actions.js'
 
 const byteLimitedString = (maxBytes: number) =>
   z.string().refine((value) => new TextEncoder().encode(value).byteLength <= maxBytes, {
@@ -83,6 +85,9 @@ export const TurnSchema = z.object({
   finishedAt: z.string().optional(),
   items: z.array(TurnItem).default([]),
   attachmentIds: z.array(z.string().min(1)).default([]),
+  workspaceReferences: z.array(WorkspaceReferenceSchema).max(32).optional(),
+  /** Structured Runtime action that started this turn; never a user prompt. */
+  uiAction: UiActionAudit.optional(),
   activeSkillIds: z.array(z.string().min(1)).default([]),
   injectedMemoryIds: z.array(z.string().min(1)).default([]),
   skillInjectionBytes: z.number().int().nonnegative().optional(),
@@ -103,6 +108,8 @@ export const TurnSchema = z.object({
    * rejects calls to them instead of blocking on a GUI answer.
    */
   disableUserInput: z.boolean().optional(),
+  /** Stable caller key used by communication bridges to recover a turn after a crash. */
+  idempotencyKey: z.string().trim().min(1).max(256).optional(),
   error: z.string().optional()
 })
 export type Turn = z.infer<typeof TurnSchema>
@@ -121,6 +128,7 @@ export const StartTurnRequest = z.object({
    */
   mode: TurnModeSchema.optional(),
   attachmentIds: z.array(z.string().min(1)).max(8).default([]),
+  workspaceReferences: z.array(WorkspaceReferenceSchema).max(32).default([]),
   /**
    * Optional GUI plan context. When set, Kun advertises the
    * `create_plan` tool for the turn and writes only to the reserved
@@ -133,7 +141,9 @@ export const StartTurnRequest = z.object({
    * user (IM bridges such as WeChat/Feishu, headless runs). The turn
    * runs without the `user_input`/`request_user_input` tools.
    */
-  disableUserInput: z.boolean().optional()
+  disableUserInput: z.boolean().optional(),
+  /** Stable caller key used to return the same turn on a retry. */
+  idempotencyKey: z.string().trim().min(1).max(256).optional()
 })
 export type StartTurnRequest = z.input<typeof StartTurnRequest>
 

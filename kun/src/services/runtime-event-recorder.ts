@@ -4,6 +4,7 @@ import {
 } from '../contracts/events.js'
 import type { EventBus } from '../ports/event-bus.js'
 import type { SessionStore } from '../ports/session-store.js'
+import { sanitizeRuntimeEventForPersistence } from '../security/tool-persistence-security.js'
 
 type RuntimeEventWithoutStamp<Event extends RuntimeEvent> = Omit<Event, 'seq' | 'timestamp'> &
   Partial<Pick<Event, 'seq' | 'timestamp'>>
@@ -44,11 +45,11 @@ export class RuntimeEventRecorder {
   async record(draft: RuntimeEventDraft): Promise<RuntimeEvent> {
     const seq = draft.seq ?? (await this.nextSeq(draft.threadId))
     this.noteIssuedSeq(draft.threadId, seq)
-    const event = RuntimeEventSchema.parse({
+    const event = sanitizeRuntimeEventForPersistence(RuntimeEventSchema.parse({
       ...draft,
       seq,
       timestamp: draft.timestamp ?? this.options.nowIso()
-    })
+    }))
     await this.options.sessionStore.appendEvent(event.threadId, event)
     this.options.eventBus.publish(event)
     return event

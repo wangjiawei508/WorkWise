@@ -52,7 +52,7 @@ GUI 启动 WorkWise Agent Runtime 时会按下面的顺序合并配置。
     "dataDir": "~/.workwise/runtime",
     "runtimeToken": "",
     "apiKey": "",
-    "baseUrl": "https://api.deepseek.com/beta",
+    "baseUrl": "https://api.deepseek.com",
     "model": "deepseek-v4-pro",
     "approvalPolicy": "auto",
     "sandboxMode": "workspace-write"
@@ -61,6 +61,7 @@ GUI 启动 WorkWise Agent Runtime 时会按下面的顺序合并配置。
     "profiles": {
       "deepseek-v4-pro": {
         "contextWindowTokens": 1000000,
+        "maxOutputTokens": 384000,
         "contextCompaction": {
           "softThreshold": 980000,
           "hardThreshold": 990000
@@ -87,7 +88,11 @@ GUI 启动 WorkWise Agent Runtime 时会按下面的顺序合并配置。
 
 模型相关配置写在顶层 `models.profiles`。
 
-每个 key 是模型 ID。模型 ID 会按小写匹配，也支持 provider 前缀，例如请求模型是 `vendor/deepseek-v4-pro` 时，也可以匹配 `deepseek-v4-pro`。
+每个 key 是模型 ID。模型 ID 会按小写匹配，也支持 provider 前缀，例如请求模型是 `vendor/deepseek-v4-pro` 时，也可以匹配 `deepseek-v4-pro`。`maxOutputTokens` 是模型能力元数据，用于向客户端报告模型允许的最大输出；单次请求仍由该请求自己的 `maxTokens` 控制。
+
+DeepSeek 的通用 Chat Completions 与 Responses 请求使用稳定基础地址 `https://api.deepseek.com`。`https://api.deepseek.com/beta` 仅用于 FIM 和前缀续写等 beta 接口；WorkWise Write 的 FIM 路径会单独选择该地址，不应把整个 Agent Runtime 配置到 beta 地址。
+
+GUI 管理的官方 DeepSeek V4 Pro / Flash Runtime 会自动启用 `deepseek-responses` 搜索 provider。普通对话仍使用 Chat Completions；只有本地 `web_search` 工具通过 `/v1/responses` 调用官方服务端搜索。第三方兼容 provider 不会被自动开启或改写。
 
 ```json
 {
@@ -147,6 +152,7 @@ WorkWise Agent Runtime 内置 DeepSeek V4 默认模型画像：
       "deepseek-v4-flash": {
         "aliases": ["deepseek-chat", "deepseek-reasoner"],
         "contextWindowTokens": 1000000,
+        "maxOutputTokens": 384000,
         "contextCompaction": {
           "softThreshold": 980000,
           "hardThreshold": 990000
@@ -161,7 +167,7 @@ WorkWise Agent Runtime 内置 DeepSeek V4 默认模型画像：
 }
 ```
 
-也就是说，V4 是 1M 上下文，正常情况下接近 `980k` input tokens 才触发上下文压缩；接近 `990k` 时进入更强的压缩策略。
+也就是说，V4 是 1M 上下文并报告 384K 最大输出能力，正常情况下接近 `980k` input tokens 才触发上下文压缩；接近 `990k` 时进入更强的压缩策略。
 
 ## 全局压缩配置写在哪里
 

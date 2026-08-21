@@ -8,7 +8,14 @@ import {
   defaultWriteSettings,
   type AppSettingsV1
 } from '@shared/app-settings'
-import { coerceRendererSettings, guiUpdateFailureMessage, mergeSettingsPatches } from './settings-utils'
+import {
+  canPersistSettingsWithPort,
+  coerceRendererSettings,
+  guiUpdateFailureMessage,
+  hasValidPort,
+  mergeSettings,
+  mergeSettingsPatches
+} from './settings-utils'
 
 function legacySettings(): AppSettingsV1 {
   return {
@@ -32,6 +39,15 @@ function legacySettings(): AppSettingsV1 {
 }
 
 describe('settings utils', () => {
+  it('separates a candidate automatic-port snapshot from an editable fixed-port patch', () => {
+    const settings = legacySettings()
+    settings.agents.kun.port = 0
+
+    expect(hasValidPort(settings)).toBe(false)
+    expect(canPersistSettingsWithPort(settings, { theme: 'dark' })).toBe(true)
+    expect(canPersistSettingsWithPort(settings, { agents: { kun: { port: 0 } } })).toBe(false)
+  })
+
   it('keeps the WorkWise V2 revision in renderer state', () => {
     const settings = {
       ...legacySettings(),
@@ -67,6 +83,35 @@ describe('settings utils', () => {
       uiFontScale: 'large',
       write: { inlineCompletion: { enabled: false, maxTokens: 120 } },
       schedule: { tasks: [{ id: 'new' }] }
+    })
+  })
+
+  it('preserves terminal notification filters across a partial enabled patch', () => {
+    const current = coerceRendererSettings({
+      ...legacySettings(),
+      notifications: {
+        turnComplete: true,
+        turnTerminal: {
+          enabled: true,
+          kinds: ['error', 'waiting_approval'],
+          suppressActiveThread: true,
+          include: ['project-*'],
+          exclude: ['*secret*']
+        }
+      }
+    })
+
+    expect(mergeSettings(current, {
+      notifications: { turnTerminal: { enabled: false } }
+    }).notifications).toEqual({
+      turnComplete: false,
+      turnTerminal: {
+        enabled: false,
+        kinds: ['error', 'waiting_approval'],
+        suppressActiveThread: true,
+        include: ['project-*'],
+        exclude: ['*secret*']
+      }
     })
   })
 

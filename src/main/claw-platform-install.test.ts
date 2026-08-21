@@ -24,6 +24,7 @@ function textResponse(body: string, status = 200): Response {
 
 describe('claw platform install', () => {
   afterEach(() => {
+    vi.useRealTimers()
     vi.unstubAllGlobals()
     vi.unstubAllEnvs()
     configureManagedWeixinBridgeUrlResolver(null)
@@ -88,6 +89,20 @@ describe('claw platform install', () => {
       domain: 'lark'
     })
     expect(String(fetchMock.mock.calls.at(-1)?.[0])).toContain('accounts.larksuite.com')
+  })
+
+  it('releases a Feishu authorization poll when fetch never settles', async () => {
+    vi.useFakeTimers()
+    vi.stubGlobal('fetch', vi.fn(() => new Promise<Response>(() => undefined)))
+
+    const pending = pollFeishuInstall('stuck-device')
+    await vi.advanceTimersByTimeAsync(10_001)
+
+    await expect(pending).resolves.toEqual({
+      done: false,
+      error: 'IM_INSTALL_POLL_TIMEOUT',
+      retryable: true
+    })
   })
 
   it('uses the default WeChat bridge URL for WeChat QR login', async () => {

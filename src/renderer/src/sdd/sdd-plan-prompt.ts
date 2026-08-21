@@ -1,6 +1,6 @@
 import type { SddDraftImageReference } from './sdd-draft-images'
 
-export type SddPlanImageMode = 'attachments' | 'base64' | 'none'
+export type SddPlanImageMode = 'attachments' | 'unavailable' | 'none'
 
 function formatDimensions(image: SddDraftImageReference): string {
   return image.width && image.height ? `${image.width}x${image.height}` : 'unknown'
@@ -25,13 +25,8 @@ function imageReferenceMap(images: SddDraftImageReference[], mode: SddPlanImageM
     if (mode === 'attachments') {
       lines.push(`Attachment: ${image.attachmentId ?? '(uploaded attachment)'}`)
     }
-    if (mode === 'base64') {
-      lines.push(
-        'Base64:',
-        '```base64',
-        image.dataBase64,
-        '```'
-      )
+    if (mode === 'unavailable') {
+      lines.push('Visual analysis: unavailable for this turn.')
     }
   }
   return lines
@@ -49,8 +44,8 @@ export function buildSddDraftToPlanPrompt(options: {
   const imageInstruction =
     options.imageMode === 'attachments'
       ? 'The images are also attached to this turn. Use the Image Reference Map to match each attachment to its Markdown location.'
-      : options.imageMode === 'base64'
-        ? 'The model may not support image input, so each referenced image is included below as base64 text. Decode/inspect it conceptually only as needed and keep it tied to its Image N reference.'
+      : options.imageMode === 'unavailable'
+        ? 'The draft references local images, but this turn cannot provide visual evidence to the model. Do not infer visual details from the images or claim they were inspected. Use only the written draft and the image metadata below; note the limitation in the plan when it affects an acceptance criterion.'
         : 'No local SDD images were referenced in the draft.'
 
   return [

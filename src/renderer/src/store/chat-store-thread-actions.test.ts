@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { applyLiveUsageDelta } from './live-usage-projection'
 import type { NormalizedThread } from '../agent/types'
 import type {
   ChatState,
@@ -139,5 +140,52 @@ describe('chat-store-thread-actions queued messages', () => {
     expect(sendMessage).toHaveBeenCalledWith('normal follow-up', 'agent', {
       queued: expect.objectContaining({ id: 'q-user' })
     })
+  })
+})
+
+describe('chat-store-thread-actions recovery', () => {
+  beforeEach(() => {
+    registryMock.getProvider.mockReset()
+    vi.unstubAllGlobals()
+  })
+
+  it('projects a terminal snapshot that completed while the stream was disconnected', async () => {
+    const showTurnCompleteNotification = vi.fn(async () => ({ ok: true }))
+    vi.stubGlobal('window', { workwise: { showTurnCompleteNotification } })
+    const provider = {
+      getThreadDetail: vi.fn(async () => ({
+        blocks: [],
+        latestSeq: 42,
+        threadStatus: 'idle',
+        latestTurnId: 'turn-recovered',
+        latestTurnStatus: 'failed',
+        latestTurnError: 'network failed'
+      })),
+      subscribeThreadEvents: vi.fn(async () => undefined)
+    }
+    registryMock.getProvider.mockReturnValue(provider)
+    const { actions, state } = buildHarness()
+    state.currentTurnId = 'turn-recovered'
+    state.currentTurnUserId = 'user-recovered'
+    state.liveUsageByThreadId = {
+      thr_existing: applyLiveUsageDelta(undefined, 'turn-recovered', 'partial output')
+    }
+    state.watchTurnCompletion = {}
+    state.unreadThreadIds = {}
+    state.turnStartedAtByUserId = {}
+    state.turnDurationByUserId = {}
+    state.turnReasoningFirstAtByUserId = {}
+    state.turnReasoningLastAtByUserId = {}
+    state.refreshThreads = vi.fn(async () => undefined)
+    state.drainQueuedMessages = vi.fn(async () => undefined)
+
+    await expect(actions.recoverActiveTurn()).resolves.toBe(false)
+
+    expect(showTurnCompleteNotification).toHaveBeenCalledWith(expect.objectContaining({
+      threadId: 'thr_existing',
+      turnId: 'turn-recovered',
+      reason: 'error'
+    }))
+    expect(state.liveUsageByThreadId.thr_existing).toBeUndefined()
   })
 })

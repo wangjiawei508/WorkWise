@@ -6,7 +6,9 @@ import {
   type ClawSettingsPatchV1,
   type GuiUpdateConfigV1,
   type NotificationConfigV1,
+  type NotificationConfigPatchV1,
   type ScheduleSettingsPatchV1,
+  type TerminalNotificationKindV1,
   type WriteSettingsPatchV1
 } from './app-settings-types'
 import { normalizeKeyboardShortcuts, type KeyboardShortcutsConfigV1 } from './keyboard-shortcuts'
@@ -30,7 +32,7 @@ export function normalizeAppSettings(settings: AppSettingsV1): AppSettingsV1 {
   const maybeSettings = migrated as AppSettingsV1 & {
     appBehavior?: Partial<AppBehaviorConfigV1>
     keyboardShortcuts?: Partial<KeyboardShortcutsConfigV1>
-    notifications?: Partial<NotificationConfigV1>
+    notifications?: NotificationConfigPatchV1
     provider?: Parameters<typeof normalizeModelProviderSettings>[0]
     write?: WriteSettingsPatchV1
     claw?: ClawSettingsPatchV1
@@ -66,9 +68,7 @@ export function normalizeAppSettings(settings: AppSettingsV1): AppSettingsV1 {
       enabled: maybeSettings.log?.enabled !== false,
       retentionDays: typeof maybeSettings.log?.retentionDays === 'number' ? maybeSettings.log.retentionDays : 2
     },
-    notifications: {
-      turnComplete: maybeSettings.notifications?.turnComplete !== false
-    },
+    notifications: normalizeNotificationSettings(maybeSettings.notifications),
     appBehavior: normalizeAppBehaviorSettings(maybeSettings.appBehavior),
     keyboardShortcuts: normalizeKeyboardShortcuts(maybeSettings.keyboardShortcuts),
     write: normalizeWriteSettings(maybeSettings.write),
@@ -92,6 +92,10 @@ export function normalizeAppSettings(settings: AppSettingsV1): AppSettingsV1 {
         maybeSettings.documents?.parsingMode === 'accurate'
           ? maybeSettings.documents.parsingMode
           : 'auto',
+      unlimitedOcrServerUrl:
+        typeof maybeSettings.documents?.unlimitedOcrServerUrl === 'string'
+          ? maybeSettings.documents.unlimitedOcrServerUrl.trim()
+          : '',
       privateMineruServerUrl:
         typeof maybeSettings.documents?.privateMineruServerUrl === 'string'
           ? maybeSettings.documents.privateMineruServerUrl.trim()
@@ -107,6 +111,98 @@ export function normalizeAppSettings(settings: AppSettingsV1): AppSettingsV1 {
     },
     codePromptPrefix: typeof maybeSettings.codePromptPrefix === 'string' ? maybeSettings.codePromptPrefix : ''
   }
+}
+
+export const TERMINAL_NOTIFICATION_KINDS: readonly TerminalNotificationKindV1[] = [
+  'completed',
+  'error',
+  'aborted',
+  'blocked',
+  'max_tokens',
+  'waiting_approval'
+]
+
+const TERMINAL_NOTIFICATION_KIND_SET = new Set<TerminalNotificationKindV1>(
+  TERMINAL_NOTIFICATION_KINDS
+)
+
+function normalizeNotificationPatterns(value: unknown): string[] {
+  if (!Array.isArray(value)) return []
+  return [...new Set(value
+    .filter((entry): entry is string => typeof entry === 'string')
+    .map((entry) => entry.trim())
+    .filter(Boolean)
+    .slice(0, 100))]
+}
+
+export function normalizeNotificationSettings(
+  settings?: NotificationConfigPatchV1 | NotificationConfigV1
+): NotificationConfigV1 {
+  const legacyEnabled = settings?.turnComplete !== false
+  const terminal = settings?.turnTerminal
+  const kinds: TerminalNotificationKindV1[] = Array.isArray(terminal?.kinds)
+    ? [...new Set(terminal.kinds.filter(
+        (kind): kind is TerminalNotificationKindV1 => TERMINAL_NOTIFICATION_KIND_SET.has(kind)
+      ))]
+    : ['completed']
+  const enabled = terminal?.enabled ?? legacyEnabled
+  return {
+    turnComplete: enabled,
+    turnTerminal: {
+      enabled,
+      kinds,
+      suppressActiveThread: terminal?.suppressActiveThread === true,
+      include: normalizeNotificationPatterns(terminal?.include),
+      exclude: normalizeNotificationPatterns(terminal?.exclude)
+    }
+  }
+}
+
+export function mergeNotificationSettings(
+  current: NotificationConfigV1,
+  patch?: NotificationConfigPatchV1
+): NotificationConfigV1 {
+  if (!patch) return normalizeNotificationSettings(current)
+  return normalizeNotificationSettings({
+    ...current,
+    ...patch,
+    turnTerminal: {
+      ...current.turnTerminal,
+      ...patch.turnTerminal
+    }
+  })
+}
+
+function terminalNotificationPatternMatches(pattern: string, candidates: readonly string[]): boolean {
+  const escaped = pattern
+    .replace(/[.+?^${}()|[\]\\]/g, '\\$&')
+    .replace(/\*/g, '.*')
+  const matcher = new RegExp(`^${escaped}$`, 'i')
+  return candidates.some((candidate) => matcher.test(candidate))
+}
+
+export function shouldShowTerminalNotification(
+  settings: NotificationConfigV1,
+  input: {
+    reason?: TerminalNotificationKindV1
+    threadId?: string
+    title?: string
+    activeThread?: boolean
+  }
+): boolean {
+  const terminal = normalizeNotificationSettings(settings).turnTerminal!
+  const reason = input.reason ?? 'completed'
+  if (!terminal.enabled || !terminal.kinds.includes(reason)) return false
+  if (terminal.suppressActiveThread && input.activeThread === true) return false
+  const candidates = [input.threadId?.trim(), input.title?.trim()].filter(
+    (value): value is string => Boolean(value)
+  )
+  if (terminal.exclude.some((pattern) => terminalNotificationPatternMatches(pattern, candidates))) {
+    return false
+  }
+  return terminal.include.length === 0 || terminal.include.some(
+    (pattern) => terminalNotificationPatternMatches(pattern, candidates)
+  )
 }
 
 export function normalizeAppBehaviorSettings(

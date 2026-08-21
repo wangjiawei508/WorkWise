@@ -7,6 +7,8 @@ import type {
 } from '../contracts/turns.js'
 import type { ThreadMode } from '../contracts/threads.js'
 import type { TurnItem } from '../contracts/items.js'
+import type { WorkspaceReference } from '../contracts/workspace-references.js'
+import type { UiActionAudit } from '../contracts/ui-actions.js'
 
 export type TurnEntity = Turn
 
@@ -17,10 +19,13 @@ export function createTurnRecord(input: {
   model?: string
   reasoningEffort?: TurnReasoningEffort
   attachmentIds?: string[]
+  workspaceReferences?: WorkspaceReference[]
+  uiAction?: UiActionAudit
   guiPlan?: GuiPlanContextJson
   guiDesign?: GuiDesignContextJson
   mode?: ThreadMode
   disableUserInput?: boolean
+  idempotencyKey?: string
   createdAt?: string
   status?: TurnStatus
 }): TurnEntity {
@@ -34,6 +39,8 @@ export function createTurnRecord(input: {
     steering: [],
     items: [],
     attachmentIds: [...(input.attachmentIds ?? [])],
+    workspaceReferences: [...(input.workspaceReferences ?? [])],
+    ...(input.uiAction ? { uiAction: input.uiAction } : {}),
     activeSkillIds: [],
     injectedMemoryIds: [],
     ...(model ? { model } : {}),
@@ -42,6 +49,7 @@ export function createTurnRecord(input: {
     ...(input.guiDesign ? { guiDesign: input.guiDesign } : {}),
     ...(input.mode ? { mode: input.mode } : {}),
     ...(input.disableUserInput ? { disableUserInput: true } : {}),
+    ...(input.idempotencyKey?.trim() ? { idempotencyKey: input.idempotencyKey.trim() } : {}),
     createdAt: input.createdAt ?? new Date().toISOString()
   }
 }

@@ -139,6 +139,7 @@ const labels: Record<string, string> = {
   kunToolStormThreshold: 'Tool storm threshold',
   kunToolArgumentRepair: 'Tool argument repair',
   kunToolArgumentRepairDesc: 'Tool argument repair description',
+  kunVisionEvidenceUnavailable: 'Image analysis is unavailable',
   kunDiagnostics: 'WorkWise Runtime diagnostics',
   kunDiagnosticsAdvanced: 'Detailed diagnostics',
   kunDiagnosticsAdvancedDesc: 'Detailed diagnostics description',
@@ -450,6 +451,43 @@ describe('AgentsSettingsSection WorkWise Runtime diagnostics smoke', () => {
     expect(html).toContain('Token-saving advanced settings')
     expect(html).toContain('MCP advanced settings')
     expect(html).not.toContain('<details open')
+  })
+
+  it('clearly marks image analysis unavailable when no analyzer is configured', () => {
+    const html = renderToStaticMarkup(createElement(AgentsSettingsSection, { ctx: baseCtx() }))
+
+    expect(html).toContain('Image analysis is unavailable')
+  })
+
+  it('shows the runtime validation reason for an invalid configured analyzer', () => {
+    const ctx = baseCtx()
+    const html = renderToStaticMarkup(createElement(AgentsSettingsSection, {
+      ctx: {
+        ...ctx,
+        kun: {
+          ...(ctx.kun as Record<string, unknown>),
+          visionEvidence: {
+            enabled: true,
+            endpoint: 'https://vision.example.com/analyze',
+            timeoutMs: 120000,
+            analyzer: 'workwise-vision-evidence'
+          }
+        },
+        runtimeInfo: {
+          capabilities: {
+            visionEvidence: {
+              enabled: true,
+              available: false,
+              status: 'unavailable',
+              reason: 'vision evidence endpoint must use a loopback IP address'
+            }
+          }
+        }
+      }
+    }))
+
+    expect(html).toContain('Image analysis is unavailable')
+    expect(html).toContain('vision evidence endpoint must use a loopback IP address')
   })
 
   it('does not render image generation settings inside the agent section', () => {

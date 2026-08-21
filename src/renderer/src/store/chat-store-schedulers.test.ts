@@ -2,7 +2,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   armBusyWatchdog,
   clearBusyWatchdog,
-  resetBusyRecoveryAttempts
+  resetBusyRecoveryAttempts,
+  stopTurnCompletionPoll,
+  syncTurnCompletionPoll
 } from './chat-store-schedulers'
 import type { ChatState, ChatStoreSet } from './chat-store-types'
 
@@ -136,5 +138,145 @@ describe('busyTimeout minutes interpolation (#131)', () => {
     vi.advanceTimersByTime(10)
     expect(typeof h.getState().error).toBe('string')
     expect(h.getState().error as string).toMatch(/已等待 9 分钟/)
+  })
+})
+
+describe('background turn completion polling', () => {
+  afterEach(() => {
+    stopTurnCompletionPoll()
+  })
+
+  it('passes the authoritative terminal turn snapshot to the notification layer', async () => {
+    const h = makeHarness({
+      runtimeConnection: 'ready',
+      watchTurnCompletion: { 'thread-background': true }
+    })
+    const onCompletedThreads = vi.fn()
+
+    syncTurnCompletionPoll(h.set, h.get, {
+      loadThreadState: vi.fn(async () => ({
+        blocks: [],
+        threadStatus: 'idle',
+        latestTurnId: 'turn-background',
+        latestTurnStatus: 'failed',
+        latestTurnError: 'policy_blocked: approval denied'
+      })),
+      threadLooksRunning: () => false,
+      onCompletedThreads
+    })
+
+    await vi.waitFor(() => {
+      expect(onCompletedThreads).toHaveBeenCalledWith([
+        {
+          threadId: 'thread-background',
+          turnId: 'turn-background',
+          turnStatus: 'failed',
+          turnError: 'policy_blocked: approval denied'
+        }
+      ], expect.anything(), h.set, h.get)
+    })
+  })
+
+  it('reports a pending approval while the watched background turn is still running', async () => {
+    const h = makeHarness({
+      runtimeConnection: 'ready',
+      watchTurnCompletion: { 'thread-background': true }
+    })
+    const onWaitingApprovals = vi.fn()
+
+    syncTurnCompletionPoll(h.set, h.get, {
+      loadThreadState: vi.fn(async () => ({
+        blocks: [{
+          kind: 'approval' as const,
+          id: 'approval-block',
+          approvalId: 'approval-background',
+          summary: 'Run command',
+          status: 'pending' as const
+        }],
+        threadStatus: 'running',
+        latestTurnId: 'turn-background',
+        latestTurnStatus: 'running'
+      })),
+      threadLooksRunning: () => true,
+      onCompletedThreads: vi.fn(),
+      onWaitingApprovals
+    })
+
+    await vi.waitFor(() => {
+      expect(onWaitingApprovals).toHaveBeenCalledWith([
+        {
+          threadId: 'thread-background',
+          turnId: 'turn-background',
+          approvalId: 'approval-background'
+        }
+      ], expect.anything(), h.set, h.get)
+    })
+  })
+
+  it('ignores an in-flight poll result after the thread is no longer watched', async () => {
+    const h = makeHarness({
+      activeThreadId: 'thread-foreground',
+      runtimeConnection: 'ready',
+      watchTurnCompletion: { 'thread-background': true }
+    })
+    let resolveThreadState!: (value: {
+      blocks: Array<{
+        kind: 'approval'
+        id: string
+        approvalId: string
+        summary: string
+        status: 'pending'
+      }>
+      threadStatus: 'idle'
+      latestTurnId: string
+      latestTurnStatus: 'completed'
+    }) => void
+    const loadThreadState = vi.fn(() => new Promise<{
+      blocks: Array<{
+        kind: 'approval'
+        id: string
+        approvalId: string
+        summary: string
+        status: 'pending'
+      }>
+      threadStatus: 'idle'
+      latestTurnId: string
+      latestTurnStatus: 'completed'
+    }>((resolve) => {
+      resolveThreadState = resolve
+    }))
+    const onCompletedThreads = vi.fn()
+    const onWaitingApprovals = vi.fn()
+
+    syncTurnCompletionPoll(h.set, h.get, {
+      loadThreadState,
+      threadLooksRunning: () => false,
+      onCompletedThreads,
+      onWaitingApprovals
+    })
+    await vi.waitFor(() => expect(loadThreadState).toHaveBeenCalledOnce())
+
+    h.set({
+      activeThreadId: 'thread-background',
+      watchTurnCompletion: {},
+      unreadThreadIds: {}
+    })
+    resolveThreadState({
+      blocks: [{
+        kind: 'approval',
+        id: 'approval-block',
+        approvalId: 'approval-background',
+        summary: 'Run command',
+        status: 'pending'
+      }],
+      threadStatus: 'idle',
+      latestTurnId: 'turn-background',
+      latestTurnStatus: 'completed'
+    })
+
+    await vi.waitFor(() => expect(loadThreadState).toHaveBeenCalledOnce())
+    await Promise.resolve()
+    expect(onWaitingApprovals).not.toHaveBeenCalled()
+    expect(onCompletedThreads).not.toHaveBeenCalled()
   })
 })

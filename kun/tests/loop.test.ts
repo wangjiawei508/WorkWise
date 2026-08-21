@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { appendFile, mkdir, mkdtemp, readFile, rm } from 'node:fs/promises'
+import { appendFile, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { InMemoryEventBus } from '../src/adapters/in-memory-event-bus.js'
@@ -23,7 +23,7 @@ import { createImmutablePrefix, setSystemPrompt } from '../src/cache/immutable-p
 import { InflightTracker } from '../src/loop/inflight-tracker.js'
 import { SteeringQueue } from '../src/loop/steering-queue.js'
 import { SequentialIdGenerator } from '../src/ports/id-generator.js'
-import { TurnService } from '../src/services/turn-service.js'
+import { MAX_TERMINAL_TURN_IDS, TurnService } from '../src/services/turn-service.js'
 import type { TurnItem } from '../src/contracts/items.js'
 import type { ModelRequest, ModelStreamChunk } from '../src/ports/model-client.js'
 import {
@@ -35,12 +35,164 @@ import {
 } from './loop-test-harness.js'
 
 describe('AgentLoop', () => {
+  it('bounds terminal turn dedupe retention for long-running runtimes', () => {
+    const h = makeHarness(makeSilentModel())
+    const terminalTurns = (h.turns as unknown as { terminalTurns: Set<string> }).terminalTurns
+    const rememberTerminalTurn = (h.turns as unknown as {
+      rememberTerminalTurn(turnId: string): boolean
+    }).rememberTerminalTurn.bind(h.turns)
+    for (let index = 0; index < MAX_TERMINAL_TURN_IDS + 25; index += 1) {
+      rememberTerminalTurn(`turn-${index}`)
+    }
+
+    expect(terminalTurns.size).toBeLessThanOrEqual(MAX_TERMINAL_TURN_IDS)
+  })
+
   it('finishes a silent model run as completed', async () => {
     const h = makeHarness(makeSilentModel())
     await bootstrapThread(h)
     const status = await h.loop.runTurn(h.threadId, h.turnId)
     expect(status).toBe('completed')
     expect(h.inflight.size()).toBe(0)
+  })
+
+  it('reports model length exhaustion as a max-token terminal failure', async () => {
+    const h = makeHarness(makeFakeModel([
+      { kind: 'assistant_text_delta', text: 'partial answer' },
+      { kind: 'completed', stopReason: 'length' }
+    ]))
+    await bootstrapThread(h)
+
+    await expect(h.loop.runTurn(h.threadId, h.turnId)).resolves.toBe('failed')
+    const thread = await h.threadStore.get(h.threadId)
+    expect(thread?.turns.at(-1)).toMatchObject({
+      status: 'failed',
+      error: expect.stringContaining('max_tokens')
+    })
+    expect(h.bus.snapshotSince(h.threadId, 0).at(-1)).toMatchObject({
+      kind: 'turn_failed',
+      reason: 'max_tokens'
+    })
+  })
+
+  it('does not infer a blocked terminal reason from unrelated error prose', async () => {
+    const h = makeHarness(makeSilentModel())
+    await bootstrapThread(h)
+
+    await h.turns.finishTurn({
+      threadId: h.threadId,
+      turnId: h.turnId,
+      status: 'failed',
+      error: 'Request was blocked by a transient network firewall.'
+    })
+
+    expect([...h.bus.snapshotSince(h.threadId, 0)].reverse().find((event) => event.kind === 'turn_failed')).toMatchObject({
+      kind: 'turn_failed',
+      reason: 'error'
+    })
+  })
+
+  it('revalidates workspace references before calling the model without an injected validator', async () => {
+    const workspace = await mkdtemp(join(tmpdir(), 'kun-loop-workspace-reference-'))
+    let modelCalls = 0
+    try {
+      await writeFile(join(workspace, 'brief.md'), '# Brief')
+      const h = makeHarness({
+        provider: 'reference-revalidation-test',
+        model: 'reference-revalidation-test',
+        async *stream(): AsyncIterable<ModelStreamChunk> {
+          modelCalls += 1
+          yield { kind: 'completed', stopReason: 'stop' }
+        }
+      })
+      await bootstrapThread(h, {
+        workspace,
+        request: {
+          prompt: 'inspect the brief',
+          workspaceReferences: [{ path: 'brief.md', kind: 'file' }]
+        }
+      })
+      await rm(join(workspace, 'brief.md'))
+
+      await expect(h.loop.runTurn(h.threadId, h.turnId)).resolves.toBe('failed')
+      expect(modelCalls).toBe(0)
+    } finally {
+      await rm(workspace, { recursive: true, force: true })
+    }
+  })
+
+  it('inspects a referenced directory through the real ls and read tools without injecting file content', async () => {
+    const workspace = await mkdtemp(join(tmpdir(), 'kun-loop-workspace-reference-tools-'))
+    const directory = '项目 资料'
+    const file = '投标说明.txt'
+    const sentinel = 'WORKSPACE-DIRECTORY-REFERENCE-PROOF'
+    const observedRequests: ModelRequest[] = []
+    let calls = 0
+    try {
+      await mkdir(join(workspace, directory), { recursive: true })
+      await writeFile(join(workspace, directory, file), `${sentinel}\n`)
+      const h = makeHarness(
+        {
+          provider: 'workspace-reference-tool-proof',
+          model: 'workspace-reference-tool-proof',
+          async *stream(request: ModelRequest): AsyncIterable<ModelStreamChunk> {
+            observedRequests.push(request)
+            calls += 1
+            if (calls === 1) {
+              yield {
+                kind: 'tool_call_complete',
+                callId: 'call_reference_ls',
+                toolName: 'ls',
+                arguments: { path: directory }
+              }
+              yield { kind: 'completed', stopReason: 'tool_calls' }
+              return
+            }
+            if (calls === 2) {
+              yield {
+                kind: 'tool_call_complete',
+                callId: 'call_reference_read',
+                toolName: 'read',
+                arguments: { path: `${directory}/${file}` }
+              }
+              yield { kind: 'completed', stopReason: 'tool_calls' }
+              return
+            }
+            yield { kind: 'assistant_text_delta', text: '已通过工作区工具读取引用目录。' }
+            yield { kind: 'completed', stopReason: 'stop' }
+          }
+        },
+        { tools: buildDefaultLocalTools() }
+      )
+      await bootstrapThread(h, {
+        workspace,
+        request: {
+          prompt: '请检查引用目录中的说明文件',
+          workspaceReferences: [{ path: directory, kind: 'directory' }]
+        }
+      })
+
+      await expect(h.loop.runTurn(h.threadId, h.turnId)).resolves.toBe('completed')
+
+      expect(calls).toBe(3)
+      expect(observedRequests[0]?.contextInstructions?.join('\n')).toContain(
+        `<workspace-reference path="${directory}" kind="directory" />`
+      )
+      expect(JSON.stringify(observedRequests[0])).not.toContain(sentinel)
+      expect(JSON.stringify(observedRequests[1])).not.toContain(sentinel)
+      expect(JSON.stringify(observedRequests[2])).toContain(sentinel)
+
+      const results = (await h.sessionStore.loadItems(h.threadId))
+        .filter((item) => item.kind === 'tool_result')
+      expect(results.find((item) => item.kind === 'tool_result' && item.toolName === 'ls'))
+        .toMatchObject({ status: 'completed', isError: false })
+      expect(JSON.stringify(results.find((item) => item.kind === 'tool_result' && item.toolName === 'ls')))
+        .toContain(file)
+      expect(JSON.stringify(results.find((item) => item.kind === 'tool_result' && item.toolName === 'read')))
+        .toContain(sentinel)
+    } finally {
+      await rm(workspace, { recursive: true, force: true })
+    }
   })
 
   it('continues a document task until the requested file is actually written', async () => {
@@ -116,6 +268,69 @@ describe('AgentLoop', () => {
     )).toBe(true)
   })
 
+  it('completes after a shell write is verified and reported with a relative file name', async () => {
+    const workspace = await mkdtemp(join(tmpdir(), 'workwise-loop-shell-deliverable-'))
+    let calls = 0
+    const bashTool = LocalToolHost.defineTool({
+      name: 'bash',
+      description: 'Execute a shell command',
+      inputSchema: {
+        type: 'object',
+        properties: { command: { type: 'string' } },
+        required: ['command'],
+        additionalProperties: false
+      },
+      policy: 'auto',
+      toolKind: 'command_execution',
+      execute: async () => {
+        const startedAt = new Date(Date.now() - 1_000)
+        await writeFile(join(workspace, 'feishu-attachment.txt'), 'exact content')
+        return {
+          output: {
+            cwd: workspace,
+            exit_code: 0,
+            output: 'bytes: 13\nMATCH\n',
+            started_at: startedAt.toISOString(),
+            finished_at: new Date(Date.now() + 1_000).toISOString()
+          }
+        }
+      }
+    })
+    const h = makeHarness(
+      {
+        provider: 'shell-deliverable-guard',
+        model: 'shell-deliverable-guard',
+        async *stream(): AsyncIterable<ModelStreamChunk> {
+          calls += 1
+          if (calls === 1) {
+            yield {
+              kind: 'tool_call_complete',
+              callId: 'call_shell_deliverable',
+              toolName: 'bash',
+              arguments: { command: "printf '%s' 'exact content' > feishu-attachment.txt" }
+            }
+            yield { kind: 'completed', stopReason: 'tool_calls' }
+            return
+          }
+          yield {
+            kind: 'assistant_text_delta',
+            text: '已创建文件：`feishu-attachment.txt`，内容已校验。'
+          }
+          yield { kind: 'completed', stopReason: 'stop' }
+        }
+      },
+      { tools: [bashTool] }
+    )
+    await bootstrapThread(h, {
+      request: { prompt: '请创建一个 TXT 文件并作为附件发送。' }
+    })
+
+    const status = await h.loop.runTurn(h.threadId, h.turnId)
+
+    expect(status).toBe('completed')
+    expect(calls).toBe(2)
+  })
+
   it('continues after a progress-only reply instead of silently completing', async () => {
     let calls = 0
     const h = makeHarness({
@@ -139,6 +354,193 @@ describe('AgentLoop', () => {
 
     expect(status).toBe('completed')
     expect(calls).toBe(2)
+  })
+
+  it('does not complete an IM research request from a search announcement', async () => {
+    let calls = 0
+    const h = makeHarness({
+      provider: 'im-research-progress-guard',
+      model: 'im-research-progress-guard',
+      async *stream(request: ModelRequest): AsyncIterable<ModelStreamChunk> {
+        calls += 1
+        if (calls === 1) {
+          yield {
+            kind: 'assistant_text_delta',
+            text: '我来帮你查一下今天 AI 圈的资讯。让我搜索一下最新的动态。'
+          }
+          yield { kind: 'completed', stopReason: 'stop' }
+          return
+        }
+        expect(request.contextInstructions?.join('\n')).toContain('progress announcement')
+        yield {
+          kind: 'assistant_text_delta',
+          text: '目前可确认的资讯包括 DeepSeek V4 Pro 正式发布，以及多家厂商更新 Agent 工具链。'
+        }
+        yield { kind: 'completed', stopReason: 'stop' }
+      }
+    })
+    await bootstrapThread(h, {
+      request: {
+        prompt: '今天 AI 圈有哪些资讯？给我汇报一下',
+        disableUserInput: true
+      }
+    })
+
+    const status = await h.loop.runTurn(h.threadId, h.turnId)
+
+    expect(status).toBe('completed')
+    expect(calls).toBe(2)
+  })
+
+  it('fails the turn after repeated web failures instead of completing from a degraded reply', async () => {
+    let calls = 0
+    const failedWebTool = LocalToolHost.defineTool({
+      name: 'web_fetch',
+      description: 'Fetch a web page',
+      inputSchema: {
+        type: 'object',
+        properties: { url: { type: 'string' } },
+        required: ['url'],
+        additionalProperties: false
+      },
+      policy: 'auto',
+      execute: async () => ({ output: { error: 'network unavailable' }, isError: true })
+    })
+    const h = makeHarness({
+      provider: 'failed-web-recovery',
+      model: 'failed-web-recovery',
+      async *stream(request: ModelRequest): AsyncIterable<ModelStreamChunk> {
+        calls += 1
+        if (calls <= 2) {
+          yield {
+            kind: 'tool_call_complete',
+            callId: `call_web_${calls}`,
+            toolName: 'web_fetch',
+            arguments: { url: `https://example.com/missing-${calls}` }
+          }
+          yield { kind: 'completed', stopReason: 'tool_calls' }
+          return
+        }
+        expect(request.contextInstructions?.join('\n')).toContain('final recovery opportunity')
+        yield {
+          kind: 'assistant_text_delta',
+          text: '在线搜索连续失败，我暂时无法核实今天的资讯。请稍后重试或提供可访问的来源。'
+        }
+        yield { kind: 'completed', stopReason: 'stop' }
+      }
+    }, { tools: [failedWebTool] })
+    await bootstrapThread(h, {
+      request: { prompt: '今天 AI 圈有哪些资讯？', disableUserInput: true }
+    })
+
+    const status = await h.loop.runTurn(h.threadId, h.turnId)
+    const thread = await h.threadStore.get(h.threadId)
+
+    expect(status).toBe('failed')
+    expect(calls).toBe(3)
+    expect(thread?.turns.find((turn) => turn.id === h.turnId)).toMatchObject({
+      status: 'failed',
+      error: expect.stringContaining('在线搜索连续失败')
+    })
+    const items = await h.sessionStore.loadItems(h.threadId)
+    expect(items).toContainEqual(expect.objectContaining({
+      kind: 'error',
+      code: 'web_access_degraded',
+      severity: 'warning'
+    }))
+  })
+
+  it('finishes from successful search evidence when later page fetches fail', async () => {
+    let calls = 0
+    const searchTool = LocalToolHost.defineTool({
+      name: 'web_search',
+      description: 'Search the web',
+      inputSchema: {
+        type: 'object',
+        properties: { query: { type: 'string' } },
+        required: ['query'],
+        additionalProperties: false
+      },
+      policy: 'auto',
+      execute: async () => ({
+        output: {
+          results: [{
+            title: 'Verified AI news',
+            url: 'https://example.com/verified',
+            snippet: 'A verified current event.'
+          }]
+        }
+      })
+    })
+    const fetchTool = LocalToolHost.defineTool({
+      name: 'web_fetch',
+      description: 'Fetch a web page',
+      inputSchema: {
+        type: 'object',
+        properties: { url: { type: 'string' } },
+        required: ['url'],
+        additionalProperties: false
+      },
+      policy: 'auto',
+      execute: async () => ({
+        output: { error: 'page fetch unavailable' },
+        isError: true
+      })
+    })
+    const h = makeHarness({
+      provider: 'search-success-fetch-failure',
+      model: 'search-success-fetch-failure',
+      async *stream(request: ModelRequest): AsyncIterable<ModelStreamChunk> {
+        calls += 1
+        if (calls === 1) {
+          yield {
+            kind: 'tool_call_complete',
+            callId: 'call_search',
+            toolName: 'web_search',
+            arguments: { query: 'today AI news' }
+          }
+          yield { kind: 'completed', stopReason: 'tool_calls' }
+          return
+        }
+        if (calls === 2) {
+          yield {
+            kind: 'tool_call_complete',
+            callId: 'call_fetch_1',
+            toolName: 'web_fetch',
+            arguments: { url: 'https://example.com/verified' }
+          }
+          yield {
+            kind: 'tool_call_complete',
+            callId: 'call_fetch_2',
+            toolName: 'web_fetch',
+            arguments: { url: 'https://example.com/backup' }
+          }
+          yield { kind: 'completed', stopReason: 'tool_calls' }
+          return
+        }
+        expect(request.contextInstructions?.join('\n')).toContain('Use only already verified tool results')
+        expect(request.tools.map((tool) => tool.name)).not.toContain('web_search')
+        expect(request.tools.map((tool) => tool.name)).not.toContain('web_fetch')
+        yield {
+          kind: 'assistant_text_delta',
+          text: [
+            '已根据成功的联网搜索整理资讯，并附上来源：https://example.com/verified',
+            '我随后尝试直接抓取源页面做交叉核验，但 web fetch 全部失败，因此无法确认当前信息已经过页面核实。'
+          ].join('\n')
+        }
+        yield { kind: 'completed', stopReason: 'stop' }
+      }
+    }, { tools: [searchTool, fetchTool] })
+    await bootstrapThread(h, {
+      request: { prompt: '今天 AI 圈有哪些资讯？请附来源。', disableUserInput: true }
+    })
+
+    const status = await h.loop.runTurn(h.threadId, h.turnId)
+    const items = await h.sessionStore.loadItems(h.threadId)
+
+    expect(status).toBe('completed')
+    expect(calls).toBe(3)
+    expect(items.some((item) => item.kind === 'error' && item.code === 'web_access_exhausted')).toBe(false)
   })
 
   it('injects the current shell runtime when bash is available', async () => {
@@ -635,14 +1037,16 @@ describe('AgentLoop', () => {
     expect(resultCallIds).toEqual(['call_read', 'call_grep'])
   })
 
-	  it('repairs wrapped tool arguments before persisting and dispatching calls', async () => {
+	  it('repairs wrapped tool arguments for same-turn dispatch and model history without persisting them', async () => {
 	    let observedArguments: Record<string, unknown> | null = null
+	    const observedRequests: ModelRequest[] = []
 	    let calls = 0
 	    const h = makeHarness(
 	      {
 	        provider: 'wrapped-tool-args',
 	        model: 'wrapped-tool-args',
-	        async *stream(): AsyncIterable<ModelStreamChunk> {
+	        async *stream(request: ModelRequest): AsyncIterable<ModelStreamChunk> {
+	          observedRequests.push(request)
 	          calls += 1
 	          if (calls > 1) {
 	            yield { kind: 'completed', stopReason: 'stop' }
@@ -683,10 +1087,63 @@ describe('AgentLoop', () => {
     expect(observedArguments).toEqual({ path: 'src/main.ts' })
     const items = await h.sessionStore.loadItems(h.threadId)
     const toolCall = items.find((item) => item.kind === 'tool_call' && item.callId === 'call_wrapped')
+    const secondRequestCall = observedRequests[1]?.history.find(
+      (item) => item.kind === 'tool_call' && item.callId === 'call_wrapped'
+    )
     expect(toolCall).toMatchObject({
-      arguments: { path: 'src/main.ts' },
+      arguments: {},
+      argumentSummary: expect.stringContaining('Target: <workspace>/src/main.ts'),
       summary: expect.stringContaining('flattened arguments wrapper')
     })
+    expect(secondRequestCall?.kind === 'tool_call' ? secondRequestCall.arguments : null)
+      .toEqual({ path: 'src/main.ts' })
+    const persistedEvents = JSON.stringify(await h.sessionStore.loadEventsSince(h.threadId, 0))
+    expect(persistedEvents).toContain('Target: <workspace>/src/main.ts')
+    expect(persistedEvents).not.toContain('"arguments":{"path"')
+  })
+
+  it('uses raw tool arguments only in the active turn and safe summaries in the next turn', async () => {
+    const requests: ModelRequest[] = []
+    let modelCall = 0
+    const h = makeHarness({
+      provider: 'tool-argument-lifetime',
+      model: 'tool-argument-lifetime',
+      async *stream(request: ModelRequest): AsyncIterable<ModelStreamChunk> {
+        requests.push(request)
+        modelCall += 1
+        if (modelCall === 1) {
+          yield {
+            kind: 'tool_call_complete',
+            callId: 'call_argument_lifetime',
+            toolName: 'echo',
+            arguments: { text: 'active-turn-secret' }
+          }
+          yield { kind: 'completed', stopReason: 'tool_calls' }
+          return
+        }
+        yield { kind: 'completed', stopReason: 'stop' }
+      }
+    })
+    await bootstrapThread(h)
+    await expect(h.loop.runTurn(h.threadId, h.turnId)).resolves.toBe('completed')
+    const secondTurn = await h.turns.startTurn({
+      threadId: h.threadId,
+      request: { prompt: 'continue in a new turn' }
+    })
+    await expect(h.loop.runTurn(h.threadId, secondTurn.turnId)).resolves.toBe('completed')
+
+    const sameTurnCall = requests[1]?.history.find(
+      (item) => item.kind === 'tool_call' && item.callId === 'call_argument_lifetime'
+    )
+    const nextTurnCall = requests[2]?.history.find(
+      (item) => item.kind === 'tool_call' && item.callId === 'call_argument_lifetime'
+    )
+    expect(sameTurnCall?.kind === 'tool_call' ? sameTurnCall.arguments : null)
+      .toEqual({ text: 'active-turn-secret' })
+    expect(nextTurnCall?.kind === 'tool_call' ? nextTurnCall.arguments : null).toEqual({})
+    expect(nextTurnCall?.kind === 'tool_call' ? nextTurnCall.argumentSummary : '')
+      .toContain('Message content: omitted (18 chars)')
+    expect(JSON.stringify(await h.sessionStore.loadItems(h.threadId))).not.toContain('active-turn-secret')
   })
 
 	  it('suppresses repeated identical tool calls within a turn', async () => {
@@ -743,8 +1200,8 @@ describe('AgentLoop', () => {
     expect(executions).toBe(2)
     expect(thirdCall).toMatchObject({ kind: 'tool_call', status: 'failed' })
 	    expect(stormResult?.kind === 'tool_result' ? stormResult.isError : false).toBe(true)
-	    expect(stormResult?.kind === 'tool_result' ? JSON.stringify(stormResult.output) : '')
-	      .toContain('repeat-loop guard suppressed')
+      expect(stormResult?.kind === 'tool_result' ? stormResult.output : null)
+        .toMatchObject({ code: 'tool_storm_suppressed' })
 	    expect(events.find((event) => event.kind === 'tool_storm_suppressed')).toMatchObject({
 	      kind: 'tool_storm_suppressed',
 	      callId: 'call_echo_3',
@@ -928,6 +1385,8 @@ describe('AgentLoop', () => {
 
     expect(status).toBe('completed')
     expect(persisted?.kind === 'tool_result' ? JSON.stringify(persisted.output) : '').toContain('verbose output line 699')
+    expect(secondRequestCall?.kind === 'tool_call' ? secondRequestCall.arguments.command : null)
+      .toBe('npm test')
     expect(secondRequestCall?.kind === 'tool_call' ? String(secondRequestCall.arguments.transcript) : '')
       .toContain('cache hygiene')
     expect(secondRequestResult?.kind === 'tool_result' ? JSON.stringify(secondRequestResult.output) : '')
@@ -1315,6 +1774,33 @@ describe('AgentLoop', () => {
     expect(request.contextInstructions?.join('\n')).toContain('check current memory usage')
     expect(request.tools.map((tool) => tool.name)).toContain(GET_GOAL_TOOL_NAME)
     expect(request.tools.map((tool) => tool.name)).toContain(UPDATE_GOAL_TOOL_NAME)
+  })
+
+  it('does not continue an unrelated active GUI goal during an IM turn', async () => {
+    const observedRequests: ModelRequest[] = []
+    const h = makeHarness({
+      provider: 'im-with-stale-goal',
+      model: 'im-with-stale-goal',
+      async *stream(request: ModelRequest): AsyncIterable<ModelStreamChunk> {
+        observedRequests.push(request)
+        yield { kind: 'assistant_text_delta', text: '当前 IM 请求已完成。' }
+        yield { kind: 'completed', stopReason: 'stop' }
+      }
+    })
+    await bootstrapThread(h, {
+      request: { prompt: '处理当前 IM 消息', disableUserInput: true }
+    })
+    await h.threads.setGoal(h.threadId, {
+      objective: '旧的本地三步任务',
+      status: 'active'
+    })
+
+    const status = await h.loop.runTurn(h.threadId, h.turnId)
+
+    expect(status).toBe('completed')
+    expect(observedRequests).toHaveLength(1)
+    expect(observedRequests[0]?.contextInstructions?.join('\n') ?? '')
+      .not.toContain('Continue working toward the active thread goal.')
   })
 
   it('continues an active goal after no-tool model turns until update_goal completes it', async () => {
@@ -1943,6 +2429,45 @@ describe('AgentLoop', () => {
     expect(summary).toContain(result.summaryItem.kind === 'compaction' ? result.summaryItem.digestMarker : '')
   })
 
+  it('preserves safe tool intent in compaction without restoring raw arguments', () => {
+    const compactor = new ContextCompactor({ softThreshold: 1, hardThreshold: 2 })
+    const result = compactor.compact({
+      threadId: 'thr_tool_summary_compaction',
+      turnId: 'turn_tool_summary_compaction',
+      prefix: createImmutablePrefix({ systemPrompt: 'system' }),
+      keepRecent: 1,
+      history: [
+        makeToolCallItem({
+          id: 'call_compacted_write',
+          turnId: 'turn_tool_summary_compaction',
+          threadId: 'thr_tool_summary_compaction',
+          callId: 'call_compacted_write',
+          toolName: 'write',
+          arguments: {},
+          argumentSummary: 'Run write\nTarget: <workspace>/exports/report.docx\nContent: omitted (12480 chars)'
+        }),
+        makeToolResultItem({
+          id: 'result_compacted_write',
+          turnId: 'turn_tool_summary_compaction',
+          threadId: 'thr_tool_summary_compaction',
+          callId: 'call_compacted_write',
+          toolName: 'write',
+          output: { ok: true }
+        }),
+        makeUserItem({
+          id: 'user_after_compaction',
+          turnId: 'turn_tool_summary_compaction',
+          threadId: 'thr_tool_summary_compaction',
+          text: 'continue'
+        })
+      ]
+    })
+    const summary = result.summaryItem.kind === 'compaction' ? result.summaryItem.summary : ''
+    expect(summary).toContain('<workspace>/exports/report.docx')
+    expect(summary).toContain('Content: omitted (12480 chars)')
+    expect(summary).not.toContain('raw-secret')
+  })
+
   it('accepts configured context compaction thresholds and model profiles', () => {
     const compactor = new ContextCompactor({
       contextCompaction: {
@@ -2229,11 +2754,14 @@ describe('AgentLoop', () => {
       turns: 0,
       costUsd: 2
     })
-    await h.loop.runTurn(h.threadId, h.turnId)
+    await expect(h.loop.runTurn(h.threadId, h.turnId)).resolves.toBe('failed')
     expect(modelCalls).toBe(1)
     expect((await h.sessionStore.loadItems(h.threadId)).some((item) =>
       item.kind === 'error' && item.code === 'budget_limited'
     )).toBe(true)
+    expect([...h.bus.snapshotSince(h.threadId, 0)].reverse().find((event) =>
+      event.turnId === h.turnId && event.kind === 'turn_failed'
+    )).toMatchObject({ reason: 'blocked' })
   })
 
   it('does not auto-compact DeepSeek v4 turns at the legacy threshold', async () => {
@@ -2508,6 +3036,88 @@ describe('FileSessionStore', () => {
       await readFile(join(dataDir, 'threads', 'index.json'), 'utf-8')
     ) as { order: string[] }
     expect(index.order).toContain('thr_x')
+  })
+
+  it('migrates legacy raw tool arguments, bash commands, and approval summaries on load', async () => {
+    const sessionStore = new FileSessionStore({ dataDir })
+    const threadId = 'thr_legacy_tool_privacy'
+    const turnId = 'turn_legacy_tool_privacy'
+    const threadDir = join(dataDir, 'threads', threadId)
+    const secret = 'legacy-secret-token'
+    await mkdir(threadDir, { recursive: true })
+    const call = makeToolCallItem({
+      id: 'legacy_call',
+      turnId,
+      threadId,
+      callId: 'call_legacy',
+      toolName: 'bash',
+      arguments: {
+        command: `curl https://example.com/download?token=${secret}`,
+        token: secret
+      }
+    })
+    const result = makeToolResultItem({
+      id: 'legacy_result',
+      turnId,
+      threadId,
+      callId: 'call_legacy',
+      toolName: 'bash',
+      output: {
+        command: `curl https://example.com/download?token=${secret}`,
+        output: 'download complete',
+        token: secret
+      }
+    })
+    const approval = makeApprovalItem({
+      id: 'legacy_approval',
+      turnId,
+      threadId,
+      approvalId: 'approval_legacy',
+      toolName: 'send_message',
+      summary: `Run send_message(chat_id="group-${secret}", body="private message")`
+    })
+    await writeFile(
+      join(threadDir, 'messages.jsonl'),
+      [call, result, approval].map((item) => JSON.stringify(item)).join('\n') + '\n',
+      'utf-8'
+    )
+    await writeFile(
+      join(threadDir, 'events.jsonl'),
+      `${JSON.stringify({
+        kind: 'item_created',
+        seq: 1,
+        timestamp: '2026-08-20T00:00:00.000Z',
+        threadId,
+        turnId,
+        itemId: call.id,
+        item: call
+      })}\n`,
+      'utf-8'
+    )
+
+    const items = await sessionStore.loadItems(threadId)
+    const events = await sessionStore.loadEventsSince(threadId, 0)
+    const migratedCall = items.find((item) => item.kind === 'tool_call')
+    const migratedResult = items.find((item) => item.kind === 'tool_result')
+    const migratedApproval = items.find((item) => item.kind === 'approval')
+
+    expect(migratedCall).toMatchObject({
+      kind: 'tool_call',
+      arguments: {},
+      argumentSummary: expect.stringContaining('Command: curl')
+    })
+    expect(migratedResult?.kind === 'tool_result' ? migratedResult.output : {}).not.toHaveProperty('command')
+    expect(migratedApproval?.kind === 'approval' ? migratedApproval.summary : '')
+      .toBe('Run send_message\nParameters: omitted from legacy history')
+    expect(JSON.stringify(items)).not.toContain(secret)
+    expect(JSON.stringify(events)).not.toContain(secret)
+
+    const rewrittenMessages = await readFile(join(threadDir, 'messages.jsonl'), 'utf-8')
+    const rewrittenEvents = await readFile(join(threadDir, 'events.jsonl'), 'utf-8')
+    expect(rewrittenMessages).not.toContain(secret)
+    expect(rewrittenMessages).not.toContain('"command"')
+    expect(rewrittenEvents).not.toContain(secret)
+    expect(rewrittenEvents).toContain('argumentSummary')
   })
 
   it('handles concurrent file thread index writes in the same millisecond', async () => {

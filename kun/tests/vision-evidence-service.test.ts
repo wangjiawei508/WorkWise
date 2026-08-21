@@ -1,0 +1,595 @@
+import { describe, expect, it, vi } from 'vitest'
+import {
+  sanitizeAttachmentEvidence,
+  sanitizeAttachmentEvidenceText
+} from '../src/contracts/vision-evidence.js'
+import { HttpVisionEvidenceService, normalizeVisionEvidenceEndpoint } from '../src/vision/vision-evidence-service.js'
+
+const PNG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3])
+
+describe('HttpVisionEvidenceService', () => {
+  it('accepts only explicit loopback endpoints', () => {
+    expect(normalizeVisionEvidenceEndpoint('http://127.0.0.1:4000/analyze')).toBe('http://127.0.0.1:4000/analyze')
+    expect(normalizeVisionEvidenceEndpoint('http://[::1]:4000/analyze')).toBe('http://[::1]:4000/analyze')
+    expect(() => normalizeVisionEvidenceEndpoint('https://vision.example.com')).toThrow(/loopback/)
+    expect(() => normalizeVisionEvidenceEndpoint('http://localhost:4000')).toThrow(/loopback/)
+  })
+
+  it('sanitizes every analyzer-controlled evidence string including short and line-wrapped secrets', () => {
+    const shortBase64 = Buffer.from('small-secret').toString('base64')
+    const wrappedBase64 = Buffer.from('line-wrapped-secret-material').toString('base64')
+      .match(/.{1,8}/g)?.join('\n') ?? ''
+    const signedUrl = 'https://files.example.test/evidence.png?X-Amz-Signature=\n  signed-url-secret'
+    const evidence = sanitizeAttachmentEvidence({
+      version: 1,
+      attachmentId: `att-${shortBase64}`,
+      summary: signedUrl,
+      ocr: `data:image/png;base64,\n${wrappedBase64}`,
+      layout: [{ type: `heading-${shortBase64}`, text: `text ${signedUrl}` }],
+      semantics: [`semantic ${wrappedBase64}`],
+      visual: `visual ${shortBase64}`,
+      uncertainty: [`uncertain ${signedUrl}`],
+      source: {
+        kind: 'configured-endpoint',
+        analyzer: `analyzer-${shortBase64}`,
+        configFingerprint: 'a'.repeat(64)
+      },
+      status: 'ready'
+    })
+
+    const serialized = JSON.stringify(evidence)
+    expect(serialized).not.toContain(shortBase64)
+    expect(serialized.replace(/\\n/g, '')).not.toContain(wrappedBase64.replace(/\n/g, ''))
+    expect(serialized).not.toContain('signed-url-secret')
+    expect(evidence.layout[0]?.type).toContain('[encoded-data]')
+    expect(evidence.attachmentId).toContain('[encoded-data]')
+    expect(serialized).toContain('[data-url]')
+    expect(serialized).toContain('[url]')
+  })
+
+  it('preserves ordinary OCR identifiers around redacted URLs', () => {
+    const opaqueBase64 = Buffer.from([0xff, 0xee, 0xdd, 0xcc]).toString('base64')
+    const evidence = sanitizeAttachmentEvidence({
+      version: 1,
+      attachmentId: 'att-WorkWise2026',
+      summary: `https://example.test/page?X-Amz-Signature=\n  abcdef0123456789\n  0123456789abcdef\n  ${opaqueBase64}\n  abcd\nBridgePierA123\nSettlement2026`,
+      ocr: 'WorkWise2026 BridgePierA123 Settlement2026',
+      layout: [{ type: 'BridgePierA123', text: 'Settlement2026' }],
+      semantics: ['WorkWise2026'],
+      visual: 'BridgePierA123',
+      uncertainty: [
+        'https://example.test/page?x=\nBridgePierA123\nSettlement2026',
+        'https://example.test/page?token=already-present\nBridgePierA123\nSettlement2026'
+      ],
+      source: {
+        kind: 'configured-endpoint',
+        analyzer: 'WorkWise2026',
+        configFingerprint: 'a'.repeat(64)
+      },
+      status: 'ready'
+    })
+
+    expect(evidence.summary).toBe('[url]\n  abcd\nBridgePierA123\nSettlement2026')
+    expect(evidence.summary).not.toContain('abcdef0123456789')
+    expect(evidence.summary).not.toContain(opaqueBase64)
+    expect(JSON.stringify(evidence)).toContain('WorkWise2026')
+    expect(JSON.stringify(evidence)).toContain('BridgePierA123')
+    expect(JSON.stringify(evidence)).toContain('Settlement2026')
+    expect(evidence.uncertainty[0]).toBe('[url]\nBridgePierA123\nSettlement2026')
+    expect(evidence.uncertainty[1]).toBe('[url]\nBridgePierA123\nSettlement2026')
+  })
+
+  it('redacts verified unindented Base64 continuations without consuming following OCR', () => {
+    const evidence = sanitizeAttachmentEvidence({
+      version: 1,
+      attachmentId: 'att-unindented-base64',
+      summary: 'https://files.example.test/evidence.png?token=\nYWJjMTIz\neHl6NDU2\nBridgePierA123',
+      ocr: 'data:image/png;base64,YWJj\nBridgePierA123\nSettlement2026',
+      layout: [],
+      semantics: [],
+      visual: '',
+      uncertainty: [],
+      source: {
+        kind: 'configured-endpoint',
+        analyzer: 'local-vision',
+        configFingerprint: 'a'.repeat(64)
+      },
+      status: 'ready'
+    })
+
+    expect(evidence.summary).toBe('[url]\nBridgePierA123')
+    expect(evidence.summary).not.toContain('YWJjMTIz')
+    expect(evidence.summary).not.toContain('eHl6NDU2')
+    expect(evidence.ocr).toBe('[data-url]\nBridgePierA123\nSettlement2026')
+  })
+
+  it('redacts opaque Base64URL credentials and preserves indented OCR after complete data URLs', () => {
+    const evidence = sanitizeAttachmentEvidence({
+      version: 1,
+      attachmentId: 'att-opaque-base64url',
+      summary: 'https://files.example.test/evidence.png?token=\n_-7dzLuqmYg\nBridgePierA123',
+      ocr: 'data:image/png;base64,YWJj\n  BridgePierA123\nSettlement2026',
+      layout: [],
+      semantics: [],
+      visual: '',
+      uncertainty: [],
+      source: {
+        kind: 'configured-endpoint',
+        analyzer: 'local-vision',
+        configFingerprint: 'a'.repeat(64)
+      },
+      status: 'ready'
+    })
+
+    expect(evidence.summary).toBe('[url]\nBridgePierA123')
+    expect(evidence.summary).not.toContain('_-7dzLuqmYg')
+    expect(evidence.ocr).toBe('[data-url]\n  BridgePierA123\nSettlement2026')
+  })
+
+  it('preserves hyphenated OCR after an opaque Base64URL credential continuation', () => {
+    const evidence = sanitizeAttachmentEvidence({
+      version: 1,
+      attachmentId: 'att-hyphenated-ocr',
+      summary: 'https://files.example.test/evidence.png?token=\nVftjjHf-4LY\nBridge-Pier-A123\nPier/A12\nI001',
+      ocr: 'data:image/png;base64,\n  BridgePierA123\nSettlement2026',
+      layout: [],
+      semantics: [],
+      visual: '',
+      uncertainty: [],
+      source: {
+        kind: 'configured-endpoint',
+        analyzer: 'local-vision',
+        configFingerprint: 'a'.repeat(64)
+      },
+      status: 'ready'
+    })
+
+    expect(evidence.summary).toBe('[url]\nBridge-Pier-A123\nPier/A12\nI001')
+    expect(evidence.summary).not.toContain('VftjjHf-4LY')
+    expect(evidence.ocr).toBe('[data-url]\n  BridgePierA123\nSettlement2026')
+  })
+
+  it('redacts four-character wrapped Base64 and short final chunks', () => {
+    const evidence = sanitizeAttachmentEvidence({
+      version: 1,
+      attachmentId: 'att-short-wrap',
+      summary: 'https://files.example.test/evidence.png?token=\nc2Vj\ncmV0\nSecretariat\nABCDEF12',
+      ocr: 'data:image/png;base64,\nc2Vj\ncmV0',
+      layout: [],
+      semantics: ['encoded Y29uZmlk\nZW50aWFs'],
+      visual: '',
+      uncertainty: [],
+      source: {
+        kind: 'configured-endpoint',
+        analyzer: 'local-vision',
+        configFingerprint: 'a'.repeat(64)
+      },
+      status: 'ready'
+    })
+
+    expect(evidence.summary).toBe('[url]\nSecretariat\nABCDEF12')
+    expect(evidence.ocr).toBe('[data-url]')
+    expect(evidence.semantics[0]).toBe('encoded [encoded-data]')
+  })
+
+  it('redacts binary Base64 continuations and multi-hyphen Base64URL credentials', () => {
+    const binaryEvidence = sanitizeAttachmentEvidence({
+      version: 1,
+      attachmentId: 'att-binary-wrap',
+      summary: 'https://files.example.test/evidence.png?token=\niVBO\nRw0K\nGgoB\nAgM=\nBridgePierA123',
+      ocr: 'data:image/png;base64,\niVBO\nRw0K\nGgoB\nAgM=\nBridgePierA123',
+      layout: [],
+      semantics: [],
+      visual: '',
+      uncertainty: [],
+      source: {
+        kind: 'configured-endpoint',
+        analyzer: 'local-vision',
+        configFingerprint: 'a'.repeat(64)
+      },
+      status: 'ready'
+    })
+    const base64UrlEvidence = sanitizeAttachmentEvidence({
+      ...binaryEvidence,
+      attachmentId: 'att-base64url-multi-hyphen',
+      summary: 'https://files.example.test/evidence.png?token=\nC-lzY-Ynnvd-P9dR\nBridgePierA123'
+    })
+
+    expect(binaryEvidence.summary).toBe('[url]\nBridgePierA123')
+    expect(binaryEvidence.ocr).toBe('[data-url]\nBridgePierA123')
+    expect(base64UrlEvidence.summary).toBe('[url]\nBridgePierA123')
+  })
+
+  it('preserves short hyphenated OCR and adjacent uppercase identifiers', () => {
+    const evidence = sanitizeAttachmentEvidence({
+      version: 1,
+      attachmentId: 'att-short-ocr',
+      summary: 'https://files.example.test/evidence.png?token=\nPier-A12\nPier_A12\nI000\nI001',
+      ocr: 'I000\nI001',
+      layout: [],
+      semantics: [],
+      visual: '',
+      uncertainty: [],
+      source: {
+        kind: 'configured-endpoint',
+        analyzer: 'local-vision',
+        configFingerprint: 'a'.repeat(64)
+      },
+      status: 'ready'
+    })
+
+    expect(evidence.summary).toBe('[url]\nPier-A12\nPier_A12\nI000\nI001')
+    expect(evidence.ocr).toBe('I000\nI001')
+  })
+
+  it('redacts two-part binary Base64 and wrapped Base64URL credentials', () => {
+    const evidence = sanitizeAttachmentEvidence({
+      version: 1,
+      attachmentId: 'att-wrapped-credentials',
+      summary: [
+        'https://files.example.test/a?token=',
+        'PF6B',
+        'tAxe',
+        'BridgePierA123',
+        'https://files.example.test/b?token=',
+        'Qee9jl_BU11z',
+        'gu-pb22mSYQ',
+        'W',
+        'Settlement2026'
+      ].join('\n'),
+      ocr: 'data:image/png;base64,\nPF6B\ntAxe\nBridgePierA123',
+      layout: [],
+      semantics: [],
+      visual: '',
+      uncertainty: [],
+      source: {
+        kind: 'configured-endpoint',
+        analyzer: 'local-vision',
+        configFingerprint: 'a'.repeat(64)
+      },
+      status: 'ready'
+    })
+
+    expect(evidence.summary).toBe('[url]\nBridgePierA123\n[url]\nSettlement2026')
+    expect(evidence.ocr).toBe('[data-url]\nBridgePierA123')
+  })
+
+  it('preserves multi-line OCR words and long hyphenated identifiers', () => {
+    const evidence = sanitizeAttachmentEvidence({
+      version: 1,
+      attachmentId: 'att-multiline-ocr',
+      summary: 'https://files.example.test/a?token=\nPier\nA123\nWork\nBridge-Pier-A123\nSettlement2026',
+      ocr: 'Pier\nA123\nWork',
+      layout: [],
+      semantics: [],
+      visual: '',
+      uncertainty: [],
+      source: {
+        kind: 'configured-endpoint',
+        analyzer: 'local-vision',
+        configFingerprint: 'a'.repeat(64)
+      },
+      status: 'ready'
+    })
+
+    expect(evidence.summary).toBe('[url]\nPier\nA123\nWork\nBridge-Pier-A123\nSettlement2026')
+    expect(evidence.ocr).toBe('Pier\nA123\nWork')
+  })
+
+  it('redacts opaque unpadded Base64 after explicit credential framing', () => {
+    const encoded = 'RYggCQipkQLNzxUO'
+
+    expect(sanitizeAttachmentEvidenceText(
+      `data:image/png;base64,\n${encoded}\nBridgePierA123`
+    )).toBe('[data-url]\nBridgePierA123')
+    expect(sanitizeAttachmentEvidenceText(
+      `https://files.example.test/evidence.png?token=\n${encoded}\nBridgePierA123`
+    )).toBe('[url]\nBridgePierA123')
+  })
+
+  it('redacts wrapped Base64URL credentials with a four-character final fragment', () => {
+    expect(sanitizeAttachmentEvidenceText([
+      'https://files.example.test/evidence.png?token=',
+      'Qee9jl_BU1',
+      '1zgu-pb22m',
+      'SYQW',
+      'BridgePierA123'
+    ].join('\n'))).toBe('[url]\nBridgePierA123')
+  })
+
+  it('sanitizes many URLs without recursive stack growth', () => {
+    const input = Array.from({ length: 2_000 }, () => 'https://a.co').join('\n')
+    const output = sanitizeAttachmentEvidenceText(input)
+
+    expect(output.split('\n')).toHaveLength(2_000)
+    expect(output).not.toContain('https://')
+  })
+
+  it('redacts very short padded Base64 while preserving ordinary OCR', () => {
+    expect(sanitizeAttachmentEvidenceText('Evidence YQ== done')).toBe('Evidence [encoded-data] done')
+    expect(sanitizeAttachmentEvidenceText('StationA\nStationB')).toBe('StationA\nStationB')
+    expect(sanitizeAttachmentEvidenceText('Bridge/Pier/A123')).toBe('Bridge/Pier/A123')
+  })
+
+  it('redacts framed credentials after horizontal whitespace and hex payloads', () => {
+    expect(sanitizeAttachmentEvidenceText(
+      'https://files.example.test/a?token=                \nRYggCQipkQLNzxUO\nBridgePierA123'
+    )).toBe('[url]\nBridgePierA123')
+    expect(sanitizeAttachmentEvidenceText(
+      'https://files.example.test/a?X-Amz-Signature=\nabcdef0123456789abcdef0123456789\nBridgePierA123'
+    )).toBe('[url]\nBridgePierA123')
+    expect(sanitizeAttachmentEvidenceText(
+      'data:image/png;base64,\ndeadbeef\nBridgePierA123'
+    )).toBe('[data-url]\nBridgePierA123')
+  })
+
+  it('redacts short opaque Base64 in explicit data framing', () => {
+    expect(sanitizeAttachmentEvidenceText(
+      'data:image/png;base64,\nPF6B\nBridgePierA123'
+    )).toBe('[data-url]\nBridgePierA123')
+    expect(sanitizeAttachmentEvidenceText(
+      'data:image/png;base64,\nRYggCQip\nBridgePierA123'
+    )).toBe('[data-url]\nBridgePierA123')
+  })
+
+  it('redacts wrapped Base64URL when middle fragments are alphanumeric', () => {
+    expect(sanitizeAttachmentEvidenceText([
+      'https://files.example.test/a?token=',
+      'Qee9jl_BU1',
+      '1zguApb22m',
+      'SYQW',
+      'BridgePierA123'
+    ].join('\n'))).toBe('[url]\nBridgePierA123')
+  })
+
+  it('preserves lowercase and numeric slash-delimited OCR', () => {
+    expect(sanitizeAttachmentEvidenceText('stations\nmonitors')).toBe('stations\nmonitors')
+    expect(sanitizeAttachmentEvidenceText('settling\nmovement')).toBe('settling\nmovement')
+    expect(sanitizeAttachmentEvidenceText('building\nplatform')).toBe('building\nplatform')
+    expect(sanitizeAttachmentEvidenceText('Bridge/Pier/1234')).toBe('Bridge/Pier/1234')
+    expect(sanitizeAttachmentEvidenceText('Station/Platform/123')).toBe('Station/Platform/123')
+  })
+
+  it('does not match data URLs inside ordinary words', () => {
+    expect(sanitizeAttachmentEvidenceText('metadata:image/png')).toBe('metadata:image/png')
+  })
+
+  it('validates magic bytes and shares in-flight analysis for the same analyzer request', async () => {
+    let resolveResponse!: (response: Response) => void
+    const response = new Promise<Response>((resolve) => { resolveResponse = resolve })
+    const fetcher = vi.fn(() => response) as unknown as typeof fetch
+    const service = new HttpVisionEvidenceService({
+      enabled: true,
+      endpoint: 'http://127.0.0.1:4000/analyze'
+    }, { fetch: fetcher })
+    const first = service.analyze({ attachmentId: 'a1', name: 'one.png', mimeType: 'image/png', data: PNG, signal: new AbortController().signal })
+    const second = service.analyze({ attachmentId: 'a1', name: 'one.png', mimeType: 'image/png', data: PNG, signal: new AbortController().signal })
+    resolveResponse(new Response(JSON.stringify({
+      summary: 'diagram',
+      ocr: 'hello',
+      layout: [],
+      semantics: ['flow chart'],
+      visual: 'boxes connected by arrows',
+      uncertainty: []
+    }), { status: 200 }))
+
+    await expect(first).resolves.toMatchObject({ attachmentId: 'a1', summary: 'diagram', status: 'ready' })
+    await expect(second).resolves.toMatchObject({ attachmentId: 'a1', summary: 'diagram', status: 'ready' })
+    expect(fetcher).toHaveBeenCalledTimes(1)
+    await expect(service.analyze({ attachmentId: 'a3', name: 'bad.png', mimeType: 'image/jpeg', data: PNG, signal: new AbortController().signal }))
+      .rejects.toThrow(/MIME type/)
+  })
+
+  it('does not reuse semantic evidence across attachment identities or names', async () => {
+    const fetcher = vi.fn(async (_url: unknown, init?: RequestInit) => {
+      const request = JSON.parse(String(init?.body)) as { attachmentId: string; name: string }
+      return new Response(JSON.stringify({
+        summary: `${request.attachmentId}:${request.name}`,
+        ocr: '',
+        layout: [],
+        semantics: [],
+        visual: '',
+        uncertainty: []
+      }), { status: 200 })
+    }) as unknown as typeof fetch
+    const service = new HttpVisionEvidenceService({
+      enabled: true,
+      endpoint: 'http://127.0.0.1:4000/analyze'
+    }, { fetch: fetcher })
+
+    await expect(service.analyze({ attachmentId: 'a1', name: 'one.png', mimeType: 'image/png', data: PNG, signal: new AbortController().signal }))
+      .resolves.toMatchObject({ summary: 'a1:one.png' })
+    await expect(service.analyze({ attachmentId: 'a2', name: 'two.png', mimeType: 'image/png', data: PNG, signal: new AbortController().signal }))
+      .resolves.toMatchObject({ summary: 'a2:two.png' })
+    expect(fetcher).toHaveBeenCalledTimes(2)
+  })
+
+  it('cancels one waiter without cancelling another waiter for the same analysis', async () => {
+    let resolveResponse!: (response: Response) => void
+    const response = new Promise<Response>((resolve) => { resolveResponse = resolve })
+    const fetchMock = vi.fn((_input: string | URL | Request, _init?: RequestInit): Promise<Response> => response)
+    const service = new HttpVisionEvidenceService({ enabled: true, endpoint: 'http://127.0.0.1:4000/analyze' }, { fetch: fetchMock as unknown as typeof fetch })
+    const firstController = new AbortController()
+    const secondController = new AbortController()
+    const first = service.analyze({ attachmentId: 'a1', name: 'one.png', mimeType: 'image/png', data: PNG, signal: firstController.signal })
+    const second = service.analyze({ attachmentId: 'a1', name: 'one.png', mimeType: 'image/png', data: PNG, signal: secondController.signal })
+
+    firstController.abort('caller cancelled')
+    await expect(first).rejects.toThrow(/cancelled/)
+    expect((fetchMock.mock.calls[0]?.[1] as RequestInit).signal).toBeDefined()
+    expect(((fetchMock.mock.calls[0]?.[1] as RequestInit).signal as AbortSignal).aborted).toBe(false)
+
+    resolveResponse(new Response(JSON.stringify({
+      summary: 'diagram',
+      ocr: 'hello',
+      layout: [],
+      semantics: ['flow chart'],
+      visual: 'boxes connected by arrows',
+      uncertainty: []
+    }), { status: 200 }))
+    await expect(second).resolves.toMatchObject({ attachmentId: 'a1', status: 'ready' })
+  })
+
+  it('does not start an analyzer request for an already-aborted waiter', async () => {
+    const fetcher = vi.fn(async () => new Response('{}', { status: 200 })) as unknown as typeof fetch
+    const service = new HttpVisionEvidenceService({ enabled: true, endpoint: 'http://127.0.0.1:4000/analyze' }, { fetch: fetcher })
+    const controller = new AbortController()
+    controller.abort('already cancelled')
+
+    await expect(service.analyze({ attachmentId: 'a1', name: 'one.png', mimeType: 'image/png', data: PNG, signal: controller.signal }))
+      .rejects.toThrow(/cancelled/)
+    expect(fetcher).not.toHaveBeenCalled()
+  })
+
+  it('cancels a streaming analyzer response as soon as it exceeds 2 MiB', async () => {
+    let cancelled = false
+    let chunkCount = 0
+    const stream = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        if (chunkCount === 0) controller.enqueue(new Uint8Array(2 * 1024 * 1024))
+        else if (chunkCount === 1) controller.enqueue(new Uint8Array(1))
+        else return
+        chunkCount += 1
+      },
+      cancel() {
+        cancelled = true
+      }
+    })
+    const fetcher = vi.fn(async () => new Response(stream, { status: 200 })) as unknown as typeof fetch
+    const service = new HttpVisionEvidenceService({ enabled: true, endpoint: 'http://127.0.0.1:4000/analyze' }, { fetch: fetcher })
+
+    await expect(service.analyze({ attachmentId: 'a1', name: 'one.png', mimeType: 'image/png', data: PNG, signal: new AbortController().signal }))
+      .rejects.toThrow(/size limit/)
+    expect(cancelled).toBe(true)
+  })
+
+  it('does not cache analyzer failures', async () => {
+    const fetcher = vi.fn(async () => new Response('failed', { status: 500 })) as unknown as typeof fetch
+    const service = new HttpVisionEvidenceService({ enabled: true, endpoint: 'http://127.0.0.1:4000/analyze' }, { fetch: fetcher })
+    const input = { attachmentId: 'a1', name: 'one.png', mimeType: 'image/png', data: PNG, signal: new AbortController().signal }
+    await expect(service.analyze(input)).rejects.toThrow('attachment_analysis_unavailable')
+    await expect(service.analyze(input)).rejects.toThrow('attachment_analysis_unavailable')
+    expect(fetcher).toHaveBeenCalledTimes(2)
+  })
+
+  it('aborts a stalled analyzer at the configured timeout', async () => {
+    let aborted = false
+    const fetcher = vi.fn((_input: string | URL | Request, init?: RequestInit) => new Promise<Response>((_resolve, reject) => {
+      init?.signal?.addEventListener('abort', () => {
+        aborted = true
+        reject(new Error('aborted'))
+      }, { once: true })
+    })) as unknown as typeof fetch
+    const service = new HttpVisionEvidenceService({
+      enabled: true,
+      endpoint: 'http://127.0.0.1:4000/analyze',
+      timeoutMs: 10
+    }, { fetch: fetcher })
+
+    await expect(service.analyze({
+      attachmentId: 'timeout', name: 'one.png', mimeType: 'image/png', data: PNG,
+      signal: new AbortController().signal
+    })).rejects.toThrow(/timed out|cancelled/)
+    expect(aborted).toBe(true)
+  })
+
+  it('times out when the response body ignores the fetch abort signal', async () => {
+    let cancelled = false
+    const stream = new ReadableStream<Uint8Array>({
+      pull() {
+        return new Promise<void>(() => undefined)
+      },
+      cancel() {
+        cancelled = true
+      }
+    })
+    const fetcher = vi.fn(async () => new Response(stream, { status: 200 })) as unknown as typeof fetch
+    const service = new HttpVisionEvidenceService({
+      enabled: true,
+      endpoint: 'http://127.0.0.1:4000/analyze',
+      timeoutMs: 10
+    }, { fetch: fetcher })
+
+    await expect(service.analyze({
+      attachmentId: 'body-timeout', name: 'one.png', mimeType: 'image/png', data: PNG,
+      signal: new AbortController().signal
+    })).rejects.toThrow(/timed out|cancelled/)
+    expect(cancelled).toBe(true)
+  })
+
+  it('evicts the least recently used evidence and separates analyzer configurations', async () => {
+    const fetcher = vi.fn(async () => new Response(JSON.stringify({
+      summary: 'diagram', ocr: 'hello', layout: [], semantics: [], visual: 'boxes', uncertainty: []
+    }), { status: 200 })) as unknown as typeof fetch
+    const input = (attachmentId: string, marker = attachmentId) => ({
+      attachmentId, name: `${attachmentId}.png`, mimeType: 'image/png', data: Buffer.concat([PNG, Buffer.from(marker)]),
+      signal: new AbortController().signal
+    })
+    const service = new HttpVisionEvidenceService({
+      enabled: true, endpoint: 'http://127.0.0.1:4000/analyze', analyzer: 'v1'
+    }, { fetch: fetcher, maxCacheEntries: 1 })
+    await service.analyze(input('a1', 'one'))
+    await service.analyze(input('a2', 'two'))
+    await service.analyze(input('a1', 'one'))
+    expect(fetcher).toHaveBeenCalledTimes(3)
+
+    const otherConfig = new HttpVisionEvidenceService({
+      enabled: true, endpoint: 'http://127.0.0.1:4000/analyze', analyzer: 'v2'
+    }, { fetch: fetcher, maxCacheEntries: 1 })
+    await otherConfig.analyze(input('a1', 'one'))
+    expect(fetcher).toHaveBeenCalledTimes(4)
+  })
+
+  it.each([128, Number.NaN])('enforces the absolute 64-entry cache cap for injected limit %s', async (maxCacheEntries) => {
+    const fetcher = vi.fn(async () => new Response(JSON.stringify({
+      summary: 'diagram', ocr: 'hello', layout: [], semantics: [], visual: 'boxes', uncertainty: []
+    }), { status: 200 })) as unknown as typeof fetch
+    const service = new HttpVisionEvidenceService({
+      enabled: true,
+      endpoint: 'http://127.0.0.1:4000/analyze'
+    }, { fetch: fetcher, maxCacheEntries })
+    const input = (index: number) => ({
+      attachmentId: `a${index}`,
+      name: `${index}.png`,
+      mimeType: 'image/png',
+      data: Buffer.concat([PNG, Buffer.from([index])]),
+      signal: new AbortController().signal
+    })
+
+    for (let index = 0; index < 65; index += 1) await service.analyze(input(index))
+    await service.analyze(input(0))
+
+    expect(fetcher).toHaveBeenCalledTimes(66)
+  })
+
+  it('requires fetch to reject redirects and never follows analyzer responses', async () => {
+    const fetcher = vi.fn(async () => new Response('redirected', {
+      status: 302,
+      headers: { location: 'http://127.0.0.1:4001/other' }
+    })) as unknown as typeof fetch
+    const service = new HttpVisionEvidenceService({
+      enabled: true,
+      endpoint: 'http://127.0.0.1:4000/analyze'
+    }, { fetch: fetcher })
+
+    await expect(service.analyze({
+      attachmentId: 'redirect', name: 'one.png', mimeType: 'image/png', data: PNG,
+      signal: new AbortController().signal
+    })).rejects.toThrow('attachment_analysis_unavailable')
+    expect(fetcher).toHaveBeenCalledWith(
+      'http://127.0.0.1:4000/analyze',
+      expect.objectContaining({ redirect: 'error' })
+    )
+  })
+
+  it('rejects oversized image inputs before calling the analyzer', async () => {
+    const fetcher = vi.fn(async () => new Response('{}', { status: 200 })) as unknown as typeof fetch
+    const service = new HttpVisionEvidenceService({ enabled: true, endpoint: 'http://127.0.0.1:4000/analyze' }, { fetch: fetcher })
+    await expect(service.analyze({
+      attachmentId: 'large', name: 'large.png', mimeType: 'image/png',
+      data: Buffer.concat([PNG, Buffer.alloc(20 * 1024 * 1024 + 1)]),
+      signal: new AbortController().signal
+    })).rejects.toThrow(/size limit/)
+    expect(fetcher).not.toHaveBeenCalled()
+  })
+})

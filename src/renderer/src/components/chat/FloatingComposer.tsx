@@ -49,7 +49,8 @@ import {
   removeComposerFileMentionToken,
   replaceFileMentionInInput,
   type ComposerFileMention,
-  type ComposerFileReference
+  type ComposerFileReference,
+  type ComposerWorkspaceReference
 } from '../../lib/composer-file-references'
 import {
   COMPACT_COMMAND_ALIASES,
@@ -84,6 +85,8 @@ import {
 } from './FloatingComposerExecutionPicker'
 import { useComposerDraft } from './use-composer-draft'
 import type { ComposerChangedFile } from '../../lib/composer-change-summary'
+import { rendererRuntimeClient } from '../../agent/runtime-client'
+import { resolveUsageTokenDisplay } from '../../store/live-usage-projection'
 
 export type { ComposerFileReference } from '../../lib/composer-file-references'
 export type { ComposerExecutionSettings } from './FloatingComposerExecutionPicker'
@@ -129,7 +132,7 @@ type Props = {
   attachmentUploadBusy?: boolean
   attachmentUploadError?: string | null
   fileReferenceEnabled?: boolean
-  fileReferences?: ComposerFileReference[]
+  fileReferences?: ComposerWorkspaceReference[]
   webAccessAvailable?: boolean
   executionSettings?: ComposerExecutionSettings | null
   executionSettingsApplying?: boolean
@@ -177,7 +180,7 @@ type SkillCommand = NonNullable<Props['skillCommands']>[number]
 
 const EMPTY_MODEL_GROUPS: ModelProviderModelGroup[] = []
 const EMPTY_ATTACHMENTS: AttachmentReference[] = []
-const EMPTY_FILE_REFERENCES: ComposerFileReference[] = []
+const EMPTY_FILE_REFERENCES: ComposerWorkspaceReference[] = []
 const EMPTY_CHANGED_FILES: ComposerChangedFile[] = []
 const EMPTY_SKILL_COMMANDS: SkillCommand[] = []
 
@@ -345,7 +348,9 @@ function fileReferenceFromEntry(entry: WorkspaceEntry, workspaceRoot: string): C
   return {
     path: entry.path,
     relativePath,
-    name: entry.name
+    name: entry.name,
+    kind: 'file',
+    source: 'legacy'
   }
 }
 
@@ -406,6 +411,29 @@ async function loadWorkspaceFileIndex(workspaceRoot: string): Promise<WorkspaceF
     workspaceFileIndexCache.delete(root)
     throw error
   }
+}
+
+export async function loadComposerWorkspaceReferenceSuggestions(input: {
+  threadId: string | null
+  workspaceRoot: string
+  query: string
+  allowLegacyFallback: boolean
+  runtimeSearch?: typeof rendererRuntimeClient.searchWorkspaceReferences
+  legacySearch?: () => Promise<ComposerFileReference[]>
+}): Promise<ComposerFileReference[]> {
+  const runtimeSearch = input.runtimeSearch ?? rendererRuntimeClient.searchWorkspaceReferences.bind(rendererRuntimeClient)
+  const result = await runtimeSearch(input.threadId, input.workspaceRoot, input.query, 20)
+  if (result) {
+    return result.entries.map((entry) => ({
+      path: entry.path,
+      relativePath: entry.path,
+      name: entry.name,
+      kind: entry.kind,
+      source: 'runtime'
+    }))
+  }
+  if (input.allowLegacyFallback && input.legacySearch) return input.legacySearch()
+  throw new Error('Runtime workspace reference search is unavailable')
 }
 
 export function imageFilesFromTransfer(source: ComposerImageTransferSource | null | undefined): File[] {
@@ -545,6 +573,7 @@ export function FloatingComposer({
   const workspaceRoot = useChatStore((s) => s.workspaceRoot)
   const activeThreadId = useChatStore((s) => s.activeThreadId)
   const usageRefreshKey = useChatStore((s) => s.usageRefreshKey)
+  const liveUsage = useChatStore((s) => activeThreadId ? s.liveUsageByThreadId?.[activeThreadId] ?? null : null)
   const threads = useChatStore((s) => s.threads)
   const compactActiveThread = useChatStore((s) => s.compactActiveThread)
   const forkActiveThread = useChatStore((s) => s.forkActiveThread)
@@ -575,6 +604,11 @@ export function FloatingComposer({
     `${activeThread?.updatedAt ?? ''}:${busy ? 'busy' : 'idle'}:${usageRefreshKey}`
   )
   const threadUsage = threadUsageState.usage
+  const usageTokenDisplay = resolveUsageTokenDisplay(
+    threadUsage?.totalTokens ?? null,
+    liveUsage,
+    busy
+  )
   const effectiveWorkspaceRoot = normalizeWorkspaceRoot(activeThreadWorkspace || workspaceRootOverride || workspaceRoot)
   const clawAgentName =
     activeClawChannel?.agentProfile.name.trim()
@@ -636,6 +670,7 @@ export function FloatingComposer({
   const [selectedCommandIndex, setSelectedCommandIndex] = useState(0)
   const [fileMentionSuggestions, setFileMentionSuggestions] = useState<ComposerFileReference[]>([])
   const [fileMentionLoading, setFileMentionLoading] = useState(false)
+  const [fileMentionError, setFileMentionError] = useState<string | null>(null)
   const [selectedFileMentionIndex, setSelectedFileMentionIndex] = useState(0)
   const [dismissedFileMentionKey, setDismissedFileMentionKey] = useState<string | null>(null)
   const [composerMenuOpen, setComposerMenuOpen] = useState(false)
@@ -898,21 +933,35 @@ export function FloatingComposer({
     if (!showFileMentionMenu || !activeFileMention || !effectiveWorkspaceRoot) {
       setFileMentionSuggestions((current) => (current.length === 0 ? current : []))
       setFileMentionLoading(false)
+      setFileMentionError(null)
       return
     }
 
     let cancelled = false
     const timer = window.setTimeout(() => {
       setFileMentionLoading(true)
-      void loadWorkspaceFileIndex(effectiveWorkspaceRoot)
-        .then((index) => {
+      setFileMentionError(null)
+      void loadComposerWorkspaceReferenceSuggestions({
+        threadId: activeThreadId,
+        workspaceRoot: effectiveWorkspaceRoot,
+        query: activeFileMention.query,
+        allowLegacyFallback: import.meta.env.VITE_WORKWISE_LEGACY_INLINE_FILE_CONTEXT === '1',
+        legacySearch: async () => {
+          const index = await loadWorkspaceFileIndex(effectiveWorkspaceRoot)
+          return filterWorkspaceFileMentionSuggestions(index.files, activeFileMention.query, fileReferences)
+        }
+      })
+        .then((suggestions) => {
           if (cancelled) return
           setFileMentionSuggestions(
-            filterWorkspaceFileMentionSuggestions(index.files, activeFileMention.query, fileReferences)
+            filterWorkspaceFileMentionSuggestions(suggestions, activeFileMention.query, fileReferences)
           )
         })
-        .catch(() => {
-          if (!cancelled) setFileMentionSuggestions([])
+        .catch((error) => {
+          if (!cancelled) {
+            setFileMentionSuggestions([])
+            setFileMentionError(error instanceof Error ? error.message : t('composerFileMentionSearchFailed'))
+          }
         })
         .finally(() => {
           if (!cancelled) setFileMentionLoading(false)
@@ -923,7 +972,7 @@ export function FloatingComposer({
       cancelled = true
       window.clearTimeout(timer)
     }
-  }, [activeFileMention, effectiveWorkspaceRoot, fileReferences, showFileMentionMenu])
+  }, [activeFileMention, activeThreadId, effectiveWorkspaceRoot, fileReferences, showFileMentionMenu, t])
 
   useEffect(() => {
     if (!composerMenuOpen && !goalPanelOpen) return
@@ -1615,7 +1664,7 @@ export function FloatingComposer({
               </div>
             ) : (
               <div className="rounded-[12px] border border-dashed border-ds-border-muted px-3 py-3 text-[12px] text-ds-faint">
-                {fileMentionLoading ? t('composerFileMentionLoading') : t('composerFileMentionEmpty')}
+                {fileMentionError ?? (fileMentionLoading ? t('composerFileMentionLoading') : t('composerFileMentionEmpty'))}
               </div>
             )}
           </div>
@@ -2035,7 +2084,7 @@ export function FloatingComposer({
                 title={
                   threadUsage
                     ? t('sessionUsageDetailsTitle', {
-                        tokens: formatCompactNumber(threadUsage.totalTokens),
+                        tokens: formatCompactNumber(usageTokenDisplay?.tokens ?? threadUsage.totalTokens),
                         cost: formatCost(threadUsage.costUsd, i18n.language, threadUsage.costCny),
                         saved: formatCost(
                           threadUsage.tokenEconomySavingsUsd,
@@ -2047,17 +2096,32 @@ export function FloatingComposer({
                         miss: formatCompactNumber(threadUsage.cacheMissTokens),
                         turns: threadUsage.turns
                       })
-                    : t('sessionUsageUnavailable')
+                    : usageTokenDisplay
+                      ? t(
+                          usageTokenDisplay.estimated ? 'sessionUsageEstimated' : 'sessionUsageTokens',
+                          { tokens: formatCompactNumber(usageTokenDisplay.tokens) }
+                        )
+                      : t('sessionUsageUnavailable')
                 }
               >
                 <BarChart3 className="h-3.5 w-3.5 shrink-0 text-ds-faint" strokeWidth={1.9} />
-                {threadUsage ? (
+                {threadUsage || liveUsage ? (
                   <>
                     <span className="ds-composer-usage-tokens shrink-0 truncate tabular-nums">
-                      {t('sessionUsageTokens', {
-                        tokens: formatCompactNumber(threadUsage.totalTokens)
-                      })}
+                      {t(
+                        usageTokenDisplay?.estimated ? 'sessionUsageEstimated' : 'sessionUsageTokens',
+                        { tokens: formatCompactNumber(usageTokenDisplay?.tokens ?? 0) }
+                      )}
                     </span>
+                    {liveUsage?.tokensPerSecond != null ? (
+                      <>
+                        <span className="ds-composer-usage-tps-separator text-ds-faint">·</span>
+                        <span className="ds-composer-usage-tps shrink-0 truncate tabular-nums">
+                          {t('sessionUsageTps', { tps: liveUsage.tokensPerSecond.toFixed(1) })}
+                        </span>
+                      </>
+                    ) : null}
+                    {threadUsage ? <>
                     <span className="ds-composer-usage-cost-separator text-ds-faint">·</span>
                     <span className="ds-composer-usage-cost shrink-0 truncate tabular-nums">
                       {t('sessionUsageCost', {
@@ -2093,6 +2157,7 @@ export function FloatingComposer({
                     <span className="ds-composer-usage-turns shrink-0 truncate tabular-nums">
                       {t('sessionUsageTurns', { turns: threadUsage.turns })}
                     </span>
+                    </> : null}
                   </>
                 ) : (
                   <span className="shrink-0 text-ds-faint">
