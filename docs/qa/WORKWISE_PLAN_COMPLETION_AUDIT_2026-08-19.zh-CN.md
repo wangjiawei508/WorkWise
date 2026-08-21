@@ -2,7 +2,7 @@
 
 日期：2026-08-22
 分支：`codex/workwise-plan-final-0.4.0`
-提交：`fa86d84`
+提交：`5712e4c77a75e2fd6ab7b3fe3f541eb719110e64`
 版本：`0.3.6`（当前候选仍未升级公共版本）
 
 本报告按 `PLAN (1).md`（PDF 解析）和 `PLAN (2).md`（DeepSeek Harness 机制）逐项核对当前代码、测试和候选证据。`DONE` 只表示仓库内实现和自动化证据足够；`PARTIAL` 表示实现存在但仍缺少真实服务或人工验收；`UNVERIFIABLE` 表示当前环境没有足够证据。历史候选日志不作为当前版本的真实通信验收。
@@ -14,21 +14,21 @@
 - `npm run typecheck`：通过。
 - `npm run lint`：通过。
 - 受控回环权限下全量测试：主工程 `2281 passed | 2 skipped`，Runtime `780 passed`，合计 `3061 passed | 2 skipped`。候选端口预留、Runtime 实际端口交接、三端口探针、MarkItDown 页码溯源、OCR 页码校验、工作区索引读错截断、DeepSeek 响应边界和候选 `port: 0` 设置持久化专项测试通过。
-- 本轮修复增量回归：主工程 provider/微信运行时 `46 passed`，Runtime contracts `34 passed`；修复已提交于 `fa86d84`，覆盖稳定 DeepSeek HTTPS 默认地址、官方域名边界和微信重试取消传播。
+- 当前 HEAD fresh 回归：主工程 `2281 passed | 2 skipped`，kun Runtime `780 passed`；测试在允许本机回环监听、并完成 better-sqlite3 原生模块编译的隔离工作树中运行。
 - `npm run build`：通过。
 - `WORKWISE_PYTHON=/private/tmp/workwise-markitdown-venv/bin/python npm run build:markitdown-sidecar`：通过；包含 PyInstaller 打包、Magika/PPT Master 资源、许可文件、framework symlink 和 helper 冷启动 smoke 检查。
 - `npm run openspec:validate`：`10 passed, 0 failed`。
-- `npm run verify:brand-boundary`：通过，扫描 1410 个文件。
+- `npm run verify:brand-boundary`：通过，扫描 1411 个文件。
 - `git diff --check`：通过。
 - 候选端口生命周期：候选 Schedule/IM 端口由持有监听器的 reservation 交接，Runtime 使用 `port: 0` 并从 `KUN_READY` 保存实际端口；候选探针同时验证 Runtime `/health`、Schedule 内部监听和 IM webhook 监听，退出和启动失败路径均幂等清理 reservation。
 - `bash scripts/authorize-workwise-candidate.sh --check`：通过；未执行 `--prepare`，未修改正式安装包或正式用户目录。
 - `npm run verify:document-licenses`：通过；sidecar 现在使用 `sidecars/markitdown/THIRD_PARTY_NOTICES.md` 自包含许可声明，不依赖已被用户删除的根目录声明文件。
 - 设置与 IM 凭据事务专项测试 `58 passed`；覆盖 stale revision 在凭据写入前拒绝、设置落盘失败回滚新凭据、落盘后旧凭据清理失败保留已提交替代凭据、并发删除/恢复同一账号，以及多 channel 部分失败等待全部保护任务完成后清理所有孤立凭据。Node 类型检查、定向 ESLint 和 `git diff --check` 同步通过。
-- 提交 `df4deb7` 的隔离候选包使用唯一 bundle ID `com.wangjiawei508.workwise.planacceptance.20260820`，版本 `0.3.6`；ASAR 完整性为 18,335 个文件和 457 个编译产物，MarkItDown helper、`codesign --verify --deep --strict` 和 packaged SQLite ABI 148 smoke 均通过。正式 `/Applications/WorkWise.app` 未被覆盖。`fa86d84` 的源码回归已通过，但没有把旧候选包冒充为包含本轮修复的包级验收；最新包级验收仍待重新构建并安装后完成。
-- 打包候选完成浅色/深色/浅色往返，设置持久化为 `theme: light`；侧栏可读、分隔线细、全尺寸 Workbench 打开后无重叠。
+- 当前 HEAD 已重新构建隔离候选包 `/private/tmp/workwise-final-candidate-package-5712e4c/mac-arm64/WorkWise Candidate 5712e4c77a75.app`，唯一 bundle ID 为 `com.wangjiawei508.workwise.candidate.head5712e4c77a75`，版本 `0.3.6`；ASAR `18,335` 文件和 `457` 个编译产物、MarkItDown helper smoke、Electron ABI 148 SQLite smoke 与 `codesign --verify --deep --strict` 均通过。该包为 ad-hoc 签名，未宣称 Developer ID 或公证；正式 `/Applications/WorkWise.app` 未被覆盖。
+- 旧打包候选已完成浅色/深色/浅色往返，设置持久化为 `theme: light`；侧栏可读、分隔线细、全尺寸 Workbench 打开后无重叠。当前 `5712e4c` 候选尚未重复执行这项人工检查。
 - 打包 PDF 预览实际显示 `markitdown-v0.1.4-workwise-1`、`degraded`、`low_text_density` 和 `scanned_document`；无 OCR/MinerU 时高精度解析明确返回 `document_engine_unavailable`，PDF.js 阅读和搜索仍可用。
 - 本地回环模型验收只监听 `127.0.0.1`，固定返回输入 37、输出 6、总计 43 tokens；界面先显示流式估算，完成后替换为精确 `43 tokens` 和 `Local usage acceptance passed.`。验收后已清除临时假密钥、恢复 `https://api.deepseek.com` 并退出候选。
-- 设置事务实现提交为 `29912f251b2541ffebaec0a55cebd129a5e9ae03`；最后一个完成包级人工验收的候选仍固定在 `dbd44ff3b872f583eb0cb7538ffbdf608292c8d2`。其后的 OCR 缓存、候选来源和设置事务修复只以源码与自动化证据计入，不冒充已重新完成包级人工验收。
+- 设置事务实现提交为 `29912f251b2541ffebaec0a55cebd129a5e9ae03`；本次 `5712e4c` 候选已完成包级机器验收，但没有把未执行的 UI 人工检查、真实 OCR/视觉服务或 IM 收发冒充为通过。
 - `knip`、`shellcheck`、`gbrain`：本机未安装，未将其缺失冒充为通过。
 
 ## 计划一：PDF 解析
