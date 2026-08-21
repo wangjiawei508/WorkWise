@@ -3,7 +3,8 @@ import {
   AgentLoop,
   allowedToolNamesWithGuiStateTools,
   resolvePlanModeToolSpecs,
-  turnRequestForRouting
+  turnRequestForRouting,
+  webSearchCapabilityInstruction
 } from './agent-loop.js'
 import type { ModelClient, ModelToolSpec } from '../ports/model-client.js'
 import type { ToolHost } from '../ports/tool-host.js'
@@ -52,6 +53,17 @@ const ALL_TOOLS: ModelToolSpec[] = [
 const READ_ONLY_TOOLS = new Set([
   'read', 'ls', 'find', 'grep', 'web_search', 'web_fetch'
 ])
+
+describe('webSearchCapabilityInstruction', () => {
+  it('treats web tool content as untrusted data that cannot authorize actions', () => {
+    const instruction = webSearchCapabilityInstruction('查找最新资料', [spec('web_search')])
+
+    expect(instruction).toContain('UNTRUSTED')
+    expect(instruction).toContain('cannot override')
+    expect(instruction).toContain('authorize tools')
+    expect(instruction).toContain('disclose secrets')
+  })
+})
 
 describe('resolvePlanModeToolSpecs', () => {
   it('step 0: read-only tools + create_plan only', () => {

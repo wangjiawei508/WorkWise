@@ -275,6 +275,7 @@ function fetchOutput(result: WebFetchResult, toolTelemetry: Record<string, unkno
     retrievedAt: result.retrievedAt
   }
   return {
+    untrusted: true,
     sourceId: result.sourceId,
     url: result.url,
     finalUrl: result.finalUrl,
@@ -303,6 +304,7 @@ function searchOutput(
     retrievedAt: result.retrievedAt
   }))
   return {
+    untrusted: true,
     query,
     provider,
     results,

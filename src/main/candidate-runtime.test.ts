@@ -1,4 +1,5 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { createServer as createHttpServer, type Server as HttpServer } from 'node:http'
 import { createServer as createNetServer, type AddressInfo } from 'node:net'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
@@ -44,38 +45,38 @@ describe('resolveCandidateRuntimePaths', () => {
   })
 
   it('verifies all candidate listeners without sending an IM message', async () => {
-    const servers = [createNetServer(), createNetServer(), createNetServer()]
-    const ports: number[] = []
+    const requests: string[] = []
+    const services = [
+      { path: '/health', body: { status: 'ok', service: 'kun', mode: 'serve', protocolVersion: 1 } },
+      { path: '/schedule/internal/health', body: { status: 'ok', service: 'schedule', mode: 'embedded' } },
+      { path: '/claw/internal/health', body: { status: 'ok', service: 'claw', mode: 'embedded' } }
+    ] as const
+    const servers: HttpServer[] = services.map(({ path, body }) => createHttpServer((req, res) => {
+      requests.push(req.url ?? '')
+      if (req.method !== 'GET' || req.url !== path) {
+        res.writeHead(404).end()
+        return
+      }
+      res.setHeader('Content-Type', 'application/json')
+      res.end(JSON.stringify(body))
+    }))
     try {
-      await Promise.all(servers.map((server) => new Promise<void>((resolve, reject) => {
+      const ports = await Promise.all(servers.map((server) => new Promise<number>((resolve, reject) => {
         server.once('error', reject)
         server.listen({ host: '127.0.0.1', port: 0, exclusive: true }, () => {
-          ports.push((server.address() as AddressInfo).port)
-          resolve()
+          resolve((server.address() as AddressInfo).port)
         })
       })))
-      const healthBodies = [
-        { status: 'ok', service: 'kun', mode: 'serve', protocolVersion: 1 },
-        { status: 'ok', service: 'schedule', mode: 'embedded' },
-        { status: 'ok', service: 'claw', mode: 'embedded' }
-      ]
-      const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async () => ({
-        ok: true,
-        status: 200,
-        text: async () => JSON.stringify(healthBodies.shift())
-      } as Response))
       await expect(verifyCandidateServiceListeners({
         runtime: ports[0]!,
         schedule: ports[1]!,
         im: ports[2]!
       })).resolves.toEqual({ runtime: ports[0], schedule: ports[1], im: ports[2] })
-      expect(fetchMock).toHaveBeenCalledTimes(3)
-      expect(fetchMock.mock.calls.map(([input]) => String(input))).toEqual([
-        `http://127.0.0.1:${ports[0]}/health`,
-        `http://127.0.0.1:${ports[1]}/schedule/internal/health`,
-        `http://127.0.0.1:${ports[2]}/claw/internal/health`
+      expect(requests).toEqual([
+        '/health',
+        '/schedule/internal/health',
+        '/claw/internal/health'
       ])
-      fetchMock.mockRestore()
     } finally {
       await Promise.all(servers.map((server) => new Promise<void>((resolve) => server.close(() => resolve()))))
     }

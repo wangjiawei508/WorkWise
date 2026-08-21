@@ -114,19 +114,27 @@ describe('startManagedRuntimeChild', () => {
     expect(logText).toContain('ready marker received on port 8899')
   })
 
-  it('stores the actual Runtime port reported by the ready marker', async () => {
+  it('routes host requests through the ephemeral Runtime port reported by a listening child', async () => {
     const script = writeScript(
       'ephemeral-ready-child.js',
       [
+        "const { createServer } = require('node:http')",
         "const portIndex = process.argv.indexOf('--port')",
         "if (portIndex < 0 || process.argv[portIndex + 1] !== '0') process.exit(32)",
-        "process.stdout.write('KUN_READY ' + JSON.stringify({ service: 'kun', mode: 'serve', port: 43127 }) + '\\n')",
-        'setInterval(() => {}, 1_000)'
+        "const server = createServer((req, res) => {",
+        "  res.setHeader('content-type', 'application/json')",
+        "  res.end(JSON.stringify({ status: 'ok', service: 'kun', path: req.url }))",
+        '})',
+        "server.listen(0, '127.0.0.1', () => {",
+        "  const address = server.address()",
+        "  process.stdout.write('KUN_READY ' + JSON.stringify({ service: 'kun', mode: 'serve', port: address.port }) + '\\n')",
+        '})'
       ].join('\n')
     )
     const module = await import('./managed-runtime-process')
+    const settings = createSettings(script, 8899)
     await expect(module.startManagedRuntimeChild(
-      createSettings(script, 8899),
+      settings,
       {
         candidateRoot: tempRoot!,
         homeDir: join(tempRoot!, 'home'),
@@ -137,7 +145,22 @@ describe('startManagedRuntimeChild', () => {
         skillRoots: []
       }
     )).resolves.toBeUndefined()
-    expect(module.getManagedRuntimeActualPort()).toBe(43127)
+    const actualPort = module.getManagedRuntimeActualPort()
+    expect(actualPort).toEqual(expect.any(Number))
+    expect(actualPort).not.toBe(8899)
+
+    const { runtimeRequestViaHost } = await import('./runtime/managed-runtime-adapter')
+    await expect(runtimeRequestViaHost(
+      settings,
+      '/health',
+      { method: 'GET' },
+      async () => undefined
+    )).resolves.toMatchObject({
+      ok: true,
+      status: 200,
+      body: JSON.stringify({ status: 'ok', service: 'kun', path: '/health' })
+    })
+
     await module.stopManagedRuntimeChildAndWait()
     expect(module.getManagedRuntimeActualPort()).toBeNull()
   })

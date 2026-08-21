@@ -248,6 +248,20 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
+function sleepUntilAbort(ms: number, signal: AbortSignal): Promise<void> {
+  if (signal.aborted) return Promise.resolve()
+  return new Promise((resolve) => {
+    const finish = (): void => {
+      clearTimeout(timer)
+      signal.removeEventListener('abort', finish)
+      resolve()
+    }
+    const timer = setTimeout(finish, ms)
+    signal.addEventListener('abort', finish, { once: true })
+    if (signal.aborted) finish()
+  })
+}
+
 function resolveRpcUrl(port = activeBridgePort): string {
   const url = new URL(DEFAULT_WEIXIN_BRIDGE_RPC_URL)
   url.port = String(port)
@@ -1953,7 +1967,7 @@ async function monitorWeixinAccount(accountId: string, signal: AbortSignal): Pro
           lastErrorAt: new Date().toISOString(),
           reasonCode: 'network'
         })
-        await sleep(delayMs)
+        await sleepUntilAbort(delayMs, signal)
         continue
       }
       consecutiveFailures = 0
@@ -2005,7 +2019,7 @@ async function monitorWeixinAccount(accountId: string, signal: AbortSignal): Pro
         lastErrorAt: new Date().toISOString(),
         reasonCode: 'network'
       })
-      await sleep(delayMs)
+      await sleepUntilAbort(delayMs, signal)
     }
   }
 
@@ -2551,5 +2565,6 @@ export const weixinBridgeRuntimeInternals = {
   isWeixinSessionExpiredResponse,
   startWorkWiseDeliveryLeaseHeartbeat,
   protectWeixinAccountData,
-  abortWeixinMonitors
+  abortWeixinMonitors,
+  sleepUntilAbort
 }

@@ -261,6 +261,28 @@ describe('weixin bridge runtime', () => {
     expect(stopped).toBe(true)
   })
 
+  it('cancels a WeChat retry backoff immediately when the monitor is aborted', async () => {
+    vi.useFakeTimers()
+    try {
+      const controller = new AbortController()
+      let completed = false
+      const waiting = weixinBridgeRuntimeInternals
+        .sleepUntilAbort(72_000, controller.signal)
+        .then(() => { completed = true })
+
+      await vi.advanceTimersByTimeAsync(0)
+      expect(completed).toBe(false)
+
+      controller.abort()
+      await waiting
+
+      expect(completed).toBe(true)
+      expect(vi.getTimerCount()).toBe(0)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('trusts only an active connected monitor as proof that a WeChat credential is loaded', () => {
     const { canTrustActiveWeixinCredential } = weixinBridgeRuntimeInternals
 

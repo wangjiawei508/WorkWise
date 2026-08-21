@@ -1,4 +1,3 @@
-import { isDeepSeekHost } from '../model/model-error-probe.js'
 import type { WebProvider, WebSearchRequest, WebSearchResult } from '../../ports/web-provider.js'
 import { sourceIdFor } from '../../ports/web-provider.js'
 
@@ -92,20 +91,30 @@ export function isDeepSeekResponsesWebSearchConfig(input: {
   apiKey: string
   model: string
 }): boolean {
-  return isDeepSeekHost(input.baseUrl) &&
+  return officialDeepSeekResponsesOrigin(input.baseUrl) != null &&
     Boolean(input.apiKey.trim()) &&
     /^(?:[^/]+\/)?deepseek-v4-(?:pro|flash)$/i.test(input.model.trim())
 }
 
 function deepSeekResponsesUrl(baseUrl: string): string {
+  const origin = officialDeepSeekResponsesOrigin(baseUrl)
+  return `${origin ?? DEFAULT_DEEPSEEK_RESPONSES_BASE_URL}/v1/responses`
+}
+
+function officialDeepSeekResponsesOrigin(baseUrl: string): string | null {
   const trimmed = baseUrl.trim() || DEFAULT_DEEPSEEK_RESPONSES_BASE_URL
   try {
     const parsed = new URL(trimmed)
-    if (isDeepSeekHost(parsed.origin)) return `${parsed.origin}/v1/responses`
+    if (
+      parsed.protocol === 'https:' &&
+      parsed.hostname.toLowerCase() === 'api.deepseek.com' &&
+      !parsed.username &&
+      !parsed.password
+    ) return parsed.origin
   } catch {
-    /* validated by isDeepSeekResponsesWebSearchConfig before this path is used */
+    return null
   }
-  return `${DEFAULT_DEEPSEEK_RESPONSES_BASE_URL}/v1/responses`
+  return null
 }
 
 function searchPayloadFromResponse(payload: unknown): DeepSeekSearchPayload {

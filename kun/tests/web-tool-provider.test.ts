@@ -207,6 +207,7 @@ describe('Web tool provider', () => {
     expect(result.item).toMatchObject({ kind: 'tool_result', isError: false })
     if (result.item.kind === 'tool_result') {
       expect(result.item.output).toMatchObject({
+        untrusted: true,
         byteCount: 3000,
         truncated: false
       })
@@ -307,10 +308,12 @@ describe('Web tool provider', () => {
     expect(result.item).toMatchObject({ kind: 'tool_result', isError: false })
     if (result.item.kind === 'tool_result') {
       const output = result.item.output as {
+        untrusted: boolean
         results: Array<{ sourceId: string; url: string; provider: string; rank: number }>
         sources: Array<{ sourceId: string }>
         telemetry: { resultCount: number; provider: string }
       }
+      expect(output.untrusted).toBe(true)
       expect(output.results[0]).toMatchObject({
         url: 'https://docs.example.test/page',
         provider: 'test-search',

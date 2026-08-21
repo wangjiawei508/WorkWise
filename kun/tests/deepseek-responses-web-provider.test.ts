@@ -65,6 +65,12 @@ describe('DeepSeek Responses web provider', () => {
     expect(isDeepSeekResponsesWebSearchConfig({
       baseUrl: 'https://api.deepseek.com', apiKey: 'sk-test', model: 'deepseek-chat'
     })).toBe(false)
+    expect(isDeepSeekResponsesWebSearchConfig({
+      baseUrl: 'http://api.deepseek.com', apiKey: 'sk-test', model: 'deepseek-v4-pro'
+    })).toBe(false)
+    expect(isDeepSeekResponsesWebSearchConfig({
+      baseUrl: 'https://search.deepseek.com', apiKey: 'sk-test', model: 'deepseek-v4-pro'
+    })).toBe(false)
 
     const provider = new DeepSeekResponsesWebProvider({
       baseUrl: 'https://api.deepseek.com',
