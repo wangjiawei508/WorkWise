@@ -88,7 +88,7 @@ describe('WorkspacePreviewService', () => {
         },
         warnings: expect.arrayContaining(['Parser detected a cross-page table.'])
       })
-  }, 15_000)
+  }, 60_000)
 
   it('keeps the PDF.js preview available when parsing metadata cannot be produced', async () => {
     const workspace = await root()

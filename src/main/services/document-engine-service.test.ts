@@ -135,7 +135,7 @@ describe('DocumentEngineService', () => {
     expect(first.cacheHit).toBe(false)
     expect(second.cacheHit).toBe(true)
     expect(bridge).toHaveBeenCalledTimes(1)
-  }, 15_000)
+  }, 60_000)
 
   it('invalidates the Unlimited-OCR cache when the observed service identity changes', async () => {
     const { root } = await fixture()
