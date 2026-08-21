@@ -364,6 +364,33 @@ describe('resolveCandidateRuntimePaths', () => {
     }
   })
 
+  it('recognizes a source-head candidate bundle when Electron reports its framework executable', () => {
+    const root = mkdtempSync(join(tmpdir(), 'workwise-candidate-head-bundle-'))
+    const bundle = join(root, 'WorkWise Candidate 4231176860bd.app')
+    const resources = join(bundle, 'Contents', 'Resources')
+    const file = join(root, 'candidate.env')
+    try {
+      mkdirSync(resources, { recursive: true })
+      writeFileSync(join(bundle, 'Contents', 'Info.plist'), [
+        '<?xml version="1.0" encoding="UTF-8"?>',
+        '<plist version="1.0"><dict>',
+        '<key>CFBundleIdentifier</key>',
+        '<string>com.wangjiawei508.workwise.candidate.head4231176860bd</string>',
+        '</dict></plist>'
+      ].join('\n'), { encoding: 'utf8', flag: 'w' })
+      writeFileSync(file, `WORKWISE_CANDIDATE=1\nWORKWISE_CANDIDATE_ROOT=${root}\n`)
+      expect(candidateEnvironmentFromArgv(
+        '/framework/Electron',
+        [`--workwise-candidate-env-file=${file}`],
+        {},
+        resources
+      )).toMatchObject({ WORKWISE_CANDIDATE: '1', WORKWISE_CANDIDATE_ROOT: root })
+      expect(isUnconfiguredRecoveryCandidate('/framework/Electron', {}, resources)).toBe(true)
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
   it('rejects a candidate launch file outside the declared isolated root', () => {
     const root = mkdtempSync(join(tmpdir(), 'workwise-candidate-launch-'))
     const outside = mkdtempSync(join(tmpdir(), 'workwise-candidate-outside-'))
