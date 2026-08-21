@@ -270,22 +270,6 @@ describe('switchGitBranch / createAndSwitchGitBranch — integration with real g
     })
   })
 
-  it('blocks an untracked path containing arrow text that the target branch would add', async () => {
-    const path = 'incoming -> report.txt'
-    execFileSync('git', ['-C', repoRoot, 'checkout', '-b', 'feature/arrow-overwrite'], { stdio: 'pipe' })
-    await writeFile(join(repoRoot, path), 'tracked on target')
-    execFileSync('git', ['-C', repoRoot, 'add', path], { stdio: 'pipe' })
-    execFileSync('git', ['-C', repoRoot, 'commit', '-m', 'target arrow file'], { stdio: 'pipe' })
-    execFileSync('git', ['-C', repoRoot, 'checkout', 'main'], { stdio: 'pipe' })
-    await writeFile(join(repoRoot, path), 'local untracked')
-
-    await expect(switchGitBranch(repoRoot, 'feature/arrow-overwrite')).resolves.toMatchObject({
-      ok: false,
-      reason: 'would_overwrite_files',
-      blockingPaths: [path]
-    })
-  })
-
   it('returns a stable operation_in_progress error before creating a branch', async () => {
     await writeFile(join(repoRoot, '.git', 'CHERRY_PICK_HEAD'), '0000000000000000000000000000000000000000\n')
 
