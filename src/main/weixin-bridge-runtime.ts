@@ -1210,6 +1210,7 @@ async function sendMessageWeixin(params: {
   runId?: string
   timeoutMs?: number
   clientId?: string
+  signal?: AbortSignal
 }): Promise<{ messageId: string }> {
   if (isCandidateOutboundDisabled('weixin', params.to)) {
     throw new Error('Candidate IM outbound is disabled.')
@@ -1228,6 +1229,7 @@ async function sendMessageWeixin(params: {
     {
       token: params.account.token,
       timeoutMs: params.timeoutMs ?? DEFAULT_API_TIMEOUT_MS,
+      signal: params.signal,
       label: 'sendMessage'
     }
   )
@@ -1251,32 +1253,49 @@ async function sendMessageWeixin(params: {
 
 async function retryWithDelays<T>(
   operation: () => Promise<T>,
-  delaysMs: readonly number[] = WEIXIN_SEND_RETRY_DELAYS_MS
+  delaysMs: readonly number[] = WEIXIN_SEND_RETRY_DELAYS_MS,
+  signal?: AbortSignal
 ): Promise<T> {
+  throwIfWeixinRetryAborted(signal)
   const attempts = delaysMs.length > 0 ? delaysMs : [0]
   let lastError: unknown = new Error('Operation failed without an error.')
   for (const delayMs of attempts) {
-    if (delayMs > 0) await sleep(delayMs)
+    if (delayMs > 0) {
+      if (signal) await sleepUntilAbort(delayMs, signal)
+      else await sleep(delayMs)
+      throwIfWeixinRetryAborted(signal)
+    }
     try {
       return await operation()
     } catch (error) {
+      throwIfWeixinRetryAborted(signal)
       lastError = error
     }
   }
   throw lastError
 }
 
+function throwIfWeixinRetryAborted(signal?: AbortSignal): void {
+  if (!signal?.aborted) return
+  if (signal.reason instanceof Error) throw signal.reason
+  throw new DOMException('WeChat delivery was aborted.', 'AbortError')
+}
+
 async function retryWithStableClientId<T>(
   requestedClientId: string | undefined,
   operation: (clientId: string) => Promise<T>,
-  delaysMs: readonly number[] = WEIXIN_SEND_RETRY_DELAYS_MS
+  delaysMs: readonly number[] = WEIXIN_SEND_RETRY_DELAYS_MS,
+  signal?: AbortSignal
 ): Promise<T> {
   const clientId = requestedClientId?.trim() || generateMessageId()
-  return retryWithDelays(() => operation(clientId), delaysMs)
+  return retryWithDelays(() => operation(clientId), delaysMs, signal)
 }
 
-async function sendMessageWeixinWithRetry(params: Parameters<typeof sendMessageWeixin>[0]): Promise<{ messageId: string }> {
-  return retryWithStableClientId(params.clientId, (clientId) => sendMessageWeixin({ ...params, clientId }))
+async function sendMessageWeixinWithRetry(
+  params: Parameters<typeof sendMessageWeixin>[0],
+  signal?: AbortSignal
+): Promise<{ messageId: string }> {
+  return retryWithStableClientId(params.clientId, (clientId) => sendMessageWeixin({ ...params, clientId, signal }), WEIXIN_SEND_RETRY_DELAYS_MS, signal)
 }
 
 function weixinChunkClientId(clientId: string | undefined, index: number, count: number): string | undefined {
@@ -1287,7 +1306,8 @@ function weixinChunkClientId(clientId: string | undefined, index: number, count:
 
 async function sendWeixinTextWithRetry(
   params: Parameters<typeof sendMessageWeixin>[0],
-  beforeSend?: () => void
+  beforeSend?: () => void,
+  signal?: AbortSignal
 ): Promise<{ messageId: string }> {
   const chunks = splitWeixinText(params.text)
   let firstMessageId = ''
@@ -1298,7 +1318,7 @@ async function sendWeixinTextWithRetry(
       ...params,
       text: chunks[index],
       clientId: stableClientId
-    })
+    }, signal)
     if (!firstMessageId) firstMessageId = sent.messageId
     logInfo('weixin-bridge', `delivered WeChat reply chunk ${index + 1}/${chunks.length} (textLen=${chunks[index].length})`)
   }
@@ -1383,6 +1403,7 @@ type SendWeixinMediaFile = (params: {
   opts: { baseUrl: string; token?: string; timeoutMs?: number; contextToken?: string }
   cdnBaseUrl: string
   beforeProviderSend?: () => void
+  signal?: AbortSignal
 }) => Promise<{ messageId: string }>
 
 type UploadedWeixinMedia = {
@@ -1535,6 +1556,7 @@ function createSendWeixinMediaFile(
       {
         token: params.opts.token,
         timeoutMs: params.opts.timeoutMs ?? DEFAULT_API_TIMEOUT_MS,
+        signal: params.signal,
         label: 'sendMediaMessage'
       }
     )
@@ -1581,7 +1603,8 @@ async function sendGeneratedFilesWeixin(
   runId?: string,
   outboundId?: string,
   loadMediaFile: LoadWeixinMediaFile = loadSendWeixinMediaFile,
-  beforeSend?: () => void
+  beforeSend?: () => void,
+  signal?: AbortSignal
 ): Promise<WeixinMediaDelivery> {
   if (isCandidateOutboundDisabled('weixin', to)) {
     const message = 'Candidate IM outbound is disabled.'
@@ -1608,9 +1631,10 @@ async function sendGeneratedFilesWeixin(
           runId,
           opts: { baseUrl: account.baseUrl, token: account.token, contextToken },
           cdnBaseUrl: account.cdnBaseUrl,
-          beforeProviderSend: beforeSend
+          beforeProviderSend: beforeSend,
+          signal
         })
-      })
+      }, WEIXIN_SEND_RETRY_DELAYS_MS, signal)
       sent.push(file)
     } catch (error) {
       if (error instanceof WorkWiseDeliveryLeaseLostError) throw error
@@ -1838,7 +1862,7 @@ async function monitorWeixinAccount(accountId: string, signal: AbortSignal): Pro
           text: WEIXIN_SLOW_REPLY_TEXT,
           contextToken,
           runId: messageRunId
-        }).then(() => undefined).catch((error) => {
+        }, signal).then(() => undefined).catch((error) => {
           logWarn('weixin-bridge', 'Failed to send WeChat processing notice.', {
             accountId: account.accountId,
             message: error instanceof Error ? error.message : String(error)
@@ -1870,7 +1894,8 @@ async function monitorWeixinAccount(accountId: string, signal: AbortSignal): Pro
               messageRunId,
               outboundId,
               undefined,
-              deliveryLease.assertOwned
+              deliveryLease.assertOwned,
+              signal
             ),
             () => sendWeixinTextWithRetry({
               account,
@@ -1879,7 +1904,7 @@ async function monitorWeixinAccount(accountId: string, signal: AbortSignal): Pro
               contextToken,
               runId: messageRunId,
               clientId: outboundId
-            }, deliveryLease.assertOwned),
+            }, deliveryLease.assertOwned, signal),
             deliveryLease.assertOwned
           )
           deliveryLease.assertOwned()
@@ -1914,7 +1939,7 @@ async function monitorWeixinAccount(accountId: string, signal: AbortSignal): Pro
             : safeWeixinFailureReply(error instanceof Error ? error.message : String(error)),
           contextToken,
           runId: messageRunId
-        }).catch((sendError) => {
+        }, signal).catch((sendError) => {
           logWarn('weixin-bridge', 'Failed to send WeChat failure notice.', {
             accountId: account.accountId,
             message: sendError instanceof Error ? sendError.message : String(sendError)

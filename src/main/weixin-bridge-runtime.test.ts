@@ -373,6 +373,42 @@ describe('weixin bridge runtime', () => {
     expect(new Set(attemptedRunIds)).toEqual(new Set(['run-1']))
   })
 
+  it('stops generated-file retry backoff when the monitor signal aborts', async () => {
+    vi.useFakeTimers()
+    try {
+      const controller = new AbortController()
+      const sendMedia = vi.fn(async () => {
+        throw new Error('temporary upload failure')
+      })
+      const pending = weixinBridgeRuntimeInternals.sendGeneratedFilesWeixin(
+        {
+          accountId: 'account-1',
+          baseUrl: 'https://weixin.example.test',
+          cdnBaseUrl: 'https://cdn.example.test',
+          configured: true
+        },
+        'wx-user-1',
+        [{ path: '/tmp/result.txt', fileName: 'result.txt' }],
+        undefined,
+        'run-1',
+        'ww-delivery',
+        async () => sendMedia as never,
+        undefined,
+        controller.signal
+      )
+
+      await vi.advanceTimersByTimeAsync(0)
+      expect(sendMedia).toHaveBeenCalledTimes(1)
+
+      controller.abort()
+      await pending
+      expect(sendMedia).toHaveBeenCalledTimes(1)
+      expect(vi.getTimerCount()).toBe(0)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('blocks candidate WeChat attachment delivery outside the exact allowed chat', async () => {
     const previousCandidate = process.env.WORKWISE_CANDIDATE
     const previousOutbound = process.env.WORKWISE_CANDIDATE_OUTBOUND_DISABLED
@@ -640,6 +676,29 @@ describe('weixin bridge runtime', () => {
       weixinBridgeRuntimeInternals.retryWithDelays(operation, [0, 0, 0])
     ).resolves.toEqual({ messageId: 'delivered' })
     expect(operation).toHaveBeenCalledTimes(3)
+  })
+
+  it('aborts a WeChat retry backoff without starting another delivery attempt', async () => {
+    vi.useFakeTimers()
+    try {
+      const controller = new AbortController()
+      const operation = vi.fn().mockRejectedValue(new Error('temporary failure'))
+      const pending = weixinBridgeRuntimeInternals.retryWithDelays(
+        operation,
+        [0, 72_000],
+        controller.signal
+      )
+
+      await vi.advanceTimersByTimeAsync(0)
+      expect(operation).toHaveBeenCalledTimes(1)
+
+      controller.abort()
+      await expect(pending).rejects.toMatchObject({ name: 'AbortError' })
+      expect(operation).toHaveBeenCalledTimes(1)
+      expect(vi.getTimerCount()).toBe(0)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('surfaces the last WeChat delivery error after all retries fail', async () => {

@@ -14,6 +14,7 @@ import {
   defaultWriteSettings,
   resolveKunImageGenerationSettings,
   resolveManagedRuntimeSettings,
+  isOfficialDeepSeekBaseUrl,
   type AppSettingsV1
 } from './app-settings'
 
@@ -58,6 +59,15 @@ function settings(): AppSettingsV1 {
 }
 
 describe('model provider settings', () => {
+  it('classifies only the exact HTTPS DeepSeek origin as official', () => {
+    expect(isOfficialDeepSeekBaseUrl('https://api.deepseek.com')).toBe(true)
+    expect(isOfficialDeepSeekBaseUrl('https://api.deepseek.com/v1')).toBe(true)
+    expect(isOfficialDeepSeekBaseUrl('http://api.deepseek.com')).toBe(false)
+    expect(isOfficialDeepSeekBaseUrl('https://api.deepseek.com:8443')).toBe(false)
+    expect(isOfficialDeepSeekBaseUrl('https://user:pass@api.deepseek.com')).toBe(false)
+    expect(isOfficialDeepSeekBaseUrl('https://search.deepseek.com')).toBe(false)
+  })
+
   it('includes Agnes AI as a built-in OpenAI-compatible provider preset', () => {
     const provider = defaultModelProviderSettings()
 

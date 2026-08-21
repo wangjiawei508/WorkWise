@@ -326,6 +326,12 @@ describe('contracts', () => {
 })
 
 describe('cli', () => {
+  it('defaults Runtime model traffic to the stable DeepSeek HTTPS origin', () => {
+    const parsed = parseServeOptions(['--data-dir', '/tmp/kun-default-base-url'])
+
+    expect(parsed.baseUrl).toBe('https://api.deepseek.com')
+  })
+
   it('parses serve options with the canonical flags', () => {
     const parsed = parseServeOptions([
       '--host',

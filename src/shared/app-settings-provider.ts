@@ -197,7 +197,12 @@ export function resolveProviderModelId(provider: ModelProviderProfileV1, model: 
 
 export function isOfficialDeepSeekBaseUrl(baseUrl: string): boolean {
   try {
-    return new URL(baseUrl).hostname.toLowerCase() === 'api.deepseek.com'
+    const url = new URL(baseUrl)
+    return url.protocol === 'https:'
+      && url.hostname.toLowerCase() === 'api.deepseek.com'
+      && !url.username
+      && !url.password
+      && !url.port
   } catch {
     return false
   }
