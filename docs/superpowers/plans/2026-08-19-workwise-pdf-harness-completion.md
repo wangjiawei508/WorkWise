@@ -78,7 +78,7 @@ git diff --check origin/main...HEAD
 
 ## 当前候选隔离证据
 
-- [x] 当前 HEAD `5712e4c77a75e2fd6ab7b3fe3f541eb719110e64` 已重新构建隔离候选包；设置事务实现提交 `29912f251b2541ffebaec0a55cebd129a5e9ae03` 等后续修复不再依赖旧候选包证据。
+- [x] 应用代码基线 `5712e4c77a75e2fd6ab7b3fe3f541eb719110e64` 已重新构建隔离候选包；设置事务实现提交 `29912f251b2541ffebaec0a55cebd129a5e9ae03` 等后续修复不再依赖旧候选包证据。
 - [x] Electron 的 `userData`、`cache`、`sessionData`、`crashDumps` 和 `logs` 全部重定向到候选根目录，并在窗口创建前完成设置。
 - [x] 候选进程不继承父进程的 `DEEPSEEK_API_KEY`；正式版环境和用户保存的第三方配置保持原行为。
 - [x] 唯一 bundle ID `com.wangjiawei508.workwise.candidate.head5712e4c77a75` 的 macOS arm64 候选包 `WorkWise Candidate 5712e4c77a75.app` 已从干净工作树生成，正式 `/Applications/WorkWise.app` 未被覆盖。
