@@ -1,7 +1,7 @@
 # WorkWise PDF 与 DeepSeek Harness 合并实施计划
 
 日期：2026-08-21
-目标分支：`codex/workwise-plugin-marketplace-recovered`
+目标分支：`codex/workwise-plan-final-0.4.0`
 
 ## 目标
 
@@ -54,6 +54,7 @@
 - [ ] 在当前候选包中人工验证系统通知点击后定位原线程；候选 `dbd44ff` 已用现有线程 `thr_jmn4g7g1` 做无模型请求探针，Electron 返回 `{ ok: true, shown: true }`，但 macOS `usernoted` 数据库没有该候选 bundle 的实际投递记录，因此系统投递/点击仍未证明，不再重复触发通知冒充通过。
 - [x] 在当前候选包中验证实时估算用量最终由精确 usage 替换：本地回环模型固定返回输入 37、输出 6、总计 43 tokens，界面最终显示 43 tokens。
 - [x] 在当前候选包中验证全尺寸 Workbench 可打开、无重叠，浅色侧栏可读且分隔线足够细。
+- [x] 设置与 IM 凭据更新使用同一事务边界：stale revision 不触碰凭据，设置落盘失败清理新凭据，落盘成功后才清理旧凭据，并等待多 channel 保护全部结束后再回滚部分失败。
 
 ### 5. Git 与声明式 UI
 
@@ -77,7 +78,7 @@ git diff --check origin/main...HEAD
 
 ## 当前候选隔离证据
 
-- [x] 当前候选包源码固定为提交 `dbd44ff3b872f583eb0cb7538ffbdf608292c8d2`；后续仅文档或版本元数据变更不冒充该候选包已重新验证。
+- [x] 最后一个完成包级人工验收的候选源码固定为提交 `dbd44ff3b872f583eb0cb7538ffbdf608292c8d2`；设置事务实现提交 `29912f251b2541ffebaec0a55cebd129a5e9ae03` 等后续修复只以源码和自动化证据计入，不冒充该候选包已重新验证。
 - [x] Electron 的 `userData`、`cache`、`sessionData`、`crashDumps` 和 `logs` 全部重定向到候选根目录，并在窗口创建前完成设置。
 - [x] 候选进程不继承父进程的 `DEEPSEEK_API_KEY`；正式版环境和用户保存的第三方配置保持原行为。
 - [x] 唯一 bundle ID `com.wangjiawei508.workwise.candidate.headdbd44ff3b872` 的 macOS arm64 候选包 `WorkWise Candidate dbd44ff3b872.app` 已从干净 detached worktree 生成，正式 `/Applications/WorkWise.app` 未被覆盖。

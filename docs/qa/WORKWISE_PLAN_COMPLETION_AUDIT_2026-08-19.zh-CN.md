@@ -1,7 +1,7 @@
 # WorkWise 两项计划完成度审计
 
 日期：2026-08-21
-分支：`codex/workwise-plugin-marketplace-recovered`
+分支：`codex/workwise-plan-final-0.4.0`
 版本：`0.3.6`
 
 本报告按 `PLAN (1).md`（PDF 解析）和 `PLAN (2).md`（DeepSeek Harness 机制）逐项核对当前代码、测试和候选证据。`DONE` 只表示仓库内实现和自动化证据足够；`PARTIAL` 表示实现存在但仍缺少真实服务或人工验收；`UNVERIFIABLE` 表示当前环境没有足够证据。历史候选日志不作为当前版本的真实通信验收。
@@ -21,10 +21,12 @@
 - 候选端口生命周期：候选 Schedule/IM 端口由持有监听器的 reservation 交接，Runtime 使用 `port: 0` 并从 `KUN_READY` 保存实际端口；候选探针同时验证 Runtime `/health`、Schedule 内部监听和 IM webhook 监听，退出和启动失败路径均幂等清理 reservation。
 - `bash scripts/authorize-workwise-candidate.sh --check`：通过；未执行 `--prepare`，未修改正式安装包或正式用户目录。
 - `npm run verify:document-licenses`：通过；sidecar 现在使用 `sidecars/markitdown/THIRD_PARTY_NOTICES.md` 自包含许可声明，不依赖已被用户删除的根目录声明文件。
+- 设置与 IM 凭据事务专项测试 `58 passed`；覆盖 stale revision 在凭据写入前拒绝、设置落盘失败回滚新凭据、落盘后旧凭据清理失败保留已提交替代凭据、并发删除/恢复同一账号，以及多 channel 部分失败等待全部保护任务完成后清理所有孤立凭据。Node 类型检查、定向 ESLint 和 `git diff --check` 同步通过。
 - 提交 `df4deb7` 的隔离候选包使用唯一 bundle ID `com.wangjiawei508.workwise.planacceptance.20260820`，版本 `0.3.6`；ASAR 完整性为 18,335 个文件和 457 个编译产物，MarkItDown helper、`codesign --verify --deep --strict` 和 packaged SQLite ABI 148 smoke 均通过。正式 `/Applications/WorkWise.app` 未被覆盖。本轮审查修复完成后重新通过源码构建，并恢复、校验同一 Electron ABI 148 原生模块；未用旧候选包冒充本轮新增代码的包级验收。
 - 打包候选完成浅色/深色/浅色往返，设置持久化为 `theme: light`；侧栏可读、分隔线细、全尺寸 Workbench 打开后无重叠。
 - 打包 PDF 预览实际显示 `markitdown-v0.1.4-workwise-1`、`degraded`、`low_text_density` 和 `scanned_document`；无 OCR/MinerU 时高精度解析明确返回 `document_engine_unavailable`，PDF.js 阅读和搜索仍可用。
 - 本地回环模型验收只监听 `127.0.0.1`，固定返回输入 37、输出 6、总计 43 tokens；界面先显示流式估算，完成后替换为精确 `43 tokens` 和 `Local usage acceptance passed.`。验收后已清除临时假密钥、恢复 `https://api.deepseek.com` 并退出候选。
+- 设置事务实现提交为 `29912f251b2541ffebaec0a55cebd129a5e9ae03`；最后一个完成包级人工验收的候选仍固定在 `dbd44ff3b872f583eb0cb7538ffbdf608292c8d2`。其后的 OCR 缓存、候选来源和设置事务修复只以源码与自动化证据计入，不冒充已重新完成包级人工验收。
 - `knip`、`shellcheck`、`gbrain`：本机未安装，未将其缺失冒充为通过。
 
 ## 计划一：PDF 解析
