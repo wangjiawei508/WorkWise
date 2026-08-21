@@ -261,16 +261,18 @@ export async function protectImChannelCredentials(
     onProtectedCredential?: (ref: ImCredentialRefV1) => void
   } = {}
 ): Promise<ClawImChannelV1[]> {
+  const protect = (
+    namespace: string,
+    key: string,
+    secret: string
+  ): Promise<ImCredentialRefV1> => options.rotate === undefined
+    ? service.set(namespace, key, secret)
+    : service.set(namespace, key, secret, { unique: options.rotate })
   const results = await Promise.allSettled(channels.map(async (channel) => {
     const credential = channel.platformCredential
     if (credential?.kind === 'feishu' && credential.appSecret?.trim()) {
       if (options.requirePersistent) await service.retryProtectedStorage()
-      const ref = await service.set(
-        'feishu',
-        credential.appId,
-        credential.appSecret,
-        { unique: options.rotate }
-      )
+      const ref = await protect('feishu', credential.appId, credential.appSecret)
       if (options.requirePersistent && ref.storage === 'session') {
         if (options.rotate) await service.remove(ref)
         throw Object.assign(new Error('Protected IM credential storage must be authorized before this connection can be saved.'), {
@@ -283,12 +285,7 @@ export async function protectImChannelCredentials(
     }
     if (credential?.kind === 'weixin' && credential.sessionKey?.trim()) {
       if (options.requirePersistent) await service.retryProtectedStorage()
-      const ref = await service.set(
-        'weixin',
-        credential.accountId,
-        credential.sessionKey,
-        { unique: options.rotate }
-      )
+      const ref = await protect('weixin', credential.accountId, credential.sessionKey)
       if (options.requirePersistent && ref.storage === 'session') {
         if (options.rotate) await service.remove(ref)
         throw Object.assign(new Error('Protected IM credential storage must be authorized before this connection can be saved.'), {
