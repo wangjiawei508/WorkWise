@@ -1,6 +1,7 @@
 const { existsSync, readFileSync } = require('node:fs')
 const { join } = require('node:path')
 const { verifyCandidateSourceTree } = require('./scripts/candidate-source-provenance.cjs')
+const { markitdownResourceFilter } = require('./scripts/markitdown-packaging-policy.cjs')
 
 function loadLocalReleaseEnv() {
   const candidates = [
@@ -58,15 +59,6 @@ const markitdownSidecarRoot = join(
   `markitdown-${process.platform}-${sidecarArch}`,
   'workwise-markitdown'
 )
-const markitdownResourceFilter = Object.freeze([
-  'workwise-markitdown',
-  'requirements.lock',
-  'README.md',
-  'THIRD_PARTY_NOTICES.md',
-  '_internal/**/*',
-  '_internal/PIL/.dylibs/**/*',
-  '_internal/Python.framework/**/*'
-])
 const markitdownExtraResources = existsSync(markitdownSidecarRoot)
   ? [{
       from: markitdownSidecarRoot,
@@ -302,10 +294,5 @@ const builderConfig = {
     }
   }
 }
-
-Object.defineProperty(builderConfig, '_internals', {
-  value: Object.freeze({ markitdownResourceFilter }),
-  enumerable: false
-})
 
 module.exports = builderConfig

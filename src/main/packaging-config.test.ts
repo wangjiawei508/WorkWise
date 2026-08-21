@@ -80,6 +80,10 @@ function createCandidatePackagingRepo(): { repo: string; sourceHead: string } {
     join(process.cwd(), 'scripts', 'candidate-source-provenance.cjs'),
     join(repo, 'scripts', 'candidate-source-provenance.cjs')
   )
+  copyFileSync(
+    join(process.cwd(), 'scripts', 'markitdown-packaging-policy.cjs'),
+    join(repo, 'scripts', 'markitdown-packaging-policy.cjs')
+  )
   execFileSync('git', ['init', '-b', 'candidate-test'], { cwd: repo, stdio: 'pipe' })
   execFileSync('git', ['config', 'user.name', 'WorkWise Test'], { cwd: repo })
   execFileSync('git', ['config', 'user.email', 'test@workwise.invalid'], { cwd: repo })

@@ -16,6 +16,7 @@ import { describe, expect, it } from 'vitest'
 const root = resolve(import.meta.dirname, '../../..')
 const require = createRequire(import.meta.url)
 const builderConfig = require('../../../electron-builder.cjs')
+const { markitdownResourceFilter } = require('../../../scripts/markitdown-packaging-policy.cjs')
 const afterPack = require('../../../scripts/after-pack.cjs')
 const verifier = resolve(root, 'scripts/verify-packaged-markitdown.cjs')
 const buildScript = resolve(root, 'scripts/build-markitdown-sidecar.mjs')
@@ -178,7 +179,7 @@ describe('document helper packaging policy', () => {
   })
 
   it('preserves sidecar notices, hidden dylibs, and framework links as extra resources', () => {
-    expect(builderConfig._internals.markitdownResourceFilter).toEqual(expect.arrayContaining([
+    expect(markitdownResourceFilter).toEqual(expect.arrayContaining([
       'workwise-markitdown',
       'requirements.lock',
       'README.md',
@@ -187,7 +188,7 @@ describe('document helper packaging policy', () => {
       '_internal/PIL/.dylibs/**/*',
       '_internal/Python.framework/**/*'
     ]))
-    expect(Object.isFrozen(builderConfig._internals.markitdownResourceFilter)).toBe(true)
+    expect(Object.isFrozen(markitdownResourceFilter)).toBe(true)
   })
 
   it('runs the complete gate for build --verify-only against an isolated sidecar fixture', () => {
