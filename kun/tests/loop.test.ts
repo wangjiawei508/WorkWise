@@ -75,6 +75,23 @@ describe('AgentLoop', () => {
     })
   })
 
+  it('does not infer a blocked terminal reason from unrelated error prose', async () => {
+    const h = makeHarness(makeSilentModel())
+    await bootstrapThread(h)
+
+    await h.turns.finishTurn({
+      threadId: h.threadId,
+      turnId: h.turnId,
+      status: 'failed',
+      error: 'Request was blocked by a transient network firewall.'
+    })
+
+    expect([...h.bus.snapshotSince(h.threadId, 0)].reverse().find((event) => event.kind === 'turn_failed')).toMatchObject({
+      kind: 'turn_failed',
+      reason: 'error'
+    })
+  })
+
   it('revalidates workspace references before calling the model without an injected validator', async () => {
     const workspace = await mkdtemp(join(tmpdir(), 'kun-loop-workspace-reference-'))
     let modelCalls = 0
@@ -2737,11 +2754,14 @@ describe('AgentLoop', () => {
       turns: 0,
       costUsd: 2
     })
-    await h.loop.runTurn(h.threadId, h.turnId)
+    await expect(h.loop.runTurn(h.threadId, h.turnId)).resolves.toBe('failed')
     expect(modelCalls).toBe(1)
     expect((await h.sessionStore.loadItems(h.threadId)).some((item) =>
       item.kind === 'error' && item.code === 'budget_limited'
     )).toBe(true)
+    expect([...h.bus.snapshotSince(h.threadId, 0)].reverse().find((event) =>
+      event.turnId === h.turnId && event.kind === 'turn_failed'
+    )).toMatchObject({ reason: 'blocked' })
   })
 
   it('does not auto-compact DeepSeek v4 turns at the legacy threshold', async () => {

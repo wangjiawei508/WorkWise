@@ -26,6 +26,27 @@ const MANAGED_RUNTIME_REQUIRED_PATHS = [
   'src/asset/skills/ppt-master/scripts/svg_to_pptx.py'
 ]
 
+function verifyCandidateSourceTree(repoRoot, expectedSourceHead) {
+  if (!expectedSourceHead) return null
+  const currentHead = execFileSync('git', ['rev-parse', '--verify', 'HEAD'], {
+    cwd: repoRoot,
+    encoding: 'utf8'
+  }).trim()
+  if (currentHead !== expectedSourceHead) {
+    throw new Error(
+      `[after-pack] Candidate source HEAD ${currentHead || 'missing'} does not match expected source HEAD ${expectedSourceHead}`
+    )
+  }
+  const changes = execFileSync('git', ['status', '--porcelain=v1', '--untracked-files=all'], {
+    cwd: repoRoot,
+    encoding: 'utf8'
+  }).trim()
+  if (changes) {
+    throw new Error('[after-pack] Candidate source tree has uncommitted changes; package provenance would be ambiguous.')
+  }
+  return currentHead
+}
+
 function normalizePlatform(platform) {
   return platform === 'win' ? 'win32' : platform
 }
@@ -183,6 +204,8 @@ function maybeAdhocSignMacApp(context) {
 }
 
 async function afterPack(context) {
+  const candidateSourceHead = process.env.WORKWISE_CANDIDATE_SOURCE_HEAD?.trim() || undefined
+  verifyCandidateSourceTree(join(__dirname, '..'), candidateSourceHead)
   activateBundledRuntimeDependencies(context)
   validateBundledKunRuntime(context)
   ensureBundledMarkItDownExecutable(context)
@@ -191,7 +214,7 @@ async function afterPack(context) {
   const integrity = verifyAsarArchive(
     join(packedResourcesDir(context), 'app.asar'),
     join(__dirname, '..', 'out'),
-    process.env.WORKWISE_CANDIDATE_SOURCE_HEAD?.trim() || undefined
+    candidateSourceHead
   )
   console.log(
     `[after-pack] ASAR integrity passed: ${integrity.files} files, ${integrity.compiledFiles} compiled files.`
@@ -210,6 +233,7 @@ module.exports._internals = {
   ensureBundledMarkItDownExecutable,
   validateBundledMarkItDownSidecar,
   copyBundledMarkdownConverters,
+  verifyCandidateSourceTree,
   converterDirNameForContext,
   normalizeArch
 }

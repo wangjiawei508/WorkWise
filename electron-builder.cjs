@@ -119,6 +119,11 @@ const releaseAppVersion = (
 const candidateSourceHead = (
   process.env.WORKWISE_CANDIDATE_SOURCE_HEAD || ''
 ).trim()
+const isCandidateBuild = process.env.WORKWISE_CANDIDATE === '1'
+const candidateIdentitySuffix = candidateSourceHead ? `head${candidateSourceHead.slice(0, 12)}` : ''
+const packagedProductName = isCandidateBuild
+  ? `WorkWise Candidate ${candidateSourceHead.slice(0, 12)}`
+  : 'WorkWise'
 const artifactVersion = releaseAppVersion || '${version}'
 
 function normalizeUpdateChannel(raw) {
@@ -137,7 +142,7 @@ if (candidateSourceHead && !/^[0-9a-f]{40}$/.test(candidateSourceHead)) {
     `WORKWISE_CANDIDATE_SOURCE_HEAD must be a 40-character lowercase Git commit, got: ${candidateSourceHead}`
   )
 }
-if (process.env.WORKWISE_CANDIDATE === '1' && !candidateSourceHead) {
+if (isCandidateBuild && !candidateSourceHead) {
   throw new Error('Candidate packaging requires WORKWISE_CANDIDATE_SOURCE_HEAD from candidate.env.')
 }
 
@@ -158,8 +163,10 @@ module.exports = {
   //  - Windows 端 NSIS 以 appId 派生卸载 GUID,换了 id 升级安装不会
   //    卸载旧版本,用户会装出两份应用;
   //  - macOS TCC 权限、通知授权也都挂在这个 id 上。
-  appId: 'com.wangjiawei508.workgpt',
-  productName: 'WorkWise',
+  appId: isCandidateBuild
+    ? `com.wangjiawei508.workwise.candidate.${candidateIdentitySuffix}`
+    : 'com.wangjiawei508.workgpt',
+  productName: packagedProductName,
   asar: true,
   asarUnpack: [
     'src/asset/skills/**/*',
@@ -217,7 +224,9 @@ module.exports = {
       filter: ['**/*']
     }
   ],
-  artifactName: `WorkWise-${artifactVersion}-\${os}-\${arch}.\${ext}`,
+  artifactName: isCandidateBuild
+    ? `WorkWise-Candidate-${candidateSourceHead.slice(0, 12)}-${artifactVersion}-\${os}-\${arch}.\${ext}`
+    : `WorkWise-${artifactVersion}-\${os}-\${arch}.\${ext}`,
   publish: updateProvider === 'github'
     ? [
         {

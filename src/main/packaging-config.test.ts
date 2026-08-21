@@ -7,6 +7,7 @@ import {
   writeFileSync
 } from 'node:fs'
 import { createRequire } from 'node:module'
+import { execFileSync } from 'node:child_process'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -282,6 +283,27 @@ describe('electron-builder WorkWise packaging', () => {
     expect(config.extraMetadata).toMatchObject({
       buildProvenance: { sourceHead }
     })
+    expect(config.appId).toBe('com.wangjiawei508.workwise.candidate.headabcdef123456')
+    expect(config.productName).toBe('WorkWise Candidate abcdef123456')
+    expect(config.artifactName).toContain('WorkWise-Candidate-abcdef123456-')
+  })
+
+  it('rejects candidate packaging when the source tree is dirty or at another HEAD', () => {
+    const root = tempRoot()
+    writeFileSync(join(root, 'tracked.txt'), 'clean\n')
+    execFileSync('git', ['init', '-b', 'candidate-test'], { cwd: root, stdio: 'pipe' })
+    execFileSync('git', ['config', 'user.name', 'WorkWise Test'], { cwd: root })
+    execFileSync('git', ['config', 'user.email', 'test@workwise.invalid'], { cwd: root })
+    execFileSync('git', ['add', '.'], { cwd: root })
+    execFileSync('git', ['commit', '-m', 'fixture'], { cwd: root, stdio: 'pipe' })
+    const sourceHead = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).trim()
+
+    expect(afterPack._internals.verifyCandidateSourceTree(root, sourceHead)).toBe(sourceHead)
+    expect(() => afterPack._internals.verifyCandidateSourceTree(root, '0'.repeat(40)))
+      .toThrow(/does not match expected source HEAD/i)
+    writeFileSync(join(root, 'untracked.ts'), 'export {}\n')
+    expect(() => afterPack._internals.verifyCandidateSourceTree(root, sourceHead))
+      .toThrow(/uncommitted changes/i)
   })
 
   it('normalizes Windows separators returned by the ASAR listing API', () => {

@@ -18,6 +18,7 @@ import { makeUserItem, makeErrorItem, makeUiActionItem } from '../domain/item.js
 import { appendTurnItem, createTurnRecord, finishTurn, replaceTurnItem, startTurn as startTurnRecord } from '../domain/turn.js'
 import { touchThread } from '../domain/thread.js'
 import type { RuntimeEventRecorder } from './runtime-event-recorder.js'
+import type { TurnTerminalReason } from '../contracts/events.js'
 import type { TaskController } from './task-controller.js'
 import { WorkspaceReferenceService } from './workspace-reference-service.js'
 
@@ -61,13 +62,19 @@ function persistentTurnItemPatch(patch: Partial<TurnItem>): Partial<TurnItem> {
   return patch
 }
 
-function terminalReason(status: Extract<TurnStatus, 'completed' | 'failed' | 'aborted'>, error?: string): 'completed' | 'error' | 'aborted' | 'blocked' | 'max_tokens' {
-  if (status === 'completed') return 'completed'
-  if (status === 'aborted') return 'aborted'
-  const value = error?.toLowerCase() ?? ''
-  if (value.includes('max_tokens') || value.includes('max tokens') || value.includes('token limit')) return 'max_tokens'
-  if (value.includes('blocked') || value.includes('budget_limited') || value.includes('policy_blocked')) return 'blocked'
-  return 'error'
+function terminalReason(
+  status: Extract<TurnStatus, 'completed' | 'failed' | 'aborted'>,
+  explicit?: TurnTerminalReason
+): TurnTerminalReason {
+  const fallback = status === 'completed' ? 'completed' : status === 'aborted' ? 'aborted' : 'error'
+  if (!explicit) return fallback
+  const valid = status === 'completed'
+    ? explicit === 'completed'
+    : status === 'aborted'
+      ? explicit === 'aborted'
+      : explicit === 'error' || explicit === 'blocked' || explicit === 'max_tokens'
+  if (!valid) throw new Error(`terminal reason ${explicit} is incompatible with turn status ${status}`)
+  return explicit
 }
 
 /**
@@ -497,6 +504,7 @@ export class TurnService {
     threadId: string
     turnId: string
     status: Extract<TurnStatus, 'completed' | 'failed' | 'aborted'>
+    reason?: TurnTerminalReason
     error?: string
   }): Promise<void> {
     if (!this.rememberTerminalTurn(input.turnId)) return
@@ -517,7 +525,7 @@ export class TurnService {
       kind: input.status === 'completed' ? 'turn_completed' : input.status === 'aborted' ? 'turn_aborted' : 'turn_failed',
       threadId: input.threadId,
       turnId: input.turnId,
-      reason: terminalReason(input.status, input.error),
+      reason: terminalReason(input.status, input.reason),
       ...(input.error ? { message: input.error } : {})
     })
     if (input.error) {

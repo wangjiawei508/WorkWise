@@ -104,6 +104,13 @@ read_source_head() {
   git -C "${REPO_ROOT}" rev-parse --verify HEAD
 }
 
+assert_clean_source_tree() {
+  local changes
+  changes="$(git -C "${REPO_ROOT}" status --porcelain=v1 --untracked-files=all)"
+  [[ -z "${changes}" ]] || \
+    die "candidate source tree has uncommitted changes; build from a clean worktree at ${CURRENT_SOURCE_HEAD}"
+}
+
 check_repo() {
   [[ "$(git -C "${REPO_ROOT}" rev-parse --is-inside-work-tree 2>/dev/null)" == "true" ]] || die "not a Git worktree: ${REPO_ROOT}"
   [[ -f "${PACKAGE_JSON}" ]] || die "missing package.json: ${PACKAGE_JSON}"
@@ -135,6 +142,7 @@ check() {
   [[ "${version}" != "" && "${version}" != "unknown" ]] || die "package version is unreadable"
   [[ "${branch}" != "main" ]] || die "candidate work must not run from main"
   [[ "${CURRENT_SOURCE_HEAD}" =~ ^[0-9a-f]{40}$ ]] || die "source HEAD is not a 40-character Git commit: ${CURRENT_SOURCE_HEAD}"
+  assert_clean_source_tree
   if [[ -n "${EXPECTED_SOURCE_HEAD}" ]]; then
     [[ "${EXPECTED_SOURCE_HEAD}" =~ ^[0-9a-f]{40}$ ]] || die "expected source HEAD is invalid: ${EXPECTED_SOURCE_HEAD}"
     [[ "${EXPECTED_SOURCE_HEAD}" == "${CURRENT_SOURCE_HEAD}" ]] || \

@@ -354,7 +354,7 @@ describe('HttpVisionEvidenceService', () => {
     expect(sanitizeAttachmentEvidenceText('metadata:image/png')).toBe('metadata:image/png')
   })
 
-  it('validates magic bytes and shares in-flight analysis by content hash', async () => {
+  it('validates magic bytes and shares in-flight analysis for the same analyzer request', async () => {
     let resolveResponse!: (response: Response) => void
     const response = new Promise<Response>((resolve) => { resolveResponse = resolve })
     const fetcher = vi.fn(() => response) as unknown as typeof fetch
@@ -363,7 +363,7 @@ describe('HttpVisionEvidenceService', () => {
       endpoint: 'http://127.0.0.1:4000/analyze'
     }, { fetch: fetcher })
     const first = service.analyze({ attachmentId: 'a1', name: 'one.png', mimeType: 'image/png', data: PNG, signal: new AbortController().signal })
-    const second = service.analyze({ attachmentId: 'a2', name: 'two.png', mimeType: 'image/png', data: PNG, signal: new AbortController().signal })
+    const second = service.analyze({ attachmentId: 'a1', name: 'one.png', mimeType: 'image/png', data: PNG, signal: new AbortController().signal })
     resolveResponse(new Response(JSON.stringify({
       summary: 'diagram',
       ocr: 'hello',
@@ -374,10 +374,34 @@ describe('HttpVisionEvidenceService', () => {
     }), { status: 200 }))
 
     await expect(first).resolves.toMatchObject({ attachmentId: 'a1', summary: 'diagram', status: 'ready' })
-    await expect(second).resolves.toMatchObject({ attachmentId: 'a2', summary: 'diagram', status: 'ready' })
+    await expect(second).resolves.toMatchObject({ attachmentId: 'a1', summary: 'diagram', status: 'ready' })
     expect(fetcher).toHaveBeenCalledTimes(1)
     await expect(service.analyze({ attachmentId: 'a3', name: 'bad.png', mimeType: 'image/jpeg', data: PNG, signal: new AbortController().signal }))
       .rejects.toThrow(/MIME type/)
+  })
+
+  it('does not reuse semantic evidence across attachment identities or names', async () => {
+    const fetcher = vi.fn(async (_url: unknown, init?: RequestInit) => {
+      const request = JSON.parse(String(init?.body)) as { attachmentId: string; name: string }
+      return new Response(JSON.stringify({
+        summary: `${request.attachmentId}:${request.name}`,
+        ocr: '',
+        layout: [],
+        semantics: [],
+        visual: '',
+        uncertainty: []
+      }), { status: 200 })
+    }) as unknown as typeof fetch
+    const service = new HttpVisionEvidenceService({
+      enabled: true,
+      endpoint: 'http://127.0.0.1:4000/analyze'
+    }, { fetch: fetcher })
+
+    await expect(service.analyze({ attachmentId: 'a1', name: 'one.png', mimeType: 'image/png', data: PNG, signal: new AbortController().signal }))
+      .resolves.toMatchObject({ summary: 'a1:one.png' })
+    await expect(service.analyze({ attachmentId: 'a2', name: 'two.png', mimeType: 'image/png', data: PNG, signal: new AbortController().signal }))
+      .resolves.toMatchObject({ summary: 'a2:two.png' })
+    expect(fetcher).toHaveBeenCalledTimes(2)
   })
 
   it('cancels one waiter without cancelling another waiter for the same analysis', async () => {
@@ -388,7 +412,7 @@ describe('HttpVisionEvidenceService', () => {
     const firstController = new AbortController()
     const secondController = new AbortController()
     const first = service.analyze({ attachmentId: 'a1', name: 'one.png', mimeType: 'image/png', data: PNG, signal: firstController.signal })
-    const second = service.analyze({ attachmentId: 'a2', name: 'two.png', mimeType: 'image/png', data: PNG, signal: secondController.signal })
+    const second = service.analyze({ attachmentId: 'a1', name: 'one.png', mimeType: 'image/png', data: PNG, signal: secondController.signal })
 
     firstController.abort('caller cancelled')
     await expect(first).rejects.toThrow(/cancelled/)
@@ -403,7 +427,7 @@ describe('HttpVisionEvidenceService', () => {
       visual: 'boxes connected by arrows',
       uncertainty: []
     }), { status: 200 }))
-    await expect(second).resolves.toMatchObject({ attachmentId: 'a2', status: 'ready' })
+    await expect(second).resolves.toMatchObject({ attachmentId: 'a1', status: 'ready' })
   })
 
   it('does not start an analyzer request for an already-aborted waiter', async () => {

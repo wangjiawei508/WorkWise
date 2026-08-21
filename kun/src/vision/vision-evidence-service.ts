@@ -76,6 +76,12 @@ export class HttpVisionEvidenceService implements VisionEvidencePort {
     const key = createHash('sha256')
       .update(input.data)
       .update('\0')
+      .update(JSON.stringify({
+        attachmentId: input.attachmentId,
+        name: input.name,
+        mimeType: input.mimeType
+      }))
+      .update('\0')
       .update(this.configFingerprint)
       .digest('hex')
     const cached = this.cache.get(key)

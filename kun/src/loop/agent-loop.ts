@@ -17,7 +17,7 @@ import type { UserInputGate, UserInputResolution } from '../ports/user-input-gat
 import type { UsageService } from '../services/usage-service.js'
 import type { TurnService } from '../services/turn-service.js'
 import type { RuntimeEventRecorder } from '../services/runtime-event-recorder.js'
-import type { PipelineStage } from '../contracts/events.js'
+import type { PipelineStage, TurnTerminalReason } from '../contracts/events.js'
 import type { IdGenerator } from '../ports/id-generator.js'
 import type { ImmutablePrefix } from '../cache/immutable-prefix.js'
 import { ContextCompactor } from './context-compactor.js'
@@ -101,6 +101,12 @@ import {
   promptRequiresFileDeliverable,
   requiredFileExtensionsForPrompt
 } from './turn-completion-guard.js'
+
+function terminalReasonForAttemptCode(code: string): Extract<TurnTerminalReason, 'error' | 'blocked' | 'max_tokens'> {
+  if (code === 'max_tokens') return 'max_tokens'
+  if (code === 'budget_limited' || code === 'policy_blocked') return 'blocked'
+  return 'error'
+}
 
 // Tool argument fragments are projected to usage as bounded character counts;
 // raw fragments never cross the runtime event boundary.
@@ -552,6 +558,7 @@ export class AgentLoop {
               threadId,
               turnId,
               status: 'failed',
+              reason: 'error',
               error: decision.reason
             })
             return 'failed'
@@ -569,6 +576,7 @@ export class AgentLoop {
               threadId,
               turnId,
               status: 'failed',
+              reason: terminalReasonForAttemptCode(outcome.code),
               error: decision.reason
             })
             return 'failed'
@@ -596,7 +604,12 @@ export class AgentLoop {
           threadId,
           turnId,
           status,
-          ...(outcome.kind === 'retryable' ? { error: outcome.message } : {})
+          ...(outcome.kind === 'retryable' || outcome.kind === 'failed'
+            ? {
+                reason: terminalReasonForAttemptCode(outcome.code),
+                error: outcome.message
+              }
+            : {})
         })
         return status
       }
@@ -765,6 +778,13 @@ export class AgentLoop {
       await this.drainSteering(threadId, turnId, signal)
       const stepResult = await this.modelStep(threadId, turnId, signal, step)
       if (stepResult === 'stop') return { kind: 'candidate' }
+      if (stepResult === 'blocked') {
+        return {
+          kind: 'failed',
+          code: 'budget_limited',
+          message: 'The configured cost budget blocked this turn.'
+        }
+      }
       if (stepResult === 'web_failed') {
         return {
           kind: 'retryable',
@@ -795,7 +815,7 @@ export class AgentLoop {
     turnId: string,
     signal: AbortSignal,
     stepIndex = 0
-  ): Promise<'continue' | 'stop' | 'failed' | 'web_failed' | 'max_tokens' | 'aborted'> {
+  ): Promise<'continue' | 'stop' | 'blocked' | 'failed' | 'web_failed' | 'max_tokens' | 'aborted'> {
     if (shouldVerifyImmutablePrefix()) {
       verifyImmutablePrefix(this.opts.prefix)
     }
@@ -817,7 +837,7 @@ export class AgentLoop {
       ? { ...turn.guiDesign, turnId }
       : undefined
     const budgetGate = await this.checkBudgetGate(thread, threadId, turnId)
-    if (budgetGate === 'blocked') return 'stop'
+    if (budgetGate === 'blocked') return 'blocked'
     const loadedItems = await this.opts.sessionStore.loadItems(threadId)
     const healed = healLoadedHistoryItems(loadedItems)
     if (healed.changed) {
