@@ -91,13 +91,33 @@ describe('authorize-workwise-candidate.sh', () => {
     }
   })
 
-  it('rejects candidate preparation from a dirty source tree', () => {
+  it.each([
+    {
+      label: 'tracked',
+      dirty(repo: string) {
+        writeFileSync(join(repo, 'package.json'), '{"version":"0.0.1-dirty"}\n')
+      }
+    },
+    {
+      label: 'staged',
+      dirty(repo: string) {
+        writeFileSync(join(repo, 'staged-build-input.ts'), 'export const dirty = true\n')
+        execFileSync('git', ['add', 'staged-build-input.ts'], { cwd: repo })
+      }
+    },
+    {
+      label: 'untracked',
+      dirty(repo: string) {
+        writeFileSync(join(repo, 'untracked-build-input.ts'), 'export const dirty = true\n')
+      }
+    }
+  ])('rejects candidate preparation from a $label source tree', ({ dirty }) => {
     const testRoot = mkdtempSync(join(tmpdir(), 'workwise-candidate-dirty-'))
     const candidateRoot = join(testRoot, 'candidate')
     const { repo, script } = createCandidateRepo(testRoot)
 
     try {
-      writeFileSync(join(repo, 'untracked-build-input.ts'), 'export const dirty = true\n')
+      dirty(repo)
       expect(() => execFileSync('bash', [script, '--check'], {
         env: {
           ...process.env,

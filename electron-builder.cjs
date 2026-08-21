@@ -1,5 +1,6 @@
 const { existsSync, readFileSync } = require('node:fs')
 const { join } = require('node:path')
+const { verifyCandidateSourceTree } = require('./scripts/candidate-source-provenance.cjs')
 
 function loadLocalReleaseEnv() {
   const candidates = [
@@ -145,6 +146,9 @@ if (candidateSourceHead && !/^[0-9a-f]{40}$/.test(candidateSourceHead)) {
 if (isCandidateBuild && !candidateSourceHead) {
   throw new Error('Candidate packaging requires WORKWISE_CANDIDATE_SOURCE_HEAD from candidate.env.')
 }
+if (isCandidateBuild) {
+  verifyCandidateSourceTree(__dirname, candidateSourceHead, { label: 'electron-builder' })
+}
 
 if (!['github', 'generic', 'none'].includes(updateProvider)) {
   throw new Error(`WORKWISE_UPDATE_PROVIDER must be "github", "generic", or "none", got: ${updateProvider}`)
@@ -278,8 +282,8 @@ module.exports = {
     // 明确创建快捷方式；always 在覆盖安装时也会重建（即使用户曾删掉桌面图标）
     createDesktopShortcut: 'always',
     createStartMenuShortcut: true,
-    shortcutName: 'WorkWise',
-    uninstallDisplayName: 'WorkWise',
+    shortcutName: packagedProductName,
+    uninstallDisplayName: packagedProductName,
     deleteAppDataOnUninstall: false
   },
   linux: {
