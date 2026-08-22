@@ -35,6 +35,7 @@ import {
   runCandidateRuntimeProbe,
   verifyCandidateServiceListeners,
   sanitizeCandidateProcessEnvironment,
+  isCandidateImProviderConnectionAllowed,
   UNCONFIGURED_RECOVERY_CANDIDATE_EXIT_CODE
 } from './candidate-runtime'
 import {
@@ -167,7 +168,8 @@ function traceStartup(label: string, detail?: unknown): void {
 }
 
 function shouldStartWeixinBridgeRuntime(settings: AppSettingsV1): boolean {
-  return settings.claw.enabled &&
+  return isCandidateImProviderConnectionAllowed('weixin') &&
+    settings.claw.enabled &&
     settings.claw.im.enabled &&
     settings.claw.channels.some((channel) => channel.enabled && channel.provider === 'weixin')
 }
@@ -1401,6 +1403,7 @@ app.whenReady().then(async () => {
     }
     imHealthService.supervise((health) => {
       if (health.provider === 'feishu' && (health.status === 'stale' || health.status === 'retrying')) {
+        if (!isCandidateImProviderConnectionAllowed('feishu')) return
         void (async () => {
           // A protected credential failure can be transient. Ask the isolated
           // helper for one fresh Keychain attempt before rebuilding the bridge.

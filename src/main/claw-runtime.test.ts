@@ -710,6 +710,60 @@ describe('ClawRuntime', () => {
     expect(imHealth.fail).not.toHaveBeenCalled()
   })
 
+  it('does not read credentials or create a Feishu bridge for a disabled candidate', async () => {
+    const previousCandidate = process.env.WORKWISE_CANDIDATE
+    const previousInbound = process.env.WORKWISE_CANDIDATE_INBOUND_DISABLED
+    const previousOutbound = process.env.WORKWISE_CANDIDATE_OUTBOUND_DISABLED
+    process.env.WORKWISE_CANDIDATE = '1'
+    process.env.WORKWISE_CANDIDATE_INBOUND_DISABLED = '1'
+    process.env.WORKWISE_CANDIDATE_OUTBOUND_DISABLED = '1'
+    try {
+      const settings = buildSettings()
+      settings.claw.im.enabled = true
+      settings.claw.channels = [buildChannel({
+        platformCredential: {
+          kind: 'feishu',
+          appId: 'app-1',
+          domain: 'feishu',
+          createdAt: '2026-08-15T00:00:00.000Z'
+        },
+        credentialRef: {
+          id: 'credential-ref',
+          storage: 'keychain',
+          createdAt: '2026-08-15T00:00:00.000Z'
+        }
+      })]
+      const resolveImCredential = vi.fn(async () => 'secret')
+      const createFeishuChannel = vi.fn()
+      const imHealth = { get: vi.fn(), start: vi.fn(), heartbeat: vi.fn(), fail: vi.fn() }
+      const runtime = createClawRuntime({
+        store: { load: vi.fn(async () => settings), patch: vi.fn(async () => settings) } as never,
+        runtimeRequest: vi.fn() as never,
+        logError: () => undefined,
+        resolveImCredential,
+        createFeishuChannel: createFeishuChannel as never,
+        imHealth: imHealth as never
+      })
+
+      await (runtime as unknown as {
+        syncFeishuChannels(settings: AppSettingsV1): Promise<void>
+      }).syncFeishuChannels(settings)
+      await runtime.startChannel('channel_1')
+      await runtime.reconnectChannel('channel_1')
+
+      expect(resolveImCredential).not.toHaveBeenCalled()
+      expect(createFeishuChannel).not.toHaveBeenCalled()
+      expect(imHealth.start).not.toHaveBeenCalled()
+    } finally {
+      if (previousCandidate === undefined) delete process.env.WORKWISE_CANDIDATE
+      else process.env.WORKWISE_CANDIDATE = previousCandidate
+      if (previousInbound === undefined) delete process.env.WORKWISE_CANDIDATE_INBOUND_DISABLED
+      else process.env.WORKWISE_CANDIDATE_INBOUND_DISABLED = previousInbound
+      if (previousOutbound === undefined) delete process.env.WORKWISE_CANDIDATE_OUTBOUND_DISABLED
+      else process.env.WORKWISE_CANDIDATE_OUTBOUND_DISABLED = previousOutbound
+    }
+  })
+
   it('disconnects the old Feishu bridge before reconnecting the channel', async () => {
     const settings = buildSettings()
     settings.claw.channels = [buildChannel()]

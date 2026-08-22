@@ -10,6 +10,7 @@ import {
   candidateProcessUserDataPath,
   candidateEnvironmentFromArgv,
   isCandidateHeadless,
+  isCandidateImProviderConnectionAllowed,
   isCandidateInboundAllowed,
   isCandidateOutboundDisabled,
   isCandidateRuntimeProbe,
@@ -197,6 +198,37 @@ describe('resolveCandidateRuntimePaths', () => {
     expect(isCandidateInboundAllowed('weixin', 'oc_self_test', '/status', env)).toBe(false)
     expect(isCandidateInboundAllowed('feishu', 'oc_self_test', '/status', { WORKWISE_CANDIDATE: '1' })).toBe(false)
     expect(isCandidateInboundAllowed('feishu', 'oc_self_test', '/status', {})).toBe(true)
+  })
+
+  it('connects candidate IM providers only for a bounded authorization', () => {
+    expect(isCandidateImProviderConnectionAllowed('feishu', {})).toBe(true)
+    expect(isCandidateImProviderConnectionAllowed('feishu', { WORKWISE_CANDIDATE: '1' })).toBe(false)
+    expect(isCandidateImProviderConnectionAllowed('weixin', {
+      WORKWISE_CANDIDATE: '1',
+      WORKWISE_CANDIDATE_INBOUND_DISABLED: '0',
+      WORKWISE_CANDIDATE_INBOUND_PROVIDER: 'feishu',
+      WORKWISE_CANDIDATE_ALLOWED_FEISHU_CHAT_ID: 'oc_self_test',
+      WORKWISE_CANDIDATE_ALLOWED_FEISHU_COMMAND: '/status'
+    })).toBe(false)
+    expect(isCandidateImProviderConnectionAllowed('feishu', {
+      WORKWISE_CANDIDATE: '1',
+      WORKWISE_CANDIDATE_INBOUND_DISABLED: '0',
+      WORKWISE_CANDIDATE_INBOUND_PROVIDER: 'feishu',
+      WORKWISE_CANDIDATE_ALLOWED_FEISHU_CHAT_ID: 'oc_self_test'
+    })).toBe(false)
+    expect(isCandidateImProviderConnectionAllowed('feishu', {
+      WORKWISE_CANDIDATE: '1',
+      WORKWISE_CANDIDATE_INBOUND_DISABLED: '0',
+      WORKWISE_CANDIDATE_INBOUND_PROVIDER: 'feishu',
+      WORKWISE_CANDIDATE_ALLOWED_FEISHU_CHAT_ID: 'oc_self_test',
+      WORKWISE_CANDIDATE_ALLOWED_FEISHU_COMMAND: '/status'
+    })).toBe(true)
+    expect(isCandidateImProviderConnectionAllowed('feishu', {
+      WORKWISE_CANDIDATE: '1',
+      WORKWISE_CANDIDATE_OUTBOUND_DISABLED: '0',
+      WORKWISE_CANDIDATE_OUTBOUND_PROVIDER: 'feishu',
+      WORKWISE_CANDIDATE_ALLOWED_FEISHU_CHAT_ID: 'oc_self_test'
+    })).toBe(true)
   })
 
   it('stops managed services and exits zero after a successful Runtime probe', async () => {

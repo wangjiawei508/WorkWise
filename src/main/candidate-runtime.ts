@@ -352,6 +352,38 @@ export function isCandidateInboundAllowed(
   return Boolean(allowedCommand) && content.trim() === allowedCommand
 }
 
+/**
+ * Candidate provider connections are fail-closed. A provider may only start
+ * when the candidate has an explicit, bounded IM authorization for that
+ * provider. This keeps a disabled candidate from opening Keychain merely to
+ * discover that message handling is disabled.
+ */
+export function isCandidateImProviderConnectionAllowed(
+  provider: 'feishu' | 'weixin',
+  configuredEnv: NodeJS.ProcessEnv = process.env
+): boolean {
+  if (configuredEnv.WORKWISE_CANDIDATE !== '1') return true
+
+  const normalizedProvider = configuredEnv.WORKWISE_CANDIDATE_INBOUND_PROVIDER?.trim().toLowerCase()
+  const outboundProvider = configuredEnv.WORKWISE_CANDIDATE_OUTBOUND_PROVIDER?.trim().toLowerCase()
+  const chatId = provider === 'feishu'
+    ? configuredEnv.WORKWISE_CANDIDATE_ALLOWED_FEISHU_CHAT_ID?.trim()
+    : configuredEnv.WORKWISE_CANDIDATE_ALLOWED_WEIXIN_CHAT_ID?.trim()
+  const inboundCommand = provider === 'feishu'
+    ? configuredEnv.WORKWISE_CANDIDATE_ALLOWED_FEISHU_COMMAND?.trim()
+    : configuredEnv.WORKWISE_CANDIDATE_ALLOWED_WEIXIN_COMMAND?.trim()
+
+  const inboundAuthorized =
+    configuredEnv.WORKWISE_CANDIDATE_INBOUND_DISABLED === '0' &&
+    normalizedProvider === provider &&
+    Boolean(chatId && inboundCommand)
+  const outboundAuthorized =
+    configuredEnv.WORKWISE_CANDIDATE_OUTBOUND_DISABLED === '0' &&
+    outboundProvider === provider &&
+    Boolean(chatId)
+  return inboundAuthorized || outboundAuthorized
+}
+
 export function isUnconfiguredRecoveryCandidate(
   executablePath: string,
   env: NodeJS.ProcessEnv = process.env,

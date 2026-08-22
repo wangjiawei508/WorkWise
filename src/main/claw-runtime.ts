@@ -34,7 +34,11 @@ import {
   type ImChannelHealthV1
 } from '../shared/im-communication'
 import type { ImLedgerMessageV1 } from './services/im-delivery-ledger'
-import { isCandidateInboundAllowed, isCandidateOutboundDisabled } from './candidate-runtime'
+import {
+  isCandidateImProviderConnectionAllowed,
+  isCandidateInboundAllowed,
+  isCandidateOutboundDisabled
+} from './candidate-runtime'
 import {
   CLAW_MODEL_IDS,
   DEFAULT_CLAW_MODEL,
@@ -962,6 +966,7 @@ export class ClawRuntime {
     const settings = await this.deps.store.load()
     const channel = settings.claw.channels.find((item) => item.id === channelId && item.enabled)
     if (!channel) return
+    if (!isCandidateImProviderConnectionAllowed(channel.provider)) return
     const credential = channel.platformCredential
     const accountId = credential?.kind === 'weixin' ? credential.accountId : credential?.kind === 'feishu' ? credential.appId : channel.id
     this.deps.imHealth?.start({ channelId, provider: channel.provider, accountId, credentialStorage: channel.credentialRef?.storage })
@@ -976,6 +981,7 @@ export class ClawRuntime {
     const settings = await this.deps.store.load()
     const channel = settings.claw.channels.find((item) => item.id === channelId && item.enabled)
     if (!channel) return
+    if (!isCandidateImProviderConnectionAllowed(channel.provider)) return
     const credential = channel.platformCredential
     const accountId = credential?.kind === 'weixin' ? credential.accountId : credential?.kind === 'feishu' ? credential.appId : channel.id
     if (channel.provider === 'weixin') {
@@ -1628,7 +1634,7 @@ export class ClawRuntime {
   }
 
   private resolveFeishuChannels(settings: AppSettingsV1): FeishuClawChannel[] {
-    if (!settings.claw.enabled) return []
+    if (!settings.claw.enabled || !isCandidateImProviderConnectionAllowed('feishu')) return []
     return settings.claw.channels.filter(
       (channel): channel is FeishuClawChannel =>
         channel.enabled &&
