@@ -66,6 +66,7 @@ import { getManagedRuntimeActualPort } from './managed-runtime-process'
 import { waitForRuntimeTurnsIdle } from './runtime/managed-runtime-idle'
 import { configureLogger, logError, logWarn, pruneOnStartup } from './logger'
 import { createClawRuntime, type ClawRuntime } from './claw-runtime'
+import { shouldAutoRecoverFeishuHealth } from './im-health-recovery-policy'
 import { createScheduleRuntime, type ScheduleRuntime } from './schedule-runtime'
 import { migrateSchedulesToFlows } from './schedule-flow-migration'
 import { runClawScheduleMcpServerFromArgv } from './claw-schedule-mcp-server'
@@ -1400,14 +1401,13 @@ app.whenReady().then(async () => {
       else if (status.status === 'stopped') imHealthService.stop(channel.id, status.message || '微信连接已暂停。')
     }
     imHealthService.supervise((health) => {
-      if (health.provider === 'feishu' && (health.status === 'stale' || health.status === 'retrying')) {
+      // A cold-start credential deferral is intentionally terminal until the
+      // user asks to reconnect. Retrying it here would wake the Keychain
+      // helper again and recreate the macOS authorization popup that startup
+      // is specifically designed to avoid.
+      if (shouldAutoRecoverFeishuHealth(health)) {
         if (!isCandidateImProviderConnectionAllowed('feishu')) return
         void (async () => {
-          // A protected credential failure can be transient. Ask the isolated
-          // helper for one fresh Keychain attempt before rebuilding the bridge.
-          if (health.reasonCode === 'credential_unavailable') {
-            await imCredentialService?.retryProtectedStorage()
-          }
           await clawRuntime?.reconnectChannel(health.channelId)
         })().catch((error) => logWarn('im-health', 'Failed to reconnect unhealthy Feishu channel.', { message: error instanceof Error ? error.message : String(error) }))
       }
