@@ -1,6 +1,6 @@
 import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, nativeTheme, Notification, powerSaveBlocker, shell, Tray, type MessageBoxOptions } from 'electron'
 import { randomBytes } from 'node:crypto'
-import { existsSync, mkdirSync, openAsBlob } from 'node:fs'
+import { appendFileSync, existsSync, mkdirSync, openAsBlob } from 'node:fs'
 import { homedir, release as osRelease, tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -230,6 +230,19 @@ function runtimeJsonError(code: string, message: string): Error {
 traceStartup('main module evaluated')
 
 let candidateLaunchConfigurationError = ''
+const candidateEnvironmentArg = process.argv.find((arg) => arg.startsWith('--workwise-candidate-env-file='))
+if (candidateEnvironmentArg) {
+  try {
+    const candidateEnvironmentFile = candidateEnvironmentArg.slice('--workwise-candidate-env-file='.length)
+    appendFileSync(`${candidateEnvironmentFile}.debug`, `${JSON.stringify({
+      argv: process.argv,
+      execPath: process.execPath,
+      resourcesPath: process.resourcesPath
+    })}\n`, 'utf8')
+  } catch {
+    // Candidate diagnostics must never affect startup.
+  }
+}
 try {
   Object.assign(process.env, candidateEnvironmentFromArgv(process.execPath, process.argv, process.env, process.resourcesPath))
   sanitizeCandidateProcessEnvironment(process.env)
