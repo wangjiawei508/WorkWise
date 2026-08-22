@@ -1,13 +1,15 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const appendSwitch = vi.fn()
+const removeSwitch = vi.fn()
 const hasSwitch = vi.fn()
 
 vi.mock('electron', () => ({
   app: {
     commandLine: {
       hasSwitch,
-      appendSwitch
+      appendSwitch,
+      removeSwitch
     }
   }
 }))
@@ -15,6 +17,7 @@ vi.mock('electron', () => ({
 describe('app command line bootstrap', () => {
   beforeEach(() => {
     appendSwitch.mockReset()
+    removeSwitch.mockReset()
     hasSwitch.mockReset()
     hasSwitch.mockReturnValue(false)
     vi.resetModules()
@@ -35,6 +38,7 @@ describe('app command line bootstrap', () => {
 
     configureChromiumUserDataPath('/private/tmp/workwise-candidate/user-data')
 
+    expect(removeSwitch).toHaveBeenCalledWith('user-data-dir')
     expect(appendSwitch).toHaveBeenCalledWith(
       'user-data-dir',
       '/private/tmp/workwise-candidate/user-data'

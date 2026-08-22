@@ -15,6 +15,10 @@ export function shouldConfigureLinuxWaylandImeSwitches(platform = process.platfo
  */
 export function configureChromiumUserDataPath(userDataPath: string): void {
   if (!userDataPath.trim()) throw new Error('Chromium userData path must not be empty.')
+  // Electron may initialize a default profile switch before the main bundle
+  // runs. appendSwitch() does not replace an existing switch, so remove it
+  // first to keep Chromium helpers out of the production profile.
+  app.commandLine.removeSwitch('user-data-dir')
   app.commandLine.appendSwitch('user-data-dir', userDataPath)
 }
 
