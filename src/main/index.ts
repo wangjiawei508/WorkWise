@@ -1249,11 +1249,20 @@ app.whenReady().then(async () => {
     // Startup migration must be durable. If Keychain authorization is not
     // available, leave the legacy value in the main-process settings object
     // and keep the channel unavailable until an explicit reconnect retries it.
-    const migratedChannels = await protectImChannelCredentials(initial.claw.channels, imCredentialService, {
-      requirePersistent: true
-    })
-    if (migratedChannels.some((channel, index) => channel !== initial.claw.channels[index])) {
-      initial = await store.patch({ claw: { channels: migratedChannels } })
+    // Recovery candidates must not touch protected storage for an unapproved
+    // provider merely because legacy settings contain a credential.
+    const migratableChannels = candidateRuntimePaths
+      ? initial.claw.channels.filter((channel) => isCandidateImProviderConnectionAllowed(channel.provider))
+      : initial.claw.channels
+    if (migratableChannels.length > 0) {
+      const migratedChannels = await protectImChannelCredentials(migratableChannels, imCredentialService, {
+        requirePersistent: true
+      })
+      const migratedById = new Map(migratedChannels.map((channel) => [channel.id, channel]))
+      const nextChannels = initial.claw.channels.map((channel) => migratedById.get(channel.id) ?? channel)
+      if (nextChannels.some((channel, index) => channel !== initial.claw.channels[index])) {
+        initial = await store.patch({ claw: { channels: nextChannels } })
+      }
     }
   } catch (error) {
     console.warn('[im-credentials] startup migration deferred until protected storage is available.', {
