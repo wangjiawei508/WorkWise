@@ -13,7 +13,7 @@ import workwiseLogoPng from '../asset/img/workwise.png?url'
 import workwiseDockPng from '../asset/img/workwise_dock.png?url'
 import workwiseTrayPng from '../asset/img/workwise_tray.png?url'
 import { createAppIcon, pickTrayIcon } from './app-icon'
-import { configureLinuxWaylandImeSwitches } from './app-command-line'
+import { configureChromiumUserDataPath, configureLinuxWaylandImeSwitches } from './app-command-line'
 import { configureAppIdentity } from './app-identity'
 import { createNotificationClickHandler } from './notification-navigation'
 import { isActiveThreadActuallyVisible } from './notification-visibility'
@@ -252,6 +252,11 @@ if (unconfiguredRecoveryCandidate) {
   app.setPath('sessionData', quarantinePaths.sessionData)
   app.setPath('crashDumps', quarantinePaths.crashDumps)
   app.setPath('logs', quarantinePaths.logs)
+  // Chromium helpers do not derive their profile directory from Electron's
+  // app.setPath('userData'). Pass the quarantine path explicitly so an
+  // unconfigured candidate cannot start GPU/network helpers against the
+  // production profile.
+  configureChromiumUserDataPath(quarantinePaths.userData)
 }
 
 const candidateRuntimePaths = resolveCandidateRuntimePaths()
@@ -269,6 +274,10 @@ if (candidateRuntimePaths) {
     runningImCredentialHelper,
     (name, path) => app.setPath(name, path)
   )
+  // Electron's child helpers inherit Chromium's command-line profile, not
+  // the value changed through app.setPath(). Keep every candidate process in
+  // the same isolated userData tree before any window or helper is created.
+  configureChromiumUserDataPath(app.getPath('userData'))
   process.env.WORKWISE_TOOLS_ROOT = candidateRuntimePaths.toolsRoot
   process.env.WORKWISE_UPDATE_PROVIDER = 'none'
   configureManagedRuntimeStartOptions({

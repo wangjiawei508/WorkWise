@@ -30,6 +30,23 @@ describe('app command line bootstrap', () => {
     expect(appendSwitch).toHaveBeenNthCalledWith(2, 'enable-wayland-ime')
   })
 
+  it('passes isolated candidate userData to Chromium child processes', async () => {
+    const { configureChromiumUserDataPath } = await import('./app-command-line')
+
+    configureChromiumUserDataPath('/private/tmp/workwise-candidate/user-data')
+
+    expect(appendSwitch).toHaveBeenCalledWith(
+      'user-data-dir',
+      '/private/tmp/workwise-candidate/user-data'
+    )
+  })
+
+  it('rejects an empty Chromium userData path', async () => {
+    const { configureChromiumUserDataPath } = await import('./app-command-line')
+
+    expect(() => configureChromiumUserDataPath('  ')).toThrow('must not be empty')
+  })
+
   it('keeps user-provided switches unchanged', async () => {
     hasSwitch.mockImplementation((name: string) => name === 'ozone-platform-hint')
     const { configureLinuxWaylandImeSwitches } = await import('./app-command-line')
