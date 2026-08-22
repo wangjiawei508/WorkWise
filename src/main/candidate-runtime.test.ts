@@ -423,6 +423,22 @@ describe('resolveCandidateRuntimePaths', () => {
     }
   })
 
+  it('recognizes a source-head candidate by its executable name when resourcesPath is unavailable', () => {
+    const root = mkdtempSync(join(tmpdir(), 'workwise-candidate-executable-'))
+    const file = join(root, 'candidate.env')
+    try {
+      writeFileSync(file, `WORKWISE_CANDIDATE=1\nWORKWISE_CANDIDATE_ROOT=${root}\n`)
+      expect(candidateEnvironmentFromArgv(
+        '/private/tmp/WorkWise Candidate 4231176860bd',
+        [`--workwise-candidate-env-file=${file}`],
+        {},
+        undefined
+      )).toMatchObject({ WORKWISE_CANDIDATE: '1', WORKWISE_CANDIDATE_ROOT: root })
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
   it('rejects a candidate launch file outside the declared isolated root', () => {
     const root = mkdtempSync(join(tmpdir(), 'workwise-candidate-launch-'))
     const outside = mkdtempSync(join(tmpdir(), 'workwise-candidate-outside-'))

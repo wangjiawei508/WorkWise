@@ -200,6 +200,7 @@ function isRecoveryCandidateExecutable(
   resourcesPath: string | undefined = process.resourcesPath
 ): boolean {
   if (/^WorkWise IM Recovery Candidate(?:\.exe)?$/i.test(basename(executablePath))) return true
+  if (/^WorkWise Candidate [0-9a-f]{12}(?:\.exe)?$/i.test(basename(executablePath))) return true
   const bundleName = basename(resolve(resourcesPath ?? '', '..', '..'))
   if (bundleName !== CANDIDATE_BUNDLE_NAME && !SOURCE_HEAD_CANDIDATE_BUNDLE_PATTERN.test(bundleName)) return false
   const identifier = recoveryCandidateBundleIdentifier(resourcesPath)
