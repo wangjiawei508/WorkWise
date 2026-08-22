@@ -1116,6 +1116,15 @@ function runtimeStartupConfigChanged(prev: AppSettingsV1, next: AppSettingsV1): 
   return managedRuntimeConfigChanged(prev, next) || clawScheduleMcpSettingsChanged(prev, next)
 }
 
+/**
+ * Settings writes that do not touch IM configuration must not wake protected
+ * credential storage. Reconnecting an IM channel remains the explicit path
+ * that is allowed to authorize Keychain access.
+ */
+function imConnectionConfigChanged(prev: AppSettingsV1, next: AppSettingsV1): boolean {
+  return !stableSettingsValueEqual(prev.claw, next.claw)
+}
+
 async function restartManagedRuntimeForSettingsChange(
   prev: AppSettingsV1,
   next: AppSettingsV1
@@ -1459,7 +1468,9 @@ app.whenReady().then(async () => {
       }
       queueRuntimeSettingsApply(prev, saved)
       scheduleRuntime?.sync(saved)
-      clawRuntime?.sync(saved)
+      clawRuntime?.sync(saved, {
+        deferProtectedCredentialAccess: !imConnectionConfigChanged(prev, saved)
+      })
       syncWeixinBridgeRuntime(saved)
       syncLoginItemSettings(saved)
       syncApplicationMenu(saved)
