@@ -710,6 +710,46 @@ describe('ClawRuntime', () => {
     expect(imHealth.fail).not.toHaveBeenCalled()
   })
 
+  it('defers protected Feishu credentials during cold-start sync', async () => {
+    const settings = buildSettings()
+    settings.claw.im.enabled = true
+    settings.claw.channels = [buildChannel({
+      platformCredential: {
+        kind: 'feishu',
+        appId: 'app-1',
+        domain: 'feishu',
+        createdAt: '2026-08-15T00:00:00.000Z'
+      },
+      credentialRef: {
+        id: 'credential-ref',
+        storage: 'keychain',
+        createdAt: '2026-08-15T00:00:00.000Z'
+      }
+    })]
+    const resolveImCredential = vi.fn(async () => 'secret')
+    const imHealth = {
+      get: vi.fn(() => undefined),
+      start: vi.fn(),
+      fail: vi.fn()
+    }
+    const runtime = createClawRuntime({
+      store: { load: vi.fn(async () => settings), patch: vi.fn(async () => settings) } as never,
+      runtimeRequest: vi.fn() as never,
+      logError: () => undefined,
+      resolveImCredential,
+      imHealth: imHealth as never
+    })
+
+    await (runtime as unknown as {
+      syncFeishuChannels(value: AppSettingsV1, options?: { deferProtectedCredentialAccess?: boolean }): Promise<void>
+    }).syncFeishuChannels(settings, { deferProtectedCredentialAccess: true })
+
+    expect(resolveImCredential).not.toHaveBeenCalled()
+    expect(imHealth.fail).toHaveBeenCalledWith('channel_1', expect.objectContaining({
+      reasonCode: 'credential_unavailable'
+    }))
+  })
+
   it('does not read credentials or create a Feishu bridge for a disabled candidate', async () => {
     const previousCandidate = process.env.WORKWISE_CANDIDATE
     const previousInbound = process.env.WORKWISE_CANDIDATE_INBOUND_DISABLED

@@ -1344,7 +1344,7 @@ app.whenReady().then(async () => {
     imEnabled: initial.claw.im.enabled,
     enabledChannels: initial.claw.channels.filter((channel) => channel.enabled).length
   })
-  clawRuntime.sync(initial)
+  clawRuntime.sync(initial, { deferProtectedCredentialAccess: true })
   traceStartup('claw runtime sync:scheduled')
   imHealthService.onChange((health) => {
     if (!mainWindow || mainWindow.isDestroyed()) return

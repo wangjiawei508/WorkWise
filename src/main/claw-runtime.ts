@@ -514,14 +514,14 @@ export class ClawRuntime {
     this.deps = deps
   }
 
-  sync(settings: AppSettingsV1): void {
+  sync(settings: AppSettingsV1, options: { deferProtectedCredentialAccess?: boolean } = {}): void {
     traceImStartup('sync', {
       clawEnabled: settings.claw.enabled,
       imEnabled: settings.claw.im.enabled,
       enabledChannels: settings.claw.channels.filter((channel) => channel.enabled).length
     })
     this.syncWebhook(settings)
-    void this.syncFeishuChannels(settings).then(() => this.recoverPendingMessages())
+    void this.syncFeishuChannels(settings, options).then(() => this.recoverPendingMessages())
     void this.syncWeixinConnectWelcomes(settings)
   }
 
@@ -2661,7 +2661,10 @@ export class ClawRuntime {
     }
   }
 
-  private async syncFeishuChannels(settings: AppSettingsV1): Promise<void> {
+  private async syncFeishuChannels(
+    settings: AppSettingsV1,
+    options: { deferProtectedCredentialAccess?: boolean } = {}
+  ): Promise<void> {
     const version = ++this.feishuSyncVersion
     const targets = this.resolveFeishuChannels(settings)
     traceImStartup('feishu sync', { targets: targets.length })
@@ -2685,6 +2688,26 @@ export class ClawRuntime {
         existingHealth?.status === 'expired' ||
         existingHealth?.reasonCode === 'credential_unavailable'
       )) {
+        continue
+      }
+      if (
+        options.deferProtectedCredentialAccess &&
+        !existingBridgeAtStart &&
+        target.credentialRef?.storage !== 'session'
+      ) {
+        // A cold start must not unlock macOS Keychain just because an enabled
+        // channel is present. An explicit reconnect calls sync() without this
+        // option and is the only path that may authorize protected storage.
+        this.deps.imHealth?.start({
+          channelId: target.id,
+          provider: 'feishu',
+          accountId: appId,
+          credentialStorage: target.credentialRef?.storage
+        })
+        this.deps.imHealth?.fail(target.id, {
+          reasonCode: 'credential_unavailable',
+          message: '现有飞书凭据仍在，请通过“重新连接”恢复系统钥匙串访问。'
+        })
         continue
       }
       if (!existingBridgeAtStart && existingHealth?.status !== 'starting') {
