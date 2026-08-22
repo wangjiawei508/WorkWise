@@ -67,6 +67,36 @@ async function assertLoopbackPortAvailable(port: number): Promise<void> {
 }
 
 describe('McpConfigService', () => {
+  it('uses session storage for a candidate without touching protected storage', async () => {
+    const previousCandidate = process.env.WORKWISE_CANDIDATE
+    const previousAccess = process.env.WORKWISE_CANDIDATE_CREDENTIAL_ACCESS
+    process.env.WORKWISE_CANDIDATE = '1'
+    delete process.env.WORKWISE_CANDIDATE_CREDENTIAL_ACCESS
+    try {
+      const service = new McpConfigService({
+        manifestPath: join(root, 'mcp-v2.json'),
+        credentialRoot: join(root, 'credentials')
+      })
+      const saved = await service.save({
+        config: config({ scope: 'global', transport: 'http', url: 'https://mcp.example.test' }),
+        expectedRevision: 0,
+        idempotencyKey: 'candidate-mcp-save'
+      })
+      const updated = await service.setCredential({
+        serverId: saved.id,
+        accessToken: 'candidate-token',
+        expectedRevision: saved.revision,
+        idempotencyKey: 'candidate-mcp-credential'
+      })
+      expect(updated.credentialRef?.storage).toBe('session')
+    } finally {
+      if (previousCandidate === undefined) delete process.env.WORKWISE_CANDIDATE
+      else process.env.WORKWISE_CANDIDATE = previousCandidate
+      if (previousAccess === undefined) delete process.env.WORKWISE_CANDIDATE_CREDENTIAL_ACCESS
+      else process.env.WORKWISE_CANDIDATE_CREDENTIAL_ACCESS = previousAccess
+    }
+  })
+
   it('exports credentials only as process environment values with placeholder config references', async () => {
     const key = 0x2a
     const service = new McpConfigService({
