@@ -10,6 +10,7 @@ import {
   candidateProcessUserDataPath,
   candidateEnvironmentFromArgv,
   isCandidateHeadless,
+  isCandidateCredentialAccessAllowed,
   isCandidateImProviderConnectionAllowed,
   isCandidateInboundAllowed,
   isCandidateOutboundDisabled,
@@ -24,6 +25,15 @@ import {
 } from './candidate-runtime'
 
 describe('resolveCandidateRuntimePaths', () => {
+  it('keeps protected storage disabled unless candidate access is explicit', () => {
+    expect(isCandidateCredentialAccessAllowed({})).toBe(true)
+    expect(isCandidateCredentialAccessAllowed({ WORKWISE_CANDIDATE: '1' })).toBe(false)
+    expect(isCandidateCredentialAccessAllowed({
+      WORKWISE_CANDIDATE: '1',
+      WORKWISE_CANDIDATE_CREDENTIAL_ACCESS: '1'
+    })).toBe(true)
+  })
+
   it('holds candidate schedule and IM ports until the reservation is closed', async () => {
     const reservations = await reserveCandidateServicePorts()
     const assertPortUnavailable = async (port: number): Promise<void> => {

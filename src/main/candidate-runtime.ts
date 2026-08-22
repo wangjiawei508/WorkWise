@@ -53,7 +53,8 @@ const CANDIDATE_ENV_KEYS = new Set([
   'WORKWISE_CANDIDATE_ALLOWED_FEISHU_COMMAND',
   'WORKWISE_CANDIDATE_ALLOWED_WEIXIN_CHAT_ID',
   'WORKWISE_CANDIDATE_ALLOWED_WEIXIN_COMMAND',
-  'WORKWISE_CANDIDATE_CREDENTIAL_HELPER'
+  'WORKWISE_CANDIDATE_CREDENTIAL_HELPER',
+  'WORKWISE_CANDIDATE_CREDENTIAL_ACCESS'
 ])
 
 export function candidateServicePortPatch(ports: CandidateServicePorts): AppSettingsPatch {
@@ -384,6 +385,17 @@ export function isCandidateImProviderConnectionAllowed(
     outboundProvider === provider &&
     Boolean(chatId)
   return inboundAuthorized || outboundAuthorized
+}
+
+/**
+ * Protected storage is an explicit acceptance capability for candidates.
+ * Ordinary candidate launches must be able to exercise the GUI and document
+ * paths without prompting for the user's production Keychain.
+ */
+export function isCandidateCredentialAccessAllowed(
+  configuredEnv: NodeJS.ProcessEnv = process.env
+): boolean {
+  return configuredEnv.WORKWISE_CANDIDATE !== '1' || configuredEnv.WORKWISE_CANDIDATE_CREDENTIAL_ACCESS === '1'
 }
 
 export function isUnconfiguredRecoveryCandidate(
