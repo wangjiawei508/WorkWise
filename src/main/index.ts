@@ -13,7 +13,7 @@ import workwiseLogoPng from '../asset/img/workwise.png?url'
 import workwiseDockPng from '../asset/img/workwise_dock.png?url'
 import workwiseTrayPng from '../asset/img/workwise_tray.png?url'
 import { createAppIcon, pickTrayIcon } from './app-icon'
-import { configureLinuxWaylandImeSwitches } from './app-command-line'
+import { configureChromiumUserDataPath, configureLinuxWaylandImeSwitches } from './app-command-line'
 import { configureAppIdentity } from './app-identity'
 import { createNotificationClickHandler } from './notification-navigation'
 import { isActiveThreadActuallyVisible } from './notification-visibility'
@@ -35,6 +35,7 @@ import {
   runCandidateRuntimeProbe,
   verifyCandidateServiceListeners,
   sanitizeCandidateProcessEnvironment,
+  isCandidateImProviderConnectionAllowed,
   UNCONFIGURED_RECOVERY_CANDIDATE_EXIT_CODE
 } from './candidate-runtime'
 import {
@@ -65,6 +66,7 @@ import { getManagedRuntimeActualPort } from './managed-runtime-process'
 import { waitForRuntimeTurnsIdle } from './runtime/managed-runtime-idle'
 import { configureLogger, logError, logWarn, pruneOnStartup } from './logger'
 import { createClawRuntime, type ClawRuntime } from './claw-runtime'
+import { shouldAutoRecoverFeishuHealth } from './im-health-recovery-policy'
 import { createScheduleRuntime, type ScheduleRuntime } from './schedule-runtime'
 import { migrateSchedulesToFlows } from './schedule-flow-migration'
 import { runClawScheduleMcpServerFromArgv } from './claw-schedule-mcp-server'
@@ -86,8 +88,7 @@ import { registerRuntimeSseIpc, stopAllRuntimeSse } from './runtime-sse-ipc'
 import { appCancellationRegistry } from './cancellation-registry'
 import { drainSerializedWrites } from './services/durable-file'
 import {
-  ImCredentialService,
-  protectImChannelCredentials
+  ImCredentialService
 } from './services/im-credential-service'
 import {
   isImCredentialHelperProcess,
@@ -167,7 +168,8 @@ function traceStartup(label: string, detail?: unknown): void {
 }
 
 function shouldStartWeixinBridgeRuntime(settings: AppSettingsV1): boolean {
-  return settings.claw.enabled &&
+  return isCandidateImProviderConnectionAllowed('weixin') &&
+    settings.claw.enabled &&
     settings.claw.im.enabled &&
     settings.claw.channels.some((channel) => channel.enabled && channel.provider === 'weixin')
 }
@@ -250,6 +252,11 @@ if (unconfiguredRecoveryCandidate) {
   app.setPath('sessionData', quarantinePaths.sessionData)
   app.setPath('crashDumps', quarantinePaths.crashDumps)
   app.setPath('logs', quarantinePaths.logs)
+  // Chromium helpers do not derive their profile directory from Electron's
+  // app.setPath('userData'). Pass the quarantine path explicitly so an
+  // unconfigured candidate cannot start GPU/network helpers against the
+  // production profile.
+  configureChromiumUserDataPath(quarantinePaths.userData)
 }
 
 const candidateRuntimePaths = resolveCandidateRuntimePaths()
@@ -267,6 +274,10 @@ if (candidateRuntimePaths) {
     runningImCredentialHelper,
     (name, path) => app.setPath(name, path)
   )
+  // Electron's child helpers inherit Chromium's command-line profile, not
+  // the value changed through app.setPath(). Keep every candidate process in
+  // the same isolated userData tree before any window or helper is created.
+  configureChromiumUserDataPath(app.getPath('userData'))
   process.env.WORKWISE_TOOLS_ROOT = candidateRuntimePaths.toolsRoot
   process.env.WORKWISE_UPDATE_PROVIDER = 'none'
   configureManagedRuntimeStartOptions({
@@ -1243,21 +1254,11 @@ app.whenReady().then(async () => {
   imDeliveryLedger = new ImDeliveryLedger(join(app.getPath('userData'), 'communication', 'messages.sqlite3'))
   imHealthService = new ImHealthService()
   await imHealthService.load()
-  try {
-    // Startup migration must be durable. If Keychain authorization is not
-    // available, leave the legacy value in the main-process settings object
-    // and keep the channel unavailable until an explicit reconnect retries it.
-    const migratedChannels = await protectImChannelCredentials(initial.claw.channels, imCredentialService, {
-      requirePersistent: true
-    })
-    if (migratedChannels.some((channel, index) => channel !== initial.claw.channels[index])) {
-      initial = await store.patch({ claw: { channels: migratedChannels } })
-    }
-  } catch (error) {
-    console.warn('[im-credentials] startup migration deferred until protected storage is available.', {
-      code: error && typeof error === 'object' && 'code' in error ? String(error.code) : 'migration_failed'
-    })
-  }
+  // Do not migrate legacy IM secrets during startup. On macOS this would
+  // access the user's Keychain before they explicitly asked to reconnect and
+  // show a system permission dialog on every cold start. The main-process
+  // settings object keeps the legacy value private, while the existing
+  // start/reconnect IPC path performs the durable migration on demand.
   traceStartup('settings load:done')
   appBehavior = initial.appBehavior
   syncApplicationMenu(initial)
@@ -1344,7 +1345,7 @@ app.whenReady().then(async () => {
     imEnabled: initial.claw.im.enabled,
     enabledChannels: initial.claw.channels.filter((channel) => channel.enabled).length
   })
-  clawRuntime.sync(initial)
+  clawRuntime.sync(initial, { deferProtectedCredentialAccess: true })
   traceStartup('claw runtime sync:scheduled')
   imHealthService.onChange((health) => {
     if (!mainWindow || mainWindow.isDestroyed()) return
@@ -1400,13 +1401,13 @@ app.whenReady().then(async () => {
       else if (status.status === 'stopped') imHealthService.stop(channel.id, status.message || '微信连接已暂停。')
     }
     imHealthService.supervise((health) => {
-      if (health.provider === 'feishu' && (health.status === 'stale' || health.status === 'retrying')) {
+      // A cold-start credential deferral is intentionally terminal until the
+      // user asks to reconnect. Retrying it here would wake the Keychain
+      // helper again and recreate the macOS authorization popup that startup
+      // is specifically designed to avoid.
+      if (shouldAutoRecoverFeishuHealth(health)) {
+        if (!isCandidateImProviderConnectionAllowed('feishu')) return
         void (async () => {
-          // A protected credential failure can be transient. Ask the isolated
-          // helper for one fresh Keychain attempt before rebuilding the bridge.
-          if (health.reasonCode === 'credential_unavailable') {
-            await imCredentialService?.retryProtectedStorage()
-          }
           await clawRuntime?.reconnectChannel(health.channelId)
         })().catch((error) => logWarn('im-health', 'Failed to reconnect unhealthy Feishu channel.', { message: error instanceof Error ? error.message : String(error) }))
       }

@@ -1,13 +1,15 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const appendSwitch = vi.fn()
+const removeSwitch = vi.fn()
 const hasSwitch = vi.fn()
 
 vi.mock('electron', () => ({
   app: {
     commandLine: {
       hasSwitch,
-      appendSwitch
+      appendSwitch,
+      removeSwitch
     }
   }
 }))
@@ -15,6 +17,7 @@ vi.mock('electron', () => ({
 describe('app command line bootstrap', () => {
   beforeEach(() => {
     appendSwitch.mockReset()
+    removeSwitch.mockReset()
     hasSwitch.mockReset()
     hasSwitch.mockReturnValue(false)
     vi.resetModules()
@@ -28,6 +31,24 @@ describe('app command line bootstrap', () => {
     expect(appendSwitch).toHaveBeenCalledTimes(2)
     expect(appendSwitch).toHaveBeenNthCalledWith(1, 'ozone-platform-hint', 'auto')
     expect(appendSwitch).toHaveBeenNthCalledWith(2, 'enable-wayland-ime')
+  })
+
+  it('passes isolated candidate userData to Chromium child processes', async () => {
+    const { configureChromiumUserDataPath } = await import('./app-command-line')
+
+    configureChromiumUserDataPath('/private/tmp/workwise-candidate/user-data')
+
+    expect(removeSwitch).toHaveBeenCalledWith('user-data-dir')
+    expect(appendSwitch).toHaveBeenCalledWith(
+      'user-data-dir',
+      '/private/tmp/workwise-candidate/user-data'
+    )
+  })
+
+  it('rejects an empty Chromium userData path', async () => {
+    const { configureChromiumUserDataPath } = await import('./app-command-line')
+
+    expect(() => configureChromiumUserDataPath('  ')).toThrow('must not be empty')
   })
 
   it('keeps user-provided switches unchanged', async () => {

@@ -5,15 +5,13 @@
 
 ## 目标
 
-在不增加第二 Runtime、Provider Switcher、Remote Web 或任意 DOM 插件的前提下，完成 PDF 分层解析与 DeepSeek Harness 机制集成，并用当前代码、当前测试和当前候选包证据区分实现完成度与真实外部服务验收状态。
+完成 PDF 分层解析与 DeepSeek Harness 机制集成，并用当前代码、当前测试、当前候选包和真实外部服务证据完成验收。第二 Runtime、Provider Switcher、Remote Web 和任意 DOM 插件不属于本次产品目标。
 
-## 不在范围
+## 本轮授权
 
-- 不修改 OpenAI Official 配置或用户正在使用的第三方 API。
-- 不向微信发送测试消息，不修改微信连接状态。
-- 不覆盖 `/Applications/WorkWise.app`。
-- 不发布正式版本、Git 标签、GitHub Release、官网或稳定更新源。
-- 不用 mock、旧日志或旧候选包证明当前真实 OCR、视觉分析或 IM 链路成功。
+用户已于 2026-08-22 明确授权取消本计划原有的“非范围”和发布阻塞项，继续推进实现、真实服务验收和交付准备。以下事项不再作为本轮开发的默认阻塞：第三方 API 配置接入、OCR/视觉真实端点验收、IM 连接验收、候选安装包安装，以及版本交付准备。
+
+外部账号操作仍必须使用明确的服务地址、账号和目标会话；不得把历史日志、mock 或旧候选包冒充当前真实结果。正式版本动作仍以实际要执行的版本和动作记录为准。
 
 ## 实施任务
 
@@ -78,19 +76,19 @@ git diff --check origin/main...HEAD
 
 ## 当前候选隔离证据
 
-- [x] 最后一个完成包级人工验收的候选源码固定为提交 `dbd44ff3b872f583eb0cb7538ffbdf608292c8d2`；设置事务实现提交 `29912f251b2541ffebaec0a55cebd129a5e9ae03` 等后续修复只以源码和自动化证据计入，不冒充该候选包已重新验证。
+- [x] 应用代码基线 `5712e4c77a75e2fd6ab7b3fe3f541eb719110e64` 已重新构建隔离候选包；设置事务实现提交 `29912f251b2541ffebaec0a55cebd129a5e9ae03` 等后续修复不再依赖旧候选包证据。
 - [x] Electron 的 `userData`、`cache`、`sessionData`、`crashDumps` 和 `logs` 全部重定向到候选根目录，并在窗口创建前完成设置。
 - [x] 候选进程不继承父进程的 `DEEPSEEK_API_KEY`；正式版环境和用户保存的第三方配置保持原行为。
-- [x] 唯一 bundle ID `com.wangjiawei508.workwise.candidate.headdbd44ff3b872` 的 macOS arm64 候选包 `WorkWise Candidate dbd44ff3b872.app` 已从干净 detached worktree 生成，正式 `/Applications/WorkWise.app` 未被覆盖。
-- [x] 候选 ASAR 完整性、MarkItDown sidecar、严格签名校验和 packaged SQLite ABI 148 smoke 通过。
-- [x] 启动当前候选包并完成浅色/深色界面、PDF 设置、打包 PDF 预览、全尺寸 Workbench 和零正式数据继承检查；候选只使用隔离 userData、空正式历史与临时回环模型配置。
+- [x] 唯一 bundle ID `com.wangjiawei508.workwise.candidate.head5712e4c77a75` 的 macOS arm64 候选包 `WorkWise Candidate 5712e4c77a75.app` 已从干净工作树生成，正式 `/Applications/WorkWise.app` 未被覆盖。
+- [x] 当前候选 ASAR 完整性、MarkItDown sidecar、ad-hoc 严格签名校验和 packaged SQLite ABI 148 smoke 通过；未将 ad-hoc 签名描述为生产签名或公证。
+- [ ] 当前候选包的浅色/深色 UI、PDF 设置、打包 PDF 预览、全尺寸 Workbench 和零正式数据继承仍需一次人工启动检查；旧候选的 UI 记录不投影为当前包证据。
 - [x] 候选退出前已清空临时假密钥和本地模型桩地址；隔离设置文件中不再包含本地桩端口或假密钥。
 
-## 发布门禁
+## 交付检查
 
 - [x] 自动化测试、类型检查、Lint、构建和仓库策略验证通过。
-- [x] 当前候选包完成浅色/深色和支持窗口尺寸的人工 UI 验收。
-- [ ] 真实 OCR、视觉端点和指定飞书自助手机器人测试聊天的外部验收按可用环境完成；当前候选配置中 OCR 与视觉端点均为空，本轮不通过重复扫码或发送消息制造证据。
-- [ ] 用户确认准确版本号和发布动作。
+- [ ] 当前候选包完成浅色/深色和支持窗口尺寸的人工 UI 验收；旧候选的 UI 结果仅作历史参考。
+- [ ] 真实 OCR、视觉端点和指定飞书自助手机器人测试聊天的外部验收按可用环境完成。
+- [ ] 记录准确版本号和实际交付动作。
 
 未完成的人工或外部服务项不得被标记为 `DONE`，也不得阻塞继续完善仓库内可验证的代码与候选包。

@@ -35,6 +35,8 @@ const USER_DATA_ARG = '--user-data-dir='
 const CANDIDATE_ENV_FILE_ARG = '--workwise-candidate-env-file='
 const CANDIDATE_BUNDLE_IDENTIFIER = 'com.wangjiawei508.workwise.imcandidate.recovery'
 const CANDIDATE_BUNDLE_NAME = 'WorkWise IM Recovery Candidate.app'
+const SOURCE_HEAD_CANDIDATE_BUNDLE_PATTERN = /^WorkWise Candidate [0-9a-f]{12}\.app$/i
+const SOURCE_HEAD_CANDIDATE_IDENTIFIER_PATTERN = /^com\.wangjiawei508\.workwise\.candidate\.head[0-9a-f]{12}$/i
 const CANDIDATE_ENV_KEYS = new Set([
   'WORKWISE_CANDIDATE',
   'WORKWISE_CANDIDATE_ROOT',
@@ -51,7 +53,8 @@ const CANDIDATE_ENV_KEYS = new Set([
   'WORKWISE_CANDIDATE_ALLOWED_FEISHU_COMMAND',
   'WORKWISE_CANDIDATE_ALLOWED_WEIXIN_CHAT_ID',
   'WORKWISE_CANDIDATE_ALLOWED_WEIXIN_COMMAND',
-  'WORKWISE_CANDIDATE_CREDENTIAL_HELPER'
+  'WORKWISE_CANDIDATE_CREDENTIAL_HELPER',
+  'WORKWISE_CANDIDATE_CREDENTIAL_ACCESS'
 ])
 
 export function candidateServicePortPatch(ports: CandidateServicePorts): AppSettingsPatch {
@@ -198,8 +201,12 @@ function isRecoveryCandidateExecutable(
   resourcesPath: string | undefined = process.resourcesPath
 ): boolean {
   if (/^WorkWise IM Recovery Candidate(?:\.exe)?$/i.test(basename(executablePath))) return true
-  if (basename(resolve(resourcesPath ?? '', '..', '..')) !== CANDIDATE_BUNDLE_NAME) return false
-  return recoveryCandidateBundleIdentifier(resourcesPath) === CANDIDATE_BUNDLE_IDENTIFIER
+  if (/^WorkWise Candidate [0-9a-f]{12}(?:\.exe)?$/i.test(basename(executablePath))) return true
+  if (/\/WorkWise Candidate [0-9a-f]{12}\.app(?:\/|$)/i.test(executablePath)) return true
+  const bundleName = basename(resolve(resourcesPath ?? '', '..', '..'))
+  if (bundleName !== CANDIDATE_BUNDLE_NAME && !SOURCE_HEAD_CANDIDATE_BUNDLE_PATTERN.test(bundleName)) return false
+  const identifier = recoveryCandidateBundleIdentifier(resourcesPath)
+  return identifier === CANDIDATE_BUNDLE_IDENTIFIER || SOURCE_HEAD_CANDIDATE_IDENTIFIER_PATTERN.test(identifier)
 }
 
 function decodeCandidateEnvironmentValue(rawValue: string): string {
@@ -346,6 +353,49 @@ export function isCandidateInboundAllowed(
     ? configuredEnv.WORKWISE_CANDIDATE_ALLOWED_FEISHU_COMMAND?.trim()
     : configuredEnv.WORKWISE_CANDIDATE_ALLOWED_WEIXIN_COMMAND?.trim()
   return Boolean(allowedCommand) && content.trim() === allowedCommand
+}
+
+/**
+ * Candidate provider connections are fail-closed. A provider may only start
+ * when the candidate has an explicit, bounded IM authorization for that
+ * provider. This keeps a disabled candidate from opening Keychain merely to
+ * discover that message handling is disabled.
+ */
+export function isCandidateImProviderConnectionAllowed(
+  provider: 'feishu' | 'weixin',
+  configuredEnv: NodeJS.ProcessEnv = process.env
+): boolean {
+  if (configuredEnv.WORKWISE_CANDIDATE !== '1') return true
+
+  const normalizedProvider = configuredEnv.WORKWISE_CANDIDATE_INBOUND_PROVIDER?.trim().toLowerCase()
+  const outboundProvider = configuredEnv.WORKWISE_CANDIDATE_OUTBOUND_PROVIDER?.trim().toLowerCase()
+  const chatId = provider === 'feishu'
+    ? configuredEnv.WORKWISE_CANDIDATE_ALLOWED_FEISHU_CHAT_ID?.trim()
+    : configuredEnv.WORKWISE_CANDIDATE_ALLOWED_WEIXIN_CHAT_ID?.trim()
+  const inboundCommand = provider === 'feishu'
+    ? configuredEnv.WORKWISE_CANDIDATE_ALLOWED_FEISHU_COMMAND?.trim()
+    : configuredEnv.WORKWISE_CANDIDATE_ALLOWED_WEIXIN_COMMAND?.trim()
+
+  const inboundAuthorized =
+    configuredEnv.WORKWISE_CANDIDATE_INBOUND_DISABLED === '0' &&
+    normalizedProvider === provider &&
+    Boolean(chatId && inboundCommand)
+  const outboundAuthorized =
+    configuredEnv.WORKWISE_CANDIDATE_OUTBOUND_DISABLED === '0' &&
+    outboundProvider === provider &&
+    Boolean(chatId)
+  return inboundAuthorized || outboundAuthorized
+}
+
+/**
+ * Protected storage is an explicit acceptance capability for candidates.
+ * Ordinary candidate launches must be able to exercise the GUI and document
+ * paths without prompting for the user's production Keychain.
+ */
+export function isCandidateCredentialAccessAllowed(
+  configuredEnv: NodeJS.ProcessEnv = process.env
+): boolean {
+  return configuredEnv.WORKWISE_CANDIDATE !== '1' || configuredEnv.WORKWISE_CANDIDATE_CREDENTIAL_ACCESS === '1'
 }
 
 export function isUnconfiguredRecoveryCandidate(

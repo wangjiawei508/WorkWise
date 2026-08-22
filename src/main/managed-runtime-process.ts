@@ -102,6 +102,18 @@ const DEFAULT_MANAGED_RUNTIME_MODEL_PROFILES: Record<string, Record<string, unkn
     outputModalities: ['text'],
     supportsToolCalling: true,
     messageParts: ['text']
+  },
+  'deepseek-v4-flash-vision-exp': {
+    contextWindowTokens: 1_000_000,
+    maxOutputTokens: 384_000,
+    contextCompaction: {
+      softThreshold: 980_000,
+      hardThreshold: 990_000
+    },
+    inputModalities: ['text', 'image'],
+    outputModalities: ['text'],
+    supportsToolCalling: true,
+    messageParts: ['text', 'image_url']
   }
 }
 

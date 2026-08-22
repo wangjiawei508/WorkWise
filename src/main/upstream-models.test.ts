@@ -124,7 +124,11 @@ describe('upstream model picker list', () => {
         })
       ]))
       const deepseek = result.modelGroups?.find((group) => group.providerId === 'deepseek')
-      expect(deepseek?.modelIds).toEqual(['deepseek-v4-flash', 'deepseek-v4-pro'])
+      expect(deepseek?.modelIds).toEqual([
+        'deepseek-v4-flash',
+        'deepseek-v4-flash-vision-exp',
+        'deepseek-v4-pro'
+      ])
     }
   })
 
@@ -151,12 +155,17 @@ describe('upstream model picker list', () => {
           'agnes-2.0-flash',
           'custom-provider-model',
           'deepseek-v4-flash',
+          'deepseek-v4-flash-vision-exp',
           'deepseek-v4-pro'
         ])
         expect(result.modelIds).not.toContain('deepseek-chat')
         expect(result.modelIds).not.toContain('deepseek-reasoner')
         expect(result.modelGroups?.find((group) => group.providerId === 'deepseek')?.modelIds)
-          .toEqual(['deepseek-v4-flash', 'deepseek-v4-pro'])
+          .toEqual([
+            'deepseek-v4-flash',
+            'deepseek-v4-flash-vision-exp',
+            'deepseek-v4-pro'
+          ])
       }
     } finally {
       globalThis.fetch = originalFetch

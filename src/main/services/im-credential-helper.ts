@@ -5,6 +5,7 @@ import { createConnection, createServer, type Server, type Socket } from 'node:n
 import { tmpdir } from 'node:os'
 import { isAbsolute, join, relative, resolve } from 'node:path'
 import { app, safeStorage } from 'electron'
+import { isCandidateCredentialAccessAllowed } from '../candidate-runtime'
 
 const HELPER_ARG = '--im-credential-helper'
 const HELPER_INTERACTIVE_ARG = '--im-credential-helper-interactive'
@@ -24,7 +25,8 @@ const CANDIDATE_HELPER_ENV_KEYS = [
   'WORKWISE_CANDIDATE_USER_DATA',
   'WORKWISE_CANDIDATE_CACHE',
   'WORKWISE_CANDIDATE_LOGS',
-  'WORKWISE_CANDIDATE_HOME'
+  'WORKWISE_CANDIDATE_HOME',
+  'WORKWISE_CANDIDATE_CREDENTIAL_ACCESS'
 ] as const
 
 export type CredentialHelperRequest = {
@@ -80,8 +82,25 @@ export function consumeInteractiveCredentialHelperAccess(): boolean {
   return requested
 }
 
-function helperRoot(): string {
-  return join(app.getPath('userData'), 'credential-helper')
+export function credentialHelperUserDataPath(
+  source: NodeJS.ProcessEnv = process.env,
+  applicationUserDataPath: string = app.getPath('userData')
+): string {
+  if (source.WORKWISE_CANDIDATE === '1') {
+    const candidateUserData = source.WORKWISE_CANDIDATE_USER_DATA?.trim()
+    if (candidateUserData && isAbsolute(candidateUserData)) {
+      return join(resolve(candidateUserData), 'credential-helper')
+    }
+    const candidateRoot = source.WORKWISE_CANDIDATE_ROOT?.trim()
+    if (candidateRoot && isAbsolute(candidateRoot)) {
+      return join(resolve(candidateRoot), 'user-data', 'credential-helper')
+    }
+  }
+  return join(applicationUserDataPath, 'credential-helper')
+}
+
+function helperRoot(source: NodeJS.ProcessEnv = process.env): string {
+  return credentialHelperUserDataPath(source)
 }
 
 export function imCredentialHelperSocketBase(
@@ -97,8 +116,7 @@ function helperSocketRoot(): string {
   return join(imCredentialHelperSocketBase(), HELPER_SOCKET_ROOT_NAME)
 }
 
-function helperArgs(socketPath: string, socketRoot: string, interactive: boolean): string[] {
-  const userData = helperRoot()
+function helperArgs(socketPath: string, socketRoot: string, interactive: boolean, userData: string): string[] {
   return [
     ...(app.isPackaged ? [] : [app.getAppPath()]),
     HELPER_ARG,
@@ -184,11 +202,10 @@ export function credentialHelperLaunch(
 }
 
 function spawnCredentialHelper(socketPath: string, socketRoot: string, interactive: boolean): ChildProcess {
-  const args = helperArgs(socketPath, socketRoot, interactive)
   const { env, executable } = credentialHelperProcessConfig()
-  if (env.WORKWISE_CANDIDATE === '1') {
-    env.WORKWISE_CANDIDATE_USER_DATA = helperRoot()
-  }
+  const userData = helperRoot(env)
+  if (env.WORKWISE_CANDIDATE === '1') env.WORKWISE_CANDIDATE_USER_DATA = userData
+  const args = helperArgs(socketPath, socketRoot, interactive, userData)
   const launch = credentialHelperLaunch(env, executable, args)
   const child = spawn(launch.command, launch.args, {
     env,
@@ -408,6 +425,11 @@ export function createCredentialHelperRequestScheduler(
 const scheduleCredentialHelperRequest = createCredentialHelperRequestScheduler(requestCredentialHelper)
 
 export async function encryptStringWithCredentialHelper(value: string): Promise<Buffer> {
+  if (!isCandidateCredentialAccessAllowed()) {
+    throw Object.assign(new Error('Candidate protected storage access is disabled.'), {
+      code: 'credential_helper_access_denied'
+    })
+  }
   const encrypted = await scheduleCredentialHelperRequest({
     operation: 'encrypt',
     value: Buffer.from(value, 'utf8').toString('base64')
@@ -416,6 +438,11 @@ export async function encryptStringWithCredentialHelper(value: string): Promise<
 }
 
 export async function decryptStringWithCredentialHelper(value: Buffer): Promise<string> {
+  if (!isCandidateCredentialAccessAllowed()) {
+    throw Object.assign(new Error('Candidate protected storage access is disabled.'), {
+      code: 'credential_helper_access_denied'
+    })
+  }
   const decrypted = await scheduleCredentialHelperRequest({
     operation: 'decrypt',
     value: value.toString('base64')
@@ -496,6 +523,7 @@ export async function runImCredentialHelperProcess(): Promise<void> {
       app.focus({ steal: true })
     }
     const request = await requestPromise
+    if (!isCandidateCredentialAccessAllowed()) throw new Error('Candidate protected storage access is disabled.')
     if (!safeStorage.isEncryptionAvailable()) throw new Error('Protected storage unavailable.')
     const value = request.operation === 'encrypt'
       ? (await safeStorage.encryptStringAsync(

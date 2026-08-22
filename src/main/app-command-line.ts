@@ -9,6 +9,19 @@ export function shouldConfigureLinuxWaylandImeSwitches(platform = process.platfo
   return platform === 'linux'
 }
 
+/**
+ * Electron's Chromium child processes use the command-line profile switch;
+ * changing app.setPath('userData') alone does not update their userData path.
+ */
+export function configureChromiumUserDataPath(userDataPath: string): void {
+  if (!userDataPath.trim()) throw new Error('Chromium userData path must not be empty.')
+  // Electron may initialize a default profile switch before the main bundle
+  // runs. appendSwitch() does not replace an existing switch, so remove it
+  // first to keep Chromium helpers out of the production profile.
+  app.commandLine.removeSwitch('user-data-dir')
+  app.commandLine.appendSwitch('user-data-dir', userDataPath)
+}
+
 export function configureLinuxWaylandImeSwitches(platform = process.platform): void {
   if (!shouldConfigureLinuxWaylandImeSwitches(platform)) return
 

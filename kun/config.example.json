@@ -63,6 +63,18 @@
         "outputModalities": ["text"],
         "supportsToolCalling": true,
         "messageParts": ["text"]
+      },
+      "deepseek-v4-flash-vision-exp": {
+        "contextWindowTokens": 1000000,
+        "maxOutputTokens": 384000,
+        "contextCompaction": {
+          "softThreshold": 980000,
+          "hardThreshold": 990000
+        },
+        "inputModalities": ["text", "image"],
+        "outputModalities": ["text"],
+        "supportsToolCalling": true,
+        "messageParts": ["text", "image_url"]
       }
     }
   },

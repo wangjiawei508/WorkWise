@@ -1,5 +1,5 @@
 const { execFileSync } = require('node:child_process')
-const { existsSync } = require('node:fs')
+const { existsSync, readdirSync } = require('node:fs')
 const { join, resolve } = require('node:path')
 
 const root = resolve(process.argv[2] || 'dist')
@@ -42,17 +42,30 @@ if (target === 'win') {
   process.exit(0)
 }
 
+function resolveMacAppName(directory) {
+  const outputDirectory = join(root, directory)
+  if (!existsSync(outputDirectory)) return null
+  const productionName = join(outputDirectory, 'WorkWise.app')
+  if (existsSync(productionName)) return 'WorkWise.app'
+  const candidates = readdirSync(outputDirectory, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory() && entry.name.endsWith('.app'))
+    .map((entry) => entry.name)
+  return candidates.length === 1 ? candidates[0] : null
+}
+
 const macTargets = [
   { arch: 'arm64', directory: 'mac-arm64' },
   { arch: 'x64', directory: 'mac' }
-].filter(({ directory }) => existsSync(join(root, directory, 'WorkWise.app')))
+]
+  .map((target) => ({ ...target, appName: resolveMacAppName(target.directory) }))
+  .filter((target) => target.appName)
 
 if (macTargets.length === 0) throw new Error(`No packaged macOS applications found under ${root}`)
 
 let executed = 0
 for (const candidate of macTargets) {
-  const appRoot = join(root, candidate.directory, 'WorkWise.app', 'Contents')
-  const executable = join(appRoot, 'MacOS', 'WorkWise')
+  const appRoot = join(root, candidate.directory, candidate.appName, 'Contents')
+  const executable = join(appRoot, 'MacOS', candidate.appName.replace(/\.app$/, ''))
   const modulePath = join(
     appRoot,
     'Resources',
