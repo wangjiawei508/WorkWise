@@ -87,8 +87,7 @@ import { registerRuntimeSseIpc, stopAllRuntimeSse } from './runtime-sse-ipc'
 import { appCancellationRegistry } from './cancellation-registry'
 import { drainSerializedWrites } from './services/durable-file'
 import {
-  ImCredentialService,
-  protectImChannelCredentials
+  ImCredentialService
 } from './services/im-credential-service'
 import {
   isImCredentialHelperProcess,
@@ -1254,30 +1253,11 @@ app.whenReady().then(async () => {
   imDeliveryLedger = new ImDeliveryLedger(join(app.getPath('userData'), 'communication', 'messages.sqlite3'))
   imHealthService = new ImHealthService()
   await imHealthService.load()
-  try {
-    // Startup migration must be durable. If Keychain authorization is not
-    // available, leave the legacy value in the main-process settings object
-    // and keep the channel unavailable until an explicit reconnect retries it.
-    // Recovery candidates must not touch protected storage for an unapproved
-    // provider merely because legacy settings contain a credential.
-    const migratableChannels = candidateRuntimePaths
-      ? initial.claw.channels.filter((channel) => isCandidateImProviderConnectionAllowed(channel.provider))
-      : initial.claw.channels
-    if (migratableChannels.length > 0) {
-      const migratedChannels = await protectImChannelCredentials(migratableChannels, imCredentialService, {
-        requirePersistent: true
-      })
-      const migratedById = new Map(migratedChannels.map((channel) => [channel.id, channel]))
-      const nextChannels = initial.claw.channels.map((channel) => migratedById.get(channel.id) ?? channel)
-      if (nextChannels.some((channel, index) => channel !== initial.claw.channels[index])) {
-        initial = await store.patch({ claw: { channels: nextChannels } })
-      }
-    }
-  } catch (error) {
-    console.warn('[im-credentials] startup migration deferred until protected storage is available.', {
-      code: error && typeof error === 'object' && 'code' in error ? String(error.code) : 'migration_failed'
-    })
-  }
+  // Do not migrate legacy IM secrets during startup. On macOS this would
+  // access the user's Keychain before they explicitly asked to reconnect and
+  // show a system permission dialog on every cold start. The main-process
+  // settings object keeps the legacy value private, while the existing
+  // start/reconnect IPC path performs the durable migration on demand.
   traceStartup('settings load:done')
   appBehavior = initial.appBehavior
   syncApplicationMenu(initial)
