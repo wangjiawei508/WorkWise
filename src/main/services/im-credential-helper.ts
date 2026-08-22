@@ -80,8 +80,25 @@ export function consumeInteractiveCredentialHelperAccess(): boolean {
   return requested
 }
 
-function helperRoot(): string {
-  return join(app.getPath('userData'), 'credential-helper')
+export function credentialHelperUserDataPath(
+  source: NodeJS.ProcessEnv = process.env,
+  applicationUserDataPath: string = app.getPath('userData')
+): string {
+  if (source.WORKWISE_CANDIDATE === '1') {
+    const candidateUserData = source.WORKWISE_CANDIDATE_USER_DATA?.trim()
+    if (candidateUserData && isAbsolute(candidateUserData)) {
+      return join(resolve(candidateUserData), 'credential-helper')
+    }
+    const candidateRoot = source.WORKWISE_CANDIDATE_ROOT?.trim()
+    if (candidateRoot && isAbsolute(candidateRoot)) {
+      return join(resolve(candidateRoot), 'user-data', 'credential-helper')
+    }
+  }
+  return join(applicationUserDataPath, 'credential-helper')
+}
+
+function helperRoot(source: NodeJS.ProcessEnv = process.env): string {
+  return credentialHelperUserDataPath(source)
 }
 
 export function imCredentialHelperSocketBase(
@@ -97,8 +114,7 @@ function helperSocketRoot(): string {
   return join(imCredentialHelperSocketBase(), HELPER_SOCKET_ROOT_NAME)
 }
 
-function helperArgs(socketPath: string, socketRoot: string, interactive: boolean): string[] {
-  const userData = helperRoot()
+function helperArgs(socketPath: string, socketRoot: string, interactive: boolean, userData: string): string[] {
   return [
     ...(app.isPackaged ? [] : [app.getAppPath()]),
     HELPER_ARG,
@@ -184,11 +200,10 @@ export function credentialHelperLaunch(
 }
 
 function spawnCredentialHelper(socketPath: string, socketRoot: string, interactive: boolean): ChildProcess {
-  const args = helperArgs(socketPath, socketRoot, interactive)
   const { env, executable } = credentialHelperProcessConfig()
-  if (env.WORKWISE_CANDIDATE === '1') {
-    env.WORKWISE_CANDIDATE_USER_DATA = helperRoot()
-  }
+  const userData = helperRoot(env)
+  if (env.WORKWISE_CANDIDATE === '1') env.WORKWISE_CANDIDATE_USER_DATA = userData
+  const args = helperArgs(socketPath, socketRoot, interactive, userData)
   const launch = credentialHelperLaunch(env, executable, args)
   const child = spawn(launch.command, launch.args, {
     env,

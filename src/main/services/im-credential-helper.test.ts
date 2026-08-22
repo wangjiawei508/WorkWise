@@ -6,6 +6,7 @@ import {
   credentialHelperEnvironment,
   credentialHelperLaunch,
   credentialHelperProcessConfig,
+  credentialHelperUserDataPath,
   credentialHelperReadyPid,
   createCredentialHelperWatchdog,
   createCredentialHelperRequestScheduler,
@@ -114,6 +115,25 @@ describe('IM credential helper', () => {
     expect(config.executable).toBe('/private/tmp/candidate/authorized/WorkWise')
     expect(config.env).not.toHaveProperty('WORKWISE_CANDIDATE_CREDENTIAL_HELPER')
     expect(config.env).not.toHaveProperty('DEEPSEEK_API_KEY')
+  })
+
+  it('derives candidate helper data from the isolated environment instead of Electron defaults', () => {
+    expect(credentialHelperUserDataPath({
+      WORKWISE_CANDIDATE: '1',
+      WORKWISE_CANDIDATE_ROOT: '/private/tmp/candidate',
+      WORKWISE_CANDIDATE_USER_DATA: '/private/tmp/candidate/user-data'
+    }, '/Users/tester/Library/Application Support/WorkWise')).toBe(
+      '/private/tmp/candidate/user-data/credential-helper'
+    )
+    expect(credentialHelperUserDataPath({
+      WORKWISE_CANDIDATE: '1',
+      WORKWISE_CANDIDATE_ROOT: '/private/tmp/candidate'
+    }, '/Users/tester/Library/Application Support/WorkWise')).toBe(
+      '/private/tmp/candidate/user-data/credential-helper'
+    )
+    expect(credentialHelperUserDataPath({}, '/Users/tester/Library/Application Support/WorkWise')).toBe(
+      '/Users/tester/Library/Application Support/WorkWise/credential-helper'
+    )
   })
 
   it('accepts only a valid helper ready PID and can reap that exact process', () => {
