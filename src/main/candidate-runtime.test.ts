@@ -439,6 +439,22 @@ describe('resolveCandidateRuntimePaths', () => {
     }
   })
 
+  it('recognizes a framework executable inside a source-head candidate bundle', () => {
+    const root = mkdtempSync(join(tmpdir(), 'workwise-candidate-framework-'))
+    const file = join(root, 'candidate.env')
+    try {
+      writeFileSync(file, `WORKWISE_CANDIDATE=1\nWORKWISE_CANDIDATE_ROOT=${root}\n`)
+      expect(candidateEnvironmentFromArgv(
+        `${root}/WorkWise Candidate 4231176860bd.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Electron Framework`,
+        [`--workwise-candidate-env-file=${file}`],
+        {},
+        undefined
+      )).toMatchObject({ WORKWISE_CANDIDATE: '1', WORKWISE_CANDIDATE_ROOT: root })
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
   it('rejects a candidate launch file outside the declared isolated root', () => {
     const root = mkdtempSync(join(tmpdir(), 'workwise-candidate-launch-'))
     const outside = mkdtempSync(join(tmpdir(), 'workwise-candidate-outside-'))
