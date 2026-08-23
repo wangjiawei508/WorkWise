@@ -20,7 +20,7 @@
 
 WorkWise 面向需要长期上下文、反复修改和正式交付的工作。它不只是一个聊天窗口：项目文件、会话、文档、方法和扩展能力围绕同一个本地工作区组织，让 AI 真正参与从理解任务到交付成果的完整过程。
 
-**[0.3.4 纠错正式版](https://github.com/wangjiawei508/WorkWise/releases/tag/v0.3.4)**修复了 0.3.3 的工作区边界和首次可用性问题：Code、Write、Design、Flow 与定时任务不再互相伪装；Design 使用文档专属会话和可见的 AI 选中目标；Write 可直接添加招标 PDF/Office 文档并启动 Tender Master 编制流程；PPTX 改为完整可读的整页视觉参考；Flow 新建即提供可运行起始图。已安装 0.3.3 的用户可直接通过应用内更新升级。
+**[0.4.0 正式版](https://github.com/wangjiawei508/WorkWise/releases/tag/v0.4.0)**在上述工作台基础上交付统一插件市场、可验证安装、Codex 插件兼容、跨平台桌面玻璃窗口和结构化附件视觉处理。已安装 0.3.5 的用户可通过应用内更新升级。
 
 ## DeepSeek 原生默认支持
 
@@ -29,10 +29,10 @@ WorkWise 不是在通用聊天客户端上额外增加一个 DeepSeek 选项，�
 - **安装后直接配置 DeepSeek**：首次启动的模型配置只提供 DeepSeek API Key 和可选服务地址，不需要先理解或切换服务商；完成一次配置后，对话、写作和手机连接即可共用。没有 API Key 时仍可先使用本地写作和导出。
 - **按模型特长分工**：默认主 Agent 使用 `deepseek-v4-pro`，Write 行内补全默认使用 `deepseek-v4-flash`；定时任务、Flow 和其他 Agent 场景也可在两者之间选择。
 - **不是简单转发接口**：当前版本按 DeepSeek V4 的 100 万 token 上下文配置运行时，并支持思考模式、工具调用、长对话延续、上下文压缩和缓存用量统计。
-- DeepSeek 已于 2026 年 7 月 31 日更新 V4 Flash API 公测版本，进一步后训练并增强 Agent 能力，同时原生支持 Responses API 与 Codex。通过官方 API 选择 `deepseek-v4-flash` 时，服务端模型更新不要求重新安装 WorkWise。详见 [DeepSeek 官方公告](https://x.com/deepseek_ai/status/2083084415157022911)。
-- 此次更新只涉及 V4 Flash；截至 2026 年 8 月 4 日，新版 V4 Pro 尚未完成同轮更新。待其正式发布后，WorkWise 将统一验证 Flash/Pro 的默认路由、Responses API、推理档位、长工具链、文档检索与 Flow 场景，不提前把预告能力写成已交付功能。
+- **接入 DeepSeek Harness**：0.4.0 的 WorkWise Runtime 根据模型能力处理图片附件，支持结构化 `text/image` 消息部分；文本模型使用本机回环视觉证据分析器生成 OCR、布局、语义和视觉摘要。分析器不可用或失败时明确报告失败，不把图片退化为 Base64 文本。
+- 这里描述的是 WorkWise 实际接入的 Runtime 适配、附件合约和视觉证据路径，不代表客户端内置了上游 DeepSeek Harness 的全部代码或最新能力。模型服务和上游项目的变化以 [DeepSeek 官方文档](https://api-docs.deepseek.com/updates) 为准。
 
-完整支持范围与版本边界见[软件介绍](./docs/product-introduction.zh-CN.md)。DeepSeek V4 的公开模型参数和接口说明见[官方发布说明](https://api-docs.deepseek.com/news/news260424)。
+完整支持范围与版本边界见[软件介绍](./docs/product-introduction.zh-CN.md)；实现边界见 [DeepSeek Harness 接入说明](./docs/DEEPSEEK_HARNESS.zh-CN.md)。DeepSeek V4 的公开模型参数和接口说明见[官方发布说明](https://api-docs.deepseek.com/news/news260424)。
 
 ## 一眼看懂
 
@@ -123,7 +123,7 @@ Flow 默认可见并标注 Preview。未配置模型、外部账号或配套 CLI
 
 ## 更新与帮助
 
-WorkWise 0.3.4 继续使用 `railwise.cn` 官方 Stable 更新源：
+WorkWise 0.4.0 继续使用 `railwise.cn` 官方 Stable 更新源：
 
 - 启动后检查，并每 24 小时在后台复查；发现新版本时顶部显示蓝色更新图标。
 - 第一次点击只在后台下载并显示进度，不会退出应用；下载完成后变为“重启并更新”。
@@ -136,7 +136,7 @@ WorkWise 0.3.4 继续使用 `railwise.cn` 官方 Stable 更新源：
 
 | 状态 | 说明 |
 | --- | --- |
-| 稳定能力 | Code、Write、Design、持久化任务、Agent、四级权限、MCP V2、通用文档附件、文档分段检索、成果验证和应用内更新 |
+| 稳定能力 | Code、Write、Design、DeepSeek Harness 结构化附件处理、持久化任务、Agent、四级权限、MCP V2、通用文档附件、文档分段检索、成果验证和应用内更新 |
 | Preview | Flow 画布、类型化节点、Mock/单节点测试、发布校验、运行历史、审批与失败恢复 |
 | 可选能力 | MinerU 高精度解析、在线 Skill 更新、连接手机和外部命令行工具 |
 | 后续方向 | 更多多模态生成节点、行业节点和企业集成 |

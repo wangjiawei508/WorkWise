@@ -6,8 +6,8 @@ $workwiseDocs = rw_workwise_docs();
 $currentPage = 'products';
 $bodyClass = 'page-product page-product-workwise';
 $pageTitle = 'WorkWise · DeepSeek V4 Pro 与可靠 AI 工作台';
-$pageDesc = 'WorkWise 0.4.0 提供统一插件市场、可验证安装、Codex 插件兼容、结构化视觉处理与清晰可读的桌面工作区。';
-$pageKeywords = 'WorkWise,WorkWise 0.4.0,统一插件市场,Codex 插件,DeepSeek V4 Pro,结构化视觉,应用内更新,Skills,MCP,AI 工作台';
+$pageDesc = 'WorkWise 0.4.0 提供统一插件市场、可验证安装、Codex 插件兼容、DeepSeek Harness 结构化附件处理与清晰可读的桌面工作区。';
+$pageKeywords = 'WorkWise,WorkWise 0.4.0,统一插件市场,Codex 插件,DeepSeek V4 Pro,DeepSeek Harness,结构化视觉,应用内更新,Skills,MCP,AI 工作台';
 $pageHeroVisualKey = 'product-workwise';
 $pageOgImage = 'https://www.railwise.cn/images/heroes/desktop/product-workwise.jpg';
 $workwiseReleaseUrl = (string)$workwiseManifest['releaseUrl'];
@@ -42,6 +42,7 @@ $workwiseWriteShots = [
 ];
 $workwiseCapabilities = [
   ['title' => 'DeepSeek V4 Pro 正式可用', 'desc' => '内置 V4 Pro 与 V4 Flash：主 Agent 默认 Pro，Write 行内补全默认 Flash；正式 Pro 提供 1M 上下文和最高 384K 输出。', 'icon' => 'fas fa-bolt', 'tone' => 'workwise-code'],
+  ['title' => 'DeepSeek Harness 附件视觉证据', 'desc' => 'WorkWise Runtime 按模型能力发送结构化 text/image 部分；文本模型使用本机回环分析器生成 OCR、布局、语义和视觉摘要，失败时明确终止，不把图片退回为模型提示中的 Base64 文本。', 'icon' => 'fas fa-eye', 'tone' => 'workwise-write'],
   ['title' => '统一插件市场', 'desc' => '把 Skill、MCP 和 CLI 放进同一目录，按推荐、已安装、可更新、需配置、分类和来源筛选，并集中查看版本、许可证、权限、认证与健康状态。', 'icon' => 'fas fa-boxes-stacked', 'tone' => 'workwise-plugin'],
   ['title' => 'Codex 与 MCPB 兼容', 'desc' => '支持 WorkWise .wwx、Codex .codex-plugin、标准 .mcpb、Codex marketplace 和 MCP Registry；仅依赖 Codex App Connector 的能力会明确标注。', 'icon' => 'fas fa-puzzle-piece', 'tone' => 'workwise-skills'],
   ['title' => '可验证安装与回滚', 'desc' => '安装前检查来源、许可证、权限、哈希、路径和依赖，使用 staging 原子切换；权限扩张必须重新审查，并保留单版本回滚。', 'icon' => 'fas fa-shield-halved', 'tone' => 'workwise-update'],
@@ -61,7 +62,7 @@ $workwiseCapabilities = [
 $workwiseStatus = [
   ['label' => '正式可用', 'title' => '核心链路已可交付', 'text' => implode('、', $workwiseManifest['capabilityStatus']['stable'] ?? []) . '。', 'icon' => 'fas fa-circle-check'],
   ['label' => '预览能力', 'title' => '持续扩展智能体能力', 'text' => implode('、', $workwiseManifest['capabilityStatus']['preview'] ?? []) . '。', 'icon' => 'fas fa-flask'],
-  ['label' => '发展方向', 'title' => 'V4 Pro 深度验收与能力扩展', 'text' => implode('、', $workwiseManifest['capabilityStatus']['roadmap'] ?? []) . '。', 'icon' => 'fas fa-route'],
+  ['label' => '发展方向', 'title' => '上游 Harness 兼容评估与能力扩展', 'text' => implode('、', $workwiseManifest['capabilityStatus']['roadmap'] ?? []) . '。', 'icon' => 'fas fa-route'],
 ];
 $workwiseAdvantages = [
   ['title' => '从聊天到可靠任务', 'desc' => '任务在中断后可恢复；只有最终响应、必要节点和产物都校验通过才算完成。', 'icon' => 'fas fa-list-check'],
@@ -70,7 +71,7 @@ $workwiseAdvantages = [
   ['title' => 'PPT 往返编辑更可靠', 'desc' => '可编辑 PPTX 原生导入保留文字、形状、图片和连线；复杂页面可使用整页参考图并按页重新导入。', 'icon' => 'fas fa-object-group'],
   ['title' => '桌面工作区更可控', 'desc' => '四级工作区信任、凭据引用和非破坏性 Git 检查点，让复杂任务更容易回看与恢复。', 'icon' => 'fas fa-laptop-code'],
   ['title' => '写作与经验可以积累', 'desc' => 'Word 模板、AI Word 与经审计的专业 Skills，让写作、排版和方法复用进入同一套工作流。', 'icon' => 'fas fa-file-export'],
-  ['title' => '附件先在本地处理', 'desc' => '文档和图片在本地解析，长文档按需检索，回答可以回到页码、工作表或幻灯片来源。', 'icon' => 'fas fa-paperclip'],
+  ['title' => '附件先在本地处理', 'desc' => '文档和图片在本地解析，长文档按需检索；图片视觉证据只作为不可信参考，回答可以回到页码、工作表或幻灯片来源。', 'icon' => 'fas fa-paperclip'],
   ['title' => '更新过程可控', 'desc' => '首次点击只下载；再次点击才重启更新，应用会先保存编辑内容、列出活动任务并建立检查点。', 'icon' => 'fas fa-arrows-rotate'],
 ];
 $workwiseExportFeatures = [
@@ -147,7 +148,7 @@ require_once __DIR__ . '/../../includes/header.php';
         <div class="pd-eyebrow"><span class="dot"></span> DeepSeek V4 原生默认支持 <span class="pd-product-badge brand-workwise">WorkWise</span></div>
         <h1 class="pd-title">WorkWise · 让 AI 进入真实工作流</h1>
         <p class="pd-subtitle">主 Agent 默认 V4 Pro · Write 默认 V4 Flash</p>
-        <p class="pd-desc">WorkWise 以 DeepSeek V4 作为开箱即用的默认模型底座。0.4.0 将 Skill、MCP 和 CLI 组织为统一插件市场，加入可验证安装、在线目录同步和 Codex 插件兼容，并交付结构化视觉处理与清晰可读的桌面工作区。</p>
+        <p class="pd-desc">WorkWise 以 DeepSeek V4 作为开箱即用的默认模型底座。0.4.0 将 Skill、MCP 和 CLI 组织为统一插件市场，加入可验证安装、在线目录同步和 Codex 插件兼容，并接入 DeepSeek Harness 的结构化附件处理与清晰可读的桌面工作区。</p>
         <div class="pd-cta-row">
           <a href="#download" class="pd-btn primary" <?php echo rw_tracking_attrs('conversion_click', ['location' => 'product_hero', 'label' => 'WorkWise 站内下载', 'product' => 'workwise', 'source' => 'product', 'destination' => 'local_mirror']); ?>>站内下载 <i class="fas fa-download"></i></a>
           <a href="https://kb.railwise.cn/products/workwise/" class="pd-btn ghost" <?php echo rw_tracking_attrs('conversion_click', ['location' => 'product_hero', 'label' => 'WorkWise 知识库', 'product' => 'workwise', 'source' => 'product', 'destination' => 'knowledge_base']); ?>>知识库文档 <i class="fas fa-book-open"></i></a>
@@ -367,7 +368,7 @@ require_once __DIR__ . '/../../includes/header.php';
     <div class="pd-section-head">
       <div class="pd-eyebrow dark">DOCUMENTATION</div>
       <h2>从下载到交付的使用文档</h2>
-      <p class="pd-section-sub">详细教程由 RailWise 知识库统一维护，版本、下载与产品页保持同步。</p>
+      <p class="pd-section-sub">详细教程由 RailWise 知识库维护；DeepSeek Harness 接入边界同时提供可核对的仓库说明，版本、下载与产品页保持同步。</p>
     </div>
     <div class="ww-doc-grid">
       <?php foreach ($workwiseDocs as $key => $doc): ?>

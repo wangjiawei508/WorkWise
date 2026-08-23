@@ -17,26 +17,29 @@ WorkWise 是一款本地优先的桌面 AI 工作台。它把项目文件、会�
 - 希望把个人方法、团队规范和行业模板沉淀为可复用 Skills 的组织。
 - 需要在本地工作区内连接模型、工具和公开知识来源的高级用户。
 
-## DeepSeek V4 适配与支持
+## DeepSeek V4 与 DeepSeek Harness 支持
 
 WorkWise 不是在通用聊天客户端上额外增加一个 DeepSeek 选项，而是从项目起点就围绕 DeepSeek 的模型能力和真实工作场景构建。DeepSeek 是当前开箱即用的默认模型底座；同时 WorkWise 保持开放，允许用户在首次配置后按需添加其他兼容模型服务。
 
-### 0.3.4 当前支持
+### 0.4.0 当前支持
 
 - 内置 `deepseek-v4-pro` 与 `deepseek-v4-flash` 模型配置，可直接连接 DeepSeek 官方 API，也可按组织要求配置兼容服务。
 - 首次启动的模型配置只提供 DeepSeek API Key 和可选服务地址；默认主 Agent 使用 `deepseek-v4-pro`，Write 行内补全默认使用 `deepseek-v4-flash`。一次配置即可供对话、写作和手机连接共用，没有 API Key 时仍可先使用本地写作和导出。
 - 按 DeepSeek V4 的 100 万 token 上下文建立运行时配置，并支持思考模式、工具调用、长对话历史延续、上下文压缩和缓存用量统计。DeepSeek 官方公布的模型能力与接口范围见 [DeepSeek V4 发布说明](https://api-docs.deepseek.com/news/news260424) 和 [模型与计费说明](https://api-docs.deepseek.com/quick_start/pricing)。
+- 接入 DeepSeek Harness 的 WorkWise 运行时适配：图片附件按模型能力选择结构化 `text/image` 消息部分，文本模型则通过本机回环视觉证据分析器生成结构化的 OCR、布局、语义和视觉摘要，再作为不可信证据提供给模型。分析器不可用或失败时明确终止本回合，不把图片退化成 Base64 文本；分析器自己的本机 HTTP 输入使用 `dataBase64` 传递图片字节，不等同于模型提示内容。
+- 本版本使用的是 WorkWise Runtime 自有的 DeepSeek 兼容适配、附件合约和 `VisionEvidencePort` 实现，没有把上游 DeepSeek Harness 仓库作为独立依赖或源码副本打包进客户端；未实现的上游能力不作为 WorkWise 0.4.0 能力宣传。
 - WorkWise 负责模型接入与工作流编排；API Key、模型可用性、调用额度和费用仍由用户选择的模型服务及其账户决定。
+
+实现边界和数据流见 [DeepSeek Harness 接入说明](./DEEPSEEK_HARNESS.zh-CN.md)。
 
 ### 2026 年 8 月模型状态
 
-- DeepSeek 已在 7 月 31 日上线经过进一步后训练的 V4 Flash API 公测版本。官方说明此次更新显著增强了 Agent 能力，并为 Responses API 与 Codex 做了原生适配。使用 DeepSeek 官方接口并选择 `deepseek-v4-flash` 时，模型版本由官方服务端更新，无需等待新的 WorkWise 安装包。详见 [DeepSeek 官方公告](https://x.com/deepseek_ai/status/2083084415157022911)。
-- 此次更新只涉及 V4 Flash；截至 2026 年 8 月 4 日，V4 Pro API 以及 DeepSeek App/Web 中的模型尚未完成同轮更新。WorkWise 不会在正式发布前把新版 V4 Pro 描述为已经可用。
-- 0.3.3 的 DeepSeek 内置服务仍以稳定的 Chat Completions 接口作为默认路径。运行时具备 Responses 协议兼容能力，但针对新版模型的原生参数、推理档位和 Agent 行为仍需通过实际验收后再作为默认能力启用。
+- DeepSeek V4 Pro API 的正式模型标识仍为 `deepseek-v4-pro`，WorkWise 0.4.0 使用该稳定标识；服务端模型更新不要求重新安装 WorkWise。模型服务的具体能力和接口范围以 [DeepSeek 官方文档](https://api-docs.deepseek.com/updates) 为准。
+- “DeepSeek Harness”是上游项目名称；WorkWise 文档只陈述本版本实际接入的运行时适配和附件路径，不把上游正在更新或尚未接入的功能写成已交付能力。
 
-### 下一版本优化方向
+### 后续优化方向
 
-待新版 V4 Pro 正式发布后，WorkWise 将对 V4 Flash 与 V4 Pro 进行同一套真实业务验收，再统一完成深度优化，包括默认模型与自动路由、Responses API、推理档位、长工具链、文档附件检索和 Flow 场景。这样可以基于正式模型能力做选择，避免为预告中的接口重复调整产品策略。
+后续会根据上游 DeepSeek Harness 和模型服务的实际变化，逐项评估多协议续接、推理档位、长工具链、文档附件检索与 Flow 场景。只有完成 WorkWise 自己的代码、测试和真实服务验收后，才会列入稳定能力。
 
 ## 主要工作方式
 

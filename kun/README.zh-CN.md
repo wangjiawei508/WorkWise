@@ -243,7 +243,7 @@ Kun 默认使用混合存储：`threads/{threadId}/messages.jsonl` 与 `events.j
 - `serve.runtimeTuning.toolStorm` 会抑制同一回合内重复的相同工具调用，阻止无意义 tool loop 继续烧 token。
 - `capabilities.web` 暴露 `web_fetch` 与/或 `web_search`。内置 provider 负责 HTTP(S) 抓取；GUI 管理的官方 DeepSeek V4 Pro / Flash Runtime 使用 DeepSeek Responses API 执行服务端搜索，第三方 Runtime 仍需自行配置搜索 provider。
 - `capabilities.skills` 扫描 `roots` 下的 `skill.json`，并在 `legacySkillMd` 为 `true` 时兼容 `SKILL.md`。
-- `capabilities.attachments` 将图片二进制从线程日志剥离，允许回合记录引用 `attachmentIds`。视觉模型直接接收图片部分；纯文本模型必须配置明确的本机回环视觉证据分析器，并只接收脱敏后的结构化证据。分析器不可用或失败时，本回合会明确失败，绝不会回退为 Base64 文本。旧版 `textFallback*` 设置仅为兼容读取旧配置/元数据保留。
+- `capabilities.attachments` 是 WorkWise 对 DeepSeek Harness 附件链的运行时实现：图片二进制从线程日志剥离，回合只引用 `attachmentIds`。视觉模型直接接收结构化图片部分；纯文本模型必须配置明确的本机回环视觉证据分析器，并只接收脱敏后的结构化证据。分析器不可用或失败时，本回合会明确失败，绝不会把图片退回为模型提示中的 Base64 文本。分析器自己的本机 HTTP 输入可以使用 `dataBase64`，这是本地传输格式，不是模型消息格式。旧版 `textFallback*` 设置仅为兼容读取旧配置/元数据保留。
 - `capabilities.memory` 在数据目录下持久化跨会话记忆，按作用域检索并注入上下文；也会公开 `memory_create`、`memory_update`、`memory_delete` 工具。
 - `capabilities.subagents` 通过 `maxParallel` 与 `maxChildRuns` 限制委派任务并发。
 
