@@ -15,7 +15,7 @@
 
 ## 验证
 
-- 发布候选提交：`b2402a5f8454baa649a0470cb7ae3aca91352a97`，版本固定为 `0.4.0`。
+- 发布源代码以最终 `v0.4.0` 标签为准，版本固定为 `0.4.0`；Windows 安装包验证同时检查 `workwise-markitdown.exe` 已进入 `app.asar.unpacked`。
 - macOS Vision Unlimited-OCR 两页 PDF 回环通过：页码 `[1,2]` 顺序正确、两页非空、耗时 `1472 ms`，关键内容包含 `VISION-ACCEPTANCE-042` / `Status: READY`。
 - DeepSeek `deepseek-v4-pro` 真实图片问答通过：`thread=thr_2gpkj5ps`、`turn=turn_27lab8jr`、答案 `WW-VISION-20260823`；请求/日志不含 `data:image` 或 `dataBase64`。
 - OpenSpec、品牌边界、许可证策略、ESLint、主/运行时 TypeScript、生产构建和差异检查全部通过。
