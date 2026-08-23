@@ -1,8 +1,9 @@
 # WorkWise 真实视觉与 OCR 回环验收
 
 日期：2026-08-22
-分支：`codex/workwise-plan-final-0.4.0`
-发布候选提交：`1b38a77`；多模态接入提交：`53f70be`
+原始验收分支：`codex/workwise-plan-final-0.4.0`
+原始验收提交：`1b38a77`；多模态接入提交：`53f70be`
+当前发布候选：`codex/release-0.4.0-final`，`0d6df6654801cb9a1c91cc4782d73d0ac0d987d0`（代码已包含上述实现）
 
 ## 验收范围
 
