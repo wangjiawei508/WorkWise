@@ -181,6 +181,7 @@ describe('document helper packaging policy', () => {
   it('preserves sidecar notices, hidden dylibs, and framework links as extra resources', () => {
     expect(markitdownResourceFilter).toEqual(expect.arrayContaining([
       'workwise-markitdown',
+      'workwise-markitdown.exe',
       'requirements.lock',
       'README.md',
       'THIRD_PARTY_NOTICES.md',
