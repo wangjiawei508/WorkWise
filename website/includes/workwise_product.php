@@ -13,9 +13,9 @@ if (!function_exists('rw_workwise_manifest')) {
 
         $fallback = [
             'name' => 'WorkWise',
-            'version' => '0.3.6',
-            'publishedAt' => '2026-08-12',
-            'releaseUrl' => 'https://github.com/wangjiawei508/WorkWise/releases/tag/v0.3.6',
+            'version' => '0.4.0',
+            'publishedAt' => '2026-08-24',
+            'releaseUrl' => 'https://github.com/wangjiawei508/WorkWise/releases/tag/v0.4.0',
             'repositoryUrl' => 'https://github.com/wangjiawei508/WorkWise',
             'platforms' => [],
             'docs' => [],

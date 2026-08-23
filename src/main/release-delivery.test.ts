@@ -254,8 +254,24 @@ describe('R2 release delivery gates', () => {
       versions: Record<string, Record<string, { name: string; sha256: string; size: number }>>
     }
     expect(baselines.schemaVersion).toBe(1)
-    expect(Object.keys(baselines.versions)).toEqual(['0.3.5'])
-    expect(baselines.versions).not.toHaveProperty('0.4.0')
+    expect(Object.keys(baselines.versions)).toEqual(['0.3.5', '0.4.0'])
+    expect(baselines.versions['0.4.0']).toEqual({
+      'darwin-arm64': {
+        name: 'WorkWise-0.4.0-mac-Apple-Silicon.dmg',
+        sha256: 'ba8ae699e968c3929f71f47f5a09285d64612963020158ebdf258629876a074a',
+        size: 292705261
+      },
+      'darwin-x64': {
+        name: 'WorkWise-0.4.0-mac-Intel.dmg',
+        sha256: '4d2545d36641233bb612ddbb21e23f547ed049c38116ae775160cba48b2996bc',
+        size: 297909271
+      },
+      'win32-x64': {
+        name: 'WorkWise-0.4.0-win-x64.exe',
+        sha256: 'e60f2d56916a9b75438275b55cf0d847cb44b0fecd67469693775a891b6ccb7e',
+        size: 232521558
+      }
+    })
     expect(workflow.jobs['build-macos'].env.MAC_CODESIGN_P12_BASE64).toContain('secrets.MAC_CODESIGN_P12_BASE64')
     const sidecarTransfer = workflow.jobs['build-document-sidecars'].steps.map((step: any) => step.run || '').join('\n')
     expect(sidecarTransfer).toContain('tar -czf')

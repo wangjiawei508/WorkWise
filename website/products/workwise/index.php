@@ -6,8 +6,8 @@ $workwiseDocs = rw_workwise_docs();
 $currentPage = 'products';
 $bodyClass = 'page-product page-product-workwise';
 $pageTitle = 'WorkWise · DeepSeek V4 Pro 与可靠 AI 工作台';
-$pageDesc = 'WorkWise 0.3.6 原生使用 DeepSeek V4 Pro 稳定模型 ID；DeepSeek-V4-Pro-0813 已正式可用，同时提供精选插件市场、特色 Skills 与可靠应用内更新。';
-$pageKeywords = 'WorkWise,WorkWise 0.3.6,DeepSeek V4 Pro,DeepSeek-V4-Pro-0813,插件市场,特色 Skills,工程监测,招投标,应用内更新,Skills,MCP,AI 工作台';
+$pageDesc = 'WorkWise 0.4.0 提供统一插件市场、可验证安装、Codex 插件兼容、结构化视觉处理与清晰可读的桌面工作区。';
+$pageKeywords = 'WorkWise,WorkWise 0.4.0,统一插件市场,Codex 插件,DeepSeek V4 Pro,结构化视觉,应用内更新,Skills,MCP,AI 工作台';
 $pageHeroVisualKey = 'product-workwise';
 $pageOgImage = 'https://www.railwise.cn/images/heroes/desktop/product-workwise.jpg';
 $workwiseReleaseUrl = (string)$workwiseManifest['releaseUrl'];
@@ -147,7 +147,7 @@ require_once __DIR__ . '/../../includes/header.php';
         <div class="pd-eyebrow"><span class="dot"></span> DeepSeek V4 原生默认支持 <span class="pd-product-badge brand-workwise">WorkWise</span></div>
         <h1 class="pd-title">WorkWise · 让 AI 进入真实工作流</h1>
         <p class="pd-subtitle">主 Agent 默认 V4 Pro · Write 默认 V4 Flash</p>
-        <p class="pd-desc">WorkWise 以 DeepSeek V4 作为开箱即用的默认模型底座。0.3.6 将 Skill、MCP 和 CLI 组织为经过筛选和分类的统一插件市场，恢复工程监测、招投标、文档与数据分析等特色 Skills，修复应用内更新链路，并恢复侧边栏与工作区的清晰可读样式。</p>
+        <p class="pd-desc">WorkWise 以 DeepSeek V4 作为开箱即用的默认模型底座。0.4.0 将 Skill、MCP 和 CLI 组织为统一插件市场，加入可验证安装、在线目录同步和 Codex 插件兼容，并交付结构化视觉处理与清晰可读的桌面工作区。</p>
         <div class="pd-cta-row">
           <a href="#download" class="pd-btn primary" <?php echo rw_tracking_attrs('conversion_click', ['location' => 'product_hero', 'label' => 'WorkWise 站内下载', 'product' => 'workwise', 'source' => 'product', 'destination' => 'local_mirror']); ?>>站内下载 <i class="fas fa-download"></i></a>
           <a href="https://kb.railwise.cn/products/workwise/" class="pd-btn ghost" <?php echo rw_tracking_attrs('conversion_click', ['location' => 'product_hero', 'label' => 'WorkWise 知识库', 'product' => 'workwise', 'source' => 'product', 'destination' => 'knowledge_base']); ?>>知识库文档 <i class="fas fa-book-open"></i></a>
@@ -190,7 +190,7 @@ require_once __DIR__ . '/../../includes/header.php';
     <div class="pd-section-head">
       <div class="pd-eyebrow dark">DEEPSEEK V4 NATIVE</div>
       <h2>不是一个模型选项，而是开箱即用的默认模型底座</h2>
-      <p class="pd-section-sub">以下产品口径与 WorkWise GitHub README、软件介绍一致；模型状态同时以 DeepSeek 官方文档为依据。0.3.6 已有能力与后续候选增强分别标注。</p>
+      <p class="pd-section-sub">以下产品口径与 WorkWise GitHub README、软件介绍一致；模型状态同时以 DeepSeek 官方文档为依据。0.4.0 已交付能力与后续增强分别标注。</p>
     </div>
     <div class="pd-caps-grid">
       <article class="pd-cap">
@@ -221,7 +221,7 @@ require_once __DIR__ . '/../../includes/header.php';
           <div>
             <span class="pd-eyebrow dark">2026-08-13 · DEEPSEEK-V4-PRO-0813</span>
             <h3>V4 Pro 已正式发布，无需重装 WorkWise</h3>
-            <p>正式 V4 Pro 的 API 模型 ID 仍是 <code>deepseek-v4-pro</code>，官方基础地址仍是 <code>https://api.deepseek.com</code>。WorkWise 0.3.6 已使用这两个稳定标识，因此服务端模型升级可直接生效。Responses/Anthropic 的完整推理续接与精确推理档位映射属于后续候选增强，不描述为 0.3.6 已交付能力。</p>
+            <p>正式 V4 Pro 的 API 模型 ID 仍是 <code>deepseek-v4-pro</code>，官方基础地址仍是 <code>https://api.deepseek.com</code>。WorkWise 0.4.0 已使用这两个稳定标识，因此服务端模型升级可直接生效。Responses/Anthropic 的完整推理续接与精确推理档位映射属于后续增强，不描述为 0.4.0 已交付能力。</p>
             <a href="https://api-docs.deepseek.com/updates" target="_blank" rel="noopener" class="cli-inline-link">查看 DeepSeek 官方更新日志 <i class="fas fa-arrow-up-right-from-square"></i></a>
           </div>
         </div>

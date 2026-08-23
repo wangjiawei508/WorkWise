@@ -17,6 +17,23 @@
         "sha256": "2b5405e9374351e23f135428c18f68b692764834eecf27dc994765aada96c763",
         "size": 232775003
       }
+    },
+    "0.4.0": {
+      "darwin-arm64": {
+        "name": "WorkWise-0.4.0-mac-Apple-Silicon.dmg",
+        "sha256": "ba8ae699e968c3929f71f47f5a09285d64612963020158ebdf258629876a074a",
+        "size": 292705261
+      },
+      "darwin-x64": {
+        "name": "WorkWise-0.4.0-mac-Intel.dmg",
+        "sha256": "4d2545d36641233bb612ddbb21e23f547ed049c38116ae775160cba48b2996bc",
+        "size": 297909271
+      },
+      "win32-x64": {
+        "name": "WorkWise-0.4.0-win-x64.exe",
+        "sha256": "e60f2d56916a9b75438275b55cf0d847cb44b0fecd67469693775a891b6ccb7e",
+        "size": 232521558
+      }
     }
   }
 }
