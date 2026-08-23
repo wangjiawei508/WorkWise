@@ -2394,7 +2394,10 @@ async function startBridgeServer(): Promise<string> {
   })
   await listen(server, port)
   logInfo('weixin-bridge', `started built-in GUI WeChat bridge on port ${port}`)
-  await startWeixinChannels({})
+  // Starting the local RPC bridge must not implicitly start persisted accounts.
+  // Account startup resolves protected credentials and can trigger a macOS
+  // Keychain authorization prompt during a normal app launch. The explicit
+  // start/reconnect paths below are the only places allowed to start monitors.
   return resolveRpcUrl()
 }
 
