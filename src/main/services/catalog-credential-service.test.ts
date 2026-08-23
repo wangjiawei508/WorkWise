@@ -23,6 +23,23 @@ afterEach(async () => {
 })
 
 describe('CatalogCredentialService', () => {
+  it('uses session storage for a candidate without touching protected storage', async () => {
+    const previousCandidate = process.env.WORKWISE_CANDIDATE
+    const previousAccess = process.env.WORKWISE_CANDIDATE_CREDENTIAL_ACCESS
+    process.env.WORKWISE_CANDIDATE = '1'
+    delete process.env.WORKWISE_CANDIDATE_CREDENTIAL_ACCESS
+    try {
+      const service = new CatalogCredentialService({ root })
+      await expect(service.set('catalog.candidate.token', 'candidate-token')).resolves.toBe('session')
+      await expect(service.resolve('catalog.candidate.token')).resolves.toBe('candidate-token')
+    } finally {
+      if (previousCandidate === undefined) delete process.env.WORKWISE_CANDIDATE
+      else process.env.WORKWISE_CANDIDATE = previousCandidate
+      if (previousAccess === undefined) delete process.env.WORKWISE_CANDIDATE_CREDENTIAL_ACCESS
+      else process.env.WORKWISE_CANDIDATE_CREDENTIAL_ACCESS = previousAccess
+    }
+  })
+
   it('stores persistent tokens only as safe-storage ciphertext', async () => {
     const key = 0x47
     const service = new CatalogCredentialService({

@@ -5,6 +5,7 @@ import { join, resolve } from 'node:path'
 import { safeStorage } from 'electron'
 import type { CatalogCredentialStatusV1 } from '../../shared/marketplace'
 import { atomicWriteFile, readRecoveredFile } from './durable-file'
+import { isCandidateCredentialAccessAllowed } from '../candidate-runtime'
 
 const MAX_SECRET_KEY_BYTES = 512
 const MAX_TOKEN_BYTES = 64 * 1024
@@ -17,6 +18,14 @@ export type CatalogCredentialEncryption = {
 }
 
 function defaultEncryption(): CatalogCredentialEncryption {
+  if (!isCandidateCredentialAccessAllowed()) {
+    return {
+      available: () => false,
+      encrypt: () => { throw new Error('Candidate protected storage access is disabled.') },
+      decrypt: () => { throw new Error('Candidate protected storage access is disabled.') },
+      storage: 'keychain'
+    }
+  }
   return {
     available: () => {
       try {

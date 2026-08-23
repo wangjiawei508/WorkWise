@@ -34,6 +34,7 @@ import type {
   GuiUpdateInstallResult,
   GuiUpdateState
 } from '../../shared/gui-update'
+import { isCandidateImProviderConnectionAllowed } from '../candidate-runtime'
 import type { DesignAsset } from '../../shared/design-document'
 import { canonicalizeContainmentRoot, isCanonicalPathContained } from '../services/canonical-containment'
 import {
@@ -1367,12 +1368,17 @@ export function registerAppIpcHandlers(options: RegisterAppIpcHandlersOptions): 
     const credentialService = getImCredentialService?.()
     if (!credentialService) return
     const latest = await store.load()
-    if (!latest.claw.channels.some(hasLegacyImChannelCredential)) return
-    const migratedChannels = await protectImChannelCredentials(latest.claw.channels, credentialService, {
+    const migratableChannels = latest.claw.channels.filter((channel) =>
+      process.env.WORKWISE_CANDIDATE !== '1' || isCandidateImProviderConnectionAllowed(channel.provider)
+    )
+    if (!migratableChannels.some(hasLegacyImChannelCredential)) return
+    const migratedChannels = await protectImChannelCredentials(migratableChannels, credentialService, {
       requirePersistent: true
     })
-    if (migratedChannels.some((item, index) => item !== latest.claw.channels[index])) {
-      await applySettingsPatch({ claw: { channels: migratedChannels } })
+    const migratedById = new Map(migratedChannels.map((channel) => [channel.id, channel]))
+    const nextChannels = latest.claw.channels.map((channel) => migratedById.get(channel.id) ?? channel)
+    if (nextChannels.some((item, index) => item !== latest.claw.channels[index])) {
+      await applySettingsPatch({ claw: { channels: nextChannels } })
     }
   }
   const lifecycle = async (kind: 'start' | 'reconnect' | 'stop' | 'disconnect', channelId?: string) => {

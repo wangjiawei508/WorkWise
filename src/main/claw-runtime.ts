@@ -34,7 +34,11 @@ import {
   type ImChannelHealthV1
 } from '../shared/im-communication'
 import type { ImLedgerMessageV1 } from './services/im-delivery-ledger'
-import { isCandidateInboundAllowed, isCandidateOutboundDisabled } from './candidate-runtime'
+import {
+  isCandidateImProviderConnectionAllowed,
+  isCandidateInboundAllowed,
+  isCandidateOutboundDisabled
+} from './candidate-runtime'
 import {
   CLAW_MODEL_IDS,
   DEFAULT_CLAW_MODEL,
@@ -510,14 +514,14 @@ export class ClawRuntime {
     this.deps = deps
   }
 
-  sync(settings: AppSettingsV1): void {
+  sync(settings: AppSettingsV1, options: { deferProtectedCredentialAccess?: boolean } = {}): void {
     traceImStartup('sync', {
       clawEnabled: settings.claw.enabled,
       imEnabled: settings.claw.im.enabled,
       enabledChannels: settings.claw.channels.filter((channel) => channel.enabled).length
     })
     this.syncWebhook(settings)
-    void this.syncFeishuChannels(settings).then(() => this.recoverPendingMessages())
+    void this.syncFeishuChannels(settings, options).then(() => this.recoverPendingMessages())
     void this.syncWeixinConnectWelcomes(settings)
   }
 
@@ -962,6 +966,7 @@ export class ClawRuntime {
     const settings = await this.deps.store.load()
     const channel = settings.claw.channels.find((item) => item.id === channelId && item.enabled)
     if (!channel) return
+    if (!isCandidateImProviderConnectionAllowed(channel.provider)) return
     const credential = channel.platformCredential
     const accountId = credential?.kind === 'weixin' ? credential.accountId : credential?.kind === 'feishu' ? credential.appId : channel.id
     this.deps.imHealth?.start({ channelId, provider: channel.provider, accountId, credentialStorage: channel.credentialRef?.storage })
@@ -976,6 +981,7 @@ export class ClawRuntime {
     const settings = await this.deps.store.load()
     const channel = settings.claw.channels.find((item) => item.id === channelId && item.enabled)
     if (!channel) return
+    if (!isCandidateImProviderConnectionAllowed(channel.provider)) return
     const credential = channel.platformCredential
     const accountId = credential?.kind === 'weixin' ? credential.accountId : credential?.kind === 'feishu' ? credential.appId : channel.id
     if (channel.provider === 'weixin') {
@@ -1628,7 +1634,7 @@ export class ClawRuntime {
   }
 
   private resolveFeishuChannels(settings: AppSettingsV1): FeishuClawChannel[] {
-    if (!settings.claw.enabled) return []
+    if (!settings.claw.enabled || !isCandidateImProviderConnectionAllowed('feishu')) return []
     return settings.claw.channels.filter(
       (channel): channel is FeishuClawChannel =>
         channel.enabled &&
@@ -2655,7 +2661,10 @@ export class ClawRuntime {
     }
   }
 
-  private async syncFeishuChannels(settings: AppSettingsV1): Promise<void> {
+  private async syncFeishuChannels(
+    settings: AppSettingsV1,
+    options: { deferProtectedCredentialAccess?: boolean } = {}
+  ): Promise<void> {
     const version = ++this.feishuSyncVersion
     const targets = this.resolveFeishuChannels(settings)
     traceImStartup('feishu sync', { targets: targets.length })
@@ -2679,6 +2688,26 @@ export class ClawRuntime {
         existingHealth?.status === 'expired' ||
         existingHealth?.reasonCode === 'credential_unavailable'
       )) {
+        continue
+      }
+      if (
+        options.deferProtectedCredentialAccess &&
+        !existingBridgeAtStart &&
+        target.credentialRef?.storage !== 'session'
+      ) {
+        // A cold start must not unlock macOS Keychain just because an enabled
+        // channel is present. An explicit reconnect calls sync() without this
+        // option and is the only path that may authorize protected storage.
+        this.deps.imHealth?.start({
+          channelId: target.id,
+          provider: 'feishu',
+          accountId: appId,
+          credentialStorage: target.credentialRef?.storage
+        })
+        this.deps.imHealth?.fail(target.id, {
+          reasonCode: 'credential_unavailable',
+          message: '现有飞书凭据仍在，请通过“重新连接”恢复系统钥匙串访问。'
+        })
         continue
       }
       if (!existingBridgeAtStart && existingHealth?.status !== 'starting') {

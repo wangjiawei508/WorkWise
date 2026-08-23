@@ -202,6 +202,7 @@ EOF
   write_env_assignment "${env_file}" WORKWISE_UPDATE_PROVIDER none
   write_env_assignment "${env_file}" WORKWISE_CANDIDATE_OUTBOUND_DISABLED 1
   write_env_assignment "${env_file}" WORKWISE_CANDIDATE_INBOUND_DISABLED 1
+  write_env_assignment "${env_file}" WORKWISE_CANDIDATE_CREDENTIAL_ACCESS "${WORKWISE_CANDIDATE_CREDENTIAL_ACCESS:-0}"
   if [[ -n "${CANDIDATE_CREDENTIAL_HELPER}" ]]; then
     write_env_assignment "${env_file}" WORKWISE_CANDIDATE_CREDENTIAL_HELPER "${CANDIDATE_CREDENTIAL_HELPER}"
   fi

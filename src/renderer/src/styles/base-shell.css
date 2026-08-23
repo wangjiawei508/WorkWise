@@ -17,7 +17,7 @@
   --text-placeholder: #758196;
 
   --ds-bg-main: var(--bg-app);
-  --ds-bg-sidebar: var(--bg-sidebar);
+  --ds-bg-sidebar: var(--ds-surface-subtle);
   --ds-bg-canvas: var(--bg-canvas);
   --ds-surface-card: var(--surface-1);
   --ds-surface-elevated: var(--surface-2);
@@ -54,8 +54,7 @@
   --ds-topbar-shadow:
     0 16px 42px rgba(15, 23, 42, 0.05),
     inset 0 1px 0 rgba(255, 255, 255, 0.64);
-  --ds-sidebar-gradient:
-    linear-gradient(180deg, rgba(252, 253, 255, 0.92) 0%, rgba(246, 249, 252, 0.88) 100%);
+  --ds-sidebar-gradient: var(--ds-surface-subtle);
   --ds-sidebar-haze:
     linear-gradient(180deg, rgba(255, 255, 255, 0.58), rgba(255, 255, 255, 0) 30%);
   --ds-sidebar-border: rgba(100, 116, 139, 0.12);
@@ -2598,16 +2597,11 @@ pre {
   flex: 0 0 1px;
   isolation: isolate;
   background: transparent;
+  opacity: 0;
 }
 
 .ds-workbench-divider::before {
-  content: '';
-  position: absolute;
-  inset-block: 0;
-  left: 50%;
-  width: 9px;
-  transform: translateX(-50%);
-  background: transparent;
+  content: none;
 }
 
 .ds-workbench-divider::after {

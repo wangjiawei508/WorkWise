@@ -25,6 +25,24 @@ describe('ImCredentialService', () => {
     expect(DEFAULT_CREDENTIAL_OPERATION_TIMEOUT_MS).toBeGreaterThanOrEqual(120_000)
   })
 
+  it('uses session storage for an ordinary candidate without touching Keychain', async () => {
+    const previousCandidate = process.env.WORKWISE_CANDIDATE
+    const previousAccess = process.env.WORKWISE_CANDIDATE_CREDENTIAL_ACCESS
+    process.env.WORKWISE_CANDIDATE = '1'
+    delete process.env.WORKWISE_CANDIDATE_CREDENTIAL_ACCESS
+    try {
+      const service = new ImCredentialService({ root: await mkdtemp(join(tmpdir(), 'workwise-im-candidate-session-')) })
+      expect(service.getStorage()).toBe('session')
+      const ref = await service.set('feishu', 'candidate-app', 'candidate-secret')
+      expect(ref.storage).toBe('session')
+    } finally {
+      if (previousCandidate === undefined) delete process.env.WORKWISE_CANDIDATE
+      else process.env.WORKWISE_CANDIDATE = previousCandidate
+      if (previousAccess === undefined) delete process.env.WORKWISE_CANDIDATE_CREDENTIAL_ACCESS
+      else process.env.WORKWISE_CANDIDATE_CREDENTIAL_ACCESS = previousAccess
+    }
+  })
+
   it('writes an encrypted envelope and verifies it before returning a reference', async () => {
     const root = await mkdtemp(join(tmpdir(), 'workwise-im-credentials-'))
     const service = new ImCredentialService({ root, encryption: encryption() })

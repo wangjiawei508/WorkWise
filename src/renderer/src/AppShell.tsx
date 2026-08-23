@@ -22,6 +22,7 @@ export default function AppShell(): React.ReactElement {
   const route = useChatStore((s) => s.route)
   const boot = useChatStore((s) => s.boot)
   const initialSetupOpen = useChatStore((s) => s.initialSetupOpen)
+  const initialSetupMode = useChatStore((s) => s.initialSetupMode)
   const platform = typeof window !== 'undefined' ? window.workwise?.platform ?? 'unknown' : 'unknown'
   const hasDesktopTitleBar = supportsDesktopTitleBar(platform)
 
@@ -46,7 +47,7 @@ export default function AppShell(): React.ReactElement {
           {route === 'settings' ? <SettingsView /> : <Workbench />}
         </Suspense>
       </div>
-      {initialSetupOpen ? (
+      {initialSetupOpen && initialSetupMode === 'preview' ? (
         <Suspense fallback={null}>
           <InitialSetupDialog />
         </Suspense>

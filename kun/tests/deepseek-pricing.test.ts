@@ -40,6 +40,18 @@ describe('DeepSeek pricing — provider-aware gate (issue #26)', () => {
     expect(cost!.costCny).toBeGreaterThan(0)
   })
 
+  it('uses Flash pricing for the experimental vision model', () => {
+    const cost = estimateDeepseekCost({
+      model: 'deepseek-v4-flash-vision-exp',
+      providerHost: 'https://api.deepseek.com',
+      cacheHitTokens: 0,
+      cacheMissTokens: 1000,
+      outputTokens: 500
+    })
+    expect(cost).not.toBeNull()
+    expect(cost!.costUsd).toBeGreaterThan(0)
+  })
+
   it('returns cost for the official *.deepseek.com subdomain', () => {
     const cost = estimateDeepseekCost({
       model: 'deepseek-v4-flash',

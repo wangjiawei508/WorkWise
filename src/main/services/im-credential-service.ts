@@ -5,6 +5,7 @@ import { safeStorage } from 'electron'
 import type { ImCredentialRefV1, ImCredentialStorageV1 } from '../../shared/im-communication'
 import type { ClawImChannelV1 } from '../../shared/app-settings-types'
 import { atomicWriteFile, readRecoveredFile } from './durable-file'
+import { isCandidateCredentialAccessAllowed } from '../candidate-runtime'
 import {
   decryptStringWithCredentialHelper,
   encryptStringWithCredentialHelper,
@@ -39,6 +40,14 @@ async function withCredentialOperationTimeout<T>(operation: Promise<T>, timeoutM
 }
 
 function defaultEncryption(): EncryptionAdapter {
+  if (!isCandidateCredentialAccessAllowed()) {
+    return {
+      available: () => false,
+      encrypt: () => { throw new Error('Candidate protected storage access is disabled.') },
+      decrypt: () => { throw new Error('Candidate protected storage access is disabled.') },
+      storage: 'keychain'
+    }
+  }
   if (process.platform === 'darwin') {
     return {
       // Querying or decrypting macOS Safe Storage can block Electron's main
@@ -99,7 +108,9 @@ export class ImCredentialService {
     this.operationTimeoutMs = options.operationTimeoutMs ?? DEFAULT_CREDENTIAL_OPERATION_TIMEOUT_MS
     this.resolveRetryDelayMs = options.resolveRetryDelayMs ?? DEFAULT_CREDENTIAL_RESOLVE_RETRY_DELAY_MS
     this.prepareProtectedStorageRetry = options.prepareProtectedStorageRetry ?? (
-      options.encryption ? () => undefined : requestInteractiveCredentialHelperAccess
+      options.encryption || !isCandidateCredentialAccessAllowed()
+        ? () => undefined
+        : requestInteractiveCredentialHelperAccess
     )
   }
 

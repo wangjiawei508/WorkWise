@@ -17,7 +17,7 @@ describe('Workbench responsive panel contract', () => {
     expect(surfaces).toMatch(/@media \(max-width: 960px\)[\s\S]*\.ds-workbench-right-panel[\s\S]*position: absolute/)
     expect(surfaces).toMatch(/@media \(max-width: 720px\)[\s\S]*\.ds-workbench-left-panel[\s\S]*position: absolute/)
     expect(baseShell).toMatch(/\.ds-workbench-divider\s*\{[\s\S]*width: 1px;[\s\S]*flex: 0 0 1px;[\s\S]*background: transparent;/)
-    expect(baseShell).toMatch(/\.ds-workbench-divider::before\s*\{[\s\S]*width: 9px;[\s\S]*background: transparent;/)
+    expect(baseShell).toMatch(/\.ds-workbench-divider::before\s*\{\s*content: none;/)
     expect(baseShell).toMatch(/\.ds-workbench-divider::after\s*\{\s*content: none;/)
     expect(baseShell).not.toMatch(/\.ds-workbench-divider:hover::(before|after)/)
   })

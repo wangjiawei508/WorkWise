@@ -13,6 +13,7 @@ import type {
 } from '../../shared/agent-workbench'
 import { atomicWriteFile, readRecoveredFile, runSerialized } from './durable-file'
 import { canonicalizeContainmentRoot, resolveContainedPath } from './canonical-containment'
+import { isCandidateCredentialAccessAllowed } from '../candidate-runtime'
 
 const execFileAsync = promisify(execFile)
 const MAX_OAUTH_RESPONSE_BYTES = 1024 * 1024
@@ -120,6 +121,14 @@ function runtimeCredentialVariable(serverId: string, key: string): string {
 }
 
 function defaultEncryption(): EncryptionAdapter {
+  if (!isCandidateCredentialAccessAllowed()) {
+    return {
+      available: () => false,
+      encrypt: () => { throw new Error('Candidate protected storage access is disabled.') },
+      decrypt: () => { throw new Error('Candidate protected storage access is disabled.') },
+      storage: 'keychain'
+    }
+  }
   return {
     available: () => {
       try {
@@ -983,6 +992,7 @@ export class McpConfigService {
   private async readCredential(reference?: McpCredentialReferenceV1): Promise<CredentialPayload | null> {
     if (!reference) return null
     if (reference.storage === 'session') return this.sessionCredentials.get(reference.id) ?? null
+    if (!this.encryption.available()) return null
     try {
       const raw = JSON.parse(await readRecoveredFile(join(this.credentialRoot, `${reference.id}.json`))) as { encrypted: string }
       return JSON.parse(this.encryption.decrypt(Buffer.from(raw.encrypted, 'base64'))) as CredentialPayload

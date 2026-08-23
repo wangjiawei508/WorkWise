@@ -484,15 +484,15 @@
 :root[data-window-transparency='enabled'] .ds-sidebar-shell,
 :root[data-window-transparency='enabled'] .ds-settings-sidebar {
   border-color: transparent;
-  background: rgba(248, 250, 253, 0.8);
+  /* Keep the light navigation readable even when the native material sits over a dark window. */
+  background: var(--ds-surface-subtle);
   box-shadow: none;
-  backdrop-filter: blur(22px) saturate(122%);
-  -webkit-backdrop-filter: blur(22px) saturate(122%);
+  backdrop-filter: blur(30px) saturate(128%);
+  -webkit-backdrop-filter: blur(30px) saturate(128%);
 }
 
 :root[data-window-transparency='enabled'] .ds-sidebar-shell::before {
-  background: var(--ds-sidebar-haze);
-  opacity: 0.72;
+  content: none;
 }
 
 :root[data-window-transparency='enabled'][data-theme='dark'] .ds-sidebar-shell,

@@ -89,7 +89,8 @@ export const MODEL_CONTEXT_PROFILES: readonly ModelContextProfile[] = [
     // Back-compat aliases currently routed by DeepSeek to v4-flash modes.
     'deepseek-chat',
     'deepseek-reasoner'
-  ])
+  ]),
+  deepseekV4VisionProfile('deepseek-v4-flash-vision-exp')
 ]
 
 export function resolveModelContextProfile(
@@ -168,6 +169,14 @@ function deepseekV4Profile(
     outputModalities: DEFAULT_MODEL_OUTPUT_MODALITIES,
     supportsToolCalling: true,
     messageParts: DEFAULT_MODEL_MESSAGE_PARTS
+  }
+}
+
+function deepseekV4VisionProfile(canonicalModel: string): ModelContextProfile {
+  return {
+    ...deepseekV4Profile(canonicalModel, [canonicalModel]),
+    inputModalities: ['text', 'image'],
+    messageParts: ['text', 'image_url']
   }
 }
 

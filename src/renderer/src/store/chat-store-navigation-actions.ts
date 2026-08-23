@@ -385,7 +385,9 @@ export function createNavigationActions(
         }
         set({
           route: 'chat',
-          initialSetupOpen: needsInitialSetup,
+          // Keep first-run configuration available from Settings without
+          // blocking the workbench with a full-screen dialog on startup.
+          initialSetupOpen: false,
           initialSetupMode: 'required',
           workspaceRoot,
           codeWorkspaceRoots,

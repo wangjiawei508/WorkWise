@@ -612,12 +612,20 @@ describe('cli', () => {
     expect(profile?.hardThreshold).toBe(990_000)
   })
 
-  it('keeps built-in DeepSeek v4 models text-only', () => {
+  it('keeps built-in DeepSeek v4 text models text-only', () => {
     for (const modelId of ['deepseek-v4-pro', 'deepseek-v4-flash', 'deepseek-chat'] as const) {
       const model = modelCapabilitiesForModel(modelId)
       expect(model.inputModalities).toEqual(['text'])
       expect(model.messageParts).toEqual(['text'])
     }
+  })
+
+  it('publishes DeepSeek V4 Flash Vision as a native image-input model', () => {
+    const model = modelCapabilitiesForModel('deepseek-v4-flash-vision-exp')
+    expect(model.inputModalities).toEqual(['text', 'image'])
+    expect(model.outputModalities).toEqual(['text'])
+    expect(model.messageParts).toEqual(['text', 'image_url'])
+    expect(model.supportsToolCalling).toBe(true)
   })
 
   it('builds runtime capability manifests with unavailable reasons', () => {

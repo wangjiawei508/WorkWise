@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 const { execFileSync } = require('node:child_process')
-const { existsSync, rmSync } = require('node:fs')
+const { existsSync, readdirSync, rmSync } = require('node:fs')
 const { join, resolve } = require('node:path')
 
 const arch = process.argv[2]
@@ -20,9 +20,23 @@ if (!version) {
 
 const distDir = resolve(process.env.WORKWISE_DIST_DIR || join(root, 'dist'))
 const appOutDir = join(distDir, arch === 'arm64' ? 'mac-arm64' : 'mac')
-const appName = 'WorkWise.app'
+const isCandidate = process.env.WORKWISE_CANDIDATE === '1'
+const candidateHead = (process.env.WORKWISE_CANDIDATE_SOURCE_HEAD || '').trim()
+const candidateApps = isCandidate
+  ? readdirSync(appOutDir, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory() && entry.name.endsWith('.app'))
+      .map((entry) => entry.name)
+  : []
+if (isCandidate && candidateApps.length !== 1) {
+  console.error(`[zip-mac-app] Expected exactly one candidate app bundle in ${appOutDir}, found ${candidateApps.length}.`)
+  process.exit(1)
+}
+const appName = isCandidate ? candidateApps[0] : 'WorkWise.app'
 const appPath = join(appOutDir, appName)
-const zipPath = join(distDir, `WorkWise-${version}-mac-${arch}.zip`)
+const artifactPrefix = isCandidate && /^[0-9a-f]{12,40}$/.test(candidateHead)
+  ? `WorkWise-Candidate-${candidateHead.slice(0, 12)}`
+  : 'WorkWise'
+const zipPath = join(distDir, `${artifactPrefix}-${version}-mac-${arch}.zip`)
 
 if (!existsSync(appPath)) {
   console.error(`[zip-mac-app] App bundle not found: ${appPath}`)

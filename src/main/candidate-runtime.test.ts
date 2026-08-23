@@ -10,6 +10,8 @@ import {
   candidateProcessUserDataPath,
   candidateEnvironmentFromArgv,
   isCandidateHeadless,
+  isCandidateCredentialAccessAllowed,
+  isCandidateImProviderConnectionAllowed,
   isCandidateInboundAllowed,
   isCandidateOutboundDisabled,
   isCandidateRuntimeProbe,
@@ -23,6 +25,15 @@ import {
 } from './candidate-runtime'
 
 describe('resolveCandidateRuntimePaths', () => {
+  it('keeps protected storage disabled unless candidate access is explicit', () => {
+    expect(isCandidateCredentialAccessAllowed({})).toBe(true)
+    expect(isCandidateCredentialAccessAllowed({ WORKWISE_CANDIDATE: '1' })).toBe(false)
+    expect(isCandidateCredentialAccessAllowed({
+      WORKWISE_CANDIDATE: '1',
+      WORKWISE_CANDIDATE_CREDENTIAL_ACCESS: '1'
+    })).toBe(true)
+  })
+
   it('holds candidate schedule and IM ports until the reservation is closed', async () => {
     const reservations = await reserveCandidateServicePorts()
     const assertPortUnavailable = async (port: number): Promise<void> => {
@@ -199,6 +210,37 @@ describe('resolveCandidateRuntimePaths', () => {
     expect(isCandidateInboundAllowed('feishu', 'oc_self_test', '/status', {})).toBe(true)
   })
 
+  it('connects candidate IM providers only for a bounded authorization', () => {
+    expect(isCandidateImProviderConnectionAllowed('feishu', {})).toBe(true)
+    expect(isCandidateImProviderConnectionAllowed('feishu', { WORKWISE_CANDIDATE: '1' })).toBe(false)
+    expect(isCandidateImProviderConnectionAllowed('weixin', {
+      WORKWISE_CANDIDATE: '1',
+      WORKWISE_CANDIDATE_INBOUND_DISABLED: '0',
+      WORKWISE_CANDIDATE_INBOUND_PROVIDER: 'feishu',
+      WORKWISE_CANDIDATE_ALLOWED_FEISHU_CHAT_ID: 'oc_self_test',
+      WORKWISE_CANDIDATE_ALLOWED_FEISHU_COMMAND: '/status'
+    })).toBe(false)
+    expect(isCandidateImProviderConnectionAllowed('feishu', {
+      WORKWISE_CANDIDATE: '1',
+      WORKWISE_CANDIDATE_INBOUND_DISABLED: '0',
+      WORKWISE_CANDIDATE_INBOUND_PROVIDER: 'feishu',
+      WORKWISE_CANDIDATE_ALLOWED_FEISHU_CHAT_ID: 'oc_self_test'
+    })).toBe(false)
+    expect(isCandidateImProviderConnectionAllowed('feishu', {
+      WORKWISE_CANDIDATE: '1',
+      WORKWISE_CANDIDATE_INBOUND_DISABLED: '0',
+      WORKWISE_CANDIDATE_INBOUND_PROVIDER: 'feishu',
+      WORKWISE_CANDIDATE_ALLOWED_FEISHU_CHAT_ID: 'oc_self_test',
+      WORKWISE_CANDIDATE_ALLOWED_FEISHU_COMMAND: '/status'
+    })).toBe(true)
+    expect(isCandidateImProviderConnectionAllowed('feishu', {
+      WORKWISE_CANDIDATE: '1',
+      WORKWISE_CANDIDATE_OUTBOUND_DISABLED: '0',
+      WORKWISE_CANDIDATE_OUTBOUND_PROVIDER: 'feishu',
+      WORKWISE_CANDIDATE_ALLOWED_FEISHU_CHAT_ID: 'oc_self_test'
+    })).toBe(true)
+  })
+
   it('stops managed services and exits zero after a successful Runtime probe', async () => {
     const calls: string[] = []
 
@@ -359,6 +401,65 @@ describe('resolveCandidateRuntimePaths', () => {
       )).toMatchObject({ WORKWISE_CANDIDATE: '1', WORKWISE_CANDIDATE_ROOT: root })
       expect(isUnconfiguredRecoveryCandidate('/framework/Electron', {}, resources)).toBe(true)
       expect(isUnconfiguredRecoveryCandidate('/framework/Electron', { WORKWISE_CANDIDATE: '1' }, resources)).toBe(false)
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('recognizes a source-head candidate bundle when Electron reports its framework executable', () => {
+    const root = mkdtempSync(join(tmpdir(), 'workwise-candidate-head-bundle-'))
+    const bundle = join(root, 'WorkWise Candidate 4231176860bd.app')
+    const resources = join(bundle, 'Contents', 'Resources')
+    const file = join(root, 'candidate.env')
+    try {
+      mkdirSync(resources, { recursive: true })
+      writeFileSync(join(bundle, 'Contents', 'Info.plist'), [
+        '<?xml version="1.0" encoding="UTF-8"?>',
+        '<plist version="1.0"><dict>',
+        '<key>CFBundleIdentifier</key>',
+        '<string>com.wangjiawei508.workwise.candidate.head4231176860bd</string>',
+        '</dict></plist>'
+      ].join('\n'), { encoding: 'utf8', flag: 'w' })
+      writeFileSync(file, `WORKWISE_CANDIDATE=1\nWORKWISE_CANDIDATE_ROOT=${root}\n`)
+      expect(candidateEnvironmentFromArgv(
+        '/framework/Electron',
+        [`--workwise-candidate-env-file=${file}`],
+        {},
+        resources
+      )).toMatchObject({ WORKWISE_CANDIDATE: '1', WORKWISE_CANDIDATE_ROOT: root })
+      expect(isUnconfiguredRecoveryCandidate('/framework/Electron', {}, resources)).toBe(true)
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('recognizes a source-head candidate by its executable name when resourcesPath is unavailable', () => {
+    const root = mkdtempSync(join(tmpdir(), 'workwise-candidate-executable-'))
+    const file = join(root, 'candidate.env')
+    try {
+      writeFileSync(file, `WORKWISE_CANDIDATE=1\nWORKWISE_CANDIDATE_ROOT=${root}\n`)
+      expect(candidateEnvironmentFromArgv(
+        '/private/tmp/WorkWise Candidate 4231176860bd',
+        [`--workwise-candidate-env-file=${file}`],
+        {},
+        undefined
+      )).toMatchObject({ WORKWISE_CANDIDATE: '1', WORKWISE_CANDIDATE_ROOT: root })
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('recognizes a framework executable inside a source-head candidate bundle', () => {
+    const root = mkdtempSync(join(tmpdir(), 'workwise-candidate-framework-'))
+    const file = join(root, 'candidate.env')
+    try {
+      writeFileSync(file, `WORKWISE_CANDIDATE=1\nWORKWISE_CANDIDATE_ROOT=${root}\n`)
+      expect(candidateEnvironmentFromArgv(
+        `${root}/WorkWise Candidate 4231176860bd.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Electron Framework`,
+        [`--workwise-candidate-env-file=${file}`],
+        {},
+        undefined
+      )).toMatchObject({ WORKWISE_CANDIDATE: '1', WORKWISE_CANDIDATE_ROOT: root })
     } finally {
       rmSync(root, { recursive: true, force: true })
     }

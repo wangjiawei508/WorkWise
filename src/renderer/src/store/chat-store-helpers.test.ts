@@ -87,7 +87,13 @@ describe('chat-store Claw helpers', () => {
       'deepseek-reasoner',
       'deepseek-v4-pro',
       'custom-model'
-    ])).toEqual(['auto', 'custom-model', 'deepseek-v4-flash', 'deepseek-v4-pro'])
+    ])).toEqual([
+      'auto',
+      'custom-model',
+      'deepseek-v4-flash',
+      'deepseek-v4-flash-vision-exp',
+      'deepseek-v4-pro'
+    ])
   })
 
   it('compacts code workspace roots while excluding write, temporary, and Claw roots', () => {
