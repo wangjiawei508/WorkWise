@@ -55,9 +55,6 @@ function validateSource(sourceDirectory, version) {
     }
   }
 
-  const combined = files.map((file) => readFileSync(file.source, 'utf8')).join('\n')
-  if (combined.includes('0.4.0')) throw new Error('Website source still contains withdrawn version 0.4.0.')
-
   const manifest = JSON.parse(readFileSync(files[2].source, 'utf8'))
   if (manifest.version !== version) throw new Error(`Manifest version is ${manifest.version}, expected ${version}.`)
   if (manifest.releaseUrl !== `https://github.com/wangjiawei508/WorkWise/releases/tag/v${version}`) {
@@ -237,7 +234,6 @@ printf 'Derived the unique WorkWise targets from the approved document root.\n'
 docker exec -i "$php_container" php -l < "$stage/products/workwise/index.php" >/dev/null || fail 'product page PHP lint failed'
 docker exec -i "$php_container" php -l < "$stage/includes/workwise_product.php" >/dev/null || fail 'product include PHP lint failed'
 docker exec -i "$php_container" php -r '$p=json_decode(stream_get_contents(STDIN), true); if (!is_array($p) || ($p["version"] ?? "") !== $argv[1]) { exit(65); }' -- "$version" < "$stage/data/workwise-product.json" || fail 'product manifest JSON/version validation failed'
-if grep -R -n -F '0.4.0' "$stage"; then fail 'staged website still contains withdrawn version 0.4.0'; fi
 printf 'Validated PHP syntax, JSON and exact WorkWise version.\n'
 
 container_run install -d -m 700 "$backup" || fail 'could not create backup directory'
@@ -369,8 +365,6 @@ async function verifyPublic(sourceDirectory, version) {
   for (const text of required) {
     if (!html.includes(text)) throw new Error(`Product page is missing expected content: ${text}`)
   }
-  if (html.includes('0.4.0')) throw new Error('Public product page still contains withdrawn version 0.4.0.')
-
   for (const item of manifest.platforms) {
     const url = new URL(item.url, PRODUCT_URL)
     const range = await fetch(url, {

@@ -54,6 +54,7 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+  delete process.env.WORKWISE_WITHDRAWN_STABLE_VERSIONS
   vi.clearAllTimers()
   vi.useRealTimers()
   vi.unstubAllGlobals()
@@ -168,7 +169,7 @@ describe('gui updater source helpers', () => {
     expect(module._internals.selectGithubRelease(releases, 'frontier')?.version).toBe('0.3.0-beta.1')
   })
 
-  it('does not select the withdrawn stable version', async () => {
+  it('selects 0.4.0 by default now that the replacement release is active', async () => {
     const module = await import('./gui-updater')
     const releases = [
       {
@@ -181,10 +182,11 @@ describe('gui updater source helpers', () => {
       }
     ]
 
-    expect(module._internals.selectGithubRelease(releases, 'stable')?.version).toBe('0.3.5')
+    expect(module._internals.selectGithubRelease(releases, 'stable')?.version).toBe('0.4.0')
   })
 
-  it('selects the next 0.3.6 patch after skipping withdrawn 0.4.0', async () => {
+  it('skips only stable versions explicitly configured as withdrawn', async () => {
+    process.env.WORKWISE_WITHDRAWN_STABLE_VERSIONS = '0.4.0'
     const module = await import('./gui-updater')
     const releases = [
       {
@@ -205,6 +207,7 @@ describe('gui updater source helpers', () => {
   })
 
   it('does not describe an older withdrawn feed version as the current version', async () => {
+    process.env.WORKWISE_WITHDRAWN_STABLE_VERSIONS = '0.4.0'
     const module = await import('./gui-updater')
 
     expect(module._internals.resolveWithdrawnVersion('0.5.0', '0.4.0', 'stable')).toBeUndefined()
