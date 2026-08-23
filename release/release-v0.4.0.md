@@ -11,15 +11,16 @@
 - 首批目录提供 GitHub、Playwright、Context7、DBHub、AntV、Filesystem、Memory、Sequential Thinking 等推荐项，并将已有 Lark CLI、OfficeCLI、Ego Browser 和 MarkItDown 标记为系统受管能力。
 - 新增固定 uv 0.12.3 和 Python 3.12.12 的受管 PyPI 运行时，隔离依赖索引、锁定 wheel/lock 哈希并验证实际运行时版本。
 - macOS 使用原生 vibrancy，Windows 使用 Mica/Acrylic；启动窗口、标题栏、侧栏和浮层采用玻璃效果，编辑器、终端和文档区域保持不透明，并支持降低透明度和 GPU 回退。
-- 接入 DeepSeek `deepseek-v4-flash-vision-exp` 多模态模型；模型列表、Runtime capability manifest、附件请求和 Flash 价格归类保持一致，图片问答可直接走 `image_url`。
+- 接入 DeepSeek `deepseek-v4-pro` 结构化 Vision Harness；附件请求保持结构化 `text/image` parts，不把图片内联为 `data:image` 或 `dataBase64`。
 
 ## 验证
 
-- WorkWise 主项目：246 个测试文件通过、2 个跳过；1759 项测试通过、2 项跳过。
-- WorkWise Runtime：75 个测试文件、641 项测试全部通过。
+- 发布候选提交：`b2402a5f8454baa649a0470cb7ae3aca91352a97`，版本固定为 `0.4.0`。
+- macOS Vision Unlimited-OCR 两页 PDF 回环通过：页码 `[1,2]` 顺序正确、两页非空、耗时 `1472 ms`，关键内容包含 `VISION-ACCEPTANCE-042` / `Status: READY`。
+- DeepSeek `deepseek-v4-pro` 真实图片问答通过：`thread=thr_2gpkj5ps`、`turn=turn_27lab8jr`、答案 `WW-VISION-20260823`；请求/日志不含 `data:image` 或 `dataBase64`。
 - OpenSpec、品牌边界、许可证策略、ESLint、主/运行时 TypeScript、生产构建和差异检查全部通过。
 - GitHub Actions 继续执行 Linux 全量质量门禁、Windows 安全测试、Electron smoke 和三客户端候选安装包验证。
-- 使用真实 DeepSeek 图片请求完成 WorkWise Runtime 闭环验收，返回 `UNLIMITED OCR REAL MODEL ACCEPTANCE`；未发送微信或飞书消息。
+- 隔离候选已完成飞书单聊唯一 `/status` 闭环，目标 chat 为 `oc_fc46b98b7bfd1185caca08e0da71d37c`，账本状态 `delivered`、`result_json.ok=true`；本轮不测试微信、不发送额外消息。macOS 通知点击定位仍待系统级点击证据。
 
 ## 升级说明
 

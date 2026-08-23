@@ -2,8 +2,7 @@
 
 日期：2026-08-22
 原始验收分支：`codex/workwise-plan-final-0.4.0`
-原始验收提交：`1b38a77`；多模态接入提交：`53f70be`
-当前发布候选：`codex/release-0.4.0-final`，`0d6df6654801cb9a1c91cc4782d73d0ac0d987d0`（代码已包含上述实现）
+当前发布候选：`codex/release-0.4.0-final`，`b2402a5f8454baa649a0470cb7ae3aca91352a97`
 
 ## 验收范围
 
@@ -19,20 +18,17 @@
 
 ## 多页 PDF OCR
 
-- 输入：`/private/tmp/workwise-uocr-complex-scan.pdf`，两页图像型扫描文档。
-- 结果：健康检查通过，身份为 `service=Unlimited-OCR;version=macos-vision-loopback-1;model=Apple-Vision-VNRecognizeTextRequest`。
-- 结果文件包含 `<!-- page:1 -->`、`<!-- page:2 -->`，且页码排序正确。
-- 关键内容校验通过：`Settlement point BM-01 is stable.`、`WORKWISE-UOCR-REAL-MODEL-ROUNDTRIP`、`delta_H = H_current - H_initial`。
-- 端到端耗时：`2073 ms`。
+- 输入：`/private/tmp/workwise-real-ocr-input/combined.pdf`，两页图像型扫描文档。
+- 结果：`service=Unlimited-OCR / Apple-Vision-VNRecognizeTextRequest`，页码 `[1,2]`、`pageSequenceValid=true`、`nonEmptyPages=2`。
+- 关键内容校验通过：`VISION-ACCEPTANCE-042`、`Status: READY`。
+- 端到端耗时：`1472 ms`；输出：`/private/tmp/workwise-real-uocr-output-b2402a5/unlimited-ocr.md`。
 
 ## DeepSeek 多模态 Runtime 闭环
 
-- 模型：`deepseek-v4-flash-vision-exp`，官方 DeepSeek API，未切换 OpenAI Official，也未修改用户持久化配置。
-- Runtime capability manifest：`inputModalities=[text,image]`、`outputModalities=[text]`、`messageParts=[text,image_url]`。
-- WorkWise Runtime 通过 `/v1/attachments` 上传 `/private/tmp/workwise-uocr-page-1.png`，再用同一附件启动真实 turn。
-- 结果：turn `completed`，模型返回 `UNLIMITED OCR REAL MODEL ACCEPTANCE`；裸 API 与 Runtime 路径结果一致。
-- 计费归类：该实验模型按 DeepSeek V4 Flash 价格档处理；视觉输入不走 Base64 文本回退。
+- 模型：`deepseek-v4-pro`，使用用户现有第三方 DeepSeek 配置，未切换 OpenAI Official，也未修改正式安装版配置。
+- WorkWise Runtime 通过结构化附件启动真实图片问答，结果：`thread=thr_2gpkj5ps`、`turn=turn_27lab8jr`、答案 `WW-VISION-20260823`。
+- 事件证据包含 `ocr`、`layout`、`semantics`、`visual`；请求和日志均不含 `data:image` 或 `dataBase64`。
 
 ## 结论
 
-当前分支的本机 Vision/OCR 回环和用户实际 DeepSeek 供应商端点验收均已通过。文本模型的 Unlimited-OCR 回退仍按既有独立链路保留；本次多模态模型可直接接收图片，不依赖该回退。
+当前候选的本机 Vision/OCR 回环和 DeepSeek `deepseek-v4-pro` 图片问答均已通过。文本模型的 Unlimited-OCR 回退仍按既有独立链路保留；飞书单聊 `/status` 也已在隔离候选中完成。macOS 通知点击定位尚未取得系统级点击证据，保持未完成状态。
