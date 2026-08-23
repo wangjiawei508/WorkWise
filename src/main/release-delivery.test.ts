@@ -1,5 +1,9 @@
 import { describe, expect, it, vi } from 'vitest'
-import { readFileSync } from 'node:fs'
+import { createHash } from 'node:crypto'
+import { execFileSync } from 'node:child_process'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import YAML from 'yaml'
 // The R2 publisher is an executable ESM module that also exposes side-effect-free
 // validation helpers for release-gate coverage.
@@ -88,6 +92,13 @@ describe('R2 release delivery gates', () => {
     expect(() => websiteDelivery.normalizeWebsiteRoot('/srv/../downloads/workwise')).toThrow(/Unsafe/)
     expect(() => websiteDelivery.normalizeWebsiteRoot('/')).toThrow(/Unsafe/)
     expect(websiteDelivery.FINALIZE_STAGE_SCRIPT).toContain('sha256sum -c SHA256SUMS.txt')
+    expect(websiteDelivery.REPLACEABLE_WITHDRAWN_RELEASES.get('v0.4.0'))
+      .toBe('5527492ea36c1b0518d8bacf655ec559a250db26c9bfb30bcba47678ef6009f9')
+    expect(websiteDelivery.FINALIZE_STAGE_SCRIPT).toContain('refusing to replace the release currently selected by Stable')
+    expect(websiteDelivery.FINALIZE_STAGE_SCRIPT).toContain('channels/$channel/withdrawn')
+    expect(websiteDelivery.FINALIZE_STAGE_SCRIPT).toContain('test "$channel" = stable')
+    expect(websiteDelivery.FINALIZE_STAGE_SCRIPT).toContain('test "$tag" = v0.4.0')
+    expect(websiteDelivery.FINALIZE_STAGE_SCRIPT).toContain('(cd "$release" && sha256sum -c SHA256SUMS.txt)')
     expect(websiteDelivery.R2_DOWNLOAD_WORKER).toContain('urllib.request.urlopen')
     expect(websiteDelivery.R2_DOWNLOAD_WORKER).toContain('ThreadPoolExecutor')
     expect(websiteDelivery.R2_DOWNLOAD_WORKER).toContain("'Range': f'bytes={start}-{end}'")
@@ -106,6 +117,52 @@ describe('R2 release delivery gates', () => {
       keyPath: '/tmp/key',
       knownHostsPath: '/tmp/known-hosts'
     })).toContain('ServerAliveCountMax=3')
+  })
+
+  it('archives the exact withdrawn release before replacing its immutable directory', () => {
+    const root = mkdtempSync(join(tmpdir(), 'workwise-release-recovery-'))
+    const digest = (value: string) => createHash('sha256').update(value).digest('hex')
+    try {
+      const release = join(root, 'channels/stable/releases/v0.4.0')
+      const latest = join(root, 'channels/stable/latest')
+      const payload = join(root, '.deploy-recovery-1/payload')
+      mkdirSync(release, { recursive: true })
+      mkdirSync(latest, { recursive: true })
+      mkdirSync(payload, { recursive: true })
+
+      const oldBody = 'withdrawn release fixture\n'
+      const oldChecksums = `${digest(oldBody)}  old.bin\n`
+      writeFileSync(join(release, 'old.bin'), oldBody)
+      writeFileSync(join(release, 'SHA256SUMS.txt'), oldChecksums)
+      writeFileSync(join(latest, 'latest.json'), JSON.stringify({ version: '0.3.6', tag: 'v0.3.6' }))
+
+      const newBody = 'replacement release fixture\n'
+      const latestYml = 'version: 0.4.0\n'
+      const latestMacYml = 'version: 0.4.0\n'
+      const newChecksums = [
+        `${digest(newBody)}  new.bin`,
+        `${digest(latestYml)}  latest.yml`,
+        `${digest(latestMacYml)}  latest-mac.yml`
+      ].join('\n') + '\n'
+      writeFileSync(join(payload, 'new.bin'), newBody)
+      writeFileSync(join(payload, 'latest.yml'), latestYml)
+      writeFileSync(join(payload, 'latest-mac.yml'), latestMacYml)
+      writeFileSync(join(payload, 'SHA256SUMS.txt'), newChecksums)
+
+      const withdrawnChecksum = digest(oldChecksums)
+      execFileSync('bash', [
+        '-s', '--', root, '', 'stable', 'v0.4.0', '0.4.0', 'recovery-1', withdrawnChecksum
+      ], { input: websiteDelivery.FINALIZE_STAGE_SCRIPT })
+
+      expect(readFileSync(join(release, 'new.bin'), 'utf8')).toBe(newBody)
+      expect(existsSync(join(release, 'old.bin'))).toBe(false)
+      expect(readFileSync(
+        join(root, `channels/stable/withdrawn/v0.4.0-${withdrawnChecksum}/old.bin`),
+        'utf8'
+      )).toBe(oldBody)
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
   })
 
   it('rejects long, duplicate, or conflicting public metadata cache headers', () => {
@@ -197,17 +254,8 @@ describe('R2 release delivery gates', () => {
       versions: Record<string, Record<string, { name: string; sha256: string; size: number }>>
     }
     expect(baselines.schemaVersion).toBe(1)
-    expect(Object.keys(baselines.versions)).toEqual(['0.3.5', '0.4.0'])
-    expect(Object.keys(baselines.versions['0.4.0'])).toEqual([
-      'darwin-arm64',
-      'darwin-x64',
-      'win32-x64'
-    ])
-    for (const [key, asset] of Object.entries(baselines.versions['0.4.0'])) {
-      expect(asset.name, key).toContain('WorkWise-0.4.0-')
-      expect(asset.sha256, key).toMatch(/^[a-f0-9]{64}$/)
-      expect(asset.size, key).toBeGreaterThan(200_000_000)
-    }
+    expect(Object.keys(baselines.versions)).toEqual(['0.3.5'])
+    expect(baselines.versions).not.toHaveProperty('0.4.0')
     expect(workflow.jobs['build-macos'].env.MAC_CODESIGN_P12_BASE64).toContain('secrets.MAC_CODESIGN_P12_BASE64')
     const sidecarTransfer = workflow.jobs['build-document-sidecars'].steps.map((step: any) => step.run || '').join('\n')
     expect(sidecarTransfer).toContain('tar -czf')
@@ -337,6 +385,12 @@ describe('R2 release delivery gates', () => {
     const releaseWorkflow = readFileSync('.github/workflows/release.yml', 'utf8')
     expect(repairWorkflow).toContain('npm ci --ignore-scripts')
     expect(releaseWorkflow).toContain('npm ci --ignore-scripts')
+  })
+
+  it('allows the replacement 0.4.0 release on the product page', () => {
+    const deployment = readFileSync('scripts/deploy-workwise-product-page.mjs', 'utf8')
+    expect(deployment).not.toContain('withdrawn version 0.4.0')
+    expect(deployment).not.toContain("grep -R -n -F '0.4.0'")
   })
 
   it('requires an exact confirmation before restoring an immutable Stable release', () => {

@@ -20,6 +20,9 @@ const CHANNELS = new Set(['stable', 'frontier'])
 const SAFE_TOKEN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/
 const WEBSITE_ROOT_SUFFIX = '/downloads/workwise'
 const SSH_COMMAND_TIMEOUT_MS = 5 * 60_000
+const REPLACEABLE_WITHDRAWN_RELEASES = new Map([
+  ['v0.4.0', '5527492ea36c1b0518d8bacf655ec559a250db26c9bfb30bcba47678ef6009f9']
+])
 
 function createR2RequestHandler() {
   return new NodeHttpHandler({
@@ -192,6 +195,13 @@ function runRemote(config, script, args) {
       killSignal: 'SIGKILL'
     }
   )
+}
+
+function commandErrorMessage(error) {
+  if (!(error instanceof Error)) return String(error)
+  const stderr = typeof error.stderr === 'string' ? error.stderr.trim() : ''
+  const stdout = typeof error.stdout === 'string' ? error.stdout.trim() : ''
+  return [error.message, stderr || stdout].filter(Boolean).join('\n')
 }
 
 function copyDirectory(config, sourceDir, remoteDir) {
@@ -582,6 +592,7 @@ channel="$3"
 tag="$4"
 version="$5"
 deploy_id="$6"
+replaceable_withdrawn_checksum="$7"
 base="$root"
 if [[ -n "$relative" ]]; then base="$root/$relative"; fi
 stage="$base/.deploy-$deploy_id"
@@ -595,10 +606,42 @@ grep -Eq "^version:[[:space:]]*['\"]?$version['\"]?[[:space:]]*$" latest.yml
 grep -Eq "^version:[[:space:]]*['\"]?$version['\"]?[[:space:]]*$" latest-mac.yml
 if [[ -e "$release" ]]; then
   test -f "$release/SHA256SUMS.txt"
-  cmp -s SHA256SUMS.txt "$release/SHA256SUMS.txt"
-  cd "$release"
-  sha256sum -c SHA256SUMS.txt
-  rm -rf -- "$stage"
+  if cmp -s SHA256SUMS.txt "$release/SHA256SUMS.txt"; then
+    cd "$release"
+    sha256sum -c SHA256SUMS.txt
+    rm -rf -- "$stage"
+  else
+    test "$channel" = stable
+    test "$tag" = v0.4.0
+    test -n "$replaceable_withdrawn_checksum"
+    actual_withdrawn_checksum="$(sha256sum "$release/SHA256SUMS.txt" | awk '{print $1}')"
+    test "$actual_withdrawn_checksum" = "$replaceable_withdrawn_checksum"
+    (cd "$release" && sha256sum -c SHA256SUMS.txt)
+    latest_metadata="$base/channels/$channel/latest/latest.json"
+    test -f "$latest_metadata"
+    python3 - "$latest_metadata" "$tag" "$version" <<'PY'
+import json
+import pathlib
+import sys
+
+metadata = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding='utf-8'))
+if metadata.get('tag') == sys.argv[2] or metadata.get('version') == sys.argv[3]:
+    raise SystemExit('refusing to replace the release currently selected by Stable')
+PY
+    withdrawn_dir="$base/channels/$channel/withdrawn"
+    withdrawn="$withdrawn_dir/$tag-$replaceable_withdrawn_checksum"
+    mkdir -p -- "$withdrawn_dir"
+    if [[ -e "$withdrawn" ]]; then
+      test -f "$withdrawn/SHA256SUMS.txt"
+      archived_checksum="$(sha256sum "$withdrawn/SHA256SUMS.txt" | awk '{print $1}')"
+      test "$archived_checksum" = "$replaceable_withdrawn_checksum"
+      rm -rf -- "$release"
+    else
+      mv -- "$release" "$withdrawn"
+    fi
+    mv -- "$payload" "$release"
+    rmdir -- "$stage"
+  fi
 else
   mv -- "$payload" "$release"
   rmdir -- "$stage"
@@ -702,6 +745,9 @@ async function stageRelease(flags) {
   const releasePrefix = normalizeReleasePrefix(requireFlag(flags, 'release-prefix'))
   const deployId = normalizeDeployId(requireFlag(flags, 'deploy-id'))
   const transport = normalizeTransport(flags.get('transport'))
+  const replaceableWithdrawnChecksum = releasePrefix.relative
+    ? ''
+    : (REPLACEABLE_WITHDRAWN_RELEASES.get(tag) || '')
   if (releasePrefix.acceptanceRunId && !deployId.includes(releasePrefix.acceptanceRunId)) {
     throw new Error('Acceptance deploy id must include its GitHub run id.')
   }
@@ -743,7 +789,8 @@ async function stageRelease(flags) {
       channel,
       tag,
       tag.slice(1),
-      deployId
+      deployId,
+      replaceableWithdrawnChecksum
     ]))
   } catch (error) {
     try {
@@ -926,7 +973,7 @@ async function main() {
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   main().catch((error) => {
-    console.error(`[deploy-website-release] ${error instanceof Error ? error.message : String(error)}`)
+    console.error(`[deploy-website-release] ${commandErrorMessage(error)}`)
     process.exitCode = 1
   })
 }
@@ -944,6 +991,8 @@ export const _internals = {
   normalizeWebsiteRoot,
   sshOptions,
   createR2RequestHandler,
+  commandErrorMessage,
+  REPLACEABLE_WITHDRAWN_RELEASES,
   parseVersion,
   validateSourceDirectory,
   INIT_STAGE_SCRIPT,

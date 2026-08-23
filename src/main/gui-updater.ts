@@ -33,7 +33,7 @@ const UPDATE_REQUEST_HEADERS = {
   Pragma: 'no-cache'
 } as const
 const WITHDRAWN_STABLE_VERSIONS = new Set(
-  (process.env.WORKWISE_WITHDRAWN_STABLE_VERSIONS || '0.4.0')
+  (process.env.WORKWISE_WITHDRAWN_STABLE_VERSIONS || '')
     .split(',')
     .map((value) => value.trim())
     .filter(Boolean)
