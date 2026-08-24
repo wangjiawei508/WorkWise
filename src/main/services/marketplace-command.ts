@@ -10,13 +10,14 @@ import { delimiter, join } from 'node:path'
 export function resolveMarketplaceCommand(
   command: string,
   env: NodeJS.ProcessEnv = process.env,
-  home = homedir()
+  home = homedir(),
+  platform: NodeJS.Platform = process.platform
 ): string {
   const trimmed = command.trim()
   if (!trimmed || trimmed.includes('/') || trimmed.includes('\\')) return trimmed
 
-  const pathEntries = marketplacePathEntries(env, home)
-  const suffixes = process.platform === 'win32'
+  const pathEntries = marketplacePathEntries(env, home, platform)
+  const suffixes = platform === 'win32'
     ? ['', ...(env.PATHEXT ?? '.EXE;.CMD;.BAT;.COM').split(';')]
     : ['']
   const candidates = [...new Set(pathEntries)].flatMap((directory) =>
@@ -24,7 +25,7 @@ export function resolveMarketplaceCommand(
   )
   return candidates.find((candidate) => {
     try {
-      accessSync(candidate, process.platform === 'win32' ? constants.F_OK : constants.X_OK)
+      accessSync(candidate, platform === 'win32' ? constants.F_OK : constants.X_OK)
       return true
     } catch {
       return false
@@ -34,17 +35,24 @@ export function resolveMarketplaceCommand(
 
 export function marketplaceCommandEnvironment(
   env: NodeJS.ProcessEnv = process.env,
-  home = homedir()
+  home = homedir(),
+  platform: NodeJS.Platform = process.platform
 ): NodeJS.ProcessEnv {
-  const path = marketplacePathEntries(env, home).join(delimiter)
+  const pathDelimiter = platform === 'win32' ? ';' : delimiter
+  const path = marketplacePathEntries(env, home, platform).join(pathDelimiter)
   return {
     ...env,
     PATH: path,
-    ...(process.platform === 'win32' && env.Path !== undefined ? { Path: path } : {})
+    ...(platform === 'win32' && env.Path !== undefined ? { Path: path } : {})
   }
 }
 
-function marketplacePathEntries(env: NodeJS.ProcessEnv, home: string): string[] {
+function marketplacePathEntries(
+  env: NodeJS.ProcessEnv,
+  home: string,
+  platform: NodeJS.Platform
+): string[] {
+  const pathDelimiter = platform === 'win32' ? ';' : delimiter
   return [
     env.PATH ?? env.Path ?? '',
     '/opt/homebrew/bin',
@@ -61,7 +69,7 @@ function marketplacePathEntries(env: NodeJS.ProcessEnv, home: string): string[] 
     join(home, '.bun', 'bin'),
     join(home, '.nvm', 'current', 'bin')
   ]
-    .flatMap((value) => value.split(delimiter))
+    .flatMap((value) => value.split(pathDelimiter))
     .map((value) => value.trim())
     .filter(Boolean)
 }
