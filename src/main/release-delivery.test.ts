@@ -17,6 +17,7 @@ import { isTransientMacSigningFailure, runMacArtifactBuildWithRetry } from '../.
 describe('R2 release delivery gates', () => {
   it('retries only transient Apple timestamp outages during signed macOS packaging', async () => {
     expect(isTransientMacSigningFailure('The timestamp service is not available.')).toBe(true)
+    expect(isTransientMacSigningFailure('A timestamp was expected but was not found.')).toBe(true)
     expect(isTransientMacSigningFailure('bundle format is ambiguous')).toBe(false)
 
     const attempts: number[] = []
@@ -35,6 +36,19 @@ describe('R2 release delivery gates', () => {
 
     expect(attempts).toEqual([1, 2])
     expect(waits).toEqual([5])
+    const timestampMissingAttempts: number[] = []
+    await runMacArtifactBuildWithRetry('x64', {
+      attempts: 2,
+      baseDelayMs: 5,
+      execute: async (attempt: number) => {
+        timestampMissingAttempts.push(attempt)
+        return attempt === 1
+          ? { code: 1, signal: null, output: 'A timestamp was expected but was not found.' }
+          : { code: 0, signal: null, output: '' }
+      },
+      wait: async () => undefined
+    })
+    expect(timestampMissingAttempts).toEqual([1, 2])
     await expect(runMacArtifactBuildWithRetry('arm64', {
       attempts: 3,
       execute: async () => ({ code: 1, signal: null, output: 'invalid signature' }),
