@@ -11,13 +11,13 @@
 - 首批目录提供 GitHub、Playwright、Context7、DBHub、AntV、Filesystem、Memory、Sequential Thinking 等推荐项，并将已有 Lark CLI、OfficeCLI、Ego Browser 和 MarkItDown 标记为系统受管能力。
 - 新增固定 uv 0.12.3 和 Python 3.12.12 的受管 PyPI 运行时，隔离依赖索引、锁定 wheel/lock 哈希并验证实际运行时版本。
 - macOS 使用原生 vibrancy，Windows 使用 Mica/Acrylic；启动窗口、标题栏、侧栏和浮层采用玻璃效果，编辑器、终端和文档区域保持不透明，并支持降低透明度和 GPU 回退。
-- 接入 DeepSeek `deepseek-v4-pro` 结构化 Vision Harness；附件请求保持结构化 `text/image` parts，不把图片内联为 `data:image` 或 `dataBase64`。
+- 接入 DeepSeek Harness 的 WorkWise 结构化附件路径；模型请求保持结构化 `text/image` parts，不把图片内联为 `data:image` 或 `dataBase64`。本机视觉证据分析器的内部回环输入可以使用 `dataBase64`，不属于模型请求。
 
 ## 验证
 
 - 发布源代码以最终 `v0.4.0` 标签为准，版本固定为 `0.4.0`；Windows 安装包验证同时检查 `workwise-markitdown.exe` 已进入 `app.asar.unpacked`。
 - macOS Vision Unlimited-OCR 两页 PDF 回环通过：页码 `[1,2]` 顺序正确、两页非空、耗时 `1472 ms`，关键内容包含 `VISION-ACCEPTANCE-042` / `Status: READY`。
-- DeepSeek `deepseek-v4-pro` 真实图片问答通过：`thread=thr_2gpkj5ps`、`turn=turn_27lab8jr`、答案 `WW-VISION-20260823`；请求/日志不含 `data:image` 或 `dataBase64`。
+- DeepSeek `deepseek-v4-pro` 真实图片问答通过：`thread=thr_2gpkj5ps`、`turn=turn_27lab8jr`、答案 `WW-VISION-20260823`；模型请求和运行时事件日志不含 `data:image` 或 `dataBase64`。
 - OpenSpec、品牌边界、许可证策略、ESLint、主/运行时 TypeScript、生产构建和差异检查全部通过。
 - GitHub Actions 继续执行 Linux 全量质量门禁、Windows 安全测试、Electron smoke 和三客户端候选安装包验证。
 - 隔离候选已完成飞书单聊唯一 `/status` 闭环，目标 chat 为 `oc_fc46b98b7bfd1185caca08e0da71d37c`，账本状态 `delivered`、`result_json.ok=true`；本轮不测试微信、不发送额外消息。macOS 通知点击定位仍待系统级点击证据。

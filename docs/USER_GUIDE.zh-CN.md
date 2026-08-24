@@ -7,11 +7,13 @@
 - 问题反馈：https://github.com/wangjiawei508/WorkWise/issues
 - 维护者：https://github.com/wangjiawei508
 
-## DeepSeek V4 Pro
+## DeepSeek V4 Pro 与 DeepSeek Harness
 
 DeepSeek 已于 2026 年 8 月 13 日正式发布 `DeepSeek-V4-Pro-0813`。WorkWise 中继续选择 `deepseek-v4-pro` 即可使用正式服务端版本，不需要为模型更新重新安装应用。默认官方服务地址是 `https://api.deepseek.com`；只有 Write 的 FIM/前缀续写会使用 `/beta` 接口。
 
-正式模型提供 100 万 token 上下文和最高 384K 输出。公开 Stable `v0.3.6` 的稳定默认路径是 Chat Completions。模型菜单过滤、DeepSeek Responses 联网搜索、失败终态和其他协议的增强目前只在本地候选中完成验证，需以后续通过发布门禁的正式版本为准。
+正式模型提供 100 万 token 上下文和最高 384K 输出。WorkWise 0.4.0 已将 DeepSeek Harness 接入 Runtime 的附件处理链：模型支持图片时使用结构化 `text/image` 消息部分；文本模型使用本机回环视觉证据分析器生成 OCR、布局、语义和视觉摘要。分析器不可用或失败时，本回合明确失败，不把图片改写成 Base64 文本。这里的名称指上游 DeepSeek Harness 项目；本版本只记录 WorkWise 实际接入的适配和证据链，不宣称支持上游尚未接入的能力。
+
+实现边界、数据传输边界和配置说明见 [DeepSeek Harness 接入说明](./DEEPSEEK_HARNESS.zh-CN.md)。
 
 ## 产品定位
 
@@ -19,10 +21,10 @@ WorkWise 是面向工程、基础设施、城市更新与企业运营场景的�
 
 | 状态 | 范围 |
 | --- | --- |
-| 正式可用 | Code、Write、Design、定时任务、持久化任务、Agent、权限、MCP V2、Git checkpoint、Repo Map、PDF/Office 解析与成果验证 |
+| 正式可用 | Code、Write、Design、DeepSeek Harness 结构化附件处理、定时任务、持久化任务、Agent、权限、MCP V2、Git checkpoint、Repo Map、PDF/Office 解析与成果验证 |
 | Preview | Flow 画布、节点测试、发布、运行历史、审批和失败恢复 |
 | 可选能力 | Unlimited-OCR / MinerU 高精度解析、在线 Skill 更新、连接手机和外部 CLI |
-| 路线图 | 新增多模态模型和更多行业智能体 |
+| 路线图 | 更多多模态模型和行业智能体 |
 
 ## 下载安装
 
@@ -42,6 +44,8 @@ WorkWise 是面向工程、基础设施、城市更新与企业运营场景的�
 输入框加号支持 PDF、DOCX、XLSX、PPTX、TXT、Markdown、CSV、PNG、JPEG 和 WebP，也可以把受支持文件拖入输入框。每轮最多 8 个附件，单文件最多 200 MiB，单批次最多 500 MiB；解析完成前不能发送。
 
 文档在本机托管目录解析并建立分段索引。模型最初只看到文件清单和短摘要，需要正文时通过附件检索读取相关段落，因此百页招标文件不会整份塞进模型上下文。检索结果保留 PDF 页码、工作表、幻灯片、标题或表格来源。扫描 PDF 在本机没有可用 OCR 时会显示降级；加密、损坏或伪装格式会明确报错。文档内容始终按不可信资料处理，不能代替系统指令或授权工具操作。
+
+图片附件会按当前模型能力分流：视觉模型直接接收结构化图片部分；文本模型先调用配置好的本机回环视觉证据分析器，再把结构化证据作为不可信参考提供给模型。证据包括 OCR、布局、语义、视觉摘要和不确定性字段。图片不会通过 Base64 文本回退到模型提示；本机分析器内部传输图片字节时可以使用 `dataBase64`，这不属于模型上下文。未配置或不可用时会显示明确失败原因，不会假装已经完成图片理解。
 
 ## Flow Preview
 

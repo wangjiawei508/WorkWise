@@ -13,7 +13,7 @@ WorkWise is a local-first desktop AI workbench. It brings **Code**, **Write**, s
 
 ## Current release
 
-The current stable release is **[v0.3.4](https://github.com/wangjiawei508/WorkWise/releases/tag/v0.3.4)**, an urgent corrective release for 0.3.3. Code, Write, Design, Flow, and Scheduled Tasks now keep clear workspace boundaries; Design uses document-scoped conversations and visible AI selection targets; Write accepts tender PDF/Office attachments and exposes the Tender Master workflow; PPTX imports are readable full-slide references; and every new Flow starts with an executable Manual → Agent graph. Installed 0.3.3 clients can update in the application. Public releases have three user-facing installers:
+The current stable release is **[v0.4.0](https://github.com/wangjiawei508/WorkWise/releases/tag/v0.4.0)**. It adds the unified plugin market, verifiable installation, Codex plugin compatibility, cross-platform glass window chrome, and structured attachment vision handling. Installed 0.3.5 clients can update in the application. Public releases have three user-facing installers:
 
 | Platform | Installer | Download |
 | --- | --- | --- |
@@ -50,11 +50,15 @@ Use a complete document workflow for Markdown and text work:
 
 Read more: [Write and document export](https://kb.railwise.cn/products/workwise/write-export/).
 
+For the exact WorkWise adapter scope and data boundaries, see the [DeepSeek Harness integration note](./docs/DEEPSEEK_HARNESS.zh-CN.md) (Chinese).
+
 ### Document attachments and retrieval
 
 Attach PDF, DOCX, XLSX, PPTX, TXT, Markdown, CSV, PNG, JPEG, or WebP files directly to a conversation. Files are streamed into application-managed storage, validated, parsed locally, split into indexed sections, and retrieved only when needed. Long documents are not inserted wholesale into the initial model context; retrieval results preserve page, worksheet, or slide provenance.
 
 Document content is always treated as untrusted reference material. It cannot override system instructions or grant tool permission. Encrypted, damaged, disguised, or oversized files are rejected with an explicit reason. MarkItDown is bundled for local parsing, while MinerU remains an optional local high-accuracy component for difficult scanned PDFs.
+
+WorkWise 0.4.0 also integrates the DeepSeek Harness path in its Runtime. Models that advertise image input receive structured `text`/`image` message parts; text-only models use a configured loopback visual-evidence analyzer that returns OCR, layout, semantic, and visual fields. Analyzer failure is explicit and never falls back to putting image Base64 into the model prompt. The local analyzer transport may use `dataBase64`; that is an internal transport detail, not a model message. This documents the WorkWise adapter and evidence contract only, not every capability of the upstream DeepSeek Harness project.
 
 ### Design workbench
 
@@ -86,7 +90,7 @@ Read more: [Local data and security](https://kb.railwise.cn/products/workwise/se
 
 | Status | Scope |
 | --- | --- |
-| Available now | Code, Write, Design, reliable task runs, Agents, MCP V2, general document attachments, indexed retrieval, validated document delivery, and in-app updates |
+| Available now | Code, Write, Design, DeepSeek Harness structured attachment handling, reliable task runs, Agents, MCP V2, general document attachments, indexed retrieval, validated document delivery, and in-app updates |
 | Preview | Flow canvas, typed nodes, mock and single-node tests, publish validation, run history, approval, and failure recovery |
 | Optional | Local MinerU parsing, online Skill updates, mobile connection, and companion command-line tools |
 | Direction | More multimodal generation nodes, industry nodes, and enterprise integrations |
@@ -113,7 +117,7 @@ Preview and directional items are not described as stable released features.
 
 ### In-app updates
 
-WorkWise 0.3.4 checks the official `railwise.cn` Stable channel at startup and every 24 hours. The blue update icon first downloads in the background; after completion it changes to **Restart and update**. Before restarting, WorkWise saves edits and reports active Agent, Flow, and scheduled runs. The platform updater then replaces and relaunches the application without opening a browser or requiring another drag-and-drop installation.
+WorkWise 0.4.0 checks the official `railwise.cn` Stable channel at startup and every 24 hours. The blue update icon first downloads in the background; after completion it changes to **Restart and update**. Before restarting, WorkWise saves edits and reports active Agent, Flow, and scheduled runs. The platform updater then replaces and relaunches the application without opening a browser or requiring another drag-and-drop installation.
 
 Version 0.3.2 and earlier did not include the trusted production update channel, so those users need one final manual installation of 0.3.3. Subsequent stable releases can update in the application.
 
