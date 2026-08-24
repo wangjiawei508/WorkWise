@@ -32,6 +32,10 @@ import {
 } from './plugin-package-formats'
 import { materializePypiPackage } from './pypi-package-materializer'
 import { parseCatalogPackageArtifact } from './marketplace-catalog-service'
+import {
+  marketplaceCommandEnvironment,
+  resolveMarketplaceCommand
+} from './marketplace-command'
 
 const PREPARED_IMPORT_TTL_MS = 30 * 60_000
 const MAX_CATALOG_ARTIFACT_BYTES = 10 * 1024 * 1024
@@ -500,8 +504,9 @@ async function command(
   args: string[],
   options: { cwd?: string } = {}
 ): Promise<string> {
-  const result = await execFileAsync(executable, args, {
+  const result = await execFileAsync(resolveMarketplaceCommand(executable), args, {
     ...options,
+    env: marketplaceCommandEnvironment(),
     encoding: 'utf8',
     maxBuffer: EXEC_MAX_BUFFER,
     timeout: 10 * 60_000,

@@ -23,6 +23,10 @@ import {
   getOfficialMarketplaceCatalog
 } from './official-marketplace-catalog'
 import { marketplacePackageReviewSha256 } from './package-installation-service'
+import {
+  marketplaceCommandEnvironment,
+  resolveMarketplaceCommand
+} from './marketplace-command'
 
 const SOURCE_MANIFEST_SCHEMA = 'workwise.marketplace-sources'
 const SOURCE_MANIFEST_VERSION = 1
@@ -985,7 +989,8 @@ class CatalogRequestError extends Error {
 }
 
 async function runGitCommand(args: string[]): Promise<string> {
-  const result = await execFile('git', args, {
+  const result = await execFile(resolveMarketplaceCommand('git'), args, {
+    env: marketplaceCommandEnvironment(),
     encoding: 'utf8',
     maxBuffer: MAX_CATALOG_JSON_BYTES,
     timeout: 120_000,
