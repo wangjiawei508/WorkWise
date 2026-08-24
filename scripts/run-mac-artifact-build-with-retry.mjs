@@ -7,7 +7,8 @@ const SUPPORTED_ARCHES = new Set(['arm64', 'x64'])
 const TRANSIENT_TIMESTAMP_PATTERNS = [
   /timestamp service is not available/i,
   /timestamp authority is not available/i,
-  /timestamp server is (?:currently )?unavailable/i
+  /timestamp server is (?:currently )?unavailable/i,
+  /a timestamp was expected but was not found/i
 ]
 
 export function isTransientMacSigningFailure(output) {
