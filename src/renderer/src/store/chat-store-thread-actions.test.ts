@@ -113,7 +113,7 @@ describe('chat-store-thread-actions queued messages', () => {
     ])
   })
 
-  it('does not queue an auto image message when the active provider is unconfirmed', async () => {
+  it('does not queue a default-auto image message when the active provider is unconfirmed', async () => {
     vi.spyOn(rendererRuntimeClient, 'getSettings').mockResolvedValue({
       agents: {
         kun: {
@@ -129,7 +129,7 @@ describe('chat-store-thread-actions queued messages', () => {
       }
     } as unknown as WorkWiseSettingsV2)
     const { actions, state } = buildHarness()
-    state.composerModel = 'auto'
+    state.composerModel = ''
 
     await expect(actions.sendMessage('describe this', 'agent', {
       attachmentIds: ['att_image'],
@@ -138,6 +138,63 @@ describe('chat-store-thread-actions queued messages', () => {
 
     expect(state.queuedMessages).toEqual([])
     expect(state.error).toContain(DEEPSEEK_VISION_MODEL_ID)
+  })
+
+  it('routes the default empty composer selection as auto for a non-busy image send', async () => {
+    vi.spyOn(rendererRuntimeClient, 'getSettings').mockResolvedValue({
+      workspaceRoot: '/workspace/workwise',
+      agents: {
+        kun: {
+          ...defaultManagedRuntimeSettings(),
+          providerId: 'third-party'
+        }
+      },
+      provider: {
+        apiKey: '',
+        baseUrl: 'https://third-party.example/v1',
+        providers: [{
+          id: 'third-party',
+          name: 'Third Party',
+          apiKey: 'sk-test',
+          baseUrl: 'https://third-party.example/v1',
+          endpointFormat: 'chat_completions',
+          models: [DEEPSEEK_VISION_MODEL_ID]
+        }]
+      }
+    } as unknown as WorkWiseSettingsV2)
+    const sendUserMessage = vi.fn(async () => ({
+      turnId: 'turn_image',
+      userMessageItemId: 'item_image_user'
+    }))
+    registryMock.getProvider.mockReturnValue({
+      sendUserMessage,
+      subscribeThreadEvents: vi.fn(async () => undefined)
+    })
+    const { actions, state } = buildHarness()
+    state.busy = false
+    state.composerModel = ''
+    state.lastSeq = 0
+    state.currentTurnId = null
+    state.currentTurnUserId = null
+    state.turnStartedAtByUserId = {}
+    state.turnDurationByUserId = {}
+    state.turnReasoningFirstAtByUserId = {}
+    state.turnReasoningLastAtByUserId = {}
+    state.refreshThreads = vi.fn(async () => undefined)
+
+    await expect(actions.sendMessage('describe this GIF', 'agent', {
+      attachmentIds: ['att_gif'],
+      attachments: [{ id: 'att_gif', kind: 'image', mimeType: 'image/gif' }]
+    })).resolves.toBe(true)
+
+    expect(sendUserMessage).toHaveBeenCalledWith(
+      'thr_existing',
+      expect.any(String),
+      expect.objectContaining({
+        model: DEEPSEEK_VISION_MODEL_ID,
+        attachmentIds: ['att_gif']
+      })
+    )
   })
 
   it('does not queue GUI plan messages while another turn is active', async () => {

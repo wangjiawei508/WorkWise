@@ -92,7 +92,7 @@ import {
   watchTurnCompletionNotification
 } from './chat-store-runtime'
 import { terminalReasonForTurnSnapshot } from './terminal-notification-projection'
-import { resolveAttachmentAwareModel } from '../lib/attachment-aware-model'
+import { hasImageAttachment, resolveAttachmentAwareModel } from '../lib/attachment-aware-model'
 
 type SseAbortRef = { current: AbortController | null }
 
@@ -404,12 +404,13 @@ export function createThreadActions(
       overrides?.model?.trim() ??
       (get().route === 'claw' && clawModel ? clawModel : get().composerModel.trim())
     let composerModel = requestedModel
-    if (requestedModel === 'auto' && messageAttachments.length > 0) {
+    const attachmentRoutingModel = requestedModel || 'auto'
+    if (attachmentRoutingModel === 'auto' && hasImageAttachment(messageAttachments)) {
       const settings = await rendererRuntimeClient.getSettings()
       const runtime = resolveManagedRuntimeSettings(settings)
       const provider = getModelProviderProfile(settings, runtime.providerId)
       const decision = resolveAttachmentAwareModel({
-        selectedModel: requestedModel,
+        selectedModel: attachmentRoutingModel,
         attachments: messageAttachments,
         activeProvider: { ...provider, baseUrl: runtime.baseUrl },
         modelGroups: get().composerModelGroups
