@@ -70,6 +70,8 @@ describe('domain.thread', () => {
     expect(summary).not.toHaveProperty('turns')
     expect(summary.approvalPolicy).toBe('on-request')
     expect(summary.sandboxMode).toBe('read-only')
+    expect(summary.messageCount).toBe(0)
+    expect(summary.preview).toBe('')
   })
 })
 

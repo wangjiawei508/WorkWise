@@ -109,12 +109,13 @@ export async function encodeImageVariantsWithCanvas(
   try {
     const originalBuffer = await file.arrayBuffer()
     const originalBase64 = arrayBufferToBase64(originalBuffer)
+    const sourceMimeType = detectKnownImageMimeType(originalBuffer) || file.type.trim().toLowerCase()
     const cache = new Map<string, EncodedAttachmentImage | null>()
     const out: Array<EncodedAttachmentImage | null> = []
     for (const options of variants) {
       const key = encoderOptionsKey(options)
       if (!cache.has(key)) {
-        cache.set(key, await encodeImageWithBitmap(file, bitmap, originalBase64, options))
+        cache.set(key, await encodeImageWithBitmap(file, bitmap, originalBase64, sourceMimeType, options))
       }
       out.push(cache.get(key) ?? null)
     }
@@ -138,16 +139,16 @@ async function encodeImageWithBitmap(
   file: File,
   bitmap: ImageBitmap,
   originalBase64: string,
+  sourceMimeType: string,
   options: ImageAttachmentEncoderOptions
 ): Promise<EncodedAttachmentImage | null> {
-  const sourceMimeType = file.type || options.preferredMimeType
-    if (imageFitsLimits({
-      base64: originalBase64,
-      byteSize: file.size,
-      mimeType: sourceMimeType,
-      width: bitmap.width,
-      height: bitmap.height,
-      options
+  if (imageFitsLimits({
+    base64: originalBase64,
+    byteSize: file.size,
+    mimeType: sourceMimeType,
+    width: bitmap.width,
+    height: bitmap.height,
+    options
   })) {
     return {
       dataBase64: originalBase64,
@@ -176,13 +177,13 @@ async function encodeImageWithBitmap(
       const blob = await canvasToBlob(canvas, options.preferredMimeType, quality)
       if (!blob) continue
       const dataBase64 = arrayBufferToBase64(await blob.arrayBuffer())
-        if (imageFitsLimits({
-          base64: dataBase64,
-          byteSize: blob.size,
-          mimeType: blob.type || options.preferredMimeType,
-          width,
-          height,
-          options
+      if (imageFitsLimits({
+        base64: dataBase64,
+        byteSize: blob.size,
+        mimeType: blob.type || options.preferredMimeType,
+        width,
+        height,
+        options
       })) {
         return {
           dataBase64,
@@ -199,6 +200,34 @@ async function encodeImageWithBitmap(
     currentMax = nextMax < currentMax ? nextMax : currentMax - 1
   }
   return null
+}
+
+function detectKnownImageMimeType(buffer: ArrayBuffer): string {
+  const bytes = new Uint8Array(buffer)
+  if (
+    bytes.length >= 8 &&
+    bytes[0] === 0x89 &&
+    bytes[1] === 0x50 &&
+    bytes[2] === 0x4e &&
+    bytes[3] === 0x47 &&
+    bytes[4] === 0x0d &&
+    bytes[5] === 0x0a &&
+    bytes[6] === 0x1a &&
+    bytes[7] === 0x0a
+  ) return 'image/png'
+  if (bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) {
+    return 'image/jpeg'
+  }
+  if (bytes.length >= 6) {
+    const signature = String.fromCharCode(...bytes.subarray(0, 6))
+    if (signature === 'GIF87a' || signature === 'GIF89a') return 'image/gif'
+  }
+  if (
+    bytes.length >= 12 &&
+    String.fromCharCode(...bytes.subarray(0, 4)) === 'RIFF' &&
+    String.fromCharCode(...bytes.subarray(8, 12)) === 'WEBP'
+  ) return 'image/webp'
+  return ''
 }
 
 function encoderOptionsKey(options: ImageAttachmentEncoderOptions): string {

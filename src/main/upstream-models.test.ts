@@ -166,6 +166,8 @@ describe('upstream model picker list', () => {
             'deepseek-v4-flash-vision-exp',
             'deepseek-v4-pro'
           ])
+        expect(result.modelGroups?.find((group) => group.providerId === 'deepseek')?.discoveredModelIds)
+          .toEqual(['deepseek-v4-flash', 'deepseek-v4-pro'])
       }
     } finally {
       globalThis.fetch = originalFetch
@@ -185,6 +187,28 @@ describe('upstream model picker list', () => {
       expect(result.modelIds).toEqual(expect.arrayContaining(['deepseek-chat', 'deepseek-reasoner']))
       expect(result.modelGroups?.find((group) => group.providerId === 'custom-provider')?.modelIds)
         .toEqual(['deepseek-chat', 'deepseek-reasoner'])
+    }
+  })
+
+  it('marks models returned by the active third-party catalog as discovered', async () => {
+    const dataDir = mkdtempSync(join(tmpdir(), 'workwise-models-'))
+    const custom = settings(dataDir, 'custom-provider-model')
+    const originalFetch = globalThis.fetch
+    globalThis.fetch = async () => new Response(JSON.stringify({
+      data: [{ id: 'custom-provider-model' }, { id: 'deepseek-v4-flash-vision-exp' }]
+    }), { status: 200 })
+
+    try {
+      const result = await fetchUpstreamModelIds(custom, 'sk-custom')
+      expect(result).toMatchObject({ ok: true })
+      if (result.ok) {
+        expect(result.modelGroups?.find((group) => group.providerId === 'custom-provider'))
+          .toMatchObject({
+            discoveredModelIds: ['custom-provider-model', 'deepseek-v4-flash-vision-exp']
+          })
+      }
+    } finally {
+      globalThis.fetch = originalFetch
     }
   })
 })

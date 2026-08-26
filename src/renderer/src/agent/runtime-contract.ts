@@ -16,6 +16,8 @@ export type CoreItemStatus =
 export type CoreThreadSummaryJson = {
   id: string
   title: string
+  messageCount?: number
+  preview?: string
   workspace?: string
   model: string
   mode: string

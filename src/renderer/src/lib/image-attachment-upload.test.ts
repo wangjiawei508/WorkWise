@@ -55,6 +55,28 @@ describe('image attachment upload preparation', () => {
     })
   })
 
+  it('detects and preserves GIF bytes when the browser omits the MIME type', async () => {
+    const close = vi.fn()
+    vi.stubGlobal('createImageBitmap', vi.fn(async () => ({ width: 12, height: 8, close })))
+    vi.stubGlobal('document', { createElement: vi.fn() })
+    const file = new File([new TextEncoder().encode('GIF89a-data')], 'animated.gif')
+
+    const prepared = await prepareImageAttachmentUpload(file, {
+      maxImageBytes: 100,
+      maxImageDimension: 100,
+      allowedMimeTypes: ['image/png', 'image/jpeg', 'image/gif', 'image/webp'],
+      textFallbackMaxBase64Bytes: 100,
+      textFallbackMaxImageDimension: 100,
+      textFallbackPreferredMimeType: 'image/webp'
+    })
+
+    expect(prepared).toMatchObject({
+      mimeType: 'image/gif',
+      textFallback: { mimeType: 'image/gif', width: 12, height: 8 }
+    })
+    expect(close).toHaveBeenCalledTimes(1)
+  })
+
   it('keeps custom encoders compatible by calling them for each variant', async () => {
     const encoded = (wasCompressed: boolean): EncodedAttachmentImage => ({
       dataBase64: wasCompressed ? 'ZmFsbGJhY2s=' : 'dXBsb2Fk',

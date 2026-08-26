@@ -100,7 +100,7 @@ Flow 默认可见并标注 Preview。未配置模型、外部账号或配套 CLI
 - 内置 General、Explore、Review、Research 四个只读模板，可克隆为全局或工作区 Agent。
 - 工作区权限分为只读、工作区写入、可信和完全访问；外部目录默认只读，提权必须确认。
 - MCP V2 支持全局/工作区范围、工具授权、连接诊断和 OAuth PKCE，凭据只保存为安全引用。
-- 对话附件支持 PDF、DOCX、XLSX、PPTX、TXT、Markdown、CSV、PNG、JPEG 和 WebP；原文件流式导入应用托管目录，不通过 JSON Base64 传输大型文档。
+- 对话附件支持 PDF、DOCX、XLSX、PPTX、TXT、Markdown、CSV、PNG、JPEG、GIF 和 WebP；原文件流式导入应用托管目录，不通过 JSON Base64 传输大型文档。
 - PDF.js 负责 PDF 阅读、缩放和搜索；MarkItDown 负责结构化文本。长文档只把清单和短摘要放入初始上下文，模型通过附件检索工具按需读取全文并返回页码、工作表或幻灯片来源。MinerU 是可选高精度组件，不进入三个客户端安装包。
 - 附件内容始终作为不可信资料处理，不能覆盖系统指令或替代工具授权；加密、损坏、伪装或超限文件会被拒绝并显示原因。
 - 请求 PPTX、DOCX、XLSX 或 PDF 时，成果必须通过格式验证；HTML 或改扩展名文本不能冒充正式成果。

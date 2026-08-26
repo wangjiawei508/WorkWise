@@ -176,7 +176,7 @@ export const DEFAULT_ATTACHMENT_TEXT_FALLBACK_PREFERRED_MIME_TYPE = 'image/webp'
 export const AttachmentsCapabilityConfig = CapabilityToggleConfig.extend({
   maxImageBytes: z.number().int().positive().default(5 * 1024 * 1024),
   maxImageDimension: z.number().int().positive().default(4096),
-  allowedMimeTypes: z.array(z.string().min(1)).default(['image/png', 'image/jpeg', 'image/webp']),
+  allowedMimeTypes: z.array(z.string().min(1)).default(['image/png', 'image/jpeg', 'image/gif', 'image/webp']),
   textFallbackMaxBase64Bytes: z.number().int().positive().default(DEFAULT_ATTACHMENT_TEXT_FALLBACK_MAX_BASE64_BYTES),
   textFallbackMaxImageDimension: z.number().int().positive().default(DEFAULT_ATTACHMENT_TEXT_FALLBACK_MAX_IMAGE_DIMENSION),
   textFallbackPreferredMimeType: z.string().min(1).default(DEFAULT_ATTACHMENT_TEXT_FALLBACK_PREFERRED_MIME_TYPE)

@@ -12,6 +12,7 @@ function thread(overrides: Partial<NormalizedThread> & Pick<NormalizedThread, 'i
     model: overrides.model ?? 'reasonix',
     mode: overrides.mode ?? 'agent',
     workspace: overrides.workspace,
+    ...(overrides.messageCount !== undefined ? { messageCount: overrides.messageCount } : {}),
     ...(overrides.preview ? { preview: overrides.preview } : {}),
     ...(overrides.archived !== undefined ? { archived: overrides.archived } : {})
   }
@@ -21,6 +22,7 @@ describe('SidebarProjectsSection groups', () => {
   it('keeps remembered code workspaces visible even when the runtime lists only one workspace', () => {
     const groups = buildSidebarWorkspaceGroups({
       threads: [thread({ id: 'reasonix-current', workspace: '/Users/zxy/project-a' })],
+      activeThreadId: 'reasonix-current',
       searchQuery: '',
       showArchived: false,
       workspaceRoot: '/Users/zxy/project-a',
@@ -43,6 +45,7 @@ describe('SidebarProjectsSection groups', () => {
   it('does not show registry-only empty workspaces while searching or viewing archives', () => {
     const base = {
       threads: [thread({ id: 'reasonix-current', workspace: '/Users/zxy/project-a' })],
+      activeThreadId: 'reasonix-current',
       workspaceRoot: '/Users/zxy/project-a',
       workspaceRoots: ['/Users/zxy/project-b']
     }
@@ -71,6 +74,7 @@ describe('SidebarProjectsSection groups', () => {
         thread({ id: 'default-code', workspace: '/Users/zxy/.deepseekgui/default_workspace' }),
         thread({ id: 'write-assistant', workspace: '~/.deepseekgui/write_workspace' })
       ],
+      activeThreadId: 'code-current',
       searchQuery: '',
       showArchived: false,
       workspaceRoot: '/Users/zxy/project-a',
@@ -94,6 +98,7 @@ describe('SidebarProjectsSection groups', () => {
         thread({ id: 'default-short', workspace: '~/.deepseekgui/default_workspace' }),
         thread({ id: 'default-absolute', workspace: 'C:\\Users\\zxy\\.deepseekgui\\default_workspace' })
       ],
+      activeThreadId: null,
       searchQuery: '',
       showArchived: false,
       workspaceRoot: 'C:\\Users\\zxy\\.deepseekgui\\default_workspace',
@@ -106,6 +111,52 @@ describe('SidebarProjectsSection groups', () => {
     expect(groups).toHaveLength(1)
     expect(groups[0]?.[0]).toBe('C:\\Users\\zxy\\.deepseekgui\\default_workspace')
     expect(groups[0]?.[1].map((item) => item.id)).toEqual(['default-short', 'default-absolute'])
+  })
+
+  it('hides known empty shells while preserving the active empty thread and real history', () => {
+    const groups = buildSidebarWorkspaceGroups({
+      threads: [
+        ...Array.from({ length: 7 }, (_, index) => thread({
+          id: `empty-${index}`,
+          title: 'Design duplicate',
+          workspace: '/Users/zxy/project-a',
+          messageCount: 0
+        })),
+        thread({
+          id: 'real-history',
+          title: 'Design duplicate',
+          workspace: '/Users/zxy/project-a',
+          messageCount: 3,
+          preview: 'real message'
+        }),
+        thread({
+          id: 'active-empty',
+          title: 'New chat',
+          workspace: '/Users/zxy/project-a',
+          messageCount: 0
+        })
+      ],
+      activeThreadId: 'active-empty',
+      searchQuery: '',
+      showArchived: false,
+      workspaceRoot: '/Users/zxy/project-a',
+      workspaceRoots: ['/Users/zxy/project-a']
+    })
+
+    expect(groups[0]?.[1].map((item) => item.id)).toEqual(['real-history', 'active-empty'])
+  })
+
+  it('keeps legacy threads visible when the runtime omitted summary fields', () => {
+    const groups = buildSidebarWorkspaceGroups({
+      threads: [thread({ id: 'legacy', workspace: '/Users/zxy/project-a' })],
+      activeThreadId: null,
+      searchQuery: '',
+      showArchived: false,
+      workspaceRoot: '/Users/zxy/project-a',
+      workspaceRoots: ['/Users/zxy/project-a']
+    })
+
+    expect(groups[0]?.[1].map((item) => item.id)).toEqual(['legacy'])
   })
 })
 

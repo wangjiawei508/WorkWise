@@ -75,6 +75,7 @@ export type RenameThreadDialogState = {
 
 export function buildSidebarWorkspaceGroups(options: {
   threads: NormalizedThread[]
+  activeThreadId: string | null
   searchQuery: string
   showArchived: boolean
   workspaceRoot: string
@@ -105,6 +106,11 @@ export function buildSidebarWorkspaceGroups(options: {
     if (isInternalWriteWorkspace(th.workspace)) continue
     if (isClawWorkspacePath(th.workspace)) continue
     if ((th.archived === true) !== options.showArchived) continue
+    if (
+      th.id !== options.activeThreadId &&
+      th.messageCount === 0 &&
+      !th.preview?.trim()
+    ) continue
     const key = normalizeWorkspaceRoot(th.workspace)
     if (!key) continue
     if (query) {
@@ -175,12 +181,13 @@ export function SidebarProjectsSection({
   const groups = useMemo(() => {
     return buildSidebarWorkspaceGroups({
       threads,
+      activeThreadId,
       searchQuery,
       showArchived,
       workspaceRoot,
       workspaceRoots
     })
-  }, [searchQuery, showArchived, threads, workspaceRoot, workspaceRoots])
+  }, [activeThreadId, searchQuery, showArchived, threads, workspaceRoot, workspaceRoots])
 
   const searchVisible = searchOpen || searchQuery.trim().length > 0
   const allGroupsCollapsed = groups.length > 0 && groups.every(([workspacePath]) => collapsed[workspacePath] === true)

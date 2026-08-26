@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { chatBlockFromItem, dispatchRuntimeEvent, mergeChatBlocks } from './runtime-mapper'
+import { chatBlockFromItem, dispatchRuntimeEvent, mergeChatBlocks, threadFromCore } from './runtime-mapper'
 import type { CoreRuntimeEventJson, CoreTurnItemJson } from './runtime-contract'
 import type { ThreadErrorOptions, ThreadEventSink } from './types'
 
@@ -19,6 +19,41 @@ function makeSink(): ThreadEventSink {
     onError: () => undefined
   }
 }
+
+describe('thread summary mapping', () => {
+  it('preserves runtime message counts and previews for sidebar visibility', () => {
+    expect(threadFromCore({
+      id: 'thr_history',
+      title: 'History',
+      messageCount: 3,
+      preview: 'latest message',
+      model: 'deepseek-v4-pro',
+      mode: 'agent',
+      status: 'idle',
+      createdAt: '2026-08-20T00:00:00.000Z',
+      updatedAt: '2026-08-21T00:00:00.000Z'
+    })).toMatchObject({
+      id: 'thr_history',
+      messageCount: 3,
+      preview: 'latest message'
+    })
+  })
+
+  it('keeps missing legacy summary fields undefined', () => {
+    const mapped = threadFromCore({
+      id: 'thr_legacy',
+      title: 'Legacy',
+      model: 'deepseek-v4-pro',
+      mode: 'agent',
+      status: 'idle',
+      createdAt: '2026-08-20T00:00:00.000Z',
+      updatedAt: '2026-08-21T00:00:00.000Z'
+    })
+
+    expect(mapped.messageCount).toBeUndefined()
+    expect(mapped.preview).toBeUndefined()
+  })
+})
 
 describe('tool-call usage delta mapping', () => {
   it('forwards only the bounded argument character count to live usage', async () => {

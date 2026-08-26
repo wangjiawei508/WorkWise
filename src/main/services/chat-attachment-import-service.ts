@@ -52,6 +52,7 @@ const FORMATS: Record<string, { kind: ChatAttachmentKind; mime: string }> = {
   '.png': { kind: 'image', mime: 'image/png' },
   '.jpg': { kind: 'image', mime: 'image/jpeg' },
   '.jpeg': { kind: 'image', mime: 'image/jpeg' },
+  '.gif': { kind: 'image', mime: 'image/gif' },
   '.webp': { kind: 'image', mime: 'image/webp' }
 }
 
@@ -99,7 +100,7 @@ export class ChatAttachmentImportService {
     try {
       await pipeline(createReadStream(source), limiter, createWriteStream(target, { flags: 'wx', mode: 0o600 }), { signal: controller.signal })
       const content = await readFile(target)
-      await verifyFormat(content, format.kind)
+      await verifyFormat(content, format.kind, format.mime)
       const targetReal = await realpath(target)
       if (!isCanonicalPathContained(managedRoot, targetReal)) throw new Error('managed attachment path escaped storage root')
       return {
@@ -172,13 +173,14 @@ async function canonicalSourceFile(sourcePath: string): Promise<string> {
   return resolveContainedPath({ root: parent, target: basename(absolute), mustExist: true, expect: 'file', rejectFinalLink: true })
 }
 
-async function verifyFormat(content: Buffer, kind: ChatAttachmentKind): Promise<void> {
+async function verifyFormat(content: Buffer, kind: ChatAttachmentKind, expectedMimeType: string): Promise<void> {
   if (kind === 'pdf' && content.subarray(0, 5).toString('ascii') !== '%PDF-') throw new Error('PDF signature is invalid')
   if (kind === 'image') {
-    const png = content.length >= 8 && content.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))
-    const jpeg = content.length >= 3 && content[0] === 0xff && content[1] === 0xd8 && content[2] === 0xff
-    const webp = content.length >= 12 && content.subarray(0, 4).toString('ascii') === 'RIFF' && content.subarray(8, 12).toString('ascii') === 'WEBP'
-    if (!png && !jpeg && !webp) throw new Error('image signature is invalid')
+    const detectedMimeType = detectImageMimeType(content)
+    if (!detectedMimeType) throw new Error('image signature is invalid')
+    if (detectedMimeType !== expectedMimeType) {
+      throw new Error('image signature does not match file extension')
+    }
   }
   if (['docx', 'xlsx', 'pptx'].includes(kind)) {
     inspectOfficeArchive(content)
@@ -191,6 +193,26 @@ async function verifyFormat(content: Buffer, kind: ChatAttachmentKind): Promise<
   if (['text', 'markdown', 'csv'].includes(kind) && content.subarray(0, 4096).includes(0)) {
     throw new Error('text attachment contains binary NUL bytes')
   }
+}
+
+function detectImageMimeType(content: Buffer): string | null {
+  if (
+    content.length >= 8 &&
+    content.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))
+  ) return 'image/png'
+  if (content.length >= 3 && content[0] === 0xff && content[1] === 0xd8 && content[2] === 0xff) {
+    return 'image/jpeg'
+  }
+  if (
+    content.length >= 10 &&
+    ['GIF87a', 'GIF89a'].includes(content.subarray(0, 6).toString('ascii'))
+  ) return 'image/gif'
+  if (
+    content.length >= 12 &&
+    content.subarray(0, 4).toString('ascii') === 'RIFF' &&
+    content.subarray(8, 12).toString('ascii') === 'WEBP'
+  ) return 'image/webp'
+  return null
 }
 
 async function readBoundedText(path: string): Promise<string> {

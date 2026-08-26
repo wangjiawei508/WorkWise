@@ -293,6 +293,8 @@ export type ModelProviderModelGroup = {
   providerId: string
   label: string
   modelIds: string[]
+  /** Models confirmed by the active provider's latest successful /v1/models response. */
+  discoveredModelIds?: string[]
 }
 export type ClawImInstallQrResult =
   | { ok: true; url: string; deviceCode: string; userCode: string; interval: number; expireIn: number }

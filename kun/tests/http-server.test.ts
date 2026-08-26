@@ -622,8 +622,11 @@ describe('HTTP server', () => {
       })
     )
     expect(active.status).toBe(200)
-    const activeBody = (await readJson(active)) as { threads: Array<{ id: string }> }
+    const activeBody = (await readJson(active)) as {
+      threads: Array<{ id: string; messageCount?: number; preview?: string }>
+    }
     expect(activeBody.threads.map((thread) => thread.id)).toEqual(['thr_alpha'])
+    expect(activeBody.threads[0]).toMatchObject({ messageCount: 0, preview: '' })
 
     const archived = await dispatchRequest(
       h.router,

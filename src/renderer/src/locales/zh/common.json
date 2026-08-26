@@ -1072,6 +1072,7 @@
   "composerAddFileOrImage": "添加文件或图片",
   "composerImageUnavailable": "当前运行时暂不可用图片输入。",
   "composerAttachmentUnavailable": "当前暂不可上传附件。",
+  "composerVisionModelUnavailable": "当前服务 {{provider}} 未声明支持 {{model}}。图片和输入已保留；请确认该服务已配置或发现此模型后重试。",
   "composerRemoveAttachment": "移除附件",
   "composerFileMentionMenuTitle": "文件",
   "composerFileMentionLoading": "正在加载文件…",

@@ -87,7 +87,8 @@ export async function fetchUpstreamModelIds(
         {
           providerId: activeProvider.id,
           label: activeProvider.name,
-          modelIds: upstreamIds
+          modelIds: upstreamIds,
+          discoveredModelIds: upstreamIds
         }
       ])
     }
@@ -153,10 +154,15 @@ function mergeModelGroups(groups: readonly ModelProviderModelGroup[]): ModelProv
       ...(existing?.modelIds ?? []),
       ...group.modelIds
     ]).filter((id) => id !== 'auto')
+    const discoveredModelIds = sortComposerModelIds([
+      ...(existing?.discoveredModelIds ?? []),
+      ...(group.discoveredModelIds ?? [])
+    ]).filter((id) => id !== 'auto')
     byProvider.set(providerId, {
       providerId,
       label: group.label.trim() || providerId,
-      modelIds
+      modelIds,
+      ...(discoveredModelIds.length > 0 ? { discoveredModelIds } : {})
     })
   }
   return [...byProvider.values()].filter((group) => group.modelIds.length > 0)

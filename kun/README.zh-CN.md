@@ -216,7 +216,7 @@ Kun 使用 JSON 配置文件管理运行时行为，避免重建后重配或硬�
       "enabled": false,
       "maxImageBytes": 5242880,
       "maxImageDimension": 4096,
-      "allowedMimeTypes": ["image/png", "image/jpeg", "image/webp"],
+      "allowedMimeTypes": ["image/png", "image/jpeg", "image/gif", "image/webp"],
       "textFallbackMaxBase64Bytes": 524288,
       "textFallbackMaxImageDimension": 1280,
       "textFallbackPreferredMimeType": "image/webp"

@@ -55,6 +55,8 @@ export function threadFromCore(thread: CoreThreadSummaryJson): NormalizedThread 
   return {
     id: thread.id,
     title: thread.title?.trim() || thread.id.slice(0, 8),
+    messageCount: thread.messageCount,
+    preview: thread.preview,
     updatedAt: thread.updatedAt,
     model: thread.model,
     mode: thread.mode,
