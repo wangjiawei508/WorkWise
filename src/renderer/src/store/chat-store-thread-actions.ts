@@ -406,25 +406,30 @@ export function createThreadActions(
     let composerModel = requestedModel
     const attachmentRoutingModel = requestedModel || 'auto'
     if (attachmentRoutingModel === 'auto' && hasImageAttachment(messageAttachments)) {
-      const settings = await rendererRuntimeClient.getSettings()
-      const runtime = resolveManagedRuntimeSettings(settings)
-      const provider = getModelProviderProfile(settings, runtime.providerId)
-      const decision = resolveAttachmentAwareModel({
-        selectedModel: attachmentRoutingModel,
-        attachments: messageAttachments,
-        activeProvider: { ...provider, baseUrl: runtime.baseUrl },
-        modelGroups: get().composerModelGroups
-      })
-      if (!decision.ok) {
-        set({
-          error: i18n.t('common:composerVisionModelUnavailable', {
-            provider: provider.name,
-            model: decision.model
-          })
+      try {
+        const settings = await rendererRuntimeClient.getSettings()
+        const runtime = resolveManagedRuntimeSettings(settings)
+        const provider = getModelProviderProfile(settings, runtime.providerId)
+        const decision = resolveAttachmentAwareModel({
+          selectedModel: attachmentRoutingModel,
+          attachments: messageAttachments,
+          activeProvider: { ...provider, baseUrl: runtime.baseUrl },
+          modelGroups: get().composerModelGroups
         })
+        if (!decision.ok) {
+          set({
+            error: i18n.t('common:composerVisionModelUnavailable', {
+              provider: provider.name,
+              model: decision.model
+            })
+          })
+          return false
+        }
+        composerModel = decision.model
+      } catch (error) {
+        set({ error: formatRuntimeError(error) })
         return false
       }
-      composerModel = decision.model
     }
     const hasPendingActiveTurn = get().blocks.some(hasPendingRuntimeWork)
     if (get().busy || hasPendingActiveTurn) {

@@ -140,6 +140,20 @@ describe('chat-store-thread-actions queued messages', () => {
     expect(state.error).toContain(DEEPSEEK_VISION_MODEL_ID)
   })
 
+  it('returns a recoverable failure when image routing settings cannot be read', async () => {
+    vi.spyOn(rendererRuntimeClient, 'getSettings').mockRejectedValue(new Error('settings unavailable'))
+    const { actions, state } = buildHarness()
+    state.composerModel = 'auto'
+
+    await expect(actions.sendMessage('describe this', 'agent', {
+      attachmentIds: ['att_image'],
+      attachments: [{ id: 'att_image', kind: 'image', mimeType: 'image/png' }]
+    })).resolves.toBe(false)
+
+    expect(state.queuedMessages).toEqual([])
+    expect(state.error).toContain('settings unavailable')
+  })
+
   it('routes the default empty composer selection as auto for a non-busy image send', async () => {
     vi.spyOn(rendererRuntimeClient, 'getSettings').mockResolvedValue({
       workspaceRoot: '/workspace/workwise',
