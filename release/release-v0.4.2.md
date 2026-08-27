@@ -8,13 +8,13 @@
 - 当前新建空会话、真实历史会话以及缺少新摘要字段的旧线程继续保留；本次升级不删除或改写线程、日志和数据库。
 - 修复发送失败时编辑器被过早清空的问题。模型不可用、服务未声明能力或设置读取失败时，文字和附件保持原样，并显示明确错误。
 
-## DeepSeek 多模态支持
+## DeepSeek Harness 与多模态支持
 
 - WorkWise Runtime 支持 JPEG、PNG、GIF 和 WebP 图片导入、真实内容签名识别及结构化图片传输。
 - `auto` 模式只在当前官方 DeepSeek 地址、当前 Provider 显式配置或其模型发现结果确认可用时，为该回合选择 `deepseek-v4-flash-vision-exp`。
 - Chat Completions、Responses 和 Anthropic Messages 分别使用各自的结构化图片块；图片 Base64 不会拼入普通文本提示。
 - 手动选择模型的行为不变，PDF 和 Office 文件继续使用现有文档解析链。
-- 这里描述的是 WorkWise 实际实现和真实服务验收结果，不代表客户端打包了上游 DeepSeek Harness 的全部源码或能力。
+- 这里描述的是 WorkWise 实际实现和真实服务验收结果，不代表客户端打包了上游 DeepSeek Harness 的全部源码或能力；具体边界见 [DeepSeek Harness 接入说明](../docs/DEEPSEEK_HARNESS.zh-CN.md)。
 
 ## 兼容性
 
