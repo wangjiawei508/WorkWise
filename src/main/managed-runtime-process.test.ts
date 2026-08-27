@@ -425,6 +425,12 @@ describe('syncManagedRuntimeConfig', () => {
     expect(parsed.runtime.toolStorm).toMatchObject({ enabled: true, windowSize: 8, threshold: 3 })
     expect(parsed.runtime.toolArgumentRepair).toMatchObject({ maxStringBytes: 524288 })
     expect(parsed.capabilities.attachments).toMatchObject({ enabled: true })
+    expect(parsed.capabilities.attachments.allowedMimeTypes ?? [
+      'image/png',
+      'image/jpeg',
+      'image/gif',
+      'image/webp'
+    ]).toContain('image/gif')
     expect(parsed.capabilities.web).toMatchObject({
       enabled: true,
       fetchEnabled: true,
@@ -437,6 +443,49 @@ describe('syncManagedRuntimeConfig', () => {
       protocol: 'openai-images',
       timeoutMs: 180000
     })
+  })
+
+  it('adds GIF only to the historical default attachment MIME list', async () => {
+    if (!tempRoot) throw new Error('temp root not initialized')
+    const configPath = join(tempRoot, 'config.json')
+    writeFileSync(configPath, JSON.stringify({
+      capabilities: {
+        attachments: {
+          enabled: true,
+          allowedMimeTypes: ['image/png', 'image/jpeg', 'image/webp']
+        }
+      }
+    }))
+    const module = await import('./managed-runtime-process')
+
+    await module.syncManagedRuntimeConfig(tempRoot, defaultManagedRuntimeSettings())
+
+    const parsed = JSON.parse(readFileSync(configPath, 'utf8')) as any
+    expect(parsed.capabilities.attachments.allowedMimeTypes).toEqual([
+      'image/png',
+      'image/jpeg',
+      'image/webp',
+      'image/gif'
+    ])
+  })
+
+  it('preserves a custom attachment MIME list without adding GIF', async () => {
+    if (!tempRoot) throw new Error('temp root not initialized')
+    const configPath = join(tempRoot, 'config.json')
+    writeFileSync(configPath, JSON.stringify({
+      capabilities: {
+        attachments: {
+          enabled: true,
+          allowedMimeTypes: ['image/png']
+        }
+      }
+    }))
+    const module = await import('./managed-runtime-process')
+
+    await module.syncManagedRuntimeConfig(tempRoot, defaultManagedRuntimeSettings())
+
+    const parsed = JSON.parse(readFileSync(configPath, 'utf8')) as any
+    expect(parsed.capabilities.attachments.allowedMimeTypes).toEqual(['image/png'])
   })
 
   it('writes the image generation capability and omits cleared fields', async () => {

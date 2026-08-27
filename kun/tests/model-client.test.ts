@@ -50,6 +50,82 @@ function sseStream(payloads: Array<Record<string, unknown> | '[DONE]'>): Readabl
 }
 
 describe('DeepseekCompatModelClient', () => {
+  it('serializes image attachments as native blocks for every supported endpoint format', async () => {
+    const sentBodies: Array<Record<string, unknown>> = []
+    const fetchImpl: typeof fetch = async (_url, init) => {
+      sentBodies.push(JSON.parse(String(init?.body ?? '{}')) as Record<string, unknown>)
+      return new Response(JSON.stringify({
+        id: 'vision-result',
+        status: 'completed',
+        output: [{
+          type: 'message',
+          role: 'assistant',
+          content: [{ type: 'output_text', text: 'ok' }]
+        }],
+        choices: [{ index: 0, finish_reason: 'stop', message: { role: 'assistant', content: 'ok' } }],
+        type: 'message',
+        role: 'assistant',
+        content: [{ type: 'text', text: 'ok' }],
+        stop_reason: 'end_turn',
+        usage: { input_tokens: 1, output_tokens: 1 }
+      }), { status: 200, headers: { 'content-type': 'application/json' } })
+    }
+    const imageBase64 = Buffer.from('GIF89a-structured-image').toString('base64')
+
+    for (const endpointFormat of ['chat_completions', 'responses', 'messages'] as const) {
+      const client = new DeepseekCompatModelClient({
+        baseUrl: 'https://gateway.example.com/v1',
+        apiKey: 'k',
+        model: 'deepseek-v4-flash-vision-exp',
+        endpointFormat,
+        fetchImpl,
+        nonStreaming: true
+      })
+      const request = buildRequest(new AbortController().signal)
+      request.model = 'deepseek-v4-flash-vision-exp'
+      request.history = [{
+        id: 'item_user',
+        threadId: 'thr_1',
+        turnId: 'turn_1',
+        role: 'user',
+        status: 'completed',
+        createdAt: 'now',
+        finishedAt: 'now',
+        kind: 'user_message',
+        text: 'describe the animation'
+      }]
+      request.attachments = [{
+        id: 'att_gif',
+        name: 'animation.gif',
+        mimeType: 'image/gif',
+        dataBase64: imageBase64
+      }]
+      for await (const _chunk of client.stream(request)) {
+        // drain
+      }
+    }
+
+    const chatMessages = sentBodies[0]?.messages as Array<{ role: string; content: unknown }>
+    expect(chatMessages.find((message) => message.role === 'user')?.content).toEqual([
+      { type: 'text', text: 'describe the animation' },
+      { type: 'image_url', image_url: { url: `data:image/gif;base64,${imageBase64}` } }
+    ])
+    const responsesInput = sentBodies[1]?.input as Array<{ role?: string; content?: unknown }>
+    expect(responsesInput.find((message) => message.role === 'user')?.content).toEqual([
+      { type: 'input_text', text: 'describe the animation' },
+      { type: 'input_image', image_url: `data:image/gif;base64,${imageBase64}` }
+    ])
+    const anthropicMessages = sentBodies[2]?.messages as Array<{ role: string; content: unknown }>
+    expect(anthropicMessages.find((message) => message.role === 'user')?.content).toEqual([
+      { type: 'text', text: 'describe the animation' },
+      {
+        type: 'image',
+        source: { type: 'base64', media_type: 'image/gif', data: imageBase64 }
+      }
+    ])
+    expect(JSON.stringify(sentBodies)).not.toContain(`describe the animation${imageBase64}`)
+  })
+
   it('uses request.model over client default model', async () => {
     const response = {
       id: 'r2',

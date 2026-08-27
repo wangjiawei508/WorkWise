@@ -1072,6 +1072,7 @@
   "composerAddFileOrImage": "Add files or images",
   "composerImageUnavailable": "Image input is unavailable for this runtime.",
   "composerAttachmentUnavailable": "Attachment upload is unavailable.",
+  "composerVisionModelUnavailable": "The active provider {{provider}} has not declared support for {{model}}. Your image and input were kept; configure or discover this model for the provider, then try again.",
   "composerRemoveAttachment": "Remove attachment",
   "composerFileMentionMenuTitle": "Files",
   "composerFileMentionLoading": "Loading files…",

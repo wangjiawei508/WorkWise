@@ -76,6 +76,7 @@ const RUNTIME_STOP_GRACE_MS = 5_000
 const RUNTIME_STOP_FORCE_MS = 1_000
 const STDERR_TAIL_MAX_CHARS = 4_000
 const GUI_SCHEDULE_MCP_TIMEOUT_MS = 5_000
+const HISTORICAL_DEFAULT_ATTACHMENT_MIME_TYPES = ['image/png', 'image/jpeg', 'image/webp'] as const
 const MCP_PATH_ENV_KEY = process.platform === 'win32' ? 'Path' : 'PATH'
 const DEFAULT_MANAGED_RUNTIME_MODEL_PROFILES: Record<string, Record<string, unknown>> = {
   'deepseek-v4-pro': {
@@ -639,7 +640,10 @@ export async function syncManagedRuntimeConfig(
       ...capabilities,
       attachments: {
         ...attachments,
-        enabled: attachments.enabled === false ? false : true
+        enabled: attachments.enabled === false ? false : true,
+        ...(usesHistoricalDefaultAttachmentMimeTypes(attachments.allowedMimeTypes)
+          ? { allowedMimeTypes: [...HISTORICAL_DEFAULT_ATTACHMENT_MIME_TYPES, 'image/gif'] }
+          : {})
       },
       web: {
         ...web,
@@ -693,6 +697,15 @@ export async function syncManagedRuntimeConfig(
   if (existing && nextText === `${JSON.stringify(existing, null, 2)}\n`) return
   await mkdir(dirname(configPath), { recursive: true })
   await durableWriteFile(configPath, nextText)
+}
+
+function usesHistoricalDefaultAttachmentMimeTypes(value: unknown): boolean {
+  if (!Array.isArray(value) || value.length !== HISTORICAL_DEFAULT_ATTACHMENT_MIME_TYPES.length) {
+    return false
+  }
+  const actual = new Set(value.filter((item): item is string => typeof item === 'string'))
+  return actual.size === HISTORICAL_DEFAULT_ATTACHMENT_MIME_TYPES.length &&
+    HISTORICAL_DEFAULT_ATTACHMENT_MIME_TYPES.every((mimeType) => actual.has(mimeType))
 }
 
 function buildGuiScheduleRuntimeMcpServer(

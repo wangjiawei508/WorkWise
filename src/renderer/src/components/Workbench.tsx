@@ -74,6 +74,8 @@ import { isChatAttachmentUploadEnabled } from '../lib/attachment-upload-availabi
 import { normalizeWorkspaceRoot } from '../lib/workspace-path'
 import { useKeyboardShortcutSettings } from '../lib/keyboard-shortcut-settings'
 import { collectComposerChangeSummary } from '../lib/composer-change-summary'
+import { selectFilesForAvailableAttachmentSlots } from '../lib/attachment-selection'
+import { clearComposerDraftAfterSuccessfulSend } from '../lib/composer-send-result'
 import { readFocusModePreference, writeFocusModePreference } from '../lib/focus-mode'
 import { WorkbenchRegistry } from './workbench-registry'
 import { WorkbenchPanelLoader } from './workbench-panel-loader'
@@ -1032,13 +1034,15 @@ export function Workbench(): ReactElement {
         setAttachmentErrorForScope(scope, t('composerAttachmentUnavailable'))
         return
       }
-      const remaining = Math.max(0, 8 - attachmentsForScope(scope).length)
-      const selected = files.slice(0, remaining)
+      const selected = selectFilesForAvailableAttachmentSlots(
+        files,
+        attachmentsForScope(scope).length
+      )
       if (selected.reduce((total, file) => total + file.size, 0) > 500 * 1024 * 1024) throw new Error('附件批次不能超过 500 MiB')
       const uploaded: AttachmentReference[] = []
       for (const file of selected) {
         if (file.size > 200 * 1024 * 1024) throw new Error(`${file.name} 超过 200 MiB`)
-        if (file.type.startsWith('image/') || /\.(?:png|jpe?g|webp)$/i.test(file.name)) {
+        if (file.type.startsWith('image/') || /\.(?:png|jpe?g|gif|webp)$/i.test(file.name)) {
           const prepared = await prepareImageAttachmentUpload(file, attachmentCapabilities)
           const attachment = await provider.uploadAttachment({
             name: file.name || 'image', mimeType: prepared.mimeType, dataBase64: prepared.dataBase64,
@@ -1676,16 +1680,18 @@ export function Workbench(): ReactElement {
     if (route === 'chat' && mode === 'plan') {
       const prepared = await prepareChatMessage()
       if (!prepared) return
-      setInput('')
-      clearComposerAttachments()
-      clearComposerFileReferences()
-      void sendPlanTurn(prepared.text, {
+      const sent = await sendPlanTurn(prepared.text, {
         ...(prepared.displayText ? { displayText: prepared.displayText } : {}),
         ...(reasoningEffort ? { reasoningEffort } : {}),
         ...(prepared.workspaceReferences?.length
           ? { workspaceReferences: prepared.workspaceReferences }
           : {}),
         ...(attachmentIds.length ? { attachmentIds, attachments } : {})
+      })
+      clearComposerDraftAfterSuccessfulSend(sent, {
+        clearInput: () => setInput(''),
+        clearAttachments: clearComposerAttachments,
+        clearFileReferences: clearComposerFileReferences
       })
       return
     }
@@ -1784,16 +1790,18 @@ export function Workbench(): ReactElement {
     }
     const prepared = await prepareChatMessage()
     if (!prepared) return
-    setInput('')
-    clearComposerAttachments()
-    clearComposerFileReferences()
-    void sendMessage(prepared.text, mode === 'plan' ? 'plan' : 'agent', {
+    const sent = await sendMessage(prepared.text, mode === 'plan' ? 'plan' : 'agent', {
       ...(prepared.displayText ? { displayText: prepared.displayText } : {}),
       ...(reasoningEffort ? { reasoningEffort } : {}),
       ...(prepared.workspaceReferences?.length
         ? { workspaceReferences: prepared.workspaceReferences }
         : {}),
       ...(attachmentIds.length ? { attachmentIds, attachments } : {})
+    })
+    clearComposerDraftAfterSuccessfulSend(sent, {
+      clearInput: () => setInput(''),
+      clearAttachments: clearComposerAttachments,
+      clearFileReferences: clearComposerFileReferences
     })
   }
 

@@ -443,7 +443,7 @@ describe('FloatingComposer capability controls', () => {
       onPickAttachments: vi.fn(), webAccessAvailable: false
     }))
     expect(html).toContain('aria-label="More actions"')
-    expect(html).toContain('accept=".pdf,.docx,.xlsx,.pptx,.txt,.md,.markdown,.csv,image/png,image/jpeg,image/webp"')
+    expect(html).toContain('accept=".pdf,.docx,.xlsx,.pptx,.txt,.md,.markdown,.csv,image/png,image/jpeg,image/gif,image/webp"')
   })
 
   it('enables goal setup before a thread exists when a workspace is available', () => {

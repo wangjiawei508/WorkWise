@@ -53,6 +53,25 @@ describe('Attachment store and multimodal input', () => {
     await expect(store.resolveContent(first.id, { threadId: 'thr_1', workspace })).resolves.toMatchObject({ id: first.id })
   })
 
+  it('detects GIF content and little-endian dimensions from both official signatures', async () => {
+    for (const signature of ['GIF87a', 'GIF89a'] as const) {
+      const created = await createStore().create({
+        name: `${signature}.gif`,
+        data: gif(12, 8, signature),
+        mimeType: 'image/gif',
+        threadId: `thr_${signature}`
+      })
+      expect(created).toMatchObject({ mimeType: 'image/gif', width: 12, height: 8 })
+    }
+
+    await expect(createStore().create({
+      name: 'spoofed.gif',
+      data: png(1, 1),
+      mimeType: 'image/gif',
+      threadId: 'thr_spoofed'
+    })).rejects.toThrow('declared MIME type does not match image content')
+  })
+
   it('upgrades V1 image metadata in place without retransmitting content', async () => {
     const store = createStore()
     const created = await store.create({ name: 'legacy.png', data: png(1, 1), threadId: 'thr_legacy' })
@@ -805,6 +824,14 @@ function png(width: number, height: number): Buffer {
   buffer[7] = 0x0a
   buffer.writeUInt32BE(width, 16)
   buffer.writeUInt32BE(height, 20)
+  return buffer
+}
+
+function gif(width: number, height: number, signature: 'GIF87a' | 'GIF89a' = 'GIF89a'): Buffer {
+  const buffer = Buffer.alloc(10)
+  buffer.write(signature, 0, 'ascii')
+  buffer.writeUInt16LE(width, 6)
+  buffer.writeUInt16LE(height, 8)
   return buffer
 }
 

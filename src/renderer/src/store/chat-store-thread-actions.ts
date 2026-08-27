@@ -21,7 +21,13 @@ import {
 } from '../lib/thread-fork-registry'
 import { workspaceLabelFromPath } from '../lib/workspace-label'
 import { isInternalTemporaryWorkspace, normalizeWorkspaceRoot } from '../lib/workspace-path'
-import { buildClawRuntimePrompt, buildCodeRuntimePrompt, getActiveAgentApiKey } from '@shared/app-settings'
+import {
+  buildClawRuntimePrompt,
+  buildCodeRuntimePrompt,
+  getActiveAgentApiKey,
+  getModelProviderProfile,
+  resolveManagedRuntimeSettings
+} from '@shared/app-settings'
 import type { ChatState, ChatStoreGet, ChatStoreSet } from './chat-store-types'
 import {
   activeClawChannel,
@@ -86,6 +92,7 @@ import {
   watchTurnCompletionNotification
 } from './chat-store-runtime'
 import { terminalReasonForTurnSnapshot } from './terminal-notification-projection'
+import { hasImageAttachment, resolveAttachmentAwareModel } from '../lib/attachment-aware-model'
 
 type SseAbortRef = { current: AbortController | null }
 
@@ -386,6 +393,44 @@ export function createThreadActions(
       const writeThreadId = await get().ensureWriteThreadForWorkspace()
       if (!writeThreadId) return false
     }
+    const queued = overrides?.queued
+    const messageAttachments =
+      queued?.attachments ??
+      overrides?.attachments?.filter((attachment) => attachment.id.trim().length > 0) ??
+      []
+    const clawModel = activeClawChannel(get())?.model
+    const requestedModel =
+      queued?.model ??
+      overrides?.model?.trim() ??
+      (get().route === 'claw' && clawModel ? clawModel : get().composerModel.trim())
+    let composerModel = requestedModel
+    const attachmentRoutingModel = requestedModel || 'auto'
+    if (attachmentRoutingModel === 'auto' && hasImageAttachment(messageAttachments)) {
+      try {
+        const settings = await rendererRuntimeClient.getSettings()
+        const runtime = resolveManagedRuntimeSettings(settings)
+        const provider = getModelProviderProfile(settings, runtime.providerId)
+        const decision = resolveAttachmentAwareModel({
+          selectedModel: attachmentRoutingModel,
+          attachments: messageAttachments,
+          activeProvider: { ...provider, baseUrl: runtime.baseUrl },
+          modelGroups: get().composerModelGroups
+        })
+        if (!decision.ok) {
+          set({
+            error: i18n.t('common:composerVisionModelUnavailable', {
+              provider: provider.name,
+              model: decision.model
+            })
+          })
+          return false
+        }
+        composerModel = decision.model
+      } catch (error) {
+        set({ error: formatRuntimeError(error) })
+        return false
+      }
+    }
     const hasPendingActiveTurn = get().blocks.some(hasPendingRuntimeWork)
     if (get().busy || hasPendingActiveTurn) {
       if (overrides?.guiPlan || overrides?.guiDesign) {
@@ -397,10 +442,6 @@ export function createThreadActions(
       const threadSnap = activeThreadId
         ? get().threads.find((thread) => thread.id === activeThreadId)
         : undefined
-      const clawModel = activeClawChannel(get())?.model
-      const overrideModel = overrides?.model?.trim()
-      const composerModel =
-        overrideModel ?? (get().route === 'claw' && clawModel ? clawModel : get().composerModel.trim())
       const userModelChip =
         overrides?.modelLabel ?? optimisticUserModelLabel(composerModel, threadSnap?.model)
       const displayText = overrides?.displayText?.trim()
@@ -435,16 +476,12 @@ export function createThreadActions(
       return true
     }
     const now = Date.now()
-    const queued = overrides?.queued
     const userBlockId = queued?.id ?? `u-${now}`
     const attachmentIds =
       queued?.attachmentIds ??
       overrides?.attachmentIds?.filter((id) => id.trim().length > 0) ??
       []
-    const attachments =
-      queued?.attachments ??
-      overrides?.attachments?.filter((attachment) => attachment.id.trim().length > 0) ??
-      []
+    const attachments = messageAttachments
     const workspaceReferences =
       queued?.workspaceReferences ??
       overrides?.workspaceReferences?.filter((reference) => reference.path.trim()) ??
@@ -463,10 +500,6 @@ export function createThreadActions(
       get().blocks.every((block) => block.kind !== 'user') &&
       shouldAutoTitleThread(activeThread)
     const threadSnap = get().threads.find((thread) => thread.id === activeThreadId)
-    const clawModel = activeClawChannel(get())?.model
-    const overrideModel = overrides?.model?.trim()
-    const composerModel =
-      queued?.model ?? overrideModel ?? (get().route === 'claw' && clawModel ? clawModel : get().composerModel.trim())
     const reasoningEffort = queued?.reasoningEffort ?? overrides?.reasoningEffort?.trim()
     const userModelChip =
       queued?.modelLabel ?? overrides?.modelLabel ?? optimisticUserModelLabel(composerModel, threadSnap?.model)

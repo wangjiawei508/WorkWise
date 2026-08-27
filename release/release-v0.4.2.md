@@ -1,0 +1,30 @@
+# WorkWise 0.4.2
+
+0.4.2 修复历史会话侧栏的空壳条目问题，并完善 WorkWise Runtime 对 DeepSeek 多模态图片回合的实际支持。
+
+## 修复内容
+
+- Runtime 线程摘要现在向桌面端传递消息数量和预览内容；侧栏只隐藏非当前、确定无消息且无预览的空壳线程。
+- 当前新建空会话、真实历史会话以及缺少新摘要字段的旧线程继续保留；本次升级不删除或改写线程、日志和数据库。
+- 修复发送失败时编辑器被过早清空的问题。模型不可用、服务未声明能力或设置读取失败时，文字和附件保持原样，并显示明确错误。
+
+## DeepSeek Harness 与多模态支持
+
+- WorkWise Runtime 支持 JPEG、PNG、GIF 和 WebP 图片导入、真实内容签名识别及结构化图片传输。
+- `auto` 模式只在当前官方 DeepSeek 地址、当前 Provider 显式配置或其模型发现结果确认可用时，为该回合选择 `deepseek-v4-flash-vision-exp`。
+- Chat Completions、Responses 和 Anthropic Messages 分别使用各自的结构化图片块；图片 Base64 不会拼入普通文本提示。
+- 手动选择模型的行为不变，PDF 和 Office 文件继续使用现有文档解析链。
+- 这里描述的是 WorkWise 实际实现和真实服务验收结果，不代表客户端打包了上游 DeepSeek Harness 的全部源码或能力；具体边界见 [DeepSeek Harness 接入说明](../docs/DEEPSEEK_HARNESS.zh-CN.md)。
+
+## 兼容性
+
+- 仅为仍使用 JPEG、PNG、WebP 历史默认图片白名单的配置增加 GIF；自定义白名单原样保留。
+- 不修改 Provider、API Key、Base URL 或持久化模型设置，不改变 OpenAI Official 或第三方服务配置。
+- 保持正式应用 ID、用户数据目录和更新源兼容，可从 0.4.1 原位升级。
+
+## 发布验收要求
+
+- 自动化门禁已通过：主项目 2340 项测试通过、2 项跳过；内置运行时 784 项测试通过；两套 TypeScript、ESLint、品牌边界、OpenSpec 严格校验和生产构建通过。
+- 最终安装包必须完成签名与 Apple 公证校验，并在浅色、深色和支持窗口尺寸下检查历史侧栏。
+- 必须使用真实历史数据确认有消息的旧线程可恢复，并完成一次真实 GIF 图片问答。
+- 必须通过私有隔离更新源完成 0.4.1 到 0.4.2 的应用内更新往返；验收前不得提升到 Stable 或作为正式版本发布。

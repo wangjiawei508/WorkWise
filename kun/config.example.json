@@ -117,7 +117,7 @@
       "enabled": false,
       "maxImageBytes": 5242880,
       "maxImageDimension": 4096,
-      "allowedMimeTypes": ["image/png", "image/jpeg", "image/webp"],
+      "allowedMimeTypes": ["image/png", "image/jpeg", "image/gif", "image/webp"],
       "textFallbackMaxBase64Bytes": 524288,
       "textFallbackMaxImageDimension": 1280,
       "textFallbackPreferredMimeType": "image/webp"

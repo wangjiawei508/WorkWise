@@ -173,6 +173,9 @@ export const ThreadSummarySchema = ThreadSchema.pick({
   todos: true,
   createdAt: true,
   updatedAt: true
+}).extend({
+  messageCount: z.number().int().nonnegative().optional(),
+  preview: z.string().optional()
 })
 export type ThreadSummary = z.infer<typeof ThreadSummarySchema>
 

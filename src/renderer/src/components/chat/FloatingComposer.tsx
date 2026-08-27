@@ -1936,7 +1936,7 @@ export function FloatingComposer({
             <input
               ref={fileInputRef}
               type="file"
-              accept=".pdf,.docx,.xlsx,.pptx,.txt,.md,.markdown,.csv,image/png,image/jpeg,image/webp"
+              accept=".pdf,.docx,.xlsx,.pptx,.txt,.md,.markdown,.csv,image/png,image/jpeg,image/gif,image/webp"
               multiple
               className="hidden"
               onChange={handleAttachmentInput}

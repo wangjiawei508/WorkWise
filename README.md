@@ -29,7 +29,8 @@ WorkWise 不是在通用聊天客户端上额外增加一个 DeepSeek 选项，�
 - **安装后直接配置 DeepSeek**：首次启动的模型配置只提供 DeepSeek API Key 和可选服务地址，不需要先理解或切换服务商；完成一次配置后，对话、写作和手机连接即可共用。没有 API Key 时仍可先使用本地写作和导出。
 - **按模型特长分工**：默认主 Agent 使用 `deepseek-v4-pro`，Write 行内补全默认使用 `deepseek-v4-flash`；定时任务、Flow 和其他 Agent 场景也可在两者之间选择。
 - **不是简单转发接口**：当前版本按 DeepSeek V4 的 100 万 token 上下文配置运行时，并支持思考模式、工具调用、长对话延续、上下文压缩和缓存用量统计。
-- **接入 DeepSeek Harness**：0.4.0 的 WorkWise Runtime 根据模型能力处理图片附件，支持结构化 `text/image` 消息部分；文本模型使用本机回环视觉证据分析器生成 OCR、布局、语义和视觉摘要。分析器不可用或失败时明确报告失败，不把图片退化为 Base64 文本。
+- **接入 DeepSeek Harness**：WorkWise Runtime 根据模型能力处理图片附件，支持结构化 `text/image` 消息部分；文本模型使用本机回环视觉证据分析器生成 OCR、布局、语义和视觉摘要。分析器不可用或失败时明确报告失败，不把图片退化为 Base64 文本。
+- **0.4.2 图片回合**：支持 JPEG、PNG、GIF 和 WebP。`auto` 只在当前配置使用 DeepSeek 官方地址，或当前 Provider 显式配置或实际发现 `deepseek-v4-flash-vision-exp` 时，为本回合选择该模型；否则保留文字和附件并显示错误。Chat Completions、Responses 和 Anthropic Messages 的结构化图片块均有自动化序列化测试，但这不代表 DeepSeek 官方 API 默认提供全部三种协议。
 - 这里描述的是 WorkWise 实际接入的 Runtime 适配、附件合约和视觉证据路径，不代表客户端内置了上游 DeepSeek Harness 的全部代码或最新能力。模型服务和上游项目的变化以 [DeepSeek 官方文档](https://api-docs.deepseek.com/updates) 为准。
 
 完整支持范围与版本边界见[软件介绍](./docs/product-introduction.zh-CN.md)；实现边界见 [DeepSeek Harness 接入说明](./docs/DEEPSEEK_HARNESS.zh-CN.md)。DeepSeek V4 的公开模型参数和接口说明见[官方发布说明](https://api-docs.deepseek.com/news/news260424)。
@@ -100,7 +101,7 @@ Flow 默认可见并标注 Preview。未配置模型、外部账号或配套 CLI
 - 内置 General、Explore、Review、Research 四个只读模板，可克隆为全局或工作区 Agent。
 - 工作区权限分为只读、工作区写入、可信和完全访问；外部目录默认只读，提权必须确认。
 - MCP V2 支持全局/工作区范围、工具授权、连接诊断和 OAuth PKCE，凭据只保存为安全引用。
-- 对话附件支持 PDF、DOCX、XLSX、PPTX、TXT、Markdown、CSV、PNG、JPEG 和 WebP；原文件流式导入应用托管目录，不通过 JSON Base64 传输大型文档。
+- 对话附件支持 PDF、DOCX、XLSX、PPTX、TXT、Markdown、CSV、PNG、JPEG、GIF 和 WebP；原文件流式导入应用托管目录，不通过 JSON Base64 传输大型文档。
 - PDF.js 负责 PDF 阅读、缩放和搜索；MarkItDown 负责结构化文本。长文档只把清单和短摘要放入初始上下文，模型通过附件检索工具按需读取全文并返回页码、工作表或幻灯片来源。MinerU 是可选高精度组件，不进入三个客户端安装包。
 - 附件内容始终作为不可信资料处理，不能覆盖系统指令或替代工具授权；加密、损坏、伪装或超限文件会被拒绝并显示原因。
 - 请求 PPTX、DOCX、XLSX 或 PDF 时，成果必须通过格式验证；HTML 或改扩展名文本不能冒充正式成果。

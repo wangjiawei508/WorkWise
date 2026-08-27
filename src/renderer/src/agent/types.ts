@@ -99,6 +99,7 @@ export type UserInputAnswer = {
 export type NormalizedThread = {
   id: string
   title: string
+  messageCount?: number
   updatedAt: string
   model: string
   mode: string

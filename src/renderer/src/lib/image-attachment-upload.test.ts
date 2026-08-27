@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   arrayBufferToBase64,
+  detectKnownImageMimeType,
   prepareImageAttachmentUpload,
   type EncodedAttachmentImage
 } from './image-attachment-upload'
@@ -10,6 +11,20 @@ afterEach(() => {
 })
 
 describe('image attachment upload preparation', () => {
+  it.each([
+    ['PNG', new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]), 'image/png'],
+    ['JPEG', new Uint8Array([0xff, 0xd8, 0xff]), 'image/jpeg'],
+    ['GIF87a', new TextEncoder().encode('GIF87a'), 'image/gif'],
+    ['GIF89a', new TextEncoder().encode('GIF89a'), 'image/gif'],
+    ['WebP', new TextEncoder().encode('RIFFxxxxWEBP'), 'image/webp']
+  ])('detects %s from content rather than the file extension', (_label, bytes, mimeType) => {
+    expect(detectKnownImageMimeType(bytes.buffer)).toBe(mimeType)
+  })
+
+  it('does not classify unknown bytes as an image', () => {
+    expect(detectKnownImageMimeType(new TextEncoder().encode('not-an-image').buffer)).toBe('')
+  })
+
   it('reuses one bitmap decode for upload and text fallback preparation', async () => {
     const close = vi.fn()
     const createImageBitmap = vi.fn(async () => ({
@@ -53,6 +68,28 @@ describe('image attachment upload preparation', () => {
         wasCompressed: false
       }
     })
+  })
+
+  it('detects and preserves GIF bytes when the browser omits the MIME type', async () => {
+    const close = vi.fn()
+    vi.stubGlobal('createImageBitmap', vi.fn(async () => ({ width: 12, height: 8, close })))
+    vi.stubGlobal('document', { createElement: vi.fn() })
+    const file = new File([new TextEncoder().encode('GIF89a-data')], 'animated.gif')
+
+    const prepared = await prepareImageAttachmentUpload(file, {
+      maxImageBytes: 100,
+      maxImageDimension: 100,
+      allowedMimeTypes: ['image/png', 'image/jpeg', 'image/gif', 'image/webp'],
+      textFallbackMaxBase64Bytes: 100,
+      textFallbackMaxImageDimension: 100,
+      textFallbackPreferredMimeType: 'image/webp'
+    })
+
+    expect(prepared).toMatchObject({
+      mimeType: 'image/gif',
+      textFallback: { mimeType: 'image/gif', width: 12, height: 8 }
+    })
+    expect(close).toHaveBeenCalledTimes(1)
   })
 
   it('keeps custom encoders compatible by calling them for each variant', async () => {

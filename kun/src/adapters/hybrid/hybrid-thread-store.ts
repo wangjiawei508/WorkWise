@@ -17,7 +17,7 @@ import type { Turn } from '../../contracts/turns.js'
 import type { ApprovalPolicy, SandboxMode } from '../../contracts/policy.js'
 import type { ThreadStore, ThreadStoreListOptions } from '../../ports/thread-store.js'
 import type { SessionLatestUsageSnapshot, SessionUsageRecord } from '../../ports/session-store.js'
-import { toThreadSummary } from '../../domain/thread.js'
+import { previewFromThreadItems, toThreadSummary } from '../../domain/thread.js'
 import { readJsonl } from '../file/file-thread-store.js'
 import {
   emptyUsageSnapshot,
@@ -710,7 +710,7 @@ export class HybridThreadStore implements ThreadStore {
       thread,
       messageCount: itemSource.length,
       eventSeqHighWater: 0,
-      preview: previewFromItems(itemSource)
+      preview: previewFromThreadItems(itemSource)
     }
   }
 
@@ -1096,6 +1096,8 @@ function summaryFromRow(row: ThreadRow): ThreadSummary {
     ...(row.forked_from_turn_count !== null ? { forkedFromTurnCount: row.forked_from_turn_count } : {}),
     ...(goal ? { goal } : {}),
     ...(todos ? { todos } : {}),
+    messageCount: row.message_count,
+    preview: row.preview ?? '',
     createdAt: row.created_at,
     updatedAt: row.updated_at
   }
@@ -1173,19 +1175,6 @@ function searchTextForSummary(thread: ThreadSummary): string {
     thread.forkedFromThreadId,
     ...(thread.todos?.items.map((item) => item.content) ?? [])
   ].filter(Boolean).join('\n').toLowerCase()
-}
-
-function previewFromItems(items: TurnItem[]): string {
-  for (let index = items.length - 1; index >= 0; index -= 1) {
-    const item = items[index]
-    if (!item) continue
-    if (item.kind === 'user_message' || item.kind === 'assistant_text') {
-      return item.text.slice(0, 500)
-    }
-    if (item.kind === 'error') return item.message.slice(0, 500)
-    if (item.kind === 'tool_call') return (item.summary ?? item.toolName).slice(0, 500)
-  }
-  return ''
 }
 
 function usageRowFromEvent(event: RuntimeEvent & { kind: 'usage' }): UsageRow {

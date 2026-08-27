@@ -4,9 +4,11 @@ import type {
   ThreadGoal,
   ThreadAgentProfile,
   ThreadTodoList,
+  ThreadSummary,
   ThreadRelation,
   ThreadStatus
 } from '../contracts/threads.js'
+import type { TurnItem } from '../contracts/items.js'
 import {
   DEFAULT_APPROVAL_POLICY,
   DEFAULT_SANDBOX_MODE,
@@ -82,14 +84,8 @@ export function touchThread(thread: ThreadEntity, updatedAt?: string): ThreadEnt
 
 export function toThreadSummary(
   thread: ThreadEntity
-): Pick<
-  ThreadEntity,
-  'id' | 'title' | 'workspace' | 'model' | 'mode' | 'status' | 'approvalPolicy' | 'sandboxMode' | 'agentId' | 'agentRevision' | 'agentProfile' | 'createdAt' | 'updatedAt'
-  | 'costBudgetUsd' | 'costBudgetWarningSent'
-  | 'relation' | 'parentThreadId'
-  | 'forkedFromThreadId' | 'forkedFromTitle' | 'forkedAt' | 'forkedFromMessageCount' | 'forkedFromTurnCount'
-  | 'goal' | 'todos'
-> {
+): ThreadSummary {
+  const items = thread.turns.flatMap((turn) => turn.items)
   return {
     id: thread.id,
     title: thread.title,
@@ -113,7 +109,22 @@ export function toThreadSummary(
     ...(thread.forkedFromTurnCount !== undefined ? { forkedFromTurnCount: thread.forkedFromTurnCount } : {}),
     ...(thread.goal ? { goal: thread.goal } : {}),
     ...(thread.todos ? { todos: thread.todos } : {}),
+    messageCount: items.length,
+    preview: previewFromThreadItems(items),
     createdAt: thread.createdAt,
     updatedAt: thread.updatedAt
   }
+}
+
+export function previewFromThreadItems(items: readonly TurnItem[]): string {
+  for (let index = items.length - 1; index >= 0; index -= 1) {
+    const item = items[index]
+    if (!item) continue
+    if (item.kind === 'user_message' || item.kind === 'assistant_text') {
+      return item.text.slice(0, 500)
+    }
+    if (item.kind === 'error') return item.message.slice(0, 500)
+    if (item.kind === 'tool_call') return (item.summary ?? item.toolName).slice(0, 500)
+  }
+  return ''
 }

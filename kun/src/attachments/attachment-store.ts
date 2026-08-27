@@ -419,6 +419,17 @@ export function detectImage(buffer: Buffer): { mimeType: string; width?: number;
   if (buffer.length >= 3 && buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff) {
     return { mimeType: 'image/jpeg' }
   }
+  if (
+    buffer.length >= 10 &&
+    (buffer.subarray(0, 6).toString('ascii') === 'GIF87a' ||
+      buffer.subarray(0, 6).toString('ascii') === 'GIF89a')
+  ) {
+    return {
+      mimeType: 'image/gif',
+      width: buffer.readUInt16LE(6),
+      height: buffer.readUInt16LE(8)
+    }
+  }
   if (buffer.length >= 12 && buffer.subarray(0, 4).toString('ascii') === 'RIFF' && buffer.subarray(8, 12).toString('ascii') === 'WEBP') {
     return { mimeType: 'image/webp' }
   }

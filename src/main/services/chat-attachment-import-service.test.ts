@@ -21,6 +21,43 @@ async function serviceWithFile(name: string, contents: string | Buffer, parse?: 
 }
 
 describe('ChatAttachmentImportService parse states', () => {
+  it.each([
+    ['image.png', 'image/png', Buffer.from([137, 80, 78, 71, 13, 10, 26, 10])],
+    ['image.jpg', 'image/jpeg', Buffer.from([0xff, 0xd8, 0xff])],
+    ['image.webp', 'image/webp', Buffer.from('RIFFxxxxWEBP', 'ascii')]
+  ])('imports valid %s content using its real signature', async (name, mimeType, bytes) => {
+    const fixture = await serviceWithFile(name, bytes)
+
+    await expect(fixture.service.stage({
+      sourcePath: fixture.sourcePath,
+      declaredMimeType: mimeType
+    })).resolves.toMatchObject({ kind: 'image', mimeType })
+  })
+
+  it('imports GIF87a and GIF89a images and rejects spoofed GIF content', async () => {
+    for (const signature of ['GIF87a', 'GIF89a']) {
+      const bytes = Buffer.alloc(10)
+      bytes.write(signature, 0, 'ascii')
+      bytes.writeUInt16LE(12, 6)
+      bytes.writeUInt16LE(8, 8)
+      const fixture = await serviceWithFile(`${signature}.gif`, bytes)
+
+      await expect(fixture.service.stage({
+        sourcePath: fixture.sourcePath,
+        declaredMimeType: 'image/gif'
+      })).resolves.toMatchObject({ kind: 'image', mimeType: 'image/gif' })
+    }
+
+    const invalid = await serviceWithFile('invalid.gif', Buffer.from('not-a-gif'))
+    await expect(invalid.service.stage({ sourcePath: invalid.sourcePath }))
+      .rejects.toThrow('image signature is invalid')
+
+    const pngBytes = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10])
+    const spoofed = await serviceWithFile('spoofed.gif', pngBytes)
+    await expect(spoofed.service.stage({ sourcePath: spoofed.sourcePath }))
+      .rejects.toThrow('image signature does not match file extension')
+  })
+
   it('rejects empty text and corrupt PDF signatures with explicit errors', async () => {
     const empty = await serviceWithFile('empty.txt', '   \n')
     const stagedText = await empty.service.stage({ sourcePath: empty.sourcePath })

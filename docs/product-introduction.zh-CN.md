@@ -21,20 +21,22 @@ WorkWise 是一款本地优先的桌面 AI 工作台。它把项目文件、会�
 
 WorkWise 不是在通用聊天客户端上额外增加一个 DeepSeek 选项，而是从项目起点就围绕 DeepSeek 的模型能力和真实工作场景构建。DeepSeek 是当前开箱即用的默认模型底座；同时 WorkWise 保持开放，允许用户在首次配置后按需添加其他兼容模型服务。
 
-### 0.4.0 当前支持
+### 0.4.2 当前支持
 
 - 内置 `deepseek-v4-pro` 与 `deepseek-v4-flash` 模型配置，可直接连接 DeepSeek 官方 API，也可按组织要求配置兼容服务。
 - 首次启动的模型配置只提供 DeepSeek API Key 和可选服务地址；默认主 Agent 使用 `deepseek-v4-pro`，Write 行内补全默认使用 `deepseek-v4-flash`。一次配置即可供对话、写作和手机连接共用，没有 API Key 时仍可先使用本地写作和导出。
 - 按 DeepSeek V4 的 100 万 token 上下文建立运行时配置，并支持思考模式、工具调用、长对话历史延续、上下文压缩和缓存用量统计。DeepSeek 官方公布的模型能力与接口范围见 [DeepSeek V4 发布说明](https://api-docs.deepseek.com/news/news260424) 和 [模型与计费说明](https://api-docs.deepseek.com/quick_start/pricing)。
-- 接入 DeepSeek Harness 的 WorkWise 运行时适配：图片附件按模型能力选择结构化 `text/image` 消息部分，文本模型则通过本机回环视觉证据分析器生成结构化的 OCR、布局、语义和视觉摘要，再作为不可信证据提供给模型。分析器不可用或失败时明确终止本回合，不把图片退化成 Base64 文本；分析器自己的本机 HTTP 输入使用 `dataBase64` 传递图片字节，不等同于模型提示内容。
-- 本版本使用的是 WorkWise Runtime 自有的 DeepSeek 兼容适配、附件合约和 `VisionEvidencePort` 实现，没有把上游 DeepSeek Harness 仓库作为独立依赖或源码副本打包进客户端；未实现的上游能力不作为 WorkWise 0.4.0 能力宣传。
+- 接入 DeepSeek Harness 的 WorkWise 运行时适配：图片附件按模型能力选择结构化 `text/image` 消息部分，文本模型则可通过本机回环视觉证据分析器生成结构化的 OCR、布局、语义和视觉摘要，再作为不可信证据提供给模型。分析器不可用或失败时明确终止本回合，不把图片退化成 Base64 文本；分析器自己的本机 HTTP 输入使用 `dataBase64` 传递图片字节，不等同于模型提示内容。
+- 0.4.2 支持 JPEG、PNG、GIF 和 WebP 图片导入及真实内容签名识别。图片回合使用 `auto` 时，仅在当前配置使用 DeepSeek 官方地址，或当前 Provider 显式配置或实际发现 `deepseek-v4-flash-vision-exp` 时，为本回合选择该模型；失败时不清空尚未发送的文字和附件。
+- WorkWise 的兼容适配器已测试 Chat Completions、Responses 和 Anthropic Messages 三种结构化图片块。这里陈述的是 WorkWise 的序列化兼容范围，不表示 DeepSeek 官方 API 或任一第三方 Provider 默认提供全部三种协议。
+- 本版本使用的是 WorkWise Runtime 自有的 DeepSeek 兼容适配、附件合约和 `VisionEvidencePort` 实现，没有把上游 DeepSeek Harness 仓库作为独立依赖或源码副本打包进客户端；未实现的上游能力不作为 WorkWise 0.4.2 能力宣传。
 - WorkWise 负责模型接入与工作流编排；API Key、模型可用性、调用额度和费用仍由用户选择的模型服务及其账户决定。
 
 实现边界和数据流见 [DeepSeek Harness 接入说明](./DEEPSEEK_HARNESS.zh-CN.md)。
 
 ### 2026 年 8 月模型状态
 
-- DeepSeek V4 Pro API 的正式模型标识仍为 `deepseek-v4-pro`，WorkWise 0.4.0 使用该稳定标识；服务端模型更新不要求重新安装 WorkWise。模型服务的具体能力和接口范围以 [DeepSeek 官方文档](https://api-docs.deepseek.com/updates) 为准。
+- DeepSeek V4 Pro API 的正式模型标识仍为 `deepseek-v4-pro`，WorkWise 0.4.2 继续使用该稳定标识；服务端模型更新不要求重新安装 WorkWise。模型服务的具体能力和接口范围以 [DeepSeek 官方文档](https://api-docs.deepseek.com/updates) 为准。
 - “DeepSeek Harness”是上游项目名称；WorkWise 文档只陈述本版本实际接入的运行时适配和附件路径，不把上游正在更新或尚未接入的功能写成已交付能力。
 
 ### 后续优化方向
