@@ -7,7 +7,7 @@
 - 发布候选 PR：[WorkWise #26](https://github.com/wangjiawei508/WorkWise/pull/26)。
 - 当前 PR 头提交：`89a68a006a47deb9cd280064c2ff0441240c52e2`。
 - 应用版本：`0.4.2`；本地候选的 `CFBundleShortVersionString` 与 `CFBundleVersion` 均为 `0.4.2`。
-- 本地验收包：`/Users/wangjiawei/Library/Application Support/WorkWise-Candidate/package-0.4.2-f493e8d/mac-arm64/WorkWise.app`。
+- 本地验收包：`${HOME}/Library/Application Support/WorkWise-Candidate/package-0.4.2-f493e8d/mac-arm64/WorkWise.app`。
 - 候选包使用独立存储和独立用户数据，不读取或改写正式安装版数据。
 - 本地候选提交 `f493e8d1e43518035873e9877306a5c307fd79b7` 到当前 PR 头之间仅新增 `src/main/release-delivery.test.ts` 的发布回归测试，生产代码没有变化。
 
