@@ -75,6 +75,7 @@ import { normalizeWorkspaceRoot } from '../lib/workspace-path'
 import { useKeyboardShortcutSettings } from '../lib/keyboard-shortcut-settings'
 import { collectComposerChangeSummary } from '../lib/composer-change-summary'
 import { selectFilesForAvailableAttachmentSlots } from '../lib/attachment-selection'
+import { clearComposerDraftAfterSuccessfulSend } from '../lib/composer-send-result'
 import { readFocusModePreference, writeFocusModePreference } from '../lib/focus-mode'
 import { WorkbenchRegistry } from './workbench-registry'
 import { WorkbenchPanelLoader } from './workbench-panel-loader'
@@ -1687,11 +1688,11 @@ export function Workbench(): ReactElement {
           : {}),
         ...(attachmentIds.length ? { attachmentIds, attachments } : {})
       })
-      if (sent) {
-        setInput('')
-        clearComposerAttachments()
-        clearComposerFileReferences()
-      }
+      clearComposerDraftAfterSuccessfulSend(sent, {
+        clearInput: () => setInput(''),
+        clearAttachments: clearComposerAttachments,
+        clearFileReferences: clearComposerFileReferences
+      })
       return
     }
     if (route === 'write') {
@@ -1797,11 +1798,11 @@ export function Workbench(): ReactElement {
         : {}),
       ...(attachmentIds.length ? { attachmentIds, attachments } : {})
     })
-    if (sent) {
-      setInput('')
-      clearComposerAttachments()
-      clearComposerFileReferences()
-    }
+    clearComposerDraftAfterSuccessfulSend(sent, {
+      clearInput: () => setInput(''),
+      clearAttachments: clearComposerAttachments,
+      clearFileReferences: clearComposerFileReferences
+    })
   }
 
   const openThread = (id: string): void => {

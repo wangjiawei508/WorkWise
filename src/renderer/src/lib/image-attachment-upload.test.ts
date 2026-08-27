@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   arrayBufferToBase64,
+  detectKnownImageMimeType,
   prepareImageAttachmentUpload,
   type EncodedAttachmentImage
 } from './image-attachment-upload'
@@ -10,6 +11,20 @@ afterEach(() => {
 })
 
 describe('image attachment upload preparation', () => {
+  it.each([
+    ['PNG', new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]), 'image/png'],
+    ['JPEG', new Uint8Array([0xff, 0xd8, 0xff]), 'image/jpeg'],
+    ['GIF87a', new TextEncoder().encode('GIF87a'), 'image/gif'],
+    ['GIF89a', new TextEncoder().encode('GIF89a'), 'image/gif'],
+    ['WebP', new TextEncoder().encode('RIFFxxxxWEBP'), 'image/webp']
+  ])('detects %s from content rather than the file extension', (_label, bytes, mimeType) => {
+    expect(detectKnownImageMimeType(bytes.buffer)).toBe(mimeType)
+  })
+
+  it('does not classify unknown bytes as an image', () => {
+    expect(detectKnownImageMimeType(new TextEncoder().encode('not-an-image').buffer)).toBe('')
+  })
+
   it('reuses one bitmap decode for upload and text fallback preparation', async () => {
     const close = vi.fn()
     const createImageBitmap = vi.fn(async () => ({

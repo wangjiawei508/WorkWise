@@ -202,7 +202,7 @@ async function encodeImageWithBitmap(
   return null
 }
 
-function detectKnownImageMimeType(buffer: ArrayBuffer): string {
+export function detectKnownImageMimeType(buffer: ArrayBuffer): string {
   const bytes = new Uint8Array(buffer)
   if (
     bytes.length >= 8 &&

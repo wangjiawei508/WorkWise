@@ -21,6 +21,19 @@ async function serviceWithFile(name: string, contents: string | Buffer, parse?: 
 }
 
 describe('ChatAttachmentImportService parse states', () => {
+  it.each([
+    ['image.png', 'image/png', Buffer.from([137, 80, 78, 71, 13, 10, 26, 10])],
+    ['image.jpg', 'image/jpeg', Buffer.from([0xff, 0xd8, 0xff])],
+    ['image.webp', 'image/webp', Buffer.from('RIFFxxxxWEBP', 'ascii')]
+  ])('imports valid %s content using its real signature', async (name, mimeType, bytes) => {
+    const fixture = await serviceWithFile(name, bytes)
+
+    await expect(fixture.service.stage({
+      sourcePath: fixture.sourcePath,
+      declaredMimeType: mimeType
+    })).resolves.toMatchObject({ kind: 'image', mimeType })
+  })
+
   it('imports GIF87a and GIF89a images and rejects spoofed GIF content', async () => {
     for (const signature of ['GIF87a', 'GIF89a']) {
       const bytes = Buffer.alloc(10)
