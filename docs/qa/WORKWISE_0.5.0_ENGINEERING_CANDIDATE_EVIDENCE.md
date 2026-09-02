@@ -100,3 +100,13 @@
 - `npm run typecheck`、`npm run lint`、`npm run build`、严格 OpenSpec 校验、品牌边界、文档依赖/许可证和 `git diff --check` 均通过。
 - Runtime 子项目全量回归（2026-09-02）：84 个测试文件、795 个测试全部通过。
 - 回环监听集成测试在受限沙箱中曾报告 `listen EPERM`；获准使用本机回环端口后全量测试通过，故该失败属于环境限制而非代码回归。
+
+## 2026-09-02 IPC 白名单修复与候选重建
+
+- 修复工程项目、数据集、分析、图表、报告、成果、运行记录、工程 AI 计划、上下文、证据、取消和恢复路由未进入主进程 `runtime:request` 白名单的问题；新增 38 条允许/拒绝回归断言。
+- 修复提交：`9c492fe62acc8c2b60f14a5ef240c162cafa49f9`（`fix: allow engineering runtime endpoints`）。用户未跟踪文件 `?? :-` 未触碰。
+- 主项目全量回归：286 个测试文件通过，2349 个测试通过，2 个跳过；现有 Runtime：84 个测试文件通过，795 个测试通过。
+- `npm run typecheck`、`npm run lint`、`npm run build` 和工程/响应式定向测试（45/45）通过。
+- 重新构建隔离 arm64 候选包：`/private/tmp/workwise-0.5-candidate-dist/mac-arm64/WorkWise Candidate 9c492fe62acc.app`。ASAR 完整性：7721 个文件、459 个编译文件；未上传、未安装到 `/Applications`、未修改版本元数据。
+- 候选包启动命令已带隔离 `candidate.env` 和临时用户目录。当前机器上该新候选主进程可驻留，但未创建可连接的渲染器/CDP 页面（9230 端口无监听）；因此没有把旧候选 `1e892...` 的页面状态或静态检查冒充为本次打包 GUI 通过。工程入口在旧候选中曾复现 `runtime request path is not allowed`，本次修复已由源码/IPC 回归覆盖，但仍需在可见的新候选窗口中复核。
+- 该阻塞只影响“最新候选包 GUI 验收”证据，不影响源码测试、真实工程数据 E2E 或成果文件校验。
