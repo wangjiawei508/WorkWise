@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { AdjustmentResultV1 } from './survey.js'
 
 export const ENGINEERING_SCHEMA_VERSION = 1 as const
 export const ENGINEERING_MAX_OBSERVATIONS = 500_000
@@ -92,6 +93,8 @@ export const DeliverableManifestV1 = z.object({
   schemaVersion: z.literal(ENGINEERING_SCHEMA_VERSION), id: z.string().min(1), projectId: z.string().min(1), runId: z.string().min(1),
   inputDatasets: z.array(z.object({ id: z.string(), hash: z.string() }).strict()), analyses: z.array(z.string()), charts: z.array(ChartArtifactV1),
   citations: z.array(KnowledgeCitationV1), outputs: z.array(z.object({ path: z.string(), mediaType: z.string(), sha256: z.string(), sizeBytes: z.number().int().nonnegative() }).strict()),
+  /** Deterministic survey adjustment results included in the immutable evidence package. */
+  adjustments: z.array(AdjustmentResultV1).default([]),
   validation: z.object({ valid: z.boolean(), errors: z.array(z.string()), warnings: z.array(z.string()) }).strict(), reviewStatus: z.enum(['draft', 'approved', 'archived']),
   runtimeVersion: z.string(), createdAt: z.string(), finalizedAt: z.string().optional()
 }).strict()
@@ -114,8 +117,9 @@ export const ReportPreviewRequest = RevisionMutationV1.extend({
   projectId: z.string().min(1),
   datasetId: z.string().min(1),
   analysisId: z.string().optional(),
-  citations: z.array(KnowledgeCitationV1).default([])
+  citations: z.array(KnowledgeCitationV1).default([]),
+  adjustmentIds: z.array(z.string().min(1)).max(100).default([])
 }).strict()
-export const FinalizeDeliverableRequest = RevisionMutationV1.extend({ projectId: z.string().min(1), datasetId: z.string().min(1), analysisId: z.string().optional(), acknowledgeWarnings: z.boolean().default(false), citations: z.array(KnowledgeCitationV1).default([]) }).strict()
+export const FinalizeDeliverableRequest = RevisionMutationV1.extend({ projectId: z.string().min(1), datasetId: z.string().min(1), analysisId: z.string().optional(), adjustmentIds: z.array(z.string().min(1)).max(100).default([]), acknowledgeWarnings: z.boolean().default(false), citations: z.array(KnowledgeCitationV1).default([]) }).strict()
 export const RunMutationRequest = RevisionMutationV1.extend({}).strict()
 export type DatasetImportRequest = z.infer<typeof DatasetImportRequest>

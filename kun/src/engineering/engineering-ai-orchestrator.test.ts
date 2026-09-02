@@ -48,6 +48,16 @@ describe('Engineering AI orchestration', () => {
     engineering.close()
   })
 
+  it('selects survey tools for measurement and adjustment goals', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'workwise-engineering-survey-ai-'))
+    const engineering = new EngineeringService({ rootDir: join(root, 'runtime') })
+    const project = engineering.createProject({ name: 'survey-ai', workspace: root, expectedRevision: 0, idempotencyKey: 'survey-ai-project-001' })
+    const orchestrator = new EngineeringAiOrchestrator({ context: new EngineeringContextService(engineering), threadStore: { get: vi.fn() } as never, turns: { startTurn: vi.fn() } as never, runTurn: vi.fn() })
+    const plan = orchestrator.createPlan({ threadId: 'survey-thread', projectId: project.id, goal: '对水准网执行加权最小二乘平差并检查闭合差', idempotencyKey: 'survey-ai-plan-001' })
+    expect(plan.plan.steps.map((step) => step.tool)).toEqual(expect.arrayContaining(['survey_calculator', 'control_network', 'cpiii_adjustment']))
+    engineering.close()
+  })
+
   it('marks a plan stale when the bounded context revision changes', async () => {
     const root = await mkdtemp(join(tmpdir(), 'workwise-engineering-stale-'))
     const engineering = new EngineeringService({ rootDir: join(root, 'runtime') })

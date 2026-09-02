@@ -221,6 +221,16 @@ describe('app-ipc-schemas', () => {
       { path: '/v1/engineering/ai/plans/plan_1/start', method: 'POST' },
       { path: '/v1/engineering/ai/plans/plan_1/cancel', method: 'POST' },
       { path: '/v1/engineering/ai/plans/plan_1/resume', method: 'POST' }
+      ,{ path: '/v1/engineering/capabilities', method: 'GET' }
+      ,{ path: '/v1/engineering/skills/catalog', method: 'GET' }
+      ,{ path: '/v1/engineering/survey/networks/import', method: 'POST' }
+      ,{ path: '/v1/engineering/survey/networks', method: 'GET' }
+      ,{ path: '/v1/engineering/survey/networks/network_1/validate', method: 'POST' }
+      ,{ path: '/v1/engineering/adjustments', method: 'POST' }
+      ,{ path: '/v1/engineering/adjustments/adjustment_1', method: 'GET' }
+      ,{ path: '/v1/engineering/adjustments/adjustment_1/cancel', method: 'POST' }
+      ,{ path: '/v1/engineering/adjustments/adjustment_1/resume', method: 'POST' }
+      ,{ path: '/v1/engineering/adjustments/adjustment_1/preview', method: 'POST' }
     ]
     for (const request of accepted) {
       expect(runtimeRequestPayloadSchema.parse(request).path).toBe(request.path)

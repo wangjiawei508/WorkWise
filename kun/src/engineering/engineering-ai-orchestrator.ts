@@ -68,7 +68,15 @@ export class EngineeringAiError extends Error {
   constructor(readonly code: string, message: string) { super(message) }
 }
 
-function defaultSteps(contextHash: string): EngineeringPlanStep[] {
+function defaultSteps(contextHash: string, goal = ''): EngineeringPlanStep[] {
+  if (/(平差|水准|导线|控制网|三角网|CPIII|GNSS|坐标转换|测量)/i.test(goal)) {
+    return [
+      { id: 'inspect-survey-network', title: '校核测量网络与基准', tool: 'survey_calculator', risk: 'read', dependsOn: [], inputHash: contextHash, approval: 'pending' },
+      { id: 'adjust-survey-network', title: '执行加权最小二乘平差', tool: 'control_network', risk: 'write', dependsOn: ['inspect-survey-network'], inputHash: contextHash, approval: 'pending' },
+      { id: 'review-survey-quality', title: '检查闭合差、残差与精度', tool: 'cpiii_adjustment', risk: 'read', dependsOn: ['adjust-survey-network'], inputHash: contextHash, approval: 'pending' },
+      { id: 'prepare-survey-report', title: '准备测量成果与证据包', tool: 'report_export', risk: 'export', dependsOn: ['review-survey-quality'], inputHash: contextHash, approval: 'pending' }
+    ]
+  }
   return [
     { id: 'inspect-data', title: '校核工程数据', tool: 'monitoring_data_first_check', risk: 'read', dependsOn: [], inputHash: contextHash, approval: 'pending' },
     { id: 'analyse-trend', title: '计算趋势与阈值', tool: 'deformation_rate', risk: 'read', dependsOn: ['inspect-data'], inputHash: contextHash, approval: 'pending' },
@@ -82,7 +90,7 @@ function validateSteps(steps: EngineeringPlanStep[]): void {
   for (const step of steps) {
     if (ids.has(step.id)) throw new EngineeringAiError('engineering_plan_invalid', `duplicate plan step: ${step.id}`)
     ids.add(step.id)
-    if (!['monitoring_data_first_check', 'deformation_rate', 'chart_generator', 'report_export', 'excel_export', 'standard_query', 'tool_norm_cite'].includes(step.tool)) {
+    if (!['monitoring_data_first_check', 'deformation_rate', 'chart_generator', 'report_export', 'excel_export', 'standard_query', 'tool_norm_cite', 'survey_calculator', 'control_network', 'cpiii_adjustment', 'coord_transform', 'distance_calculator', 'angle_convert', 'railwise.survey_calculator', 'railwise.control_network', 'railwise.cpiii_adjustment', 'railwise.coord_transform', 'railwise.distance_calculator', 'railwise.angle_convert'].includes(step.tool)) {
       throw new EngineeringAiError('engineering_plan_invalid', `tool is not allowlisted: ${step.tool}`)
     }
   }
@@ -128,7 +136,7 @@ export class EngineeringAiOrchestrator {
     if (replay) return replay as { plan: EngineeringRunPlan; approval: EngineeringApproval }
     const context = this.deps.context.snapshot(input.projectId)
     if (input.contextHash && input.contextHash !== context.contextHash) throw new EngineeringAiError('engineering_context_stale', 'engineering context has changed; refresh and replan')
-    const steps = input.steps ?? defaultSteps(context.contextHash)
+    const steps = input.steps ?? defaultSteps(context.contextHash, input.goal)
     validateSteps(steps)
     const now = this.deps.nowIso?.() ?? new Date().toISOString()
     const plan = EngineeringRunPlanV1.parse({ schemaVersion: 1, id: `eplan_${randomUUID()}`, threadId: input.threadId, projectId: input.projectId, contextHash: context.contextHash, revision: 1, goal: input.goal, steps, status: 'awaiting_approval', createdAt: now, updatedAt: now })

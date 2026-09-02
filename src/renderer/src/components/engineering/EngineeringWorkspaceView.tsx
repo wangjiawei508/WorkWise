@@ -4,6 +4,8 @@ import {
   AlertTriangle,
   Archive,
   BarChart3,
+  BookOpen,
+  Calculator,
   CheckCircle2,
   ChevronRight,
   ClipboardCheck,
@@ -27,6 +29,8 @@ import {
 import { rendererRuntimeClient } from '../../agent/runtime-client'
 import { useChatStore } from '../../store/chat-store'
 import { EngineeringAiCommandCenter } from './EngineeringAiCommandCenter'
+import { SurveyAdjustmentPanel } from './SurveyAdjustmentPanel'
+import { EngineeringSkillsPanel } from './EngineeringSkillsPanel'
 import {
   consumeRequestedEngineeringProject,
   setActiveEngineeringProject
@@ -96,10 +100,10 @@ type Output = { path: string; mediaType: string; sha256: string; sizeBytes: numb
 type Chart = { id: string; chartType: string; relativePath: string; sha256: string; validation: string }
 type Citation = { id: string; sourceType: 'attachment' | 'knowledge-base' | 'standard' | 'other'; source: string; locator?: string }
 type Run = { id: string; datasetId: string; analysisId?: string; status: string; revision: number; createdAt: string; updatedAt: string; error?: string }
-type Manifest = { id: string; runId: string; reviewStatus: string; outputs: Output[]; citations: Citation[]; validation: { valid: boolean; errors: string[]; warnings: string[] }; finalizedAt?: string }
-type ReportPreview = { run: Run; files: Output[]; charts: Chart[]; citations: Citation[] }
+type Manifest = { id: string; runId: string; reviewStatus: string; outputs: Output[]; citations: Citation[]; adjustments?: Array<{ id: string; runId: string; networkId: string; validation: string }>; validation: { valid: boolean; errors: string[]; warnings: string[] }; finalizedAt?: string }
+type ReportPreview = { run: Run; files: Output[]; charts: Chart[]; citations: Citation[]; adjustments?: Array<{ id: string; runId: string; networkId: string; validation: string; displacements?: Array<{ pointId: string; dX?: number; dY?: number; dH?: number; magnitude: number }> }> }
 type Overview = { project: Project; datasets: Dataset[]; analyses: Analysis[]; runs: Run[]; manifests: Manifest[] }
-type TabId = 'ai-command' | 'dashboard' | 'project' | 'data' | 'quality' | 'analysis' | 'deliverables' | 'review'
+type TabId = 'ai-command' | 'dashboard' | 'project' | 'data' | 'quality' | 'survey' | 'analysis' | 'deliverables' | 'review' | 'skills'
 type Notice = { tone: 'success' | 'warning' | 'error' | 'info'; message: string }
 type ProjectDraft = Pick<Project, 'name' | 'monitoringType' | 'unit' | 'signConvention' | 'reportPeriod'> & { thresholdsText: string }
 
@@ -109,9 +113,11 @@ const TABS: ReadonlyArray<{ id: TabId; label: string; shortLabel: string; icon: 
   { id: 'project', label: '项目配置', shortLabel: '项目', icon: FolderKanban },
   { id: 'data', label: '数据资产', shortLabel: '数据', icon: Database },
   { id: 'quality', label: '质量校核', shortLabel: '校核', icon: ShieldCheck },
+  { id: 'survey', label: '测量平差', shortLabel: '平差', icon: Calculator },
   { id: 'analysis', label: '趋势分析', shortLabel: '分析', icon: LineChart },
   { id: 'deliverables', label: '成果中心', shortLabel: '成果', icon: FileOutput },
   { id: 'review', label: '审查归档', shortLabel: '审查', icon: ClipboardCheck }
+  ,{ id: 'skills', label: '技能与规范', shortLabel: '技能', icon: BookOpen }
 ]
 
 const findingTone: Record<Finding['severity'], string> = {
@@ -254,6 +260,7 @@ export function EngineeringWorkspaceView({ workspaceRoot, runtimeReady, leftSide
   const [overview, setOverview] = useState<Overview | null>(null)
   const [selectedDatasetId, setSelectedDatasetId] = useState('')
   const [selectedAnalysisId, setSelectedAnalysisId] = useState('')
+  const [surveyAdjustmentIds, setSurveyAdjustmentIds] = useState<string[]>([])
   const [tab, setTab] = useState<TabId>('ai-command')
   const [projectDraft, setProjectDraft] = useState<ProjectDraft | null>(null)
   const [citations, setCitations] = useState<Citation[]>([])
@@ -268,6 +275,9 @@ export function EngineeringWorkspaceView({ workspaceRoot, runtimeReady, leftSide
 
   const selectProject = useCallback((projectId: string): void => {
     setSelectedProjectId(projectId)
+    setSurveyAdjustmentIds([])
+    setPreview(null)
+    setChart(null)
   }, [])
 
   useEffect(() => {
@@ -282,6 +292,7 @@ export function EngineeringWorkspaceView({ workspaceRoot, runtimeReady, leftSide
     setProjectDraft(null)
     setSelectedDatasetId('')
     setSelectedAnalysisId('')
+    setSurveyAdjustmentIds([])
     setPreview(null)
     setChart(null)
   }, [workspaceRoot])
@@ -502,7 +513,7 @@ export function EngineeringWorkspaceView({ workspaceRoot, runtimeReady, leftSide
     setBusy(true)
     try {
       const result = await runtimeRequest<ReportPreview>('/v1/engineering/reports/preview', 'POST', {
-        projectId: overview.project.id, datasetId: activeDataset.id, analysisId: activeAnalysis?.id, citations,
+        projectId: overview.project.id, datasetId: activeDataset.id, analysisId: activeAnalysis?.id, adjustmentIds: surveyAdjustmentIds, citations,
         expectedRevision: activeDataset.revision, idempotencyKey: `engineering-preview-${activeDataset.id}-${activeDataset.revision}-${Date.now()}`
       })
       setPreview(result)
@@ -520,7 +531,7 @@ export function EngineeringWorkspaceView({ workspaceRoot, runtimeReady, leftSide
     setBusy(true)
     try {
       const result = await runtimeRequest<{ manifest: Manifest }>('/v1/engineering/deliverables/finalize', 'POST', {
-        projectId: overview.project.id, datasetId: activeDataset.id, analysisId: activeAnalysis.id, citations,
+        projectId: overview.project.id, datasetId: activeDataset.id, analysisId: activeAnalysis.id, adjustmentIds: surveyAdjustmentIds, citations,
         acknowledgeWarnings: false, expectedRevision: activeDataset.revision,
         idempotencyKey: `engineering-finalize-${activeDataset.id}-${activeDataset.revision}-${Date.now()}`
       })
@@ -633,6 +644,16 @@ export function EngineeringWorkspaceView({ workspaceRoot, runtimeReady, leftSide
             {tab === 'quality' ? <section>
               <PanelHeading title="质量校核与问题处置" description="阻断项必须回到源文件修正并重新导入。警告项可由人工接受，接受记录会进入最终成果清单。" action={<button type="button" onClick={() => void validateDataset()} disabled={busy || !activeDataset} className="inline-flex h-8 items-center gap-1.5 rounded-md border border-ds-border bg-ds-card px-3 text-[12px] font-medium text-ds-ink hover:bg-ds-hover disabled:opacity-50"><ShieldCheck className="h-3.5 w-3.5" />重新校核</button>} />
               {!activeDataset ? <EmptyState title="请选择或导入数据集" detail="质量校核会检查缺失值、重复测点、非法数值、时间顺序、单位冲突和阈值缺失。" /> : <div className="p-5"><div className="grid grid-cols-2 gap-2 lg:grid-cols-4"><Metric label="阻断项" value={blockingFindings.length} detail="必须修正后重新导入" tone={blockingFindings.length ? 'danger' : 'success'} /><Metric label="待确认警告" value={warningFindings.length} detail="需要人工明确接受" tone={warningFindings.length ? 'warning' : 'success'} /><Metric label="已接受警告" value={acceptedWarnings} detail="已纳入审查记录" tone={acceptedWarnings ? 'warning' : 'neutral'} /><Metric label="数据状态" value={statusLabel(activeDataset.status)} detail={`${activeDataset.observationCount.toLocaleString('zh-CN')} 条观测`} /></div><div className="mt-5 overflow-hidden border border-ds-border-muted"><div className="overflow-x-auto"><table className="min-w-full text-left text-[12px]"><thead className="bg-ds-subtle text-ds-muted"><tr><th className="w-24 px-3 py-2.5 font-semibold">级别</th><th className="px-3 py-2.5 font-semibold">问题与建议</th><th className="w-24 px-3 py-2.5 font-semibold">来源行</th><th className="w-28 px-3 py-2.5 font-semibold">处置</th></tr></thead><tbody className="divide-y divide-ds-border-muted">{activeDataset.findings.length ? activeDataset.findings.map((finding) => <tr key={finding.id} className={finding.status === 'open' && finding.severity === 'blocking' ? 'bg-red-50/60 dark:bg-red-500/5' : ''}><td className="px-3 py-3"><span className={`rounded border px-1.5 py-0.5 text-[10.5px] font-medium ${findingTone[finding.severity]}`}>{finding.severity === 'blocking' ? '阻断' : finding.severity === 'warning' ? '警告' : '提示'}</span></td><td className="min-w-[310px] px-3 py-3"><p className="text-ds-ink">{finding.message}</p><p className="mt-1 text-[11px] leading-4 text-ds-muted">{finding.suggestion}</p></td><td className="px-3 py-3 tabular-nums text-ds-muted">{finding.row ? `第 ${finding.row} 行` : '—'}</td><td className="px-3 py-3">{finding.status === 'accepted' ? <span className="inline-flex items-center gap-1 text-[11px] text-green-700 dark:text-green-300"><CheckCircle2 className="h-3.5 w-3.5" />已接受</span> : finding.severity === 'warning' ? <button type="button" disabled={busy} onClick={() => void acceptWarning(finding)} className="rounded border border-amber-300 px-2 py-1 text-[11px] font-medium text-amber-800 hover:bg-amber-50 disabled:opacity-50 dark:border-amber-500/40 dark:text-amber-200">接受警告</button> : finding.severity === 'blocking' ? <span className="text-[11px] leading-4 text-red-700 dark:text-red-300">修正源数据<br />后重新导入</span> : <span className="text-[11px] text-ds-faint">无需处置</span>}</td></tr>) : <tr><td colSpan={4} className="px-3 py-10 text-center text-ds-muted">未发现质量问题。</td></tr>}</tbody></table></div></div></div>}
+            </section> : null}
+
+            {tab === 'survey' ? <section>
+              <PanelHeading title="测量与平差" description="水准、导线、平面控制、三角网、CPIII 和 GNSS 使用确定性 Runtime 计算；缺少基准或协方差时会明确阻断。" />
+              <SurveyAdjustmentPanel project={overview.project} runtimeReady={runtimeReady} onAdjustmentComplete={(id) => setSurveyAdjustmentIds((current) => current.includes(id) ? current : [...current, id])} />
+            </section> : null}
+
+            {tab === 'skills' ? <section>
+              <PanelHeading title="技能与规范" description="查看本项目可调用的专业能力、固定来源、许可证状态和工具边界。" />
+              <EngineeringSkillsPanel runtimeReady={runtimeReady} />
             </section> : null}
 
             {tab === 'analysis' ? <section>

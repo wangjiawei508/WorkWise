@@ -87,6 +87,7 @@ import { EngineeringService } from '../engineering/engineering-service.js'
 import { EngineeringContextService } from '../engineering/engineering-context-service.js'
 import { EngineeringAiOrchestrator } from '../engineering/engineering-ai-orchestrator.js'
 import { buildRailwiseToolProviders } from '../adapters/tool/railwise-tool-provider.js'
+import { SurveyService } from '../engineering/survey-service.js'
 
 export type KunServeRuntimeOptions = {
   host: string
@@ -298,13 +299,24 @@ export async function createKunServeRuntime(
       })
     : undefined
   await attachmentStore?.cleanupAbandoned()
+  let surveyService: SurveyService
   const engineeringService = new EngineeringService({
     rootDir: join(options.dataDir, 'engineering'),
     ...(attachmentStore ? { attachmentStore } : {}),
     runtimeVersion: '0.5.0',
+    getAdjustments: (projectId, ids) => ids.flatMap((id) => {
+      const stored = surveyService.getAdjustment(id)
+      if (!stored || stored.run.projectId !== projectId || !stored.result) return []
+      return [stored.result]
+    }),
     nowIso
   })
   const engineeringContext = new EngineeringContextService(engineeringService, nowIso)
+  surveyService = new SurveyService({
+    rootDir: join(options.dataDir, 'engineering'),
+    getProject: (projectId) => engineeringService.getProject(projectId),
+    nowIso
+  })
   const visionEvidenceRuntime = createVisionEvidenceService(options.visionEvidence)
   const visionEvidence = visionEvidenceRuntime.service
   const attachmentCleanupTimer = attachmentStore
@@ -370,7 +382,7 @@ export async function createKunServeRuntime(
     ...imageGenProviders.providers,
     ...pptMasterProviders.providers,
     ...designProviders.providers,
-    ...buildRailwiseToolProviders(engineeringService)
+    ...buildRailwiseToolProviders(engineeringService, surveyService)
   ]
   const childRegistry = new CapabilityRegistry(baseToolProviders)
   const childToolHost = new LocalToolHost({ registry: childRegistry, readTracker: true })
@@ -545,6 +557,7 @@ export async function createKunServeRuntime(
     engineeringService,
     engineeringContext,
     engineeringAi,
+    surveyService,
     runTurn(threadId, turnId) {
       return loop.runTurn(threadId, turnId)
     },
@@ -610,6 +623,7 @@ export async function createKunServeRuntime(
         try {
           flowService.shutdown()
           taskRepository.close()
+          surveyService.close()
           engineeringService.close()
         } finally {
           await stores.shutdown?.()

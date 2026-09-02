@@ -29,6 +29,7 @@ import type { UiActionService } from '../../services/ui-action-service.js'
 import type { EngineeringService } from '../../engineering/engineering-service.js'
 import type { EngineeringContextService } from '../../engineering/engineering-context-service.js'
 import type { EngineeringAiOrchestrator } from '../../engineering/engineering-ai-orchestrator.js'
+import type { SurveyService } from '../../engineering/survey-service.js'
 
 export type RuntimeToolDiagnostics = {
   providers: ToolProviderPolicy[]
@@ -74,6 +75,7 @@ export type ServerRuntime = {
   engineeringService?: EngineeringService
   engineeringContext?: EngineeringContextService
   engineeringAi?: EngineeringAiOrchestrator
+  surveyService?: SurveyService
   runTurn(threadId: string, turnId: string): Promise<'completed' | 'failed' | 'aborted'> | void
   cancelChildRuns?(parentThreadId: string, reason?: string): number
   runReview?(input: {
