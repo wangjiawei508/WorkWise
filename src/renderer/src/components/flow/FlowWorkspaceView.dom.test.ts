@@ -116,4 +116,29 @@ describe('FlowWorkspaceView mounted canvas', () => {
     expect(container.textContent).toContain('手动触发')
     expect(container.textContent).toContain('Agent 处理')
   })
+
+  it('keeps a newly created scheduled starter visible in the scheduled filter', async () => {
+    await act(async () => {
+      root.render(createElement(FlowWorkspaceView, {
+        leftSidebarCollapsed: false,
+        onToggleLeftSidebar: vi.fn(),
+        filter: 'scheduled'
+      }))
+    })
+    await settle()
+
+    const newFlowButton = [...container.querySelectorAll('button')]
+      .find((button) => button.textContent?.trim() === '新建 Flow')
+    expect(newFlowButton).toBeInstanceOf(HTMLButtonElement)
+
+    await act(async () => {
+      ;(newFlowButton as HTMLButtonElement).click()
+    })
+    await settle()
+    await settle()
+
+    expect(container.querySelector('[aria-label="Flow 画布"]')).not.toBeNull()
+    expect(container.textContent).toContain('定时触发')
+    expect(container.textContent).toContain('Agent 处理')
+  })
 })

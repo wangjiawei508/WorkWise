@@ -1,5 +1,5 @@
 import '@xyflow/react/dist/style.css'
-import { useCallback, useEffect, useMemo, useState, type ReactElement } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react'
 import {
   Background, Controls, Handle, MiniMap, Position, ReactFlow, addEdge, applyEdgeChanges, applyNodeChanges,
   type Connection, type Edge, type EdgeChange, type Node, type NodeChange, type NodeProps, type ReactFlowInstance
@@ -43,22 +43,23 @@ const NODE_CONFIG_FIELDS: Record<string, Array<{ key: string; label: string; kin
   run_flow: [{ key: 'flowId', label: '目标 Flow ID', required: true }]
 }
 
-export function createStarterFlowInput(id: string): Omit<FlowDefinition, 'revision' | 'createdAt' | 'updatedAt' | 'publishedVersionId'> {
+export function createStarterFlowInput(id: string, options: { triggerType?: 'manual' | 'scheduled' } = {}): Omit<FlowDefinition, 'revision' | 'createdAt' | 'updatedAt' | 'publishedVersionId'> {
+  const triggerType = options.triggerType ?? 'manual'
   const triggerId = `manual_${crypto.randomUUID().slice(0, 8)}`
   const agentId = `agent_${crypto.randomUUID().slice(0, 8)}`
   return {
     schemaVersion: 1,
     id,
-    name: '我的第一个 Flow',
-    description: '手动触发后由 Agent 处理输入。选择节点可配置参数和单节点测试。',
+    name: triggerType === 'scheduled' ? '我的第一个定时 Flow' : '我的第一个 Flow',
+    description: triggerType === 'scheduled' ? '按计划触发后由 Agent 处理输入。选择节点可配置参数和单节点测试。' : '手动触发后由 Agent 处理输入。选择节点可配置参数和单节点测试。',
     nodes: [
       {
         id: triggerId,
-        type: 'manual_trigger',
-        label: '手动触发',
+        type: triggerType === 'scheduled' ? 'schedule_trigger' : 'manual_trigger',
+        label: triggerType === 'scheduled' ? '定时触发' : '手动触发',
         position: { x: 120, y: 180 },
         bindings: {},
-        config: {},
+        config: triggerType === 'scheduled' ? { kind: 'interval', everyMinutes: 15, timezone: 'Asia/Shanghai' } : {},
         policy: { ...DEFAULT_POLICY },
         disabled: false
       },
@@ -88,13 +89,14 @@ export function createStarterFlowInput(id: string): Omit<FlowDefinition, 'revisi
 export function FlowWorkspaceView({ leftSidebarCollapsed, onToggleLeftSidebar, filter }: { leftSidebarCollapsed: boolean; onToggleLeftSidebar: () => void; filter: FlowListFilter }): ReactElement {
   const [flows, setFlows] = useState<FlowDefinition[]>([]); const [registry, setRegistry] = useState<RegistryEntry[]>([])
   const [activeId, setActiveId] = useState<string | null>(null); const [draft, setDraft] = useState<FlowDefinition | null>(null)
+  const activeIdRef = useRef<string | null>(null)
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null); const [issues, setIssues] = useState<ValidationIssue[]>([])
   const [runs, setRuns] = useState<FlowRun[]>([]); const [mockInput, setMockInput] = useState('{}'); const [busy, setBusy] = useState<string | null>(null); const [error, setError] = useState<string | null>(null)
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null); const [runDetails, setRunDetails] = useState<FlowRunDetails | null>(null)
   const [flowInstance, setFlowInstance] = useState<ReactFlowInstance<Node<FlowNodeData>, Edge> | null>(null)
 
   const visibleFlows = useMemo(() => flows.filter((flow) => flowMatchesFilter(flow, filter)), [filter, flows])
-  const load = useCallback(async () => { setBusy('loading'); try { const result = await runtimeJson<{ flows: FlowDefinition[]; registry: RegistryEntry[] }>('/v1/flows'); setFlows(result.flows); setRegistry(result.registry); const filtered = result.flows.filter((flow) => flowMatchesFilter(flow, filter)); const selected = filtered.find((flow) => flow.id === activeId) ?? filtered[0] ?? null; setActiveId(selected?.id ?? null); setDraft(selected); setError(null) } catch (reason) { setError(message(reason)) } finally { setBusy(null) } }, [activeId, filter])
+  const load = useCallback(async () => { setBusy('loading'); try { const result = await runtimeJson<{ flows: FlowDefinition[]; registry: RegistryEntry[] }>('/v1/flows'); setFlows(result.flows); setRegistry(result.registry); const filtered = result.flows.filter((flow) => flowMatchesFilter(flow, filter)); const selected = filtered.find((flow) => flow.id === activeIdRef.current) ?? filtered[0] ?? null; activeIdRef.current = selected?.id ?? null; setActiveId(selected?.id ?? null); setDraft(selected); setError(null) } catch (reason) { setError(message(reason)) } finally { setBusy(null) } }, [filter])
   useEffect(() => { void load() }, [load])
   useEffect(() => { if (!activeId) { setRuns([]); return } void runtimeJson<{ runs: FlowRun[] }>(`/v1/flows/${encodeURIComponent(activeId)}/history`).then((value) => setRuns(value.runs)).catch(() => setRuns([])) }, [activeId])
   useEffect(() => { if (!selectedRunId) { setRunDetails(null); return } void runtimeJson<FlowRunDetails>(`/v1/flow-runs/${selectedRunId}`).then(setRunDetails).catch((reason) => setError(message(reason))) }, [selectedRunId])
@@ -123,7 +125,7 @@ export function FlowWorkspaceView({ leftSidebarCollapsed, onToggleLeftSidebar, f
   const onEdgesChange = (changes: EdgeChange<Edge>[]) => { if (!draft) return; const changed = applyEdgeChanges(changes, edges); setDraft({ ...draft, edges: changed.map((edge) => ({ id: edge.id, sourceNodeId: edge.source, sourcePortId: edge.sourceHandle ?? 'output', targetNodeId: edge.target, targetPortId: edge.targetHandle ?? 'input', branch: 'normal' })) }) }
   const onConnect = (connection: Connection) => { if (!draft || !connection.source || !connection.target || !connection.sourceHandle || !connection.targetHandle) return; const source = registry.find((entry) => entry.type === draft.nodes.find((node) => node.id === connection.source)?.type)?.outputs.find((port) => port.id === connection.sourceHandle); const target = registry.find((entry) => entry.type === draft.nodes.find((node) => node.id === connection.target)?.type)?.inputs.find((port) => port.id === connection.targetHandle); const compatibility = source && target ? flowPortCompatibility(source.type, target.type) : null; if (!compatibility) { setError(`端口类型不兼容：${source?.type ?? '?'} → ${target?.type ?? '?'}`); return } const next = addEdge(connection, edges); const item = next.at(-1)!; if (!draft) return; setDraft({ ...draft, edges: [...draft.edges, { id: item.id, sourceNodeId: connection.source, sourcePortId: connection.sourceHandle, targetNodeId: connection.target, targetPortId: connection.targetHandle, ...(compatibility.conversionId ? { conversionId: compatibility.conversionId } : {}), branch: 'normal' }] }); setError(null) }
   const addNode = (entry: RegistryEntry) => { if (!draft || !entry.available) return; const id = `${entry.type}_${crypto.randomUUID().slice(0, 8)}`; const next = { id, type: entry.type, label: entry.label, position: { x: 180 + draft.nodes.length * 24, y: 100 + draft.nodes.length * 20 }, bindings: {}, config: entry.type === 'loop' ? { maxIterations: 10 } : {}, policy: { ...DEFAULT_POLICY }, disabled: false }; setDraft({ ...draft, nodes: [...draft.nodes, next] }); setSelectedNodeId(id) }
-  const createFlow = async () => { setBusy('create'); try { const id = `flow_${crypto.randomUUID()}`; const value = await runtimeJson<{ flow: FlowDefinition }>('/v1/flows', 'POST', createStarterFlowInput(id)); setFlows((current) => [value.flow, ...current]); setActiveId(id); setDraft(value.flow); setSelectedNodeId(value.flow.nodes.find((node) => node.type === 'agent')?.id ?? null); setIssues([]); setError(null) } catch (reason) { setError(message(reason)) } finally { setBusy(null) } }
+  const createFlow = async () => { setBusy('create'); try { const id = `flow_${crypto.randomUUID()}`; const value = await runtimeJson<{ flow: FlowDefinition }>('/v1/flows', 'POST', createStarterFlowInput(id, { triggerType: filter === 'scheduled' ? 'scheduled' : 'manual' })); activeIdRef.current = id; setFlows((current) => [value.flow, ...current]); setActiveId(id); setDraft(value.flow); setSelectedNodeId(value.flow.nodes.find((node) => node.type === 'agent')?.id ?? null); setIssues([]); setError(null) } catch (reason) { setError(message(reason)) } finally { setBusy(null) } }
   const save = async () => { if (!draft) return; setBusy('save'); try { const value = await runtimeJson<{ flow: FlowDefinition }>(`/v1/flows/${draft.id}`, 'PUT', { definition: draft, expectedRevision: draft.revision }); setDraft(value.flow); setFlows((current) => current.map((flow) => flow.id === value.flow.id ? value.flow : flow)); setError(null) } catch (reason) { setError(message(reason)) } finally { setBusy(null) } }
   const validate = async () => { if (!draft) return false; const result = await runtimeJson<{ valid: boolean; issues: ValidationIssue[] }>('/v1/flows/validate', 'POST', { definition: draft }); setIssues(result.issues); return result.valid }
   const publish = async () => { if (!draft) return; setBusy('publish'); try { await save(); const result = await runtimeJson<{ published: boolean; validation: { issues: ValidationIssue[] } }>('/v1/flows/publish', 'POST', { id: draft.id }); setIssues(result.validation.issues); if (!result.published) throw new Error('发布校验未通过') } catch (reason) { setError(message(reason)) } finally { setBusy(null) } }
@@ -137,7 +139,7 @@ export function FlowWorkspaceView({ leftSidebarCollapsed, onToggleLeftSidebar, f
     <header className="ds-drag flex h-14 shrink-0 items-center gap-3 border-b border-[#e2e8f0] bg-white px-4 dark:border-ds-border dark:bg-ds-card">
       {leftSidebarCollapsed ? <SidebarTitlebarToggleButton onClick={onToggleLeftSidebar} title="展开侧边栏" ariaLabel="展开侧边栏" /> : null}
       <Workflow className="h-5 w-5 text-blue-600" /><h1 className="text-[16px] font-semibold">WorkWise Flow</h1><span className="rounded bg-blue-50 px-2 py-0.5 text-[11px] font-medium text-blue-600 dark:bg-blue-400/10 dark:text-blue-300">Preview</span>
-      {filter === 'scheduled' ? <span className="rounded bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-700">定时流程</span> : null}<select className="ds-no-drag ml-3 rounded-lg border border-[#e2e8f0] bg-white px-3 py-1.5 text-[13px] dark:border-ds-border dark:bg-ds-main" value={activeId ?? ''} onChange={(event) => { const flow = visibleFlows.find((item) => item.id === event.target.value) ?? null; setActiveId(flow?.id ?? null); setDraft(flow) }}><option value="">选择流程</option>{visibleFlows.map((flow) => <option key={flow.id} value={flow.id}>{flow.name}</option>)}</select>
+      {filter === 'scheduled' ? <span className="rounded bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-700">定时流程</span> : null}<select className="ds-no-drag ml-3 rounded-lg border border-[#e2e8f0] bg-white px-3 py-1.5 text-[13px] dark:border-ds-border dark:bg-ds-main" value={activeId ?? ''} onChange={(event) => { const flow = visibleFlows.find((item) => item.id === event.target.value) ?? null; activeIdRef.current = flow?.id ?? null; setActiveId(flow?.id ?? null); setDraft(flow) }}><option value="">选择流程</option>{visibleFlows.map((flow) => <option key={flow.id} value={flow.id}>{flow.name}</option>)}</select>
       <button className="ds-no-drag rounded-lg border border-[#e2e8f0] px-3 py-1.5 text-[13px] hover:bg-slate-50 dark:border-ds-border" onClick={() => void createFlow()}>新建</button>
       <div className="ml-auto flex gap-2">{busy ? <Loader2 className="h-4 w-4 animate-spin text-blue-600" /> : null}<Action icon={<Save />} label="保存" onClick={() => void save()} /><Action icon={<CheckCircle2 />} label="校验" onClick={() => void validate()} /><Action icon={<Download />} label="脱敏导出" onClick={() => void exportRedacted()} /><Action icon={<Send />} label="发布" primary onClick={() => void publish()} /><Action icon={<Play />} label="运行" primary onClick={() => void run()} />{runs.some((item) => ['queued', 'running', 'waiting_approval', 'paused', 'interrupted'].includes(item.status)) ? <Action icon={<Square />} label="取消" onClick={() => void cancelRun()} /> : null}</div>
     </header>
