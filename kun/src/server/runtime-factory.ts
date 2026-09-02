@@ -83,6 +83,10 @@ import { DelegationRuntime, FileDelegationStore } from '../delegation/delegation
 import { createChildAgentExecutor } from '../delegation/child-agent-executor.js'
 import { stopAllBashSessions } from '../adapters/tool/builtin-bash-tool.js'
 import { HttpVisionEvidenceService, type VisionEvidenceConfig } from '../vision/vision-evidence-service.js'
+import { EngineeringService } from '../engineering/engineering-service.js'
+import { EngineeringContextService } from '../engineering/engineering-context-service.js'
+import { EngineeringAiOrchestrator } from '../engineering/engineering-ai-orchestrator.js'
+import { buildRailwiseToolProviders } from '../adapters/tool/railwise-tool-provider.js'
 
 export type KunServeRuntimeOptions = {
   host: string
@@ -294,6 +298,13 @@ export async function createKunServeRuntime(
       })
     : undefined
   await attachmentStore?.cleanupAbandoned()
+  const engineeringService = new EngineeringService({
+    rootDir: join(options.dataDir, 'engineering'),
+    ...(attachmentStore ? { attachmentStore } : {}),
+    runtimeVersion: '0.5.0',
+    nowIso
+  })
+  const engineeringContext = new EngineeringContextService(engineeringService, nowIso)
   const visionEvidenceRuntime = createVisionEvidenceService(options.visionEvidence)
   const visionEvidence = visionEvidenceRuntime.service
   const attachmentCleanupTimer = attachmentStore
@@ -358,7 +369,8 @@ export async function createKunServeRuntime(
     ...buildFlowToolProviders(flowService),
     ...imageGenProviders.providers,
     ...pptMasterProviders.providers,
-    ...designProviders.providers
+    ...designProviders.providers,
+    ...buildRailwiseToolProviders(engineeringService)
   ]
   const childRegistry = new CapabilityRegistry(baseToolProviders)
   const childToolHost = new LocalToolHost({ registry: childRegistry, readTracker: true })
@@ -500,6 +512,15 @@ export async function createKunServeRuntime(
     spanService,
     workspaceReferences: workspaceReferenceService
   })
+  const engineeringAi = new EngineeringAiOrchestrator({
+    context: engineeringContext,
+    threadStore,
+    turns: turnService,
+    runTurn: (threadId, turnId) => loop.runTurn(threadId, turnId),
+    tasks: taskController,
+    events,
+    nowIso
+  })
   const startedAt = options.startedAt ?? nowIso()
   const runtime: ServerRuntime = {
     threadService,
@@ -521,6 +542,9 @@ export async function createKunServeRuntime(
     ...(attachmentStore ? { attachmentStore } : {}),
     ...(memoryStore ? { memoryStore } : {}),
     flowService,
+    engineeringService,
+    engineeringContext,
+    engineeringAi,
     runTurn(threadId, turnId) {
       return loop.runTurn(threadId, turnId)
     },
@@ -586,6 +610,7 @@ export async function createKunServeRuntime(
         try {
           flowService.shutdown()
           taskRepository.close()
+          engineeringService.close()
         } finally {
           await stores.shutdown?.()
         }

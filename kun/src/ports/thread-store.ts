@@ -1,4 +1,4 @@
-import type { ThreadRecord, ThreadSummary } from '../contracts/threads.js'
+import type { ThreadDomain, ThreadRecord, ThreadSummary } from '../contracts/threads.js'
 
 export type ThreadStoreListOptions = {
   limit?: number
@@ -6,6 +6,8 @@ export type ThreadStoreListOptions = {
   includeArchived?: boolean
   archivedOnly?: boolean
   includeSide?: boolean
+  domain?: ThreadDomain
+  projectId?: string
 }
 
 /**

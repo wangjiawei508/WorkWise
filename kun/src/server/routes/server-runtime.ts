@@ -26,6 +26,9 @@ import type { RuntimeSpanService } from '../../services/runtime-span-service.js'
 import type { FlowRuntimeService } from '../../flow/service.js'
 import type { WorkspaceReferenceService } from '../../services/workspace-reference-service.js'
 import type { UiActionService } from '../../services/ui-action-service.js'
+import type { EngineeringService } from '../../engineering/engineering-service.js'
+import type { EngineeringContextService } from '../../engineering/engineering-context-service.js'
+import type { EngineeringAiOrchestrator } from '../../engineering/engineering-ai-orchestrator.js'
 
 export type RuntimeToolDiagnostics = {
   providers: ToolProviderPolicy[]
@@ -68,6 +71,9 @@ export type ServerRuntime = {
   attachmentStore?: AttachmentStore
   memoryStore?: MemoryStore
   flowService?: FlowRuntimeService
+  engineeringService?: EngineeringService
+  engineeringContext?: EngineeringContextService
+  engineeringAi?: EngineeringAiOrchestrator
   runTurn(threadId: string, turnId: string): Promise<'completed' | 'failed' | 'aborted'> | void
   cancelChildRuns?(parentThreadId: string, reason?: string): number
   runReview?(input: {

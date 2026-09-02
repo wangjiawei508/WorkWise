@@ -18,6 +18,8 @@ export type CoreThreadSummaryJson = {
   title: string
   messageCount?: number
   preview?: string
+  domain?: 'code' | 'write' | 'design' | 'engineering' | 'flow' | 'claw'
+  projectId?: string
   workspace?: string
   model: string
   mode: string

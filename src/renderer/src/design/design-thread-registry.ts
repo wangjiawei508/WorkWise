@@ -1,6 +1,9 @@
 import { browserStorage, type BrowserStorageLike } from '../lib/browser-storage'
+import type { NormalizedThread } from '../agent/types'
+import type { DesignDocumentSummaryV1 } from '@shared/design-workspace'
 
 const DESIGN_THREAD_REGISTRY_KEY = 'workwise.design.threadRegistry.v1'
+const PENDING_DESIGN_DOCUMENT_KEY = 'workwise.design.pendingDocument.v1'
 const MAX_DESIGN_THREAD_RECORDS = 200
 
 export type DesignThreadRecord = {
@@ -108,10 +111,91 @@ export function designAssistantThreadIdForDocument(
   return registry.documents[documentId.trim()]?.threadId ?? ''
 }
 
+/** Returns the Design document that owns an assistant thread, if known. */
+export function designDocumentIdForAssistantThread(
+  threadId: string | null | undefined,
+  registry: DesignThreadRegistry = readDesignThreadRegistry()
+): string {
+  const normalized = threadId?.trim() ?? ''
+  if (!normalized) return ''
+  return Object.values(registry.documents).find((record) => record.threadId === normalized)?.documentId ?? ''
+}
+
+/**
+ * Older builds named Design threads but did not persist their document mapping.
+ * Hydrate that mapping only for an unambiguous exact document-title match.
+ */
+export function hydrateLegacyDesignThreadRegistry(
+  documents: ReadonlyArray<Pick<DesignDocumentSummaryV1, 'id' | 'name'>>,
+  threads: ReadonlyArray<Pick<NormalizedThread, 'id' | 'title' | 'workspace'>>,
+  storage: BrowserStorageLike | null = browserStorage()
+): DesignThreadRegistry {
+  const byName = new Map<string, string[]>()
+  for (const document of documents) {
+    const name = document.name.trim()
+    if (!name) continue
+    byName.set(name, [...(byName.get(name) ?? []), document.id])
+  }
+  let registry = readDesignThreadRegistry(storage)
+  for (const thread of threads) {
+    const title = thread.title.trim()
+    const workspace = normalizeText(thread.workspace)
+    const name = title.startsWith('Design · ') ? title.slice('Design · '.length).trim()
+      : title.startsWith('Design:') ? title.slice('Design:'.length).trim()
+        : ''
+    const matches = name ? byName.get(name) ?? [] : []
+    if (matches.length !== 1 || !workspace) continue
+    const documentId = matches[0]
+    if (registry.documents[documentId]?.threadId === thread.id) continue
+    registry = markDesignAssistantThread(documentId, thread.id, workspace, storage)
+  }
+  return registry
+}
+
+export function requestDesignDocumentOpen(
+  documentId: string,
+  storage: BrowserStorageLike | null = browserStorage()
+): void {
+  const normalized = documentId.trim()
+  if (!normalized || !storage) return
+  try {
+    storage.setItem(PENDING_DESIGN_DOCUMENT_KEY, normalized)
+  } catch {
+    /* Opening Design remains possible without persistent browser storage. */
+  }
+}
+
+export function consumeRequestedDesignDocument(
+  storage: BrowserStorageLike | null = browserStorage()
+): string {
+  if (!storage) return ''
+  try {
+    const documentId = storage.getItem(PENDING_DESIGN_DOCUMENT_KEY)?.trim() ?? ''
+    if (documentId) storage.removeItem?.(PENDING_DESIGN_DOCUMENT_KEY)
+    return documentId
+  } catch {
+    return ''
+  }
+}
+
 export function isDesignAssistantThreadId(
   threadId: string | null | undefined,
   registry: DesignThreadRegistry = readDesignThreadRegistry()
 ): boolean {
   const normalized = threadId?.trim() ?? ''
   return Boolean(normalized && Object.values(registry.documents).some((record) => record.threadId === normalized))
+}
+
+/**
+ * Design assistant threads created before the registry was persisted still
+ * carry the reserved title prefix. Keep them out of the coding session list
+ * while the registry catches up after the next Design open.
+ */
+export function isDesignAssistantThread(
+  thread: { id?: string | null; title?: string | null },
+  registry: DesignThreadRegistry = readDesignThreadRegistry()
+): boolean {
+  if (isDesignAssistantThreadId(thread.id, registry)) return true
+  const title = thread.title?.trim().toLowerCase() ?? ''
+  return title.startsWith('design ·') || title.startsWith('design:')
 }

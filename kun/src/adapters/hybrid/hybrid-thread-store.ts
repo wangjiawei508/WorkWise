@@ -47,6 +47,8 @@ type ThreadRow = {
   cost_budget_usd: number | null
   cost_budget_warning_sent: number | null
   relation: ThreadRelation
+  domain: string | null
+  project_id: string | null
   parent_thread_id: string | null
   forked_from_thread_id: string | null
   forked_from_title: string | null
@@ -346,6 +348,8 @@ export class HybridThreadStore implements ThreadStore {
         cost_budget_usd REAL,
         cost_budget_warning_sent INTEGER,
         relation TEXT NOT NULL,
+        domain TEXT,
+        project_id TEXT,
         parent_thread_id TEXT,
         forked_from_thread_id TEXT,
         forked_from_title TEXT,
@@ -393,6 +397,8 @@ export class HybridThreadStore implements ThreadStore {
     addColumnIfMissing(this.db, 'threads', 'agent_revision INTEGER NOT NULL DEFAULT 0')
     addColumnIfMissing(this.db, 'threads', 'agent_profile_json TEXT')
     addColumnIfMissing(this.db, 'threads', 'usage_backfilled INTEGER NOT NULL DEFAULT 0')
+    addColumnIfMissing(this.db, 'threads', 'domain TEXT')
+    addColumnIfMissing(this.db, 'threads', 'project_id TEXT')
   }
 
   private cachedStatement(sql: string): Statement {
@@ -524,6 +530,14 @@ export class HybridThreadStore implements ThreadStore {
     if (!options.includeSide) {
       where.push("relation != 'side'")
     }
+    if (options.domain) {
+      where.push('domain = @domain')
+      params.domain = options.domain
+    }
+    if (options.projectId) {
+      where.push('project_id = @projectId')
+      params.projectId = options.projectId
+    }
     const search = options.search?.trim().toLowerCase()
     if (search) {
       where.push("search_text LIKE @search ESCAPE '\\'")
@@ -565,7 +579,7 @@ export class HybridThreadStore implements ThreadStore {
           INSERT INTO threads (
             id, title, workspace, model, mode, status, approval_policy, sandbox_mode,
             agent_id, agent_revision, agent_profile_json,
-            cost_budget_usd, cost_budget_warning_sent, relation, parent_thread_id,
+            cost_budget_usd, cost_budget_warning_sent, relation, domain, project_id, parent_thread_id,
             forked_from_thread_id, forked_from_title, forked_at, forked_from_message_count,
             forked_from_turn_count, goal_json, todos_json, created_at, updated_at, created_at_ms,
             updated_at_ms, preview, message_count, event_seq_high_water, metadata_path,
@@ -574,7 +588,7 @@ export class HybridThreadStore implements ThreadStore {
           VALUES (
             @id, @title, @workspace, @model, @mode, @status, @approval_policy, @sandbox_mode,
             @agent_id, @agent_revision, @agent_profile_json,
-            @cost_budget_usd, @cost_budget_warning_sent, @relation, @parent_thread_id,
+            @cost_budget_usd, @cost_budget_warning_sent, @relation, @domain, @project_id, @parent_thread_id,
             @forked_from_thread_id, @forked_from_title, @forked_at, @forked_from_message_count,
             @forked_from_turn_count, @goal_json, @todos_json, @created_at, @updated_at, @created_at_ms,
             @updated_at_ms, @preview, @message_count, @event_seq_high_water, @metadata_path,
@@ -594,6 +608,8 @@ export class HybridThreadStore implements ThreadStore {
             cost_budget_usd = excluded.cost_budget_usd,
             cost_budget_warning_sent = excluded.cost_budget_warning_sent,
             relation = excluded.relation,
+            domain = excluded.domain,
+            project_id = excluded.project_id,
             parent_thread_id = excluded.parent_thread_id,
             forked_from_thread_id = excluded.forked_from_thread_id,
             forked_from_title = excluded.forked_from_title,
@@ -1047,6 +1063,8 @@ function rowFromIndexRecord(
         ? 1
         : 0,
     relation: thread.relation ?? 'primary',
+    domain: thread.domain ?? null,
+    project_id: thread.projectId ?? null,
     parent_thread_id: thread.parentThreadId ?? null,
     forked_from_thread_id: thread.forkedFromThreadId ?? null,
     forked_from_title: thread.forkedFromTitle ?? null,
@@ -1088,6 +1106,8 @@ function summaryFromRow(row: ThreadRow): ThreadSummary {
     ...(row.cost_budget_usd !== null ? { costBudgetUsd: row.cost_budget_usd } : {}),
     ...(row.cost_budget_warning_sent !== null ? { costBudgetWarningSent: Boolean(row.cost_budget_warning_sent) } : {}),
     relation: row.relation,
+    ...(row.domain ? { domain: row.domain as ThreadSummary['domain'] } : {}),
+    ...(row.project_id ? { projectId: row.project_id } : {}),
     ...(row.parent_thread_id ? { parentThreadId: row.parent_thread_id } : {}),
     ...(row.forked_from_thread_id ? { forkedFromThreadId: row.forked_from_thread_id } : {}),
     ...(row.forked_from_title ? { forkedFromTitle: row.forked_from_title } : {}),
@@ -1145,6 +1165,8 @@ function filterThreadSummaries(
   if (!options.includeSide) {
     out = out.filter((thread) => (thread.relation ?? 'primary') !== 'side')
   }
+  if (options.domain) out = out.filter((thread) => thread.domain === options.domain)
+  if (options.projectId) out = out.filter((thread) => thread.projectId === options.projectId)
   if (query) {
     out = out.filter((thread) => searchTextForSummary(thread).includes(query))
   }
@@ -1158,6 +1180,8 @@ function searchTextForThread(thread: ThreadRecord, _preview: string): string {
     thread.workspace,
     thread.model,
     thread.mode,
+    thread.domain,
+    thread.projectId,
     thread.forkedFromTitle,
     thread.forkedFromThreadId,
     ...(thread.todos?.items.map((item) => item.content) ?? [])
@@ -1171,6 +1195,8 @@ function searchTextForSummary(thread: ThreadSummary): string {
     thread.workspace,
     thread.model,
     thread.mode,
+    thread.domain,
+    thread.projectId,
     thread.forkedFromTitle,
     thread.forkedFromThreadId,
     ...(thread.todos?.items.map((item) => item.content) ?? [])

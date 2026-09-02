@@ -31,7 +31,7 @@ import {
   isWriteThreadId
 } from '../write/write-thread-registry'
 import { isSddAssistantThread } from '../sdd/sdd-thread-registry'
-import { isDesignAssistantThreadId } from '../design/design-thread-registry'
+import { isDesignAssistantThread } from '../design/design-thread-registry'
 import { useWriteWorkspaceStore } from '../write/write-workspace-store'
 import {
   armBusyWatchdog as armBusyWatchdogImpl,
@@ -449,10 +449,11 @@ export function isCodeThread(
     thread.archived !== true &&
     !isInternalTemporaryWorkspace(thread.workspace) &&
     !isClawWorkspacePath(thread.workspace) &&
+    (thread.domain === undefined || thread.domain === 'code') &&
     !isClawThread(thread, clawChannels) &&
     !isWriteThreadId(thread.id) &&
     !isSddAssistantThread(thread) &&
-    !isDesignAssistantThreadId(thread.id)
+    !isDesignAssistantThread(thread)
 }
 
 export function latestThread(threads: NormalizedThread[]): NormalizedThread | null {

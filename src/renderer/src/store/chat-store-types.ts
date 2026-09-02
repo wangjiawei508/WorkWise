@@ -94,7 +94,7 @@ export type SettingsRouteSection =
   | 'shortcuts'
   | 'claw'
   | 'help'
-export type AppRoute = 'chat' | 'write' | 'design' | 'flow' | 'settings' | 'plugins' | 'claw' | 'schedule'
+export type AppRoute = 'chat' | 'write' | 'design' | 'flow' | 'settings' | 'plugins' | 'claw' | 'schedule' | 'engineering'
 export type PluginHostRoute = 'chat' | 'claw'
 
 /**
@@ -195,6 +195,8 @@ export type ChatState = {
   openSchedule: () => void
   openFlow: (filter?: 'scheduled') => void
   openDesign: () => void
+  openEngineering: () => void
+  ensureEngineeringThread: (projectId: string, workspaceRoot?: string, title?: string) => Promise<string | null>
   refreshClawChannels: () => Promise<void>
   addClawChannel: (
     provider: ClawImProvider,

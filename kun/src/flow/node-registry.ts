@@ -23,7 +23,7 @@ const CATALOGUE: Array<Omit<FlowNodeRegistryEntryV1, 'available' | 'disabledReas
   { type: 'merge', category: 'control', label: 'Merge', inputs: [{ ...port('inputs', 'Inputs', 'json'), multiple: true }], outputs: jsonOut, requiredCapabilities: [] },
   { type: 'loop', category: 'control', label: 'Loop', inputs: jsonIn, outputs: [port('body', 'Body', 'json'), port('done', 'Done', 'json')], requiredCapabilities: [] },
   { type: 'parallel', category: 'control', label: 'Parallel', inputs: jsonIn, outputs: [{ ...port('branches', 'Branches', 'json'), multiple: true }], requiredCapabilities: [] },
-  { type: 'human_approval', category: 'human', label: 'Human approval', inputs: jsonIn, outputs: [port('approved', 'Approved', 'json'), port('rejected', 'Rejected', 'json')], requiredCapabilities: ['approvals'] },
+  { type: 'human_approval', category: 'human', label: 'Human approval', inputs: [...jsonIn, port('file', 'File', 'file')], outputs: [port('approved', 'Approved', 'json'), port('rejected', 'Rejected', 'json')], requiredCapabilities: ['approvals'] },
   { type: 'alert_confirmation', category: 'human', label: 'Alert confirmation', inputs: jsonIn, outputs: [port('confirmed', 'Confirmed', 'json'), port('rejected', 'Rejected', 'json')], requiredCapabilities: ['approvals'] },
   ...(['docx', 'xlsx', 'pdf', 'pptx'] as const).map((format) => ({
     type: `${format}_output`, category: 'output' as const, label: `${format.toUpperCase()} output`, inputs: jsonIn,
@@ -39,6 +39,11 @@ const CATALOGUE: Array<Omit<FlowNodeRegistryEntryV1, 'available' | 'disabledReas
   { type: 'lark_cli', category: 'integration', label: 'Lark CLI', inputs: jsonIn, outputs: jsonOut, requiredCapabilities: ['lark_cli'] },
   { type: 'ego_browser', category: 'integration', label: 'ego-browser', inputs: jsonIn, outputs: jsonOut, requiredCapabilities: ['ego_browser'] },
   { type: 'run_flow', category: 'intelligence', label: 'Run Flow', inputs: jsonIn, outputs: jsonOut, requiredCapabilities: ['flow'] }
+  ,{ type: 'railwise.monitoring_data_first_check', category: 'tool', label: 'RailWise quality check', inputs: jsonIn, outputs: jsonOut, requiredCapabilities: ['railwise'] }
+  ,{ type: 'railwise.deformation_rate', category: 'tool', label: 'RailWise trend analysis', inputs: jsonIn, outputs: jsonOut, requiredCapabilities: ['railwise'] }
+  ,{ type: 'railwise.chart_generator', category: 'output', label: 'RailWise chart', inputs: jsonIn, outputs: jsonOut, requiredCapabilities: ['railwise'] }
+  ,{ type: 'railwise.report_export', category: 'output', label: 'RailWise report', inputs: jsonIn, outputs: [port('file', 'File', 'file')], requiredCapabilities: ['railwise'] }
+  ,{ type: 'railwise.archive', category: 'output', label: 'RailWise archive', inputs: jsonIn, outputs: jsonOut, requiredCapabilities: ['railwise'] }
 ]
 
 export const FLOW_PORT_CONVERSIONS_V1 = Object.freeze<Record<string, { from: FlowPortTypeV1; to: FlowPortTypeV1 }>>({

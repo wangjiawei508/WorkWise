@@ -124,7 +124,7 @@ function subscribeThreadEventsWithRecovery(
 
 export function createThreadActions(
   { set, get, sseAbortRef }: StoreActionContext
-): Pick<ChatState, 'createThread' | 'recoverActiveTurn' | 'selectThread' | 'drainQueuedMessages' | 'removeQueuedMessage' | 'sendMessage' | 'reviewActiveThread'> {
+): Pick<ChatState, 'createThread' | 'ensureEngineeringThread' | 'recoverActiveTurn' | 'selectThread' | 'drainQueuedMessages' | 'removeQueuedMessage' | 'sendMessage' | 'reviewActiveThread'> {
   return {
   createThread: async (options = {}) => {
     if (get().runtimeConnection !== 'ready') {
@@ -187,6 +187,75 @@ export function createThreadActions(
           ? { route: 'settings' as const, settingsSection: 'agents' as const }
           : {})
       })
+    }
+  },
+
+  ensureEngineeringThread: async (projectId, workspaceRoot, title) => {
+    const normalizedProjectId = projectId.trim()
+    if (!normalizedProjectId) return null
+    if (get().runtimeConnection !== 'ready') {
+      set({ error: i18n.t('common:runtimeActionNeedsConnection') })
+      return null
+    }
+    try {
+      const current = get()
+      const targetWorkspace = normalizeWorkspaceRoot(workspaceRoot) || normalizeWorkspaceRoot(current.workspaceRoot)
+      const inMemory = current.threads.find((thread) =>
+        thread.domain === 'engineering' &&
+        thread.projectId === normalizedProjectId &&
+        thread.archived !== true &&
+        (!targetWorkspace || normalizeWorkspaceRoot(thread.workspace) === targetWorkspace)
+      )
+      if (inMemory) {
+        set({ route: 'engineering' })
+        if (current.activeThreadId !== inMemory.id) await get().selectThread(inMemory.id)
+        return inMemory.id
+      }
+
+      const provider = getProvider()
+      const remote = (await provider.listThreads({
+        domain: 'engineering',
+        projectId: normalizedProjectId,
+        includeArchived: true,
+        limit: 50
+      })).filter((thread) =>
+        thread.domain === 'engineering' &&
+        thread.projectId === normalizedProjectId &&
+        thread.archived !== true &&
+        (!targetWorkspace || normalizeWorkspaceRoot(thread.workspace) === targetWorkspace)
+      )
+      const existing = remote.sort((left, right) => Date.parse(right.updatedAt) - Date.parse(left.updatedAt))[0]
+      if (existing) {
+        set((state) => ({
+          route: 'engineering',
+          threads: state.threads.some((thread) => thread.id === existing.id)
+            ? state.threads
+            : [existing, ...state.threads]
+        }))
+        if (get().activeThreadId !== existing.id) await get().selectThread(existing.id)
+        return existing.id
+      }
+
+      const created = await provider.createThread({
+        workspace: targetWorkspace || undefined,
+        title: title?.trim() || '工程 AI 会话',
+        mode: 'agent',
+        domain: 'engineering',
+        projectId: normalizedProjectId
+      })
+      set((state) => ({
+        route: 'engineering',
+        activeThreadId: created.id,
+        threads: state.threads.some((thread) => thread.id === created.id)
+          ? state.threads
+          : [created, ...state.threads]
+      }))
+      await get().selectThread(created.id)
+      await get().refreshThreads()
+      return created.id
+    } catch (error) {
+      set({ error: formatRuntimeError(error) })
+      return null
     }
   },
 

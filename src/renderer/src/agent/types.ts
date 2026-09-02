@@ -111,6 +111,8 @@ export type NormalizedThread = {
   agentRevision?: number
   archived?: boolean
   preview?: string
+  domain?: 'code' | 'write' | 'design' | 'engineering' | 'flow' | 'claw'
+  projectId?: string
   latestTurnId?: string
   latestTurnStatus?: string
   latestTurnError?: string
@@ -177,6 +179,8 @@ export type ThreadListOptions = {
   includeArchived?: boolean
   archivedOnly?: boolean
   summary?: boolean
+  domain?: NormalizedThread['domain']
+  projectId?: string
 }
 
 export type ToolBlock = {
@@ -449,7 +453,7 @@ export interface AgentProvider {
   }
   connect(): Promise<void>
   listThreads(options?: ThreadListOptions): Promise<NormalizedThread[]>
-  createThread(input: { workspace?: string; title?: string; mode?: string }): Promise<NormalizedThread>
+  createThread(input: { workspace?: string; title?: string; mode?: string; domain?: NormalizedThread['domain']; projectId?: string }): Promise<NormalizedThread>
   getThreadDetail(threadId: string): Promise<{
     blocks: ChatBlock[]
     latestSeq: number

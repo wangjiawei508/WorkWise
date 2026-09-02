@@ -9,10 +9,16 @@ import { toThreadSummary } from '../domain/thread.js'
 export class InMemoryThreadStore implements ThreadStore {
   private readonly threads = new Map<string, ThreadRecord>()
 
-  async list(_options?: ThreadStoreListOptions): Promise<ThreadSummary[]> {
-    return [...this.threads.values()]
+  async list(options: ThreadStoreListOptions = {}): Promise<ThreadSummary[]> {
+    let summaries = [...this.threads.values()]
       .map(toThreadSummary)
       .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+    if (options.domain) summaries = summaries.filter((thread) => thread.domain === options.domain)
+    if (options.projectId) summaries = summaries.filter((thread) => thread.projectId === options.projectId)
+    if (options.archivedOnly) summaries = summaries.filter((thread) => thread.status === 'archived')
+    else if (!options.includeArchived) summaries = summaries.filter((thread) => thread.status !== 'archived' && thread.status !== 'deleted')
+    if (!options.includeSide) summaries = summaries.filter((thread) => (thread.relation ?? 'primary') !== 'side')
+    return typeof options.limit === 'number' ? summaries.slice(0, options.limit) : summaries
   }
 
   async get(threadId: string): Promise<ThreadRecord | null> {

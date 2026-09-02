@@ -53,6 +53,10 @@ export type ThreadAgentProfile = z.infer<typeof ThreadAgentProfileSchema>
 export const ThreadRelation = z.enum(['primary', 'fork', 'side'])
 export type ThreadRelation = z.infer<typeof ThreadRelation>
 
+/** Optional product-domain scope used to keep Engineering sessions apart from chat/design/write. */
+export const ThreadDomainSchema = z.enum(['code', 'write', 'design', 'engineering', 'flow', 'claw'])
+export type ThreadDomain = z.infer<typeof ThreadDomainSchema>
+
 export const ThreadGoalStatus = z.enum([
   'active',
   'paused',
@@ -140,6 +144,8 @@ export const ThreadSchema = z.object({
   forkedAt: z.string().optional(),
   forkedFromMessageCount: z.number().int().nonnegative().optional(),
   forkedFromTurnCount: z.number().int().nonnegative().optional(),
+  domain: ThreadDomainSchema.optional(),
+  projectId: z.string().min(1).max(160).optional(),
   goal: ThreadGoalSchema.optional(),
   todos: ThreadTodoListSchema.optional(),
   createdAt: z.string(),
@@ -169,6 +175,8 @@ export const ThreadSummarySchema = ThreadSchema.pick({
   forkedAt: true,
   forkedFromMessageCount: true,
   forkedFromTurnCount: true,
+  domain: true,
+  projectId: true,
   goal: true,
   todos: true,
   createdAt: true,
@@ -187,6 +195,8 @@ export const CreateThreadRequest = z.object({
   approvalPolicy: ApprovalPolicySchema.optional(),
   sandboxMode: SandboxModeSchema.optional(),
   costBudgetUsd: z.number().positive().optional()
+  ,domain: ThreadDomainSchema.optional()
+  ,projectId: z.string().min(1).max(160).optional()
 })
 export type CreateThreadRequest = z.infer<typeof CreateThreadRequest>
 

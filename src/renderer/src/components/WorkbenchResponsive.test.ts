@@ -36,7 +36,55 @@ describe('Workbench responsive panel contract', () => {
     expect(notificationHandler).toContain('notificationOpenThreadRef.current(threadId)')
     expect(workbench).toContain("if (runtimeConnection !== 'ready') return")
     expect(workbench).toContain('pendingNotificationThreadRef.current')
-    expect(openThread).toContain("setRoute('chat')")
+    expect(workbench).toContain("setRoute('chat')")
     expect(openThread).toContain('selectThread(id)')
+  })
+
+  it('keeps Design assistant history out of Code and routes it back to its Design document', async () => {
+    const nodeFs = 'node:fs/promises'
+    const { readFile } = await import(/* @vite-ignore */ nodeFs)
+    const workbench = await readFile(new URL('./Workbench.tsx', import.meta.url), 'utf8')
+
+    expect(workbench).toMatch(/const codeThreads = useMemo\([\s\S]*?!isDesignAssistantThread\(thread\)/)
+    const openThread = workbench.match(
+      /const openThread = \(id: string\): void => \{([\s\S]*?)\n\s*\}/
+    )?.[1] ?? ''
+    expect(openThread).toContain('isDesignAssistantThread(selectedThread)')
+    expect(openThread).toContain('requestDesignDocumentOpen(documentId)')
+    expect(openThread).toContain("setRoute('design')")
+  })
+
+  it('uses an engineering-only project sidebar rather than the Programming thread list', async () => {
+    const nodeFs = 'node:fs/promises'
+    const { readFile } = await import(/* @vite-ignore */ nodeFs)
+    const [sidebar, engineeringSidebar] = await Promise.all([
+      readFile(new URL('./chat/Sidebar.tsx', import.meta.url), 'utf8'),
+      readFile(new URL('./engineering/EngineeringSidebarContent.tsx', import.meta.url), 'utf8')
+    ])
+
+    expect(sidebar).toContain("activeView === 'engineering'")
+    expect(sidebar).toContain('<EngineeringSidebarContent')
+    expect(engineeringSidebar).toContain("/v1/engineering/projects")
+    expect(engineeringSidebar).toContain('project.workspace === workspaceRoot')
+    expect(engineeringSidebar).toContain('dispatchEngineeringProjectOpen(project.id)')
+    expect(engineeringSidebar).not.toContain('SidebarProjectsSection')
+  })
+
+  it('opens Engineering on an AI command center with a deterministic delivery path', async () => {
+    const nodeFs = 'node:fs/promises'
+    const { readFile } = await import(/* @vite-ignore */ nodeFs)
+    const [engineering, aiCommandCenter] = await Promise.all([
+      readFile(new URL('./engineering/EngineeringWorkspaceView.tsx', import.meta.url), 'utf8'),
+      readFile(new URL('./engineering/EngineeringAiCommandCenter.tsx', import.meta.url), 'utf8')
+    ])
+
+    expect(engineering).toContain("type TabId = 'ai-command'")
+    expect(engineering).toContain("useState<TabId>('ai-command')")
+    expect(engineering).toContain('<EngineeringAiCommandCenter')
+    expect(aiCommandCenter).toContain('工程 AI 指挥台')
+    expect(engineering).toContain('交付控制台')
+    expect(engineering).toContain('<DeliveryStage index={1}')
+    expect(engineering).toContain('<DeliveryStage index={6}')
+    expect(engineering).toContain('原始文件保持不变；每次数据、阈值或字段映射的变化都会产生新的运行版本')
   })
 })

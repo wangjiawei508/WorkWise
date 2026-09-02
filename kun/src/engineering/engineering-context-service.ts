@@ -1,0 +1,169 @@
+import { createHash, randomUUID } from 'node:crypto'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
+import { atomicWriteFile } from '../adapters/file/atomic-write.js'
+import { EngineeringEvidenceCardV1, EngineeringWatchRuleV1, type EngineeringContextSnapshotV1, type EngineeringEvidenceCardV1 as EngineeringEvidenceCard, type EngineeringWatchRuleV1 as EngineeringWatchRule } from '../contracts/engineering-ai.js'
+import type { EngineeringService } from './engineering-service.js'
+
+const MAX_FINDINGS_PER_DATASET = 200
+const MAX_DATASETS = 20
+const MAX_ANALYSES = 20
+const MAX_RUNS = 20
+const MAX_CITATIONS = 100
+
+function hashContext(value: Omit<EngineeringContextSnapshotV1, 'contextHash'>): string {
+  return `sha256-${createHash('sha256').update(JSON.stringify(value)).digest('hex')}`
+}
+
+/**
+ * Builds the bounded, provenance-first context sent to an Engineering AI
+ * turn. It deliberately exposes dataset statistics and findings, never the
+ * raw observation array, so a large source file cannot become an accidental
+ * prompt payload.
+ */
+export class EngineeringContextService {
+  private readonly watchDrafts = new Map<string, EngineeringWatchRule[]>()
+  private readonly loadedWatchProjects = new Set<string>()
+  constructor(private readonly engineering: EngineeringService, private readonly nowIso: () => string = () => new Date().toISOString()) {}
+
+  async addWatchDraft(input: { projectId: string; name: string; expression: string; enabled?: boolean; idempotencyKey?: string }): Promise<EngineeringWatchRule> {
+    const project = this.engineering.getProject(input.projectId)
+    if (!project) throw new Error(`engineering project not found: ${input.projectId}`)
+    this.loadWatchDrafts(input.projectId, project.workspace)
+    const existing = this.watchDrafts.get(input.projectId) ?? []
+    if (input.idempotencyKey) {
+      const replay = existing.find((rule) => rule.id === `watch_${input.idempotencyKey}`)
+      if (replay) return replay
+    }
+    const rule = EngineeringWatchRuleV1.parse({
+      schemaVersion: 1,
+      id: input.idempotencyKey ? `watch_${input.idempotencyKey}` : `watch_${cryptoRandomId()}`,
+      projectId: input.projectId,
+      name: input.name.trim(),
+      expression: input.expression.trim(),
+      enabled: input.enabled ?? true,
+      revision: 1,
+      updatedAt: this.nowIso()
+    })
+    this.watchDrafts.set(input.projectId, [...existing, rule].slice(-20))
+    await this.persistWatchDrafts(input.projectId, project.workspace)
+    return rule
+  }
+
+  snapshot(projectId: string): EngineeringContextSnapshotV1 {
+    const overview = this.engineering.getProjectOverview(projectId)
+    this.loadWatchDrafts(projectId, overview.project.workspace)
+    const base: Omit<EngineeringContextSnapshotV1, 'contextHash'> = {
+      schemaVersion: 1,
+      projectId: overview.project.id,
+      projectRevision: overview.project.revision,
+      generatedAt: this.nowIso(),
+      project: {
+        name: overview.project.name,
+        monitoringType: overview.project.monitoringType,
+        unit: overview.project.unit,
+        reportPeriod: overview.project.reportPeriod,
+        thresholds: overview.project.thresholds
+      },
+      datasets: overview.datasets.slice(0, MAX_DATASETS).map((dataset) => ({
+        id: dataset.id,
+        sourceFileName: dataset.sourceFileName,
+        sourceFileHash: dataset.sourceFileHash,
+        rowCount: dataset.rowCount,
+        observationCount: dataset.observationCount,
+        status: dataset.status,
+        revision: dataset.revision,
+        findings: dataset.findings.slice(0, MAX_FINDINGS_PER_DATASET).map((finding) => ({
+          code: finding.code,
+          severity: finding.severity,
+          status: finding.status,
+          message: finding.message,
+          ...(finding.row ? { row: finding.row } : {})
+        }))
+      })),
+      analyses: overview.analyses.slice(0, MAX_ANALYSES).map((analysis) => ({
+        id: analysis.id,
+        datasetId: analysis.datasetId,
+        algorithmVersion: analysis.algorithmVersion,
+        resultCount: analysis.results.length,
+        inputHash: analysis.inputHash
+      })),
+      runs: overview.runs.slice(0, MAX_RUNS).map((run) => ({
+        id: run.id,
+        status: run.status,
+        datasetId: run.datasetId,
+        ...(run.analysisId ? { analysisId: run.analysisId } : {}),
+        revision: run.revision,
+        updatedAt: run.updatedAt
+      })),
+      citations: overview.manifests.flatMap((manifest) => manifest.citations).slice(0, MAX_CITATIONS).map((citation) => ({
+        id: citation.id,
+        source: citation.source,
+        sourceType: citation.sourceType,
+        ...(citation.locator ? { locator: citation.locator } : {})
+      })),
+      watchDrafts: (this.watchDrafts.get(projectId) ?? []).slice(0, 20)
+    }
+    return { ...base, contextHash: hashContext(base) }
+  }
+
+  private loadWatchDrafts(projectId: string, workspace: string): void {
+    if (this.loadedWatchProjects.has(projectId)) return
+    this.loadedWatchProjects.add(projectId)
+    try {
+      const parsed = JSON.parse(readFileSync(join(workspace, '.workwise', 'engineering', 'watch-drafts.json'), 'utf8')) as unknown
+      if (!Array.isArray(parsed)) return
+      const rules = parsed.filter((item): item is EngineeringWatchRule => {
+        try { EngineeringWatchRuleV1.parse(item); return true } catch { return false }
+      }).filter((item) => item.projectId === projectId).slice(-20)
+      this.watchDrafts.set(projectId, rules)
+    } catch {
+      /* A missing or damaged optional draft file must not block the project context. */
+    }
+  }
+
+  private async persistWatchDrafts(projectId: string, workspace: string): Promise<void> {
+    try {
+      const directory = join(workspace, '.workwise', 'engineering')
+      const allRules: EngineeringWatchRule[] = []
+      try {
+        const persisted = JSON.parse(readFileSync(join(directory, 'watch-drafts.json'), 'utf8')) as unknown
+        if (Array.isArray(persisted)) {
+          for (const item of persisted) {
+            try { allRules.push(EngineeringWatchRuleV1.parse(item)) } catch { /* ignore malformed optional draft */ }
+          }
+        }
+      } catch { /* first write */ }
+      for (const rules of this.watchDrafts.values()) allRules.push(...rules)
+      const deduped = [...new Map(allRules.map((rule) => [rule.id, rule])).values()]
+      await atomicWriteFile(join(directory, 'watch-drafts.json'), JSON.stringify(deduped.slice(-100), null, 2))
+    } catch {
+      /* Draft persistence is best-effort; the active Runtime context remains usable. */
+    }
+  }
+
+  evidence(projectId: string): EngineeringEvidenceCard[] {
+    const snapshot = this.snapshot(projectId)
+    const cards: EngineeringEvidenceCard[] = []
+    for (const dataset of snapshot.datasets) {
+      for (const finding of dataset.findings.slice(0, 20)) {
+        cards.push(EngineeringEvidenceCardV1.parse({ schemaVersion: 1, id: `${dataset.id}:${finding.code}:${finding.row ?? 0}`, kind: 'finding', title: finding.code, summary: finding.message, sourceHash: dataset.sourceFileHash, locator: finding.row ? `row:${finding.row}` : undefined, createdAt: snapshot.generatedAt }))
+      }
+      cards.push(EngineeringEvidenceCardV1.parse({ schemaVersion: 1, id: dataset.id, kind: 'status', title: dataset.sourceFileName, summary: `${dataset.observationCount.toLocaleString()} 条观测 · ${dataset.status}`, sourceHash: dataset.sourceFileHash, createdAt: snapshot.generatedAt }))
+    }
+    for (const analysis of snapshot.analyses) {
+      cards.push(EngineeringEvidenceCardV1.parse({ schemaVersion: 1, id: analysis.id, kind: 'trend', title: analysis.algorithmVersion, summary: `${analysis.resultCount.toLocaleString()} 条趋势与阈值分析结果`, sourceHash: analysis.inputHash, createdAt: snapshot.generatedAt }))
+      cards.push(EngineeringEvidenceCardV1.parse({ schemaVersion: 1, id: `${analysis.id}:metric`, kind: 'metric', title: '分析覆盖范围', summary: `本次运行覆盖 ${analysis.resultCount.toLocaleString()} 个监测项/测点组合`, sourceHash: analysis.inputHash, createdAt: snapshot.generatedAt }))
+    }
+    for (const citation of snapshot.citations) cards.push(EngineeringEvidenceCardV1.parse({ schemaVersion: 1, id: citation.id, kind: 'citation', title: citation.sourceType, summary: citation.source, locator: citation.locator, createdAt: snapshot.generatedAt }))
+    const manifests = this.engineering.getProjectOverview(projectId).manifests
+    for (const manifest of manifests.slice(0, 10)) {
+      for (const output of manifest.outputs.slice(0, 10)) cards.push(EngineeringEvidenceCardV1.parse({ schemaVersion: 1, id: `${manifest.id}:${output.path}`, kind: 'artifact', title: output.path.split('/').pop() ?? output.path, summary: `${output.mediaType} · ${output.sizeBytes.toLocaleString()} bytes · ${manifest.reviewStatus}`, sourceHash: output.sha256, locator: output.path, createdAt: manifest.finalizedAt ?? snapshot.generatedAt }))
+    }
+    return cards.slice(0, 100)
+  }
+}
+
+function cryptoRandomId(): string {
+  return randomUUID()
+}

@@ -1,0 +1,4 @@
+schema: spec-driven
+created: 2026-08-30
+goal: Implement a deterministic CSV/XLSX monitoring data to reviewable
+  DOCX/PDF/XLSX deliverable pipeline inside the existing Electron + Kun Runtime.

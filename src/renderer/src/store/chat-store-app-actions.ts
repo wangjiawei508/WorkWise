@@ -32,6 +32,7 @@ export function createAppActions(options: CreateAppActionsOptions): Pick<
   | 'openSchedule'
   | 'openFlow'
   | 'openDesign'
+  | 'openEngineering'
   | 'openInitialSetup'
   | 'closeInitialSetup'
   | 'selectInspectorItem'
@@ -120,6 +121,10 @@ export function createAppActions(options: CreateAppActionsOptions): Pick<
 
     openDesign: () => {
       set({ route: 'design' })
+    },
+
+    openEngineering: () => {
+      set({ route: 'engineering' })
     },
 
     openInitialSetup: (mode: InitialSetupMode = 'required') =>

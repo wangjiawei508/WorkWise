@@ -8,6 +8,7 @@ import { getProvider } from '../../agent/registry'
 import { useChatStore } from '../../store/chat-store'
 import {
   designAssistantThreadIdForDocument,
+  hydrateLegacyDesignThreadRegistry,
   markDesignAssistantThread
 } from '../../design/design-thread-registry'
 
@@ -123,8 +124,10 @@ export function DesignAssistantPanel({
     }
     const ensureThread = async (): Promise<void> => {
       setThreadError(null)
+      const currentThreads = useChatStore.getState().threads
+      hydrateLegacyDesignThreadRegistry([{ id: document.id, name: document.name }], currentThreads)
       let threadId = designAssistantThreadIdForDocument(document.id)
-      const threadStillExists = useChatStore.getState().threads.some((thread) => thread.id === threadId)
+      const threadStillExists = currentThreads.some((thread) => thread.id === threadId)
       if (!threadId || !threadStillExists) {
         const creationKey = `${workspaceRoot}:${document.id}`
         let pending = designThreadCreations.get(creationKey)

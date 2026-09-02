@@ -51,6 +51,11 @@ import { SidebarTitlebarToggleButton } from './sidebar/SidebarPrimitives'
 import { composeWritePrompt } from '../write/quoted-selection'
 import { useWriteWorkspaceStore } from '../write/write-workspace-store'
 import { isWriteThreadId } from '../write/write-thread-registry'
+import {
+  designDocumentIdForAssistantThread,
+  isDesignAssistantThread,
+  requestDesignDocumentOpen
+} from '../design/design-thread-registry'
 import { createSddDraft, forgetRememberedSddDraft, useSddDraftStore } from '../sdd/sdd-draft-store'
 import type { SddDraft, SddDraftSaveStatus } from '../sdd/sdd-draft-store'
 import { saveActiveSddDraftToDisk } from '../sdd/sdd-draft-actions'
@@ -160,6 +165,7 @@ registerBuiltinWorkbenchView('plugins', 10, 'plugins', () => import('./PluginMar
 registerBuiltinWorkbenchView('flow', 20, 'flow', () => import('./flow/FlowWorkspaceView'))
 registerBuiltinWorkbenchView('schedule', 30, 'schedule', () => import('./schedule/ScheduleTasksView'))
 registerBuiltinWorkbenchView('design', 40, 'design', () => import('./design/DesignWorkspaceView'))
+registerBuiltinWorkbenchView('engineering', 50, 'engineering', () => import('./engineering/EngineeringWorkspaceView'))
 
 type PendingSddPlanTarget = {
   planId: string
@@ -315,6 +321,7 @@ export function Workbench(): ReactElement {
     openSchedule,
     openFlow,
     openDesign,
+    openEngineering,
     chooseWorkspace,
     clawChannels,
     activeClawChannelId,
@@ -374,6 +381,7 @@ export function Workbench(): ReactElement {
       openSchedule: s.openSchedule,
       openFlow: s.openFlow,
       openDesign: s.openDesign,
+      openEngineering: s.openEngineering,
       chooseWorkspace: s.chooseWorkspace,
       clawChannels: s.clawChannels,
       activeClawChannelId: s.activeClawChannelId,
@@ -833,7 +841,9 @@ export function Workbench(): ReactElement {
     () => threads.filter((thread) =>
       !isWriteThreadId(thread.id) &&
       !isClawThread(thread, clawChannels) &&
-      !isSddAssistantThread(thread)
+      !isSddAssistantThread(thread) &&
+      !isDesignAssistantThread(thread) &&
+      (thread.domain === undefined || thread.domain === 'code')
     ),
     [clawChannels, threads]
   )
@@ -1808,6 +1818,19 @@ export function Workbench(): ReactElement {
   const openThread = (id: string): void => {
     if (activeSddDraft) dismissActiveSddDraft({ closeAssistant: true })
     setConnectPhoneSidebarOpen(false)
+    const selectedThread = threads.find((thread) => thread.id === id)
+    if (selectedThread && isDesignAssistantThread(selectedThread)) {
+      const documentId = designDocumentIdForAssistantThread(selectedThread.id)
+      if (documentId) requestDesignDocumentOpen(documentId)
+      setRoute('design')
+      void selectThread(id)
+      return
+    }
+    if (selectedThread?.domain === 'engineering') {
+      setRoute('engineering')
+      void selectThread(id)
+      return
+    }
     setRoute('chat')
     void selectThread(id)
   }
@@ -1893,7 +1916,7 @@ export function Workbench(): ReactElement {
     setConnectPhoneSidebarOpen((open) => !open)
   }
 
-  const sidebarView: 'chat' | 'write' | 'claw' | 'schedule' | 'design' | 'flow' =
+  const sidebarView: 'chat' | 'write' | 'claw' | 'schedule' | 'design' | 'flow' | 'engineering' =
     route === 'claw' || (route === 'plugins' && pluginHostRoute === 'claw')
       ? 'claw'
       : route === 'schedule'
@@ -1904,7 +1927,9 @@ export function Workbench(): ReactElement {
         ? 'write'
       : route === 'design'
         ? 'design'
-        : 'chat'
+      : route === 'engineering'
+        ? 'engineering'
+      : 'chat'
 
   const closeRightPanel = (): void => {
     if (route === 'write' && rightPanelMode === 'sdd-ai') {
@@ -2131,6 +2156,10 @@ export function Workbench(): ReactElement {
     design: (module) => {
       const View = (module as typeof import('./design/DesignWorkspaceView')).DesignWorkspaceView
       return <View leftSidebarCollapsed={leftSidebarCollapsed} onToggleLeftSidebar={toggleLeftSidebar} onOpenWrite={openWriteMode} workspaceRoot={workspaceRoot} />
+    },
+    engineering: (module) => {
+      const View = (module as typeof import('./engineering/EngineeringWorkspaceView')).EngineeringWorkspaceView
+      return <View leftSidebarCollapsed={leftSidebarCollapsed} onToggleLeftSidebar={toggleLeftSidebar} workspaceRoot={workspaceRoot} runtimeReady={runtimeConnection === 'ready'} />
     }
   }
   const workbenchViewContext: BuiltinWorkbenchViewContext = { route, renderers: workbenchViewRenderers }
@@ -2189,6 +2218,7 @@ export function Workbench(): ReactElement {
               onScheduleOpen={openScheduleView}
               onFlowOpen={openFlowView}
               onDesignOpen={openDesignView}
+              onEngineeringOpen={openEngineering}
               onToggleSidebar={toggleLeftSidebar}
             />
             )}

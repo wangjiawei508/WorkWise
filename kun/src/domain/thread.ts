@@ -8,6 +8,7 @@ import type {
   ThreadRelation,
   ThreadStatus
 } from '../contracts/threads.js'
+import type { ThreadDomain } from '../contracts/threads.js'
 import type { TurnItem } from '../contracts/items.js'
 import {
   DEFAULT_APPROVAL_POLICY,
@@ -37,6 +38,8 @@ export function createThreadRecord(input: {
   agentProfile?: ThreadAgentProfile
   costBudgetUsd?: number
   costBudgetWarningSent?: boolean
+  domain?: ThreadDomain
+  projectId?: string
   relation?: ThreadRelation
   parentThreadId?: string
   forkedFromThreadId?: string
@@ -63,6 +66,8 @@ export function createThreadRecord(input: {
     ...(input.agentProfile ? { agentProfile: input.agentProfile } : {}),
     ...(input.costBudgetUsd !== undefined ? { costBudgetUsd: input.costBudgetUsd } : {}),
     ...(input.costBudgetWarningSent !== undefined ? { costBudgetWarningSent: input.costBudgetWarningSent } : {}),
+    ...(input.domain ? { domain: input.domain } : {}),
+    ...(input.projectId ? { projectId: input.projectId } : {}),
     relation: input.relation ?? 'primary',
     ...(input.parentThreadId ? { parentThreadId: input.parentThreadId } : {}),
     ...(input.forkedFromThreadId ? { forkedFromThreadId: input.forkedFromThreadId } : {}),
@@ -100,6 +105,8 @@ export function toThreadSummary(
     ...(thread.agentProfile ? { agentProfile: thread.agentProfile } : {}),
     ...(thread.costBudgetUsd !== undefined ? { costBudgetUsd: thread.costBudgetUsd } : {}),
     ...(thread.costBudgetWarningSent !== undefined ? { costBudgetWarningSent: thread.costBudgetWarningSent } : {}),
+    ...(thread.domain ? { domain: thread.domain } : {}),
+    ...(thread.projectId ? { projectId: thread.projectId } : {}),
     relation: thread.relation ?? 'primary',
     ...(thread.parentThreadId ? { parentThreadId: thread.parentThreadId } : {}),
     ...(thread.forkedFromThreadId ? { forkedFromThreadId: thread.forkedFromThreadId } : {}),

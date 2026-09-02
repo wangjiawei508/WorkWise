@@ -50,6 +50,7 @@ import type {
   DesignDocumentSummaryV1
 } from '@shared/design-workspace'
 import { useChatStore } from '../../store/chat-store'
+import { consumeRequestedDesignDocument } from '../../design/design-thread-registry'
 import {
   openGeneratedWorkspaceFile,
   revealGeneratedWorkspaceFile,
@@ -326,6 +327,7 @@ export function DesignWorkspaceView({
             ...current.filter((item) => item.id !== summary.id)
           ].sort((left, right) => right.updatedAt - left.updatedAt)
         })
+        window.dispatchEvent(new CustomEvent('workwise:design-documents-changed'))
         return true
       })
     saveQueueRef.current = operation
@@ -515,14 +517,33 @@ export function DesignWorkspaceView({
     workspaceRoot
   ])
 
-  const handleOpenSavedDocument = async (documentId: string): Promise<void> => {
+  const handleOpenSavedDocument = useCallback(async (documentId: string): Promise<void> => {
     if (!documentId || documentId === document?.id || restoring) return
     if (!(await flushDesignSave())) {
       setOperationNotice({ tone: 'error', message: t('designSaveFailed') })
       return
     }
     await restoreDesignDocument(documentId)
-  }
+  }, [document?.id, flushDesignSave, restoreDesignDocument, restoring, t])
+
+  useEffect(() => {
+    const openDocument = (event: Event): void => {
+      const documentId = (event as CustomEvent<{ documentId?: string }>).detail?.documentId?.trim()
+      if (documentId) void handleOpenSavedDocument(documentId)
+    }
+    const newDocument = (): void => setNewDocDialogOpen(true)
+    window.addEventListener('workwise:design-open-document', openDocument)
+    window.addEventListener('workwise:design-new-document', newDocument)
+    return () => {
+      window.removeEventListener('workwise:design-open-document', openDocument)
+      window.removeEventListener('workwise:design-new-document', newDocument)
+    }
+  }, [handleOpenSavedDocument])
+
+  useEffect(() => {
+    const requestedDocumentId = consumeRequestedDesignDocument()
+    if (requestedDocumentId) void handleOpenSavedDocument(requestedDocumentId)
+  }, [handleOpenSavedDocument])
 
   const handleImportImage = async (): Promise<void> => {
     const currentDocument = useDesignWorkspaceStore.getState().document
@@ -1353,6 +1374,7 @@ export function DesignWorkspaceView({
               format: options.format as DesignCanvasFormat,
               customSize: options.customSize
             })
+            window.dispatchEvent(new CustomEvent('workwise:design-documents-changed'))
             setNewDocDialogOpen(false)
           })()
         }}

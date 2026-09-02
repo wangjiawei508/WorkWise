@@ -5,7 +5,7 @@ import { buildRuntimeFlowAdapters } from './runtime-adapters.js'
 
 export function buildCoreFlowAdapters(overrides: ReadonlyMap<string, FlowNodeAdapter> = new Map(), runtime?: RuntimeFlowAdapterDependencies): Map<string, FlowNodeAdapter> {
   const adapters = new Map<string, FlowNodeAdapter>()
-  for (const type of ['manual_trigger', 'schedule_trigger', 'webhook_trigger', 'merge', 'parallel', 'archive', 'publish']) adapters.set(type, passThrough)
+  for (const type of ['manual_trigger', 'schedule_trigger', 'webhook_trigger', 'merge', 'parallel', 'archive', 'publish', 'railwise.monitoring_data_first_check', 'railwise.deformation_rate', 'railwise.chart_generator', 'railwise.report_export', 'railwise.archive']) adapters.set(type, passThrough)
   adapters.set('condition', async ({ node, input }) => ({ kind: 'output', output: { branch: evaluateCondition(input, node.config), value: input } }))
   adapters.set('switch', async ({ node, input }) => ({ kind: 'output', output: { branch: switchBranch(input, node.config), value: input } }))
   adapters.set('loop', async ({ node, input }) => ({ kind: 'output', output: { value: input, maxIterations: Number(node.config.maxIterations) } }))

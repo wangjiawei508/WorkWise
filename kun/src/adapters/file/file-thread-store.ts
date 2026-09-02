@@ -26,7 +26,7 @@ export class FileThreadStore implements ThreadStore {
     this.now = options.now ?? (() => new Date())
   }
 
-  async list(_options?: ThreadStoreListOptions): Promise<ThreadSummary[]> {
+  async list(options: ThreadStoreListOptions = {}): Promise<ThreadSummary[]> {
     await this.ensureDir(this.dataDir)
     const index = await this.readIndex()
     const summaries: ThreadSummary[] = []
@@ -40,7 +40,7 @@ export class FileThreadStore implements ThreadStore {
         // Skip broken entries rather than failing the whole list.
       }
     }
-    return summaries.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+    return filterThreadSummaries(summaries, options).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
   }
 
   async get(threadId: string): Promise<ThreadRecord | null> {
@@ -124,6 +124,18 @@ export class FileThreadStore implements ThreadStore {
   private async atomicWrite(path: string, contents: string): Promise<void> {
     await atomicWriteFile(path, contents)
   }
+}
+
+function filterThreadSummaries(summaries: ThreadSummary[], options: ThreadStoreListOptions): ThreadSummary[] {
+  let out = summaries
+  if (options.domain) out = out.filter((thread) => thread.domain === options.domain)
+  if (options.projectId) out = out.filter((thread) => thread.projectId === options.projectId)
+  if (options.archivedOnly) out = out.filter((thread) => thread.status === 'archived')
+  else if (!options.includeArchived) out = out.filter((thread) => thread.status !== 'archived' && thread.status !== 'deleted')
+  if (!options.includeSide) out = out.filter((thread) => (thread.relation ?? 'primary') !== 'side')
+  const query = options.search?.trim().toLowerCase()
+  if (query) out = out.filter((thread) => [thread.id, thread.title, thread.workspace, thread.preview].filter(Boolean).join('\n').toLowerCase().includes(query))
+  return typeof options.limit === 'number' ? out.slice(0, options.limit) : out
 }
 
 /**

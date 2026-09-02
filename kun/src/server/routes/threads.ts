@@ -13,6 +13,7 @@ import {
   ThreadSchema,
   ThreadTodosResponse,
   UpdateThreadRequest,
+  ThreadDomainSchema,
   type ThreadRecord
 } from '../../contracts/threads.js'
 import { jsonResponse, type JsonResponse } from '../response.js'
@@ -50,6 +51,8 @@ const ListThreadsQuery = z.object({
    * from the default listing).
    */
   include: z.string().optional()
+  ,domain: ThreadDomainSchema.optional()
+  ,project_id: z.string().min(1).max(160).optional()
 })
 
 export async function listThreads(
@@ -445,6 +448,8 @@ function parseListThreadsOptions(
       includeArchived: parsed.data.include_archived,
       archivedOnly: parsed.data.archived_only,
       includeSide
+      ,domain: parsed.data.domain
+      ,projectId: parsed.data.project_id
     }
   }
 }

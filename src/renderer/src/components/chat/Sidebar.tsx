@@ -3,6 +3,7 @@ import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
   Clock3,
+  HardHat,
   LayoutGrid,
   Palette,
   Plus,
@@ -22,6 +23,9 @@ import { ClawAddImDialog } from './SidebarClawDialog'
 import { ConnectPhoneSidebarPanel } from './ConnectPhoneView'
 import { SidebarProjectsSection } from './SidebarProjectsSection'
 import { WorkspaceModeTabs } from './WorkspaceModeTabs'
+import { DesignSidebarContent } from '../design/DesignSidebarContent'
+import { EngineeringSidebarContent } from '../engineering/EngineeringSidebarContent'
+import { dispatchEngineeringProjectCreate } from '../engineering/engineering-project-navigation'
 import {
   SidebarCommandRow,
   SidebarFrame
@@ -30,7 +34,7 @@ import {
 type Props = {
   threads: NormalizedThread[]
   activeThreadId: string | null
-  activeView: 'chat' | 'write' | 'claw' | 'schedule' | 'design' | 'flow'
+  activeView: 'chat' | 'write' | 'claw' | 'schedule' | 'design' | 'flow' | 'engineering'
   connectPhoneSidebarOpen: boolean
   focusModeEnabled: boolean
   pluginsActive: boolean
@@ -55,6 +59,7 @@ type Props = {
   onScheduleOpen: () => void
   onFlowOpen: () => void
   onDesignOpen: () => void
+  onEngineeringOpen: () => void
   onToggleSidebar: () => void
 }
 
@@ -86,6 +91,7 @@ export function Sidebar({
   onScheduleOpen,
   onFlowOpen,
   onDesignOpen,
+  onEngineeringOpen,
   onToggleSidebar
 }: Props): ReactElement {
   const { t, i18n } = useTranslation('common')
@@ -144,8 +150,8 @@ export function Sidebar({
 
         <SidebarCommandRow
           icon={<Plus className="h-4 w-4" strokeWidth={2} />}
-          label={t('newAgent')}
-          onClick={runtimeReady ? onNewChat : undefined}
+          label={activeView === 'engineering' ? '新建工程项目' : t('newAgent')}
+          onClick={runtimeReady ? (activeView === 'engineering' ? dispatchEngineeringProjectCreate : onNewChat) : undefined}
           disabled={!runtimeReady}
           disabledHint={t('runtimeActionNeedsConnection')}
           variant="accent"
@@ -167,6 +173,12 @@ export function Sidebar({
           label={t('design')}
           onClick={onDesignOpen}
           active={activeView === 'design'}
+        />
+        <SidebarCommandRow
+          icon={<HardHat className="h-4 w-4" strokeWidth={1.75} />}
+          label="工程工作台"
+          onClick={onEngineeringOpen}
+          active={activeView === 'engineering'}
         />
       </div>
 
@@ -220,11 +232,13 @@ export function Sidebar({
           onShowArchivedChange={onShowArchivedThreadsChange}
           t={t}
         />
-      ) : activeView === 'design' || activeView === 'flow' ? (
+      ) : activeView === 'design' ? (
+        <DesignSidebarContent workspaceRoot={workspaceRoot} />
+      ) : activeView === 'engineering' ? (
+        <EngineeringSidebarContent workspaceRoot={workspaceRoot} runtimeReady={runtimeReady} />
+      ) : activeView === 'flow' ? (
         <div className="ds-no-drag mx-2 rounded-2xl border border-ds-border-muted bg-ds-card/70 p-3 text-[12px] leading-5 text-ds-muted">
-          {activeView === 'design'
-            ? '设计文档、画布选择和设计助手在此工作台内独立管理。'
-            : 'Flow 仍为 Preview。请在画布中配置、校验并测试流程。'}
+          Flow 仍为 Preview。请在画布中配置、校验并测试流程。
         </div>
       ) : (
       <SidebarProjectsSection

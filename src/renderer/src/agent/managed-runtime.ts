@@ -137,7 +137,9 @@ export class WorkWiseRuntimeProvider implements AgentProvider {
       limit: options.limit ?? 50,
       search: options.search,
       include_archived: options.includeArchived,
-      archived_only: options.archivedOnly
+      archived_only: options.archivedOnly,
+      domain: options.domain,
+      project_id: options.projectId
     })
     const response = await rendererRuntimeClient.runtimeRequest(`/v1/threads${query}`, 'GET')
     if (!response.ok) {
@@ -154,6 +156,8 @@ export class WorkWiseRuntimeProvider implements AgentProvider {
     workspace?: string
     title?: string
     mode?: RuntimeThreadMode
+    domain?: NormalizedThread['domain']
+    projectId?: string
   }): Promise<NormalizedThread> {
     const settings = await rendererRuntimeClient.getSettings()
     const runtime = getManagedRuntimeSettings(settings)
@@ -165,6 +169,8 @@ export class WorkWiseRuntimeProvider implements AgentProvider {
         title: input.title,
         model: runtime.model,
         mode: normalizeThreadMode(input.mode),
+        domain: input.domain,
+        projectId: input.projectId,
         approvalPolicy: runtime.approvalPolicy,
         sandboxMode: runtime.sandboxMode
       })

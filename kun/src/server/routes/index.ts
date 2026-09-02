@@ -60,6 +60,8 @@ import type { ServerRuntime } from './server-runtime.js'
 import { cancelTask, getTask, getTaskDiagnostics, listTasks, resumeTask, retryTask } from './tasks.js'
 import { listShellSessions, terminateShellSession } from './shell-sessions.js'
 import { startUiAction } from './ui-actions.js'
+import * as engineeringRoutes from './engineering.js'
+import * as engineeringAiRoutes from './engineering-ai.js'
 
 /**
  * Build the full router used by the HTTP server. The router exposes:
@@ -102,6 +104,30 @@ export function buildRouter(runtime: ServerRuntime): Router {
     if (!authorize(request, runtime)) return ERRORS.unauthorized()
     return runtimeToolDiagnosticsJsonResponse(runtime)
   })
+  router.add('GET', '/v1/engineering/projects', async (request) => authorize(request, runtime) ? engineeringRoutes.listProjects(runtime.engineeringService) : ERRORS.unauthorized())
+  router.add('POST', '/v1/engineering/projects', async (request) => authorize(request, runtime) ? engineeringRoutes.createProject(runtime.engineeringService, request) : ERRORS.unauthorized())
+  router.add('GET', '/v1/engineering/projects/:id/overview', async (request, ctx) => authorize(request, runtime) ? engineeringRoutes.getProjectOverview(runtime.engineeringService, ctx.params.id) : ERRORS.unauthorized())
+  router.add('PATCH', '/v1/engineering/projects/:id', async (request, ctx) => authorize(request, runtime) ? engineeringRoutes.updateProject(runtime.engineeringService, ctx.params.id, request) : ERRORS.unauthorized())
+  router.add('POST', '/v1/engineering/datasets/import', async (request) => authorize(request, runtime) ? engineeringRoutes.importDataset(runtime.engineeringService, request) : ERRORS.unauthorized())
+  router.add('POST', '/v1/engineering/datasets/:id/validate', async (request, ctx) => authorize(request, runtime) ? engineeringRoutes.validateDataset(runtime.engineeringService, request, ctx.params.id) : ERRORS.unauthorized())
+  router.add('POST', '/v1/engineering/datasets/:id/findings/:findingId/accept', async (request, ctx) => authorize(request, runtime) ? engineeringRoutes.acceptWarningFinding(runtime.engineeringService, request, ctx.params.id, ctx.params.findingId) : ERRORS.unauthorized())
+  router.add('POST', '/v1/engineering/analyses', async (request) => authorize(request, runtime) ? engineeringRoutes.createAnalysis(runtime.engineeringService, request) : ERRORS.unauthorized())
+  router.add('POST', '/v1/engineering/charts', async (request) => authorize(request, runtime) ? engineeringRoutes.createChart(runtime.engineeringService, request) : ERRORS.unauthorized())
+  router.add('POST', '/v1/engineering/reports/preview', async (request) => authorize(request, runtime) ? engineeringRoutes.previewReport(runtime.engineeringService, request) : ERRORS.unauthorized())
+  router.add('POST', '/v1/engineering/deliverables/finalize', async (request) => authorize(request, runtime) ? engineeringRoutes.finalizeDeliverable(runtime.engineeringService, request) : ERRORS.unauthorized())
+  router.add('GET', '/v1/engineering/runs/:id', async (request, ctx) => authorize(request, runtime) ? engineeringRoutes.getRun(runtime.engineeringService, ctx.params.id) : ERRORS.unauthorized())
+  router.add('POST', '/v1/engineering/runs/:id/cancel', async (request, ctx) => authorize(request, runtime) ? engineeringRoutes.cancelRun(runtime.engineeringService, ctx.params.id, request) : ERRORS.unauthorized())
+  router.add('POST', '/v1/engineering/runs/:id/resume', async (request, ctx) => authorize(request, runtime) ? engineeringRoutes.resumeRun(runtime.engineeringService, ctx.params.id, request) : ERRORS.unauthorized())
+  router.add('GET', '/v1/engineering/ai/context/:projectId', async (request, ctx) => authorize(request, runtime) ? engineeringAiRoutes.context(runtime, ctx.params.projectId) : ERRORS.unauthorized())
+  router.add('GET', '/v1/engineering/ai/evidence/:projectId', async (request, ctx) => authorize(request, runtime) ? engineeringAiRoutes.evidence(runtime, ctx.params.projectId) : ERRORS.unauthorized())
+  router.add('POST', '/v1/engineering/ai/watch-drafts', async (request) => authorize(request, runtime) ? engineeringAiRoutes.createWatchDraft(runtime, request) : ERRORS.unauthorized())
+  router.add('POST', '/v1/engineering/ai/plans', async (request) => authorize(request, runtime) ? engineeringAiRoutes.createPlan(runtime, request) : ERRORS.unauthorized())
+  router.add('GET', '/v1/engineering/ai/plans/:id', async (request, ctx) => authorize(request, runtime) ? engineeringAiRoutes.getPlan(runtime, ctx.params.id) : ERRORS.unauthorized())
+  router.add('POST', '/v1/engineering/ai/plans/:id/validate', async (request, ctx) => authorize(request, runtime) ? engineeringAiRoutes.validatePlan(runtime, ctx.params.id, request) : ERRORS.unauthorized())
+  router.add('POST', '/v1/engineering/ai/plans/:id/approve', async (request, ctx) => authorize(request, runtime) ? engineeringAiRoutes.approvePlan(runtime, ctx.params.id, request) : ERRORS.unauthorized())
+  router.add('POST', '/v1/engineering/ai/plans/:id/start', async (request, ctx) => authorize(request, runtime) ? engineeringAiRoutes.startPlan(runtime, ctx.params.id, request) : ERRORS.unauthorized())
+  router.add('POST', '/v1/engineering/ai/plans/:id/cancel', async (request, ctx) => authorize(request, runtime) ? engineeringAiRoutes.cancelPlan(runtime, ctx.params.id, request) : ERRORS.unauthorized())
+  router.add('POST', '/v1/engineering/ai/plans/:id/resume', async (request, ctx) => authorize(request, runtime) ? engineeringAiRoutes.resumePlan(runtime, ctx.params.id, request) : ERRORS.unauthorized())
   router.add('GET', '/v1/skills', async (request) => {
     if (!authorize(request, runtime)) return ERRORS.unauthorized()
     return listSkills(runtime)
