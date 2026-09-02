@@ -171,6 +171,10 @@ describe('electron-builder WorkWise packaging', () => {
       'kun/node_modules/vitest/**/*',
       'kun/node_modules/better-sqlite3/**/*'
     ]))
+    expect(builderConfig.files).toEqual(expect.arrayContaining([
+      'node_modules/@modelcontextprotocol/sdk/**/*',
+      'node_modules/zod-to-json-schema/**/*'
+    ]))
     expect(builderConfig.asarUnpack).not.toEqual(expect.arrayContaining([
       '**/kun/node_modules/**/*'
     ]))

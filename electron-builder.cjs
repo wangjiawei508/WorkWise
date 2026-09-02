@@ -184,6 +184,12 @@ const builderConfig = {
     'out/**/*',
     'src/asset/skills/**/*',
     'package.json',
+    // @modelcontextprotocol/sdk imports this peer at runtime from the main
+    // process. Electron-builder's dependency collector can omit the package
+    // when node_modules is supplied through a clean candidate worktree or a
+    // symlinked install, so address the production runtime path explicitly.
+    'node_modules/@modelcontextprotocol/sdk/**/*',
+    'node_modules/zod-to-json-schema/**/*',
     '!**/*.map',
     '!**/*.d.ts',
     '!**/*.ts',
