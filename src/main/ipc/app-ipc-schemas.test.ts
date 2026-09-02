@@ -194,6 +194,43 @@ describe('app-ipc-schemas', () => {
     }).path).toBe('/v1/threads/thr_1/goal')
   })
 
+  it('accepts the Engineering delivery and AI endpoints', () => {
+    const accepted: Array<{ path: string; method: string }> = [
+      { path: '/v1/engineering/projects', method: 'GET' },
+      { path: '/v1/engineering/projects', method: 'POST' },
+      { path: '/v1/engineering/projects/project_1', method: 'GET' },
+      { path: '/v1/engineering/projects/project_1', method: 'PATCH' },
+      { path: '/v1/engineering/projects/project_1/overview', method: 'GET' },
+      { path: '/v1/engineering/datasets/import', method: 'POST' },
+      { path: '/v1/engineering/datasets/dataset_1/validate', method: 'POST' },
+      { path: '/v1/engineering/datasets/dataset_1/findings/finding_1/accept', method: 'POST' },
+      { path: '/v1/engineering/analyses', method: 'POST' },
+      { path: '/v1/engineering/charts', method: 'POST' },
+      { path: '/v1/engineering/reports/preview', method: 'POST' },
+      { path: '/v1/engineering/deliverables/finalize', method: 'POST' },
+      { path: '/v1/engineering/runs/run_1', method: 'GET' },
+      { path: '/v1/engineering/runs/run_1/cancel', method: 'POST' },
+      { path: '/v1/engineering/runs/run_1/resume', method: 'POST' },
+      { path: '/v1/engineering/ai/context/project_1', method: 'GET' },
+      { path: '/v1/engineering/ai/evidence/project_1', method: 'GET' },
+      { path: '/v1/engineering/ai/watch-drafts', method: 'POST' },
+      { path: '/v1/engineering/ai/plans', method: 'POST' },
+      { path: '/v1/engineering/ai/plans/plan_1', method: 'GET' },
+      { path: '/v1/engineering/ai/plans/plan_1/validate', method: 'POST' },
+      { path: '/v1/engineering/ai/plans/plan_1/approve', method: 'POST' },
+      { path: '/v1/engineering/ai/plans/plan_1/start', method: 'POST' },
+      { path: '/v1/engineering/ai/plans/plan_1/cancel', method: 'POST' },
+      { path: '/v1/engineering/ai/plans/plan_1/resume', method: 'POST' }
+    ]
+    for (const request of accepted) {
+      expect(runtimeRequestPayloadSchema.parse(request).path).toBe(request.path)
+    }
+    expect(() => runtimeRequestPayloadSchema.parse({
+      path: '/v1/engineering/projects/project_1',
+      method: 'DELETE'
+    })).toThrow(/runtime request path is not allowed/)
+  })
+
   it('accepts the revision-safe thread Agent selection endpoint', () => {
     expect(runtimeRequestPayloadSchema.parse({
       path: '/v1/threads/thr_1/agent',
