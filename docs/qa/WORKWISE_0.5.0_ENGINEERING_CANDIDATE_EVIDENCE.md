@@ -110,3 +110,56 @@
 - 重新构建隔离 arm64 候选包：`/private/tmp/workwise-0.5-candidate-dist/mac-arm64/WorkWise Candidate 9c492fe62acc.app`。ASAR 完整性：7721 个文件、459 个编译文件；未上传、未安装到 `/Applications`、未修改版本元数据。
 - 候选包启动命令已带隔离 `candidate.env` 和临时用户目录。当前机器上该新候选主进程可驻留，但未创建可连接的渲染器/CDP 页面（9230 端口无监听）；因此没有把旧候选 `1e892...` 的页面状态或静态检查冒充为本次打包 GUI 通过。工程入口在旧候选中曾复现 `runtime request path is not allowed`，本次修复已由源码/IPC 回归覆盖，但仍需在可见的新候选窗口中复核。
 - 该阻塞只影响“最新候选包 GUI 验收”证据，不影响源码测试、真实工程数据 E2E 或成果文件校验。
+
+## 2026-09-03 clean 0.5.0-rc 包级复核
+
+本次复核基于提交 `51cd307de82c58295bb7941e52ab58d8645a1a18` 的干净独立源码副本
+`/private/tmp/workwise-candidate-src-51cd307`，没有使用主仓库的 `node_modules` 符号链接。
+候选输出为：
+
+`/private/tmp/workwise-0.5-rc-clean-dist/mac-arm64/WorkWise Candidate 51cd307de82c.app`
+
+| 检查项 | 结果 | 证据 |
+| --- | --- | --- |
+| ASAR 内容、编译产物和源码 HEAD | 通过 | `18,339` 文件、`461` 个编译文件；ASAR 中的 `buildProvenance.sourceHead` 与 `51cd307de82c58295bb7941e52ab58d8645a1a18` 一致 |
+| `better-sqlite3` 原生 Runtime | 通过 | arm64 Electron ABI `148` 内存数据库 smoke 通过 |
+| MarkItDown sidecar | 通过（单架构） | arm64 候选包含 `1` 个 helper；使用 `EXPECTED_HELPERS=1` 完成 sidecar、许可文件、模型和启动 smoke |
+| DMG 完整性 | 通过 | `hdiutil verify` CRC 有效；SHA-256 `b84e277e7207d79a54c68a8ad186d0c9a11eee3bc687d9e0fbfdfab13de4ed90` |
+| 版本与来源 | 通过 | 包内版本 `0.5.0`，来源 HEAD 与构建提交一致 |
+| macOS 代码签名 | 结构通过，发布门禁未通过 | adhoc 签名、`codesign --verify --deep --strict` 通过；无 Developer ID、Team ID、公证和 stapling |
+
+### clean 候选 GUI 启动结果
+
+使用隔离用户目录启动精确 arm64 候选，没有操作 `/Applications/WorkWise.app`。候选进程在
+macOS 26.6.2 的当前受限运行环境中立即退出，未监听 CDP/渲染器端口；对应诊断报告为：
+
+`/Users/wangjiawei/Library/Logs/DiagnosticReports/WorkWise Candidate 51cd307de82c-2026-09-03-093750.ips`
+
+报告记录 `app_version=0.5.0`、候选 bundle ID、`SIGABRT`，崩溃发生在 AppKit
+`RegisterApplication`/`NSApplication` 初始化阶段。通过 LaunchServices 打开同一候选 bundle
+另外返回 `NSOSStatusErrorDomain Code=-10827 (kLSNoExecutableErr)`。因此本次不能把工程线程隔离、
+AI 首屏、经典 fallback、主题/窄窗口/a11y 或真实 CSV/XLSX → DOCX/PDF/XLSX/manifest 的
+打包 GUI 验收记为通过，也不能用源码测试或旧候选窗口替代。
+
+### 当前剩余门禁
+
+- `workwise-0-5-0-engineering-delivery` 仍为 `15/18`；任务 15 的真实打包 GUI 验收和任务 18 的
+  打包 GUI 收口需要可见的候选窗口以及可用的 macOS 签名/公证环境。
+- 旧变更 `workwise-0-3-3-flow-and-delivery` 的 7.4 仍需要精确候选 GUI；
+  `add-builtin-specialist-skills` 的 3.4 仍缺可用图片 Provider 的真实输出；5.6 仍缺 Windows x64
+  原生验收环境。上述条件不具备时保持未勾选，不以静态检查、Mock 或旧包冒充通过。
+
+## 2026-09-03 自动化门禁刷新
+
+- `npm run typecheck`：通过。
+- `npm run lint`：通过。
+- `npm test`：在允许本机回环监听、并将 `better-sqlite3` 重编译到 Node ABI 147 后通过，
+  `286` 个测试文件通过、`2` 个跳过，`2350` 个测试通过、`2` 个跳过。
+- `npm run build`：通过；Runtime、主进程、预加载和 renderer 生产构建完成，包含
+  `EngineeringWorkspaceView` chunk。
+- `npm run verify:build-freshness`：通过，检查 `909` 个生产输入。
+- `openspec validate --all --strict --no-interactive`：`11 passed, 0 failed`。
+- `npm run verify:brand-boundary`、`npm run verify:document-licenses`、`git diff --check`：通过。
+
+回环权限和原生 ABI 是测试运行条件；它们不改变任务 15/17 的真实 GUI、图片 Provider 和
+Windows 验收结论。公开版本仍为 `0.4.2`，未创建或移动 tag、未发布 Release、未提升 Stable。
