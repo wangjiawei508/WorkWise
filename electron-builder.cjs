@@ -190,6 +190,11 @@ const builderConfig = {
     // symlinked install, so address the production runtime path explicitly.
     'node_modules/@modelcontextprotocol/sdk/**/*',
     'node_modules/zod-to-json-schema/**/*',
+    // better-sqlite3 loads these optional native-loader packages at runtime.
+    // Keep them explicit because a clean/symlinked install can make npm's
+    // dependency collector omit them even though the lockfile requires them.
+    'node_modules/bindings/**/*',
+    'node_modules/file-uri-to-path/**/*',
     '!**/*.map',
     '!**/*.d.ts',
     '!**/*.ts',
