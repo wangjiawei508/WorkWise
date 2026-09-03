@@ -82,7 +82,8 @@ export const SurveyQualityFindingV1 = z.object({
   code: z.enum([
     'missing_point', 'disconnected_network', 'unit_conflict', 'rank_deficient',
     'closure_exceeded', 'outlier_candidate', 'missing_covariance', 'missing_datum',
-    'invalid_observation', 'dimension_limit', 'missing_baseline'
+    'invalid_observation', 'dimension_limit', 'missing_baseline', 'insufficient_redundancy',
+    'malformed_geometry', 'not_converged'
   ]),
   severity: z.enum(['blocking', 'warning', 'info']),
   message: z.string().min(1),

@@ -165,3 +165,19 @@ export function wrapRadians(value: number): number {
   while (wrapped < -Math.PI) wrapped += 2 * Math.PI
   return wrapped
 }
+
+export function numericalJacobian(
+  model: (parameters: readonly number[]) => number,
+  parameters: readonly number[],
+  options: { angular?: boolean; step?: number } = {}
+): number[] {
+  const step = options.step ?? 1e-6
+  return parameters.map((_, index) => {
+    const lower = [...parameters]
+    const upper = [...parameters]
+    lower[index] = (lower[index] ?? 0) - step
+    upper[index] = (upper[index] ?? 0) + step
+    const difference = model(upper) - model(lower)
+    return (options.angular ? wrapRadians(difference) : difference) / (2 * step)
+  })
+}

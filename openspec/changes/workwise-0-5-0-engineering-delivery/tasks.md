@@ -26,7 +26,7 @@
 
 - [x] Add canonical metre/radian unit metadata to adjustment results, per-observation residuals, closures, UI and DOCX/PDF/XLSX evidence, including non-destructive legacy-read compatibility.
 - [x] Extract the single canonical matrix/WLS kernel with rank, condition, covariance, residual, precision, convergence and dimension-limit diagnostics.
-- [ ] Implement and verify independent leveling/height-control and ordered traverse strategies, including route-length/variance weights and angular/coordinate closures.
+- [x] Implement and verify independent leveling/height-control and ordered traverse strategies, including route-length/variance weights and angular/coordinate closures.
 - [ ] Implement and verify independent iterative plane-control and angle-network triangulation strategies; reject distance-only triangulation and malformed angle geometry.
 - [ ] Implement and verify CPIII free-station/resection with fixed-target geometry, station orientation parameters, slope/zenith processing and height evidence.
 - [ ] Implement and verify GNSS vector-baseline/covariance/fixed-datum adjustment, with stable blockers for incomplete scalar or covariance-free data.

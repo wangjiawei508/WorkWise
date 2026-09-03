@@ -69,7 +69,7 @@ describe('survey results in engineering deliverables', () => {
     expect(documentXml).toContain('测量平差结果')
     expect(documentXml).toContain('单位权中误差=1（无量纲）')
     expect(documentXml).toContain('最大点位中误差=0.001 m')
-    expect(documentXml).toContain('heightDifference:0.1 m')
+    expect(documentXml).toContain('闭合量=无')
     engineering.close()
     survey.close()
   })
