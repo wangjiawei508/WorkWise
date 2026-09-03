@@ -69,7 +69,7 @@ describe('survey adjustment golden fixtures', () => {
     service.close()
   })
 
-  it('adjusts a plane-control fixture and exposes horizontal displacement', async () => {
+  it('iteratively adjusts a mixed-observation plane-control fixture', async () => {
     const root = await mkdtemp(join(tmpdir(), 'workwise-plane-fixture-'))
     const service = new SurveyService({ rootDir: root })
     const network = await service.importNetwork({
@@ -78,7 +78,9 @@ describe('survey adjustment golden fixtures', () => {
         unknownPoints: [{ id: 'P', pointClass: 'unknown', x: 0, y: 99.95, known: false }],
         observations: [
           { id: 'AP', type: 'distance', from: 'A', to: 'P', value: 100, unit: 'm', sigma: 0.001 },
-          { id: 'BP', type: 'distance', from: 'B', to: 'P', value: Math.sqrt(10000 + 10000), unit: 'm', sigma: 0.001 }
+          { id: 'BP', type: 'distance', from: 'B', to: 'P', value: Math.sqrt(10000 + 10000), unit: 'm', sigma: 0.001 },
+          { id: 'direction-AP', type: 'direction', from: 'A', to: 'P', value: 0, unit: 'deg', sigma: 2, sigmaUnit: 'arcsec' },
+          { id: 'angle-APB', type: 'angle', station: 'P', left: 'A', right: 'B', value: 315, unit: 'deg', sigma: 2, sigmaUnit: 'arcsec' }
         ]
       }
     })
@@ -87,9 +89,89 @@ describe('survey adjustment golden fixtures', () => {
     const output = service.createAdjustment({ networkId: network.id, expectedRevision: checked.revision, idempotencyKey: 'plane-fixture-adjust' })
     expect(output.run.status).toBe('completed')
     expect(output.result.validation).toBe('valid')
+    expect(output.result.strategyId).toBe('plane-control')
+    expect(output.result.redundancy).toBe(2)
+    expect(output.result.observations.map((item) => item.unit)).toEqual(['m', 'm', 'rad', 'rad'])
+    expect(output.result.solverDiagnostics?.iterations).toBeGreaterThan(1)
+    expect(output.result.solverDiagnostics?.rank).toBe(2)
     const displacement = output.result.displacements.find((item) => item.pointId === 'P')
     expect(displacement?.kind).toBe('horizontal')
     expect(displacement?.dY).toBeCloseTo(0.05, 3)
+    service.close()
+  })
+
+  it('adjusts a triangulation fixture from three independent station angles', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'workwise-triangulation-fixture-'))
+    const service = new SurveyService({ rootDir: root })
+    const network = await service.importNetwork({
+      projectId: 'triangulation-fixture', expectedRevision: 0, idempotencyKey: 'triangulation-fixture-import', networkType: 'triangulation', network: {
+        knownPoints: [
+          { id: 'A', pointClass: 'known', x: 0, y: 0, known: true },
+          { id: 'B', pointClass: 'known', x: 100, y: 0, known: true }
+        ],
+        unknownPoints: [{ id: 'P', pointClass: 'unknown', x: 50.2, y: 49.8, known: false }],
+        observations: [
+          { id: 'angle-A', type: 'angle', station: 'A', left: 'P', right: 'B', value: 45, unit: 'deg', sigma: 2, sigmaUnit: 'arcsec' },
+          { id: 'angle-B', type: 'angle', station: 'B', left: 'A', right: 'P', value: 45, unit: 'deg', sigma: 2, sigmaUnit: 'arcsec' },
+          { id: 'angle-P', type: 'angle', station: 'P', left: 'B', right: 'A', value: 90, unit: 'deg', sigma: 2, sigmaUnit: 'arcsec' }
+        ]
+      }
+    })
+    const checked = service.validateNetwork(network.id, { expectedRevision: network.revision, idempotencyKey: 'triangulation-fixture-validate' })
+    const output = service.createAdjustment({ networkId: network.id, expectedRevision: checked.revision, idempotencyKey: 'triangulation-fixture-adjust' })
+
+    expect(checked.qualityStatus).toBe('validated')
+    expect(output.run.status).toBe('completed')
+    expect(output.result.strategyId).toBe('triangulation')
+    expect(output.result.observationCount).toBe(3)
+    expect(output.result.unknownCount).toBe(2)
+    expect(output.result.redundancy).toBe(1)
+    expect(output.result.points.find((point) => point.id === 'P')?.x).toBeCloseTo(50, 6)
+    expect(output.result.points.find((point) => point.id === 'P')?.y).toBeCloseTo(50, 6)
+    expect(output.result.observations.every((item) => item.unit === 'rad')).toBe(true)
+    expect(output.result.solverDiagnostics?.iterations).toBeGreaterThan(1)
+    expect(output.result.solverDiagnostics?.rank).toBe(2)
+    service.close()
+  })
+
+  it.each([
+    {
+      name: 'distance-only observations',
+      observations: [
+        { id: 'AP', type: 'distance' as const, from: 'A', to: 'P', value: Math.sqrt(5000), unit: 'm' },
+        { id: 'BP', type: 'distance' as const, from: 'B', to: 'P', value: Math.sqrt(5000), unit: 'm' }
+      ],
+      expectedCode: 'invalid_observation'
+    },
+    {
+      name: 'malformed station angle',
+      observations: [
+        { id: 'angle-A', type: 'angle' as const, station: 'A', left: 'P', value: 45, unit: 'deg' },
+        { id: 'angle-B', type: 'angle' as const, station: 'B', left: 'A', right: 'P', value: 45, unit: 'deg' }
+      ],
+      expectedCode: 'malformed_geometry'
+    }
+  ])('blocks triangulation with $name', async ({ name, observations, expectedCode }) => {
+    const root = await mkdtemp(join(tmpdir(), 'workwise-triangulation-invalid-'))
+    const service = new SurveyService({ rootDir: root })
+    const network = await service.importNetwork({
+      projectId: `triangulation-${name}`, expectedRevision: 0, idempotencyKey: `triangulation-${name}`, networkType: 'triangulation', network: {
+        knownPoints: [
+          { id: 'A', pointClass: 'known', x: 0, y: 0, known: true },
+          { id: 'B', pointClass: 'known', x: 100, y: 0, known: true }
+        ],
+        unknownPoints: [{ id: 'P', pointClass: 'unknown', x: 50, y: 50, known: false }],
+        observations
+      }
+    })
+    const checked = service.validateNetwork(network.id, { expectedRevision: network.revision, idempotencyKey: `triangulation-validate-${name}` })
+    const output = service.createAdjustment({ networkId: network.id, expectedRevision: checked.revision, idempotencyKey: `triangulation-adjust-${name}` })
+
+    expect(checked.qualityStatus).toBe('blocked')
+    expect(output.run.status).toBe('needs_attention')
+    expect(output.result.strategyId).toBe('triangulation')
+    expect(output.result.qualityFindings).toEqual(expect.arrayContaining([expect.objectContaining({ code: expectedCode, severity: 'blocking' })]))
+    expect(output.result.points).toEqual([])
     service.close()
   })
 
@@ -116,7 +198,7 @@ describe('survey adjustment golden fixtures', () => {
     expect(output.result.validation).toBe('valid')
     expect(output.result.strategyId).toBe('traverse')
     expect(output.result.observationCount).toBe(3)
-    expect(output.result.algorithmVersion).toBe('workwise-survey-adjustment-2')
+    expect(output.result.algorithmVersion).toBe('workwise-survey-adjustment-3')
     expect(output.result.redundancy).toBe(1)
     expect(output.result.points.find((point) => point.id === 'P')).toMatchObject({ id: 'P' })
     expect(output.result.points.find((point) => point.id === 'P')?.x).toBeCloseTo(0, 6)

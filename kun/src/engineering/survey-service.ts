@@ -24,7 +24,7 @@ import { iterativeWeightedLeastSquares, numericalJacobian, weightedLeastSquares,
 type SurveyProjectLookup = (id: string) => { id: string; workspace: string; revision: number } | null
 type StoredAdjustment = { run: AdjustmentRunV1; result?: AdjustmentResultV1 }
 
-const ALGORITHM_VERSION = 'workwise-survey-adjustment-2'
+const ALGORITHM_VERSION = 'workwise-survey-adjustment-3'
 const MAX_POINTS = 10_000
 const MAX_OBSERVATIONS = 100_000
 const MAX_UNKNOWN_PARAMETERS = 20_000
@@ -213,6 +213,7 @@ function levelingRouteClosure(network: SurveyNetworkV1, observations: SurveyObse
 
 function levelingStrategyFindings(network: SurveyNetworkV1, nowIso: () => string): SurveyQualityFindingV1[] {
   const observations = network.observations.filter((item) => item.type === 'height-difference')
+  const points = pointMap(network)
   const findings: SurveyQualityFindingV1[] = []
   if (!observations.length) findings.push(finding(network.id, 'invalid_observation', 'blocking', '水准网没有高差观测', '导入包含 from、to 和高差值的水准观测', undefined, nowIso))
   const unsupported = network.observations.find((item) => item.type !== 'height-difference')
@@ -220,6 +221,8 @@ function levelingStrategyFindings(network: SurveyNetworkV1, nowIso: () => string
   if (!network.knownPoints.some((point) => point.known && point.height !== undefined)) findings.push(finding(network.id, 'missing_datum', 'blocking', '水准网缺少已知高程基准点', '至少提供一个已知点高程并标记为已知', undefined, nowIso))
   const malformed = observations.find((item) => !item.from || !item.to)
   if (malformed) findings.push(finding(network.id, 'malformed_geometry', 'blocking', `水准观测 ${malformed.id} 缺少起点或终点`, '补充 from/to 点号后重新导入', malformed.sourceRow, nowIso))
+  const missingPoint = observations.flatMap(observationEndpointIds).find((id) => !points.has(id))
+  if (missingPoint) findings.push(finding(network.id, 'missing_point', 'blocking', `水准观测引用了不存在的点 ${missingPoint}`, '补充点记录或修正观测点号', undefined, nowIso))
   if (network.instrumentParameters.closedLoop === 1 && observations.length) {
     const first = observations[0]!
     const last = observations[observations.length - 1]!
@@ -272,6 +275,11 @@ function traverseStrategyFindings(network: SurveyNetworkV1, nowIso: () => string
     findings.push(finding(network.id, 'missing_datum', 'blocking', '附合/闭合导线必须有已知起点和已知终点坐标', '将首尾控制点标记为已知并提供 X/Y 坐标', undefined, nowIso))
   }
   const routePointIds = [distances[0]!.from!, ...distances.map((item) => item.to!)]
+  const missingCoordinate = routePointIds.find((id) => {
+    const point = points.get(id)
+    return !point || point.x === undefined || point.y === undefined
+  })
+  if (missingCoordinate) findings.push(finding(network.id, 'missing_point', 'blocking', `导线点 ${missingCoordinate} 缺少平面近似坐标`, '为路线内每个已知点和未知点提供 X/Y 坐标', undefined, nowIso))
   const interiorIds = new Set(routePointIds.slice(1, -1))
   if (!network.unknownPoints.some((point) => interiorIds.has(point.id))) findings.push(finding(network.id, 'invalid_observation', 'blocking', '导线没有需要平差的中间未知点', '至少提供一个位于有序导线中的未知点及其近似坐标', undefined, nowIso))
   const unmatchedAngular = angular.find((item) => {
@@ -281,6 +289,79 @@ function traverseStrategyFindings(network: SurveyNetworkV1, nowIso: () => string
   if (unmatchedAngular) findings.push(finding(network.id, 'malformed_geometry', 'blocking', `导线角度/方向观测 ${unmatchedAngular.id} 与有序路线不匹配`, '使用路线相邻点填写 direction 的 from/to，或 angle 的 station/left/right', unmatchedAngular.sourceRow, nowIso))
   if (!traverseAzimuths(network, distances, angular)) findings.push(finding(network.id, 'malformed_geometry', 'blocking', '导线缺少完整定向：每条边必须有绝对方向，或由起始方位角和连续转折角推算', '补充逐边方向，或设置 startAzimuthDeg 并按相邻点填写转折角', undefined, nowIso))
   return findings
+}
+
+function planeControlStrategyFindings(network: SurveyNetworkV1, nowIso: () => string): SurveyQualityFindingV1[] {
+  const supported = network.observations.filter((item) => ['distance', 'direction', 'angle'].includes(item.type))
+  const points = pointMap(network)
+  const findings: SurveyQualityFindingV1[] = []
+  if (supported.length < 2) findings.push(finding(network.id, 'invalid_observation', 'blocking', '平面控制网至少需要两条距离、绝对方向或测站角观测', '补充能够独立确定未知坐标的平面观测', undefined, nowIso))
+  const unsupported = network.observations.find((item) => !['distance', 'direction', 'angle'].includes(item.type))
+  if (unsupported) findings.push(finding(network.id, 'invalid_observation', 'blocking', `平面控制网不支持直接使用 ${unsupported.type}`, '先完成观测预处理，再导入水平距离、绝对方向或测站角', unsupported.sourceRow, nowIso))
+  if (!network.unknownPoints.some((point) => !point.known)) findings.push(finding(network.id, 'invalid_observation', 'blocking', '平面控制网没有待平差未知点', '至少提供一个含 X/Y 近似坐标的未知点', undefined, nowIso))
+  if (!network.knownPoints.some((point) => point.known && point.x !== undefined && point.y !== undefined)) findings.push(finding(network.id, 'missing_datum', 'blocking', '平面控制网缺少已知坐标约束', '至少提供一个已知平面控制点，或使用明确的自由网约束', undefined, nowIso))
+  for (const observation of supported) {
+    const fromId = observation.from ?? observation.station
+    const toId = observation.to ?? observation.target
+    if ((observation.type === 'distance' || observation.type === 'direction') && (!fromId || !toId)) {
+      findings.push(finding(network.id, 'malformed_geometry', 'blocking', `观测 ${observation.id} 缺少 from/to 或 station/target`, '补充观测起点和目标点', observation.sourceRow, nowIso))
+    }
+    if (observation.type === 'angle' && (!observation.station || !observation.left || !observation.right || new Set([observation.station, observation.left, observation.right]).size < 3)) {
+      findings.push(finding(network.id, 'malformed_geometry', 'blocking', `角度观测 ${observation.id} 缺少有效的 station/left/right 几何`, '填写三个互不相同且存在坐标的点号', observation.sourceRow, nowIso))
+    }
+    if (observation.type === 'angle' && observation.station && observation.left && observation.right) {
+      const station = points.get(observation.station)
+      const left = points.get(observation.left)
+      const right = points.get(observation.right)
+      if (station?.x !== undefined && station.y !== undefined && left?.x !== undefined && left.y !== undefined && right?.x !== undefined && right.y !== undefined
+        && (Math.hypot(left.x - station.x, left.y - station.y) < 1e-9 || Math.hypot(right.x - station.x, right.y - station.y) < 1e-9)) {
+        findings.push(finding(network.id, 'malformed_geometry', 'blocking', `角度观测 ${observation.id} 的测站与照准点坐标重合`, '修正点号或近似坐标，使两条照准方向具有有效长度', observation.sourceRow, nowIso))
+      }
+    }
+    for (const id of observationEndpointIds(observation)) {
+      const point = points.get(id)
+      if (!point || point.x === undefined || point.y === undefined) findings.push(finding(network.id, 'missing_point', 'blocking', `平面观测 ${observation.id} 的点 ${id} 缺少 X/Y 坐标`, '补充已知坐标或未知点近似坐标', observation.sourceRow, nowIso))
+    }
+  }
+  return mergeFindings(findings)
+}
+
+function triangulationStrategyFindings(network: SurveyNetworkV1, nowIso: () => string): SurveyQualityFindingV1[] {
+  const angles = network.observations.filter((item) => item.type === 'angle')
+  const supported = network.observations.filter((item) => ['angle', 'direction', 'distance'].includes(item.type))
+  const points = pointMap(network)
+  const findings: SurveyQualityFindingV1[] = []
+  if (angles.length < 2) findings.push(finding(network.id, 'invalid_observation', 'blocking', angles.length === 0 ? '三角网不能使用纯距离观测冒充角度网络' : '三角网至少需要两条独立测站角观测', '提供采用 station/left/right 表达的三角网角度观测', undefined, nowIso))
+  const unsupported = network.observations.find((item) => !['angle', 'direction', 'distance'].includes(item.type))
+  if (unsupported) findings.push(finding(network.id, 'invalid_observation', 'blocking', `三角网不支持直接使用 ${unsupported.type}`, '先完成观测预处理，再导入测站角及必要的方向/尺度观测', unsupported.sourceRow, nowIso))
+  if (network.knownPoints.filter((point) => point.known && point.x !== undefined && point.y !== undefined).length < 2) findings.push(finding(network.id, 'missing_datum', 'blocking', '三角网缺少两个已知平面控制点来固定基准和尺度', '至少提供两个不重合的已知控制点坐标', undefined, nowIso))
+  const knownCoordinateKeys = new Set(network.knownPoints.filter((point) => point.known && point.x !== undefined && point.y !== undefined).map((point) => `${point.x}:${point.y}`))
+  if (network.knownPoints.filter((point) => point.known && point.x !== undefined && point.y !== undefined).length >= 2 && knownCoordinateKeys.size < 2) findings.push(finding(network.id, 'malformed_geometry', 'blocking', '三角网已知控制点坐标重合，无法固定基准和尺度', '提供至少两个坐标不同的已知控制点', undefined, nowIso))
+  if (!network.unknownPoints.some((point) => !point.known)) findings.push(finding(network.id, 'invalid_observation', 'blocking', '三角网没有待平差未知点', '至少提供一个含 X/Y 近似坐标的未知点', undefined, nowIso))
+  for (const observation of supported) {
+    const fromId = observation.from ?? observation.station
+    const toId = observation.to ?? observation.target
+    if (observation.type === 'angle' && (!observation.station || !observation.left || !observation.right || new Set([observation.station, observation.left, observation.right]).size < 3)) {
+      findings.push(finding(network.id, 'malformed_geometry', 'blocking', `三角网角度 ${observation.id} 缺少有效的 station/left/right 几何`, '填写三个互不相同且存在坐标的点号', observation.sourceRow, nowIso))
+    }
+    if (observation.type === 'angle' && observation.station && observation.left && observation.right) {
+      const station = points.get(observation.station)
+      const left = points.get(observation.left)
+      const right = points.get(observation.right)
+      if (station?.x !== undefined && station.y !== undefined && left?.x !== undefined && left.y !== undefined && right?.x !== undefined && right.y !== undefined
+        && (Math.hypot(left.x - station.x, left.y - station.y) < 1e-9 || Math.hypot(right.x - station.x, right.y - station.y) < 1e-9)) {
+        findings.push(finding(network.id, 'malformed_geometry', 'blocking', `三角网角度 ${observation.id} 的测站与照准点坐标重合`, '修正点号或近似坐标，使两条照准方向具有有效长度', observation.sourceRow, nowIso))
+      }
+    }
+    if ((observation.type === 'distance' || observation.type === 'direction') && (!fromId || !toId)) {
+      findings.push(finding(network.id, 'malformed_geometry', 'blocking', `三角网观测 ${observation.id} 缺少起点或目标点`, '补充 from/to 或 station/target 点号', observation.sourceRow, nowIso))
+    }
+    for (const id of observationEndpointIds(observation)) {
+      const point = points.get(id)
+      if (!point || point.x === undefined || point.y === undefined) findings.push(finding(network.id, 'missing_point', 'blocking', `三角网观测 ${observation.id} 的点 ${id} 缺少 X/Y 坐标`, '补充已知坐标或未知点近似坐标', observation.sourceRow, nowIso))
+    }
+  }
+  return mergeFindings(findings)
 }
 
 function buildLevelingResult(network: SurveyNetworkV1, run: AdjustmentRunV1, nowIso: () => string): AdjustmentResultV1 {
@@ -458,9 +539,73 @@ function buildStrategyInputError(network: SurveyNetworkV1, run: AdjustmentRunV1,
 }
 
 function buildPlaneControlResult(network: SurveyNetworkV1, run: AdjustmentRunV1, nowIso: () => string): AdjustmentResultV1 {
-  const observations = network.observations.filter((item) => ['distance', 'direction', 'angle', 'slope-distance'].includes(item.type))
-  if (observations.length < 2) return buildStrategyInputError(network, run, '平面控制网至少需要两条距离、方向或角度观测', '补充独立观测后重新校核', nowIso)
-  return buildCoordinateNetworkResult(network, run, nowIso, ['distance', 'direction', 'angle', 'slope-distance'])
+  const baseFindings = mergeFindings(network.findings.filter((item) => item.status === 'open'), planeControlStrategyFindings(network, nowIso))
+  if (baseFindings.some((item) => item.severity === 'blocking')) return invalidAdjustmentResult(network, run, baseFindings, nowIso)
+  const points = pointMap(network)
+  const observations = network.observations.filter((item) => ['distance', 'direction', 'angle'].includes(item.type))
+  const unknownIds = network.unknownPoints.filter((point) => !point.known).map((point) => point.id)
+  const initialParameters = unknownIds.flatMap((id) => [points.get(id)!.x!, points.get(id)!.y!])
+  const coordinates = (parameters: readonly number[]): Map<string, { x: number; y: number }> => new Map([...points].map(([id, point]) => {
+    const index = unknownIds.indexOf(id)
+    return [id, index < 0 ? { x: point.x!, y: point.y! } : { x: parameters[index * 2]!, y: parameters[index * 2 + 1]! }]
+  }))
+  const bearing = (from: { x: number; y: number }, to: { x: number; y: number }): number => Math.atan2(to.x - from.x, to.y - from.y)
+  const model = (observation: SurveyObservationV1, parameters: readonly number[]): number | null => {
+    const map = coordinates(parameters)
+    if (observation.type === 'angle') {
+      const station = observation.station ? map.get(observation.station) : undefined
+      const left = observation.left ? map.get(observation.left) : undefined
+      const right = observation.right ? map.get(observation.right) : undefined
+      if (!station || !left || !right) return null
+      const result = bearing(station, right) - bearing(station, left)
+      return result < 0 ? result + 2 * Math.PI : result
+    }
+    const from = map.get((observation.from ?? observation.station)!)
+    const to = map.get((observation.to ?? observation.target)!)
+    if (!from || !to) return null
+    return observation.type === 'direction' ? bearing(from, to) : Math.hypot(to.x - from.x, to.y - from.y)
+  }
+  const buildEquations = (parameters: readonly number[]) => observations.flatMap((observation) => {
+    const computed = model(observation, parameters)
+    if (computed === null) return []
+    const angular = observation.type === 'angle' || observation.type === 'direction'
+    const observed = angular ? angleRadians(observation.value, observation.unit) : normalizeObservationValue(observation)
+    const sigma = angular
+      ? angleRadians(observation.sigma ?? 2, observation.sigmaUnit ?? 'arcsec')
+      : normalizeLengthUncertainty(observation.sigma ?? 0.002, observation.sigmaUnit ?? observation.unit)
+    return [{ coefficients: numericalJacobian((candidate) => model(observation, candidate) ?? computed, parameters, { angular }), misclosure: angular ? wrapRadians(observed - computed) : observed - computed, weight: 1 / Math.max(1e-18, sigma * sigma) }]
+  })
+  const solved = iterativeWeightedLeastSquares(initialParameters, buildEquations, { maxIterations: 15, convergence: 1e-7 })
+  if (!solved) return invalidAdjustmentResult(network, run, mergeFindings(baseFindings, [finding(network.id, 'rank_deficient', 'blocking', '平面控制网法方程秩亏或观测几何不足', '增加独立方向、测站角或距离观测，并检查固定控制点', undefined, nowIso)]), nowIso)
+  const adjusted = coordinates(solved.parameters)
+  const pointResults = [...network.knownPoints, ...network.unknownPoints].map((point) => {
+    const coordinate = adjusted.get(point.id)!
+    const index = unknownIds.indexOf(point.id)
+    if (index < 0) return { id: point.id, x: coordinate.x, y: coordinate.y }
+    const qx = solved.covariance[index * 2]?.[index * 2] ?? 0
+    const qy = solved.covariance[index * 2 + 1]?.[index * 2 + 1] ?? 0
+    return { id: point.id, x: coordinate.x, y: coordinate.y, correctionX: coordinate.x - point.x!, correctionY: coordinate.y - point.y!, standardError: Math.sqrt(Math.max(0, (qx + qy) * solved.varianceFactor)), covariance: [...(solved.covariance[index * 2] ?? []), ...(solved.covariance[index * 2 + 1] ?? [])] }
+  })
+  const equations = buildEquations(solved.parameters)
+  const observationResults = observations.map((observation, index) => {
+    const residual = -(equations[index]?.misclosure ?? 0)
+    const sigma = Math.sqrt(1 / (equations[index]?.weight ?? 1))
+    const standardizedResidual = Math.abs(residual) / Math.max(1e-12, sigma)
+    return { observationId: observation.id, correction: residual, residual, unit: normalizedResidualUnit(observation), standardizedResidual, outlier: standardizedResidual > 3, sourceRow: observation.sourceRow }
+  })
+  const linearResiduals = observationResults.filter((item) => item.unit === 'm')
+  const angularResiduals = observationResults.filter((item) => item.unit === 'rad')
+  const closure = {
+    ...(linearResiduals.length ? { horizontal: Math.sqrt(linearResiduals.reduce((sum, item) => sum + item.residual ** 2, 0)) } : {}),
+    ...(angularResiduals.length ? { angular: Math.sqrt(angularResiduals.reduce((sum, item) => sum + item.residual ** 2, 0)) } : {})
+  }
+  const closureUnits = { ...(linearResiduals.length ? { horizontal: 'm' as const } : {}), ...(angularResiduals.length ? { angular: 'rad' as const } : {}) }
+  const outlierFindings = observationResults.filter((item) => item.outlier).map((item) => finding(network.id, 'outlier_candidate', 'warning', `平面控制观测 ${item.observationId} 的标准化残差超过 3σ`, '复核原始观测、对中和定向', item.sourceRow, nowIso))
+  const convergenceFindings = solved.converged ? [] : [finding(network.id, 'not_converged', 'blocking', `平面控制网在 ${solved.iterations} 次迭代后未收敛`, '检查近似坐标、粗差和网形后重试', undefined, nowIso)]
+  const reliabilityFindings = solved.varianceFactorEstimated ? [] : [finding(network.id, 'insufficient_redundancy', 'warning', '平面控制网没有多余观测，不能进行后验精度检验', '增加独立复测方向、角度或边长', undefined, nowIso)]
+  const maxStd = pointResults.reduce((max, point) => Math.max(max, point.standardError ?? 0), 0)
+  const displacements = [...network.knownPoints, ...network.unknownPoints].map((point) => displacement(point, pointResults.find((candidate) => candidate.id === point.id) ?? {}))
+  return AdjustmentResultV1.parse({ schemaVersion: 1, id: `adjustment_result_${randomUUID()}`, runId: run.id, networkId: network.id, observationCount: observations.length, unknownCount: unknownIds.length * 2, redundancy: solved.dof, degreesOfFreedom: solved.dof, linearUnit: 'm', angularUnit: 'rad', closure, closureUnits, unitWeightStdDev: solved.unitWeightStdDev, varianceFactor: solved.varianceFactor, varianceFactorEstimated: solved.varianceFactorEstimated, points: pointResults, observations: observationResults, displacements, covariance: solved.covariance, precision: { maxPointStdDev: maxStd, passed: outlierFindings.length === 0 && convergenceFindings.length === 0 }, qualityFindings: [...baseFindings, ...outlierFindings, ...convergenceFindings, ...reliabilityFindings], inputHash: run.inputHash, algorithmVersion: ALGORITHM_VERSION, validation: outlierFindings.length || convergenceFindings.length ? 'invalid' : 'valid', solverDiagnostics: { iterations: solved.iterations, rank: solved.rank, conditionEstimate: solved.conditionEstimate }, createdAt: nowIso() })
 }
 
 function buildTraverseResult(network: SurveyNetworkV1, run: AdjustmentRunV1, nowIso: () => string): AdjustmentResultV1 {
@@ -526,7 +671,7 @@ function buildTraverseResult(network: SurveyNetworkV1, run: AdjustmentRunV1, now
   })
   const equations = buildEquations(solved.parameters)
   const observationResults = usedObservations.map((observation, index) => {
-    const residual = solved.residuals[index] ?? 0
+    const residual = -(equations[index]?.misclosure ?? 0)
     const sigma = Math.sqrt(1 / (equations[index]?.weight ?? 1))
     const standardizedResidual = Math.abs(residual) / Math.max(1e-12, sigma)
     return { observationId: observation.id, correction: residual, residual, unit: normalizedResidualUnit(observation), standardizedResidual, outlier: standardizedResidual > 3, sourceRow: observation.sourceRow }
@@ -551,9 +696,73 @@ function buildTraverseResult(network: SurveyNetworkV1, run: AdjustmentRunV1, now
 }
 
 function buildTriangulationResult(network: SurveyNetworkV1, run: AdjustmentRunV1, nowIso: () => string): AdjustmentResultV1 {
+  const baseFindings = mergeFindings(network.findings.filter((item) => item.status === 'open'), triangulationStrategyFindings(network, nowIso))
+  if (baseFindings.some((item) => item.severity === 'blocking')) return invalidAdjustmentResult(network, run, baseFindings, nowIso)
+  const points = pointMap(network)
   const observations = network.observations.filter((item) => ['angle', 'direction', 'distance'].includes(item.type))
-  if (observations.length < 2) return buildStrategyInputError(network, run, '三角网至少需要两条角度/方向或距离观测', '补充三角网独立观测后重新校核', nowIso)
-  return buildCoordinateNetworkResult(network, run, nowIso, ['angle', 'direction', 'distance'])
+  const unknownIds = network.unknownPoints.filter((point) => !point.known).map((point) => point.id)
+  const initialParameters = unknownIds.flatMap((id) => [points.get(id)!.x!, points.get(id)!.y!])
+  const coordinates = (parameters: readonly number[]): Map<string, { x: number; y: number }> => new Map([...points].map(([id, point]) => {
+    const index = unknownIds.indexOf(id)
+    return [id, index < 0 ? { x: point.x!, y: point.y! } : { x: parameters[index * 2]!, y: parameters[index * 2 + 1]! }]
+  }))
+  const bearing = (from: { x: number; y: number }, to: { x: number; y: number }): number => Math.atan2(to.x - from.x, to.y - from.y)
+  const model = (observation: SurveyObservationV1, parameters: readonly number[]): number | null => {
+    const map = coordinates(parameters)
+    if (observation.type === 'angle') {
+      const station = observation.station ? map.get(observation.station) : undefined
+      const left = observation.left ? map.get(observation.left) : undefined
+      const right = observation.right ? map.get(observation.right) : undefined
+      if (!station || !left || !right) return null
+      const result = bearing(station, right) - bearing(station, left)
+      return result < 0 ? result + 2 * Math.PI : result
+    }
+    const from = map.get((observation.from ?? observation.station)!)
+    const to = map.get((observation.to ?? observation.target)!)
+    if (!from || !to) return null
+    return observation.type === 'direction' ? bearing(from, to) : Math.hypot(to.x - from.x, to.y - from.y)
+  }
+  const buildEquations = (parameters: readonly number[]) => observations.flatMap((observation) => {
+    const computed = model(observation, parameters)
+    if (computed === null) return []
+    const angular = observation.type === 'angle' || observation.type === 'direction'
+    const observed = angular ? angleRadians(observation.value, observation.unit) : normalizeObservationValue(observation)
+    const sigma = angular
+      ? angleRadians(observation.sigma ?? 2, observation.sigmaUnit ?? 'arcsec')
+      : normalizeLengthUncertainty(observation.sigma ?? 0.002, observation.sigmaUnit ?? observation.unit)
+    return [{ coefficients: numericalJacobian((candidate) => model(observation, candidate) ?? computed, parameters, { angular }), misclosure: angular ? wrapRadians(observed - computed) : observed - computed, weight: 1 / Math.max(1e-18, sigma * sigma) }]
+  })
+  const solved = iterativeWeightedLeastSquares(initialParameters, buildEquations, { maxIterations: 15, convergence: 1e-7 })
+  if (!solved) return invalidAdjustmentResult(network, run, mergeFindings(baseFindings, [finding(network.id, 'rank_deficient', 'blocking', '三角网角度方程秩亏或交会几何不足', '增加独立测站角并检查已知基线、点号和近似坐标', undefined, nowIso)]), nowIso)
+  const adjusted = coordinates(solved.parameters)
+  const pointResults = [...network.knownPoints, ...network.unknownPoints].map((point) => {
+    const coordinate = adjusted.get(point.id)!
+    const index = unknownIds.indexOf(point.id)
+    if (index < 0) return { id: point.id, x: coordinate.x, y: coordinate.y }
+    const qx = solved.covariance[index * 2]?.[index * 2] ?? 0
+    const qy = solved.covariance[index * 2 + 1]?.[index * 2 + 1] ?? 0
+    return { id: point.id, x: coordinate.x, y: coordinate.y, correctionX: coordinate.x - point.x!, correctionY: coordinate.y - point.y!, standardError: Math.sqrt(Math.max(0, (qx + qy) * solved.varianceFactor)), covariance: [...(solved.covariance[index * 2] ?? []), ...(solved.covariance[index * 2 + 1] ?? [])] }
+  })
+  const equations = buildEquations(solved.parameters)
+  const observationResults = observations.map((observation, index) => {
+    const residual = -(equations[index]?.misclosure ?? 0)
+    const sigma = Math.sqrt(1 / (equations[index]?.weight ?? 1))
+    const standardizedResidual = Math.abs(residual) / Math.max(1e-12, sigma)
+    return { observationId: observation.id, correction: residual, residual, unit: normalizedResidualUnit(observation), standardizedResidual, outlier: standardizedResidual > 3, sourceRow: observation.sourceRow }
+  })
+  const linearResiduals = observationResults.filter((item) => item.unit === 'm')
+  const angularResiduals = observationResults.filter((item) => item.unit === 'rad')
+  const closure = {
+    ...(linearResiduals.length ? { horizontal: Math.sqrt(linearResiduals.reduce((sum, item) => sum + item.residual ** 2, 0)) } : {}),
+    ...(angularResiduals.length ? { angular: Math.sqrt(angularResiduals.reduce((sum, item) => sum + item.residual ** 2, 0)) } : {})
+  }
+  const closureUnits = { ...(linearResiduals.length ? { horizontal: 'm' as const } : {}), ...(angularResiduals.length ? { angular: 'rad' as const } : {}) }
+  const outlierFindings = observationResults.filter((item) => item.outlier).map((item) => finding(network.id, 'outlier_candidate', 'warning', `三角网观测 ${item.observationId} 的标准化残差超过 3σ`, '复核测回、归零差和观测点号', item.sourceRow, nowIso))
+  const convergenceFindings = solved.converged ? [] : [finding(network.id, 'not_converged', 'blocking', `三角网在 ${solved.iterations} 次迭代后未收敛`, '检查近似坐标、病态交会和粗差后重试', undefined, nowIso)]
+  const reliabilityFindings = solved.varianceFactorEstimated ? [] : [finding(network.id, 'insufficient_redundancy', 'warning', '三角网没有多余观测，不能进行后验精度检验', '增加独立测站角或复测测回', undefined, nowIso)]
+  const maxStd = pointResults.reduce((max, point) => Math.max(max, point.standardError ?? 0), 0)
+  const displacements = [...network.knownPoints, ...network.unknownPoints].map((point) => displacement(point, pointResults.find((candidate) => candidate.id === point.id) ?? {}))
+  return AdjustmentResultV1.parse({ schemaVersion: 1, id: `adjustment_result_${randomUUID()}`, runId: run.id, networkId: network.id, observationCount: observations.length, unknownCount: unknownIds.length * 2, redundancy: solved.dof, degreesOfFreedom: solved.dof, linearUnit: 'm', angularUnit: 'rad', closure, closureUnits, unitWeightStdDev: solved.unitWeightStdDev, varianceFactor: solved.varianceFactor, varianceFactorEstimated: solved.varianceFactorEstimated, points: pointResults, observations: observationResults, displacements, covariance: solved.covariance, precision: { maxPointStdDev: maxStd, passed: outlierFindings.length === 0 && convergenceFindings.length === 0 }, qualityFindings: [...baseFindings, ...outlierFindings, ...convergenceFindings, ...reliabilityFindings], inputHash: run.inputHash, algorithmVersion: ALGORITHM_VERSION, validation: outlierFindings.length || convergenceFindings.length ? 'invalid' : 'valid', solverDiagnostics: { iterations: solved.iterations, rank: solved.rank, conditionEstimate: solved.conditionEstimate }, createdAt: nowIso() })
 }
 
 function buildCpiiiResult(network: SurveyNetworkV1, run: AdjustmentRunV1, nowIso: () => string): AdjustmentResultV1 {
@@ -708,6 +917,8 @@ export class SurveyService {
     if (!network.observations.length) findings.push(finding(network.id, 'invalid_observation', 'blocking', '网络没有观测记录', '导入至少一条有效观测'))
     if (network.networkType === 'leveling' || network.networkType === 'height-control') findings.push(...levelingStrategyFindings(network, this.nowIso))
     if (network.networkType === 'traverse') findings.push(...traverseStrategyFindings(network, this.nowIso))
+    if (network.networkType === 'plane-control') findings.push(...planeControlStrategyFindings(network, this.nowIso))
+    if (network.networkType === 'triangulation') findings.push(...triangulationStrategyFindings(network, this.nowIso))
     if (network.networkType === 'gnss' && network.observations.some((item) => item.type === 'gnss-baseline' && (!item.covariance || item.covariance.length === 0))) findings.push(finding(network.id, 'missing_covariance', 'blocking', 'GNSS 基线缺少标准协方差', '补充基线协方差，不能用模型猜测'))
     if (network.networkType === 'gnss' && !network.knownPoints.some((point) => point.known)) findings.push(finding(network.id, 'missing_datum', 'blocking', 'GNSS 网络缺少固定基准点', '指定至少一个固定基准点后再平差'))
     if (network.knownPoints.length === 0 && network.unknownPoints.length > 0) findings.push(finding(network.id, 'missing_datum', 'blocking', '网络没有已知约束点', '提供已知点或明确自由网约束'))
