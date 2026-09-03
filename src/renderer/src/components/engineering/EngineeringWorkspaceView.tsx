@@ -336,7 +336,7 @@ export function EngineeringWorkspaceView({ workspaceRoot, runtimeReady, leftSide
     if (!runtimeReady || !selectedProjectId) return
     const selectedProject = projects.find((project) => project.id === selectedProjectId)
     if (!selectedProject) return
-    void ensureEngineeringThread(selectedProject.id, workspaceRoot, `工程 AI · ${selectedProject.name}`)
+    void ensureEngineeringThread(selectedProject.id, workspaceRoot, `工程测量 AI · ${selectedProject.name}`)
   }, [ensureEngineeringThread, projects, runtimeReady, selectedProjectId, workspaceRoot])
   useEffect(() => {
     const openRequestedProject = (): void => {
@@ -381,7 +381,7 @@ export function EngineeringWorkspaceView({ workspaceRoot, runtimeReady, leftSide
   const refreshCurrent = async (): Promise<void> => {
     if (selectedProjectId) await loadOverview(selectedProjectId)
     else await loadProjects()
-    setNotice({ tone: 'info', message: '已从 Runtime 刷新工程状态。' })
+    setNotice({ tone: 'info', message: '已从 Runtime 刷新工程测量状态。' })
   }
 
   const createProject = useCallback(async (): Promise<void> => {
@@ -575,10 +575,10 @@ export function EngineeringWorkspaceView({ workspaceRoot, runtimeReady, leftSide
         <div className="flex min-w-0 items-center gap-2">
           <label className="sr-only" htmlFor="engineering-project-select">当前工程测量项目</label>
           <select id="engineering-project-select" value={selectedProjectId} disabled={!runtimeReady || busy} onChange={(event) => { selectProject(event.target.value); setPreview(null); setChart(null) }} className="h-8 max-w-[220px] rounded-md border border-ds-border bg-ds-card px-2 text-[12px] text-ds-ink outline-none focus:border-accent">
-            <option value="">{projects.length ? '选择工程项目' : '暂无工程项目'}</option>
+            <option value="">{projects.length ? '选择工程测量项目' : '暂无工程测量项目'}</option>
             {projects.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}
           </select>
-          <button type="button" onClick={() => setTab('ai-command')} disabled={!runtimeReady} className="inline-flex h-8 items-center gap-1.5 rounded-md border border-accent/35 bg-accent/5 px-2.5 text-[11px] font-semibold text-accent hover:bg-accent/10 disabled:cursor-not-allowed disabled:opacity-50"><Sparkles className="h-3.5 w-3.5" />交给工程 Agent</button>
+          <button type="button" onClick={() => setTab('ai-command')} disabled={!runtimeReady} className="inline-flex h-8 items-center gap-1.5 rounded-md border border-accent/35 bg-accent/5 px-2.5 text-[11px] font-semibold text-accent hover:bg-accent/10 disabled:cursor-not-allowed disabled:opacity-50"><Sparkles className="h-3.5 w-3.5" />交给测绘专业 AI Agent</button>
           <button type="button" onClick={() => void refreshCurrent()} disabled={busy || !runtimeReady} className="inline-flex h-8 items-center gap-1.5 rounded-md border border-ds-border bg-ds-card px-2.5 text-[12px] font-medium text-ds-muted hover:bg-ds-hover disabled:opacity-50"><RefreshCw className={`h-3.5 w-3.5 ${busy ? 'animate-spin' : ''}`} />刷新</button>
           <span className={`inline-flex h-8 items-center rounded-md px-2.5 text-[11px] font-medium ${runtimeReady ? 'bg-green-100 text-green-800 dark:bg-green-500/15 dark:text-green-300' : 'bg-amber-100 text-amber-800 dark:bg-amber-500/15 dark:text-amber-300'}`}>{runtimeReady ? 'Runtime 已连接' : 'Runtime 未连接'}</span>
         </div>
@@ -615,14 +615,14 @@ export function EngineeringWorkspaceView({ workspaceRoot, runtimeReady, leftSide
         </aside>
 
         <main className="min-h-0 overflow-y-auto bg-ds-main">
-          {overview === null ? <EmptyState title="从工程项目开始" detail="先建立工程项目并写入阈值、单位和报告周期。后续数据、分析和成果都将在该项目下保留可追溯修订。" action={<button type="button" onClick={() => void createProject()} disabled={busy || !runtimeReady} className="inline-flex items-center gap-1.5 rounded-md bg-accent px-3 py-2 text-[12px] font-semibold text-white hover:brightness-95 disabled:opacity-50"><Plus className="h-3.5 w-3.5" />新建工程项目</button>} /> : <>
+          {overview === null ? <EmptyState title="从工程测量项目开始" detail="先建立工程测量项目并写入阈值、单位和报告周期。后续数据、分析和成果都将在该项目下保留可追溯修订。" action={<button type="button" onClick={() => void createProject()} disabled={busy || !runtimeReady} className="inline-flex items-center gap-1.5 rounded-md bg-accent px-3 py-2 text-[12px] font-semibold text-white hover:brightness-95 disabled:opacity-50"><Plus className="h-3.5 w-3.5" />新建工程测量项目</button>} /> : <>
             <div className="border-b border-ds-border-muted bg-ds-card px-5 py-4">
               <div className="flex flex-wrap items-start justify-between gap-3"><div className="min-w-0"><p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-ds-faint">{TABS.find((item) => item.id === tab)?.label}</p><h2 className="mt-1 truncate text-[18px] font-semibold">{overview.project.name}</h2><p className="mt-1 text-[12px] text-ds-muted">{overview.project.monitoringType} · {overview.project.unit} · 修订 {overview.project.revision} · 更新于 {formatDate(overview.project.updatedAt)}</p></div><button type="button" onClick={() => void createProject()} disabled={busy || !runtimeReady} className="inline-flex h-8 items-center gap-1.5 rounded-md border border-ds-border bg-ds-card px-2.5 text-[12px] font-medium text-ds-muted hover:bg-ds-hover disabled:opacity-50"><Plus className="h-3.5 w-3.5" />新建项目</button></div>
               <div className="mt-4 grid grid-cols-2 gap-2 lg:grid-cols-4"><Metric label="数据集" value={overview.datasets.length} detail={activeDataset ? activeDataset.sourceFileName : '尚未导入'} /><Metric label="阻断项" value={blockingFindings.length} detail={blockingFindings.length ? '需修正源数据' : '当前数据无阻断'} tone={blockingFindings.length ? 'danger' : 'success'} /><Metric label="预警状态" value={analysisCounts.warning + analysisCounts.alarm + analysisCounts.control} detail={activeAnalysis ? `${activeAnalysis.results.length} 个分析结果` : '尚未运行分析'} tone={analysisCounts.alarm + analysisCounts.control ? 'danger' : analysisCounts.warning ? 'warning' : 'neutral'} /><Metric label="归档成果" value={overview.manifests.length} detail={latestManifest ? latestManifest.id : '尚未最终归档'} tone={latestManifest ? 'success' : 'neutral'} /></div>
             </div>
 
             {tab === 'dashboard' ? <section>
-              <PanelHeading title="交付控制台" description="一个工程项目的一次数据交付从源文件、校核、分析到归档都在同一条可追溯链路中完成。选择任一阶段可直接继续处理。" action={<button type="button" onClick={() => setTab(activeDataset ? 'quality' : 'data')} className="inline-flex h-8 items-center gap-1.5 rounded-md bg-accent px-3 text-[12px] font-semibold text-white"><ChevronRight className="h-3.5 w-3.5" />{activeDataset ? '继续交付' : '导入第一份数据'}</button>} />
+              <PanelHeading title="交付控制台" description="一个工程测量项目的一次数据交付从源文件、校核、分析到归档都在同一条可追溯链路中完成。选择任一阶段可直接继续处理。" action={<button type="button" onClick={() => setTab(activeDataset ? 'quality' : 'data')} className="inline-flex h-8 items-center gap-1.5 rounded-md bg-accent px-3 text-[12px] font-semibold text-white"><ChevronRight className="h-3.5 w-3.5" />{activeDataset ? '继续交付' : '导入第一份数据'}</button>} />
               <div className="grid gap-5 p-5 xl:grid-cols-[minmax(0,1.4fr)_minmax(280px,0.8fr)]">
                 <div className="overflow-hidden border border-ds-border-muted bg-ds-card">
                   <div className="border-b border-ds-border-muted px-4 py-3"><p className="text-[13px] font-semibold text-ds-ink">交付路径</p><p className="mt-1 text-[11px] leading-4 text-ds-muted">数值、阈值和哈希由 Runtime 确定性生成；报告文字不能覆盖分析结论。</p></div>
@@ -685,7 +685,7 @@ export function EngineeringWorkspaceView({ workspaceRoot, runtimeReady, leftSide
         </main>
       </div>}
     </div>
-    {busy ? <div className="pointer-events-none fixed inset-x-0 bottom-4 z-50 flex justify-center"><span className="inline-flex items-center gap-2 rounded-md border border-ds-border bg-ds-card px-3 py-2 text-[12px] text-ds-muted shadow-panel"><Loader2 className="h-3.5 w-3.5 animate-spin text-accent" />Runtime 正在处理工程数据…</span></div> : null}
+    {busy ? <div className="pointer-events-none fixed inset-x-0 bottom-4 z-50 flex justify-center"><span className="inline-flex items-center gap-2 rounded-md border border-ds-border bg-ds-card px-3 py-2 text-[12px] text-ds-muted shadow-panel"><Loader2 className="h-3.5 w-3.5 animate-spin text-accent" />Runtime 正在处理工程测量数据…</span></div> : null}
   </div>
 }
 

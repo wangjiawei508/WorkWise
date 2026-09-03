@@ -34,7 +34,7 @@ async function loadEngineeringProjects(): Promise<EngineeringProject[]> {
     } catch {
       /* Preserve plain Runtime errors. */
     }
-    throw new Error(detail || `无法读取工程项目 (${response.status})`)
+    throw new Error(detail || `无法读取工程测量项目 (${response.status})`)
   }
   return (JSON.parse(response.body) as { projects?: EngineeringProject[] }).projects ?? []
 }

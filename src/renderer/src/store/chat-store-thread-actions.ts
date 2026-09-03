@@ -238,7 +238,7 @@ export function createThreadActions(
 
       const created = await provider.createThread({
         workspace: targetWorkspace || undefined,
-        title: title?.trim() || '工程 AI 会话',
+        title: title?.trim() || '工程测量 AI 会话',
         mode: 'agent',
         domain: 'engineering',
         projectId: normalizedProjectId

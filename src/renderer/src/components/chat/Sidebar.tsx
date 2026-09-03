@@ -150,7 +150,7 @@ export function Sidebar({
 
         <SidebarCommandRow
           icon={<Plus className="h-4 w-4" strokeWidth={2} />}
-          label={activeView === 'engineering' ? '新建工程项目' : t('newAgent')}
+          label={activeView === 'engineering' ? '新建工程测量项目' : t('newAgent')}
           onClick={runtimeReady ? (activeView === 'engineering' ? dispatchEngineeringProjectCreate : onNewChat) : undefined}
           disabled={!runtimeReady}
           disabledHint={t('runtimeActionNeedsConnection')}

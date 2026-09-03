@@ -6,8 +6,8 @@ describe('engineering agent surface contract', () => {
     const { readFile } = await import(/* @vite-ignore */ nodeFs)
     const source = await readFile(new URL('./EngineeringAiCommandCenter.tsx', import.meta.url), 'utf8')
 
-    expect(source).toContain('工程 Agent 执行协议')
-    expect(source).toContain('理解工程目标')
+    expect(source).toContain('测绘专业 AI Agent 执行协议')
+    expect(source).toContain('理解工程测量目标')
     expect(source).toContain('生成可审批计划')
     expect(source).toContain('调用确定性工具')
     expect(source).toContain('回流证据并请求复核')
