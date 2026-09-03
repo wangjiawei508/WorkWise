@@ -562,7 +562,7 @@ export function EngineeringWorkspaceView({ workspaceRoot, runtimeReady, leftSide
   const finalizationBlocked = !activeDataset || !activeAnalysis || blockingFindings.length > 0 || warningFindings.length > 0
   const manifestOutputs = latestManifest?.outputs ?? preview?.files ?? []
 
-  return <div className="ds-no-drag flex min-h-0 flex-1 flex-col bg-ds-main text-ds-ink">
+  return <div className="engineering-workspace ds-no-drag flex min-h-0 flex-1 flex-col bg-ds-main text-ds-ink">
     <header className="shrink-0 border-b border-ds-border-muted bg-ds-card px-4 py-3 sm:px-5">
       <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
         {leftSidebarCollapsed && onToggleLeftSidebar ? <button type="button" onClick={onToggleLeftSidebar} className="inline-flex h-8 items-center gap-1.5 rounded-md border border-ds-border bg-ds-card px-2.5 text-[12px] font-medium text-ds-muted hover:bg-ds-hover"><ChevronRight className="h-3.5 w-3.5" />导航</button> : null}
@@ -585,8 +585,21 @@ export function EngineeringWorkspaceView({ workspaceRoot, runtimeReady, leftSide
     {!runtimeReady ? <div className="border-b border-amber-300/40 bg-amber-50 px-5 py-2 text-[12px] text-amber-900 dark:bg-amber-500/10 dark:text-amber-200">工程工作台需要本地运行时执行校核、分析和成果生成。连接成功后，项目数据会自动刷新。</div> : null}
     {notice ? <div className={`mx-4 mt-3 flex items-start gap-2 border px-3 py-2 text-[12px] sm:mx-5 ${notice.tone === 'error' ? 'border-red-200 bg-red-50 text-red-800 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-200' : notice.tone === 'warning' ? 'border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200' : notice.tone === 'success' ? 'border-green-200 bg-green-50 text-green-800 dark:border-green-500/30 dark:bg-green-500/10 dark:text-green-200' : 'border-blue-200 bg-blue-50 text-blue-800 dark:border-blue-500/30 dark:bg-blue-500/10 dark:text-blue-200'}`}><Info className="mt-0.5 h-3.5 w-3.5 shrink-0" /><span className="min-w-0 flex-1">{notice.message}</span><button type="button" onClick={() => setNotice(null)} className="text-current/70 hover:text-current" aria-label="关闭提示">×</button></div> : null}
 
-    <div className="min-h-0 flex-1 overflow-hidden p-4 sm:p-5">
-      <div className="grid h-full min-h-0 grid-cols-1 overflow-hidden border border-ds-border-muted bg-ds-card xl:grid-cols-[230px_minmax(0,1fr)]">
+    <div className={`min-h-0 flex-1 overflow-hidden ${tab === 'ai-command' ? 'p-0' : 'p-4 sm:p-5'}`}>
+      {tab === 'ai-command' ? <div className="h-full min-h-0 overflow-hidden">
+        <EngineeringAiCommandCenter
+          workspaceRoot={workspaceRoot}
+          runtimeReady={runtimeReady}
+          project={overview?.project ?? null}
+          dataset={activeDataset}
+          analysis={activeAnalysis}
+          latestRun={latestRun}
+          onCreateProject={() => void createProject()}
+          onImportData={() => { if (overview) setTab('data'); else void createProject() }}
+          onOpenTab={(nextTab) => setTab(nextTab)}
+          onRefresh={() => void refreshCurrent()}
+        />
+      </div> : <div className="grid h-full min-h-0 grid-cols-1 overflow-hidden border border-ds-border-muted bg-ds-card xl:grid-cols-[230px_minmax(0,1fr)]">
         <aside className="flex min-h-0 flex-col border-b border-ds-border-muted bg-ds-main xl:border-b-0 xl:border-r">
           <div className="border-b border-ds-border-muted px-4 py-4"><p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-ds-faint">交付流程</p><p className="mt-1 text-[12px] leading-5 text-ds-muted">每一步读取同一份运行数据，成果审核前保留完整来源和版本。</p></div>
           <nav className="grid grid-cols-3 gap-1 p-2 xl:block xl:space-y-3" aria-label="工程工作台阶段">
@@ -599,18 +612,7 @@ export function EngineeringWorkspaceView({ workspaceRoot, runtimeReady, leftSide
         </aside>
 
         <main className="min-h-0 overflow-y-auto bg-ds-main">
-          {tab === 'ai-command' ? <EngineeringAiCommandCenter
-            workspaceRoot={workspaceRoot}
-            runtimeReady={runtimeReady}
-            project={overview?.project ?? null}
-            dataset={activeDataset}
-            analysis={activeAnalysis}
-            latestRun={latestRun}
-            onCreateProject={() => void createProject()}
-            onImportData={() => { if (overview) setTab('data'); else void createProject() }}
-            onOpenTab={(nextTab) => setTab(nextTab)}
-            onRefresh={() => void refreshCurrent()}
-          /> : overview === null ? <EmptyState title="从工程项目开始" detail="先建立工程项目并写入阈值、单位和报告周期。后续数据、分析和成果都将在该项目下保留可追溯修订。" action={<button type="button" onClick={() => void createProject()} disabled={busy || !runtimeReady} className="inline-flex items-center gap-1.5 rounded-md bg-accent px-3 py-2 text-[12px] font-semibold text-white hover:brightness-95 disabled:opacity-50"><Plus className="h-3.5 w-3.5" />新建工程项目</button>} /> : <>
+          {overview === null ? <EmptyState title="从工程项目开始" detail="先建立工程项目并写入阈值、单位和报告周期。后续数据、分析和成果都将在该项目下保留可追溯修订。" action={<button type="button" onClick={() => void createProject()} disabled={busy || !runtimeReady} className="inline-flex items-center gap-1.5 rounded-md bg-accent px-3 py-2 text-[12px] font-semibold text-white hover:brightness-95 disabled:opacity-50"><Plus className="h-3.5 w-3.5" />新建工程项目</button>} /> : <>
             <div className="border-b border-ds-border-muted bg-ds-card px-5 py-4">
               <div className="flex flex-wrap items-start justify-between gap-3"><div className="min-w-0"><p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-ds-faint">{TABS.find((item) => item.id === tab)?.label}</p><h2 className="mt-1 truncate text-[18px] font-semibold">{overview.project.name}</h2><p className="mt-1 text-[12px] text-ds-muted">{overview.project.monitoringType} · {overview.project.unit} · 修订 {overview.project.revision} · 更新于 {formatDate(overview.project.updatedAt)}</p></div><button type="button" onClick={() => void createProject()} disabled={busy || !runtimeReady} className="inline-flex h-8 items-center gap-1.5 rounded-md border border-ds-border bg-ds-card px-2.5 text-[12px] font-medium text-ds-muted hover:bg-ds-hover disabled:opacity-50"><Plus className="h-3.5 w-3.5" />新建项目</button></div>
               <div className="mt-4 grid grid-cols-2 gap-2 lg:grid-cols-4"><Metric label="数据集" value={overview.datasets.length} detail={activeDataset ? activeDataset.sourceFileName : '尚未导入'} /><Metric label="阻断项" value={blockingFindings.length} detail={blockingFindings.length ? '需修正源数据' : '当前数据无阻断'} tone={blockingFindings.length ? 'danger' : 'success'} /><Metric label="预警状态" value={analysisCounts.warning + analysisCounts.alarm + analysisCounts.control} detail={activeAnalysis ? `${activeAnalysis.results.length} 个分析结果` : '尚未运行分析'} tone={analysisCounts.alarm + analysisCounts.control ? 'danger' : analysisCounts.warning ? 'warning' : 'neutral'} /><Metric label="归档成果" value={overview.manifests.length} detail={latestManifest ? latestManifest.id : '尚未最终归档'} tone={latestManifest ? 'success' : 'neutral'} /></div>
@@ -678,7 +680,7 @@ export function EngineeringWorkspaceView({ workspaceRoot, runtimeReady, leftSide
             </section> : null}
           </>}
         </main>
-      </div>
+      </div>}
     </div>
     {busy ? <div className="pointer-events-none fixed inset-x-0 bottom-4 z-50 flex justify-center"><span className="inline-flex items-center gap-2 rounded-md border border-ds-border bg-ds-card px-3 py-2 text-[12px] text-ds-muted shadow-panel"><Loader2 className="h-3.5 w-3.5 animate-spin text-accent" />Runtime 正在处理工程数据…</span></div> : null}
   </div>

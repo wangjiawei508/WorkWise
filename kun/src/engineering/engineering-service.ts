@@ -291,7 +291,45 @@ function runQualityChecks(observations: MonitoringObservationV1[], project: Rail
   if (Object.keys(project.thresholds).length === 0) findings.push(finding('threshold-missing', 'missing_threshold', 'warning', 1, '项目未配置阈值', '在项目设置中补充阈值', nowIso()))
   return findings
 }
-async function parseTabular(name: string, bytes: Buffer): Promise<Row[]> { if (extname(name).toLowerCase() === '.xlsx') return parseXlsx(bytes); return parseCsv(bytes) }
+/**
+ * Parse the three tabular formats advertised by the engineering workbench.
+ * JSON is intentionally normalised into the same row representation as CSV
+ * and XLSX so field mapping, provenance and quality checks stay deterministic.
+ */
+async function parseTabular(name: string, bytes: Buffer): Promise<Row[]> {
+  const extension = extname(name).toLowerCase()
+  if (extension === '.xlsx') return parseXlsx(bytes)
+  if (extension === '.json') return parseJsonRows(bytes)
+  return parseCsv(bytes)
+}
+
+function parseJsonRows(bytes: Buffer): Row[] {
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(bytes.toString('utf8').replace(/^\uFEFF/, ''))
+  } catch (error) {
+    throw new Error(`invalid JSON dataset: ${error instanceof Error ? error.message : String(error)}`)
+  }
+  const candidate = Array.isArray(parsed)
+    ? parsed
+    : parsed && typeof parsed === 'object'
+      ? (() => {
+        const object = parsed as Record<string, unknown>
+        for (const key of ['rows', 'data', 'records', 'observations']) {
+          if (Array.isArray(object[key])) return object[key]
+        }
+        return undefined
+      })()
+      : undefined
+  if (!candidate) throw new Error('JSON dataset must be an array or an object containing rows, data, records, or observations')
+  if (candidate.some((row) => !row || typeof row !== 'object' || Array.isArray(row))) {
+    throw new Error('JSON dataset rows must be objects')
+  }
+  return candidate.map((row) => Object.fromEntries(Object.entries(row as Record<string, unknown>).map(([key, value]) => [
+    key,
+    typeof value === 'string' ? value : value === null || value === undefined ? '' : typeof value === 'object' ? JSON.stringify(value) : String(value)
+  ])))
+}
 function parseCsv(bytes: Buffer): Row[] { const text = decodeText(bytes).replace(/^\uFEFF/, ''); const lines = text.split(/\r?\n/).filter((line) => line.trim().length > 0); if (!lines.length) return []; const rows = lines.map(parseCsvLine); const headers = rows[0].map((h) => h.trim()); return rows.slice(1).map((cells) => Object.fromEntries(headers.map((h, i) => [h, cells[i] ?? '']))) }
 function parseCsvLine(line: string): string[] { const out: string[] = []; let current = ''; let quoted = false; for (let i = 0; i < line.length; i += 1) { const c = line[i]; if (c === '"' && line[i + 1] === '"') { current += '"'; i += 1 } else if (c === '"') quoted = !quoted; else if (c === ',' && !quoted) { out.push(current); current = '' } else current += c } out.push(current); return out }
 function decodeText(bytes: Buffer): string { const utf8 = bytes.toString('utf8').replace(/^\uFEFF/, ''); if (!utf8.includes('\uFFFD')) return utf8; try { return new TextDecoder('gb18030').decode(bytes) } catch { return utf8 } }

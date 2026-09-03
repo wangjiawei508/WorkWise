@@ -8,6 +8,7 @@ import {
   CheckCircle2,
   ClipboardList,
   FileCheck2,
+  Gauge,
   Image as ImageIcon,
   Lightbulb,
   MessageSquareText,
@@ -164,6 +165,8 @@ export function EngineeringAiCommandCenter({ workspaceRoot, runtimeReady, projec
   const firstPendingStep = displayedPlan.findIndex((step) => step.state === 'active' || step.state === 'ready')
   const currentStepIndex = firstPendingStep < 0 ? displayedPlan.length : firstPendingStep
   const nextAction = !project ? { label: '创建工程项目', onClick: onCreateProject } : !dataset ? { label: '导入第一份数据', onClick: onImportData } : blockingCount > 0 ? { label: '查看质量问题', onClick: () => onOpenTab('quality') } : !analysis ? { label: '运行确定性分析', onClick: () => onOpenTab('analysis') } : { label: '检查成果门禁', onClick: () => onOpenTab('review') }
+  const controlState = !project ? '待建立项目' : blockingCount > 0 ? '数据被阻断' : latestRun ? phaseLabel(latestRun.status) : dataset ? '等待执行' : '等待资料'
+  const activeCapability = !project ? '工程项目上下文' : !dataset ? '资料识别与字段映射' : blockingCount > 0 ? '质量校核与问题定位' : !analysis ? '测量 / 监测确定性计算' : '结果解释与成果审查'
 
   const sendGoal = async (): Promise<void> => {
     const prompt = goal.trim()
@@ -200,7 +203,7 @@ export function EngineeringAiCommandCenter({ workspaceRoot, runtimeReady, projec
   }
 
   return (
-    <div className="flex min-h-full min-w-0 flex-col bg-ds-main text-ds-ink">
+    <div className="engineering-workspace flex min-h-full min-w-0 flex-col bg-ds-main text-ds-ink">
       <header className="shrink-0 border-b border-ds-border-muted bg-ds-card px-4 py-4 sm:px-5">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="flex min-w-0 items-start gap-3">
@@ -213,6 +216,13 @@ export function EngineeringAiCommandCenter({ workspaceRoot, runtimeReady, projec
 
       {error ? <div role="alert" className="mx-4 mt-3 flex items-start gap-2 border border-red-300/50 bg-red-50 px-3 py-2.5 text-[12px] text-red-900 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-200"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" /><span className="min-w-0">{error}{runtimeErrorDetail ? ` · ${runtimeErrorDetail}` : ''}</span></div> : null}
       {notice ? <div role="status" className="mx-4 mt-3 flex items-start gap-2 border border-amber-300/50 bg-amber-50 px-3 py-2.5 text-[12px] text-amber-900 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" /><span className="min-w-0 flex-1">{notice}</span><button type="button" onClick={() => setNotice(null)} aria-label="关闭提示" className="text-current/60 hover:text-current">×</button></div> : null}
+
+      <section className="engineering-command-strip mx-3 mt-3 grid shrink-0 gap-px border border-ds-border-muted bg-ds-border-muted sm:grid-cols-[minmax(0,1.4fr)_minmax(150px,0.8fr)_minmax(150px,0.8fr)_auto]" aria-label="工程 Agent 状态">
+        <div className="bg-ds-card px-3.5 py-2.5"><p className="engineering-eyebrow">当前任务</p><p className="mt-1 truncate text-[12px] font-semibold text-ds-ink">{project?.name ?? '尚未绑定工程项目'}</p><p className="mt-0.5 truncate text-[10.5px] text-ds-muted">{project ? `${project.monitoringType} · ${project.unit} · 修订 ${project.revision}` : '先建立项目，Agent 才能绑定资料与成果边界'}</p></div>
+        <div className="bg-ds-card px-3.5 py-2.5"><p className="engineering-eyebrow">Agent 正在做</p><p className="mt-1 truncate text-[11.5px] font-medium text-ds-ink">{activeCapability}</p><p className="mt-0.5 text-[10px] text-ds-faint">自然语言 → Typed Plan → 工具</p></div>
+        <div className="bg-ds-card px-3.5 py-2.5"><p className="engineering-eyebrow">运行门禁</p><p className={`mt-1 inline-flex items-center gap-1.5 text-[11.5px] font-semibold ${blockingCount ? 'text-red-700 dark:text-red-300' : controlState === '需要处理' ? 'text-amber-700 dark:text-amber-300' : 'text-ds-ink'}`}><Gauge className="h-3.5 w-3.5" />{controlState}</p><p className="mt-0.5 text-[10px] text-ds-faint">{blockingCount ? `${blockingCount} 个阻断项需人工处理` : '数值由确定性 Runtime 生成'}</p></div>
+        <button type="button" onClick={nextAction.onClick} disabled={!runtimeReady} className="engineering-command-action inline-flex min-h-[68px] items-center justify-center gap-1.5 bg-accent px-3.5 text-[11px] font-semibold text-white hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-50">{nextAction.label}<ArrowRight className="h-3.5 w-3.5" /></button>
+      </section>
 
       <div className="grid min-h-0 flex-1 gap-3 p-3 sm:p-4 xl:grid-cols-[216px_minmax(0,1fr)_284px]">
         <aside className="min-h-0 border border-ds-border-muted bg-ds-card" aria-label="工程 Agent 运行阶段">

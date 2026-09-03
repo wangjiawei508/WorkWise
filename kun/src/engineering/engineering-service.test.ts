@@ -102,4 +102,30 @@ describe('EngineeringService', () => {
     expect(dataset.unknownColumns).toEqual(['首表字段', '后表字段'])
     service.close()
   })
+
+  it('imports structured JSON rows and preserves unknown fields', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'workwise-engineering-json-'))
+    const service = new EngineeringService({ rootDir: root })
+    const project = service.createProject({ name: 'json', workspace: root, thresholds: { default: 10 }, expectedRevision: 0, idempotencyKey: 'create-json-001' })
+    const json = JSON.stringify({ rows: [
+      { 监测项: '沉降', 测点: 'S01', 时间: '2026-08-01T00:00:00Z', 数值: 1.5, 单位: 'mm', 自定义备注: '首期' },
+      { 监测项: '沉降', 测点: 'S01', 时间: '2026-08-02T00:00:00Z', 数值: 2.5, 单位: 'mm', 自定义备注: '复测' }
+    ] })
+    const dataset = await service.importDataset({ projectId: project.id, expectedRevision: project.revision, idempotencyKey: 'import-json-001', name: 'monitoring.json', dataBase64: Buffer.from(json).toString('base64') })
+    expect(dataset.rowCount).toBe(2)
+    expect(dataset.observationCount).toBe(2)
+    expect(dataset.fieldMapping.monitoringItem).toBe('监测项')
+    expect(dataset.unknownColumns).toEqual(['自定义备注'])
+    expect(dataset.status).toBe('imported')
+    service.close()
+  })
+
+  it('rejects malformed or non-tabular JSON with a stable error', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'workwise-engineering-json-invalid-'))
+    const service = new EngineeringService({ rootDir: root })
+    const project = service.createProject({ name: 'json-invalid', workspace: root, expectedRevision: 0, idempotencyKey: 'create-json-002' })
+    await expect(service.importDataset({ projectId: project.id, expectedRevision: project.revision, idempotencyKey: 'import-json-002', name: 'bad.json', dataBase64: Buffer.from('{"project":"not rows"').toString('base64') })).rejects.toThrow('invalid JSON dataset')
+    await expect(service.importDataset({ projectId: project.id, expectedRevision: project.revision, idempotencyKey: 'import-json-003', name: 'bad-shape.json', dataBase64: Buffer.from('{"project":"not rows"}').toString('base64') })).rejects.toThrow('must be an array')
+    service.close()
+  })
 })

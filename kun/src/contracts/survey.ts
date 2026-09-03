@@ -91,6 +91,17 @@ export const SurveyNetworkV1 = z.object({
   id: z.string().min(1),
   projectId: z.string().min(1),
   networkType: SurveyNetworkTypeV1,
+  /** Survey reference metadata is persisted with the network so a result can
+   * be reviewed without relying on the current project form state. Defaults
+   * keep older stored networks readable during migration. */
+  coordinateSystem: z.string().min(1).default('待确认'),
+  projection: z.string().min(1).default('待确认'),
+  centralMeridian: z.number().finite().optional(),
+  ellipsoid: z.string().min(1).default('待确认'),
+  verticalDatum: z.string().min(1).default('待确认'),
+  /** Legacy renderer/fixture alias; normalized responses use verticalDatum. */
+  heightDatum: z.string().min(1).optional(),
+  unit: z.string().min(1).default('m'),
   knownPoints: z.array(SurveyPointV1).max(10_000),
   unknownPoints: z.array(SurveyPointV1).max(10_000),
   observations: z.array(SurveyObservationV1).max(100_000),

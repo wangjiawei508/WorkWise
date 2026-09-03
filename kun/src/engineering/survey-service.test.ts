@@ -71,4 +71,48 @@ describe('SurveyService', () => {
     expect(network.observations[0]?.sourceLocator).toContain('sheet1.xml')
     service.close()
   })
+
+  it('normalizes legacy height datum metadata and preserves survey reference fields', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'workwise-survey-json-'))
+    const service = new SurveyService({ rootDir: root })
+    const network = await service.importNetwork({
+      projectId: 'project-json', expectedRevision: 0, idempotencyKey: 'survey-import-json-1', networkType: 'plane-control',
+      network: {
+        coordinateSystem: '工程独立坐标系', heightDatum: '项目高程基准',
+        knownPoints: [{ id: 'A', pointClass: 'known', x: 0, y: 0, known: true }],
+        unknownPoints: [{ id: 'P', pointClass: 'unknown', x: 1, y: 1, known: false }],
+        observations: [{ id: 'a-p', type: 'direction', from: 'A', to: 'P', value: 45.5, unit: 'deg' }]
+      }
+    })
+    expect(network.coordinateSystem).toBe('工程独立坐标系')
+    expect(network.verticalDatum).toBe('项目高程基准')
+    service.close()
+  })
+
+  it('converts DMS strings from a survey CSV into decimal degrees', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'workwise-survey-dms-'))
+    const service = new SurveyService({ rootDir: root })
+    const csv = 'type,from,to,value,unit\ndirection,A,B,45°30′00″,deg\n'
+    const network = await service.importNetwork({ projectId: 'project-dms', expectedRevision: 0, idempotencyKey: 'survey-import-dms-1', networkType: 'plane-control', name: 'angles.csv', dataBase64: Buffer.from(csv).toString('base64') })
+    expect(network.observations[0]?.value).toBeCloseTo(45.5, 8)
+    service.close()
+  })
+
+  it('blocks a declared closed leveling loop when the closure tolerance is exceeded', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'workwise-survey-closure-'))
+    const service = new SurveyService({ rootDir: root })
+    const network = await service.importNetwork({
+      projectId: 'project-closure', expectedRevision: 0, idempotencyKey: 'survey-import-closure-1', networkType: 'leveling',
+      network: {
+        knownPoints: [{ id: 'BM', pointClass: 'known', height: 10, known: true }],
+        unknownPoints: [{ id: 'P', pointClass: 'unknown', height: 10, known: false }],
+        observations: [{ id: 'loop', type: 'height-difference', from: 'BM', to: 'BM', value: 0.02, unit: 'm' }],
+        instrumentParameters: { closedLoop: 1, closureTolerance: 0.001 }
+      }
+    })
+    const checked = service.validateNetwork(network.id, { expectedRevision: network.revision, idempotencyKey: 'survey-validate-closure-1' })
+    expect(checked.qualityStatus).toBe('blocked')
+    expect(checked.findings.some((item) => item.code === 'closure_exceeded')).toBe(true)
+    service.close()
+  })
 })

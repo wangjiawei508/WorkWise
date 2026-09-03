@@ -100,6 +100,20 @@ function asNumber(value: unknown): number | undefined {
   return Number.isFinite(parsed) ? parsed : undefined
 }
 
+function angleValue(value: unknown): number | undefined {
+  const numeric = asNumber(value)
+  if (numeric !== undefined) return numeric
+  if (typeof value !== 'string' || !value.trim()) return undefined
+  const text = value.trim().replace(/[º°]/g, ' ').replace(/[′']/g, ' ').replace(/[″"]/g, ' ')
+  const parts = text.split(/\s+/).filter(Boolean).map(Number)
+  if (!parts.length || parts.some((part) => !Number.isFinite(part))) return undefined
+  const sign = parts[0]! < 0 ? -1 : 1
+  const degrees = Math.abs(parts[0]!)
+  const minutes = Math.abs(parts[1] ?? 0)
+  const seconds = Math.abs(parts[2] ?? 0)
+  return sign * (degrees + minutes / 60 + seconds / 3600)
+}
+
 function parseDelimited(text: string): Record<string, string>[] {
   const lines = text.replace(/^\uFEFF/, '').split(/\r?\n/).filter((line) => line.trim())
   if (!lines.length) return []
@@ -125,12 +139,18 @@ async function parseNetworkPayload(name: string, bytes: Buffer, projectId: strin
     const candidate = parsed as Record<string, unknown>
     const value = candidate.network && typeof candidate.network === 'object' ? candidate.network : candidate
     const normalized = value as Record<string, unknown>
+    const { heightDatum: legacyHeightDatum, ...normalizedWithoutLegacyDatum } = normalized
     return SurveyNetworkV1.parse({
-      ...normalized,
+      ...normalizedWithoutLegacyDatum,
       schemaVersion: 1,
       id: typeof normalized.id === 'string' ? normalized.id : `network_${randomUUID()}`,
       projectId,
       networkType: normalized.networkType ?? networkType ?? 'leveling',
+      coordinateSystem: normalized.coordinateSystem ?? '待确认',
+      projection: normalized.projection ?? '待确认',
+      ellipsoid: normalized.ellipsoid ?? '待确认',
+      verticalDatum: normalized.verticalDatum ?? legacyHeightDatum ?? '待确认',
+      unit: normalized.unit ?? 'm',
       knownPoints: Array.isArray(normalized.knownPoints) ? normalized.knownPoints : [],
       unknownPoints: Array.isArray(normalized.unknownPoints) ? normalized.unknownPoints : [],
       observations: Array.isArray(normalized.observations) ? normalized.observations : [],
@@ -141,13 +161,14 @@ async function parseNetworkPayload(name: string, bytes: Buffer, projectId: strin
   const rows = name.toLowerCase().endsWith('.xlsx') ? await parseXlsxRows(bytes) : parseDelimited(bytes.toString('utf8'))
   const observations: SurveyObservationV1[] = rows.map((row, index) => {
     const type = String(row.type || row.observationType || (networkType === 'leveling' || networkType === 'height-control' ? 'height-difference' : 'distance')) as SurveyObservationV1['type']
-    const value = asNumber(row.value || row.heightDiff || row.distance || row.angle || row.direction)
+    const rawValue = row.value || row.heightDiff || row.distance || row.angle || row.direction
+    const value = ['angle', 'direction', 'zenith'].includes(type) ? angleValue(rawValue) : asNumber(rawValue)
     if (value === undefined) throw new Error(`invalid observation value at row ${index + 2}`)
     return SurveyObservationV1.parse({ id: row.id || `obs_${index + 1}`, type, from: row.from || row.start || row.station, to: row.to || row.end || row.target, station: row.station, target: row.target, left: row.left, right: row.right, value, unit: row.unit || (type === 'height-difference' ? 'm' : type === 'distance' ? 'm' : 'deg'), sigma: asNumber(row.sigma), routeLength: asNumber(row.routeLength), sourceRow: index + 2, sourceLocator: row.worksheet ? `${row.worksheet}!${index + 2}` : undefined })
   })
   const ids = [...new Set(observations.flatMap(observationEndpointIds))]
   const points = ids.map((id) => SurveyPointV1.parse({ id, pointClass: 'unknown', known: false }))
-  return SurveyNetworkV1.parse({ schemaVersion: 1, id: `network_${randomUUID()}`, projectId, networkType: networkType ?? 'leveling', knownPoints: [], unknownPoints: points, observations, inputAttachmentHash, qualityStatus: 'imported', findings: [], revision: 1, createdAt: nowIso(), updatedAt: nowIso() })
+    return SurveyNetworkV1.parse({ schemaVersion: 1, id: `network_${randomUUID()}`, projectId, networkType: networkType ?? 'leveling', coordinateSystem: '待确认', projection: '待确认', ellipsoid: '待确认', verticalDatum: '待确认', unit: 'm', knownPoints: [], unknownPoints: points, observations, inputAttachmentHash, qualityStatus: 'imported', findings: [], revision: 1, createdAt: nowIso(), updatedAt: nowIso() })
 }
 
 async function parseXlsxRows(bytes: Buffer): Promise<Record<string, string>[]> {
@@ -291,15 +312,25 @@ function invalidAdjustmentResult(network: SurveyNetworkV1, run: AdjustmentRunV1,
 function buildCoordinateTransformResult(network: SurveyNetworkV1, run: AdjustmentRunV1, nowIso: () => string): AdjustmentResultV1 {
   const p = network.instrumentParameters
   const tx = p.tx ?? p.translationX ?? 0; const ty = p.ty ?? p.translationY ?? 0
-  const rotation = p.rotationRad ?? ((p.rotationDeg ?? p.rotation ?? 0) * Math.PI / 180)
+  const tz = p.tz ?? p.translationZ ?? 0
+  const rx = p.rxRad ?? ((p.rxDeg ?? p.rx ?? 0) * Math.PI / 180)
+  const ry = p.ryRad ?? ((p.ryDeg ?? p.ry ?? 0) * Math.PI / 180)
+  const rz = p.rzRad ?? ((p.rzDeg ?? p.rz ?? p.rotationDeg ?? p.rotation ?? 0) * Math.PI / 180)
   const scale = 1 + (p.scalePpm ?? 0) * 1e-6
   const points = [...network.knownPoints, ...network.unknownPoints].map((point) => {
     if (point.x === undefined || point.y === undefined) return { id: point.id }
-    const x = scale * (Math.cos(rotation) * point.x - Math.sin(rotation) * point.y) + tx
-    const y = scale * (Math.sin(rotation) * point.x + Math.cos(rotation) * point.y) + ty
-    return { id: point.id, x, y, correctionX: x - point.x, correctionY: y - point.y, standardError: 0 }
+    // Small-angle Helmert linearisation. If no vertical/tilt parameters are
+    // supplied this reduces to the legacy 2D transform exactly.
+    const z = point.height ?? 0
+    const x = scale * (point.x - rz * point.y + ry * z) + tx
+    const y = scale * (rz * point.x + point.y - rx * z) + ty
+    const height = scale * (-ry * point.x + rx * point.y + z) + tz
+    return { id: point.id, x, y, ...(point.height === undefined && tz === 0 && rx === 0 && ry === 0 ? {} : { height }), correctionX: x - point.x, correctionY: y - point.y, ...(point.height === undefined && tz === 0 && rx === 0 && ry === 0 ? {} : { correctionHeight: height - z }), standardError: 0 }
   })
-  const displacements = [...network.knownPoints, ...network.unknownPoints].map((point) => displacement(point, points.find((candidate) => candidate.id === point.id) ?? {}))
+  const displacements = [...network.knownPoints, ...network.unknownPoints].map((point) => {
+    const adjusted = points.find((candidate) => candidate.id === point.id) as { x?: number; y?: number; height?: number } | undefined
+    return displacement(point, adjusted ?? {})
+  })
   const observations = network.observations.map((observation) => ({ observationId: observation.id, correction: 0, residual: 0, standardizedResidual: 0, outlier: false, sourceRow: observation.sourceRow }))
   return AdjustmentResultV1.parse({ schemaVersion: 1, id: `adjustment_result_${randomUUID()}`, runId: run.id, networkId: network.id, observationCount: network.observations.length, unknownCount: network.unknownPoints.length * 2, redundancy: 0, degreesOfFreedom: 0, closure: { translationX: tx, translationY: ty, scalePpm: (scale - 1) * 1e6 }, unitWeightStdDev: 0, varianceFactor: 0, points, observations, displacements, precision: { maxPointStdDev: 0, passed: true }, qualityFindings: network.findings.filter((item) => item.status === 'open'), inputHash: run.inputHash, algorithmVersion: ALGORITHM_VERSION, validation: 'valid', createdAt: nowIso() })
 }
@@ -339,7 +370,11 @@ export class SurveyService {
     const project = this.options.getProject?.(req.projectId)
     if (project && req.expectedRevision !== 0 && req.expectedRevision !== project.revision) throw new SurveyRevisionConflictError(`project revision conflict: expected ${req.expectedRevision}, actual ${project.revision}`)
     let network: SurveyNetworkV1
-    if (req.network) network = SurveyNetworkV1.parse({ ...req.network, schemaVersion: 1, id: req.network.id ?? `network_${randomUUID()}`, projectId: req.projectId, networkType: req.network.networkType ?? req.networkType ?? 'leveling', knownPoints: req.network.knownPoints ?? [], unknownPoints: req.network.unknownPoints ?? [], observations: req.network.observations ?? [], instrumentParameters: req.network.instrumentParameters ?? {}, qualityStatus: 'imported', findings: [], revision: 1, createdAt: this.nowIso(), updatedAt: this.nowIso(), inputAttachmentHash: req.inputAttachmentHash ?? req.network.inputAttachmentHash })
+    if (req.network) {
+      const { heightDatum: legacyHeightDatum, ...networkWithoutLegacyDatum } = req.network as SurveyNetworkV1 & { heightDatum?: string }
+      const requestedVerticalDatum = req.network.verticalDatum && req.network.verticalDatum !== '待确认' ? req.network.verticalDatum : legacyHeightDatum
+      network = SurveyNetworkV1.parse({ ...networkWithoutLegacyDatum, schemaVersion: 1, id: req.network.id ?? `network_${randomUUID()}`, projectId: req.projectId, networkType: req.network.networkType ?? req.networkType ?? 'leveling', coordinateSystem: req.network.coordinateSystem ?? '待确认', projection: req.network.projection ?? '待确认', ellipsoid: req.network.ellipsoid ?? '待确认', verticalDatum: requestedVerticalDatum ?? '待确认', unit: req.network.unit ?? 'm', knownPoints: req.network.knownPoints ?? [], unknownPoints: req.network.unknownPoints ?? [], observations: req.network.observations ?? [], instrumentParameters: req.network.instrumentParameters ?? {}, qualityStatus: 'imported', findings: [], revision: 1, createdAt: this.nowIso(), updatedAt: this.nowIso(), inputAttachmentHash: req.inputAttachmentHash ?? req.network.inputAttachmentHash })
+    }
     else network = await parseNetworkPayload(req.name ?? 'survey.json', Buffer.from(req.dataBase64!, 'base64'), req.projectId, this.nowIso, req.networkType, req.inputAttachmentHash)
     if (network.knownPoints.length + network.unknownPoints.length > MAX_POINTS || network.observations.length > MAX_OBSERVATIONS) throw new Error(`survey network exceeds limits (${MAX_POINTS} points, ${MAX_OBSERVATIONS} observations)`)
     const parsed = SurveyNetworkV1.parse(network)
@@ -356,6 +391,21 @@ export class SurveyService {
     for (const observation of network.observations) {
       for (const id of observationEndpointIds(observation)) if (!points.has(id)) findings.push(finding(network.id, 'missing_point', 'blocking', `观测 ${observation.id} 引用了不存在的点 ${id}`, '补充点坐标/高程或修正点号', observation.sourceRow, this.nowIso))
       if (observation.covariance && observation.covariance.some((value) => !Number.isFinite(value))) findings.push(finding(network.id, 'invalid_observation', 'blocking', `观测 ${observation.id} 协方差包含非法数值`, '修正协方差后重新导入', observation.sourceRow, this.nowIso))
+      const angular = ['direction', 'angle', 'zenith'].includes(observation.type)
+      const unit = observation.unit.trim().toLowerCase()
+      const validUnit = angular
+        ? ['deg', 'degree', 'degrees', '°', 'gon', 'grad', 'rad', 'radian', 'arcsec', '″'].includes(unit)
+        : ['m', 'meter', 'meters', 'km', 'mm', 'cm'].includes(unit)
+      if (!validUnit) findings.push(finding(network.id, 'unit_conflict', 'warning', `观测 ${observation.id} 的单位 ${observation.unit} 不在受支持的单位集合中`, angular ? '使用 deg、gon、rad 或 arcsec' : '使用 m、km、cm 或 mm', observation.sourceRow, this.nowIso))
+      if (!angular && network.unit && unit !== network.unit.trim().toLowerCase() && !(network.unit === 'm' && ['meter', 'meters'].includes(unit))) {
+        findings.push(finding(network.id, 'unit_conflict', 'warning', `观测 ${observation.id} 的单位 ${observation.unit} 与网络单位 ${network.unit} 不一致`, '确认单位并在导入前统一，换算不会静默丢失', observation.sourceRow, this.nowIso))
+      }
+      if (['plane-control', 'traverse', 'triangulation', 'cpiii-free-station', 'cpiii-resection', 'coordinate-transform'].includes(network.networkType)) {
+        for (const id of observationEndpointIds(observation)) {
+          const point = points.get(id)
+          if (point && (point.x === undefined || point.y === undefined)) findings.push(finding(network.id, 'missing_point', 'blocking', `平面观测 ${observation.id} 的点 ${id} 缺少平面坐标`, '补充 X/Y 初始坐标后重新导入', observation.sourceRow, this.nowIso))
+        }
+      }
     }
     if (!network.observations.length) findings.push(finding(network.id, 'invalid_observation', 'blocking', '网络没有观测记录', '导入至少一条有效观测'))
     if (network.networkType === 'gnss' && network.observations.some((item) => item.type === 'gnss-baseline' && (!item.covariance || item.covariance.length === 0))) findings.push(finding(network.id, 'missing_covariance', 'blocking', 'GNSS 基线缺少标准协方差', '补充基线协方差，不能用模型猜测'))
@@ -366,6 +416,14 @@ export class SurveyService {
     const roots = [...network.knownPoints].map((point) => point.id); const seen = new Set<string>(roots); const queue = [...roots]
     while (queue.length) for (const next of adjacency.get(queue.shift()!) ?? []) if (!seen.has(next)) { seen.add(next); queue.push(next) }
     if (network.unknownPoints.some((point) => !seen.has(point.id))) findings.push(finding(network.id, 'disconnected_network', 'blocking', '存在与已知点不连通的网段', '检查点号、观测方向和缺失边'))
+    const tolerance = network.instrumentParameters.closureTolerance
+    if (typeof tolerance === 'number' && Number.isFinite(tolerance) && tolerance >= 0) {
+      const closedLoop = network.instrumentParameters.closedLoop === 1 || network.observations.some((observation) => observation.from && observation.to && observation.from === observation.to)
+      if (closedLoop && (network.networkType === 'leveling' || network.networkType === 'height-control')) {
+        const closure = network.observations.filter((item) => item.type === 'height-difference').reduce((sum, item) => sum + normalizeObservationValue(item), 0)
+        if (Math.abs(closure) > tolerance) findings.push(finding(network.id, 'closure_exceeded', 'blocking', `水准闭合差 ${closure} 超过限差 ${tolerance}`, '复核闭合环观测、单位和权值', undefined, this.nowIso))
+      }
+    }
     const next = SurveyNetworkV1.parse({ ...network, findings, qualityStatus: findings.some((item) => item.severity === 'blocking') ? 'blocked' : 'validated', revision: network.revision + 1, updatedAt: this.nowIso() })
     this.saveNetwork(next); this.remember(req.idempotencyKey, next); return next
   }
