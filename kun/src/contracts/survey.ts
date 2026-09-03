@@ -200,6 +200,10 @@ export const AdjustmentResultV1 = z.object({
   closureUnits: z.record(z.string(), z.enum(['m', 'rad', 'ppm', 'ratio'])).default({}),
   unitWeightStdDev: z.number().nonnegative(),
   varianceFactor: z.number().nonnegative(),
+  /** False means the a-priori unit variance is retained because the network
+   * has no redundancy; older records default to false rather than claiming
+   * a posterior estimate. */
+  varianceFactorEstimated: z.boolean().default(false),
   points: z.array(AdjustmentPointResultV1),
   observations: z.array(AdjustmentObservationResultV1),
   displacements: z.array(AdjustmentDisplacementV1).default([]),

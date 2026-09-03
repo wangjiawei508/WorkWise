@@ -396,6 +396,7 @@ function reportText(project: RailwiseProjectV1, dataset: StoredDataset, analysis
     ? `${project.reportPeriod.start ?? '-'} ~ ${project.reportPeriod.end ?? '-'}`
     : `${dataset.timeRange.start ?? '-'} ~ ${dataset.timeRange.end ?? '-'}`
   const thresholdLines = Object.entries(project.thresholds).map(([name, value]) => `${name}: ${value} ${project.unit}`)
+  const measurement = (value: number | undefined, unit: string): string => value === undefined ? '-' : `${value} ${unit}`
   return [
     `项目：${project.name}`,
     `监测类型：${project.monitoringType}`,
@@ -419,7 +420,7 @@ function reportText(project: RailwiseProjectV1, dataset: StoredDataset, analysis
       `平差运行 ${adjustment.runId}：网络=${adjustment.networkId}，观测=${adjustment.observationCount}，未知数=${adjustment.unknownCount}，多余观测=${adjustment.redundancy}`,
       `单位权中误差=${adjustment.unitWeightStdDev}（无量纲），最大点位中误差=${adjustment.precision.maxPointStdDev} ${adjustment.linearUnit}，状态=${adjustment.validation}，输入 SHA-256=${adjustment.inputHash}`,
       `闭合量=${Object.entries(adjustment.closure).map(([key, value]) => `${key}:${value} ${adjustment.closureUnits[key] ?? '单位未记录'}`).join('；') || '无'}`,
-      ...(adjustment.displacements.length ? adjustment.displacements.map((item) => `位移 ${item.pointId}: dX=${item.dX ?? '-'} ${adjustment.linearUnit} dY=${item.dY ?? '-'} ${adjustment.linearUnit} dH=${item.dH ?? '-'} ${adjustment.linearUnit} 模长=${item.magnitude} ${adjustment.linearUnit}`) : ['位移结果：无可用初始坐标/高程'])
+      ...(adjustment.displacements.length ? adjustment.displacements.map((item) => `位移 ${item.pointId}: dX=${measurement(item.dX, adjustment.linearUnit)} dY=${measurement(item.dY, adjustment.linearUnit)} dH=${measurement(item.dH, adjustment.linearUnit)} 模长=${measurement(item.magnitude, adjustment.linearUnit)}`) : ['位移结果：无可用初始坐标/高程'])
     ]) : ['本报告未关联测量平差运行']),
     '',
     '质量问题',
