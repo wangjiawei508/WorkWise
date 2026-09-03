@@ -107,17 +107,23 @@ type TabId = 'ai-command' | 'dashboard' | 'project' | 'data' | 'quality' | 'surv
 type Notice = { tone: 'success' | 'warning' | 'error' | 'info'; message: string }
 type ProjectDraft = Pick<Project, 'name' | 'monitoringType' | 'unit' | 'signConvention' | 'reportPeriod'> & { thresholdsText: string }
 
-const TABS: ReadonlyArray<{ id: TabId; label: string; shortLabel: string; icon: typeof FolderKanban }> = [
-  { id: 'ai-command', label: 'AI 指挥台', shortLabel: 'AI', icon: Sparkles },
-  { id: 'dashboard', label: '交付总览', shortLabel: '总览', icon: Activity },
-  { id: 'project', label: '项目配置', shortLabel: '项目', icon: FolderKanban },
-  { id: 'data', label: '数据资产', shortLabel: '数据', icon: Database },
-  { id: 'quality', label: '质量校核', shortLabel: '校核', icon: ShieldCheck },
-  { id: 'survey', label: '测量平差', shortLabel: '平差', icon: Calculator },
-  { id: 'analysis', label: '趋势分析', shortLabel: '分析', icon: LineChart },
-  { id: 'deliverables', label: '成果中心', shortLabel: '成果', icon: FileOutput },
-  { id: 'review', label: '审查归档', shortLabel: '审查', icon: ClipboardCheck }
-  ,{ id: 'skills', label: '技能与规范', shortLabel: '技能', icon: BookOpen }
+type TabDefinition = { id: TabId; label: string; shortLabel: string; icon: typeof FolderKanban; group: 'agent' | 'compute' | 'delivery' }
+const TABS: ReadonlyArray<TabDefinition> = [
+  { id: 'ai-command', label: 'AI 指挥台', shortLabel: 'AI', icon: Sparkles, group: 'agent' },
+  { id: 'dashboard', label: '交付总览', shortLabel: '总览', icon: Activity, group: 'agent' },
+  { id: 'project', label: '项目配置', shortLabel: '项目', icon: FolderKanban, group: 'compute' },
+  { id: 'data', label: '数据资产', shortLabel: '数据', icon: Database, group: 'compute' },
+  { id: 'quality', label: '质量校核', shortLabel: '校核', icon: ShieldCheck, group: 'compute' },
+  { id: 'survey', label: '测量平差', shortLabel: '平差', icon: Calculator, group: 'compute' },
+  { id: 'analysis', label: '趋势分析', shortLabel: '分析', icon: LineChart, group: 'compute' },
+  { id: 'deliverables', label: '成果中心', shortLabel: '成果', icon: FileOutput, group: 'delivery' },
+  { id: 'review', label: '审查归档', shortLabel: '审查', icon: ClipboardCheck, group: 'delivery' },
+  { id: 'skills', label: '技能与规范', shortLabel: '技能', icon: BookOpen, group: 'delivery' }
+]
+const TAB_GROUPS: ReadonlyArray<{ id: TabDefinition['group']; label: string }> = [
+  { id: 'agent', label: 'AI 工作流' },
+  { id: 'compute', label: '数据与计算' },
+  { id: 'delivery', label: '交付与审查' }
 ]
 
 const findingTone: Record<Finding['severity'], string> = {
@@ -229,10 +235,10 @@ function EmptyState({ title, detail, action }: { title: string; detail: string; 
 }
 
 function Metric({ label, value, detail, tone = 'neutral' }: { label: string; value: string | number; detail: string; tone?: 'neutral' | 'success' | 'warning' | 'danger' }): ReactElement {
-  const toneClass = tone === 'success' ? 'border-l-green-600' : tone === 'warning' ? 'border-l-amber-500' : tone === 'danger' ? 'border-l-red-600' : 'border-l-blue-500'
-  return <div className={`border border-ds-border-muted border-l-[3px] bg-ds-card px-3 py-3 ${toneClass}`}>
+  const toneClass = tone === 'success' ? 'text-green-700 dark:text-green-300' : tone === 'warning' ? 'text-amber-700 dark:text-amber-300' : tone === 'danger' ? 'text-red-700 dark:text-red-300' : 'text-ds-ink'
+  return <div className="border border-ds-border-muted bg-ds-card px-3 py-3">
     <p className="text-[11px] font-medium text-ds-muted">{label}</p>
-    <p className="mt-1 tabular-nums text-[24px] font-semibold leading-7 text-ds-ink">{value}</p>
+    <p className={`mt-1 tabular-nums text-[24px] font-semibold leading-7 ${toneClass}`}>{value}</p>
     <p className="mt-1 truncate text-[11px] text-ds-faint">{detail}</p>
   </div>
 }
@@ -583,8 +589,8 @@ export function EngineeringWorkspaceView({ workspaceRoot, runtimeReady, leftSide
       <div className="grid h-full min-h-0 grid-cols-1 overflow-hidden border border-ds-border-muted bg-ds-card xl:grid-cols-[230px_minmax(0,1fr)]">
         <aside className="flex min-h-0 flex-col border-b border-ds-border-muted bg-ds-main xl:border-b-0 xl:border-r">
           <div className="border-b border-ds-border-muted px-4 py-4"><p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-ds-faint">交付流程</p><p className="mt-1 text-[12px] leading-5 text-ds-muted">每一步读取同一份运行数据，成果审核前保留完整来源和版本。</p></div>
-          <nav className="grid grid-cols-3 gap-1 p-2 xl:block xl:space-y-1" aria-label="工程工作台阶段">
-            {TABS.map((item, index) => { const Icon = item.icon; const active = item.id === tab; const hasAttention = (item.id === 'quality' && (blockingFindings.length > 0 || warningFindings.length > 0)) || (item.id === 'review' && finalizationBlocked); return <button key={item.id} type="button" onClick={() => setTab(item.id)} className={`flex min-h-11 min-w-0 items-center gap-2 rounded-md px-2.5 py-2 text-left text-[12px] transition ${active ? 'bg-accent/12 text-accent shadow-[inset_0_0_0_1px_rgba(0,136,255,0.20)]' : 'text-ds-muted hover:bg-ds-hover hover:text-ds-ink'}`}><span className="flex h-6 w-6 shrink-0 items-center justify-center rounded bg-ds-card text-[10px] font-semibold tabular-nums"><Icon className="h-3.5 w-3.5" strokeWidth={1.7} /></span><span className="min-w-0 flex-1 truncate"><span className="hidden xl:inline">{item.label}</span><span className="xl:hidden">{item.shortLabel}</span></span>{hasAttention ? <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-amber-500" /> : <span className="hidden text-[10px] text-ds-faint xl:inline">{index + 1}</span>}</button> })}
+          <nav className="grid grid-cols-3 gap-1 p-2 xl:block xl:space-y-3" aria-label="工程工作台阶段">
+            {TAB_GROUPS.map((group) => <section key={group.id} className="xl:space-y-1"><p className="hidden px-2.5 text-[10px] font-semibold uppercase tracking-[0.1em] text-ds-faint xl:block">{group.label}</p>{TABS.filter((item) => item.group === group.id).map((item) => { const Icon = item.icon; const active = item.id === tab; const hasAttention = (item.id === 'quality' && (blockingFindings.length > 0 || warningFindings.length > 0)) || (item.id === 'review' && finalizationBlocked); return <button key={item.id} type="button" onClick={() => setTab(item.id)} className={`flex min-h-11 min-w-0 items-center gap-2 rounded-md px-2.5 py-2 text-left text-[12px] transition ${active ? 'bg-accent/12 text-accent shadow-[inset_0_0_0_1px_rgba(0,136,255,0.20)]' : 'text-ds-muted hover:bg-ds-hover hover:text-ds-ink'}`}><span className="flex h-6 w-6 shrink-0 items-center justify-center rounded bg-ds-card text-[10px] font-semibold tabular-nums"><Icon className="h-3.5 w-3.5" strokeWidth={1.7} /></span><span className="min-w-0 flex-1 truncate"><span className="hidden xl:inline">{item.label}</span><span className="xl:hidden">{item.shortLabel}</span></span>{hasAttention ? <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-amber-500" /> : null}</button> })}</section>)}
           </nav>
           <div className="mt-auto hidden border-t border-ds-border-muted p-4 xl:block">
             <p className="text-[10.5px] font-medium text-ds-faint">当前数据边界</p>

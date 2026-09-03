@@ -168,3 +168,16 @@ x64 候选验收。
 
 回环权限和原生 ABI 是测试运行条件；它们不改变任务 15/17 的真实 GUI、图片 Provider 和
 Windows 验收结论。公开版本仍为 `0.4.2`，未创建或移动 tag、未发布 Release、未提升 Stable。
+
+## 2026-09-03 工程工作台产品体验复核与修复
+
+用户反馈“候选包像 Web 后台，不像 AI Agent 工作台，也不像专业测量软件”与源码现状一致：原工程 AI 页面采用两栏卡片堆叠，测量平差页面把 JSON 文本框作为主要交互，项目导航也把 AI、数据和交付阶段平铺在同一层级。该状态不能视为 0.5.0 的产品验收通过。
+
+本轮已完成源码级产品修复（候选包尚未重打包）：
+
+- `EngineeringAiCommandCenter` 改为三栏工程 Agent 表面：左侧执行阶段轨、中央真实 ChatState 会话与目标输入、右侧 Copilot 检查器。Typed Plan、审批、TaskRun 状态、下一步和证据回流在同一工作区中显示，保留工程线程隔离和 Runtime 单一执行链。
+- `SurveyAdjustmentPanel` 改为专业测量工作区：网形与基准、观测表、点位与拓扑、平差结果与精度评定四个区段；显示已知/未知点、测站到目标、单位、先验中误差、闭合差、残差、粗差候选、方差因子和运行哈希。高级 JSON 仅保留为兼容输入入口。
+- 工程导航按“AI 工作流 / 数据与计算 / 交付与审查”分组，删除指标卡片的彩色左边框，减少通用后台视觉。
+- 新增 `EngineeringWorkbenchExperience.test.ts`，防止 AI 三栏结构、证据回流和测量专业区退化为 JSON-only 界面。
+
+本轮源码验证：`npm run typecheck`、`npm run lint`、工程体验定向测试 `7/7`、`npm run build` 和 `git diff --check` 通过。当前私有候选包仍是修复前构建，必须重打包后才能进行视觉验收；此前记录的 macOS 候选包 AppKit `SIGABRT` / `kLSNoExecutableErr` 阻塞仍然存在。因此任务 15、17、18 继续未完成，不能发布 0.5.0。
