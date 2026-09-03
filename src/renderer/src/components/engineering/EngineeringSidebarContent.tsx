@@ -108,7 +108,7 @@ export function EngineeringSidebarContent({ workspaceRoot, runtimeReady }: Props
       <div className="flex min-h-[38px] items-center justify-between px-2 pb-1 pt-2">
         <div className="flex min-w-0 items-center gap-1.5 text-[13px] text-ds-faint">
           <HardHat className="h-3.5 w-3.5 shrink-0 text-accent" strokeWidth={1.8} />
-          <span className="truncate">工程项目</span>
+          <span className="truncate">工程测量项目</span>
           <span className="tabular-nums text-[11px] text-ds-faint">{workspaceProjects.length}</span>
         </div>
         <div className="flex shrink-0 items-center gap-1">
@@ -116,8 +116,8 @@ export function EngineeringSidebarContent({ workspaceRoot, runtimeReady }: Props
             onClick={runtimeReady ? dispatchEngineeringProjectCreate : undefined}
             disabled={!runtimeReady}
             className="h-7 w-7"
-            title="新建工程项目"
-            ariaLabel="新建工程项目"
+            title="新建工程测量项目"
+            ariaLabel="新建工程测量项目"
           >
             <Plus className="h-3.5 w-3.5" strokeWidth={1.9} />
           </SidebarIconButton>
@@ -126,8 +126,8 @@ export function EngineeringSidebarContent({ workspaceRoot, runtimeReady }: Props
             disabled={!runtimeReady}
             active={loading}
             className="h-7 w-7"
-            title="刷新工程项目"
-            ariaLabel="刷新工程项目"
+            title="刷新工程测量项目"
+            ariaLabel="刷新工程测量项目"
           >
             <RefreshCw className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} strokeWidth={1.8} />
           </SidebarIconButton>
@@ -140,7 +140,7 @@ export function EngineeringSidebarContent({ workspaceRoot, runtimeReady }: Props
         className="mx-1 mb-2 flex min-h-[48px] w-[calc(100%-8px)] items-center gap-2 rounded-lg border border-accent/20 bg-accent/[0.07] px-2.5 py-2 text-left transition hover:border-accent/40 hover:bg-accent/10"
       >
         <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-accent/15 text-accent"><Bot className="h-3.5 w-3.5" strokeWidth={1.8} /></span>
-        <span className="min-w-0"><span className="block truncate text-[12px] font-semibold text-ds-ink">工程 AI 指挥台</span><span className="mt-0.5 block truncate text-[10.5px] text-ds-muted">目标、计划、证据与交付</span></span>
+        <span className="min-w-0"><span className="block truncate text-[12px] font-semibold text-ds-ink">工程测量 AI 指挥台</span><span className="mt-0.5 block truncate text-[10.5px] text-ds-muted">测绘目标、计划、证据与交付</span></span>
       </button>
 
       <div className="min-h-0 flex-1 overflow-y-auto px-1 pb-2">
@@ -152,7 +152,7 @@ export function EngineeringSidebarContent({ workspaceRoot, runtimeReady }: Props
         {!runtimeReady ? (
           <div className="mx-1 mt-1 flex items-center gap-2 rounded-lg border border-dashed border-ds-border-muted px-2.5 py-3 text-[11.5px] leading-5 text-ds-faint">
             <Database className="h-4 w-4 shrink-0" strokeWidth={1.7} />
-            <span>连接 Runtime 后加载工程项目和成果。</span>
+            <span>连接 Runtime 后加载工程测量项目和成果。</span>
           </div>
         ) : null}
         {runtimeReady && !loading && workspaceProjects.length === 0 && !error ? (
@@ -162,7 +162,7 @@ export function EngineeringSidebarContent({ workspaceRoot, runtimeReady }: Props
             className="mx-1 mt-1 flex w-[calc(100%-8px)] items-center gap-2 rounded-lg border border-dashed border-ds-border-muted px-2.5 py-3 text-left text-[11.5px] text-ds-faint transition hover:border-accent/60 hover:text-accent"
           >
             <FolderKanban className="h-4 w-4 shrink-0" strokeWidth={1.7} />
-            <span className="min-w-0 truncate">在此工作目录新建工程项目</span>
+            <span className="min-w-0 truncate">在此工作目录新建工程测量项目</span>
           </button>
         ) : null}
         <div className="space-y-0.5">
@@ -197,7 +197,7 @@ export function EngineeringSidebarContent({ workspaceRoot, runtimeReady }: Props
           <div className="mt-4 border-t border-ds-border-muted pt-3">
             <div className="flex items-center gap-1.5 px-2 text-[11px] font-medium text-ds-faint">
               <MessageSquareText className="h-3.5 w-3.5" strokeWidth={1.7} />
-              <span>工程 AI 会话</span>
+              <span>工程测量 AI 会话</span>
               <span className="tabular-nums">{engineeringThreads.length}</span>
             </div>
             <div className="mt-1 space-y-0.5">
@@ -220,8 +220,8 @@ export function EngineeringSidebarContent({ workspaceRoot, runtimeReady }: Props
                       <Bot className="h-3.5 w-3.5" strokeWidth={1.75} />
                     </span>
                     <span className="min-w-0 flex-1">
-                      <span className="block truncate text-[12px] font-medium">{thread.title || '工程 AI 会话'}</span>
-                      <span className="mt-0.5 block truncate text-[10.5px] text-ds-faint">{projectName ?? '工程项目'} · {thread.messageCount ?? 0} 条消息</span>
+                      <span className="block truncate text-[12px] font-medium">{thread.title || '工程测量 AI 会话'}</span>
+                      <span className="mt-0.5 block truncate text-[10.5px] text-ds-faint">{projectName ?? '工程测量项目'} · {thread.messageCount ?? 0} 条消息</span>
                     </span>
                   </button>
                 )
@@ -231,7 +231,7 @@ export function EngineeringSidebarContent({ workspaceRoot, runtimeReady }: Props
         ) : null}
       </div>
       <div className="mx-2 mb-2 rounded-lg bg-ds-main px-2.5 py-2 text-[10.5px] leading-4 text-ds-faint">
-        工程项目、数据集、运行记录和成果清单独立保存，不与编程或设计会话混用。
+        工程测量项目、数据集、运行记录和成果清单独立保存，不与编程或设计会话混用。
       </div>
     </div>
   )

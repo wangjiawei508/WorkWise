@@ -58,6 +58,10 @@ export const SurveyObservationV1 = z.object({
   right: z.string().min(1).optional(),
   value: z.number().finite(),
   unit: z.string().min(1).default('m'),
+  /** Optional target coordinates used when fitting a coordinate transform. */
+  targetX: z.number().finite().optional(),
+  targetY: z.number().finite().optional(),
+  targetHeight: z.number().finite().optional(),
   sigma: z.number().positive().optional(),
   covariance: z.array(z.number().finite()).optional(),
   routeLength: z.number().positive().optional(),
@@ -191,6 +195,15 @@ export const AdjustmentResultV1 = z.object({
   inputHash: z.string().min(1),
   algorithmVersion: z.string().min(1),
   validation: z.enum(['valid', 'invalid', 'pending']),
+  /** Explicit deterministic strategy used for this run. Kept optional so
+   * results written by 0.4.x remain readable during migration. */
+  strategyId: SurveyNetworkTypeV1.optional(),
+  solverDiagnostics: z.object({
+    iterations: z.number().int().nonnegative().optional(),
+    rank: z.number().int().nonnegative().optional(),
+    conditionEstimate: z.number().nonnegative().optional(),
+    unsupportedReason: z.string().optional()
+  }).strict().optional(),
   createdAt: z.string().min(1)
 }).strict()
 export type AdjustmentResultV1 = z.infer<typeof AdjustmentResultV1>

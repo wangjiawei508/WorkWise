@@ -176,7 +176,7 @@ export function Sidebar({
         />
         <SidebarCommandRow
           icon={<HardHat className="h-4 w-4" strokeWidth={1.75} />}
-          label="工程工作台"
+          label="工程测量工作台"
           onClick={onEngineeringOpen}
           active={activeView === 'engineering'}
         />

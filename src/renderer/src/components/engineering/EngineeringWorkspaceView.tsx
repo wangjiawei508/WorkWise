@@ -568,10 +568,10 @@ export function EngineeringWorkspaceView({ workspaceRoot, runtimeReady, leftSide
         {leftSidebarCollapsed && onToggleLeftSidebar ? <button type="button" onClick={onToggleLeftSidebar} className="inline-flex h-8 items-center gap-1.5 rounded-md border border-ds-border bg-ds-card px-2.5 text-[12px] font-medium text-ds-muted hover:bg-ds-hover"><ChevronRight className="h-3.5 w-3.5" />导航</button> : null}
         <div className="flex min-w-0 flex-1 items-center gap-3">
           <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-accent/12 text-accent"><HardHat className="h-5 w-5" strokeWidth={1.7} /></span>
-          <div className="min-w-0"><p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-ds-faint">Engineering delivery</p><h1 className="truncate text-[17px] font-semibold">工程数据交付工作台</h1></div>
+          <div className="min-w-0"><p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-ds-faint">Survey delivery</p><h1 className="truncate text-[17px] font-semibold">工程测量工作台</h1><p className="mt-0.5 text-[10.5px] text-ds-muted">测绘专业 AI Agent</p></div>
         </div>
         <div className="flex min-w-0 items-center gap-2">
-          <label className="sr-only" htmlFor="engineering-project-select">当前工程项目</label>
+          <label className="sr-only" htmlFor="engineering-project-select">当前工程测量项目</label>
           <select id="engineering-project-select" value={selectedProjectId} disabled={!runtimeReady || busy} onChange={(event) => { selectProject(event.target.value); setPreview(null); setChart(null) }} className="h-8 max-w-[220px] rounded-md border border-ds-border bg-ds-card px-2 text-[12px] text-ds-ink outline-none focus:border-accent">
             <option value="">{projects.length ? '选择工程项目' : '暂无工程项目'}</option>
             {projects.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}
@@ -583,7 +583,7 @@ export function EngineeringWorkspaceView({ workspaceRoot, runtimeReady, leftSide
       </div>
     </header> : null}
 
-    {tab !== 'ai-command' && !runtimeReady ? <div className="border-b border-amber-300/40 bg-amber-50 px-5 py-2 text-[12px] text-amber-900 dark:bg-amber-500/10 dark:text-amber-200">工程工作台需要本地运行时执行校核、分析和成果生成。连接成功后，项目数据会自动刷新。</div> : null}
+    {tab !== 'ai-command' && !runtimeReady ? <div className="border-b border-amber-300/40 bg-amber-50 px-5 py-2 text-[12px] text-amber-900 dark:bg-amber-500/10 dark:text-amber-200">工程测量工作台需要本地运行时执行校核、分析和成果生成。连接成功后，项目数据会自动刷新。</div> : null}
     {tab !== 'ai-command' && notice ? <div className={`mx-4 mt-3 flex items-start gap-2 border px-3 py-2 text-[12px] sm:mx-5 ${notice.tone === 'error' ? 'border-red-200 bg-red-50 text-red-800 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-200' : notice.tone === 'warning' ? 'border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200' : notice.tone === 'success' ? 'border-green-200 bg-green-50 text-green-800 dark:border-green-500/30 dark:bg-green-500/10 dark:text-green-200' : 'border-blue-200 bg-blue-50 text-blue-800 dark:border-blue-500/30 dark:bg-blue-500/10 dark:text-blue-200'}`}><Info className="mt-0.5 h-3.5 w-3.5 shrink-0" /><span className="min-w-0 flex-1">{notice.message}</span><button type="button" onClick={() => setNotice(null)} className="text-current/70 hover:text-current" aria-label="关闭提示">×</button></div> : null}
 
     <div className={`min-h-0 flex-1 overflow-hidden ${tab === 'ai-command' ? 'p-0' : 'p-4 sm:p-5'}`}>
@@ -603,7 +603,7 @@ export function EngineeringWorkspaceView({ workspaceRoot, runtimeReady, leftSide
       </div> : <div className="engineering-classic-shell grid h-full min-h-0 grid-cols-1 overflow-hidden border border-ds-border-muted bg-ds-card xl:grid-cols-[230px_minmax(0,1fr)]" data-testid="engineering-classic-shell">
         <aside className="flex min-h-0 flex-col border-b border-ds-border-muted bg-ds-main xl:border-b-0 xl:border-r">
           <div className="border-b border-ds-border-muted px-4 py-4"><p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-ds-faint">交付流程</p><p className="mt-1 text-[12px] leading-5 text-ds-muted">每一步读取同一份运行数据，成果审核前保留完整来源和版本。</p></div>
-          <nav className="grid grid-cols-3 gap-1 p-2 xl:block xl:space-y-3" aria-label="工程工作台阶段">
+          <nav className="grid grid-cols-3 gap-1 p-2 xl:block xl:space-y-3" aria-label="工程测量工作台阶段">
             {TAB_GROUPS.map((group) => <section key={group.id} className="xl:space-y-1"><p className="hidden px-2.5 text-[10px] font-semibold uppercase tracking-[0.1em] text-ds-faint xl:block">{group.label}</p>{TABS.filter((item) => item.group === group.id).map((item) => { const Icon = item.icon; const active = item.id === tab; const hasAttention = (item.id === 'quality' && (blockingFindings.length > 0 || warningFindings.length > 0)) || (item.id === 'review' && finalizationBlocked); return <button key={item.id} type="button" onClick={() => setTab(item.id)} className={`flex min-h-11 min-w-0 items-center gap-2 rounded-md px-2.5 py-2 text-left text-[12px] transition ${active ? 'bg-accent/12 text-accent shadow-[inset_0_0_0_1px_rgba(0,136,255,0.20)]' : 'text-ds-muted hover:bg-ds-hover hover:text-ds-ink'}`}><span className="flex h-6 w-6 shrink-0 items-center justify-center rounded bg-ds-card text-[10px] font-semibold tabular-nums"><Icon className="h-3.5 w-3.5" strokeWidth={1.7} /></span><span className="min-w-0 flex-1 truncate"><span className="hidden xl:inline">{item.label}</span><span className="xl:hidden">{item.shortLabel}</span></span>{hasAttention ? <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-amber-500" /> : null}</button> })}</section>)}
           </nav>
           <div className="mt-auto hidden border-t border-ds-border-muted p-4 xl:block">

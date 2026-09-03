@@ -60,6 +60,27 @@ describe('SurveyService', () => {
     service.close()
   })
 
+  it('adjusts a complete GNSS baseline network with covariance and fixed datum', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'workwise-survey-gnss-valid-'))
+    const service = new SurveyService({ rootDir: root })
+    const network = await service.importNetwork({ projectId: 'project-gnss-valid', expectedRevision: 0, idempotencyKey: 'survey-import-gnss-valid', networkType: 'gnss', network: {
+      projectId: 'project-gnss-valid', networkType: 'gnss',
+      knownPoints: [{ id: 'A', pointClass: 'known', x: 0, y: 0, known: true }, { id: 'B', pointClass: 'known', x: 10, y: 0, known: true }],
+      unknownPoints: [{ id: 'P', pointClass: 'unknown', x: 0, y: 9.9, known: false }],
+      observations: [
+        { id: 'g1', type: 'gnss-baseline', from: 'A', to: 'P', value: 10, unit: 'm', covariance: [0.000001] },
+        { id: 'g2', type: 'gnss-baseline', from: 'B', to: 'P', value: Math.sqrt(100 + 100), unit: 'm', covariance: [0.000001] }
+      ]
+    } })
+    const checked = service.validateNetwork(network.id, { expectedRevision: network.revision, idempotencyKey: 'survey-validate-gnss-valid' })
+    const output = service.createAdjustment({ networkId: network.id, expectedRevision: checked.revision, idempotencyKey: 'survey-adjust-gnss-valid' })
+    expect(output.run.status).toBe('completed')
+    expect(output.result.strategyId).toBe('gnss')
+    expect(output.result.closure.baseline).toBeDefined()
+    expect(output.result.solverDiagnostics?.rank).toBe(2)
+    service.close()
+  })
+
   it('imports a multi-sheet XLSX survey network with worksheet provenance', async () => {
     const root = await mkdtemp(join(tmpdir(), 'workwise-survey-xlsx-'))
     const service = new SurveyService({ rootDir: root })
@@ -113,6 +134,64 @@ describe('SurveyService', () => {
     const checked = service.validateNetwork(network.id, { expectedRevision: network.revision, idempotencyKey: 'survey-validate-closure-1' })
     expect(checked.qualityStatus).toBe('blocked')
     expect(checked.findings.some((item) => item.code === 'closure_exceeded')).toBe(true)
+    service.close()
+  })
+
+  it('does not silently use a generic plane strategy for an incomplete traverse', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'workwise-survey-traverse-'))
+    const service = new SurveyService({ rootDir: root })
+    const network = await service.importNetwork({
+      projectId: 'project-traverse', expectedRevision: 0, idempotencyKey: 'survey-import-traverse-1', networkType: 'traverse',
+      network: {
+        projectId: 'project-traverse', networkType: 'traverse',
+        knownPoints: [{ id: 'A', pointClass: 'known', x: 0, y: 0, known: true }],
+        unknownPoints: [{ id: 'P', pointClass: 'unknown', x: 0, y: 10, known: false }],
+        observations: [{ id: 'd1', type: 'distance', from: 'A', to: 'P', value: 10, unit: 'm' }]
+      }
+    })
+    const checked = service.validateNetwork(network.id, { expectedRevision: network.revision, idempotencyKey: 'survey-validate-traverse-1' })
+    const result = service.createAdjustment({ networkId: network.id, expectedRevision: checked.revision, idempotencyKey: 'survey-adjust-traverse-1' })
+    expect(result.run.status).toBe('needs_attention')
+    expect(result.result.strategyId).toBe('traverse')
+    expect(result.result.qualityFindings.some((item) => item.severity === 'blocking')).toBe(true)
+    service.close()
+  })
+
+  it('blocks coordinate transformation when no explicit parameters are supplied', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'workwise-survey-transform-missing-'))
+    const service = new SurveyService({ rootDir: root })
+    const network = await service.importNetwork({
+      projectId: 'project-transform-missing', expectedRevision: 0, idempotencyKey: 'survey-import-transform-missing', networkType: 'coordinate-transform',
+      network: {
+        projectId: 'project-transform-missing', networkType: 'coordinate-transform',
+        knownPoints: [{ id: 'A', pointClass: 'known', x: 0, y: 0, known: true }],
+        unknownPoints: [{ id: 'P', pointClass: 'unknown', x: 10, y: 20, known: false }],
+        observations: [{ id: 'd1', type: 'distance', from: 'A', to: 'P', value: Math.sqrt(500), unit: 'm' }]
+      }
+    })
+    const result = service.createAdjustment({ networkId: network.id, expectedRevision: network.revision, idempotencyKey: 'survey-adjust-transform-missing' })
+    expect(result.run.status).toBe('needs_attention')
+    expect(result.result.qualityFindings.some((item) => item.code === 'missing_datum')).toBe(true)
+    service.close()
+  })
+
+  it('fits a coordinate transformation from explicit source/target control pairs', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'workwise-survey-transform-fit-'))
+    const service = new SurveyService({ rootDir: root })
+    const network = await service.importNetwork({ projectId: 'project-transform-fit', expectedRevision: 0, idempotencyKey: 'survey-import-transform-fit', networkType: 'coordinate-transform', network: {
+      projectId: 'project-transform-fit', networkType: 'coordinate-transform',
+      knownPoints: [{ id: 'A', pointClass: 'known', x: 0, y: 0, known: true }, { id: 'B', pointClass: 'known', x: 10, y: 0, known: true }], unknownPoints: [],
+      observations: [
+        { id: 'pair-a', type: 'distance', from: 'A', to: 'B', value: 10, unit: 'm', targetX: 5, targetY: 7 },
+        { id: 'pair-b', type: 'distance', from: 'B', to: 'A', value: 10, unit: 'm', targetX: 15, targetY: 7 }
+      ]
+    } })
+    const output = service.createAdjustment({ networkId: network.id, expectedRevision: network.revision, idempotencyKey: 'survey-adjust-transform-fit' })
+    expect(output.run.status).toBe('completed')
+    expect(output.result.strategyId).toBe('coordinate-transform')
+    expect(output.result.closure.translationX).toBeCloseTo(5, 8)
+    expect(output.result.closure.translationY).toBeCloseTo(7, 8)
+    expect(output.result.solverDiagnostics?.rank).toBe(4)
     service.close()
   })
 })

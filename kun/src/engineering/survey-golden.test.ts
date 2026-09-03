@@ -36,13 +36,18 @@ describe('survey adjustment golden fixtures', () => {
       projectId: networkType, expectedRevision: 0, idempotencyKey: `${networkType}-import`, networkType, network: {
         knownPoints: [{ id: 'A', pointClass: 'known', x: 0, y: 0, known: true }, { id: 'B', pointClass: 'known', x: 10, y: 0, known: true }],
         unknownPoints: [{ id: 'P', pointClass: 'unknown', x: 0, y: 10, known: false }],
-        observations: [{ id: 'AP', type: 'distance', from: 'A', to: 'P', value: 10, unit: 'm' }, { id: 'BP', type: 'distance', from: 'B', to: 'P', value: Math.sqrt(200), unit: 'm' }]
+        observations: [
+          { id: 'AP', type: 'distance', from: 'A', to: 'P', value: 10, unit: 'm' },
+          { id: 'BP', type: 'distance', from: 'B', to: 'P', value: Math.sqrt(200), unit: 'm' },
+          ...(networkType === 'traverse' ? [{ id: 'AP-angle', type: 'angle' as const, from: 'A', to: 'P', value: 45, unit: 'deg' }] : [])
+        ]
       }
     })
     const checked = service.validateNetwork(network.id, { expectedRevision: network.revision, idempotencyKey: `${networkType}-validate` })
     const output = service.createAdjustment({ networkId: network.id, expectedRevision: checked.revision, idempotencyKey: `${networkType}-adjust` })
-    expect(output.result.observationCount).toBe(2)
+    expect(output.result.observationCount).toBe(networkType === 'traverse' ? 3 : 2)
     expect(output.result.algorithmVersion).toBe('workwise-survey-adjustment-1')
+    expect(output.result.strategyId).toBe(networkType)
     service.close()
   })
 
