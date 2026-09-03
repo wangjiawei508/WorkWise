@@ -225,12 +225,17 @@ describe('app-ipc-schemas', () => {
       ,{ path: '/v1/engineering/skills/catalog', method: 'GET' }
       ,{ path: '/v1/engineering/survey/networks/import', method: 'POST' }
       ,{ path: '/v1/engineering/survey/networks', method: 'GET' }
+      ,{ path: '/v1/engineering/survey/networks?projectId=project_1', method: 'GET' }
       ,{ path: '/v1/engineering/survey/networks/network_1/validate', method: 'POST' }
       ,{ path: '/v1/engineering/adjustments', method: 'POST' }
+      ,{ path: '/v1/engineering/adjustments?projectId=project_1', method: 'GET' }
       ,{ path: '/v1/engineering/adjustments/adjustment_1', method: 'GET' }
       ,{ path: '/v1/engineering/adjustments/adjustment_1/cancel', method: 'POST' }
       ,{ path: '/v1/engineering/adjustments/adjustment_1/resume', method: 'POST' }
       ,{ path: '/v1/engineering/adjustments/adjustment_1/preview', method: 'POST' }
+      ,{ path: '/v1/engineering/deformations', method: 'POST' }
+      ,{ path: '/v1/engineering/deformations?projectId=project_1', method: 'GET' }
+      ,{ path: '/v1/engineering/deformations/deformation_1', method: 'GET' }
     ]
     for (const request of accepted) {
       expect(runtimeRequestPayloadSchema.parse(request).path).toBe(request.path)
@@ -238,6 +243,18 @@ describe('app-ipc-schemas', () => {
     expect(() => runtimeRequestPayloadSchema.parse({
       path: '/v1/engineering/projects/project_1',
       method: 'DELETE'
+    })).toThrow(/runtime request path is not allowed/)
+    expect(() => runtimeRequestPayloadSchema.parse({
+      path: '/v1/engineering/adjustments?workspace=%2Ftmp',
+      method: 'GET'
+    })).toThrow(/runtime request path is not allowed/)
+    expect(() => runtimeRequestPayloadSchema.parse({
+      path: '/v1/engineering/adjustments?projectId=project_1&projectId=project_2',
+      method: 'GET'
+    })).toThrow(/runtime request path is not allowed/)
+    expect(() => runtimeRequestPayloadSchema.parse({
+      path: '/v1/engineering/deformations?projectId=',
+      method: 'GET'
     })).toThrow(/runtime request path is not allowed/)
   })
 

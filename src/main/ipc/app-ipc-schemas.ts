@@ -75,6 +75,8 @@ import {
   ,RUNTIME_ENGINEERING_ADJUSTMENT_CANCEL_TEMPLATE
   ,RUNTIME_ENGINEERING_ADJUSTMENT_RESUME_TEMPLATE
   ,RUNTIME_ENGINEERING_ADJUSTMENT_PREVIEW_TEMPLATE
+  ,RUNTIME_ENGINEERING_DEFORMATIONS_TEMPLATE
+  ,RUNTIME_ENGINEERING_DEFORMATION_TEMPLATE
 } from '../../shared/runtime-endpoints'
 import {
   CLAW_MODEL_IDS,
@@ -154,11 +156,13 @@ interface EndpointTemplate {
   /** Compiled path matcher. */
   match(path: string): boolean
   allowedMethods: readonly string[]
+  allowedQueryParams?: ReadonlySet<string>
 }
 
 function compileEndpoint(
   template: string,
-  allowedMethods: readonly string[]
+  allowedMethods: readonly string[],
+  allowedQueryParams?: readonly string[]
 ): EndpointTemplate {
   // Build a regex from the template by escaping the literal parts and
   // substituting the `{id}` / `{turn}` placeholders with `[^/]+`. The
@@ -168,8 +172,20 @@ function compileEndpoint(
   const regex = new RegExp(`^${pattern}$`)
   return {
     match: (path: string) => regex.test(path),
-    allowedMethods
+    allowedMethods,
+    ...(allowedQueryParams ? { allowedQueryParams: new Set(allowedQueryParams) } : {})
   }
+}
+
+function hasAllowedQuery(url: URL, endpoint: EndpointTemplate): boolean {
+  if (!endpoint.allowedQueryParams) return true
+  const seen = new Set<string>()
+  for (const [key, value] of url.searchParams.entries()) {
+    if (!endpoint.allowedQueryParams.has(key) || seen.has(key)) return false
+    if (!value.trim() || value.length > MAX_ID_LENGTH) return false
+    seen.add(key)
+  }
+  return true
 }
 
 const ENDPOINTS: readonly EndpointTemplate[] = [
@@ -228,13 +244,15 @@ const ENDPOINTS: readonly EndpointTemplate[] = [
   compileEndpoint(RUNTIME_ENGINEERING_CAPABILITIES_TEMPLATE, ['GET']),
   compileEndpoint(RUNTIME_ENGINEERING_SKILLS_CATALOG_TEMPLATE, ['GET']),
   compileEndpoint(RUNTIME_ENGINEERING_SURVEY_NETWORK_IMPORT_TEMPLATE, ['POST']),
-  compileEndpoint(RUNTIME_ENGINEERING_SURVEY_NETWORKS_TEMPLATE, ['GET']),
+  compileEndpoint(RUNTIME_ENGINEERING_SURVEY_NETWORKS_TEMPLATE, ['GET'], ['projectId']),
   compileEndpoint(RUNTIME_ENGINEERING_SURVEY_NETWORK_VALIDATE_TEMPLATE, ['POST']),
-  compileEndpoint(RUNTIME_ENGINEERING_ADJUSTMENTS_TEMPLATE, ['POST']),
+  compileEndpoint(RUNTIME_ENGINEERING_ADJUSTMENTS_TEMPLATE, ['GET', 'POST'], ['projectId']),
   compileEndpoint(RUNTIME_ENGINEERING_ADJUSTMENT_TEMPLATE, ['GET']),
   compileEndpoint(RUNTIME_ENGINEERING_ADJUSTMENT_CANCEL_TEMPLATE, ['POST']),
   compileEndpoint(RUNTIME_ENGINEERING_ADJUSTMENT_RESUME_TEMPLATE, ['POST']),
   compileEndpoint(RUNTIME_ENGINEERING_ADJUSTMENT_PREVIEW_TEMPLATE, ['POST']),
+  compileEndpoint(RUNTIME_ENGINEERING_DEFORMATIONS_TEMPLATE, ['GET', 'POST'], ['projectId']),
+  compileEndpoint(RUNTIME_ENGINEERING_DEFORMATION_TEMPLATE, ['GET']),
   compileEndpoint(RUNTIME_MEMORY_TEMPLATE, ['GET', 'POST']),
   compileEndpoint(RUNTIME_MEMORY_DIAGNOSTICS_TEMPLATE, ['GET']),
   compileEndpoint(RUNTIME_MEMORY_RECORD_TEMPLATE, ['PATCH', 'DELETE']),
@@ -265,7 +283,7 @@ function isAllowedRuntimeRequest(value: { path: string; method?: string }): bool
     const method = value.method ?? 'GET'
     for (const endpoint of ENDPOINTS) {
       if (endpoint.match(path)) {
-        return endpoint.allowedMethods.includes(method)
+        return endpoint.allowedMethods.includes(method) && hasAllowedQuery(url, endpoint)
       }
     }
     return false

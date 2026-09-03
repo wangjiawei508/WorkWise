@@ -83,6 +83,8 @@ export const RUNTIME_ENGINEERING_ADJUSTMENT_TEMPLATE = '/v1/engineering/adjustme
 export const RUNTIME_ENGINEERING_ADJUSTMENT_CANCEL_TEMPLATE = '/v1/engineering/adjustments/{id}/cancel'
 export const RUNTIME_ENGINEERING_ADJUSTMENT_RESUME_TEMPLATE = '/v1/engineering/adjustments/{id}/resume'
 export const RUNTIME_ENGINEERING_ADJUSTMENT_PREVIEW_TEMPLATE = '/v1/engineering/adjustments/{id}/preview'
+export const RUNTIME_ENGINEERING_DEFORMATIONS_TEMPLATE = '/v1/engineering/deformations'
+export const RUNTIME_ENGINEERING_DEFORMATION_TEMPLATE = '/v1/engineering/deformations/{id}'
 
 export const RUNTIME_MEMORY_PATH = '/v1/memory'
 export const RUNTIME_MEMORY_TEMPLATE = '/v1/memory'

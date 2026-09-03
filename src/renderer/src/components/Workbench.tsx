@@ -1,5 +1,5 @@
 import type { ReactElement } from 'react'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useShallow } from 'zustand/react/shallow'
 import type { ApprovalPolicy, ConversationViewMode, SandboxMode } from '@shared/app-settings'
@@ -85,6 +85,11 @@ import { readFocusModePreference, writeFocusModePreference } from '../lib/focus-
 import { WorkbenchRegistry } from './workbench-registry'
 import { WorkbenchPanelLoader } from './workbench-panel-loader'
 import { builtinRightPanelLoaders } from './workbench-panel-loaders'
+import {
+  createWorkbenchComposerDrafts,
+  setWorkbenchComposerDraft,
+  workbenchComposerScope
+} from './workbench-composer-drafts'
 import {
   buildComposerFileContextPrompt,
   runtimeWorkspaceReferences,
@@ -413,7 +418,12 @@ export function Workbench(): ReactElement {
       sidePanel: s.sidePanel
     }))
   )
-  const [input, setInput] = useState('')
+  const composerScope = workbenchComposerScope(route)
+  const [composerDrafts, setComposerDrafts] = useState(createWorkbenchComposerDrafts)
+  const input = composerDrafts[composerScope]
+  const setInput = useCallback((value: string): void => {
+    setComposerDrafts((drafts) => setWorkbenchComposerDraft(drafts, composerScope, value))
+  }, [composerScope])
   const [skillCatalogGeneration, setSkillCatalogGeneration] = useState(0)
   const [mode, setMode] = useState<'plan' | 'agent'>('agent')
   const [composerReasoningEffort, setComposerReasoningEffort] =
@@ -469,7 +479,6 @@ export function Workbench(): ReactElement {
     [keyboardShortcuts]
   )
 
-  const draftByThread = useRef<Record<string, string>>({})
   const prevThreadId = useRef<string | null>(null)
   const inputRef = useRef('')
   const dismissedSddDraftWorkspacesRef = useRef<Set<string>>(new Set())
