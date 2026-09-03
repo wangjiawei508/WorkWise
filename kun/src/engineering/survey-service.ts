@@ -166,7 +166,7 @@ async function parseNetworkPayload(name: string, bytes: Buffer, projectId: strin
     const rawValue = row.value || row.heightDiff || row.distance || row.angle || row.direction
     const value = ['angle', 'direction', 'zenith'].includes(type) ? angleValue(rawValue) : asNumber(rawValue)
     if (value === undefined) throw new Error(`invalid observation value at row ${index + 2}`)
-    return SurveyObservationV1.parse({ id: row.id || `obs_${index + 1}`, type, from: row.from || row.start || row.station, to: row.to || row.end || row.target, station: row.station, target: row.target, left: row.left, right: row.right, value, unit: row.unit || (type === 'height-difference' ? 'm' : type === 'distance' ? 'm' : 'deg'), sigma: asNumber(row.sigma), covariance: row.covariance ? row.covariance.split(/[;\s]+/).map(Number).filter(Number.isFinite) : undefined, targetX: asNumber(row.targetX || row.target_x), targetY: asNumber(row.targetY || row.target_y), targetHeight: asNumber(row.targetHeight || row.target_h), routeLength: asNumber(row.routeLength), sourceRow: index + 2, sourceLocator: row.worksheet ? `${row.worksheet}!${index + 2}` : undefined })
+    return SurveyObservationV1.parse({ id: row.id || `obs_${index + 1}`, type, from: row.from || row.start || row.station, to: row.to || row.end || row.target, station: row.station, target: row.target, left: row.left, right: row.right, value, unit: row.unit || (type === 'height-difference' ? 'm' : type === 'distance' ? 'm' : 'deg'), sigma: asNumber(row.sigma), sigmaUnit: row.sigmaUnit || row.sigma_unit || undefined, covariance: row.covariance ? row.covariance.split(/[;\s]+/).map(Number).filter(Number.isFinite) : undefined, targetX: asNumber(row.targetX || row.target_x), targetY: asNumber(row.targetY || row.target_y), targetHeight: asNumber(row.targetHeight || row.target_h), routeLength: asNumber(row.routeLength), sourceRow: index + 2, sourceLocator: row.worksheet ? `${row.worksheet}!${index + 2}` : undefined })
   })
   const ids = [...new Set(observations.flatMap(observationEndpointIds))]
   const points = ids.map((id) => SurveyPointV1.parse({ id, pointClass: 'unknown', known: false }))
@@ -206,6 +206,28 @@ function normalizeObservationValue(observation: SurveyObservationV1): number {
   return observation.value
 }
 
+function normalizedResidualUnit(observation: SurveyObservationV1): 'm' | 'rad' {
+  return observation.type === 'direction' || observation.type === 'angle' || observation.type === 'zenith' ? 'rad' : 'm'
+}
+
+function inferredClosureUnits(closure: Record<string, number>): Record<string, 'm' | 'rad' | 'ppm' | 'ratio'> {
+  const units: Record<string, 'm' | 'rad' | 'ppm' | 'ratio'> = {}
+  for (const key of Object.keys(closure)) {
+    if (key === 'rotationRad' || key === 'angular') units[key] = 'rad'
+    else if (key === 'scalePpm') units[key] = 'ppm'
+    else if (key === 'relativeClosure') units[key] = 'ratio'
+    else units[key] = 'm'
+  }
+  return units
+}
+
+function normalizeLengthUncertainty(value: number, unit: string): number {
+  const lower = unit.toLowerCase()
+  if (lower === 'mm') return value / 1000
+  if (lower === 'km') return value * 1000
+  return value
+}
+
 function angleRadians(value: number, unit: string): number {
   const lower = unit.toLowerCase()
   if (lower.includes('rad')) return value
@@ -227,7 +249,8 @@ function buildLevelingResult(network: SurveyNetworkV1, run: AdjustmentRunV1, now
     const fromIndex = index.get(observation.from); const toIndex = index.get(observation.to)
     if (fromIndex !== undefined) coefficients[fromIndex] = -1
     if (toIndex !== undefined) coefficients[toIndex] = 1
-    const weight = 1 / ((observation.sigma ?? observation.routeLength ?? 1) ** 2)
+    const sigma = observation.sigma === undefined ? (observation.routeLength ?? 1) : normalizeLengthUncertainty(observation.sigma, observation.sigmaUnit ?? observation.unit)
+    const weight = 1 / (sigma ** 2)
     rows.push({ coefficients, misclosure: normalizeObservationValue(observation) - (toApprox - fromApprox), weight, observation })
   }
   const solved = weightedLeastSquares(rows)
@@ -239,11 +262,11 @@ function buildLevelingResult(network: SurveyNetworkV1, run: AdjustmentRunV1, now
     return { id: point.id, ...(point.height === undefined ? {} : { height: point.height }), ...(i === undefined ? {} : { correctionHeight: correction, height: (point.height ?? 0) + correction, standardError: Math.sqrt(Math.max(0, (q ?? 0) * solved.varianceFactor)), covariance: solved.covariance[i] }) }
   })
   const displacements = [...network.knownPoints, ...network.unknownPoints].map((point) => displacement(point, pointResults.find((candidate) => candidate.id === point.id) ?? {}))
-  const observationResults = rows.map((row, i) => ({ observationId: row.observation.id, correction: solved.residuals[i]!, residual: solved.residuals[i]!, standardizedResidual: Math.abs(solved.residuals[i]!) / Math.max(1e-12, Math.sqrt(1 / row.weight)), outlier: Math.abs(solved.residuals[i]!) / Math.max(1e-12, Math.sqrt(1 / row.weight)) > 3, sourceRow: row.observation.sourceRow }))
+  const observationResults = rows.map((row, i) => ({ observationId: row.observation.id, correction: solved.residuals[i]!, residual: solved.residuals[i]!, unit: 'm' as const, standardizedResidual: Math.abs(solved.residuals[i]!) / Math.max(1e-12, Math.sqrt(1 / row.weight)), outlier: Math.abs(solved.residuals[i]!) / Math.max(1e-12, Math.sqrt(1 / row.weight)) > 3, sourceRow: row.observation.sourceRow }))
   const outlierFindings = observationResults.filter((item) => item.outlier).map((item) => finding(network.id, 'outlier_candidate', 'warning', `观测 ${item.observationId} 的标准化残差超过 3σ`, '复核原始观测、仪器和录入值', item.sourceRow, nowIso))
   const maxStd = pointResults.reduce((max, point) => Math.max(max, point.standardError ?? 0), 0)
   const closureValue = rows.reduce((sum, row) => sum + normalizeObservationValue(row.observation), 0)
-  return AdjustmentResultV1.parse({ schemaVersion: 1, id: `adjustment_result_${randomUUID()}`, runId: run.id, networkId: network.id, observationCount: rows.length, unknownCount: unknownIds.length, redundancy: solved.dof, degreesOfFreedom: solved.dof, closure: { heightDifference: closureValue }, unitWeightStdDev: Math.sqrt(solved.varianceFactor), varianceFactor: solved.varianceFactor, points: pointResults, observations: observationResults, displacements, covariance: solved.covariance, precision: { maxPointStdDev: maxStd, passed: outlierFindings.length === 0 }, qualityFindings: [...baseFindings, ...outlierFindings], inputHash: run.inputHash, algorithmVersion: ALGORITHM_VERSION, validation: outlierFindings.length ? 'invalid' : 'valid', createdAt: nowIso() })
+  return AdjustmentResultV1.parse({ schemaVersion: 1, id: `adjustment_result_${randomUUID()}`, runId: run.id, networkId: network.id, observationCount: rows.length, unknownCount: unknownIds.length, redundancy: solved.dof, degreesOfFreedom: solved.dof, linearUnit: 'm', angularUnit: 'rad', closure: { heightDifference: closureValue }, closureUnits: { heightDifference: 'm' }, unitWeightStdDev: Math.sqrt(solved.varianceFactor), varianceFactor: solved.varianceFactor, points: pointResults, observations: observationResults, displacements, covariance: solved.covariance, precision: { maxPointStdDev: maxStd, passed: outlierFindings.length === 0 }, qualityFindings: [...baseFindings, ...outlierFindings], inputHash: run.inputHash, algorithmVersion: ALGORITHM_VERSION, validation: outlierFindings.length ? 'invalid' : 'valid', createdAt: nowIso() })
 }
 
 function coordinateOf(point: SurveyPointV1): { x: number; y: number } { return { x: point.x ?? 0, y: point.y ?? 0 } }
@@ -287,8 +310,10 @@ function buildCoordinateNetworkResult(network: SurveyNetworkV1, run: AdjustmentR
     let misclosure = observed - computed
     if (observation.type !== 'distance' && observation.type !== 'slope-distance') while (misclosure > Math.PI) misclosure -= 2 * Math.PI
     if (observation.type !== 'distance' && observation.type !== 'slope-distance') while (misclosure < -Math.PI) misclosure += 2 * Math.PI
-    const sigma = observation.sigma ?? (observation.type === 'distance' ? 0.002 : 2 / 206264.806247)
-    const sigmaValue = observation.type === 'distance' || observation.type === 'slope-distance' ? sigma : angleRadians(sigma, 'arcsec')
+    const isLinear = observation.type === 'distance' || observation.type === 'slope-distance'
+    const sigmaValue = isLinear
+      ? normalizeLengthUncertainty(observation.sigma ?? 0.002, observation.sigmaUnit ?? observation.unit)
+      : observation.sigma === undefined ? 2 / 206264.806247 : angleRadians(observation.sigma, observation.sigmaUnit ?? 'arcsec')
     rows.push({ coefficients, misclosure, weight: 1 / Math.max(1e-18, sigmaValue * sigmaValue), observation })
   }
   const solved = weightedLeastSquares(rows)
@@ -301,10 +326,17 @@ function buildCoordinateNetworkResult(network: SurveyNetworkV1, run: AdjustmentR
     return { id: point.id, x: coordinate.x + correctionX, y: coordinate.y + correctionY, correctionX, correctionY, standardError: Math.sqrt(Math.max(0, (qx + qy) * solved.varianceFactor / 2)), covariance: [...(solved.covariance[ix] ?? []), ...(solved.covariance[iy] ?? [])] }
   })
   const displacements = [...network.knownPoints, ...network.unknownPoints].map((point) => displacement(point, pointResults.find((candidate) => candidate.id === point.id) ?? {}))
-  const observationResults = rows.map((row, i) => { const standardized = Math.abs(solved.residuals[i]!) / Math.max(1e-12, Math.sqrt(1 / row.weight)); return { observationId: row.observation.id, correction: solved.residuals[i]!, residual: solved.residuals[i]!, standardizedResidual: standardized, outlier: standardized > 3, sourceRow: row.observation.sourceRow } })
+  const observationResults = rows.map((row, i) => { const standardized = Math.abs(solved.residuals[i]!) / Math.max(1e-12, Math.sqrt(1 / row.weight)); return { observationId: row.observation.id, correction: solved.residuals[i]!, residual: solved.residuals[i]!, unit: normalizedResidualUnit(row.observation), standardizedResidual: standardized, outlier: standardized > 3, sourceRow: row.observation.sourceRow } })
   const outlierFindings = observationResults.filter((item) => item.outlier).map((item) => finding(network.id, 'outlier_candidate', 'warning', `观测 ${item.observationId} 的标准化残差超过 3σ`, '复核原始观测和定向参数', item.sourceRow, nowIso))
   const maxStd = pointResults.reduce((max, point) => Math.max(max, point.standardError ?? 0), 0)
-  return AdjustmentResultV1.parse({ schemaVersion: 1, id: `adjustment_result_${randomUUID()}`, runId: run.id, networkId: network.id, observationCount: rows.length, unknownCount: unknownIds.length * 2, redundancy: solved.dof, degreesOfFreedom: solved.dof, closure: { horizontal: Math.sqrt(observationResults.reduce((sum, item) => sum + item.residual ** 2, 0)) }, unitWeightStdDev: Math.sqrt(solved.varianceFactor), varianceFactor: solved.varianceFactor, points: pointResults, observations: observationResults, displacements, covariance: solved.covariance, precision: { maxPointStdDev: maxStd, passed: outlierFindings.length === 0 }, qualityFindings: [...baseFindings, ...outlierFindings], inputHash: run.inputHash, algorithmVersion: ALGORITHM_VERSION, validation: outlierFindings.length ? 'invalid' : 'valid', solverDiagnostics: { iterations: 1, rank: unknownIds.length * 2 }, createdAt: nowIso() })
+  const linearResiduals = observationResults.filter((item) => item.unit === 'm')
+  const angularResiduals = observationResults.filter((item) => item.unit === 'rad')
+  const closure = {
+    ...(linearResiduals.length ? { horizontal: Math.sqrt(linearResiduals.reduce((sum, item) => sum + item.residual ** 2, 0)) } : {}),
+    ...(angularResiduals.length ? { angular: Math.sqrt(angularResiduals.reduce((sum, item) => sum + item.residual ** 2, 0)) } : {})
+  }
+  const closureUnits = { ...(linearResiduals.length ? { horizontal: 'm' as const } : {}), ...(angularResiduals.length ? { angular: 'rad' as const } : {}) }
+  return AdjustmentResultV1.parse({ schemaVersion: 1, id: `adjustment_result_${randomUUID()}`, runId: run.id, networkId: network.id, observationCount: rows.length, unknownCount: unknownIds.length * 2, redundancy: solved.dof, degreesOfFreedom: solved.dof, linearUnit: 'm', angularUnit: 'rad', closure, closureUnits, unitWeightStdDev: Math.sqrt(solved.varianceFactor), varianceFactor: solved.varianceFactor, points: pointResults, observations: observationResults, displacements, covariance: solved.covariance, precision: { maxPointStdDev: maxStd, passed: outlierFindings.length === 0 }, qualityFindings: [...baseFindings, ...outlierFindings], inputHash: run.inputHash, algorithmVersion: ALGORITHM_VERSION, validation: outlierFindings.length ? 'invalid' : 'valid', solverDiagnostics: { iterations: 1, rank: unknownIds.length * 2 }, createdAt: nowIso() })
 }
 
 /**
@@ -334,7 +366,8 @@ function buildGnssResult(network: SurveyNetworkV1, run: AdjustmentRunV1, nowIso:
   for (const observation of baselines) {
     const fromId = observation.from; const toId = observation.to
     const from = fromId ? points.get(fromId) : undefined; const to = toId ? points.get(toId) : undefined
-    const sigma = observation.sigma ?? (observation.covariance?.[0] && observation.covariance[0] > 0 ? Math.sqrt(observation.covariance[0]) : undefined)
+    const rawSigma = observation.sigma ?? (observation.covariance?.[0] && observation.covariance[0] > 0 ? Math.sqrt(observation.covariance[0]) : undefined)
+    const sigma = rawSigma === undefined ? undefined : normalizeLengthUncertainty(rawSigma, observation.sigmaUnit ?? observation.unit)
     if (!from || !to || from.x === undefined || from.y === undefined || to.x === undefined || to.y === undefined || !sigma || !Number.isFinite(sigma) || sigma <= 0) {
       return invalidAdjustmentResult(network, run, baseFindings.concat(finding(network.id, 'missing_covariance', 'blocking', `GNSS 基线 ${observation.id} 缺少端点坐标或正定协方差`, '补充固定基准、点坐标和标准基线协方差', observation.sourceRow, nowIso)), nowIso)
     }
@@ -359,13 +392,13 @@ function buildGnssResult(network: SurveyNetworkV1, run: AdjustmentRunV1, nowIso:
   })
   const observationResults = rows.map((row, i) => {
     const sigma = Math.sqrt(1 / row.weight); const residual = solved.residuals[i]!; const standardized = Math.abs(residual) / Math.max(1e-12, sigma)
-    return { observationId: row.observation.id, correction: residual, residual, standardizedResidual: standardized, outlier: standardized > 3, sourceRow: row.observation.sourceRow }
+    return { observationId: row.observation.id, correction: residual, residual, unit: 'm' as const, standardizedResidual: standardized, outlier: standardized > 3, sourceRow: row.observation.sourceRow }
   })
   const outlierFindings = observationResults.filter((item) => item.outlier).map((item) => finding(network.id, 'outlier_candidate', 'warning', `GNSS 基线 ${item.observationId} 的标准化残差超过 3σ`, '复核基线解算、天线高和协方差', item.sourceRow, nowIso))
   const closure = Math.sqrt(observationResults.reduce((sum, item) => sum + item.residual ** 2, 0))
   const maxStd = pointResults.reduce((max, point) => Math.max(max, point.standardError ?? 0), 0)
   const displacements = [...network.knownPoints, ...network.unknownPoints].map((point) => displacement(point, pointResults.find((candidate) => candidate.id === point.id) ?? {}))
-  return AdjustmentResultV1.parse({ schemaVersion: 1, id: `adjustment_result_${randomUUID()}`, runId: run.id, networkId: network.id, observationCount: rows.length, unknownCount: unknownIds.length * 2, redundancy: solved.dof, degreesOfFreedom: solved.dof, closure: { baseline: closure }, unitWeightStdDev: Math.sqrt(solved.varianceFactor), varianceFactor: solved.varianceFactor, points: pointResults, observations: observationResults, displacements, covariance: solved.covariance, precision: { maxPointStdDev: maxStd, passed: outlierFindings.length === 0 }, qualityFindings: baseFindings.concat(outlierFindings), inputHash: run.inputHash, algorithmVersion: ALGORITHM_VERSION, validation: outlierFindings.length ? 'invalid' : 'valid', solverDiagnostics: { iterations: 1, rank: unknownIds.length * 2 }, createdAt: nowIso() })
+  return AdjustmentResultV1.parse({ schemaVersion: 1, id: `adjustment_result_${randomUUID()}`, runId: run.id, networkId: network.id, observationCount: rows.length, unknownCount: unknownIds.length * 2, redundancy: solved.dof, degreesOfFreedom: solved.dof, linearUnit: 'm', angularUnit: 'rad', closure: { baseline: closure }, closureUnits: { baseline: 'm' }, unitWeightStdDev: Math.sqrt(solved.varianceFactor), varianceFactor: solved.varianceFactor, points: pointResults, observations: observationResults, displacements, covariance: solved.covariance, precision: { maxPointStdDev: maxStd, passed: outlierFindings.length === 0 }, qualityFindings: baseFindings.concat(outlierFindings), inputHash: run.inputHash, algorithmVersion: ALGORITHM_VERSION, validation: outlierFindings.length ? 'invalid' : 'valid', solverDiagnostics: { iterations: 1, rank: unknownIds.length * 2 }, createdAt: nowIso() })
 }
 
 function buildStrategyInputError(network: SurveyNetworkV1, run: AdjustmentRunV1, message: string, suggestion: string, nowIso: () => string): AdjustmentResultV1 {
@@ -403,7 +436,7 @@ function buildTraverseResult(network: SurveyNetworkV1, run: AdjustmentRunV1, now
   const targetY = start && end && start.y !== undefined && end.y !== undefined ? end.y - start.y : 0
   const fx = sumX - targetX; const fy = sumY - targetY
   const relative = totalLength > 0 ? Math.hypot(fx, fy) / totalLength : 0
-  return AdjustmentResultV1.parse({ ...result, closure: { ...result.closure, fx, fy, relativeClosure: relative }, solverDiagnostics: { ...(result.solverDiagnostics ?? {}), iterations: 1 } })
+  return AdjustmentResultV1.parse({ ...result, closure: { ...result.closure, fx, fy, relativeClosure: relative }, closureUnits: { ...result.closureUnits, fx: 'm', fy: 'm', relativeClosure: 'ratio' }, solverDiagnostics: { ...(result.solverDiagnostics ?? {}), iterations: 1 } })
 }
 
 function buildTriangulationResult(network: SurveyNetworkV1, run: AdjustmentRunV1, nowIso: () => string): AdjustmentResultV1 {
@@ -485,8 +518,8 @@ function buildCoordinateTransformResult(network: SurveyNetworkV1, run: Adjustmen
     const adjusted = points.find((candidate) => candidate.id === point.id) as { x?: number; y?: number; height?: number } | undefined
     return displacement(point, adjusted ?? {})
   })
-  const observations = network.observations.map((observation) => ({ observationId: observation.id, correction: 0, residual: 0, standardizedResidual: 0, outlier: false, sourceRow: observation.sourceRow }))
-  return AdjustmentResultV1.parse({ schemaVersion: 1, id: `adjustment_result_${randomUUID()}`, runId: run.id, networkId: network.id, observationCount: network.observations.length, unknownCount: network.unknownPoints.length * 2, redundancy: 0, degreesOfFreedom: 0, closure: { translationX: resolvedTx, translationY: resolvedTy, scalePpm: (scale - 1) * 1e6, rotationRad: rz }, unitWeightStdDev: 0, varianceFactor: 0, points, observations, displacements, precision: { maxPointStdDev: 0, passed: true }, qualityFindings: network.findings.filter((item) => item.status === 'open'), inputHash: run.inputHash, algorithmVersion: ALGORITHM_VERSION, validation: 'valid', solverDiagnostics: { iterations: hasExplicitParameter ? 0 : 1, rank: hasExplicitParameter ? undefined : 4 }, createdAt: nowIso() })
+  const observations = network.observations.map((observation) => ({ observationId: observation.id, correction: 0, residual: 0, unit: normalizedResidualUnit(observation), standardizedResidual: 0, outlier: false, sourceRow: observation.sourceRow }))
+  return AdjustmentResultV1.parse({ schemaVersion: 1, id: `adjustment_result_${randomUUID()}`, runId: run.id, networkId: network.id, observationCount: network.observations.length, unknownCount: network.unknownPoints.length * 2, redundancy: 0, degreesOfFreedom: 0, linearUnit: 'm', angularUnit: 'rad', closure: { translationX: resolvedTx, translationY: resolvedTy, scalePpm: (scale - 1) * 1e6, rotationRad: rz }, closureUnits: { translationX: 'm', translationY: 'm', scalePpm: 'ppm', rotationRad: 'rad' }, unitWeightStdDev: 0, varianceFactor: 0, points, observations, displacements, precision: { maxPointStdDev: 0, passed: true }, qualityFindings: network.findings.filter((item) => item.status === 'open'), inputHash: run.inputHash, algorithmVersion: ALGORITHM_VERSION, validation: 'valid', solverDiagnostics: { iterations: hasExplicitParameter ? 0 : 1, rank: hasExplicitParameter ? undefined : 4 }, createdAt: nowIso() })
 }
 
 export class SurveyRevisionConflictError extends Error { readonly code = 'survey_stale_request' }
@@ -585,7 +618,7 @@ export class SurveyService {
   createAdjustment(input: unknown): { run: AdjustmentRunV1; result: AdjustmentResultV1 } {
     const req = AdjustmentRequestV1.parse(input); const network = this.getNetwork(req.networkId); if (!network) throw new Error(`survey network not found: ${req.networkId}`)
     if (req.expectedRevision !== 0 && req.expectedRevision !== network.revision) throw new SurveyRevisionConflictError(`network revision conflict: expected ${req.expectedRevision}, actual ${network.revision}`)
-    const replay = this.replay(req.idempotencyKey); if (replay) return replay as { run: AdjustmentRunV1; result: AdjustmentResultV1 }
+    const replay = this.replay(req.idempotencyKey); if (replay) return this.normalizeStoredAdjustment(replay)
     const project = this.options.getProject?.(network.projectId)
     const inputHash = createHash('sha256').update(JSON.stringify(network)).digest('hex')
     const run = AdjustmentRunV1.parse({ schemaVersion: 1, id: `adjustment_${randomUUID()}`, projectId: network.projectId, networkId: network.id, method: req.method ?? (network.networkType === 'coordinate-transform' ? 'helmert-seven-parameter' : 'weighted-least-squares'), constraint: req.constraint ?? 'fixed-known-points', algorithmVersion: ALGORITHM_VERSION, inputHash, status: 'running', revision: 1, idempotencyKey: req.idempotencyKey, createdAt: this.nowIso(), updatedAt: this.nowIso() })
@@ -619,13 +652,29 @@ export class SurveyService {
 
   getAdjustment(id: string): StoredAdjustment | null {
     const row = this.db.prepare('SELECT data_json FROM survey_adjustments WHERE id = ? OR json_extract(data_json, \'$.result.id\') = ?').get(id, id) as { data_json: string } | undefined
-    return row ? JSON.parse(row.data_json) as StoredAdjustment : null
+    return row ? this.normalizeStoredAdjustment(JSON.parse(row.data_json)) : null
   }
   cancelAdjustment(id: string, input: unknown): AdjustmentRunV1 { const req = AdjustmentMutationRequestV1.parse(input); const stored = this.getAdjustment(id); if (!stored) throw new Error(`adjustment not found: ${id}`); if (req.expectedRevision !== 0 && req.expectedRevision !== stored.run.revision) throw new SurveyRevisionConflictError('adjustment revision conflict'); if (stored.run.status === 'completed') return stored.run; const next = AdjustmentRunV1.parse({ ...stored.run, status: 'cancelled', revision: stored.run.revision + 1, updatedAt: this.nowIso(), cancellationReason: req.reason ?? 'cancelled by user' }); this.saveAdjustment({ ...stored, run: next }); return next }
   resumeAdjustment(id: string, input: unknown): StoredAdjustment { const req = AdjustmentMutationRequestV1.parse(input); const stored = this.getAdjustment(id); if (!stored) throw new Error(`adjustment not found: ${id}`); if (req.expectedRevision !== 0 && req.expectedRevision !== stored.run.revision) throw new SurveyRevisionConflictError('adjustment revision conflict'); if (!['cancelled', 'failed', 'needs_attention'].includes(stored.run.status)) return stored; const network = this.getNetwork(stored.run.networkId); if (!network) throw new Error(`survey network not found: ${stored.run.networkId}`); return this.createAdjustment({ networkId: network.id, expectedRevision: network.revision, idempotencyKey: `${stored.run.id}-resume-${stored.run.resumeCount + 1}`, method: stored.run.method, constraint: stored.run.constraint }) }
   previewAdjustment(id: string): StoredAdjustment | null { return this.getAdjustment(id) }
 
   private saveNetwork(network: SurveyNetworkV1): void { this.db.prepare('UPDATE survey_networks SET revision = ?, data_json = ?, updated_at = ? WHERE id = ?').run(network.revision, JSON.stringify(network), network.updatedAt, network.id) }
+  private normalizeStoredAdjustment(value: unknown): StoredAdjustment {
+    const raw = value as { run?: unknown; result?: unknown }
+    const run = AdjustmentRunV1.parse(raw.run)
+    if (!raw.result) return { run }
+    const network = this.getNetwork(run.networkId)
+    const observationUnits = new Map(network?.observations.map((observation) => [observation.id, normalizedResidualUnit(observation)]) ?? [])
+    const resultInput = raw.result as Record<string, unknown>
+    const closure = resultInput.closure && typeof resultInput.closure === 'object' ? resultInput.closure as Record<string, number> : {}
+    const observations = Array.isArray(resultInput.observations)
+      ? resultInput.observations.map((item) => {
+          const observation = item as Record<string, unknown>
+          return observation.unit ? observation : { ...observation, unit: observationUnits.get(String(observation.observationId)) }
+        })
+      : []
+    return { run, result: AdjustmentResultV1.parse({ ...resultInput, observations, closureUnits: resultInput.closureUnits ?? inferredClosureUnits(closure) }) }
+  }
   private saveAdjustment(value: StoredAdjustment): void { this.db.prepare('UPDATE survey_adjustments SET data_json = ?, updated_at = ? WHERE id = ?').run(JSON.stringify(value), value.run.updatedAt, value.run.id) }
   private replay(key: string): unknown | null { const row = this.db.prepare('SELECT result_json FROM survey_idempotency WHERE key = ?').get(key) as { result_json: string } | undefined; return row ? JSON.parse(row.result_json) : null }
   private remember(key: string, value: unknown): void { this.db.prepare('INSERT OR IGNORE INTO survey_idempotency(key, result_json, created_at) VALUES (?, ?, ?)').run(key, JSON.stringify(value), this.nowIso()) }

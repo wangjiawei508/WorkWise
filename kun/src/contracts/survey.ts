@@ -63,6 +63,9 @@ export const SurveyObservationV1 = z.object({
   targetY: z.number().finite().optional(),
   targetHeight: z.number().finite().optional(),
   sigma: z.number().positive().optional(),
+  /** Unit of sigma. Length observations default to the observation unit;
+   * angular observations default to arc-seconds for legacy compatibility. */
+  sigmaUnit: z.string().min(1).optional(),
   covariance: z.array(z.number().finite()).optional(),
   routeLength: z.number().positive().optional(),
   face: z.enum(['left', 'right', 'single']).optional(),
@@ -159,6 +162,9 @@ export const AdjustmentObservationResultV1 = z.object({
   observationId: z.string().min(1),
   correction: z.number().finite(),
   residual: z.number().finite(),
+  /** Corrections and residuals are emitted in canonical Runtime units.
+   * Optional for adjustment records created before 0.5.0. */
+  unit: z.enum(['m', 'rad']).optional(),
   standardizedResidual: z.number().finite().optional(),
   outlier: z.boolean().default(false),
   sourceRow: z.number().int().positive().optional()
@@ -183,7 +189,15 @@ export const AdjustmentResultV1 = z.object({
   unknownCount: z.number().int().nonnegative(),
   redundancy: z.number().int().nonnegative(),
   degreesOfFreedom: z.number().int().nonnegative(),
+  /** Coordinates, heights, corrections, displacements and point standard
+   * errors are normalized to metres before entering the numeric kernel. */
+  linearUnit: z.literal('m').default('m'),
+  /** Direction and angle residuals are normalized to radians. */
+  angularUnit: z.literal('rad').default('rad'),
   closure: z.record(z.string(), z.number().finite()).default({}),
+  /** Per-key units avoid assigning a linear unit to mixed-network angular
+   * residual norms or to dimensionless relative closures. */
+  closureUnits: z.record(z.string(), z.enum(['m', 'rad', 'ppm', 'ratio'])).default({}),
   unitWeightStdDev: z.number().nonnegative(),
   varianceFactor: z.number().nonnegative(),
   points: z.array(AdjustmentPointResultV1),
