@@ -180,6 +180,14 @@ export class DeepseekCompatModelClient implements ModelClient {
    * the request's `abortSignal` between chunks.
    */
   async *stream(request: ModelRequest): AsyncIterable<ModelStreamChunk> {
+    const toolNames = createToolWireNameCodec(request)
+    const wireRequest = encodeModelRequestToolNames(request, toolNames)
+    for await (const chunk of this.streamWithWireToolNames(wireRequest)) {
+      yield decodeModelStreamToolName(chunk, toolNames)
+    }
+  }
+
+  private async *streamWithWireToolNames(request: ModelRequest): AsyncIterable<ModelStreamChunk> {
     if (request.abortSignal.aborted) {
       yield { kind: 'error', message: 'request was aborted before start' }
       return
@@ -1363,6 +1371,104 @@ function normalizeToolSpecs(tools: ModelToolSpec[]): ModelToolSpec[] {
       inputSchema: canonicalizeSchema(tool.inputSchema)
     }))
     .sort((a, b) => a.name.localeCompare(b.name))
+}
+
+type ToolWireNameCodec = {
+  toWire(name: string): string
+  fromWire(name: string): string
+}
+
+const PROVIDER_TOOL_NAME_PATTERN = /^[a-zA-Z0-9_-]+$/
+const PROVIDER_TOOL_NAME_MAX_LENGTH = 64
+
+/**
+ * Local and MCP tool ids may use namespaces such as `railwise.*` or
+ * `server/tool`. OpenAI-compatible providers reject those ids before the
+ * model can answer. Keep the canonical ids inside WorkWise and translate
+ * only at the provider boundary, then restore the canonical name on every
+ * streamed or non-streamed tool call.
+ */
+function createToolWireNameCodec(request: ModelRequest): ToolWireNameCodec {
+  const names = new Set<string>(request.tools.map((tool) => tool.name))
+  for (const item of [...request.prefix, ...request.history]) {
+    if (item.kind === 'tool_call') names.add(item.toolName)
+  }
+
+  const canonicalNames = [...names].sort((a, b) => a.localeCompare(b))
+  const usedWireNames = new Set(
+    canonicalNames.filter((name) => isProviderSafeToolName(name))
+  )
+  const canonicalToWire = new Map<string, string>()
+  const wireToCanonical = new Map<string, string>()
+
+  for (const name of canonicalNames) {
+    if (!isProviderSafeToolName(name)) continue
+    canonicalToWire.set(name, name)
+    wireToCanonical.set(name, name)
+  }
+  for (const name of canonicalNames) {
+    if (canonicalToWire.has(name)) continue
+    const stem = name
+      .replace(/[^a-zA-Z0-9_-]+/g, '_')
+      .replace(/^_+|_+$/g, '') || 'tool'
+    const suffix = stableToolNameHash(name)
+    const maxStemLength = PROVIDER_TOOL_NAME_MAX_LENGTH - 'ww__'.length - suffix.length
+    const base = `ww_${stem.slice(0, Math.max(1, maxStemLength))}_${suffix}`
+    let wireName = base
+    let collision = 2
+    while (usedWireNames.has(wireName)) {
+      const collisionSuffix = `_${collision}`
+      wireName = `${base.slice(0, PROVIDER_TOOL_NAME_MAX_LENGTH - collisionSuffix.length)}${collisionSuffix}`
+      collision += 1
+    }
+    usedWireNames.add(wireName)
+    canonicalToWire.set(name, wireName)
+    wireToCanonical.set(wireName, name)
+  }
+
+  return {
+    toWire: (name) => canonicalToWire.get(name) ?? name,
+    fromWire: (name) => wireToCanonical.get(name) ?? name
+  }
+}
+
+function encodeModelRequestToolNames(request: ModelRequest, codec: ToolWireNameCodec): ModelRequest {
+  const encodeItems = (items: TurnItem[]): TurnItem[] => items.map((item) =>
+    item.kind === 'tool_call'
+      ? { ...item, toolName: codec.toWire(item.toolName) }
+      : item
+  )
+  return {
+    ...request,
+    prefix: encodeItems(request.prefix),
+    history: encodeItems(request.history),
+    tools: request.tools.map((tool) => ({ ...tool, name: codec.toWire(tool.name) }))
+  }
+}
+
+function decodeModelStreamToolName(chunk: ModelStreamChunk, codec: ToolWireNameCodec): ModelStreamChunk {
+  if (chunk.kind === 'tool_call_delta' && chunk.toolName) {
+    return { ...chunk, toolName: codec.fromWire(chunk.toolName) }
+  }
+  if (chunk.kind === 'tool_call_complete') {
+    return { ...chunk, toolName: codec.fromWire(chunk.toolName) }
+  }
+  return chunk
+}
+
+function isProviderSafeToolName(name: string): boolean {
+  return name.length > 0 &&
+    name.length <= PROVIDER_TOOL_NAME_MAX_LENGTH &&
+    PROVIDER_TOOL_NAME_PATTERN.test(name)
+}
+
+function stableToolNameHash(value: string): string {
+  let hash = 0x811c9dc5
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index)
+    hash = Math.imul(hash, 0x01000193)
+  }
+  return (hash >>> 0).toString(16).padStart(8, '0')
 }
 
 function messagesToResponsesInput(

@@ -50,6 +50,88 @@ function sseStream(payloads: Array<Record<string, unknown> | '[DONE]'>): Readabl
 }
 
 describe('DeepseekCompatModelClient', () => {
+  it('encodes namespaced tool ids for provider transport and restores canonical calls', async () => {
+    const sentBodies: Array<Record<string, unknown>> = []
+    const fetchImpl: typeof fetch = async (_url, init) => {
+      const body = JSON.parse(String(init?.body ?? '{}')) as Record<string, unknown>
+      sentBodies.push(body)
+      const tools = body.tools as Array<{
+        function: { name: string; description: string }
+      }>
+      const wireName = tools.find((tool) => tool.function.description === 'Namespaced quality check.')?.function.name
+      return new Response(JSON.stringify({
+        id: 'namespaced-tool',
+        model: 'deepseek-v4-pro',
+        choices: [{
+          index: 0,
+          finish_reason: 'tool_calls',
+          message: {
+            role: 'assistant',
+            content: '',
+            tool_calls: [{
+              id: 'call_namespaced',
+              type: 'function',
+              function: { name: wireName, arguments: '{"datasetId":"dataset-1"}' }
+            }]
+          }
+        }]
+      }), { status: 200, headers: { 'content-type': 'application/json' } })
+    }
+    const client = new DeepseekCompatModelClient({
+      baseUrl: 'https://api.deepseek.com',
+      apiKey: 'k',
+      model: 'deepseek-v4-pro',
+      fetchImpl,
+      nonStreaming: true
+    })
+    const request = buildRequest(new AbortController().signal)
+    request.tools = [
+      ...request.tools,
+      {
+        name: 'railwise.monitoring_data_first_check',
+        description: 'Namespaced quality check.',
+        inputSchema: { type: 'object', properties: { datasetId: { type: 'string' } } }
+      }
+    ]
+    request.history = [
+      makeToolCallItem({
+        id: 'old_call',
+        turnId: 'turn_old',
+        threadId: 'thr_1',
+        callId: 'call_old',
+        toolName: 'railwise.monitoring_data_first_check',
+        arguments: { datasetId: 'dataset-0' }
+      }),
+      makeToolResultItem({
+        id: 'old_result',
+        turnId: 'turn_old',
+        threadId: 'thr_1',
+        callId: 'call_old',
+        toolName: 'railwise.monitoring_data_first_check',
+        output: { ok: true }
+      })
+    ]
+
+    const chunks: ModelStreamChunk[] = []
+    for await (const chunk of client.stream(request)) chunks.push(chunk)
+
+    const body = sentBodies[0] as {
+      tools: Array<{ function: { name: string; description: string } }>
+      messages: Array<{ tool_calls?: Array<{ function: { name: string } }> }>
+    }
+    const advertised = body.tools.find((tool) => tool.function.description === 'Namespaced quality check.')
+    expect(advertised?.function.name).toMatch(/^[a-zA-Z0-9_-]+$/)
+    expect(advertised?.function.name).not.toBe('railwise.monitoring_data_first_check')
+    expect(body.messages.flatMap((message) => message.tool_calls ?? []).map((call) => call.function.name))
+      .toContain(advertised?.function.name)
+    expect(chunks).toContainEqual({
+      kind: 'tool_call_complete',
+      callId: 'call_namespaced',
+      toolName: 'railwise.monitoring_data_first_check',
+      arguments: { datasetId: 'dataset-1' }
+    })
+  })
+
   it('serializes image attachments as native blocks for every supported endpoint format', async () => {
     const sentBodies: Array<Record<string, unknown>> = []
     const fetchImpl: typeof fetch = async (_url, init) => {
