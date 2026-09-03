@@ -1,4 +1,3 @@
-import { readFile } from 'node:fs/promises'
 import { describe, expect, it } from 'vitest'
 
 // Regression: ISSUE-001 — the survey workspace mixed generic Engineering labels with the approved product name.
@@ -6,6 +5,8 @@ import { describe, expect, it } from 'vitest'
 // Report: .gstack/qa-reports/qa-report-workwise-candidate-2026-09-04.md
 describe('engineering survey product naming regression', () => {
   it('uses the approved workbench, agent, and project names in user-visible surfaces', async () => {
+    const nodeFs = 'node:fs/promises'
+    const { readFile } = await import(/* @vite-ignore */ nodeFs)
     const sources = await Promise.all([
       readFile(new URL('./EngineeringAiCommandCenter.tsx', import.meta.url), 'utf8'),
       readFile(new URL('./EngineeringWorkspaceView.tsx', import.meta.url), 'utf8'),

@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import JSZip from 'jszip'
+import Database from 'better-sqlite3'
 import { SurveyService } from './survey-service.js'
 
 describe('SurveyService', () => {
@@ -24,9 +25,70 @@ describe('SurveyService', () => {
     const adjustment = service.createAdjustment({ networkId: network.id, expectedRevision: checked.revision, idempotencyKey: 'survey-adjust-level-1' })
     expect(adjustment.run.status).toBe('completed')
     expect(adjustment.result.validation).toBe('valid')
+    expect(adjustment.result.linearUnit).toBe('m')
+    expect(adjustment.result.angularUnit).toBe('rad')
+    expect(adjustment.result.closureUnits.heightDifference).toBe('m')
+    expect(adjustment.result.observations[0]?.unit).toBe('m')
     expect(adjustment.result.points.find((point) => point.id === 'P1')?.height).toBeCloseTo(100.2, 5)
     expect(adjustment.result.inputHash).toBe(adjustment.run.inputHash)
     service.close()
+  })
+
+  it('keeps linear and angular residual units separate in a mixed plane network', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'workwise-survey-units-'))
+    const service = new SurveyService({ rootDir: root })
+    const network = await service.importNetwork({
+      projectId: 'project-units', expectedRevision: 0, idempotencyKey: 'survey-import-units-1', networkType: 'plane-control',
+      network: {
+        projectId: 'project-units', networkType: 'plane-control',
+        knownPoints: [{ id: 'A', pointClass: 'known', x: 0, y: 0, known: true }],
+        unknownPoints: [{ id: 'P', pointClass: 'unknown', x: 10, y: 0, known: false }],
+        observations: [
+          { id: 'distance-a-p', type: 'distance', from: 'A', to: 'P', value: 10_000, unit: 'mm', sigma: 1, sigmaUnit: 'mm' },
+          { id: 'direction-a-p', type: 'direction', from: 'A', to: 'P', value: 100, unit: 'gon', sigma: 1, sigmaUnit: 'arcsec' }
+        ]
+      }
+    })
+    const checked = service.validateNetwork(network.id, { expectedRevision: network.revision, idempotencyKey: 'survey-validate-units-1' })
+    const output = service.createAdjustment({ networkId: network.id, expectedRevision: checked.revision, idempotencyKey: 'survey-adjust-units-1' })
+
+    expect(output.run.status).toBe('completed')
+    expect(output.result.observations.map((item) => item.unit)).toEqual(['m', 'rad'])
+    expect(output.result.closureUnits).toMatchObject({ horizontal: 'm', angular: 'rad' })
+    expect(output.result.closure.horizontal).toBeCloseTo(0, 12)
+    expect(output.result.closure.angular).toBeCloseTo(0, 12)
+    service.close()
+  })
+
+  it('adds canonical units when reading a legacy stored adjustment without rewriting it', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'workwise-survey-legacy-units-'))
+    const service = new SurveyService({ rootDir: root })
+    const network = await service.importNetwork({ projectId: 'project-legacy-units', expectedRevision: 0, idempotencyKey: 'survey-import-legacy-units', networkType: 'leveling', network: {
+      projectId: 'project-legacy-units', networkType: 'leveling',
+      knownPoints: [{ id: 'BM', pointClass: 'known', height: 10, known: true }],
+      unknownPoints: [{ id: 'P', pointClass: 'unknown', height: 10.1, known: false }],
+      observations: [{ id: 'legacy-observation', type: 'height-difference', from: 'BM', to: 'P', value: 0.1, unit: 'm', sigma: 0.001 }]
+    } })
+    const created = service.createAdjustment({ networkId: network.id, expectedRevision: network.revision, idempotencyKey: 'survey-adjust-legacy-units' })
+    service.close()
+
+    const db = new Database(join(root, 'survey.sqlite3'))
+    const row = db.prepare('SELECT data_json FROM survey_adjustments WHERE id = ?').get(created.run.id) as { data_json: string }
+    const legacy = JSON.parse(row.data_json) as { result: { linearUnit?: string; angularUnit?: string; closureUnits?: unknown; observations: Array<{ unit?: string }> } }
+    delete legacy.result.linearUnit
+    delete legacy.result.angularUnit
+    delete legacy.result.closureUnits
+    for (const observation of legacy.result.observations) delete observation.unit
+    db.prepare('UPDATE survey_adjustments SET data_json = ? WHERE id = ?').run(JSON.stringify(legacy), created.run.id)
+    db.close()
+
+    const reopened = new SurveyService({ rootDir: root })
+    const restored = reopened.getAdjustment(created.run.id)
+    expect(restored?.result?.linearUnit).toBe('m')
+    expect(restored?.result?.angularUnit).toBe('rad')
+    expect(restored?.result?.closureUnits.heightDifference).toBe('m')
+    expect(restored?.result?.observations[0]?.unit).toBe('m')
+    reopened.close()
   })
 
   it('blocks a disconnected network and preserves idempotent imports', async () => {

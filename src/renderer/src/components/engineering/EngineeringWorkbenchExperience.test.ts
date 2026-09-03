@@ -57,5 +57,8 @@ describe('engineering workbench experience contract', () => {
     expect(source).toContain('survey-instrument-strip')
     expect(source).toContain('点位成果与复核摘要')
     expect(source).toContain('标准化残差 > 3σ')
+    expect(source).toContain('平差 X（{linearUnit}）')
+    expect(source).toContain('点位中误差（{linearUnit}）')
+    expect(source).toContain('角度残差范数')
   })
 })
