@@ -149,7 +149,7 @@ AI 首屏、经典 fallback、主题/窄窗口/a11y 或真实 CSV/XLSX → DOCX/
   `add-builtin-specialist-skills` 的 3.4 仍缺可用图片 Provider 的真实输出；5.6 仍缺 Windows x64
   原生验收环境。上述条件不具备时保持未勾选，不以静态检查、Mock 或旧包冒充通过。
 
-本机复核：`/Users/wangjiawei/.workgpt/kun/config.json` 中 `imageGen.enabled=false`、
+本机复核：用户 Runtime 配置中的 `imageGen.enabled=false`、
 `visionEvidence.enabled=false`；系统为 macOS arm64，未发现 Wine 或 Windows 交叉运行时。因此不能
 把本地测试图片、DeepSeek 视觉理解或 macOS 构建结果替代 Document Illustrator 图片生成和 Windows
 x64 候选验收。
