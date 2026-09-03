@@ -74,6 +74,7 @@ function createCandidatePackagingRepo(): { repo: string; sourceHead: string } {
   const repo = join(fixtureRoot, 'repo')
   mkdirSync(join(repo, 'kun'), { recursive: true })
   mkdirSync(join(repo, 'scripts'), { recursive: true })
+  mkdirSync(join(repo, 'src', 'asset', 'agent-packs', 'metro-monitoring-agent-pack'), { recursive: true })
   copyFileSync(join(process.cwd(), 'electron-builder.cjs'), join(repo, 'electron-builder.cjs'))
   copyFileSync(join(process.cwd(), 'kun', 'package-lock.json'), join(repo, 'kun', 'package-lock.json'))
   copyFileSync(
@@ -83,6 +84,14 @@ function createCandidatePackagingRepo(): { repo: string; sourceHead: string } {
   copyFileSync(
     join(process.cwd(), 'scripts', 'markitdown-packaging-policy.cjs'),
     join(repo, 'scripts', 'markitdown-packaging-policy.cjs')
+  )
+  copyFileSync(
+    join(process.cwd(), 'scripts', 'specialist-skill-audit.cjs'),
+    join(repo, 'scripts', 'specialist-skill-audit.cjs')
+  )
+  copyFileSync(
+    join(process.cwd(), 'src', 'asset', 'agent-packs', 'metro-monitoring-agent-pack', 'skill-provenance.json'),
+    join(repo, 'src', 'asset', 'agent-packs', 'metro-monitoring-agent-pack', 'skill-provenance.json')
   )
   execFileSync('git', ['init', '-b', 'candidate-test'], { cwd: repo, stdio: 'pipe' })
   execFileSync('git', ['config', 'user.name', 'WorkWise Test'], { cwd: repo })

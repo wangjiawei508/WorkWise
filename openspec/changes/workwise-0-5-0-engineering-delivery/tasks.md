@@ -37,6 +37,6 @@
 ## Verification
 
 - [x] Add unit, Runtime integration, Flow, renderer, artifact, and migration tests.
-- [ ] Complete pinned-commit, file-hash, redistribution-license, script, dependency, network, credential and real-scenario audit for every bundled specialist Skill; exclude blocked assets without touching user copies.
+- [x] Complete pinned-commit, file-hash, redistribution-license, script, dependency, network, credential and real-scenario audit for every bundled specialist Skill; exclude blocked assets without touching user copies.
 - [ ] Close the remaining 0.3.3 and specialist-skill acceptance tasks without modifying user data.
 - [ ] Run typecheck, lint, full tests, build, strict OpenSpec validation, packaged GUI acceptance, and private 0.5.0-rc evidence collection.

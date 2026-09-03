@@ -29,7 +29,10 @@ type AgentPackManifest = {
   name?: string
   version?: string
   agentAssets?: unknown[]
+  skillAudit?: AgentPackSkillAudit
 }
+
+type AgentPackSkillAudit = Map<string, { packaged: boolean; status: string; reason?: string }>
 
 type AgentPackAssetSourceMetadata = {
   type: 'bundled-agent-pack'
@@ -76,7 +79,7 @@ export async function installBundledAgentPack(
 
     const codexRoot = normalizeCodexRootPath(source.rootPath)
     const manifest = await readAgentPackManifest(sourceDir)
-    const assets = normalizeAgentPackAssets(manifest.agentAssets)
+    const assets = filterAuditedAgentPackAssets(normalizeAgentPackAssets(manifest.agentAssets), manifest.skillAudit)
     const installedAt = new Date().toISOString()
     const sourceMetadataBase = {
       type: 'bundled-agent-pack' as const,
@@ -177,11 +180,43 @@ async function readAgentPackManifest(sourceDir: string): Promise<AgentPackManife
   const raw = JSON.parse(await readFile(join(sourceDir, 'package.json'), 'utf8')) as unknown
   const record = objectValue(raw)
   if (!record) throw new Error('Bundled agent pack manifest must be a JSON object.')
+  const skillAuditPath = stringValue(record.skillAudit)
   return {
     ...(stringValue(record.name) ? { name: stringValue(record.name) } : {}),
     ...(stringValue(record.version) ? { version: stringValue(record.version) } : {}),
-    ...(Array.isArray(record.agentAssets) ? { agentAssets: record.agentAssets } : {})
+    ...(Array.isArray(record.agentAssets) ? { agentAssets: record.agentAssets } : {}),
+    ...(skillAuditPath ? { skillAudit: await readAgentPackSkillAudit(sourceDir, skillAuditPath) } : {})
   }
+}
+
+async function readAgentPackSkillAudit(sourceDir: string, rawPath: string): Promise<AgentPackSkillAudit> {
+  const auditPath = normalizeAgentAssetPath(rawPath, 'skill audit')
+  const raw = JSON.parse(await readFile(join(sourceDir, auditPath), 'utf8')) as unknown
+  const record = objectValue(raw)
+  if (!record || !Array.isArray(record.skills)) throw new Error('Bundled agent pack Skill audit must contain a skills array.')
+  const audit: AgentPackSkillAudit = new Map()
+  for (const value of record.skills) {
+    const entry = objectValue(value)
+    const id = normalizeSkillFolderName(stringValue(entry?.id))
+    if (audit.has(id)) throw new Error(`Bundled agent pack Skill audit contains duplicate id: ${id}`)
+    const status = stringValue(entry?.status)
+    const packaged = entry?.packaged === true
+    const reason = stringValue(entry?.reason)
+    audit.set(id, { packaged, status, ...(reason ? { reason } : {}) })
+  }
+  return audit
+}
+
+export function filterAuditedAgentPackAssets(
+  assets: AgentPackAsset[],
+  audit: AgentPackSkillAudit | undefined
+): AgentPackAsset[] {
+  if (!audit) return assets
+  return assets.filter((asset) => {
+    if (asset.kind !== 'skill') return true
+    const decision = audit.get(asset.name)
+    return decision?.packaged === true && decision.status === 'available'
+  })
 }
 
 function normalizeAgentPackAssets(rawAssets: unknown[] | undefined): AgentPackAsset[] {

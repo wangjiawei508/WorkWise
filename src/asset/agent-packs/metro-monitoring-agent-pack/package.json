@@ -1,6 +1,7 @@
 {
   "name": "metro-monitoring-agent-pack",
   "version": "1.2.34",
+  "skillAudit": "skill-provenance.json",
   "displayName": "地铁监测与项目智能体套件",
   "description": "内置地铁监测、项目资料、数据分析、报告生成、质量审查和常用工程工具的智能体套件。",
   "agentAssets": [

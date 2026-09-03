@@ -2,6 +2,7 @@ const { existsSync, readFileSync } = require('node:fs')
 const { join } = require('node:path')
 const { verifyCandidateSourceTree } = require('./scripts/candidate-source-provenance.cjs')
 const { markitdownResourceFilter } = require('./scripts/markitdown-packaging-policy.cjs')
+const { agentPackResourceFilter, asarBlockedSkillFilters } = require('./scripts/specialist-skill-audit.cjs')
 
 function loadLocalReleaseEnv() {
   const candidates = [
@@ -183,6 +184,7 @@ const builderConfig = {
   files: [
     'out/**/*',
     'src/asset/skills/**/*',
+    ...asarBlockedSkillFilters(),
     'package.json',
     // @modelcontextprotocol/sdk imports this peer at runtime from the main
     // process. Electron-builder's dependency collector can omit the package
@@ -229,7 +231,7 @@ const builderConfig = {
     {
       from: 'src/asset/agent-packs',
       to: 'src/asset/agent-packs',
-      filter: ['**/*']
+      filter: agentPackResourceFilter()
     }
   ],
   artifactName: isCandidateBuild

@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { installBundledAgentPack } from './agent-pack-service'
+import { filterAuditedAgentPackAssets, installBundledAgentPack } from './agent-pack-service'
 
 describe('agent-pack-service', () => {
   let tempRoot = ''
@@ -75,6 +75,23 @@ describe('agent-pack-service', () => {
       name: 'data_analyst',
       version: '1.2.34'
     })
+  })
+
+  it('excludes blocked or missing Skill audit entries while retaining non-Skill assets', () => {
+    const assets = [
+      { kind: 'skill' as const, name: 'allowed', dir: 'assets/skill/allowed', target: 'allowed' },
+      { kind: 'skill' as const, name: 'blocked', dir: 'assets/skill/blocked', target: 'blocked' },
+      { kind: 'skill' as const, name: 'missing', dir: 'assets/skill/missing', target: 'missing' },
+      { kind: 'tool' as const, name: 'tool', dir: 'assets/tool/tool.ts', target: 'tool.ts' }
+    ]
+    const audit = new Map([
+      ['allowed', { packaged: true, status: 'available' }],
+      ['blocked', { packaged: false, status: 'blocked', reason: 'license review failed' }]
+    ])
+    expect(filterAuditedAgentPackAssets(assets, audit).map((asset) => `${asset.kind}/${asset.name}`)).toEqual([
+      'skill/allowed',
+      'tool/tool'
+    ])
   })
 
   it('does not overwrite a user-created asset with the same name', async () => {

@@ -1,5 +1,6 @@
 const { execFileSync } = require('node:child_process')
 const { dirname, join } = require('node:path')
+const { verifyAudit: verifySpecialistSkillAudit } = require('./specialist-skill-audit.cjs')
 
 function normalizeArch(arch) {
   if (arch === 'x64' || arch === 'arm64') return arch
@@ -61,6 +62,7 @@ function rebuildManagedRuntimeSqlite(context) {
 }
 
 async function beforePack(context) {
+  verifySpecialistSkillAudit()
   rebuildManagedRuntimeSqlite(context)
 }
 
@@ -68,5 +70,6 @@ module.exports = beforePack
 module.exports._internals = {
   normalizeArch,
   resolveElectronAbi,
-  rebuildManagedRuntimeSqlite
+  rebuildManagedRuntimeSqlite,
+  verifySpecialistSkillAudit
 }
