@@ -98,8 +98,8 @@ export class EngineeringService {
         bytes = content.data; name = content.name
       } else bytes = Buffer.from(req.dataBase64!, 'base64')
       const sourceFileHash = createHash('sha256').update(bytes).digest('hex')
-      const rows = await parseTabular(name, bytes)
-      const mapping = req.fieldMapping ?? inferMapping(rows[0] ?? {})
+      const rows = await parseTabular(name, bytes, req.fieldMapping)
+      const mapping = FieldMappingV1.parse({ ...inferMapping(rows[0] ?? {}), ...(req.fieldMapping ?? {}) })
       const normalized = normalizeRows(rows, mapping, project, sourceFileHash)
       const now = this.nowIso(); const id = `dataset_${randomUUID()}`
       const dataset = { schemaVersion: 1 as const, id, projectId: project.id, sourceAttachmentId: req.attachmentId, sourceFileName: name, sourceFileHash, fieldMapping: mapping, unknownColumns: normalized.unknownColumns, rowCount: rows.length, columnCount: normalized.columnCount, observationCount: normalized.observations.length, timeRange: normalized.timeRange, status: 'imported' as const, revision: 1, createdAt: now, updatedAt: now, observations: normalized.observations.map((observation) => ({ ...observation, datasetId: id })), findings: normalized.findings.map((finding) => ({ ...finding, datasetId: id })) }
@@ -296,9 +296,9 @@ function runQualityChecks(observations: MonitoringObservationV1[], project: Rail
  * JSON is intentionally normalised into the same row representation as CSV
  * and XLSX so field mapping, provenance and quality checks stay deterministic.
  */
-async function parseTabular(name: string, bytes: Buffer): Promise<Row[]> {
+async function parseTabular(name: string, bytes: Buffer, requestedMapping?: FieldMappingV1): Promise<Row[]> {
   const extension = extname(name).toLowerCase()
-  if (extension === '.xlsx') return parseXlsx(bytes)
+  if (extension === '.xlsx') return parseXlsx(bytes, requestedMapping)
   if (extension === '.json') return parseJsonRows(bytes)
   return parseCsv(bytes)
 }
@@ -333,13 +333,16 @@ function parseJsonRows(bytes: Buffer): Row[] {
 function parseCsv(bytes: Buffer): Row[] { const text = decodeText(bytes).replace(/^\uFEFF/, ''); const lines = text.split(/\r?\n/).filter((line) => line.trim().length > 0); if (!lines.length) return []; const rows = lines.map(parseCsvLine); const headers = rows[0].map((h) => h.trim()); return rows.slice(1).map((cells) => Object.fromEntries(headers.map((h, i) => [h, cells[i] ?? '']))) }
 function parseCsvLine(line: string): string[] { const out: string[] = []; let current = ''; let quoted = false; for (let i = 0; i < line.length; i += 1) { const c = line[i]; if (c === '"' && line[i + 1] === '"') { current += '"'; i += 1 } else if (c === '"') quoted = !quoted; else if (c === ',' && !quoted) { out.push(current); current = '' } else current += c } out.push(current); return out }
 function decodeText(bytes: Buffer): string { const utf8 = bytes.toString('utf8').replace(/^\uFEFF/, ''); if (!utf8.includes('\uFFFD')) return utf8; try { return new TextDecoder('gb18030').decode(bytes) } catch { return utf8 } }
-async function parseXlsx(bytes: Buffer): Promise<Row[]> {
+async function parseXlsx(bytes: Buffer, requestedMapping?: FieldMappingV1): Promise<Row[]> {
   const zip = await JSZip.loadAsync(bytes)
   const sharedText = zip.file('xl/sharedStrings.xml') ? await zip.file('xl/sharedStrings.xml')!.async('text') : ''
-  const shared = [...sharedText.matchAll(/<t[^>]*>([\s\S]*?)<\/t>/g)].map((m) => decodeXml(m[1]))
+  const shared = [...sharedText.matchAll(/<si[^>]*>([\s\S]*?)<\/si>/g)].map((item) =>
+    [...item[1].matchAll(/<t[^>]*>([\s\S]*?)<\/t>/g)].map((text) => decodeXml(text[1])).join('')
+  )
   const sheetNames = Object.keys(zip.files).filter((name) => /^xl\/worksheets\/sheet\d+\.xml$/.test(name)).sort()
   if (!sheetNames.length) throw new Error('xlsx has no worksheet')
   const output: Row[] = []
+  let observationSheetCount = 0
   for (const sheetName of sheetNames) {
     const sheet = zip.file(sheetName)
     if (!sheet) continue
@@ -347,22 +350,47 @@ async function parseXlsx(bytes: Buffer): Promise<Row[]> {
     const rows: string[][] = []
     for (const rowMatch of xml.matchAll(/<row[^>]*>([\s\S]*?)<\/row>/g)) {
       const cells: string[] = []
-      for (const cell of rowMatch[1].matchAll(/<c[^>]*r="([A-Z]+)\d+"[^>]*?(?:t="([^"]+)")?[^>]*>([\s\S]*?)<\/c>/g)) {
-        const col = lettersToIndex(cell[1]); const type = cell[2]; const body = cell[3]
+      for (const cell of rowMatch[1].matchAll(/<c\b([^>]*)>([\s\S]*?)<\/c>/g)) {
+        const reference = cell[1].match(/\br="([A-Z]+)\d+"/)?.[1]
+        if (!reference) continue
+        const col = lettersToIndex(reference); const type = cell[1].match(/\bt="([^"]+)"/)?.[1]; const body = cell[2]
         const value = decodeXml(body.match(/<v>([\s\S]*?)<\/v>/)?.[1] ?? body.match(/<t[^>]*>([\s\S]*?)<\/t>/)?.[1] ?? '')
         cells[col] = type === 's' ? (shared[Number(value)] ?? value) : value
       }
       rows.push(cells)
     }
-    const headers = (rows[0] ?? []).map((v, i) => v || `column_${i + 1}`)
+    const headers = (rows[0] ?? []).map((v, i) => v.trim() || `column_${i + 1}`)
+    const headerRow = Object.fromEntries(headers.map((header) => [header, '']))
+    const sheetMapping = FieldMappingV1.parse({ ...inferMapping(headerRow), ...(requestedMapping ?? {}) })
+    if (!hasRequiredObservationColumns(headers, sheetMapping)) continue
+    observationSheetCount += 1
     for (const cells of rows.slice(1)) {
       output.push({ ...Object.fromEntries(headers.map((h, i) => [h, cells[i] ?? ''])), __worksheet: sheetName })
     }
   }
+  if (observationSheetCount === 0) throw new Error('xlsx has no worksheet containing point, timestamp, and value columns')
   return output
 }
+function hasRequiredObservationColumns(headers: string[], mapping: FieldMappingV1): boolean {
+  const headerSet = new Set(headers)
+  return [mapping.point, mapping.timestamp, mapping.value].every((column) => Boolean(column && headerSet.has(column)))
+}
 function lettersToIndex(value: string): number { let n = 0; for (const c of value) n = n * 26 + c.charCodeAt(0) - 64; return n - 1 }
-function decodeXml(value: string): string { return value.replaceAll('&amp;', '&').replaceAll('&lt;', '<').replaceAll('&gt;', '>').replaceAll('&quot;', '"').replaceAll('&#39;', "'") }
+function decodeXml(value: string): string {
+  return value
+    .replace(/&#x([0-9a-f]+);/gi, (entity, hex: string) => decodeCodePoint(entity, Number.parseInt(hex, 16)))
+    .replace(/&#(\d+);/g, (entity, decimal: string) => decodeCodePoint(entity, Number.parseInt(decimal, 10)))
+    .replaceAll('&amp;', '&')
+    .replaceAll('&lt;', '<')
+    .replaceAll('&gt;', '>')
+    .replaceAll('&quot;', '"')
+    .replaceAll('&#39;', "'")
+}
+function decodeCodePoint(entity: string, codePoint: number): string {
+  return Number.isInteger(codePoint) && codePoint >= 0 && codePoint <= 0x10ffff
+    ? String.fromCodePoint(codePoint)
+    : entity
+}
 function reportText(project: RailwiseProjectV1, dataset: StoredDataset, analysis: MonitoringAnalysisV1, citations: KnowledgeCitationV1[] = [], adjustments: AdjustmentResultV1[] = []): string {
   const period = project.reportPeriod.start || project.reportPeriod.end
     ? `${project.reportPeriod.start ?? '-'} ~ ${project.reportPeriod.end ?? '-'}`
