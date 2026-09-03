@@ -35,7 +35,7 @@ function epoch(adjustmentId: string, observationEpoch: string, points: Array<{ i
 }
 
 describe('immutable adjusted-epoch deformation comparison', () => {
-  it('calculates displacement, settlement, rate, trend, tilt and convergence', () => {
+  it('SURVEY-GOLDEN-DEFORMATION-001 calculates displacement, settlement, rate, trend, tilt and convergence', () => {
     const epochs = [
       epoch('a1', '2026-01-01T00:00:00.000Z', [
         { id: 'A', x: 0, y: 0, height: 10, standardError: 0.0002 },
@@ -81,13 +81,15 @@ describe('immutable adjusted-epoch deformation comparison', () => {
     })
   })
 
-  it('rejects duplicate epochs and comparisons without common coordinates', () => {
+  it('SURVEY-NEG-DEFORMATION-001 rejects duplicate observation epochs', () => {
     const sameDate = [
       epoch('a1', '2026-01-01T00:00:00.000Z', [{ id: 'A', height: 1 }]),
       epoch('a2', '2026-01-01T00:00:00.000Z', [{ id: 'A', height: 0.9 }])
     ]
     expect(() => compareAdjustedEpochs(sameDate, [], 0.0001)).toThrow('unique observation epochs')
+  })
 
+  it('rejects comparisons without a common adjusted point', () => {
     const noCommonPoint = [
       epoch('a1', '2026-01-01T00:00:00.000Z', [{ id: 'A', height: 1 }]),
       epoch('a2', '2026-01-02T00:00:00.000Z', [{ id: 'B', height: 0.9 }])

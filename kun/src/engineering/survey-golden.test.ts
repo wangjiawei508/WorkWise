@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest'
 import { SurveyService } from './survey-service.js'
 
 describe('survey adjustment golden fixtures', () => {
-  it('adjusts a closed leveling route with inverse route-length weights', async () => {
+  it('SURVEY-GOLDEN-LEVELING-001 adjusts a closed leveling route with inverse route-length weights', async () => {
     const root = await mkdtemp(join(tmpdir(), 'workwise-leveling-fixture-'))
     const service = new SurveyService({ rootDir: root })
     const network = await service.importNetwork({
@@ -38,7 +38,26 @@ describe('survey adjustment golden fixtures', () => {
     service.close()
   })
 
-  it('reports an attached height-control closure against two known benchmarks', async () => {
+  it('SURVEY-NEG-LEVELING-001 blocks a leveling network without a known height datum', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'workwise-leveling-missing-datum-'))
+    const service = new SurveyService({ rootDir: root })
+    const network = await service.importNetwork({
+      projectId: 'leveling-missing-datum', expectedRevision: 0, idempotencyKey: 'leveling-missing-datum-import', networkType: 'leveling', network: {
+        knownPoints: [{ id: 'BM', pointClass: 'known', known: true }],
+        unknownPoints: [{ id: 'P', pointClass: 'unknown', height: 1, known: false }],
+        observations: [{ id: 'BM-P', type: 'height-difference', from: 'BM', to: 'P', value: 1, unit: 'm' }]
+      }
+    })
+    const checked = service.validateNetwork(network.id, { expectedRevision: network.revision, idempotencyKey: 'leveling-missing-datum-validate' })
+    const output = service.createAdjustment({ networkId: network.id, expectedRevision: checked.revision, idempotencyKey: 'leveling-missing-datum-adjust' })
+    expect(checked.qualityStatus).toBe('blocked')
+    expect(output.run.status).toBe('needs_attention')
+    expect(output.result.qualityFindings).toEqual(expect.arrayContaining([expect.objectContaining({ code: 'missing_datum', severity: 'blocking' })]))
+    expect(output.result.points).toEqual([])
+    service.close()
+  })
+
+  it('SURVEY-GOLDEN-HEIGHT-CONTROL-001 reports an attached height-control closure against two known benchmarks', async () => {
     const root = await mkdtemp(join(tmpdir(), 'workwise-height-control-fixture-'))
     const service = new SurveyService({ rootDir: root })
     const network = await service.importNetwork({
@@ -69,7 +88,26 @@ describe('survey adjustment golden fixtures', () => {
     service.close()
   })
 
-  it('iteratively adjusts a mixed-observation plane-control fixture', async () => {
+  it('SURVEY-NEG-HEIGHT-CONTROL-001 blocks height control without a known benchmark height', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'workwise-height-control-missing-datum-'))
+    const service = new SurveyService({ rootDir: root })
+    const network = await service.importNetwork({
+      projectId: 'height-control-missing-datum', expectedRevision: 0, idempotencyKey: 'height-control-missing-datum-import', networkType: 'height-control', network: {
+        knownPoints: [{ id: 'BM', pointClass: 'known', known: true }],
+        unknownPoints: [{ id: 'P', pointClass: 'unknown', height: 0.5, known: false }],
+        observations: [{ id: 'BM-P', type: 'height-difference', from: 'BM', to: 'P', value: 0.5, unit: 'm' }]
+      }
+    })
+    const checked = service.validateNetwork(network.id, { expectedRevision: network.revision, idempotencyKey: 'height-control-missing-datum-validate' })
+    const output = service.createAdjustment({ networkId: network.id, expectedRevision: checked.revision, idempotencyKey: 'height-control-missing-datum-adjust' })
+    expect(checked.qualityStatus).toBe('blocked')
+    expect(output.run.status).toBe('needs_attention')
+    expect(output.result.qualityFindings).toEqual(expect.arrayContaining([expect.objectContaining({ code: 'missing_datum', severity: 'blocking' })]))
+    expect(output.result.points).toEqual([])
+    service.close()
+  })
+
+  it('SURVEY-GOLDEN-PLANE-CONTROL-001 iteratively adjusts a mixed-observation plane-control fixture', async () => {
     const root = await mkdtemp(join(tmpdir(), 'workwise-plane-fixture-'))
     const service = new SurveyService({ rootDir: root })
     const network = await service.importNetwork({
@@ -100,7 +138,29 @@ describe('survey adjustment golden fixtures', () => {
     service.close()
   })
 
-  it('adjusts a triangulation fixture from three independent station angles', async () => {
+  it('SURVEY-NEG-PLANE-CONTROL-001 blocks rank-deficient repeated plane observations', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'workwise-plane-rank-fixture-'))
+    const service = new SurveyService({ rootDir: root })
+    const network = await service.importNetwork({
+      projectId: 'plane-rank-fixture', expectedRevision: 0, idempotencyKey: 'plane-rank-fixture-import', networkType: 'plane-control', network: {
+        knownPoints: [{ id: 'A', pointClass: 'known', x: 0, y: 0, known: true }],
+        unknownPoints: [{ id: 'P', pointClass: 'unknown', x: 10, y: 0, known: false }],
+        observations: [
+          { id: 'AP-1', type: 'distance', from: 'A', to: 'P', value: 10, unit: 'm' },
+          { id: 'AP-2', type: 'distance', from: 'A', to: 'P', value: 10, unit: 'm' }
+        ]
+      }
+    })
+    const checked = service.validateNetwork(network.id, { expectedRevision: network.revision, idempotencyKey: 'plane-rank-fixture-validate' })
+    const output = service.createAdjustment({ networkId: network.id, expectedRevision: checked.revision, idempotencyKey: 'plane-rank-fixture-adjust' })
+    expect(checked.qualityStatus).toBe('validated')
+    expect(output.run.status).toBe('needs_attention')
+    expect(output.result.qualityFindings).toEqual(expect.arrayContaining([expect.objectContaining({ code: 'rank_deficient', severity: 'blocking' })]))
+    expect(output.result.points).toEqual([])
+    service.close()
+  })
+
+  it('SURVEY-GOLDEN-TRIANGULATION-001 adjusts a triangulation fixture from three independent station angles', async () => {
     const root = await mkdtemp(join(tmpdir(), 'workwise-triangulation-fixture-'))
     const service = new SurveyService({ rootDir: root })
     const network = await service.importNetwork({
@@ -151,7 +211,7 @@ describe('survey adjustment golden fixtures', () => {
       ],
       expectedCode: 'malformed_geometry'
     }
-  ])('blocks triangulation with $name', async ({ name, observations, expectedCode }) => {
+  ])('SURVEY-NEG-TRIANGULATION-001 blocks triangulation with $name', async ({ name, observations, expectedCode }) => {
     const root = await mkdtemp(join(tmpdir(), 'workwise-triangulation-invalid-'))
     const service = new SurveyService({ rootDir: root })
     const network = await service.importNetwork({
@@ -175,7 +235,7 @@ describe('survey adjustment golden fixtures', () => {
     service.close()
   })
 
-  it('adjusts an ordered traverse using its distance and turn-angle equations', async () => {
+  it('SURVEY-GOLDEN-TRAVERSE-001 adjusts an ordered traverse using its distance and turn-angle equations', async () => {
     const root = await mkdtemp(join(tmpdir(), 'workwise-traverse-fixture-'))
     const service = new SurveyService({ rootDir: root })
     const network = await service.importNetwork({
@@ -242,7 +302,7 @@ describe('survey adjustment golden fixtures', () => {
       ],
       expectedCode: 'missing_datum'
     }
-  ])('blocks a traverse with $name', async ({ name, observations, expectedCode }) => {
+  ])('SURVEY-NEG-TRAVERSE-001 blocks a traverse with $name', async ({ name, observations, expectedCode }) => {
     const root = await mkdtemp(join(tmpdir(), 'workwise-traverse-invalid-'))
     const service = new SurveyService({ rootDir: root })
     const network = await service.importNetwork({
@@ -286,7 +346,10 @@ describe('survey adjustment golden fixtures', () => {
     service.close()
   })
 
-  it.each(['cpiii-free-station', 'cpiii-resection'] as const)('solves %s with station orientation and paired vertical evidence', async (networkType) => {
+  it.each([
+    { caseId: 'SURVEY-GOLDEN-CPIII-FREE-STATION-001', networkType: 'cpiii-free-station' as const },
+    { caseId: 'SURVEY-GOLDEN-CPIII-RESECTION-001', networkType: 'cpiii-resection' as const }
+  ])('$caseId solves $networkType with station orientation and paired vertical evidence', async ({ networkType }) => {
     const root = await mkdtemp(join(tmpdir(), `workwise-${networkType}-fixture-`))
     const service = new SurveyService({ rootDir: root })
     const station = { x: 40, y: 30, height: 8 }
@@ -333,10 +396,11 @@ describe('survey adjustment golden fixtures', () => {
   })
 
   it.each([
-    { name: 'fewer than three fixed directions', includeThirdDirection: false, includeSlope: false, includeZenith: false, targetHeight: 10, expectedCode: 'malformed_geometry' },
-    { name: 'unpaired slope distance', includeThirdDirection: true, includeSlope: true, includeZenith: false, targetHeight: 10, expectedCode: 'malformed_geometry' },
-    { name: 'missing vertical datum', includeThirdDirection: true, includeSlope: true, includeZenith: true, targetHeight: undefined, expectedCode: 'missing_datum' }
-  ])('blocks CPIII with $name', async ({ name, includeThirdDirection, includeSlope, includeZenith, targetHeight, expectedCode }) => {
+    { caseId: 'SURVEY-NEG-CPIII-FREE-STATION-001', networkType: 'cpiii-free-station' as const, name: 'fewer than three fixed directions', includeThirdDirection: false, includeSlope: false, includeZenith: false, targetHeight: 10, expectedCode: 'malformed_geometry' },
+    { caseId: 'SURVEY-NEG-CPIII-RESECTION-001', networkType: 'cpiii-resection' as const, name: 'fewer than three fixed directions', includeThirdDirection: false, includeSlope: false, includeZenith: false, targetHeight: 10, expectedCode: 'malformed_geometry' },
+    { caseId: 'SURVEY-NEG-CPIII-FREE-STATION-002', networkType: 'cpiii-free-station' as const, name: 'unpaired slope distance', includeThirdDirection: true, includeSlope: true, includeZenith: false, targetHeight: 10, expectedCode: 'malformed_geometry' },
+    { caseId: 'SURVEY-NEG-CPIII-FREE-STATION-003', networkType: 'cpiii-free-station' as const, name: 'missing vertical datum', includeThirdDirection: true, includeSlope: true, includeZenith: true, targetHeight: undefined, expectedCode: 'missing_datum' }
+  ])('$caseId blocks $networkType with $name', async ({ networkType, name, includeThirdDirection, includeSlope, includeZenith, targetHeight, expectedCode }) => {
     const root = await mkdtemp(join(tmpdir(), 'workwise-cpiii-invalid-'))
     const service = new SurveyService({ rootDir: root })
     const directions = [
@@ -345,7 +409,7 @@ describe('survey adjustment golden fixtures', () => {
       ...(includeThirdDirection ? [{ id: 'direction-C', type: 'direction' as const, station: 'S', target: 'C', value: 320, unit: 'deg' }] : [])
     ]
     const network = await service.importNetwork({
-      projectId: `cpiii-${name}`, expectedRevision: 0, idempotencyKey: `cpiii-${name}`, networkType: 'cpiii-free-station', network: {
+      projectId: `cpiii-${networkType}-${name}`, expectedRevision: 0, idempotencyKey: `cpiii-${networkType}-${name}`, networkType, network: {
         knownPoints: [
           { id: 'A', pointClass: 'known', x: 0, y: 0, ...(targetHeight === undefined ? {} : { height: targetHeight }), known: true },
           { id: 'B', pointClass: 'known', x: 100, y: 0, height: 12, known: true },
@@ -364,13 +428,13 @@ describe('survey adjustment golden fixtures', () => {
 
     expect(checked.qualityStatus).toBe('blocked')
     expect(output.run.status).toBe('needs_attention')
-    expect(output.result.strategyId).toBe('cpiii-free-station')
+    expect(output.result.strategyId).toBe(networkType)
     expect(output.result.qualityFindings).toEqual(expect.arrayContaining([expect.objectContaining({ code: expectedCode, severity: 'blocking' })]))
     expect(output.result.points).toEqual([])
     service.close()
   })
 
-  it('adjusts correlated GNSS vector baselines against a fixed 3-D datum', async () => {
+  it('SURVEY-GOLDEN-GNSS-001 adjusts correlated GNSS vector baselines against a fixed 3-D datum', async () => {
     const root = await mkdtemp(join(tmpdir(), 'workwise-gnss-fixture-'))
     const service = new SurveyService({ rootDir: root })
     const covariance = [4e-6, 1e-6, 0.2e-6, 1e-6, 9e-6, 0.3e-6, 0.2e-6, 0.3e-6, 4e-6]
@@ -452,7 +516,7 @@ describe('survey adjustment golden fixtures', () => {
       observations: [{ id: 'no-height-datum', type: 'gnss-baseline' as const, from: 'A', to: 'P', value: 0, vectorX: 1, vectorY: 2, vectorZ: 3, unit: 'm', covariance: [1e-6, 0, 0, 0, 1e-6, 0, 0, 0, 1e-6] }],
       expectedCode: 'missing_datum'
     }
-  ])('blocks GNSS with $name', async ({ name, knownPoints, unknownPoints, observations, expectedCode }) => {
+  ])('SURVEY-NEG-GNSS-001 blocks GNSS with $name', async ({ name, knownPoints, unknownPoints, observations, expectedCode }) => {
     const root = await mkdtemp(join(tmpdir(), 'workwise-gnss-invalid-'))
     const service = new SurveyService({ rootDir: root })
     const network = await service.importNetwork({ projectId: `gnss-${name}`, expectedRevision: 0, idempotencyKey: `gnss-${name}`, networkType: 'gnss', network: { knownPoints, unknownPoints, observations } })
