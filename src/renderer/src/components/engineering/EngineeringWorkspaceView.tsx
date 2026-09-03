@@ -102,8 +102,8 @@ type Output = { path: string; mediaType: string; sha256: string; sizeBytes: numb
 type Chart = { id: string; chartType: string; relativePath: string; sha256: string; validation: string }
 type Citation = { id: string; sourceType: 'attachment' | 'knowledge-base' | 'standard' | 'other'; source: string; locator?: string }
 type Run = { id: string; datasetId: string; analysisId?: string; status: string; revision: number; createdAt: string; updatedAt: string; error?: string }
-type Manifest = { id: string; runId: string; reviewStatus: string; outputs: Output[]; citations: Citation[]; adjustments?: Array<{ id: string; runId: string; networkId: string; validation: string }>; validation: { valid: boolean; errors: string[]; warnings: string[] }; finalizedAt?: string }
-type ReportPreview = { run: Run; files: Output[]; charts: Chart[]; citations: Citation[]; adjustments?: Array<{ id: string; runId: string; networkId: string; validation: string; displacements?: Array<{ pointId: string; dX?: number; dY?: number; dH?: number; magnitude: number }> }> }
+type Manifest = { id: string; runId: string; reviewStatus: string; outputs: Output[]; citations: Citation[]; adjustments?: Array<{ id: string; runId: string; networkId: string; validation: string }>; deformations?: Array<{ id: string; referenceEpoch: string; currentEpoch: string; points: Array<{ pointId: string }> }>; validation: { valid: boolean; errors: string[]; warnings: string[] }; finalizedAt?: string }
+type ReportPreview = { run: Run; files: Output[]; charts: Chart[]; citations: Citation[]; adjustments?: Array<{ id: string; runId: string; networkId: string; validation: string; displacements?: Array<{ pointId: string; dX?: number; dY?: number; dH?: number; magnitude: number }> }>; deformations?: Array<{ id: string; referenceEpoch: string; currentEpoch: string; points: Array<{ pointId: string }> }> }
 type Overview = { project: Project; datasets: Dataset[]; analyses: Analysis[]; runs: Run[]; manifests: Manifest[] }
 type TabId = 'ai-command' | 'dashboard' | 'project' | 'data' | 'quality' | 'survey' | 'analysis' | 'deliverables' | 'review' | 'skills'
 type Notice = { tone: 'success' | 'warning' | 'error' | 'info'; message: string }
@@ -269,6 +269,7 @@ export function EngineeringWorkspaceView({ workspaceRoot, runtimeReady, leftSide
   const [selectedDatasetId, setSelectedDatasetId] = useState('')
   const [selectedAnalysisId, setSelectedAnalysisId] = useState('')
   const [surveyAdjustmentIds, setSurveyAdjustmentIds] = useState<string[]>([])
+  const [surveyDeformationIds, setSurveyDeformationIds] = useState<string[]>([])
   const [tab, setTab] = useState<TabId>('ai-command')
   const [projectDraft, setProjectDraft] = useState<ProjectDraft | null>(null)
   const [citations, setCitations] = useState<Citation[]>([])
@@ -284,6 +285,7 @@ export function EngineeringWorkspaceView({ workspaceRoot, runtimeReady, leftSide
   const selectProject = useCallback((projectId: string): void => {
     setSelectedProjectId(projectId)
     setSurveyAdjustmentIds([])
+    setSurveyDeformationIds([])
     setPreview(null)
     setChart(null)
   }, [])
@@ -301,6 +303,7 @@ export function EngineeringWorkspaceView({ workspaceRoot, runtimeReady, leftSide
     setSelectedDatasetId('')
     setSelectedAnalysisId('')
     setSurveyAdjustmentIds([])
+    setSurveyDeformationIds([])
     setPreview(null)
     setChart(null)
   }, [workspaceRoot])
@@ -521,7 +524,7 @@ export function EngineeringWorkspaceView({ workspaceRoot, runtimeReady, leftSide
     setBusy(true)
     try {
       const result = await runtimeRequest<ReportPreview>('/v1/engineering/reports/preview', 'POST', {
-        projectId: overview.project.id, datasetId: activeDataset.id, analysisId: activeAnalysis?.id, adjustmentIds: surveyAdjustmentIds, citations,
+        projectId: overview.project.id, datasetId: activeDataset.id, analysisId: activeAnalysis?.id, adjustmentIds: surveyAdjustmentIds, deformationIds: surveyDeformationIds, citations,
         expectedRevision: activeDataset.revision, idempotencyKey: `engineering-preview-${activeDataset.id}-${activeDataset.revision}-${Date.now()}`
       })
       setPreview(result)
@@ -539,7 +542,7 @@ export function EngineeringWorkspaceView({ workspaceRoot, runtimeReady, leftSide
     setBusy(true)
     try {
       const result = await runtimeRequest<{ manifest: Manifest }>('/v1/engineering/deliverables/finalize', 'POST', {
-        projectId: overview.project.id, datasetId: activeDataset.id, analysisId: activeAnalysis.id, adjustmentIds: surveyAdjustmentIds, citations,
+        projectId: overview.project.id, datasetId: activeDataset.id, analysisId: activeAnalysis.id, adjustmentIds: surveyAdjustmentIds, deformationIds: surveyDeformationIds, citations,
         acknowledgeWarnings: false, expectedRevision: activeDataset.revision,
         idempotencyKey: `engineering-finalize-${activeDataset.id}-${activeDataset.revision}-${Date.now()}`
       })
@@ -659,7 +662,7 @@ export function EngineeringWorkspaceView({ workspaceRoot, runtimeReady, leftSide
 
             {tab === 'survey' ? <section>
               <PanelHeading title="测量与平差" description="水准、导线、平面控制、三角网、CPIII 和 GNSS 使用确定性 Runtime 计算；缺少基准或协方差时会明确阻断。" />
-              <SurveyAdjustmentPanel project={overview.project} runtimeReady={runtimeReady} onOpenAi={() => setTab('ai-command')} onAdjustmentComplete={(id) => setSurveyAdjustmentIds((current) => current.includes(id) ? current : [...current, id])} />
+              <SurveyAdjustmentPanel project={overview.project} runtimeReady={runtimeReady} onOpenAi={() => setTab('ai-command')} onAdjustmentComplete={(id) => setSurveyAdjustmentIds((current) => current.includes(id) ? current : [...current, id])} onDeformationComplete={(id) => setSurveyDeformationIds((current) => current.includes(id) ? current : [...current, id])} />
             </section> : null}
 
             {tab === 'skills' ? <section>

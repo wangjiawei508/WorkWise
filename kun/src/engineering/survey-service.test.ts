@@ -295,4 +295,64 @@ describe('SurveyService', () => {
     expect(output.result.parameters).toMatchObject({ translationX: expect.closeTo(5, 8), translationY: expect.closeTo(7, 8), scalePpm: expect.closeTo(0, 8), rotationRad: expect.closeTo(0, 8) })
     service.close()
   })
+
+  it('persists immutable deformation comparison results from adjusted observation epochs', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'workwise-survey-deformation-'))
+    const service = new SurveyService({ rootDir: root })
+    const makeEpoch = async (suffix: string, observationEpoch: string, heightDifference: number) => {
+      const network = await service.importNetwork({
+        projectId: 'project-deformation', expectedRevision: 0, idempotencyKey: `deformation-import-${suffix}`, networkType: 'leveling', network: {
+          networkType: 'leveling', coordinateSystem: 'local-grid', projection: 'none', ellipsoid: 'none', verticalDatum: '1985-height', observationEpoch,
+          knownPoints: [{ id: 'BM', pointClass: 'known', height: 100, known: true }],
+          unknownPoints: [{ id: 'P1', pointClass: 'unknown', height: 100 + heightDifference, known: false }],
+          observations: [{ id: `dh-${suffix}`, type: 'height-difference', from: 'BM', to: 'P1', value: heightDifference, unit: 'm', sigma: 0.0002 }]
+        }
+      })
+      return service.createAdjustment({ networkId: network.id, expectedRevision: network.revision, idempotencyKey: `deformation-adjust-${suffix}` })
+    }
+    const reference = await makeEpoch('reference', '2026-01-01T00:00:00.000Z', 0.2)
+    const current = await makeEpoch('current', '2026-01-11T00:00:00.000Z', 0.19)
+    const comparison = service.compareDeformation({
+      projectId: 'project-deformation', adjustmentIds: [current.run.id, reference.run.id],
+      pairs: [{ id: 'tilt-BM-P1', firstPointId: 'BM', secondPointId: 'P1', kind: 'tilt', baselineM: 10 }],
+      stabilityRateMPerDay: 0.0001, expectedRevision: current.run.revision, idempotencyKey: 'deformation-compare-001'
+    })
+
+    expect(comparison.referenceAdjustmentId).toBe(reference.run.id)
+    expect(comparison.currentAdjustmentId).toBe(current.run.id)
+    expect(comparison.durationDays).toBe(10)
+    expect(comparison.points.find((point) => point.pointId === 'P1')).toMatchObject({
+      dH: expect.closeTo(-0.01, 12), settlement: expect.closeTo(0.01, 12),
+      trend: 'settling', rates: { settlementPerDay: expect.closeTo(0.001, 12) }
+    })
+    expect(comparison.pairs[0]).toMatchObject({ differentialSettlement: expect.closeTo(0.01, 12), tilt: expect.closeTo(0.001, 12) })
+    expect(service.getDeformation(comparison.id)?.inputHash).toBe(comparison.inputHash)
+    expect(service.listDeformations('project-deformation')).toHaveLength(1)
+
+    const reused = service.compareDeformation({
+      projectId: 'project-deformation', adjustmentIds: [reference.run.id, current.run.id], pairs: [{ id: 'tilt-BM-P1', firstPointId: 'BM', secondPointId: 'P1', kind: 'tilt', baselineM: 10 }],
+      stabilityRateMPerDay: 0.0001, expectedRevision: current.run.revision, idempotencyKey: 'deformation-compare-002'
+    })
+    expect(reused.id).toBe(comparison.id)
+    expect(service.listDeformations('project-deformation')).toHaveLength(1)
+    service.close()
+  })
+
+  it('blocks deformation comparison when epoch datum metadata differs', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'workwise-survey-deformation-datum-'))
+    const service = new SurveyService({ rootDir: root })
+    const adjustmentIds: string[] = []
+    for (const [index, verticalDatum] of ['datum-a', 'datum-b'].entries()) {
+      const network = await service.importNetwork({
+        projectId: 'project-deformation-datum', expectedRevision: 0, idempotencyKey: `datum-import-${index}`, networkType: 'leveling', network: {
+          networkType: 'leveling', coordinateSystem: 'local-grid', projection: 'none', ellipsoid: 'none', verticalDatum, observationEpoch: `2026-01-0${index + 1}T00:00:00.000Z`,
+          knownPoints: [{ id: 'BM', pointClass: 'known', height: 100, known: true }], unknownPoints: [{ id: 'P', pointClass: 'unknown', height: 100.2, known: false }],
+          observations: [{ id: `dh-${index}`, type: 'height-difference', from: 'BM', to: 'P', value: 0.2 - index * 0.001, unit: 'm', sigma: 0.0002 }]
+        }
+      })
+      adjustmentIds.push(service.createAdjustment({ networkId: network.id, expectedRevision: network.revision, idempotencyKey: `datum-adjust-${index}` }).run.id)
+    }
+    expect(() => service.compareDeformation({ projectId: 'project-deformation-datum', adjustmentIds, expectedRevision: 1, idempotencyKey: 'datum-compare-001' })).toThrow('identical coordinate system')
+    service.close()
+  })
 })

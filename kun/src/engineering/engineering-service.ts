@@ -12,12 +12,13 @@ import {
   KnowledgeCitationV1, MonitoringAnalysisV1, MonitoringDatasetV1, MonitoringObservationV1,
   QualityFindingV1, RailwiseProjectV1, ReportPreviewRequest, RunMutationRequest
 } from '../contracts/engineering.js'
-import type { AdjustmentResultV1 } from '../contracts/survey.js'
+import type { AdjustmentResultV1, DeformationComparisonV1 } from '../contracts/survey.js'
 
 type Row = Record<string, string>
 type StoredDataset = MonitoringDatasetV1 & { observations: MonitoringObservationV1[]; findings: QualityFindingV1[] }
 type StoredRun = { id: string; projectId: string; datasetId: string; analysisId?: string; status: 'queued' | 'running' | 'completed' | 'failed' | 'cancelled'; revision: number; idempotencyKey: string; createdAt: string; updatedAt: string; error?: string }
 type SurveyAdjustmentLookup = (projectId: string, ids: string[]) => AdjustmentResultV1[]
+type SurveyDeformationLookup = (projectId: string, ids: string[]) => DeformationComparisonV1[]
 
 export class EngineeringRevisionConflictError extends Error { readonly code = 'stale_request' }
 export class EngineeringIdempotencyError extends Error { readonly code = 'idempotency_replay'; constructor(readonly result: unknown) { super('idempotency key already used') } }
@@ -26,7 +27,7 @@ export class EngineeringService {
   private readonly db: Database.Database
   private readonly nowIso: () => string
   private readonly idempotencyLocks = new Map<string, Promise<void>>()
-  constructor(private readonly options: { rootDir: string; attachmentStore?: AttachmentStore; runtimeVersion?: string; nowIso?: () => string; getAdjustments?: SurveyAdjustmentLookup }) {
+  constructor(private readonly options: { rootDir: string; attachmentStore?: AttachmentStore; runtimeVersion?: string; nowIso?: () => string; getAdjustments?: SurveyAdjustmentLookup; getDeformations?: SurveyDeformationLookup }) {
     this.nowIso = options.nowIso ?? (() => new Date().toISOString())
     mkdirSync(resolve(options.rootDir), { recursive: true })
     this.db = new Database(resolve(options.rootDir, 'engineering.sqlite3'))
@@ -171,31 +172,36 @@ export class EngineeringService {
     })
   }
 
-  async previewReport(input: unknown): Promise<{ run: StoredRun; files: Array<{ path: string; mediaType: string; sha256: string; sizeBytes: number }>; charts: ChartArtifactV1[]; citations: KnowledgeCitationV1[]; adjustments: AdjustmentResultV1[] }> {
+  async previewReport(input: unknown): Promise<{ run: StoredRun; files: Array<{ path: string; mediaType: string; sha256: string; sizeBytes: number }>; charts: ChartArtifactV1[]; citations: KnowledgeCitationV1[]; adjustments: AdjustmentResultV1[]; deformations: DeformationComparisonV1[] }> {
     const req = ReportPreviewRequest.parse(input)
     return this.withIdempotencyLock(req.idempotencyKey, async () => {
       const project = this.mustProject(req.projectId); const dataset = this.mustDataset(req.datasetId); if (req.expectedRevision !== 0 && req.expectedRevision !== dataset.revision) throw new EngineeringRevisionConflictError(`dataset revision conflict: expected ${req.expectedRevision}, actual ${dataset.revision}`); const analysis = req.analysisId ? this.getAnalysis(req.analysisId) : this.createAnalysis({ expectedRevision: dataset.revision, idempotencyKey: `preview-analysis-${dataset.id}`, projectId: project.id, datasetId: dataset.id }); if (!analysis) throw new Error('analysis not found')
       if (analysis.projectId !== project.id || analysis.datasetId !== dataset.id) throw new Error('analysis does not belong to project and dataset')
       const adjustments = this.lookupAdjustments(project.id, req.adjustmentIds)
-      const replay = this.replay(req.idempotencyKey); if (replay) return replay as { run: StoredRun; files: Array<{ path: string; mediaType: string; sha256: string; sizeBytes: number }>; charts: ChartArtifactV1[]; citations: KnowledgeCitationV1[]; adjustments: AdjustmentResultV1[] }
+      const deformations = this.lookupDeformations(project.id, req.deformationIds)
+      const replay = this.replay(req.idempotencyKey)
+      if (replay) {
+        const legacy = replay as { run: StoredRun; files: Array<{ path: string; mediaType: string; sha256: string; sizeBytes: number }>; charts: ChartArtifactV1[]; citations: KnowledgeCitationV1[]; adjustments?: AdjustmentResultV1[]; deformations?: DeformationComparisonV1[] }
+        return { ...legacy, adjustments: legacy.adjustments ?? [], deformations: legacy.deformations ?? [] }
+      }
       const runId = `run_${randomUUID()}`; const outDir = this.outputDir(project, runId); await mkdir(outDir, { recursive: true }); const chart = this.latestChart(analysis.id) ?? await this.createChart({ expectedRevision: 0, idempotencyKey: `preview-chart-${analysis.id}`, analysisId: analysis.id, chartType: 'trend' })
       const outputs: Array<{ path: string; mediaType: string; sha256: string; sizeBytes: number }> = []
-      const text = reportText(project, dataset, analysis, req.citations, adjustments)
+      const text = reportText(project, dataset, analysis, req.citations, adjustments, deformations)
       const docxPath = join(outDir, 'report.docx'); await atomicWriteFile(docxPath, await makeDocx(text)); outputs.push(await fileOutput(docxPath, 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', project.workspace))
       const pdfPath = join(outDir, 'report.pdf'); await atomicWriteFile(pdfPath, makePdf(text)); outputs.push(await fileOutput(pdfPath, 'application/pdf', project.workspace))
-      const xlsxPath = join(outDir, 'evidence.xlsx'); await atomicWriteFile(xlsxPath, await makeXlsx(project, dataset, analysis, req.citations, adjustments, this.options.runtimeVersion ?? '0.5.0')); outputs.push(await fileOutput(xlsxPath, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', project.workspace))
+      const xlsxPath = join(outDir, 'evidence.xlsx'); await atomicWriteFile(xlsxPath, await makeXlsx(project, dataset, analysis, req.citations, adjustments, deformations, this.options.runtimeVersion ?? '0.5.0')); outputs.push(await fileOutput(xlsxPath, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', project.workspace))
       const chartPath = resolve(project.workspace, chart.relativePath); if (await readFile(chartPath).then(() => true).catch(() => false)) outputs.push(await fileOutput(chartPath, 'image/svg+xml', project.workspace))
       const run: StoredRun = { id: runId, projectId: project.id, datasetId: dataset.id, analysisId: analysis.id, status: 'completed', revision: 1, idempotencyKey: req.idempotencyKey, createdAt: this.nowIso(), updatedAt: this.nowIso() }
       this.db.prepare('INSERT INTO engineering_runs(id, project_id, data_json, updated_at) VALUES (?, ?, ?, ?)').run(run.id, run.projectId, JSON.stringify(run), run.updatedAt)
-      const result = { run, files: outputs, charts: [chart], citations: req.citations, adjustments }; this.remember(req.idempotencyKey, result); return result
+      const result = { run, files: outputs, charts: [chart], citations: req.citations, adjustments, deformations }; this.remember(req.idempotencyKey, result); return result
     })
   }
 
   async finalize(input: unknown): Promise<DeliverableManifestV1> {
     const req = FinalizeDeliverableRequest.parse(input)
     return this.withIdempotencyLock(req.idempotencyKey, async () => {
-      const replay = this.replay(req.idempotencyKey); if (replay) return replay as DeliverableManifestV1; const project = this.mustProject(req.projectId); const dataset = this.mustDataset(req.datasetId); if (req.expectedRevision !== 0 && req.expectedRevision !== dataset.revision) throw new EngineeringRevisionConflictError(`dataset revision conflict: expected ${req.expectedRevision}, actual ${dataset.revision}`); const findings = dataset.findings.filter((f) => f.status === 'open'); const blocking = findings.filter((f) => f.severity === 'blocking'); const warnings = findings.filter((f) => f.severity === 'warning'); if (blocking.length) throw new Error(`blocking findings remain: ${blocking.length}`); if (warnings.length && !req.acknowledgeWarnings) throw new Error(`warnings require acknowledgement: ${warnings.length}`)
-      const preview = await this.previewReport({ expectedRevision: req.expectedRevision, idempotencyKey: `finalize-preview-${req.idempotencyKey}`, projectId: project.id, datasetId: dataset.id, citations: req.citations, adjustmentIds: req.adjustmentIds, ...(req.analysisId ? { analysisId: req.analysisId } : {}) }); const outputs = [...preview.files]; const runId = preview.run.id; const manifest = DeliverableManifestV1.parse({ schemaVersion: 1, id: `manifest_${randomUUID()}`, projectId: project.id, runId, inputDatasets: [{ id: dataset.id, hash: dataset.sourceFileHash }], analyses: [preview.run.analysisId!], adjustments: preview.adjustments, charts: preview.charts, citations: req.citations, outputs, validation: { valid: true, errors: [], warnings: warnings.map((f) => f.message) }, reviewStatus: 'approved', runtimeVersion: this.options.runtimeVersion ?? '0.5.0', createdAt: this.nowIso(), finalizedAt: this.nowIso() }); const path = join(this.outputDir(project, runId), 'manifest.json'); await atomicWriteFile(path, JSON.stringify(manifest, null, 2)); this.db.prepare('INSERT INTO engineering_manifests(id, project_id, data_json, created_at) VALUES (?, ?, ?, ?)').run(manifest.id, manifest.projectId, JSON.stringify(manifest), manifest.createdAt); this.remember(req.idempotencyKey, manifest); return manifest
+      const replay = this.replay(req.idempotencyKey); if (replay) return DeliverableManifestV1.parse(replay); const project = this.mustProject(req.projectId); const dataset = this.mustDataset(req.datasetId); if (req.expectedRevision !== 0 && req.expectedRevision !== dataset.revision) throw new EngineeringRevisionConflictError(`dataset revision conflict: expected ${req.expectedRevision}, actual ${dataset.revision}`); const findings = dataset.findings.filter((f) => f.status === 'open'); const blocking = findings.filter((f) => f.severity === 'blocking'); const warnings = findings.filter((f) => f.severity === 'warning'); if (blocking.length) throw new Error(`blocking findings remain: ${blocking.length}`); if (warnings.length && !req.acknowledgeWarnings) throw new Error(`warnings require acknowledgement: ${warnings.length}`)
+      const preview = await this.previewReport({ expectedRevision: req.expectedRevision, idempotencyKey: `finalize-preview-${req.idempotencyKey}`, projectId: project.id, datasetId: dataset.id, citations: req.citations, adjustmentIds: req.adjustmentIds, deformationIds: req.deformationIds, ...(req.analysisId ? { analysisId: req.analysisId } : {}) }); const outputs = [...preview.files]; const runId = preview.run.id; const manifest = DeliverableManifestV1.parse({ schemaVersion: 1, id: `manifest_${randomUUID()}`, projectId: project.id, runId, inputDatasets: [{ id: dataset.id, hash: dataset.sourceFileHash }], analyses: [preview.run.analysisId!], adjustments: preview.adjustments, deformations: preview.deformations, charts: preview.charts, citations: req.citations, outputs, validation: { valid: true, errors: [], warnings: warnings.map((f) => f.message) }, reviewStatus: 'approved', runtimeVersion: this.options.runtimeVersion ?? '0.5.0', createdAt: this.nowIso(), finalizedAt: this.nowIso() }); const path = join(this.outputDir(project, runId), 'manifest.json'); await atomicWriteFile(path, JSON.stringify(manifest, null, 2)); this.db.prepare('INSERT INTO engineering_manifests(id, project_id, data_json, created_at) VALUES (?, ?, ?, ?)').run(manifest.id, manifest.projectId, JSON.stringify(manifest), manifest.createdAt); this.remember(req.idempotencyKey, manifest); return manifest
     })
   }
   getRun(id: string): StoredRun | null { const row = this.db.prepare('SELECT data_json FROM engineering_runs WHERE id = ?').get(id) as { data_json: string } | undefined; return row ? JSON.parse(row.data_json) as StoredRun : null }
@@ -213,6 +219,17 @@ export class EngineeringService {
     if (results.length !== uniqueIds.length) throw new Error('one or more survey adjustments were not found')
     for (const result of results) {
       if (result.inputHash.length < 32) throw new Error(`survey adjustment ${result.id} has an invalid input hash`)
+    }
+    return results
+  }
+  private lookupDeformations(projectId: string, ids: string[]): DeformationComparisonV1[] {
+    if (!ids.length) return []
+    if (!this.options.getDeformations) throw new Error('survey deformation lookup is unavailable')
+    const uniqueIds = [...new Set(ids)]
+    const results = this.options.getDeformations(projectId, uniqueIds)
+    if (results.length !== uniqueIds.length) throw new Error('one or more survey deformation comparisons were not found')
+    for (const result of results) {
+      if (result.inputHash.length < 32) throw new Error(`survey deformation ${result.id} has an invalid input hash`)
     }
     return results
   }
@@ -391,7 +408,7 @@ function decodeCodePoint(entity: string, codePoint: number): string {
     ? String.fromCodePoint(codePoint)
     : entity
 }
-function reportText(project: RailwiseProjectV1, dataset: StoredDataset, analysis: MonitoringAnalysisV1, citations: KnowledgeCitationV1[] = [], adjustments: AdjustmentResultV1[] = []): string {
+function reportText(project: RailwiseProjectV1, dataset: StoredDataset, analysis: MonitoringAnalysisV1, citations: KnowledgeCitationV1[] = [], adjustments: AdjustmentResultV1[] = [], deformations: DeformationComparisonV1[] = []): string {
   const period = project.reportPeriod.start || project.reportPeriod.end
     ? `${project.reportPeriod.start ?? '-'} ~ ${project.reportPeriod.end ?? '-'}`
     : `${dataset.timeRange.start ?? '-'} ~ ${dataset.timeRange.end ?? '-'}`
@@ -425,6 +442,15 @@ function reportText(project: RailwiseProjectV1, dataset: StoredDataset, analysis
       ...(adjustment.displacements.length ? adjustment.displacements.map((item) => `位移 ${item.pointId}: dX=${measurement(item.dX, adjustment.linearUnit)} dY=${measurement(item.dY, adjustment.linearUnit)} dH=${measurement(item.dH, adjustment.linearUnit)} 模长=${measurement(item.magnitude, adjustment.linearUnit)}`) : ['位移结果：无可用初始坐标/高程'])
     ]) : ['本报告未关联测量平差运行']),
     '',
+    '变形期次比较',
+    ...(deformations.length ? deformations.flatMap((comparison) => [
+      `比较 ${comparison.id}: ${comparison.referenceEpoch} → ${comparison.currentEpoch}（${comparison.durationDays} d），算法=${comparison.algorithmVersion}，输入 SHA-256=${comparison.inputHash}`,
+      ...comparison.points.map((point) => `测点 ${point.pointId}: dX=${measurement(point.dX, point.unit)} dY=${measurement(point.dY, point.unit)} dH=${measurement(point.dH, point.unit)} 沉降=${measurement(point.settlement, point.unit)} 水平位移=${measurement(point.horizontalDisplacement, point.unit)} 三维位移=${measurement(point.spatialDisplacement, point.unit)} 速率=${measurement(point.rates.spatialPerDay, point.rateUnit)} 趋势=${point.trend}${point.standardizedDisplacement === undefined ? '' : ` 显著性=${point.standardizedDisplacement}σ`}`),
+      ...comparison.pairs.map((pair) => pair.kind === 'tilt'
+        ? `倾斜 ${pair.id}（${pair.firstPointId}-${pair.secondPointId}）: 差异沉降=${measurement(pair.differentialSettlement, pair.linearUnit)} 基线=${measurement(pair.baselineM, pair.linearUnit)} 倾斜=${measurement(pair.tilt, pair.tiltUnit)}`
+        : `收敛 ${pair.id}（${pair.firstPointId}-${pair.secondPointId}）: 初始距离=${measurement(pair.referenceDistance, pair.linearUnit)} 当前距离=${measurement(pair.currentDistance, pair.linearUnit)} 收敛=${measurement(pair.convergence, pair.linearUnit)} 速率=${measurement(pair.convergenceRatePerDay, pair.rateUnit)}`)
+    ]) : ['本报告未关联变形期次比较']),
+    '',
     '质量问题',
     ...(dataset.findings.length ? dataset.findings.map((f) => `${f.severity}: ${f.message}（第 ${f.row ?? '-'} 行，${f.code}，${f.status}）`) : ['无']),
     '',
@@ -437,7 +463,7 @@ function reportText(project: RailwiseProjectV1, dataset: StoredDataset, analysis
 async function fileOutput(path: string, mediaType: string, workspace: string): Promise<{ path: string; mediaType: string; sha256: string; sizeBytes: number }> { const data = await readFile(path); return { path: relative(workspace, path), mediaType, sha256: createHash('sha256').update(data).digest('hex'), sizeBytes: data.byteLength } }
 async function makeDocx(text: string): Promise<Buffer> { const zip = new JSZip(); zip.file('[Content_Types].xml', '<?xml version="1.0" encoding="UTF-8"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>'); zip.file('_rels/.rels', '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>'); zip.file('word/document.xml', `<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>${text.split('\n').map((line) => `<w:p><w:r><w:t xml:space="preserve">${escapeXml(line)}</w:t></w:r></w:p>`).join('')}<w:sectPr/></w:body></w:document>`); return zip.generateAsync({ type: 'nodebuffer' }) }
 function makePdf(text: string): Buffer { const body = text.replace(/[()\\]/g, (m) => `\\${m}`).slice(0, 5000); const stream = `BT /F1 10 Tf 40 760 Td (${body.replaceAll('\n', ') Tj 0 -14 Td (')}) Tj ET`; const pdf = `%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n2 0 obj<</Type/Pages/Count 1/Kids[3 0 R]>>endobj\n3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 595 842]/Resources<</Font<</F1 4 0 R>>>>/Contents 5 0 R>>endobj\n4 0 obj<</Type/Font/Subtype/Type1/BaseFont/Helvetica>>endobj\n5 0 obj<</Length ${Buffer.byteLength(stream)}>>stream\n${stream}\nendstream endobj\ntrailer<</Root 1 0 R>>\n%%EOF`; return Buffer.from(pdf) }
-async function makeXlsx(project: RailwiseProjectV1, dataset: StoredDataset, analysis: MonitoringAnalysisV1, citations: KnowledgeCitationV1[], adjustments: AdjustmentResultV1[], runtimeVersion: string): Promise<Buffer> {
+async function makeXlsx(project: RailwiseProjectV1, dataset: StoredDataset, analysis: MonitoringAnalysisV1, citations: KnowledgeCitationV1[], adjustments: AdjustmentResultV1[], deformations: DeformationComparisonV1[], runtimeVersion: string): Promise<Buffer> {
   const zip = new JSZip()
   const sheets: Array<{ name: string; rows: string[][] }> = [
     { name: 'field_mapping', rows: [['canonical_field', 'source_column'], ...Object.entries(dataset.fieldMapping).map(([key, value]) => [key, value ?? ''])] },
@@ -452,8 +478,11 @@ async function makeXlsx(project: RailwiseProjectV1, dataset: StoredDataset, anal
     { name: 'survey_points', rows: [['runId', 'pointId', 'x', 'y', 'height', 'latitudeDeg', 'longitudeDeg', 'correctionX', 'correctionY', 'correctionHeight', 'standardError', 'linearUnit'], ...adjustments.flatMap((a) => a.points.map((point) => [a.runId, point.id, String(point.x ?? ''), String(point.y ?? ''), String(point.height ?? ''), String(point.latitude ?? ''), String(point.longitude ?? ''), String(point.correctionX ?? ''), String(point.correctionY ?? ''), String(point.correctionHeight ?? ''), String(point.standardError ?? ''), a.linearUnit]))] },
     { name: 'survey_residuals', rows: [['runId', 'observationId', 'correction', 'residual', 'unit', 'standardizedResidual', 'standardizedResidualUnit', 'outlier', 'sourceRow'], ...adjustments.flatMap((a) => a.observations.map((o) => [a.runId, o.observationId, String(o.correction), String(o.residual), o.unit ?? '', String(o.standardizedResidual ?? ''), 'sigma', String(o.outlier), String(o.sourceRow ?? '')]))] },
     { name: 'survey_displacements', rows: [['runId', 'pointId', 'dX', 'dY', 'dH', 'magnitude', 'unit', 'kind'], ...adjustments.flatMap((a) => a.displacements.map((d) => [a.runId, d.pointId, String(d.dX ?? ''), String(d.dY ?? ''), String(d.dH ?? ''), String(d.magnitude), a.linearUnit, d.kind]))] },
+    { name: 'deformation_epochs', rows: [['comparisonId', 'adjustmentId', 'resultId', 'networkId', 'observationEpoch', 'inputHash', 'resultHash'], ...deformations.flatMap((comparison) => comparison.epochs.map((epoch) => [comparison.id, epoch.adjustmentId, epoch.resultId, epoch.networkId, epoch.observationEpoch, epoch.inputHash, epoch.resultHash]))] },
+    { name: 'deformation_points', rows: [['comparisonId', 'pointId', 'dX', 'dY', 'dH', 'settlement', 'horizontalDisplacement', 'spatialDisplacement', 'dXPerDay', 'dYPerDay', 'dHPerDay', 'settlementPerDay', 'horizontalPerDay', 'spatialPerDay', 'trend', 'combinedStandardError', 'standardizedDisplacement', 'significant', 'unit', 'rateUnit'], ...deformations.flatMap((comparison) => comparison.points.map((point) => [comparison.id, point.pointId, String(point.dX ?? ''), String(point.dY ?? ''), String(point.dH ?? ''), String(point.settlement ?? ''), String(point.horizontalDisplacement ?? ''), String(point.spatialDisplacement), String(point.rates.dXPerDay ?? ''), String(point.rates.dYPerDay ?? ''), String(point.rates.dHPerDay ?? ''), String(point.rates.settlementPerDay ?? ''), String(point.rates.horizontalPerDay ?? ''), String(point.rates.spatialPerDay), point.trend, String(point.combinedStandardError ?? ''), String(point.standardizedDisplacement ?? ''), String(point.significant ?? ''), point.unit, point.rateUnit]))] },
+    { name: 'deformation_pairs', rows: [['comparisonId', 'pairId', 'kind', 'firstPointId', 'secondPointId', 'distanceMode', 'referenceDistance', 'currentDistance', 'convergence', 'convergenceRatePerDay', 'baselineM', 'differentialSettlement', 'tilt', 'linearUnit', 'rateUnit', 'tiltUnit'], ...deformations.flatMap((comparison) => comparison.pairs.map((pair) => [comparison.id, pair.id, pair.kind, pair.firstPointId, pair.secondPointId, pair.distanceMode, String(pair.referenceDistance ?? ''), String(pair.currentDistance ?? ''), String(pair.convergence ?? ''), String(pair.convergenceRatePerDay ?? ''), String(pair.baselineM ?? ''), String(pair.differentialSettlement ?? ''), String(pair.tilt ?? ''), pair.linearUnit, pair.rateUnit, pair.tiltUnit]))] },
     { name: 'citations', rows: [['id', 'sourceType', 'source', 'page', 'worksheet', 'row', 'url', 'locator'], ...citations.map((c) => [c.id, c.sourceType, c.source, String(c.page ?? ''), c.worksheet ?? '', String(c.row ?? ''), c.url ?? '', c.locator ?? ''])] },
-    { name: 'manifest_summary', rows: [['schemaVersion', 'projectId', 'datasetId', 'sourceFileHash', 'analysisId', 'analysisInputHash', 'adjustmentIds', 'runtimeVersion', 'generatedAt'], ['1', project.id, dataset.id, dataset.sourceFileHash, analysis.id, analysis.inputHash, adjustments.map((a) => a.id).join(','), runtimeVersion, new Date().toISOString()]] }
+    { name: 'manifest_summary', rows: [['schemaVersion', 'projectId', 'datasetId', 'sourceFileHash', 'analysisId', 'analysisInputHash', 'adjustmentIds', 'deformationIds', 'runtimeVersion', 'generatedAt'], ['1', project.id, dataset.id, dataset.sourceFileHash, analysis.id, analysis.inputHash, adjustments.map((a) => a.id).join(','), deformations.map((item) => item.id).join(','), runtimeVersion, new Date().toISOString()]] }
   ]
   const xmlEscape = (value: string): string => escapeXml(value)
   const sheetXml = (rows: string[][]): string => `<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>${rows.map((row, ri) => `<row r="${ri + 1}">${row.map((value, ci) => `<c r="${columnName(ci)}${ri + 1}" t="inlineStr"><is><t>${xmlEscape(value)}</t></is></c>`).join('')}</row>`).join('')}</sheetData></worksheet>`

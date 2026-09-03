@@ -309,6 +309,10 @@ export async function createKunServeRuntime(
       if (!stored || stored.run.projectId !== projectId || !stored.result) return []
       return [stored.result]
     }),
+    getDeformations: (projectId, ids) => ids.flatMap((id) => {
+      const result = surveyService.getDeformation(id)
+      return result?.projectId === projectId ? [result] : []
+    }),
     nowIso
   })
   const engineeringContext = new EngineeringContextService(engineeringService, nowIso)

@@ -99,6 +99,11 @@ export function getAdjustment(service: SurveyService | undefined, id: string): J
   const adjustment = service.getAdjustment(id); return adjustment ? jsonResponse(adjustment) : ERRORS.notFound(`adjustment not found: ${id}`)
 }
 
+export function listAdjustments(service: SurveyService | undefined, projectId?: string): JsonResponse {
+  if (!service) return ERRORS.unavailable('survey adjustment service is unavailable')
+  return jsonResponse({ adjustments: service.listAdjustments(projectId) })
+}
+
 export async function cancelAdjustment(service: SurveyService | undefined, id: string, request: Request): Promise<JsonResponse | Response> {
   if (!service) return ERRORS.unavailable('survey adjustment service is unavailable')
   const body = await readJsonBody(request); if (!body.ok) return body.response
@@ -114,6 +119,22 @@ export async function resumeAdjustment(service: SurveyService | undefined, id: s
 export function previewAdjustment(service: SurveyService | undefined, id: string): JsonResponse {
   if (!service) return ERRORS.unavailable('survey adjustment service is unavailable')
   const adjustment = service.previewAdjustment(id); return adjustment ? jsonResponse(adjustment) : ERRORS.notFound(`adjustment not found: ${id}`)
+}
+
+export async function compareDeformation(service: SurveyService | undefined, request: Request): Promise<JsonResponse | Response> {
+  if (!service) return ERRORS.unavailable('survey adjustment service is unavailable')
+  const body = await readJsonBody(request); if (!body.ok) return body.response
+  try { return jsonResponse({ deformation: service.compareDeformation(body.value) }, 201) } catch (error) { return mapSurveyError(error) }
+}
+
+export function getDeformation(service: SurveyService | undefined, id: string): JsonResponse {
+  if (!service) return ERRORS.unavailable('survey adjustment service is unavailable')
+  const deformation = service.getDeformation(id); return deformation ? jsonResponse({ deformation }) : ERRORS.notFound(`deformation comparison not found: ${id}`)
+}
+
+export function listDeformations(service: SurveyService | undefined, projectId?: string): JsonResponse {
+  if (!service) return ERRORS.unavailable('survey adjustment service is unavailable')
+  return jsonResponse({ deformations: service.listDeformations(projectId) })
 }
 
 export function engineeringCapabilities(service: SurveyService | undefined): JsonResponse {

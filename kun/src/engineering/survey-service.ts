@@ -12,6 +12,8 @@ import {
   AdjustmentRunV1,
   AdjustmentDisplacementV1,
   CoordinateTransformTypeV1,
+  DeformationComparisonRequestV1,
+  DeformationComparisonV1,
   SurveyNetworkImportRequest,
   SurveyNetworkV1,
   SurveyNetworkValidateRequest,
@@ -22,9 +24,11 @@ import {
 } from '../contracts/survey.js'
 import { choleskyDecompose, iterativeWeightedLeastSquares, numericalJacobian, surveyMatrix, weightedLeastSquares, whitenCorrelatedEquations, wrapRadians, type Matrix } from './survey-adjustment-core.js'
 import { applyHeightPlane, applyHelmert7, applySimilarity2d, fitHeightPlane, fitHelmert7, fitSimilarity2d, gaussKrugerForward, gaussKrugerInverse, resolveEllipsoid, type HeightPlaneParameters, type Helmert7Parameters, type Similarity2dParameters } from './survey-coordinate-transform.js'
+import { compareAdjustedEpochs, DEFORMATION_ALGORITHM_VERSION } from './survey-deformation.js'
 
 type SurveyProjectLookup = (id: string) => { id: string; workspace: string; revision: number } | null
 type StoredAdjustment = { run: AdjustmentRunV1; result?: AdjustmentResultV1 }
+type StoredAdjustmentSummary = StoredAdjustment & { observationEpoch?: string; networkType?: SurveyNetworkV1['networkType']; coordinateSystem?: string; verticalDatum?: string }
 
 const ALGORITHM_VERSION = 'workwise-survey-adjustment-4'
 const MAX_POINTS = 10_000
@@ -1152,6 +1156,9 @@ export class SurveyService {
     this.db.exec(`CREATE TABLE IF NOT EXISTS survey_projects (id TEXT PRIMARY KEY, project_id TEXT NOT NULL, revision INTEGER NOT NULL, data_json TEXT NOT NULL, updated_at TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS survey_networks (id TEXT PRIMARY KEY, project_id TEXT NOT NULL, revision INTEGER NOT NULL, data_json TEXT NOT NULL, updated_at TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS survey_adjustments (id TEXT PRIMARY KEY, project_id TEXT NOT NULL, network_id TEXT NOT NULL, data_json TEXT NOT NULL, updated_at TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS survey_deformations (id TEXT PRIMARY KEY, project_id TEXT NOT NULL, reference_adjustment_id TEXT NOT NULL, current_adjustment_id TEXT NOT NULL, input_hash TEXT NOT NULL, data_json TEXT NOT NULL, created_at TEXT NOT NULL);
+      CREATE INDEX IF NOT EXISTS survey_deformations_project_created_idx ON survey_deformations(project_id, created_at DESC);
+      CREATE UNIQUE INDEX IF NOT EXISTS survey_deformations_project_input_idx ON survey_deformations(project_id, input_hash);
       CREATE TABLE IF NOT EXISTS survey_idempotency (key TEXT PRIMARY KEY, result_json TEXT NOT NULL, created_at TEXT NOT NULL);`)
   }
   close(): void { this.db.close() }
@@ -1285,9 +1292,101 @@ export class SurveyService {
     const row = this.db.prepare('SELECT data_json FROM survey_adjustments WHERE id = ? OR json_extract(data_json, \'$.result.id\') = ?').get(id, id) as { data_json: string } | undefined
     return row ? this.normalizeStoredAdjustment(JSON.parse(row.data_json)) : null
   }
+  listAdjustments(projectId?: string): StoredAdjustmentSummary[] {
+    const rows = projectId
+      ? this.db.prepare('SELECT data_json FROM survey_adjustments WHERE project_id = ? ORDER BY updated_at DESC').all(projectId)
+      : this.db.prepare('SELECT data_json FROM survey_adjustments ORDER BY updated_at DESC').all()
+    return (rows as Array<{ data_json: string }>).map((row) => {
+      const stored = this.normalizeStoredAdjustment(JSON.parse(row.data_json))
+      const network = this.getNetwork(stored.run.networkId)
+      return {
+        ...stored,
+        ...(network?.observationEpoch ? { observationEpoch: network.observationEpoch } : {}),
+        ...(network ? { networkType: network.networkType, coordinateSystem: network.coordinateSystem, verticalDatum: network.verticalDatum } : {})
+      }
+    })
+  }
   cancelAdjustment(id: string, input: unknown): AdjustmentRunV1 { const req = AdjustmentMutationRequestV1.parse(input); const stored = this.getAdjustment(id); if (!stored) throw new Error(`adjustment not found: ${id}`); if (req.expectedRevision !== 0 && req.expectedRevision !== stored.run.revision) throw new SurveyRevisionConflictError('adjustment revision conflict'); if (stored.run.status === 'completed') return stored.run; const next = AdjustmentRunV1.parse({ ...stored.run, status: 'cancelled', revision: stored.run.revision + 1, updatedAt: this.nowIso(), cancellationReason: req.reason ?? 'cancelled by user' }); this.saveAdjustment({ ...stored, run: next }); return next }
   resumeAdjustment(id: string, input: unknown): StoredAdjustment { const req = AdjustmentMutationRequestV1.parse(input); const stored = this.getAdjustment(id); if (!stored) throw new Error(`adjustment not found: ${id}`); if (req.expectedRevision !== 0 && req.expectedRevision !== stored.run.revision) throw new SurveyRevisionConflictError('adjustment revision conflict'); if (!['cancelled', 'failed', 'needs_attention'].includes(stored.run.status)) return stored; const network = this.getNetwork(stored.run.networkId); if (!network) throw new Error(`survey network not found: ${stored.run.networkId}`); return this.createAdjustment({ networkId: network.id, expectedRevision: network.revision, idempotencyKey: `${stored.run.id}-resume-${stored.run.resumeCount + 1}`, method: stored.run.method, constraint: stored.run.constraint }) }
   previewAdjustment(id: string): StoredAdjustment | null { return this.getAdjustment(id) }
+
+  compareDeformation(input: unknown): DeformationComparisonV1 {
+    const req = DeformationComparisonRequestV1.parse(input)
+    const replay = this.replay(req.idempotencyKey)
+    if (replay) return DeformationComparisonV1.parse(replay)
+    const adjustmentIds = [...new Set(req.adjustmentIds)]
+    if (adjustmentIds.length !== req.adjustmentIds.length) throw new Error('deformation comparison contains duplicate adjustment ids')
+    const stored = adjustmentIds.map((id) => {
+      const adjustment = this.getAdjustment(id)
+      if (!adjustment?.result) throw new Error(`adjustment not found: ${id}`)
+      if (adjustment.run.projectId !== req.projectId) throw new Error(`adjustment ${id} does not belong to project ${req.projectId}`)
+      if (adjustment.run.status !== 'completed' || adjustment.result.validation !== 'valid') throw new Error(`adjustment ${id} is not a completed valid deterministic result`)
+      const network = this.getNetwork(adjustment.run.networkId)
+      if (!network) throw new Error(`survey network not found: ${adjustment.run.networkId}`)
+      if (!network.observationEpoch || !Number.isFinite(Date.parse(network.observationEpoch))) throw new Error(`adjustment ${id} has no valid observation epoch`)
+      return { adjustment, network }
+    })
+    const currentByEpoch = [...stored].sort((left, right) => Date.parse(left.network.observationEpoch!) - Date.parse(right.network.observationEpoch!)).at(-1)!
+    if (req.expectedRevision !== 0 && req.expectedRevision !== currentByEpoch.adjustment.run.revision) throw new SurveyRevisionConflictError(`adjustment revision conflict: expected ${req.expectedRevision}, actual ${currentByEpoch.adjustment.run.revision}`)
+    const referenceNetwork = stored[0]!.network
+    if (referenceNetwork.coordinateSystem === '待确认' || referenceNetwork.verticalDatum === '待确认') throw new Error('deformation comparison requires confirmed coordinate system and vertical datum metadata')
+    for (const { network, adjustment } of stored.slice(1)) {
+      if (network.networkType !== referenceNetwork.networkType || adjustment.result!.strategyId !== stored[0]!.adjustment.result!.strategyId || adjustment.result!.transformType !== stored[0]!.adjustment.result!.transformType) throw new Error('deformation comparison requires the same deterministic survey strategy for every epoch')
+      if (network.coordinateSystem !== referenceNetwork.coordinateSystem || network.projection !== referenceNetwork.projection || network.ellipsoid !== referenceNetwork.ellipsoid || network.verticalDatum !== referenceNetwork.verticalDatum) throw new Error('deformation comparison requires identical coordinate system, projection, ellipsoid and vertical datum metadata')
+    }
+    const ordered = [...stored].sort((left, right) => Date.parse(left.network.observationEpoch!) - Date.parse(right.network.observationEpoch!))
+    const epochs = ordered.map(({ adjustment, network }) => ({ adjustmentId: adjustment.run.id, observationEpoch: network.observationEpoch!, result: adjustment.result! }))
+    const metrics = compareAdjustedEpochs(epochs, req.pairs, req.stabilityRateMPerDay)
+    const epochEvidence = ordered.map(({ adjustment, network }) => ({
+      adjustmentId: adjustment.run.id,
+      resultId: adjustment.result!.id,
+      networkId: network.id,
+      observationEpoch: network.observationEpoch!,
+      inputHash: adjustment.result!.inputHash,
+      resultHash: createHash('sha256').update(JSON.stringify(adjustment.result)).digest('hex')
+    }))
+    const inputHash = createHash('sha256').update(JSON.stringify({ epochs: epochEvidence, pairs: req.pairs, stabilityRateMPerDay: req.stabilityRateMPerDay })).digest('hex')
+    const existing = this.db.prepare('SELECT data_json FROM survey_deformations WHERE project_id = ? AND input_hash = ?').get(req.projectId, inputHash) as { data_json: string } | undefined
+    if (existing) {
+      const result = DeformationComparisonV1.parse(JSON.parse(existing.data_json))
+      this.remember(req.idempotencyKey, result)
+      return result
+    }
+    const result = DeformationComparisonV1.parse({
+      schemaVersion: 1,
+      id: `deformation_${randomUUID()}`,
+      projectId: req.projectId,
+      referenceAdjustmentId: epochEvidence[0]!.adjustmentId,
+      currentAdjustmentId: epochEvidence.at(-1)!.adjustmentId,
+      adjustmentIds: epochEvidence.map((epoch) => epoch.adjustmentId),
+      referenceEpoch: epochEvidence[0]!.observationEpoch,
+      currentEpoch: epochEvidence.at(-1)!.observationEpoch,
+      durationDays: metrics.durationDays,
+      epochs: epochEvidence,
+      points: metrics.points,
+      pairs: metrics.pairs,
+      stabilityRateMPerDay: req.stabilityRateMPerDay,
+      inputHash,
+      algorithmVersion: DEFORMATION_ALGORITHM_VERSION,
+      createdAt: this.nowIso()
+    })
+    this.db.prepare('INSERT INTO survey_deformations(id, project_id, reference_adjustment_id, current_adjustment_id, input_hash, data_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)').run(result.id, result.projectId, result.referenceAdjustmentId, result.currentAdjustmentId, result.inputHash, JSON.stringify(result), result.createdAt)
+    this.remember(req.idempotencyKey, result)
+    void this.persist(result, 'deformations', this.options.getProject?.(req.projectId)?.workspace)
+    return result
+  }
+
+  getDeformation(id: string): DeformationComparisonV1 | null {
+    const row = this.db.prepare('SELECT data_json FROM survey_deformations WHERE id = ?').get(id) as { data_json: string } | undefined
+    return row ? DeformationComparisonV1.parse(JSON.parse(row.data_json)) : null
+  }
+
+  listDeformations(projectId?: string): DeformationComparisonV1[] {
+    const rows = projectId
+      ? this.db.prepare('SELECT data_json FROM survey_deformations WHERE project_id = ? ORDER BY created_at DESC').all(projectId)
+      : this.db.prepare('SELECT data_json FROM survey_deformations ORDER BY created_at DESC').all()
+    return (rows as Array<{ data_json: string }>).map((row) => DeformationComparisonV1.parse(JSON.parse(row.data_json)))
+  }
 
   private saveNetwork(network: SurveyNetworkV1): void { this.db.prepare('UPDATE survey_networks SET revision = ?, data_json = ?, updated_at = ? WHERE id = ?').run(network.revision, JSON.stringify(network), network.updatedAt, network.id) }
   private normalizeStoredAdjustment(value: unknown): StoredAdjustment {

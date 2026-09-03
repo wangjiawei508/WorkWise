@@ -258,6 +258,96 @@ export const AdjustmentResultV1 = z.object({
 }).strict()
 export type AdjustmentResultV1 = z.infer<typeof AdjustmentResultV1>
 
+export const DeformationPairDefinitionV1 = z.object({
+  id: z.string().min(1),
+  firstPointId: z.string().min(1),
+  secondPointId: z.string().min(1),
+  kind: z.enum(['tilt', 'convergence']),
+  distanceMode: z.enum(['horizontal', 'spatial', 'vertical']).default('horizontal'),
+  /** Optional user-approved physical baseline for tilt. When omitted, the
+   * reference epoch's horizontal point spacing is used. */
+  baselineM: z.number().positive().optional()
+}).strict()
+  .refine((value) => value.firstPointId !== value.secondPointId, { message: 'deformation pair requires two different points' })
+  .refine((value) => value.kind !== 'tilt' || value.distanceMode === 'horizontal', { message: 'tilt requires a horizontal baseline' })
+export type DeformationPairDefinitionV1 = z.infer<typeof DeformationPairDefinitionV1>
+
+export const DeformationEpochEvidenceV1 = z.object({
+  adjustmentId: z.string().min(1),
+  resultId: z.string().min(1),
+  networkId: z.string().min(1),
+  observationEpoch: z.string().min(1),
+  inputHash: z.string().min(1),
+  resultHash: z.string().min(1)
+}).strict()
+export type DeformationEpochEvidenceV1 = z.infer<typeof DeformationEpochEvidenceV1>
+
+export const DeformationPointResultV1 = z.object({
+  pointId: z.string().min(1),
+  dX: z.number().finite().optional(),
+  dY: z.number().finite().optional(),
+  dH: z.number().finite().optional(),
+  /** Positive settlement means the adjusted height decreased. */
+  settlement: z.number().finite().optional(),
+  horizontalDisplacement: z.number().nonnegative().optional(),
+  spatialDisplacement: z.number().nonnegative(),
+  rates: z.object({
+    dXPerDay: z.number().finite().optional(),
+    dYPerDay: z.number().finite().optional(),
+    dHPerDay: z.number().finite().optional(),
+    settlementPerDay: z.number().finite().optional(),
+    horizontalPerDay: z.number().nonnegative().optional(),
+    spatialPerDay: z.number().nonnegative()
+  }).strict(),
+  trend: z.enum(['settling', 'heaving', 'horizontal-moving', 'stable', 'unknown']),
+  combinedStandardError: z.number().nonnegative().optional(),
+  standardizedDisplacement: z.number().nonnegative().optional(),
+  significant: z.boolean().optional(),
+  unit: z.literal('m'),
+  rateUnit: z.literal('m/day')
+}).strict()
+export type DeformationPointResultV1 = z.infer<typeof DeformationPointResultV1>
+
+export const DeformationPairResultV1 = z.object({
+  id: z.string().min(1),
+  firstPointId: z.string().min(1),
+  secondPointId: z.string().min(1),
+  kind: z.enum(['tilt', 'convergence']),
+  distanceMode: z.enum(['horizontal', 'spatial', 'vertical']),
+  referenceDistance: z.number().nonnegative().optional(),
+  currentDistance: z.number().nonnegative().optional(),
+  /** Positive convergence means the point spacing decreased. */
+  convergence: z.number().finite().optional(),
+  convergenceRatePerDay: z.number().finite().optional(),
+  baselineM: z.number().positive().optional(),
+  differentialSettlement: z.number().finite().optional(),
+  tilt: z.number().finite().optional(),
+  linearUnit: z.literal('m'),
+  rateUnit: z.literal('m/day'),
+  tiltUnit: z.literal('ratio')
+}).strict()
+export type DeformationPairResultV1 = z.infer<typeof DeformationPairResultV1>
+
+export const DeformationComparisonV1 = z.object({
+  schemaVersion: z.literal(SURVEY_SCHEMA_VERSION),
+  id: z.string().min(1),
+  projectId: z.string().min(1),
+  referenceAdjustmentId: z.string().min(1),
+  currentAdjustmentId: z.string().min(1),
+  adjustmentIds: z.array(z.string().min(1)).min(2).max(100),
+  referenceEpoch: z.string().min(1),
+  currentEpoch: z.string().min(1),
+  durationDays: z.number().positive(),
+  epochs: z.array(DeformationEpochEvidenceV1).min(2).max(100),
+  points: z.array(DeformationPointResultV1),
+  pairs: z.array(DeformationPairResultV1),
+  stabilityRateMPerDay: z.number().nonnegative(),
+  inputHash: z.string().min(1),
+  algorithmVersion: z.string().min(1),
+  createdAt: z.string().min(1)
+}).strict()
+export type DeformationComparisonV1 = z.infer<typeof DeformationComparisonV1>
+
 export const SkillProvenanceV1 = z.object({
   id: z.string().min(1),
   name: z.string().min(1),
@@ -301,3 +391,12 @@ export type SurveyNetworkImportRequest = z.infer<typeof SurveyNetworkImportReque
 export const SurveyNetworkValidateRequest = z.object({ expectedRevision: z.number().int().nonnegative(), idempotencyKey: z.string().min(8).max(200) }).strict()
 export const AdjustmentRequestV1 = z.object({ networkId: z.string().min(1), expectedRevision: z.number().int().nonnegative(), idempotencyKey: z.string().min(8).max(200), method: AdjustmentRunV1.shape.method.optional(), constraint: AdjustmentRunV1.shape.constraint.optional() }).strict()
 export const AdjustmentMutationRequestV1 = z.object({ expectedRevision: z.number().int().nonnegative(), idempotencyKey: z.string().min(8).max(200), reason: z.string().max(500).optional() }).strict()
+export const DeformationComparisonRequestV1 = z.object({
+  projectId: z.string().min(1),
+  adjustmentIds: z.array(z.string().min(1)).min(2).max(100),
+  pairs: z.array(DeformationPairDefinitionV1).max(1_000).default([]),
+  stabilityRateMPerDay: z.number().nonnegative().default(0.0001),
+  expectedRevision: z.number().int().nonnegative(),
+  idempotencyKey: z.string().min(8).max(200)
+}).strict()
+export type DeformationComparisonRequestV1 = z.infer<typeof DeformationComparisonRequestV1>
