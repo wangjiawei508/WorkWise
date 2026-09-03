@@ -562,8 +562,8 @@ export function EngineeringWorkspaceView({ workspaceRoot, runtimeReady, leftSide
   const finalizationBlocked = !activeDataset || !activeAnalysis || blockingFindings.length > 0 || warningFindings.length > 0
   const manifestOutputs = latestManifest?.outputs ?? preview?.files ?? []
 
-  return <div className="engineering-workspace ds-no-drag flex min-h-0 flex-1 flex-col bg-ds-main text-ds-ink">
-    <header className="shrink-0 border-b border-ds-border-muted bg-ds-card px-4 py-3 sm:px-5">
+  return <div className={`engineering-workspace ds-no-drag flex min-h-0 flex-1 flex-col bg-ds-main text-ds-ink ${tab === 'ai-command' ? 'engineering-agent-route' : 'engineering-classic-route'}`}>
+    {tab !== 'ai-command' ? <header className="shrink-0 border-b border-ds-border-muted bg-ds-card px-4 py-3 sm:px-5" data-testid="engineering-classic-header">
       <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
         {leftSidebarCollapsed && onToggleLeftSidebar ? <button type="button" onClick={onToggleLeftSidebar} className="inline-flex h-8 items-center gap-1.5 rounded-md border border-ds-border bg-ds-card px-2.5 text-[12px] font-medium text-ds-muted hover:bg-ds-hover"><ChevronRight className="h-3.5 w-3.5" />导航</button> : null}
         <div className="flex min-w-0 flex-1 items-center gap-3">
@@ -580,10 +580,10 @@ export function EngineeringWorkspaceView({ workspaceRoot, runtimeReady, leftSide
           <span className={`inline-flex h-8 items-center rounded-md px-2.5 text-[11px] font-medium ${runtimeReady ? 'bg-green-100 text-green-800 dark:bg-green-500/15 dark:text-green-300' : 'bg-amber-100 text-amber-800 dark:bg-amber-500/15 dark:text-amber-300'}`}>{runtimeReady ? 'Runtime 已连接' : 'Runtime 未连接'}</span>
         </div>
       </div>
-    </header>
+    </header> : null}
 
-    {!runtimeReady ? <div className="border-b border-amber-300/40 bg-amber-50 px-5 py-2 text-[12px] text-amber-900 dark:bg-amber-500/10 dark:text-amber-200">工程工作台需要本地运行时执行校核、分析和成果生成。连接成功后，项目数据会自动刷新。</div> : null}
-    {notice ? <div className={`mx-4 mt-3 flex items-start gap-2 border px-3 py-2 text-[12px] sm:mx-5 ${notice.tone === 'error' ? 'border-red-200 bg-red-50 text-red-800 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-200' : notice.tone === 'warning' ? 'border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200' : notice.tone === 'success' ? 'border-green-200 bg-green-50 text-green-800 dark:border-green-500/30 dark:bg-green-500/10 dark:text-green-200' : 'border-blue-200 bg-blue-50 text-blue-800 dark:border-blue-500/30 dark:bg-blue-500/10 dark:text-blue-200'}`}><Info className="mt-0.5 h-3.5 w-3.5 shrink-0" /><span className="min-w-0 flex-1">{notice.message}</span><button type="button" onClick={() => setNotice(null)} className="text-current/70 hover:text-current" aria-label="关闭提示">×</button></div> : null}
+    {tab !== 'ai-command' && !runtimeReady ? <div className="border-b border-amber-300/40 bg-amber-50 px-5 py-2 text-[12px] text-amber-900 dark:bg-amber-500/10 dark:text-amber-200">工程工作台需要本地运行时执行校核、分析和成果生成。连接成功后，项目数据会自动刷新。</div> : null}
+    {tab !== 'ai-command' && notice ? <div className={`mx-4 mt-3 flex items-start gap-2 border px-3 py-2 text-[12px] sm:mx-5 ${notice.tone === 'error' ? 'border-red-200 bg-red-50 text-red-800 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-200' : notice.tone === 'warning' ? 'border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200' : notice.tone === 'success' ? 'border-green-200 bg-green-50 text-green-800 dark:border-green-500/30 dark:bg-green-500/10 dark:text-green-200' : 'border-blue-200 bg-blue-50 text-blue-800 dark:border-blue-500/30 dark:bg-blue-50 text-blue-200'}`}><Info className="mt-0.5 h-3.5 w-3.5 shrink-0" /><span className="min-w-0 flex-1">{notice.message}</span><button type="button" onClick={() => setNotice(null)} className="text-current/70 hover:text-current" aria-label="关闭提示">×</button></div> : null}
 
     <div className={`min-h-0 flex-1 overflow-hidden ${tab === 'ai-command' ? 'p-0' : 'p-4 sm:p-5'}`}>
       {tab === 'ai-command' ? <div className="h-full min-h-0 overflow-hidden">

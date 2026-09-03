@@ -15,6 +15,16 @@ describe('engineering workbench experience contract', () => {
     expect(source).not.toContain('localStorage')
   })
 
+  it('does not stack the classic delivery header above the AI command surface', async () => {
+    const nodeFs = 'node:fs/promises'
+    const { readFile } = await import(/* @vite-ignore */ nodeFs)
+    const source = await readFile(new URL('./EngineeringWorkspaceView.tsx', import.meta.url), 'utf8')
+
+    expect(source).toContain("${tab === 'ai-command' ? 'engineering-agent-route' : 'engineering-classic-route'}")
+    expect(source).toContain("{tab !== 'ai-command' ? <header")
+    expect(source).toContain('data-testid="engineering-classic-header"')
+  })
+
   it('uses an engineering-specific empty state before a project thread exists', async () => {
     const nodeFs = 'node:fs/promises'
     const { readFile } = await import(/* @vite-ignore */ nodeFs)
