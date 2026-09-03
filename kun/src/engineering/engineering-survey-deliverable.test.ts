@@ -51,6 +51,7 @@ describe('survey results in engineering deliverables', () => {
     const workbookXml = await workbook.file('xl/workbook.xml')!.async('text')
     expect(workbookXml).toContain('survey_adjustments')
     expect(workbookXml).toContain('survey_closures')
+    expect(workbookXml).toContain('survey_parameters')
     expect(workbookXml).toContain('survey_residuals')
     expect(workbookXml).toContain('survey_displacements')
     const evidenceXml = (await Promise.all(Object.keys(workbook.files)

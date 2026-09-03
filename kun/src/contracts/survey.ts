@@ -62,6 +62,9 @@ export const SurveyObservationV1 = z.object({
   targetX: z.number().finite().optional(),
   targetY: z.number().finite().optional(),
   targetHeight: z.number().finite().optional(),
+  /** Instrument/prism offsets used by slope-distance and zenith models. */
+  stationHeightOffset: z.number().finite().optional(),
+  targetHeightOffset: z.number().finite().optional(),
   sigma: z.number().positive().optional(),
   /** Unit of sigma. Length observations default to the observation unit;
    * angular observations default to arc-seconds for legacy compatibility. */
@@ -199,6 +202,9 @@ export const AdjustmentResultV1 = z.object({
   /** Per-key units avoid assigning a linear unit to mixed-network angular
    * residual norms or to dimensionless relative closures. */
   closureUnits: z.record(z.string(), z.enum(['m', 'rad', 'ppm', 'ratio'])).default({}),
+  /** Solved non-coordinate parameters such as per-station orientation. */
+  parameters: z.record(z.string(), z.number().finite()).default({}),
+  parameterUnits: z.record(z.string(), z.enum(['m', 'rad', 'ppm', 'ratio'])).default({}),
   unitWeightStdDev: z.number().nonnegative(),
   varianceFactor: z.number().nonnegative(),
   /** False means the a-priori unit variance is retained because the network

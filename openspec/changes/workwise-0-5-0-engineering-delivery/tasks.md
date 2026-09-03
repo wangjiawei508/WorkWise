@@ -28,7 +28,7 @@
 - [x] Extract the single canonical matrix/WLS kernel with rank, condition, covariance, residual, precision, convergence and dimension-limit diagnostics.
 - [x] Implement and verify independent leveling/height-control and ordered traverse strategies, including route-length/variance weights and angular/coordinate closures.
 - [x] Implement and verify independent iterative plane-control and angle-network triangulation strategies; reject distance-only triangulation and malformed angle geometry.
-- [ ] Implement and verify CPIII free-station/resection with fixed-target geometry, station orientation parameters, slope/zenith processing and height evidence.
+- [x] Implement and verify CPIII free-station/resection with fixed-target geometry, station orientation parameters, slope/zenith processing and height evidence.
 - [ ] Implement and verify GNSS vector-baseline/covariance/fixed-datum adjustment, with stable blockers for incomplete scalar or covariance-free data.
 - [ ] Implement and verify coordinate transformation strategies for 2-D similarity, 3-D seven-parameter estimation/application, Gauss-Kruger conversion and height fitting without identity fallback.
 - [ ] Implement deformation epoch comparison for dX/dY/dH, settlement, horizontal displacement, tilt, convergence, rate and trend from immutable deterministic results.

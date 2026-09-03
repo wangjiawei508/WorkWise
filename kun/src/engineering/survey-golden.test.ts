@@ -198,7 +198,7 @@ describe('survey adjustment golden fixtures', () => {
     expect(output.result.validation).toBe('valid')
     expect(output.result.strategyId).toBe('traverse')
     expect(output.result.observationCount).toBe(3)
-    expect(output.result.algorithmVersion).toBe('workwise-survey-adjustment-3')
+    expect(output.result.algorithmVersion).toBe('workwise-survey-adjustment-4')
     expect(output.result.redundancy).toBe(1)
     expect(output.result.points.find((point) => point.id === 'P')).toMatchObject({ id: 'P' })
     expect(output.result.points.find((point) => point.id === 'P')?.x).toBeCloseTo(0, 6)
@@ -282,6 +282,90 @@ describe('survey adjustment golden fixtures', () => {
     const output = service.createAdjustment({ networkId: network.id, expectedRevision: network.revision, idempotencyKey: 'traverse-rank-adjust' })
     expect(output.run.status).toBe('needs_attention')
     expect(output.result.qualityFindings).toEqual(expect.arrayContaining([expect.objectContaining({ code: 'rank_deficient', severity: 'blocking' })]))
+    expect(output.result.points).toEqual([])
+    service.close()
+  })
+
+  it.each(['cpiii-free-station', 'cpiii-resection'] as const)('solves %s with station orientation and paired vertical evidence', async (networkType) => {
+    const root = await mkdtemp(join(tmpdir(), `workwise-${networkType}-fixture-`))
+    const service = new SurveyService({ rootDir: root })
+    const station = { x: 40, y: 30, height: 8 }
+    const targets = {
+      A: { x: 0, y: 0, height: 10 },
+      B: { x: 100, y: 0, height: 12 },
+      C: { x: 0, y: 100, height: 11 }
+    }
+    const orientationDeg = 10
+    const directionReading = (target: { x: number; y: number }): number => {
+      const bearing = Math.atan2(target.x - station.x, target.y - station.y) * 180 / Math.PI
+      return ((bearing - orientationDeg) % 360 + 360) % 360
+    }
+    const horizontalA = Math.hypot(targets.A.x - station.x, targets.A.y - station.y)
+    const deltaHeightA = (targets.A.height + 1.8) - (station.height + 1.5)
+    const network = await service.importNetwork({
+      projectId: `${networkType}-fixture`, expectedRevision: 0, idempotencyKey: `${networkType}-fixture-import`, networkType, network: {
+        knownPoints: Object.entries(targets).map(([id, point]) => ({ id, pointClass: 'known' as const, ...point, known: true })),
+        unknownPoints: [{ id: 'S1', pointClass: 'station', x: 40.2, y: 29.8, height: 8.1, known: false }],
+        observations: [
+          ...Object.entries(targets).map(([id, point]) => ({ id: `direction-S1-${id}`, type: 'direction' as const, station: 'S1', target: id, value: directionReading(point), unit: 'deg', sigma: 2, sigmaUnit: 'arcsec' })),
+          { id: 'slope-S1-A', type: 'slope-distance', station: 'S1', target: 'A', value: Math.hypot(horizontalA, deltaHeightA), unit: 'm', sigma: 0.002, stationHeightOffset: 1.5, targetHeightOffset: 1.8 },
+          { id: 'zenith-S1-A', type: 'zenith', station: 'S1', target: 'A', value: Math.atan2(horizontalA, deltaHeightA), unit: 'rad', sigma: 2, sigmaUnit: 'arcsec', stationHeightOffset: 1.5, targetHeightOffset: 1.8 }
+        ]
+      }
+    })
+    const checked = service.validateNetwork(network.id, { expectedRevision: network.revision, idempotencyKey: `${networkType}-fixture-validate` })
+    const output = service.createAdjustment({ networkId: network.id, expectedRevision: checked.revision, idempotencyKey: `${networkType}-fixture-adjust` })
+
+    expect(checked.qualityStatus).toBe('validated')
+    expect(output.run.status).toBe('completed')
+    expect(output.result.strategyId).toBe(networkType)
+    expect(output.result.unknownCount).toBe(4)
+    expect(output.result.redundancy).toBe(1)
+    expect(output.result.points.find((point) => point.id === 'S1')?.x).toBeCloseTo(station.x, 6)
+    expect(output.result.points.find((point) => point.id === 'S1')?.y).toBeCloseTo(station.y, 6)
+    expect(output.result.points.find((point) => point.id === 'S1')?.height).toBeCloseTo(station.height, 6)
+    expect(output.result.parameters['orientation:S1']).toBeCloseTo(orientationDeg * Math.PI / 180, 8)
+    expect(output.result.parameterUnits['orientation:S1']).toBe('rad')
+    expect(output.result.observations.map((item) => item.unit)).toEqual(['rad', 'rad', 'rad', 'm', 'rad'])
+    expect(output.result.solverDiagnostics?.iterations).toBeGreaterThan(1)
+    expect(output.result.solverDiagnostics?.rank).toBe(4)
+    service.close()
+  })
+
+  it.each([
+    { name: 'fewer than three fixed directions', includeThirdDirection: false, includeSlope: false, includeZenith: false, targetHeight: 10, expectedCode: 'malformed_geometry' },
+    { name: 'unpaired slope distance', includeThirdDirection: true, includeSlope: true, includeZenith: false, targetHeight: 10, expectedCode: 'malformed_geometry' },
+    { name: 'missing vertical datum', includeThirdDirection: true, includeSlope: true, includeZenith: true, targetHeight: undefined, expectedCode: 'missing_datum' }
+  ])('blocks CPIII with $name', async ({ name, includeThirdDirection, includeSlope, includeZenith, targetHeight, expectedCode }) => {
+    const root = await mkdtemp(join(tmpdir(), 'workwise-cpiii-invalid-'))
+    const service = new SurveyService({ rootDir: root })
+    const directions = [
+      { id: 'direction-A', type: 'direction' as const, station: 'S', target: 'A', value: 220, unit: 'deg' },
+      { id: 'direction-B', type: 'direction' as const, station: 'S', target: 'B', value: 110, unit: 'deg' },
+      ...(includeThirdDirection ? [{ id: 'direction-C', type: 'direction' as const, station: 'S', target: 'C', value: 320, unit: 'deg' }] : [])
+    ]
+    const network = await service.importNetwork({
+      projectId: `cpiii-${name}`, expectedRevision: 0, idempotencyKey: `cpiii-${name}`, networkType: 'cpiii-free-station', network: {
+        knownPoints: [
+          { id: 'A', pointClass: 'known', x: 0, y: 0, ...(targetHeight === undefined ? {} : { height: targetHeight }), known: true },
+          { id: 'B', pointClass: 'known', x: 100, y: 0, height: 12, known: true },
+          { id: 'C', pointClass: 'known', x: 0, y: 100, height: 11, known: true }
+        ],
+        unknownPoints: [{ id: 'S', pointClass: 'station', x: 40, y: 30, height: 8, known: false }],
+        observations: [
+          ...directions,
+          ...(includeSlope ? [{ id: 'slope-A', type: 'slope-distance' as const, station: 'S', target: 'A', value: 50, unit: 'm' }] : []),
+          ...(includeZenith ? [{ id: 'zenith-A', type: 'zenith' as const, station: 'S', target: 'A', value: 90, unit: 'deg' }] : [])
+        ]
+      }
+    })
+    const checked = service.validateNetwork(network.id, { expectedRevision: network.revision, idempotencyKey: `cpiii-invalid-validate-${name}` })
+    const output = service.createAdjustment({ networkId: network.id, expectedRevision: checked.revision, idempotencyKey: `cpiii-invalid-adjust-${name}` })
+
+    expect(checked.qualityStatus).toBe('blocked')
+    expect(output.run.status).toBe('needs_attention')
+    expect(output.result.strategyId).toBe('cpiii-free-station')
+    expect(output.result.qualityFindings).toEqual(expect.arrayContaining([expect.objectContaining({ code: expectedCode, severity: 'blocking' })]))
     expect(output.result.points).toEqual([])
     service.close()
   })
