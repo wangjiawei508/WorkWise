@@ -69,6 +69,43 @@ The Runtime MUST produce deterministic analysis, chart artifacts, DOCX/PDF repor
 - **WHEN** a blocking finding remains unresolved
 - **THEN** finalization is rejected and no deliverable is marked complete
 
+### Requirement: Independent deterministic survey strategies
+
+The Runtime MUST use one canonical numerical kernel for matrix operations, weighted least squares, rank and condition diagnostics, covariance propagation, standardized residuals and precision assessment. Leveling/height control, traverse, plane control, triangulation, CPIII free-station/resection, GNSS baselines and coordinate transforms MUST each have a typed validator and observation model. A strategy MUST NOT return a successful result by passing unsupported observations to a generic plane-network fallback.
+
+#### Scenario: Incomplete specialized network
+
+- **WHEN** a traverse lacks angular observations, a triangulation lacks valid station/left/right angle geometry, CPIII lacks at least three fixed targets and orientation observations, or GNSS lacks vector/covariance/datum data required by its selected calculation
+- **THEN** the Runtime returns a stable blocking finding for that strategy and produces no apparently successful adjustment
+
+#### Scenario: Reproducible specialized result
+
+- **WHEN** a complete fixture for a supported network is adjusted
+- **THEN** the Runtime returns the strategy ID, algorithm version, degrees of freedom, residuals, covariance/precision diagnostics and fixed expected numeric results independently verified against an approved reference calculation
+
+### Requirement: Canonical adjustment units
+
+The Runtime MUST normalize coordinates, heights, corrections, displacements and linear residuals to metres; direction and angle residuals to radians; relative closures and variance factors to dimensionless values; and standardized residuals to sigma multiples. Unit metadata MUST be present in new results and deliverables. Legacy results MUST remain readable through a non-destructive read adapter that infers only unambiguous units.
+
+#### Scenario: Mixed plane observations
+
+- **WHEN** one adjustment contains distance and angle/direction observations
+- **THEN** each residual retains its own `m` or `rad` unit and the Runtime does not combine unlike dimensions into one residual norm
+
+#### Scenario: Legacy adjustment result
+
+- **WHEN** an existing stored adjustment lacks the new unit fields
+- **THEN** the Runtime supplies compatible canonical units in the response without rewriting the stored record or user database
+
+### Requirement: Audited specialist Skills
+
+Only specialist Skills with a pinned source commit, file hashes, compatible redistribution license, reviewed scripts, network and credential permissions, dependency validation and a passing real-scenario test MUST be included in the packaged catalog. Existing user Skills, MCP configuration and credential references MUST remain untouched.
+
+#### Scenario: Unreviewed or restricted Skill
+
+- **WHEN** a bundled surveying, monitoring, tender, standards or report Skill lacks any required provenance, license, permission or test evidence
+- **THEN** it remains visible as blocked with the exact reason and is excluded from the package without deleting or overwriting a user-installed copy
+
 ### Requirement: Explicit UI states and classic fallback
 
 The Engineering UI MUST show project/thread scope, goal input, attachment boundary, typed plan, approvals, TaskRun timeline, evidence cards, report/artifact previews, and Copilot next actions. It MUST render loading, empty, partial, error, success, stale, and model-unavailable states with a recoverable action. The classic deterministic console MUST remain reachable without replacing or duplicating the AI thread.

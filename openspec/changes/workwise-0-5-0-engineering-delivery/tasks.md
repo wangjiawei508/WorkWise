@@ -22,8 +22,21 @@
 - [x] Add AI routes/events, evidence-card reads, and renderer cards for plans, approvals, findings, metrics, trends, citations, artifacts, and model/tool unavailable recovery.
 - [ ] Add packaged UI acceptance for Engineering thread isolation, AI-first entry, classic fallback, loading/empty/partial/error/stale states, light/dark themes, narrow windows, keyboard/a11y, and a real CSV/XLSX-to-DOCX/PDF/XLSX/manifest run.
 
+## Canonical survey adjustment
+
+- [x] Add canonical metre/radian unit metadata to adjustment results, per-observation residuals, closures, UI and DOCX/PDF/XLSX evidence, including non-destructive legacy-read compatibility.
+- [ ] Extract the single canonical matrix/WLS kernel with rank, condition, covariance, residual, precision, convergence and dimension-limit diagnostics.
+- [ ] Implement and verify independent leveling/height-control and ordered traverse strategies, including route-length/variance weights and angular/coordinate closures.
+- [ ] Implement and verify independent iterative plane-control and angle-network triangulation strategies; reject distance-only triangulation and malformed angle geometry.
+- [ ] Implement and verify CPIII free-station/resection with fixed-target geometry, station orientation parameters, slope/zenith processing and height evidence.
+- [ ] Implement and verify GNSS vector-baseline/covariance/fixed-datum adjustment, with stable blockers for incomplete scalar or covariance-free data.
+- [ ] Implement and verify coordinate transformation strategies for 2-D similarity, 3-D seven-parameter estimation/application, Gauss-Kruger conversion and height fitting without identity fallback.
+- [ ] Implement deformation epoch comparison for dX/dY/dH, settlement, horizontal displacement, tilt, convergence, rate and trend from immutable deterministic results.
+- [ ] Replace generic multi-network fixtures with independent golden and negative fixtures for every supported strategy and record the approved reference calculation/source.
+
 ## Verification
 
 - [x] Add unit, Runtime integration, Flow, renderer, artifact, and migration tests.
+- [ ] Complete pinned-commit, file-hash, redistribution-license, script, dependency, network, credential and real-scenario audit for every bundled specialist Skill; exclude blocked assets without touching user copies.
 - [ ] Close the remaining 0.3.3 and specialist-skill acceptance tasks without modifying user data.
 - [ ] Run typecheck, lint, full tests, build, strict OpenSpec validation, packaged GUI acceptance, and private 0.5.0-rc evidence collection.

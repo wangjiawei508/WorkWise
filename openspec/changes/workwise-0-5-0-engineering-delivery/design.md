@@ -37,9 +37,30 @@ Engineering status is projected from the one TaskRun: `draft`, `validating`, `aw
 
 Models may write narrative text only. Numeric values, thresholds, warning states, citations, hashes, and artifact paths come from structured Runtime output. Missing thresholds are “待确认” and block finalization when required. Files are untrusted input; text in a CSV, document, or image can never create a tool call.
 
+## Survey numerical kernel and strategies
+
+`kun/src/engineering` owns the only executable survey-math kernel. It provides bounded dense/sparse matrix primitives, weighted least-squares and constrained solves, rank/condition diagnostics, covariance propagation, normalized residuals, cancellation checkpoints and deterministic hashing. Agent Pack tools and `railwise.*` aliases become adapters to this kernel; copied tool-local matrix implementations are not authoritative.
+
+Each supported network has its own typed strategy boundary:
+
+- leveling/height control builds height-difference equations and uses inverse route-length or supplied variance weights;
+- traverse validates an ordered traverse, angular control and distance observations before solving coordinates and reporting angular/coordinate closure;
+- plane control builds distance, absolute-direction and station/left/right angle equations and iterates to convergence;
+- triangulation requires angle-network geometry and uses angle equations rather than accepting arbitrary distance-only input;
+- CPIII free-station/resection solves station coordinates, height where supported and one orientation parameter per occupied station from fixed CPIII targets;
+- GNSS uses baseline vector components and covariance against a fixed datum, and blocks scalar or covariance-free data when it cannot support the selected result;
+- coordinate transform distinguishes 2-D similarity, 3-D seven-parameter and height-fit inputs and reports the actual solved parameterization;
+- deformation results are derived from immutable adjusted epochs and never from model-authored numbers.
+
+Shared matrix code is allowed; shared strategy validation or an observation-model fallback is not. Every strategy is accepted only through a golden fixture with independent expected values and negative fixtures for incomplete, singular and unsupported data.
+
+New numeric results use canonical metres and radians with per-closure and per-residual unit metadata. Read compatibility parses old result JSON and adds only deterministic defaults in memory; it does not persist a silent migration. Reports and evidence sheets explicitly label dimensionless `sigma0`/variance factors, linear precision, angular residuals and relative closures.
+
 ## Upstream policy
 
 RAILWISE-CLI is the source for reviewed monitoring tools and Skills. `railwise-desktop` is reference-only. Sync uses a pinned commit manifest and allowlisted `.railwise/skill`, `.railwise/tool`, schema, and documentation paths. Existing WorkWise asset IDs, user Skills, MCPs, credentials, and data remain compatible and untouched.
+
+Bundled specialist assets pass a generated provenance manifest before packaging. The manifest records repository, pinned commit, path hashes, license, scripts, dependencies, network and credential permissions, test evidence and package decision. Missing evidence is a blocking state, not an implicit approval.
 
 ## API and events
 
