@@ -86,5 +86,7 @@ describe('Workbench responsive panel contract', () => {
     expect(engineering).toContain('<DeliveryStage index={1}')
     expect(engineering).toContain('<DeliveryStage index={6}')
     expect(engineering).toContain('原始文件保持不变；每次数据、阈值或字段映射的变化都会产生新的运行版本')
+    expect(engineering).toContain('交给工程 Agent')
+    expect(engineering).toContain('engineering-classic-shell')
   })
 })

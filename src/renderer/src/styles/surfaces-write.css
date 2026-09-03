@@ -49,6 +49,17 @@
   }
 }
 
+@media (min-width: 961px) and (max-width: 1180px) {
+  .engineering-agent-route .engineering-agent-grid {
+    grid-template-columns: 164px minmax(0, 1fr) 240px;
+  }
+
+  .engineering-agent-route .engineering-agent-stage,
+  .engineering-agent-route .engineering-agent-inspector {
+    padding-inline: 12px;
+  }
+}
+
 @media (max-width: 720px) {
   .ds-workbench-left-divider {
     display: none;
@@ -591,7 +602,7 @@
 
 .engineering-agent-route .engineering-agent-surface {
   background:
-    linear-gradient(180deg, color-mix(in srgb, var(--ds-accent) 4%, transparent), transparent 180px),
+    linear-gradient(180deg, color-mix(in srgb, var(--ds-accent) 3%, transparent), transparent 220px),
     var(--ds-bg-canvas);
 }
 
@@ -607,7 +618,7 @@
 }
 
 .engineering-agent-route .engineering-agent-command-strip {
-  margin-top: 0.25rem;
+  margin-top: 0;
   border: 0;
   border-top: 1px solid var(--ds-border-muted);
   border-bottom: 1px solid var(--ds-border-muted);
@@ -627,6 +638,7 @@
 .engineering-agent-route .engineering-agent-grid {
   gap: 0;
   padding: 0;
+  grid-template-columns: 188px minmax(0, 1fr) 300px;
 }
 
 .engineering-agent-route .engineering-agent-stage,
@@ -640,12 +652,12 @@
 
 .engineering-agent-route .engineering-agent-stage {
   border-right: 1px solid var(--ds-border-muted);
-  padding-inline: 14px;
+  padding-inline: 16px;
 }
 
 .engineering-agent-route .engineering-agent-conversation {
   min-width: 0;
-  background: color-mix(in srgb, var(--ds-card) 72%, transparent);
+  background: color-mix(in srgb, var(--ds-card) 86%, transparent);
 }
 
 .engineering-agent-route .engineering-agent-conversation > div:first-child {
@@ -665,7 +677,7 @@
 
 .engineering-agent-route .engineering-agent-inspector {
   border-left: 1px solid var(--ds-border-muted);
-  padding: 14px;
+  padding: 18px 16px;
 }
 
 .engineering-agent-route .engineering-agent-inspector > section {
@@ -674,6 +686,97 @@
   border-radius: 0;
   background: transparent;
   box-shadow: none;
+}
+
+/* The command deck has one visual language: labels float on the canvas, while
+   actionable controls use a single accent. This keeps the Agent surface from
+   reading like a stack of SaaS cards. */
+.engineering-agent-route .engineering-agent-header {
+  padding-inline: 24px;
+}
+
+.engineering-agent-route .engineering-agent-header > div {
+  max-width: 1440px;
+  margin-inline: auto;
+}
+
+.engineering-agent-route .engineering-agent-command-strip {
+  padding-inline: 24px;
+  max-width: 1440px;
+  width: 100%;
+  margin-inline: auto;
+}
+
+.engineering-agent-route .engineering-agent-command-strip > div {
+  padding-inline: 0.75rem;
+}
+
+.engineering-agent-route .engineering-agent-command-strip > div:first-child {
+  padding-left: 0;
+}
+
+.engineering-agent-route .engineering-agent-command-strip .engineering-command-action {
+  margin-block: 10px;
+  min-height: 44px;
+  padding-inline: 16px;
+}
+
+.engineering-agent-route .engineering-agent-grid {
+  max-width: 1440px;
+  width: 100%;
+  margin-inline: auto;
+}
+
+.engineering-agent-route .engineering-agent-stage > div,
+.engineering-agent-route .engineering-agent-inspector > section > div:first-child {
+  border-bottom-color: var(--ds-border-muted);
+}
+
+.engineering-agent-route .engineering-agent-stage p:first-child,
+.engineering-agent-route .engineering-agent-inspector p:first-child {
+  letter-spacing: 0.01em;
+}
+
+.engineering-agent-route .engineering-agent-conversation > div:nth-child(2) {
+  background-image: linear-gradient(180deg, color-mix(in srgb, var(--ds-accent) 1.8%, transparent), transparent 160px);
+}
+
+.engineering-agent-route .engineering-agent-conversation textarea {
+  border-radius: 10px;
+  background: var(--ds-card);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--ds-text) 3%, transparent);
+}
+
+/* Classic engineering pages retain a compact instrument-console rhythm. */
+.engineering-classic-route {
+  background: var(--ds-bg-canvas);
+}
+
+.engineering-classic-route .engineering-classic-shell {
+  border: 0;
+  background: transparent;
+}
+
+.engineering-classic-route .engineering-classic-shell > aside {
+  background: var(--ds-bg-sidebar);
+  border-right-color: var(--ds-border-muted);
+}
+
+.engineering-classic-route .engineering-classic-shell > main {
+  background: var(--ds-bg-canvas);
+}
+
+.engineering-classic-route .engineering-classic-shell > aside nav button {
+  border-left: 2px solid transparent;
+  border-radius: 0;
+}
+
+.engineering-classic-route .engineering-classic-shell > aside nav button[aria-current='page'] {
+  border-left-color: var(--ds-accent);
+}
+
+.engineering-classic-route .engineering-classic-shell > main > section {
+  min-height: 100%;
 }
 
 .engineering-agent-route .engineering-agent-inspector > section > div:first-child {
@@ -697,6 +800,18 @@
 
 .survey-workbench-header {
   background: color-mix(in srgb, var(--ds-accent) 4%, var(--ds-card));
+}
+
+.survey-instrument-strip {
+  font-variant-numeric: tabular-nums;
+}
+
+.survey-instrument-strip > div {
+  min-height: 52px;
+}
+
+.survey-workbench-main {
+  min-height: 540px;
 }
 
 .survey-workbench-grid {
@@ -728,6 +843,9 @@
 
 .survey-workbench-main table th {
   background: var(--ds-surface-subtle);
+  position: sticky;
+  top: 0;
+  z-index: 1;
 }
 
 .survey-workbench-aside {
@@ -744,6 +862,15 @@
   .engineering-agent-route .engineering-agent-inspector {
     border-left: 0;
     border-top: 1px solid var(--ds-border-muted);
+  }
+
+  .engineering-agent-route .engineering-agent-command-strip,
+  .engineering-agent-route .engineering-agent-header {
+    padding-inline: 16px;
+  }
+
+  .engineering-agent-route .engineering-agent-grid {
+    grid-template-columns: 1fr;
   }
 }
 

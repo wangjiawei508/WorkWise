@@ -54,5 +54,8 @@ describe('engineering workbench experience contract', () => {
     expect(source).toContain('让工程 Agent 解读')
     expect(source).toContain('lg:grid-cols-[190px_minmax(0,1fr)] 2xl:grid-cols-[190px_minmax(0,1fr)_260px]')
     expect(source).toContain('grid gap-3 2xl:grid-cols-[minmax(0,1fr)_260px]')
+    expect(source).toContain('survey-instrument-strip')
+    expect(source).toContain('点位成果与复核摘要')
+    expect(source).toContain('标准化残差 > 3σ')
   })
 })

@@ -576,6 +576,7 @@ export function EngineeringWorkspaceView({ workspaceRoot, runtimeReady, leftSide
             <option value="">{projects.length ? '选择工程项目' : '暂无工程项目'}</option>
             {projects.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}
           </select>
+          <button type="button" onClick={() => setTab('ai-command')} disabled={!runtimeReady} className="inline-flex h-8 items-center gap-1.5 rounded-md border border-accent/35 bg-accent/5 px-2.5 text-[11px] font-semibold text-accent hover:bg-accent/10 disabled:cursor-not-allowed disabled:opacity-50"><Sparkles className="h-3.5 w-3.5" />交给工程 Agent</button>
           <button type="button" onClick={() => void refreshCurrent()} disabled={busy || !runtimeReady} className="inline-flex h-8 items-center gap-1.5 rounded-md border border-ds-border bg-ds-card px-2.5 text-[12px] font-medium text-ds-muted hover:bg-ds-hover disabled:opacity-50"><RefreshCw className={`h-3.5 w-3.5 ${busy ? 'animate-spin' : ''}`} />刷新</button>
           <span className={`inline-flex h-8 items-center rounded-md px-2.5 text-[11px] font-medium ${runtimeReady ? 'bg-green-100 text-green-800 dark:bg-green-500/15 dark:text-green-300' : 'bg-amber-100 text-amber-800 dark:bg-amber-500/15 dark:text-amber-300'}`}>{runtimeReady ? 'Runtime 已连接' : 'Runtime 未连接'}</span>
         </div>
@@ -599,7 +600,7 @@ export function EngineeringWorkspaceView({ workspaceRoot, runtimeReady, leftSide
           onOpenTab={(nextTab) => setTab(nextTab)}
           onRefresh={() => void refreshCurrent()}
         />
-      </div> : <div className="grid h-full min-h-0 grid-cols-1 overflow-hidden border border-ds-border-muted bg-ds-card xl:grid-cols-[230px_minmax(0,1fr)]">
+      </div> : <div className="engineering-classic-shell grid h-full min-h-0 grid-cols-1 overflow-hidden border border-ds-border-muted bg-ds-card xl:grid-cols-[230px_minmax(0,1fr)]" data-testid="engineering-classic-shell">
         <aside className="flex min-h-0 flex-col border-b border-ds-border-muted bg-ds-main xl:border-b-0 xl:border-r">
           <div className="border-b border-ds-border-muted px-4 py-4"><p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-ds-faint">交付流程</p><p className="mt-1 text-[12px] leading-5 text-ds-muted">每一步读取同一份运行数据，成果审核前保留完整来源和版本。</p></div>
           <nav className="grid grid-cols-3 gap-1 p-2 xl:block xl:space-y-3" aria-label="工程工作台阶段">
