@@ -63,6 +63,16 @@ export function setActiveEngineeringProject(
   }
 }
 
+export function chooseEngineeringProjectId(
+  currentProjectId: string,
+  projects: ReadonlyArray<{ id: string }>,
+  storedProjectId: string
+): string {
+  if (projects.some((project) => project.id === currentProjectId)) return currentProjectId
+  if (projects.some((project) => project.id === storedProjectId)) return storedProjectId
+  return projects[0]?.id ?? ''
+}
+
 export function dispatchEngineeringProjectCreate(): void {
   window.dispatchEvent(new CustomEvent('workwise:engineering-create-project'))
 }

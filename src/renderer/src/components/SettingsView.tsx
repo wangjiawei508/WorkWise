@@ -37,6 +37,7 @@ import { useChatStore, type SettingsRouteSection } from '../store/chat-store'
 import { SettingsSidebar } from './SettingsSidebar'
 import { WriteDebugLogModal } from './settings-debug-log'
 import { useSettingsGuiUpdate } from './use-settings-gui-update'
+import { restoreSettingsReturnRoute } from './settings-return-navigation'
 import {
   DEFAULT_WORKSPACE_ROOT,
   canPersistSettingsWithPort,
@@ -594,23 +595,13 @@ export function SettingsView(): ReactElement {
     void (async () => {
       if (!(await flushPendingSave())) return
       await reloadUiSettings()
-      if (settingsReturnRoute === 'write') {
-        await openWrite()
-        return
-      }
-      if (settingsReturnRoute === 'claw') {
-        openClaw()
-        return
-      }
-      if (settingsReturnRoute === 'schedule') {
-        openSchedule()
-        return
-      }
-      if (settingsReturnRoute === 'plugins') {
-        setRoute('plugins')
-        return
-      }
-      await openCode()
+      await restoreSettingsReturnRoute(settingsReturnRoute, {
+        setRoute,
+        openCode,
+        openWrite,
+        openClaw,
+        openSchedule
+      })
     })()
   }
 

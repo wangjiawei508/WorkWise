@@ -32,6 +32,8 @@ import { EngineeringAiCommandCenter } from './EngineeringAiCommandCenter'
 import { SurveyAdjustmentPanel } from './SurveyAdjustmentPanel'
 import { EngineeringSkillsPanel } from './EngineeringSkillsPanel'
 import {
+  activeEngineeringProjectId,
+  chooseEngineeringProjectId,
   consumeRequestedEngineeringProject,
   setActiveEngineeringProject
 } from './engineering-project-navigation'
@@ -322,7 +324,7 @@ export function EngineeringWorkspaceView({ workspaceRoot, runtimeReady, leftSide
       const result = await runtimeRequest<{ projects: Project[] }>('/v1/engineering/projects')
       const workspaceProjects = result.projects.filter((project) => project.workspace === workspaceRoot)
       setProjects(workspaceProjects)
-      setSelectedProjectId((current) => workspaceProjects.some((project) => project.id === current) ? current : workspaceProjects[0]?.id ?? '')
+      setSelectedProjectId((current) => chooseEngineeringProjectId(current, workspaceProjects, activeEngineeringProjectId()))
     } catch (error) {
       setNotice({ tone: 'error', message: error instanceof Error ? error.message : String(error) })
     }
