@@ -487,6 +487,220 @@ describe('survey adjustment golden fixtures', () => {
     service.close()
   })
 
+  it('estimates and applies a seven-parameter 3-D Helmert transformation', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'workwise-helmert7-fixture-'))
+    const service = new SurveyService({ rootDir: root })
+    const sourcePoints = [
+      { id: 'A', x: 1000, y: 2000, height: 3000, targetX: 1000.99, targetY: 1998.004, targetHeight: 3003.01 },
+      { id: 'B', x: 1100, y: 2000, height: 3000, targetX: 1100.9902, targetY: 1998.0043, targetHeight: 3003.0102 },
+      { id: 'C', x: 1000, y: 2100, height: 3050, targetX: 1000.9896, targetY: 2098.00415, targetHeight: 3053.0102 },
+      { id: 'D', x: 1050, y: 2070, height: 3100, targetX: 1050.98969, targetY: 2068.00419, targetHeight: 3103.01037 }
+    ]
+    const network = await service.importNetwork({
+      projectId: 'helmert7-fixture', expectedRevision: 0, idempotencyKey: 'helmert7-fixture-import', networkType: 'coordinate-transform', network: {
+        transformType: 'helmert-7',
+        knownPoints: sourcePoints.map(({ id, x, y, height }) => ({ id, pointClass: 'known', x, y, height, known: true })),
+        unknownPoints: [{ id: 'T', pointClass: 'unknown', x: 1025, y: 2050, height: 3025, known: false }],
+        observations: sourcePoints.map(({ id, targetX, targetY, targetHeight }) => ({ id: `pair-${id}`, type: 'coordinate-pair', from: id, value: 0, unit: 'm', sigma: 0.001, targetX, targetY, targetHeight }))
+      }
+    })
+    const checked = service.validateNetwork(network.id, { expectedRevision: network.revision, idempotencyKey: 'helmert7-fixture-validate' })
+    const output = service.createAdjustment({ networkId: network.id, expectedRevision: checked.revision, idempotencyKey: 'helmert7-fixture-adjust' })
+    expect(checked.qualityStatus).toBe('validated')
+    expect(output.run.status).toBe('completed')
+    expect(output.run.method).toBe('helmert-seven-parameter')
+    expect(output.result.transformType).toBe('helmert-7')
+    expect(output.result.unknownCount).toBe(7)
+    expect(output.result.observationCount).toBe(12)
+    expect(output.result.degreesOfFreedom).toBe(5)
+    expect(output.result.solverDiagnostics?.rank).toBe(7)
+    expect(output.result.parameters).toMatchObject({ translationX: expect.closeTo(1, 7), translationY: expect.closeTo(-2, 7), translationZ: expect.closeTo(3, 7), scalePpm: expect.closeTo(2, 7), rotationX: expect.closeTo(1e-6, 10), rotationY: expect.closeTo(-2e-6, 10), rotationZ: expect.closeTo(3e-6, 10) })
+    expect(output.result.points.find((point) => point.id === 'T')).toMatchObject({ x: expect.closeTo(1025.98985, 6), y: expect.closeTo(2048.00415, 6), height: expect.closeTo(3028.01015, 6) })
+    service.close()
+  })
+
+  it('fits a deterministic height correction plane', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'workwise-height-fit-fixture-'))
+    const service = new SurveyService({ rootDir: root })
+    const controls = [
+      { id: 'A', x: 0, y: 0, targetHeight: 100.5 },
+      { id: 'B', x: 100, y: 0, targetHeight: 100.6 },
+      { id: 'C', x: 0, y: 100, targetHeight: 100.3 },
+      { id: 'D', x: 100, y: 100, targetHeight: 100.4 }
+    ]
+    const network = await service.importNetwork({
+      projectId: 'height-fit-fixture', expectedRevision: 0, idempotencyKey: 'height-fit-fixture-import', networkType: 'coordinate-transform', network: {
+        transformType: 'height-fit',
+        knownPoints: controls.map(({ id, x, y }) => ({ id, pointClass: 'known', x, y, height: 100, known: true })),
+        unknownPoints: [{ id: 'T', pointClass: 'unknown', x: 50, y: 50, height: 100, known: false }],
+        observations: controls.map(({ id, targetHeight }) => ({ id: `height-${id}`, type: 'coordinate-pair', from: id, value: 0, unit: 'm', sigma: 0.001, targetHeight }))
+      }
+    })
+    const checked = service.validateNetwork(network.id, { expectedRevision: network.revision, idempotencyKey: 'height-fit-fixture-validate' })
+    const output = service.createAdjustment({ networkId: network.id, expectedRevision: checked.revision, idempotencyKey: 'height-fit-fixture-adjust' })
+    expect(checked.qualityStatus).toBe('validated')
+    expect(output.run.method).toBe('height-fit')
+    expect(output.result.transformType).toBe('height-fit')
+    expect(output.result.parameters).toMatchObject({ heightOffset: expect.closeTo(0.5, 10), heightSlopeX: expect.closeTo(0.001, 10), heightSlopeY: expect.closeTo(-0.002, 10) })
+    expect(output.result.points.find((point) => point.id === 'T')?.height).toBeCloseTo(100.45, 10)
+    expect(output.result.degreesOfFreedom).toBe(1)
+    service.close()
+  })
+
+  it('performs Gauss-Kruger forward and inverse conversion with explicit datum metadata', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'workwise-gauss-fixture-'))
+    const service = new SurveyService({ rootDir: root })
+    const forward = await service.importNetwork({
+      projectId: 'gauss-forward', expectedRevision: 0, idempotencyKey: 'gauss-forward-import', networkType: 'coordinate-transform', network: {
+        transformType: 'gauss-kruger-forward', ellipsoid: 'CGCS2000', centralMeridian: 120,
+        knownPoints: [{ id: 'G', pointClass: 'known', latitude: 30, longitude: 120.5, height: 12, known: true }], unknownPoints: [], observations: [], instrumentParameters: { falseEasting: 1 }
+      }
+    })
+    const checkedForward = service.validateNetwork(forward.id, { expectedRevision: forward.revision, idempotencyKey: 'gauss-forward-validate' })
+    const forwardOutput = service.createAdjustment({ networkId: forward.id, expectedRevision: checkedForward.revision, idempotencyKey: 'gauss-forward-adjust' })
+    const projected = forwardOutput.result.points.find((point) => point.id === 'G')!
+    expect(forwardOutput.run.status).toBe('completed')
+    expect(forwardOutput.result.transformType).toBe('gauss-kruger-forward')
+    expect(projected.x).toBeCloseTo(3320218.650437519, 6)
+    expect(projected.y).toBeCloseTo(548243.4486061679, 6)
+
+    const inverse = await service.importNetwork({
+      projectId: 'gauss-inverse', expectedRevision: 0, idempotencyKey: 'gauss-inverse-import', networkType: 'coordinate-transform', network: {
+        transformType: 'gauss-kruger-inverse', ellipsoid: 'CGCS2000', centralMeridian: 120,
+        knownPoints: [{ id: 'G', pointClass: 'known', x: projected.x, y: projected.y, height: 12, known: true }], unknownPoints: [], observations: [], instrumentParameters: { falseEasting: 1 }
+      }
+    })
+    const inverseOutput = service.createAdjustment({ networkId: inverse.id, expectedRevision: inverse.revision, idempotencyKey: 'gauss-inverse-adjust' })
+    expect(inverseOutput.run.status).toBe('completed')
+    expect(inverseOutput.result.transformType).toBe('gauss-kruger-inverse')
+    expect(inverseOutput.result.points.find((point) => point.id === 'G')).toMatchObject({ latitude: expect.closeTo(30, 8), longitude: expect.closeTo(120.5, 8) })
+    service.close()
+  })
+
+  it('round-trips Gauss-Kruger coordinates with both a zone prefix and false easting', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'workwise-gauss-zone-fixture-'))
+    const service = new SurveyService({ rootDir: root })
+    const forward = await service.importNetwork({
+      projectId: 'gauss-zone-forward', expectedRevision: 0, idempotencyKey: 'gauss-zone-forward-import', networkType: 'coordinate-transform', network: {
+        transformType: 'gauss-kruger-forward', ellipsoid: 'CGCS2000', centralMeridian: 120,
+        knownPoints: [{ id: 'G', pointClass: 'known', latitude: 30, longitude: 120.5, known: true }], unknownPoints: [], observations: [],
+        instrumentParameters: { falseEasting: 1, zonePrefix: 1 }
+      }
+    })
+    const projectedOutput = service.createAdjustment({ networkId: forward.id, expectedRevision: forward.revision, idempotencyKey: 'gauss-zone-forward-adjust' })
+    const projected = projectedOutput.result.points.find((point) => point.id === 'G')!
+    expect(projected.y).toBeCloseTo(40_548_243.44860617, 6)
+
+    const inverse = await service.importNetwork({
+      projectId: 'gauss-zone-inverse', expectedRevision: 0, idempotencyKey: 'gauss-zone-inverse-import', networkType: 'coordinate-transform', network: {
+        transformType: 'gauss-kruger-inverse', ellipsoid: 'CGCS2000', centralMeridian: 120,
+        knownPoints: [{ id: 'G', pointClass: 'known', x: projected.x, y: projected.y, known: true }], unknownPoints: [], observations: [],
+        instrumentParameters: { falseEasting: 1, zonePrefix: 1 }
+      }
+    })
+    const geographicOutput = service.createAdjustment({ networkId: inverse.id, expectedRevision: inverse.revision, idempotencyKey: 'gauss-zone-inverse-adjust' })
+    expect(geographicOutput.result.points.find((point) => point.id === 'G')).toMatchObject({ latitude: expect.closeTo(30, 8), longitude: expect.closeTo(120.5, 8) })
+    service.close()
+  })
+
+  it('normalizes explicit transform translations and output coordinates to metres', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'workwise-transform-units-fixture-'))
+    const service = new SurveyService({ rootDir: root })
+    const network = await service.importNetwork({
+      projectId: 'transform-units', expectedRevision: 0, idempotencyKey: 'transform-units-import', networkType: 'coordinate-transform', network: {
+        transformType: 'similarity-2d', unit: 'mm',
+        knownPoints: [{ id: 'P', pointClass: 'known', x: 10_000, y: 20_000, known: true }], unknownPoints: [], observations: [],
+        instrumentParameters: { translationX: 1_000, translationY: 2_000, rotationDeg: 0, scalePpm: 0 }
+      }
+    })
+    const output = service.createAdjustment({ networkId: network.id, expectedRevision: network.revision, idempotencyKey: 'transform-units-adjust' })
+    expect(output.result.linearUnit).toBe('m')
+    expect(output.result.closure).toMatchObject({ translationX: 1, translationY: 2 })
+    expect(output.result.points.find((point) => point.id === 'P')).toMatchObject({ x: 11, y: 22, correctionX: 1, correctionY: 2 })
+    service.close()
+  })
+
+  it('blocks partial explicit parameters even when control pairs could be fitted', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'workwise-transform-partial-fixture-'))
+    const service = new SurveyService({ rootDir: root })
+    const network = await service.importNetwork({
+      projectId: 'transform-partial', expectedRevision: 0, idempotencyKey: 'transform-partial-import', networkType: 'coordinate-transform', network: {
+        transformType: 'similarity-2d',
+        knownPoints: [
+          { id: 'A', pointClass: 'known', x: 0, y: 0, known: true },
+          { id: 'B', pointClass: 'known', x: 100, y: 0, known: true }
+        ],
+        unknownPoints: [],
+        observations: [
+          { id: 'pair-A', type: 'coordinate-pair', from: 'A', value: 0, unit: 'm', targetX: 5, targetY: 7 },
+          { id: 'pair-B', type: 'coordinate-pair', from: 'B', value: 0, unit: 'm', targetX: 105, targetY: 7 }
+        ],
+        instrumentParameters: { translationX: 5 }
+      }
+    })
+    const checked = service.validateNetwork(network.id, { expectedRevision: network.revision, idempotencyKey: 'transform-partial-validate' })
+    const output = service.createAdjustment({ networkId: network.id, expectedRevision: checked.revision, idempotencyKey: 'transform-partial-adjust' })
+    expect(checked.qualityStatus).toBe('blocked')
+    expect(output.run.status).toBe('needs_attention')
+    expect(output.result.qualityFindings).toEqual(expect.arrayContaining([expect.objectContaining({ code: 'invalid_observation', severity: 'blocking' })]))
+    expect(output.result.points).toEqual([])
+    service.close()
+  })
+
+  it.each([
+    {
+      name: 'incomplete similarity parameters',
+      transformType: 'similarity-2d' as const,
+      centralMeridian: undefined,
+      ellipsoid: 'CGCS2000',
+      knownPoints: [{ id: 'A', pointClass: 'known' as const, x: 0, y: 0, known: true }],
+      observations: [] as Array<Record<string, unknown>>,
+      instrumentParameters: { translationX: 0 },
+      expectedCode: 'missing_datum'
+    },
+    {
+      name: 'incomplete seven parameters',
+      transformType: 'helmert-7' as const,
+      centralMeridian: undefined,
+      ellipsoid: 'CGCS2000',
+      knownPoints: [{ id: 'A', pointClass: 'known' as const, x: 1, y: 2, height: 3, known: true }],
+      observations: [] as Array<Record<string, unknown>>,
+      instrumentParameters: { translationX: 1, translationY: 2, translationZ: 3 },
+      expectedCode: 'missing_datum'
+    },
+    {
+      name: 'missing Gauss meridian',
+      transformType: 'gauss-kruger-forward' as const,
+      centralMeridian: undefined,
+      ellipsoid: 'CGCS2000',
+      knownPoints: [{ id: 'A', pointClass: 'known' as const, latitude: 30, longitude: 120, known: true }],
+      observations: [] as Array<Record<string, unknown>>,
+      instrumentParameters: {},
+      expectedCode: 'missing_datum'
+    },
+    {
+      name: 'unsupported ellipsoid',
+      transformType: 'gauss-kruger-inverse' as const,
+      centralMeridian: 120,
+      ellipsoid: 'unknown',
+      knownPoints: [{ id: 'A', pointClass: 'known' as const, x: 3320000, y: 500000, known: true }],
+      observations: [] as Array<Record<string, unknown>>,
+      instrumentParameters: {},
+      expectedCode: 'missing_datum'
+    }
+  ])('blocks coordinate transformation with $name instead of applying identity', async ({ name, transformType, centralMeridian, ellipsoid, knownPoints, observations, instrumentParameters, expectedCode }) => {
+    const root = await mkdtemp(join(tmpdir(), 'workwise-transform-invalid-'))
+    const service = new SurveyService({ rootDir: root })
+    const network = await service.importNetwork({ projectId: `transform-${name}`, expectedRevision: 0, idempotencyKey: `transform-${name}`, networkType: 'coordinate-transform', network: { transformType, ...(centralMeridian === undefined ? {} : { centralMeridian }), ellipsoid, knownPoints, unknownPoints: [], observations, instrumentParameters } })
+    const checked = service.validateNetwork(network.id, { expectedRevision: network.revision, idempotencyKey: `transform-validate-${name}` })
+    const output = service.createAdjustment({ networkId: network.id, expectedRevision: checked.revision, idempotencyKey: `transform-adjust-${name}` })
+    expect(checked.qualityStatus).toBe('blocked')
+    expect(output.run.status).toBe('needs_attention')
+    expect(output.result.qualityFindings).toEqual(expect.arrayContaining([expect.objectContaining({ code: expectedCode, severity: 'blocking' })]))
+    expect(output.result.points).toEqual([])
+    service.close()
+  })
+
   it('applies a configured coordinate transformation and preserves point deltas', async () => {
     const root = await mkdtemp(join(tmpdir(), 'workwise-transform-fixture-'))
     const service = new SurveyService({ rootDir: root })

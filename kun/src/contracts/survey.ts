@@ -16,6 +16,9 @@ export const SurveyNetworkTypeV1 = z.enum([
 ])
 export type SurveyNetworkTypeV1 = z.infer<typeof SurveyNetworkTypeV1>
 
+export const CoordinateTransformTypeV1 = z.enum(['similarity-2d', 'helmert-7', 'gauss-kruger-forward', 'gauss-kruger-inverse', 'height-fit'])
+export type CoordinateTransformTypeV1 = z.infer<typeof CoordinateTransformTypeV1>
+
 export const SurveyProjectV1 = z.object({
   schemaVersion: z.literal(SURVEY_SCHEMA_VERSION),
   id: z.string().min(1),
@@ -42,6 +45,10 @@ export const SurveyPointV1 = z.object({
   x: z.number().finite().optional(),
   y: z.number().finite().optional(),
   height: z.number().finite().optional(),
+  /** Geodetic latitude/longitude in decimal degrees for Gauss-Kruger
+   * projection. Cartesian adjustment values continue to use x/y/height. */
+  latitude: z.number().finite().min(-90).max(90).optional(),
+  longitude: z.number().finite().min(-180).max(180).optional(),
   known: z.boolean().default(false),
   sourceRow: z.number().int().positive().optional()
 }).strict()
@@ -49,7 +56,7 @@ export type SurveyPointV1 = z.infer<typeof SurveyPointV1>
 
 export const SurveyObservationV1 = z.object({
   id: z.string().min(1),
-  type: z.enum(['height-difference', 'distance', 'direction', 'angle', 'zenith', 'slope-distance', 'gnss-baseline']),
+  type: z.enum(['height-difference', 'distance', 'direction', 'angle', 'zenith', 'slope-distance', 'gnss-baseline', 'coordinate-pair']),
   from: z.string().min(1).optional(),
   to: z.string().min(1).optional(),
   station: z.string().min(1).optional(),
@@ -112,6 +119,9 @@ export const SurveyNetworkV1 = z.object({
   id: z.string().min(1),
   projectId: z.string().min(1),
   networkType: SurveyNetworkTypeV1,
+  /** Explicit coordinate transformation strategy. Optional only for reading
+   * legacy records whose strategy can be inferred without ambiguity. */
+  transformType: CoordinateTransformTypeV1.optional(),
   /** Survey reference metadata is persisted with the network so a result can
    * be reviewed without relying on the current project form state. Defaults
    * keep older stored networks readable during migration. */
@@ -165,6 +175,8 @@ export const AdjustmentPointResultV1 = z.object({
   x: z.number().finite().optional(),
   y: z.number().finite().optional(),
   height: z.number().finite().optional(),
+  latitude: z.number().finite().min(-90).max(90).optional(),
+  longitude: z.number().finite().min(-180).max(180).optional(),
   correctionX: z.number().finite().optional(),
   correctionY: z.number().finite().optional(),
   correctionHeight: z.number().finite().optional(),
@@ -233,6 +245,9 @@ export const AdjustmentResultV1 = z.object({
   /** Explicit deterministic strategy used for this run. Kept optional so
    * results written by 0.4.x remain readable during migration. */
   strategyId: SurveyNetworkTypeV1.optional(),
+  /** Coordinate-transform sub-strategy; omitted for non-transform and legacy
+   * results. */
+  transformType: CoordinateTransformTypeV1.optional(),
   solverDiagnostics: z.object({
     iterations: z.number().int().nonnegative().optional(),
     rank: z.number().int().nonnegative().optional(),
@@ -275,6 +290,7 @@ export const SurveyNetworkImportRequest = z.object({
   expectedRevision: z.number().int().nonnegative(),
   idempotencyKey: z.string().min(8).max(200),
   networkType: SurveyNetworkTypeV1.optional(),
+  transformType: CoordinateTransformTypeV1.optional(),
   network: SurveyNetworkV1.partial().optional(),
   name: z.string().min(1).optional(),
   dataBase64: z.string().min(1).optional(),

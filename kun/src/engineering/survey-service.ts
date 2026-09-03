@@ -11,6 +11,7 @@ import {
   AdjustmentResultV1,
   AdjustmentRunV1,
   AdjustmentDisplacementV1,
+  CoordinateTransformTypeV1,
   SurveyNetworkImportRequest,
   SurveyNetworkV1,
   SurveyNetworkValidateRequest,
@@ -20,6 +21,7 @@ import {
   SurveyQualityFindingV1
 } from '../contracts/survey.js'
 import { choleskyDecompose, iterativeWeightedLeastSquares, numericalJacobian, surveyMatrix, weightedLeastSquares, whitenCorrelatedEquations, wrapRadians, type Matrix } from './survey-adjustment-core.js'
+import { applyHeightPlane, applyHelmert7, applySimilarity2d, fitHeightPlane, fitHelmert7, fitSimilarity2d, gaussKrugerForward, gaussKrugerInverse, resolveEllipsoid, type HeightPlaneParameters, type Helmert7Parameters, type Similarity2dParameters } from './survey-coordinate-transform.js'
 
 type SurveyProjectLookup = (id: string) => { id: string; workspace: string; revision: number } | null
 type StoredAdjustment = { run: AdjustmentRunV1; result?: AdjustmentResultV1 }
@@ -81,7 +83,7 @@ function parseDelimited(text: string): Record<string, string>[] {
   return lines.slice(1).map((line) => Object.fromEntries(headers.map((header, index) => [header, parseLine(line)[index] ?? ''])))
 }
 
-async function parseNetworkPayload(name: string, bytes: Buffer, projectId: string, nowIso: () => string, networkType?: SurveyNetworkV1['networkType'], inputAttachmentHash?: string): Promise<SurveyNetworkV1> {
+async function parseNetworkPayload(name: string, bytes: Buffer, projectId: string, nowIso: () => string, networkType?: SurveyNetworkV1['networkType'], transformType?: SurveyNetworkV1['transformType'], inputAttachmentHash?: string): Promise<SurveyNetworkV1> {
   let parsed: unknown
   try { parsed = JSON.parse(bytes.toString('utf8').replace(/^\uFEFF/, '')) } catch { parsed = undefined }
   if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
@@ -95,6 +97,7 @@ async function parseNetworkPayload(name: string, bytes: Buffer, projectId: strin
       id: typeof normalized.id === 'string' ? normalized.id : `network_${randomUUID()}`,
       projectId,
       networkType: normalized.networkType ?? networkType ?? 'leveling',
+      transformType: normalized.transformType ?? transformType,
       coordinateSystem: normalized.coordinateSystem ?? '待确认',
       projection: normalized.projection ?? '待确认',
       ellipsoid: normalized.ellipsoid ?? '待确认',
@@ -109,20 +112,31 @@ async function parseNetworkPayload(name: string, bytes: Buffer, projectId: strin
   }
   const rows = name.toLowerCase().endsWith('.xlsx') ? await parseXlsxRows(bytes) : parseDelimited(bytes.toString('utf8'))
   const observations: SurveyObservationV1[] = rows.map((row, index) => {
-    const type = String(row.type || row.observationType || (networkType === 'leveling' || networkType === 'height-control' ? 'height-difference' : 'distance')) as SurveyObservationV1['type']
+    const type = String(row.type || row.observationType || (networkType === 'leveling' || networkType === 'height-control' ? 'height-difference' : networkType === 'coordinate-transform' ? 'coordinate-pair' : 'distance')) as SurveyObservationV1['type']
     const vectorX = asNumber(row.vectorX || row.vector_x || row.dx || row.deltaX || row.delta_x || row['ΔX'])
     const vectorY = asNumber(row.vectorY || row.vector_y || row.dy || row.deltaY || row.delta_y || row['ΔY'])
     const vectorZ = asNumber(row.vectorZ || row.vector_z || row.dz || row.deltaZ || row.delta_z || row['ΔZ'])
     const rawValue = row.value || row.heightDiff || row.distance || row.angle || row.direction
-    const value = type === 'gnss-baseline' && vectorX !== undefined && vectorY !== undefined && vectorZ !== undefined
+    const value = (type === 'gnss-baseline' && vectorX !== undefined && vectorY !== undefined && vectorZ !== undefined) || type === 'coordinate-pair'
       ? (asNumber(rawValue) ?? 0)
       : ['angle', 'direction', 'zenith'].includes(type) ? angleValue(rawValue) : asNumber(rawValue)
     if (value === undefined) throw new Error(`invalid observation value at row ${index + 2}`)
-    return SurveyObservationV1.parse({ id: row.id || `obs_${index + 1}`, type, from: row.from || row.start || row.station, to: row.to || row.end || row.target, station: row.station, target: row.target, left: row.left, right: row.right, value, unit: row.unit || (['height-difference', 'distance', 'slope-distance', 'gnss-baseline'].includes(type) ? 'm' : 'deg'), vectorX, vectorY, vectorZ, sigma: asNumber(row.sigma), sigmaUnit: row.sigmaUnit || row.sigma_unit || undefined, covariance: row.covariance ? row.covariance.split(/[;,\s]+/).map(Number).filter(Number.isFinite) : undefined, targetX: asNumber(row.targetX || row.target_x), targetY: asNumber(row.targetY || row.target_y), targetHeight: asNumber(row.targetHeight || row.target_h), stationHeightOffset: asNumber(row.stationHeightOffset || row.instrumentHeight || row.instrument_height), targetHeightOffset: asNumber(row.targetHeightOffset || row.prismHeight || row.prism_height), routeLength: asNumber(row.routeLength), sourceRow: index + 2, sourceLocator: row.worksheet ? `${row.worksheet}!${index + 2}` : undefined })
+    return SurveyObservationV1.parse({ id: row.observationId || row.observation_id || row.id || `obs_${index + 1}`, type, from: row.from || row.start || row.station || (type === 'coordinate-pair' ? row.id : undefined), to: row.to || row.end || row.target, station: row.station, target: row.target, left: row.left, right: row.right, value, unit: row.unit || (['height-difference', 'distance', 'slope-distance', 'gnss-baseline', 'coordinate-pair'].includes(type) ? 'm' : 'deg'), vectorX, vectorY, vectorZ, sigma: asNumber(row.sigma), sigmaUnit: row.sigmaUnit || row.sigma_unit || undefined, covariance: row.covariance ? row.covariance.split(/[;,\s]+/).map(Number).filter(Number.isFinite) : undefined, targetX: asNumber(row.targetX || row.target_x), targetY: asNumber(row.targetY || row.target_y), targetHeight: asNumber(row.targetHeight || row.target_h), stationHeightOffset: asNumber(row.stationHeightOffset || row.instrumentHeight || row.instrument_height), targetHeightOffset: asNumber(row.targetHeightOffset || row.prismHeight || row.prism_height), routeLength: asNumber(row.routeLength), sourceRow: index + 2, sourceLocator: row.worksheet ? `${row.worksheet}!${index + 2}` : undefined })
   })
   const ids = [...new Set(observations.flatMap(observationEndpointIds))]
+  const requestedNetworkType = networkType ?? 'leveling'
+  const parsedTransformType = CoordinateTransformTypeV1.safeParse(transformType ?? rows[0]?.transformType ?? rows[0]?.transform_type)
+  if (requestedNetworkType === 'coordinate-transform') {
+    const sourcePoints = new Map<string, SurveyPointV1>()
+    rows.forEach((row, index) => {
+      const id = row.from || row.id || `point_${index + 1}`
+      if (sourcePoints.has(id)) return
+      sourcePoints.set(id, SurveyPointV1.parse({ id, pointClass: 'known', known: true, x: asNumber(row.sourceX || row.source_x || row.x), y: asNumber(row.sourceY || row.source_y || row.y), height: asNumber(row.sourceHeight || row.source_height || row.height || row.h), latitude: asNumber(row.latitude || row.lat), longitude: asNumber(row.longitude || row.lon || row.lng), sourceRow: index + 2 }))
+    })
+    return SurveyNetworkV1.parse({ schemaVersion: 1, id: `network_${randomUUID()}`, projectId, networkType: requestedNetworkType, ...(parsedTransformType.success ? { transformType: parsedTransformType.data } : {}), coordinateSystem: '待确认', projection: '待确认', centralMeridian: asNumber(rows[0]?.centralMeridian || rows[0]?.central_meridian), ellipsoid: rows[0]?.ellipsoid || '待确认', verticalDatum: '待确认', unit: rows[0]?.unit || 'm', knownPoints: [...sourcePoints.values()], unknownPoints: [], observations, inputAttachmentHash, qualityStatus: 'imported', findings: [], revision: 1, createdAt: nowIso(), updatedAt: nowIso() })
+  }
   const points = ids.map((id) => SurveyPointV1.parse({ id, pointClass: 'unknown', known: false }))
-    return SurveyNetworkV1.parse({ schemaVersion: 1, id: `network_${randomUUID()}`, projectId, networkType: networkType ?? 'leveling', coordinateSystem: '待确认', projection: '待确认', ellipsoid: '待确认', verticalDatum: '待确认', unit: 'm', knownPoints: [], unknownPoints: points, observations, inputAttachmentHash, qualityStatus: 'imported', findings: [], revision: 1, createdAt: nowIso(), updatedAt: nowIso() })
+  return SurveyNetworkV1.parse({ schemaVersion: 1, id: `network_${randomUUID()}`, projectId, networkType: requestedNetworkType, coordinateSystem: '待确认', projection: '待确认', ellipsoid: '待确认', verticalDatum: '待确认', unit: 'm', knownPoints: [], unknownPoints: points, observations, inputAttachmentHash, qualityStatus: 'imported', findings: [], revision: 1, createdAt: nowIso(), updatedAt: nowIso() })
 }
 
 async function parseXlsxRows(bytes: Buffer): Promise<Record<string, string>[]> {
@@ -916,68 +930,213 @@ function invalidAdjustmentResult(network: SurveyNetworkV1, run: AdjustmentRunV1,
 function adjustmentDimensionIssue(network: SurveyNetworkV1): string | null {
   const coordinateTypes = ['plane-control', 'traverse', 'triangulation', 'cpiii-free-station', 'cpiii-resection']
   const unknownPointCount = network.unknownPoints.filter((point) => !point.known).length
-  const parameterCount = network.networkType === 'gnss' ? unknownPointCount * 3 : coordinateTypes.includes(network.networkType) ? unknownPointCount * 2 : unknownPointCount
+  const transformType = network.networkType === 'coordinate-transform' ? resolveCoordinateTransformType(network) : null
+  const parameterCount = network.networkType === 'gnss' ? unknownPointCount * 3
+    : transformType === 'helmert-7' ? 7
+      : transformType === 'similarity-2d' ? 4
+        : transformType === 'height-fit' ? 3
+          : coordinateTypes.includes(network.networkType) ? unknownPointCount * 2 : unknownPointCount
   if (parameterCount > MAX_UNKNOWN_PARAMETERS) return `未知参数数量 ${parameterCount} 超过上限 ${MAX_UNKNOWN_PARAMETERS}`
   if (network.observations.length > MAX_OBSERVATIONS) return `观测记录数量 ${network.observations.length} 超过上限 ${MAX_OBSERVATIONS}`
   // Bound the dense normal matrix before coefficient arrays are allocated.
-  const equationCount = network.networkType === 'gnss' ? network.observations.length * 3 : network.observations.length
+  const equationCount = network.networkType === 'gnss' || transformType === 'helmert-7' ? network.observations.length * 3 : transformType === 'similarity-2d' ? network.observations.length * 2 : network.observations.length
   const estimatedNonZero = Math.min(Number.MAX_SAFE_INTEGER, equationCount * Math.max(1, parameterCount))
   if (estimatedNonZero > MAX_MATRIX_NON_ZERO) return `预计矩阵非零元素 ${estimatedNonZero} 超过上限 ${MAX_MATRIX_NON_ZERO}`
   return null
 }
 
-function buildCoordinateTransformResult(network: SurveyNetworkV1, run: AdjustmentRunV1, nowIso: () => string): AdjustmentResultV1 {
-  const p = network.instrumentParameters
-  const hasExplicitParameter = ['tx', 'translationX', 'ty', 'translationY', 'tz', 'translationZ', 'rxRad', 'rxDeg', 'rx', 'ryRad', 'ryDeg', 'ry', 'rzRad', 'rzDeg', 'rz', 'rotationDeg', 'rotation', 'scalePpm'].some((key) => typeof p[key] === 'number' && Number.isFinite(p[key]))
-  let tx = p.tx ?? p.translationX
-  let ty = p.ty ?? p.translationY
-  let tz = p.tz ?? p.translationZ
-  let rx = p.rxRad ?? ((p.rxDeg ?? p.rx ?? 0) * Math.PI / 180)
-  let ry = p.ryRad ?? ((p.ryDeg ?? p.ry ?? 0) * Math.PI / 180)
-  let rz = p.rzRad ?? ((p.rzDeg ?? p.rz ?? p.rotationDeg ?? p.rotation ?? 0) * Math.PI / 180)
-  let scale = 1 + (p.scalePpm ?? 0) * 1e-6
+type CoordinateTransformType = NonNullable<SurveyNetworkV1['transformType']>
 
-  // If explicit parameters are absent, fit a 2-D similarity transform from
-  // paired source/target coordinates carried by observations.  This is a
-  // deterministic four-parameter least-squares fit; it never falls back to
-  // an identity transform when the control pairs are insufficient.
-  if (!hasExplicitParameter) {
-    const fitRows: Array<{ coefficients: number[]; misclosure: number; weight: number }> = []
-    const points = pointMap(network)
-    for (const observation of network.observations) {
-      const source = observation.from ? points.get(observation.from) : undefined
-      if (!source || source.x === undefined || source.y === undefined || observation.targetX === undefined || observation.targetY === undefined) continue
-      const sigma = observation.sigma ?? 1
-      fitRows.push({ coefficients: [1, 0, source.x, -source.y], misclosure: observation.targetX, weight: 1 / (sigma * sigma) })
-      fitRows.push({ coefficients: [0, 1, source.y, source.x], misclosure: observation.targetY, weight: 1 / (sigma * sigma) })
-    }
-    const fitted = fitRows.length >= 4 ? weightedLeastSquares(fitRows) : null
-    if (!fitted) return invalidAdjustmentResult(network, run, [finding(network.id, 'missing_datum', 'blocking', '坐标转换缺少明确参数或足够的源/目标控制点', '提供七参数，或至少两组非退化的源/目标坐标对', undefined, nowIso)], nowIso)
-    tx = fitted.corrections[0]!
-    ty = fitted.corrections[1]!
-    const a = fitted.corrections[2]!
-    const b = fitted.corrections[3]!
-    scale = Math.hypot(a, b)
-    rz = Math.atan2(b, a)
+function finiteParameter(parameters: Record<string, number>, keys: string[]): number | undefined {
+  for (const key of keys) if (typeof parameters[key] === 'number' && Number.isFinite(parameters[key])) return parameters[key]
+  return undefined
+}
+
+function hasAnyParameter(parameters: Record<string, number>, keys: string[]): boolean {
+  return keys.some((key) => typeof parameters[key] === 'number' && Number.isFinite(parameters[key]))
+}
+
+function rotationParameter(parameters: Record<string, number>, axis: 'rx' | 'ry' | 'rz' | 'rotation'): number | undefined {
+  const radians = finiteParameter(parameters, [`${axis}Rad`])
+  if (radians !== undefined) return radians
+  const degrees = finiteParameter(parameters, [`${axis}Deg`, axis])
+  return degrees === undefined ? undefined : degrees * Math.PI / 180
+}
+
+function explicitSimilarityParameters(network: SurveyNetworkV1): Similarity2dParameters | null {
+  const parameters = network.instrumentParameters
+  const tx = finiteParameter(parameters, ['tx', 'translationX'])
+  const ty = finiteParameter(parameters, ['ty', 'translationY'])
+  const rotation = rotationParameter(parameters, 'rotation') ?? rotationParameter(parameters, 'rz')
+  const scaleFactor = finiteParameter(parameters, ['scaleFactor'])
+  const scalePpm = finiteParameter(parameters, ['scalePpm'])
+  if (tx === undefined || ty === undefined || rotation === undefined || (scaleFactor === undefined && scalePpm === undefined)) return null
+  return {
+    tx: normalizeLengthUncertainty(tx, network.unit),
+    ty: normalizeLengthUncertainty(ty, network.unit),
+    rotation,
+    scale: scaleFactor ?? 1 + scalePpm! * 1e-6
   }
-  const resolvedTx = tx ?? 0; const resolvedTy = ty ?? 0
-  const resolvedTz = tz ?? 0
-  const points = [...network.knownPoints, ...network.unknownPoints].map((point) => {
-    if (point.x === undefined || point.y === undefined) return { id: point.id }
-    // Small-angle Helmert linearisation. If no vertical/tilt parameters are
-    // supplied this reduces to the legacy 2D transform exactly.
-    const z = point.height ?? 0
-    const x = scale * (point.x - rz * point.y + ry * z) + resolvedTx
-    const y = scale * (rz * point.x + point.y - rx * z) + resolvedTy
-    const height = scale * (-ry * point.x + rx * point.y + z) + resolvedTz
-    return { id: point.id, x, y, ...(point.height === undefined && resolvedTz === 0 && rx === 0 && ry === 0 ? {} : { height }), correctionX: x - point.x, correctionY: y - point.y, ...(point.height === undefined && resolvedTz === 0 && rx === 0 && ry === 0 ? {} : { correctionHeight: height - z }), standardError: 0 }
+}
+
+function explicitHelmertParameters(network: SurveyNetworkV1): Helmert7Parameters | null {
+  const parameters = network.instrumentParameters
+  const tx = finiteParameter(parameters, ['tx', 'translationX'])
+  const ty = finiteParameter(parameters, ['ty', 'translationY'])
+  const tz = finiteParameter(parameters, ['tz', 'translationZ'])
+  const rx = rotationParameter(parameters, 'rx')
+  const ry = rotationParameter(parameters, 'ry')
+  const rz = rotationParameter(parameters, 'rz')
+  const scaleFactor = finiteParameter(parameters, ['scaleFactor'])
+  const scalePpm = finiteParameter(parameters, ['scalePpm'])
+  if ([tx, ty, tz, rx, ry, rz].some((value) => value === undefined) || (scaleFactor === undefined && scalePpm === undefined)) return null
+  return {
+    tx: normalizeLengthUncertainty(tx!, network.unit),
+    ty: normalizeLengthUncertainty(ty!, network.unit),
+    tz: normalizeLengthUncertainty(tz!, network.unit),
+    rx: rx!,
+    ry: ry!,
+    rz: rz!,
+    scale: scaleFactor ?? 1 + scalePpm! * 1e-6
+  }
+}
+
+function explicitHeightParameters(network: SurveyNetworkV1): HeightPlaneParameters | null {
+  const parameters = network.instrumentParameters
+  const offset = finiteParameter(parameters, ['heightOffset', 'offset'])
+  const slopeX = finiteParameter(parameters, ['heightSlopeX', 'slopeX'])
+  const slopeY = finiteParameter(parameters, ['heightSlopeY', 'slopeY'])
+  return offset === undefined || slopeX === undefined || slopeY === undefined
+    ? null
+    : { offset: normalizeLengthUncertainty(offset, network.unit), slopeX, slopeY }
+}
+
+function canonicalTransformPoint(network: SurveyNetworkV1, point: SurveyPointV1): SurveyPointV1 {
+  const scale = lengthUnitScale(network.unit)
+  return SurveyPointV1.parse({
+    ...point,
+    ...(point.x === undefined ? {} : { x: point.x * scale }),
+    ...(point.y === undefined ? {} : { y: point.y * scale }),
+    ...(point.height === undefined ? {} : { height: point.height * scale })
   })
-  const displacements = [...network.knownPoints, ...network.unknownPoints].map((point) => {
-    const adjusted = points.find((candidate) => candidate.id === point.id) as { x?: number; y?: number; height?: number } | undefined
-    return displacement(point, adjusted ?? {})
+}
+
+function transformControls(network: SurveyNetworkV1) {
+  const points = new Map([...network.knownPoints, ...network.unknownPoints].map((point) => [point.id, canonicalTransformPoint(network, point)]))
+  return network.observations.map((observation) => ({ observation, source: observation.from ? points.get(observation.from) : undefined }))
+}
+
+function resolveCoordinateTransformType(network: SurveyNetworkV1, run?: AdjustmentRunV1): CoordinateTransformType | null {
+  if (network.transformType) return network.transformType
+  if (run?.method === 'height-fit') return 'height-fit'
+  if (explicitHeightParameters(network)) return 'height-fit'
+  if (explicitHelmertParameters(network)) return 'helmert-7'
+  if (explicitSimilarityParameters(network)) return 'similarity-2d'
+  const controls = transformControls(network)
+  if (controls.filter(({ observation, source }) => source?.height !== undefined && observation.targetX !== undefined && observation.targetY !== undefined && observation.targetHeight !== undefined).length >= 3) return 'helmert-7'
+  if (controls.filter(({ observation, source }) => source?.x !== undefined && source.y !== undefined && source.height !== undefined && observation.targetHeight !== undefined && observation.targetX === undefined && observation.targetY === undefined).length >= 3) return 'height-fit'
+  if (controls.filter(({ observation, source }) => source?.x !== undefined && source.y !== undefined && observation.targetX !== undefined && observation.targetY !== undefined).length >= 2) return 'similarity-2d'
+  return null
+}
+
+function coordinateTransformStrategyFindings(network: SurveyNetworkV1, nowIso: () => string, run?: AdjustmentRunV1): SurveyQualityFindingV1[] {
+  const transformType = resolveCoordinateTransformType(network, run)
+  const allPoints = [...network.knownPoints, ...network.unknownPoints]
+  const controls = transformControls(network)
+  const findings: SurveyQualityFindingV1[] = []
+  if (!transformType) return [finding(network.id, 'missing_datum', 'blocking', '坐标转换缺少明确类型、完整参数或足够控制点', '选择二维相似、三维七参数、高斯正反算或高程拟合，并提供对应参数/控制点', undefined, nowIso)]
+  if (!allPoints.length) findings.push(finding(network.id, 'missing_point', 'blocking', '坐标转换没有待转换点', '至少提供一个源坐标点', undefined, nowIso))
+  if (transformType === 'similarity-2d') {
+    const explicit = explicitSimilarityParameters(network)
+    if (!explicit && hasAnyParameter(network.instrumentParameters, ['tx', 'translationX', 'ty', 'translationY', 'rotationRad', 'rotationDeg', 'rotation', 'rzRad', 'rzDeg', 'rz', 'scaleFactor', 'scalePpm'])) findings.push(finding(network.id, 'invalid_observation', 'blocking', '二维相似参数只提供了一部分，不能用零值补齐', '完整提供平移、旋转和尺度参数，或删除部分参数后由控制点估计', undefined, nowIso))
+    const validControls = controls.filter(({ observation, source }) => source?.x !== undefined && source.y !== undefined && observation.targetX !== undefined && observation.targetY !== undefined)
+    const malformed = controls.find(({ observation, source }) => observation.type === 'coordinate-pair' && (source?.x === undefined || source.y === undefined || observation.targetX === undefined || observation.targetY === undefined))
+    if (malformed) findings.push(finding(network.id, 'invalid_observation', 'blocking', `二维控制对 ${malformed.observation.id} 缺少源 X/Y 或目标 X/Y`, '补齐同一控制点的源坐标和目标坐标', malformed.observation.sourceRow, nowIso))
+    if (!explicit && validControls.length < 2) findings.push(finding(network.id, 'missing_datum', 'blocking', '二维相似变换至少需要两组源/目标平面控制点', '提供两个以上坐标不同的控制点对，或完整四参数', undefined, nowIso))
+    if (!explicit && validControls.length >= 2 && !fitSimilarity2d(validControls.map(({ observation, source }) => ({ sourceX: source!.x!, sourceY: source!.y!, targetX: normalizeLengthUncertainty(observation.targetX!, observation.unit), targetY: normalizeLengthUncertainty(observation.targetY!, observation.unit), sigma: normalizeLengthUncertainty(observation.sigma ?? 1, observation.sigmaUnit ?? observation.unit) })))) findings.push(finding(network.id, 'rank_deficient', 'blocking', '二维相似控制点退化，四参数不可解', '提供源坐标不重合的控制点对', undefined, nowIso))
+    if (allPoints.some((point) => point.x === undefined || point.y === undefined)) findings.push(finding(network.id, 'missing_point', 'blocking', '二维相似变换存在缺少 X/Y 的源点', '补齐全部待转换点的平面坐标', undefined, nowIso))
+  }
+  if (transformType === 'helmert-7') {
+    const explicit = explicitHelmertParameters(network)
+    if (!explicit && hasAnyParameter(network.instrumentParameters, ['tx', 'translationX', 'ty', 'translationY', 'tz', 'translationZ', 'rxRad', 'rxDeg', 'rx', 'ryRad', 'ryDeg', 'ry', 'rzRad', 'rzDeg', 'rz', 'scaleFactor', 'scalePpm'])) findings.push(finding(network.id, 'invalid_observation', 'blocking', '三维七参数只提供了一部分，不能以零值代替缺失参数', '完整提供三个平移、三个旋转和尺度参数，或删除部分参数后由控制点估计', undefined, nowIso))
+    const validControls = controls.filter(({ observation, source }) => source?.x !== undefined && source.y !== undefined && source.height !== undefined && observation.targetX !== undefined && observation.targetY !== undefined && observation.targetHeight !== undefined)
+    const malformed = controls.find(({ observation, source }) => observation.type === 'coordinate-pair' && (source?.x === undefined || source.y === undefined || source.height === undefined || observation.targetX === undefined || observation.targetY === undefined || observation.targetHeight === undefined))
+    if (malformed) findings.push(finding(network.id, 'invalid_observation', 'blocking', `三维控制对 ${malformed.observation.id} 缺少源/目标 X/Y/H`, '补齐完整三维同名控制点坐标', malformed.observation.sourceRow, nowIso))
+    if (!explicit && validControls.length < 3) findings.push(finding(network.id, 'missing_datum', 'blocking', '三维七参数估计至少需要三组完整 X/Y/H 控制点对', '提供三组以上非退化三维控制点，或完整七参数', undefined, nowIso))
+    if (!explicit && validControls.length >= 3 && !fitHelmert7(validControls.map(({ observation, source }) => ({ sourceX: source!.x!, sourceY: source!.y!, sourceZ: source!.height!, targetX: normalizeLengthUncertainty(observation.targetX!, observation.unit), targetY: normalizeLengthUncertainty(observation.targetY!, observation.unit), targetZ: normalizeLengthUncertainty(observation.targetHeight!, observation.unit), sigma: normalizeLengthUncertainty(observation.sigma ?? 1, observation.sigmaUnit ?? observation.unit) })))) findings.push(finding(network.id, 'rank_deficient', 'blocking', '三维控制点几何退化，七参数不可解', '增加空间分布良好的三维控制点', undefined, nowIso))
+    if (allPoints.some((point) => point.x === undefined || point.y === undefined || point.height === undefined)) findings.push(finding(network.id, 'missing_point', 'blocking', '三维七参数变换存在缺少 X/Y/H 的源点', '补齐全部待转换点的三维坐标', undefined, nowIso))
+  }
+  if (transformType === 'height-fit') {
+    const explicit = explicitHeightParameters(network)
+    if (!explicit && hasAnyParameter(network.instrumentParameters, ['heightOffset', 'offset', 'heightSlopeX', 'slopeX', 'heightSlopeY', 'slopeY'])) findings.push(finding(network.id, 'invalid_observation', 'blocking', '高程拟合参数只提供了一部分，不能以零值补齐', '完整提供高程常数项和 X/Y 坡度，或删除部分参数后由控制点估计', undefined, nowIso))
+    const validControls = controls.filter(({ observation, source }) => source?.x !== undefined && source.y !== undefined && source.height !== undefined && observation.targetHeight !== undefined)
+    const malformed = controls.find(({ observation, source }) => observation.type === 'coordinate-pair' && (source?.x === undefined || source.y === undefined || source.height === undefined || observation.targetHeight === undefined))
+    if (malformed) findings.push(finding(network.id, 'invalid_observation', 'blocking', `高程控制对 ${malformed.observation.id} 缺少平面位置或源/目标高程`, '补齐 X/Y、源高程和目标高程', malformed.observation.sourceRow, nowIso))
+    if (!explicit && validControls.length < 3) findings.push(finding(network.id, 'missing_datum', 'blocking', '高程拟合至少需要三组含平面位置的源/目标高程控制点', '提供三组以上不共线控制点，或完整平面改正参数', undefined, nowIso))
+    if (!explicit && validControls.length >= 3 && !fitHeightPlane(validControls.map(({ observation, source }) => ({ x: source!.x!, y: source!.y!, sourceHeight: source!.height!, targetHeight: normalizeLengthUncertainty(observation.targetHeight!, observation.unit), sigma: normalizeLengthUncertainty(observation.sigma ?? 1, observation.sigmaUnit ?? observation.unit) })))) findings.push(finding(network.id, 'rank_deficient', 'blocking', '高程控制点平面位置退化，拟合面不可解', '提供至少三个不共线的高程控制点', undefined, nowIso))
+    if (allPoints.some((point) => point.x === undefined || point.y === undefined || point.height === undefined)) findings.push(finding(network.id, 'missing_point', 'blocking', '高程拟合存在缺少 X/Y/H 的源点', '补齐全部待转换点的平面坐标和源高程', undefined, nowIso))
+  }
+  if (transformType === 'gauss-kruger-forward' || transformType === 'gauss-kruger-inverse') {
+    if (network.centralMeridian === undefined) findings.push(finding(network.id, 'missing_datum', 'blocking', '高斯—克吕格转换缺少中央子午线', '在网络元数据中明确 centralMeridian（十进制度）', undefined, nowIso))
+    if (!resolveEllipsoid(network.ellipsoid)) findings.push(finding(network.id, 'missing_datum', 'blocking', `不支持椭球 ${network.ellipsoid}`, '使用 CGCS2000、WGS84、Xian80 或 Beijing54 椭球', undefined, nowIso))
+    if (transformType === 'gauss-kruger-forward' && allPoints.some((point) => point.latitude === undefined || point.longitude === undefined)) findings.push(finding(network.id, 'missing_point', 'blocking', '高斯正算存在缺少纬度/经度的点', '为全部待转换点提供十进制度 latitude/longitude', undefined, nowIso))
+    if (transformType === 'gauss-kruger-inverse' && allPoints.some((point) => point.x === undefined || point.y === undefined)) findings.push(finding(network.id, 'missing_point', 'blocking', '高斯反算存在缺少平面 X/Y 的点', '为全部待转换点提供北坐标 X 和东坐标 Y', undefined, nowIso))
+  }
+  return mergeFindings(findings)
+}
+
+function buildCoordinateTransformResult(network: SurveyNetworkV1, run: AdjustmentRunV1, nowIso: () => string): AdjustmentResultV1 {
+  const transformType = resolveCoordinateTransformType(network, run)
+  const baseFindings = mergeFindings(network.findings.filter((item) => item.status === 'open'), coordinateTransformStrategyFindings(network, nowIso, run))
+  if (!transformType || baseFindings.some((item) => item.severity === 'blocking')) return invalidAdjustmentResult(network, run, baseFindings, nowIso)
+  const sourcePoints = [...network.knownPoints, ...network.unknownPoints].map((point) => canonicalTransformPoint(network, point))
+  const controls = transformControls(network)
+  if (transformType === 'similarity-2d') {
+    const fitControls = controls.filter(({ observation, source }) => source?.x !== undefined && source.y !== undefined && observation.targetX !== undefined && observation.targetY !== undefined).map(({ observation, source }) => ({ sourceX: source!.x!, sourceY: source!.y!, targetX: normalizeLengthUncertainty(observation.targetX!, observation.unit), targetY: normalizeLengthUncertainty(observation.targetY!, observation.unit), sigma: normalizeLengthUncertainty(observation.sigma ?? 1, observation.sigmaUnit ?? observation.unit) }))
+    const fitted = explicitSimilarityParameters(network) ? null : fitSimilarity2d(fitControls)
+    const parameters = explicitSimilarityParameters(network) ?? fitted!.parameters
+    const points = sourcePoints.map((point) => { const target = applySimilarity2d(point.x!, point.y!, parameters); return { id: point.id, x: target.x, y: target.y, ...(point.height === undefined ? {} : { height: point.height }), correctionX: target.x - point.x!, correctionY: target.y - point.y! } })
+    const observations = controls.filter(({ observation, source }) => source?.x !== undefined && source.y !== undefined && observation.targetX !== undefined && observation.targetY !== undefined).flatMap(({ observation, source }) => { const target = applySimilarity2d(source!.x!, source!.y!, parameters); const targetX = normalizeLengthUncertainty(observation.targetX!, observation.unit); const targetY = normalizeLengthUncertainty(observation.targetY!, observation.unit); const sigma = normalizeLengthUncertainty(observation.sigma ?? 1, observation.sigmaUnit ?? observation.unit); return [{ observationId: `${observation.id}:x`, correction: target.x - targetX, residual: target.x - targetX, unit: 'm' as const, standardizedResidual: Math.abs(target.x - targetX) / sigma, outlier: Math.abs(target.x - targetX) / sigma > 3, sourceRow: observation.sourceRow }, { observationId: `${observation.id}:y`, correction: target.y - targetY, residual: target.y - targetY, unit: 'm' as const, standardizedResidual: Math.abs(target.y - targetY) / sigma, outlier: Math.abs(target.y - targetY) / sigma > 3, sourceRow: observation.sourceRow }] })
+    const residualNorm = Math.sqrt(observations.reduce((sum, item) => sum + item.residual ** 2, 0)); const outliers = observations.filter((item) => item.outlier).map((item) => finding(network.id, 'outlier_candidate', 'warning', `二维相似控制分量 ${item.observationId} 超过 3σ`, '复核控制点同名关系和坐标单位', item.sourceRow, nowIso)); const displacements = sourcePoints.map((point) => displacement(point, points.find((item) => item.id === point.id)!))
+    return AdjustmentResultV1.parse({ schemaVersion: 1, id: `adjustment_result_${randomUUID()}`, runId: run.id, networkId: network.id, observationCount: observations.length, unknownCount: fitted ? 4 : 0, redundancy: fitted?.adjustment.dof ?? 0, degreesOfFreedom: fitted?.adjustment.dof ?? 0, linearUnit: 'm', angularUnit: 'rad', transformType, closure: { translationX: parameters.tx, translationY: parameters.ty, scalePpm: (parameters.scale - 1) * 1e6, rotationRad: parameters.rotation, horizontal: residualNorm }, closureUnits: { translationX: 'm', translationY: 'm', scalePpm: 'ppm', rotationRad: 'rad', horizontal: 'm' }, parameters: { translationX: parameters.tx, translationY: parameters.ty, scalePpm: (parameters.scale - 1) * 1e6, rotationRad: parameters.rotation }, parameterUnits: { translationX: 'm', translationY: 'm', scalePpm: 'ppm', rotationRad: 'rad' }, unitWeightStdDev: fitted?.adjustment.unitWeightStdDev ?? 0, varianceFactor: fitted?.adjustment.varianceFactor ?? 0, varianceFactorEstimated: fitted?.adjustment.varianceFactorEstimated ?? false, points, observations, displacements, covariance: fitted?.adjustment.covariance, precision: { maxPointStdDev: observations.length ? residualNorm / Math.sqrt(observations.length) : 0, passed: outliers.length === 0 }, qualityFindings: mergeFindings(baseFindings, outliers), inputHash: run.inputHash, algorithmVersion: ALGORITHM_VERSION, validation: outliers.length ? 'invalid' : 'valid', solverDiagnostics: { iterations: fitted ? 1 : 0, rank: fitted?.adjustment.rank ?? 0, conditionEstimate: fitted?.adjustment.conditionEstimate }, createdAt: nowIso() })
+  }
+  if (transformType === 'helmert-7') {
+    const fitControls = controls.filter(({ observation, source }) => source?.x !== undefined && source.y !== undefined && source.height !== undefined && observation.targetX !== undefined && observation.targetY !== undefined && observation.targetHeight !== undefined).map(({ observation, source }) => ({ sourceX: source!.x!, sourceY: source!.y!, sourceZ: source!.height!, targetX: normalizeLengthUncertainty(observation.targetX!, observation.unit), targetY: normalizeLengthUncertainty(observation.targetY!, observation.unit), targetZ: normalizeLengthUncertainty(observation.targetHeight!, observation.unit), sigma: normalizeLengthUncertainty(observation.sigma ?? 1, observation.sigmaUnit ?? observation.unit) }))
+    const fitted = explicitHelmertParameters(network) ? null : fitHelmert7(fitControls)
+    const parameters = explicitHelmertParameters(network) ?? fitted!.parameters
+    const points = sourcePoints.map((point) => { const target = applyHelmert7(point.x!, point.y!, point.height!, parameters); return { id: point.id, x: target.x, y: target.y, height: target.z, correctionX: target.x - point.x!, correctionY: target.y - point.y!, correctionHeight: target.z - point.height! } })
+    const observations = controls.filter(({ observation, source }) => source?.x !== undefined && source.y !== undefined && source.height !== undefined && observation.targetX !== undefined && observation.targetY !== undefined && observation.targetHeight !== undefined).flatMap(({ observation, source }) => { const target = applyHelmert7(source!.x!, source!.y!, source!.height!, parameters); const sigma = normalizeLengthUncertainty(observation.sigma ?? 1, observation.sigmaUnit ?? observation.unit); const residuals = [target.x - normalizeLengthUncertainty(observation.targetX!, observation.unit), target.y - normalizeLengthUncertainty(observation.targetY!, observation.unit), target.z - normalizeLengthUncertainty(observation.targetHeight!, observation.unit)]; return residuals.map((residual, component) => ({ observationId: `${observation.id}:${component === 0 ? 'x' : component === 1 ? 'y' : 'z'}`, correction: residual, residual, unit: 'm' as const, standardizedResidual: Math.abs(residual) / sigma, outlier: Math.abs(residual) / sigma > 3, sourceRow: observation.sourceRow })) })
+    const residualNorm = Math.sqrt(observations.reduce((sum, item) => sum + item.residual ** 2, 0)); const outliers = observations.filter((item) => item.outlier).map((item) => finding(network.id, 'outlier_candidate', 'warning', `七参数控制分量 ${item.observationId} 超过 3σ`, '复核三维控制点、轴序和旋转约定', item.sourceRow, nowIso)); const displacements = sourcePoints.map((point) => displacement(point, points.find((item) => item.id === point.id)!))
+    const parameterValues = { translationX: parameters.tx, translationY: parameters.ty, translationZ: parameters.tz, scalePpm: (parameters.scale - 1) * 1e6, rotationX: parameters.rx, rotationY: parameters.ry, rotationZ: parameters.rz }
+    return AdjustmentResultV1.parse({ schemaVersion: 1, id: `adjustment_result_${randomUUID()}`, runId: run.id, networkId: network.id, observationCount: observations.length, unknownCount: fitted ? 7 : 0, redundancy: fitted?.adjustment.dof ?? 0, degreesOfFreedom: fitted?.adjustment.dof ?? 0, linearUnit: 'm', angularUnit: 'rad', transformType, closure: { translationX: parameters.tx, translationY: parameters.ty, vertical: parameters.tz, scalePpm: (parameters.scale - 1) * 1e6, rotationRad: Math.hypot(parameters.rx, parameters.ry, parameters.rz), horizontal: residualNorm }, closureUnits: { translationX: 'm', translationY: 'm', vertical: 'm', scalePpm: 'ppm', rotationRad: 'rad', horizontal: 'm' }, parameters: parameterValues, parameterUnits: { translationX: 'm', translationY: 'm', translationZ: 'm', scalePpm: 'ppm', rotationX: 'rad', rotationY: 'rad', rotationZ: 'rad' }, unitWeightStdDev: fitted?.adjustment.unitWeightStdDev ?? 0, varianceFactor: fitted?.adjustment.varianceFactor ?? 0, varianceFactorEstimated: fitted?.adjustment.varianceFactorEstimated ?? false, points, observations, displacements, covariance: fitted?.adjustment.covariance, precision: { maxPointStdDev: observations.length ? residualNorm / Math.sqrt(observations.length) : 0, passed: outliers.length === 0 }, qualityFindings: mergeFindings(baseFindings, outliers), inputHash: run.inputHash, algorithmVersion: ALGORITHM_VERSION, validation: outliers.length ? 'invalid' : 'valid', solverDiagnostics: { iterations: fitted ? 1 : 0, rank: fitted?.adjustment.rank ?? 0, conditionEstimate: fitted?.adjustment.conditionEstimate }, createdAt: nowIso() })
+  }
+  if (transformType === 'height-fit') {
+    const fitControls = controls.filter(({ observation, source }) => source?.x !== undefined && source.y !== undefined && source.height !== undefined && observation.targetHeight !== undefined).map(({ observation, source }) => ({ x: source!.x!, y: source!.y!, sourceHeight: source!.height!, targetHeight: normalizeLengthUncertainty(observation.targetHeight!, observation.unit), sigma: normalizeLengthUncertainty(observation.sigma ?? 1, observation.sigmaUnit ?? observation.unit) }))
+    const fitted = explicitHeightParameters(network) ? null : fitHeightPlane(fitControls)
+    const parameters = explicitHeightParameters(network) ?? fitted!.parameters
+    const points = sourcePoints.map((point) => { const height = applyHeightPlane(point.x!, point.y!, point.height!, parameters); return { id: point.id, x: point.x, y: point.y, height, correctionHeight: height - point.height! } })
+    const observations = controls.filter(({ observation, source }) => source?.x !== undefined && source.y !== undefined && source.height !== undefined && observation.targetHeight !== undefined).map(({ observation, source }) => { const height = applyHeightPlane(source!.x!, source!.y!, source!.height!, parameters); const residual = height - normalizeLengthUncertainty(observation.targetHeight!, observation.unit); const sigma = normalizeLengthUncertainty(observation.sigma ?? 1, observation.sigmaUnit ?? observation.unit); return { observationId: `${observation.id}:h`, correction: residual, residual, unit: 'm' as const, standardizedResidual: Math.abs(residual) / sigma, outlier: Math.abs(residual) / sigma > 3, sourceRow: observation.sourceRow } })
+    const residualNorm = Math.sqrt(observations.reduce((sum, item) => sum + item.residual ** 2, 0)); const outliers = observations.filter((item) => item.outlier).map((item) => finding(network.id, 'outlier_candidate', 'warning', `高程控制点 ${item.observationId} 超过 3σ`, '复核高程基准、控制点和单位', item.sourceRow, nowIso)); const displacements = sourcePoints.map((point) => displacement(point, points.find((item) => item.id === point.id)!))
+    return AdjustmentResultV1.parse({ schemaVersion: 1, id: `adjustment_result_${randomUUID()}`, runId: run.id, networkId: network.id, observationCount: observations.length, unknownCount: fitted ? 3 : 0, redundancy: fitted?.adjustment.dof ?? 0, degreesOfFreedom: fitted?.adjustment.dof ?? 0, linearUnit: 'm', angularUnit: 'rad', transformType, closure: { vertical: residualNorm }, closureUnits: { vertical: 'm' }, parameters: { heightOffset: parameters.offset, heightSlopeX: parameters.slopeX, heightSlopeY: parameters.slopeY }, parameterUnits: { heightOffset: 'm', heightSlopeX: 'ratio', heightSlopeY: 'ratio' }, unitWeightStdDev: fitted?.adjustment.unitWeightStdDev ?? 0, varianceFactor: fitted?.adjustment.varianceFactor ?? 0, varianceFactorEstimated: fitted?.adjustment.varianceFactorEstimated ?? false, points, observations, displacements, covariance: fitted?.adjustment.covariance, precision: { maxPointStdDev: observations.length ? residualNorm / Math.sqrt(observations.length) : 0, passed: outliers.length === 0 }, qualityFindings: mergeFindings(baseFindings, outliers), inputHash: run.inputHash, algorithmVersion: ALGORITHM_VERSION, validation: outliers.length ? 'invalid' : 'valid', solverDiagnostics: { iterations: fitted ? 1 : 0, rank: fitted?.adjustment.rank ?? 0, conditionEstimate: fitted?.adjustment.conditionEstimate }, createdAt: nowIso() })
+  }
+  const ellipsoid = resolveEllipsoid(network.ellipsoid)!
+  const centralMeridian = network.centralMeridian!
+  const hasFalseEasting = network.instrumentParameters.falseEasting !== 0
+  const hasZonePrefix = network.instrumentParameters.zonePrefix === 1
+  const zone = Math.round(centralMeridian / 3)
+  const points = sourcePoints.map((point) => {
+    if (transformType === 'gauss-kruger-forward') {
+      const projected = gaussKrugerForward(point.latitude!, point.longitude!, centralMeridian, ellipsoid)
+      const y = projected.y + (hasFalseEasting ? 500_000 : 0) + (hasZonePrefix ? zone * 1_000_000 : 0)
+      return { id: point.id, x: projected.x, y, ...(point.height === undefined ? {} : { height: point.height }), latitude: point.latitude, longitude: point.longitude }
+    }
+    let y = point.y!
+    if (hasZonePrefix) y %= 1_000_000
+    if (hasFalseEasting) y -= 500_000
+    const geodetic = gaussKrugerInverse(point.x!, y, centralMeridian, ellipsoid)
+    return { id: point.id, x: point.x, y: point.y, ...(point.height === undefined ? {} : { height: point.height }), latitude: geodetic.latitude, longitude: geodetic.longitude }
   })
-  const observations = network.observations.map((observation) => ({ observationId: observation.id, correction: 0, residual: 0, unit: normalizedResidualUnit(observation), standardizedResidual: 0, outlier: false, sourceRow: observation.sourceRow }))
-  return AdjustmentResultV1.parse({ schemaVersion: 1, id: `adjustment_result_${randomUUID()}`, runId: run.id, networkId: network.id, observationCount: network.observations.length, unknownCount: network.unknownPoints.length * 2, redundancy: 0, degreesOfFreedom: 0, linearUnit: 'm', angularUnit: 'rad', closure: { translationX: resolvedTx, translationY: resolvedTy, scalePpm: (scale - 1) * 1e6, rotationRad: rz }, closureUnits: { translationX: 'm', translationY: 'm', scalePpm: 'ppm', rotationRad: 'rad' }, unitWeightStdDev: 0, varianceFactor: 0, varianceFactorEstimated: false, points, observations, displacements, precision: { maxPointStdDev: 0, passed: true }, qualityFindings: network.findings.filter((item) => item.status === 'open'), inputHash: run.inputHash, algorithmVersion: ALGORITHM_VERSION, validation: 'valid', solverDiagnostics: { iterations: hasExplicitParameter ? 0 : 1, rank: hasExplicitParameter ? undefined : 4 }, createdAt: nowIso() })
+  return AdjustmentResultV1.parse({ schemaVersion: 1, id: `adjustment_result_${randomUUID()}`, runId: run.id, networkId: network.id, observationCount: sourcePoints.length * 2, unknownCount: 0, redundancy: 0, degreesOfFreedom: 0, linearUnit: 'm', angularUnit: 'rad', transformType, closure: {}, closureUnits: {}, parameters: { centralMeridianRad: centralMeridian * Math.PI / 180, falseEasting: hasFalseEasting ? 500_000 : 0, zonePrefix: hasZonePrefix ? zone : 0 }, parameterUnits: { centralMeridianRad: 'rad', falseEasting: 'm', zonePrefix: 'ratio' }, unitWeightStdDev: 0, varianceFactor: 0, varianceFactorEstimated: false, points, observations: [], displacements: [], precision: { maxPointStdDev: 0, passed: true }, qualityFindings: baseFindings, inputHash: run.inputHash, algorithmVersion: ALGORITHM_VERSION, validation: 'valid', solverDiagnostics: { iterations: transformType === 'gauss-kruger-inverse' ? 12 : 0, rank: 0 }, createdAt: nowIso() })
 }
 
 export class SurveyRevisionConflictError extends Error { readonly code = 'survey_stale_request' }
@@ -1018,9 +1177,9 @@ export class SurveyService {
     if (req.network) {
       const { heightDatum: legacyHeightDatum, ...networkWithoutLegacyDatum } = req.network as SurveyNetworkV1 & { heightDatum?: string }
       const requestedVerticalDatum = req.network.verticalDatum && req.network.verticalDatum !== '待确认' ? req.network.verticalDatum : legacyHeightDatum
-      network = SurveyNetworkV1.parse({ ...networkWithoutLegacyDatum, schemaVersion: 1, id: req.network.id ?? `network_${randomUUID()}`, projectId: req.projectId, networkType: req.network.networkType ?? req.networkType ?? 'leveling', coordinateSystem: req.network.coordinateSystem ?? '待确认', projection: req.network.projection ?? '待确认', ellipsoid: req.network.ellipsoid ?? '待确认', verticalDatum: requestedVerticalDatum ?? '待确认', unit: req.network.unit ?? 'm', knownPoints: req.network.knownPoints ?? [], unknownPoints: req.network.unknownPoints ?? [], observations: req.network.observations ?? [], instrumentParameters: req.network.instrumentParameters ?? {}, qualityStatus: 'imported', findings: [], revision: 1, createdAt: this.nowIso(), updatedAt: this.nowIso(), inputAttachmentHash: req.inputAttachmentHash ?? req.network.inputAttachmentHash })
+      network = SurveyNetworkV1.parse({ ...networkWithoutLegacyDatum, schemaVersion: 1, id: req.network.id ?? `network_${randomUUID()}`, projectId: req.projectId, networkType: req.network.networkType ?? req.networkType ?? 'leveling', transformType: req.network.transformType ?? req.transformType, coordinateSystem: req.network.coordinateSystem ?? '待确认', projection: req.network.projection ?? '待确认', ellipsoid: req.network.ellipsoid ?? '待确认', verticalDatum: requestedVerticalDatum ?? '待确认', unit: req.network.unit ?? 'm', knownPoints: req.network.knownPoints ?? [], unknownPoints: req.network.unknownPoints ?? [], observations: req.network.observations ?? [], instrumentParameters: req.network.instrumentParameters ?? {}, qualityStatus: 'imported', findings: [], revision: 1, createdAt: this.nowIso(), updatedAt: this.nowIso(), inputAttachmentHash: req.inputAttachmentHash ?? req.network.inputAttachmentHash })
     }
-    else network = await parseNetworkPayload(req.name ?? 'survey.json', Buffer.from(req.dataBase64!, 'base64'), req.projectId, this.nowIso, req.networkType, req.inputAttachmentHash)
+    else network = await parseNetworkPayload(req.name ?? 'survey.json', Buffer.from(req.dataBase64!, 'base64'), req.projectId, this.nowIso, req.networkType, req.transformType, req.inputAttachmentHash)
     if (network.knownPoints.length + network.unknownPoints.length > MAX_POINTS || network.observations.length > MAX_OBSERVATIONS) throw new Error(`survey network exceeds limits (${MAX_POINTS} points, ${MAX_OBSERVATIONS} observations)`)
     const parsed = SurveyNetworkV1.parse(network)
     this.db.prepare('INSERT INTO survey_networks(id, project_id, revision, data_json, updated_at) VALUES (?, ?, ?, ?, ?)').run(parsed.id, parsed.projectId, parsed.revision, JSON.stringify(parsed), parsed.updatedAt)
@@ -1045,26 +1204,29 @@ export class SurveyService {
       if (!angular && network.unit && unit !== network.unit.trim().toLowerCase() && !(network.unit === 'm' && ['meter', 'meters'].includes(unit))) {
         findings.push(finding(network.id, 'unit_conflict', 'warning', `观测 ${observation.id} 的单位 ${observation.unit} 与网络单位 ${network.unit} 不一致`, '确认单位并在导入前统一，换算不会静默丢失', observation.sourceRow, this.nowIso))
       }
-      if (['plane-control', 'traverse', 'triangulation', 'cpiii-free-station', 'cpiii-resection', 'coordinate-transform'].includes(network.networkType)) {
+      if (['plane-control', 'traverse', 'triangulation', 'cpiii-free-station', 'cpiii-resection'].includes(network.networkType)) {
         for (const id of observationEndpointIds(observation)) {
           const point = points.get(id)
           if (point && (point.x === undefined || point.y === undefined)) findings.push(finding(network.id, 'missing_point', 'blocking', `平面观测 ${observation.id} 的点 ${id} 缺少平面坐标`, '补充 X/Y 初始坐标后重新导入', observation.sourceRow, this.nowIso))
         }
       }
     }
-    if (!network.observations.length) findings.push(finding(network.id, 'invalid_observation', 'blocking', '网络没有观测记录', '导入至少一条有效观测'))
+    if (!network.observations.length && network.networkType !== 'coordinate-transform') findings.push(finding(network.id, 'invalid_observation', 'blocking', '网络没有观测记录', '导入至少一条有效观测'))
     if (network.networkType === 'leveling' || network.networkType === 'height-control') findings.push(...levelingStrategyFindings(network, this.nowIso))
     if (network.networkType === 'traverse') findings.push(...traverseStrategyFindings(network, this.nowIso))
     if (network.networkType === 'plane-control') findings.push(...planeControlStrategyFindings(network, this.nowIso))
     if (network.networkType === 'triangulation') findings.push(...triangulationStrategyFindings(network, this.nowIso))
     if (network.networkType === 'cpiii-free-station' || network.networkType === 'cpiii-resection') findings.push(...cpiiiStrategyFindings(network, this.nowIso))
     if (network.networkType === 'gnss') findings.push(...gnssStrategyFindings(network, this.nowIso))
-    if (network.knownPoints.length === 0 && network.unknownPoints.length > 0) findings.push(finding(network.id, 'missing_datum', 'blocking', '网络没有已知约束点', '提供已知点或明确自由网约束'))
-    const adjacency = new Map<string, Set<string>>(); for (const id of points.keys()) adjacency.set(id, new Set())
-    for (const observation of network.observations) { const ids = observationEndpointIds(observation); for (const a of ids) for (const b of ids) if (a !== b) adjacency.get(a)?.add(b) }
-    const roots = [...network.knownPoints].map((point) => point.id); const seen = new Set<string>(roots); const queue = [...roots]
-    while (queue.length) for (const next of adjacency.get(queue.shift()!) ?? []) if (!seen.has(next)) { seen.add(next); queue.push(next) }
-    if (network.unknownPoints.some((point) => !seen.has(point.id))) findings.push(finding(network.id, 'disconnected_network', 'blocking', '存在与已知点不连通的网段', '检查点号、观测方向和缺失边'))
+    if (network.networkType === 'coordinate-transform') findings.push(...coordinateTransformStrategyFindings(network, this.nowIso))
+    if (network.networkType !== 'coordinate-transform') {
+      if (network.knownPoints.length === 0 && network.unknownPoints.length > 0) findings.push(finding(network.id, 'missing_datum', 'blocking', '网络没有已知约束点', '提供已知点或明确自由网约束'))
+      const adjacency = new Map<string, Set<string>>(); for (const id of points.keys()) adjacency.set(id, new Set())
+      for (const observation of network.observations) { const ids = observationEndpointIds(observation); for (const a of ids) for (const b of ids) if (a !== b) adjacency.get(a)?.add(b) }
+      const roots = [...network.knownPoints].map((point) => point.id); const seen = new Set<string>(roots); const queue = [...roots]
+      while (queue.length) for (const next of adjacency.get(queue.shift()!) ?? []) if (!seen.has(next)) { seen.add(next); queue.push(next) }
+      if (network.unknownPoints.some((point) => !seen.has(point.id))) findings.push(finding(network.id, 'disconnected_network', 'blocking', '存在与已知点不连通的网段', '检查点号、观测方向和缺失边'))
+    }
     const tolerance = network.instrumentParameters.closureTolerance
     if (typeof tolerance === 'number' && Number.isFinite(tolerance) && tolerance >= 0) {
       if (network.networkType === 'leveling' || network.networkType === 'height-control') {
@@ -1088,7 +1250,9 @@ export class SurveyService {
     }
     const project = this.options.getProject?.(network.projectId)
     const inputHash = createHash('sha256').update(JSON.stringify(network)).digest('hex')
-    const run = AdjustmentRunV1.parse({ schemaVersion: 1, id: `adjustment_${randomUUID()}`, projectId: network.projectId, networkId: network.id, method: req.method ?? (network.networkType === 'coordinate-transform' ? 'helmert-seven-parameter' : 'weighted-least-squares'), constraint: req.constraint ?? 'fixed-known-points', algorithmVersion: ALGORITHM_VERSION, inputHash, status: 'running', revision: 1, idempotencyKey: req.idempotencyKey, createdAt: this.nowIso(), updatedAt: this.nowIso() })
+    const transformType = network.networkType === 'coordinate-transform' ? resolveCoordinateTransformType(network) : null
+    const defaultMethod = transformType === 'helmert-7' ? 'helmert-seven-parameter' : transformType === 'height-fit' ? 'height-fit' : 'weighted-least-squares'
+    const run = AdjustmentRunV1.parse({ schemaVersion: 1, id: `adjustment_${randomUUID()}`, projectId: network.projectId, networkId: network.id, method: req.method ?? defaultMethod, constraint: req.constraint ?? 'fixed-known-points', algorithmVersion: ALGORITHM_VERSION, inputHash, status: 'running', revision: 1, idempotencyKey: req.idempotencyKey, createdAt: this.nowIso(), updatedAt: this.nowIso() })
     let result: AdjustmentResultV1
     try {
       const dimensionIssue = adjustmentDimensionIssue(network)

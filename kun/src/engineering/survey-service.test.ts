@@ -275,4 +275,24 @@ describe('SurveyService', () => {
     expect(output.result.solverDiagnostics?.rank).toBe(4)
     service.close()
   })
+
+  it('imports and fits a 2-D similarity transformation from CSV control pairs', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'workwise-survey-transform-csv-'))
+    const service = new SurveyService({ rootDir: root })
+    const csv = [
+      'id,type,sourceX,sourceY,targetX,targetY,unit,sigma',
+      'A,coordinate-pair,0,0,5,7,m,0.001',
+      'B,coordinate-pair,100,0,105,7,m,0.001',
+      'C,coordinate-pair,0,100,5,107,m,0.001'
+    ].join('\n')
+    const network = await service.importNetwork({ projectId: 'project-transform-csv', expectedRevision: 0, idempotencyKey: 'survey-import-transform-csv', networkType: 'coordinate-transform', transformType: 'similarity-2d', name: 'control-pairs.csv', dataBase64: Buffer.from(csv).toString('base64') })
+    expect(network.transformType).toBe('similarity-2d')
+    expect(network.knownPoints).toEqual(expect.arrayContaining([expect.objectContaining({ id: 'A', x: 0, y: 0 }), expect.objectContaining({ id: 'B', x: 100, y: 0 })]))
+    const checked = service.validateNetwork(network.id, { expectedRevision: network.revision, idempotencyKey: 'survey-validate-transform-csv' })
+    const output = service.createAdjustment({ networkId: network.id, expectedRevision: checked.revision, idempotencyKey: 'survey-adjust-transform-csv' })
+    expect(checked.qualityStatus).toBe('validated')
+    expect(output.result.transformType).toBe('similarity-2d')
+    expect(output.result.parameters).toMatchObject({ translationX: expect.closeTo(5, 8), translationY: expect.closeTo(7, 8), scalePpm: expect.closeTo(0, 8), rotationRad: expect.closeTo(0, 8) })
+    service.close()
+  })
 })

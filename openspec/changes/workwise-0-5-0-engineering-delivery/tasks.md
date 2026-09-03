@@ -30,7 +30,7 @@
 - [x] Implement and verify independent iterative plane-control and angle-network triangulation strategies; reject distance-only triangulation and malformed angle geometry.
 - [x] Implement and verify CPIII free-station/resection with fixed-target geometry, station orientation parameters, slope/zenith processing and height evidence.
 - [x] Implement and verify GNSS vector-baseline/covariance/fixed-datum adjustment, with stable blockers for incomplete scalar or covariance-free data.
-- [ ] Implement and verify coordinate transformation strategies for 2-D similarity, 3-D seven-parameter estimation/application, Gauss-Kruger conversion and height fitting without identity fallback.
+- [x] Implement and verify coordinate transformation strategies for 2-D similarity, 3-D seven-parameter estimation/application, Gauss-Kruger conversion and height fitting without identity fallback.
 - [ ] Implement deformation epoch comparison for dX/dY/dH, settlement, horizontal displacement, tilt, convergence, rate and trend from immutable deterministic results.
 - [ ] Replace generic multi-network fixtures with independent golden and negative fixtures for every supported strategy and record the approved reference calculation/source.
 
