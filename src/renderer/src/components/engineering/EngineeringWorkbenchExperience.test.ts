@@ -35,6 +35,8 @@ describe('engineering workbench experience contract', () => {
     expect(source).toContain('AI 会识别测量类型、绑定资料边界')
     expect(source).not.toContain('Start your agent rhythm')
     expect(source).not.toContain('WorkWise Runtime usage')
+    expect(source).toContain('timelineHasActivity')
+    expect(source).toContain('工程 Agent 已就绪')
   })
 
   it('keeps survey work in professional point, observation, topology, and result views', async () => {
@@ -49,5 +51,8 @@ describe('engineering workbench experience contract', () => {
     expect(source).toContain('残差与粗差候选')
     expect(source).toContain('运行加权最小二乘')
     expect(source).toContain('高级 JSON')
+    expect(source).toContain('让工程 Agent 解读')
+    expect(source).toContain('lg:grid-cols-[190px_minmax(0,1fr)] 2xl:grid-cols-[190px_minmax(0,1fr)_260px]')
+    expect(source).toContain('grid gap-3 2xl:grid-cols-[minmax(0,1fr)_260px]')
   })
 })
