@@ -130,13 +130,17 @@ export function engineeringCapabilities(service: SurveyService | undefined): Jso
 
 export function skillsCatalog(): JsonResponse {
   const sourceRepository = 'wangjiawei508/WorkWise'
-  const commit = 'pinned-agent-pack-1.2.34'
+  // The catalog is deliberately conservative until each asset has a real
+  // license, hash and permission audit recorded.  A review entry must never
+  // look installable in the UI or in an API response.
+  const commit = 'audit-pending'
+  const pendingReason = '等待固定提交、文件哈希、许可证和脚本权限审查；当前仅展示来源卡片，不进入安装包'
   const skillNames: Array<[string, string]> = [
     ['adjustment-report', '平差成果编制'], ['approval-flow-intelligence', '审批流程智能'], ['bidding-knowledge', '招投标知识'], ['bun-file-io', '工程文件操作'], ['business-finance', '经营财务'], ['business-operations-analytics', '经营数据分析'], ['cad-bim-review', 'CAD/BIM 复核'], ['canvas-design', '工程图表设计'], ['construction-monitoring', '建设期第三方监测'], ['customer-portal-brief', '客户门户简报'], ['data-analysis', '测量数据分析'], ['di-bao-monitoring', '地保监测'], ['docx-generation', 'DOCX 成果生成'], ['excel-operations', 'Excel 成果'], ['frontend-design', '工程前端设计'], ['humanizer', '工程文档润色'], ['monitoring-design', '监测方案设计'], ['operational-monitoring', '运营期监测'], ['ops-monitoring', '运营监测分析'], ['railwise-knowledge-curation', 'RailWise 知识整理'], ['report-dibao', '地保报告'], ['report-writing', '工程报告编制'], ['resource-dispatch-intelligence', '资源调度智能'], ['standard-reference', '规范条文速查'], ['weekly-work-intelligence', '周报与运行情报']
   ]
-  const entries: SkillProvenanceV1[] = skillNames.map(([id, name]) => ({ id, name, sourceRepository, commit, license: 'repository-audit-required', fileHashes: {}, scripts: [], networkAccess: 'none', credentialAccess: 'none', packaged: true, status: 'review' }))
-  entries.push({ id: 'survey-adjustment', name: '工程测量与平差（能力别名）', sourceRepository, commit, license: 'repository-audit-required', fileHashes: {}, scripts: [], networkAccess: 'none', credentialAccess: 'none', packaged: true, status: 'review' })
-  entries.push({ id: 'third-party-monitoring', name: '第三方监测（能力别名）', sourceRepository, commit, license: 'repository-audit-required', fileHashes: {}, scripts: [], networkAccess: 'none', credentialAccess: 'none', packaged: true, status: 'review' })
+  const entries: SkillProvenanceV1[] = skillNames.map(([id, name]) => ({ id, name, sourceRepository, commit, license: 'repository-audit-required', fileHashes: {}, scripts: [], networkAccess: 'none', credentialAccess: 'none', packaged: false, status: 'blocked', reason: pendingReason }))
+  entries.push({ id: 'survey-adjustment', name: '工程测量与平差（能力别名）', sourceRepository, commit, license: 'repository-audit-required', fileHashes: {}, scripts: [], networkAccess: 'none', credentialAccess: 'none', packaged: false, status: 'blocked', reason: pendingReason })
+  entries.push({ id: 'third-party-monitoring', name: '第三方监测（能力别名）', sourceRepository, commit, license: 'repository-audit-required', fileHashes: {}, scripts: [], networkAccess: 'none', credentialAccess: 'none', packaged: false, status: 'blocked', reason: pendingReason })
   return jsonResponse({ schemaVersion: 1, sourceRepository, commit, skills: entries })
 }
 

@@ -223,7 +223,7 @@ export function EngineeringAiCommandCenter({ workspaceRoot, runtimeReady, projec
       <header className="engineering-agent-header shrink-0 border-b border-ds-border-muted bg-ds-card px-4 py-4 sm:px-5">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="flex min-w-0 items-start gap-3">
-            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-accent text-white shadow-sm"><Bot className="h-5 w-5" strokeWidth={1.8} /></span>
+            <span className="engineering-agent-mark flex h-10 w-10 shrink-0 items-center justify-center border border-accent/40 bg-transparent text-accent"><Bot className="h-5 w-5" strokeWidth={1.8} /></span>
             <div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-accent">WorkWise Runtime</p><span className="inline-flex items-center gap-1 rounded-full border border-accent/20 bg-accent/5 px-2 py-0.5 text-[10px] font-medium text-accent"><Sparkles className="h-3 w-3" />工程 Agent</span></div><h1 className="mt-1 text-[21px] font-semibold tracking-tight">工程 AI 指挥台</h1><p className="mt-1 max-w-3xl text-[12.5px] leading-5 text-ds-muted">把工程目标交给 AI，结果留在证据链里。AI 负责理解任务、拆解计划和解释结果；导入、平差、阈值、图表与成果由同一个 Runtime 的确定性工具完成。</p></div>
           </div>
           <div className="flex shrink-0 items-center gap-2"><span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-medium ${connected ? 'bg-green-100 text-green-800 dark:bg-green-500/15 dark:text-green-300' : 'bg-amber-100 text-amber-800 dark:bg-amber-500/15 dark:text-amber-200'}`}><span className={`h-1.5 w-1.5 rounded-full ${connected ? 'bg-green-600' : 'bg-amber-500'}`} />{connected ? 'Runtime 在线' : 'Runtime 等待连接'}</span>{project ? <span className="max-w-[200px] truncate border-l border-ds-border-muted pl-2.5 text-[11px] text-ds-muted">{project.name}</span> : null}</div>
@@ -238,6 +238,20 @@ export function EngineeringAiCommandCenter({ workspaceRoot, runtimeReady, projec
         <div className="bg-ds-card px-3.5 py-2.5"><p className="engineering-eyebrow">Agent 正在做</p><p className="mt-1 truncate text-[11.5px] font-medium text-ds-ink">{activeCapability}</p><p className="mt-0.5 text-[10px] text-ds-faint">自然语言 → Typed Plan → 工具</p></div>
         <div className="bg-ds-card px-3.5 py-2.5"><p className="engineering-eyebrow">运行门禁</p><p className={`mt-1 inline-flex items-center gap-1.5 text-[11.5px] font-semibold ${blockingCount ? 'text-red-700 dark:text-red-300' : controlState === '需要处理' ? 'text-amber-700 dark:text-amber-300' : 'text-ds-ink'}`}><Gauge className="h-3.5 w-3.5" />{controlState}</p><p className="mt-0.5 text-[10px] text-ds-faint">{blockingCount ? `${blockingCount} 个阻断项需人工处理` : '数值由确定性 Runtime 生成'}</p></div>
         <button type="button" onClick={nextAction.onClick} disabled={!runtimeReady} className="engineering-command-action inline-flex min-h-[68px] items-center justify-center gap-1.5 bg-accent px-3.5 text-[11px] font-semibold text-white hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-50">{nextAction.label}<ArrowRight className="h-3.5 w-3.5" /></button>
+      </section>
+
+      <section className="engineering-agent-runbook shrink-0 border-b border-ds-border-muted px-4 py-3 sm:px-6" aria-label="工程 Agent 执行协议">
+        <div className="mx-auto flex max-w-[1440px] flex-wrap items-center gap-x-5 gap-y-2 text-[11px]">
+          <span className="font-semibold text-ds-ink">Agent 执行协议</span>
+          <span className="inline-flex items-center gap-1.5 text-ds-muted"><span className="font-mono text-[10px] text-accent">01</span>理解工程目标</span>
+          <ArrowRight className="h-3 w-3 text-ds-faint" aria-hidden="true" />
+          <span className="inline-flex items-center gap-1.5 text-ds-muted"><span className="font-mono text-[10px] text-accent">02</span>生成可审批计划</span>
+          <ArrowRight className="h-3 w-3 text-ds-faint" aria-hidden="true" />
+          <span className="inline-flex items-center gap-1.5 text-ds-muted"><span className="font-mono text-[10px] text-accent">03</span>调用确定性工具</span>
+          <ArrowRight className="h-3 w-3 text-ds-faint" aria-hidden="true" />
+          <span className="inline-flex items-center gap-1.5 text-ds-muted"><span className="font-mono text-[10px] text-accent">04</span>回流证据并请求复核</span>
+          <span className="ml-auto text-[10px] text-ds-faint">AI 不代替测量软件，不猜测缺失资料</span>
+        </div>
       </section>
 
       <div className="engineering-agent-grid grid min-h-0 flex-1 gap-3 p-3 sm:p-4 xl:grid-cols-[216px_minmax(0,1fr)_284px]">
