@@ -58,6 +58,12 @@ export const SurveyObservationV1 = z.object({
   right: z.string().min(1).optional(),
   value: z.number().finite(),
   unit: z.string().min(1).default('m'),
+  /** GNSS baseline components in `unit`. `value` remains required as the
+   * legacy scalar field so older stored observations stay readable, but a
+   * GNSS adjustment requires all three vector components. */
+  vectorX: z.number().finite().optional(),
+  vectorY: z.number().finite().optional(),
+  vectorZ: z.number().finite().optional(),
   /** Optional target coordinates used when fitting a coordinate transform. */
   targetX: z.number().finite().optional(),
   targetY: z.number().finite().optional(),
@@ -69,6 +75,10 @@ export const SurveyObservationV1 = z.object({
   /** Unit of sigma. Length observations default to the observation unit;
    * angular observations default to arc-seconds for legacy compatibility. */
   sigmaUnit: z.string().min(1).optional(),
+  /** Observation covariance in row-major order and observation-unit squared.
+   * GNSS baselines require a complete symmetric positive-definite 3 x 3
+   * matrix; the loose array shape preserves legacy records so the strategy
+   * can return a stable quality finding instead of failing schema parsing. */
   covariance: z.array(z.number().finite()).optional(),
   routeLength: z.number().positive().optional(),
   face: z.enum(['left', 'right', 'single']).optional(),

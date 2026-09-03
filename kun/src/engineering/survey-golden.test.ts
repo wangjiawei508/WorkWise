@@ -370,6 +370,123 @@ describe('survey adjustment golden fixtures', () => {
     service.close()
   })
 
+  it('adjusts correlated GNSS vector baselines against a fixed 3-D datum', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'workwise-gnss-fixture-'))
+    const service = new SurveyService({ rootDir: root })
+    const covariance = [4e-6, 1e-6, 0.2e-6, 1e-6, 9e-6, 0.3e-6, 0.2e-6, 0.3e-6, 4e-6]
+    const network = await service.importNetwork({
+      projectId: 'gnss-fixture', expectedRevision: 0, idempotencyKey: 'gnss-fixture-import', networkType: 'gnss', network: {
+        knownPoints: [
+          { id: 'A', pointClass: 'known', x: 0, y: 0, height: 10, known: true },
+          { id: 'B', pointClass: 'known', x: 100, y: 0, height: 20, known: true }
+        ],
+        unknownPoints: [{ id: 'P', pointClass: 'unknown', x: 9.9, y: 19.9, height: 29.9, known: false }],
+        observations: [
+          { id: 'A-P', type: 'gnss-baseline', from: 'A', to: 'P', value: 0, vectorX: 10.001, vectorY: 20, vectorZ: 20, unit: 'm', covariance },
+          { id: 'B-P', type: 'gnss-baseline', from: 'B', to: 'P', value: 0, vectorX: -90, vectorY: 20.002, vectorZ: 10, unit: 'm', covariance }
+        ]
+      }
+    })
+    const checked = service.validateNetwork(network.id, { expectedRevision: network.revision, idempotencyKey: 'gnss-fixture-validate' })
+    const output = service.createAdjustment({ networkId: network.id, expectedRevision: checked.revision, idempotencyKey: 'gnss-fixture-adjust' })
+
+    // Independent GLS reference for equal covariance blocks: the adjusted
+    // point is the arithmetic mean of the two datum-derived coordinates.
+    expect(checked.qualityStatus).toBe('validated')
+    expect(output.run.status).toBe('completed')
+    expect(output.result.strategyId).toBe('gnss')
+    expect(output.result.inputHash).toBe(output.run.inputHash)
+    expect(output.result.linearUnit).toBe('m')
+    expect(output.result.observationCount).toBe(6)
+    expect(output.result.unknownCount).toBe(3)
+    expect(output.result.redundancy).toBe(3)
+    expect(output.result.degreesOfFreedom).toBe(3)
+    expect(output.result.solverDiagnostics).toMatchObject({ iterations: 1, rank: 3 })
+    expect(output.result.points.find((point) => point.id === 'P')).toMatchObject({
+      x: expect.closeTo(10.0005, 10),
+      y: expect.closeTo(20.001, 10),
+      height: expect.closeTo(30, 10)
+    })
+    expect(output.result.observations.map((item) => [item.observationId, item.unit, item.residual])).toEqual([
+      ['A-P:x', 'm', expect.closeTo(-0.0005, 10)],
+      ['A-P:y', 'm', expect.closeTo(0.001, 10)],
+      ['A-P:z', 'm', expect.closeTo(0, 10)],
+      ['B-P:x', 'm', expect.closeTo(0.0005, 10)],
+      ['B-P:y', 'm', expect.closeTo(-0.001, 10)],
+      ['B-P:z', 'm', expect.closeTo(0, 10)]
+    ])
+    expect(output.result.closure.baselineX).toBeCloseTo(Math.sqrt(5e-7), 12)
+    expect(output.result.closure.baselineY).toBeCloseTo(Math.sqrt(2e-6), 12)
+    expect(output.result.closure.baselineZ).toBeCloseTo(0, 12)
+    expect(output.result.closure.baseline).toBeCloseTo(Math.sqrt(2.5e-6), 12)
+    expect(output.result.covariance).toHaveLength(3)
+    service.close()
+  })
+
+  it.each([
+    {
+      name: 'legacy scalar baseline',
+      knownPoints: [{ id: 'A', pointClass: 'known' as const, x: 0, y: 0, height: 10, known: true }],
+      unknownPoints: [{ id: 'P', pointClass: 'unknown' as const, x: 1, y: 2, height: 3, known: false }],
+      observations: [{ id: 'scalar', type: 'gnss-baseline' as const, from: 'A', to: 'P', value: 3.7, unit: 'm', covariance: [1e-6, 0, 0, 0, 1e-6, 0, 0, 0, 1e-6] }],
+      expectedCode: 'invalid_observation'
+    },
+    {
+      name: 'missing covariance',
+      knownPoints: [{ id: 'A', pointClass: 'known' as const, x: 0, y: 0, height: 10, known: true }],
+      unknownPoints: [{ id: 'P', pointClass: 'unknown' as const, x: 1, y: 2, height: 3, known: false }],
+      observations: [{ id: 'no-covariance', type: 'gnss-baseline' as const, from: 'A', to: 'P', value: 0, vectorX: 1, vectorY: 2, vectorZ: -7, unit: 'm' }],
+      expectedCode: 'missing_covariance'
+    },
+    {
+      name: 'non-positive-definite covariance',
+      knownPoints: [{ id: 'A', pointClass: 'known' as const, x: 0, y: 0, height: 10, known: true }],
+      unknownPoints: [{ id: 'P', pointClass: 'unknown' as const, x: 1, y: 2, height: 3, known: false }],
+      observations: [{ id: 'bad-covariance', type: 'gnss-baseline' as const, from: 'A', to: 'P', value: 0, vectorX: 1, vectorY: 2, vectorZ: -7, unit: 'm', covariance: [1, 2, 0, 2, 1, 0, 0, 0, 1] }],
+      expectedCode: 'invalid_observation'
+    },
+    {
+      name: 'incomplete fixed datum',
+      knownPoints: [{ id: 'A', pointClass: 'known' as const, x: 0, y: 0, known: true }],
+      unknownPoints: [{ id: 'P', pointClass: 'unknown' as const, x: 1, y: 2, height: 3, known: false }],
+      observations: [{ id: 'no-height-datum', type: 'gnss-baseline' as const, from: 'A', to: 'P', value: 0, vectorX: 1, vectorY: 2, vectorZ: 3, unit: 'm', covariance: [1e-6, 0, 0, 0, 1e-6, 0, 0, 0, 1e-6] }],
+      expectedCode: 'missing_datum'
+    }
+  ])('blocks GNSS with $name', async ({ name, knownPoints, unknownPoints, observations, expectedCode }) => {
+    const root = await mkdtemp(join(tmpdir(), 'workwise-gnss-invalid-'))
+    const service = new SurveyService({ rootDir: root })
+    const network = await service.importNetwork({ projectId: `gnss-${name}`, expectedRevision: 0, idempotencyKey: `gnss-${name}`, networkType: 'gnss', network: { knownPoints, unknownPoints, observations } })
+    const checked = service.validateNetwork(network.id, { expectedRevision: network.revision, idempotencyKey: `gnss-validate-${name}` })
+    const output = service.createAdjustment({ networkId: network.id, expectedRevision: checked.revision, idempotencyKey: `gnss-adjust-${name}` })
+    expect(checked.qualityStatus).toBe('blocked')
+    expect(output.run.status).toBe('needs_attention')
+    expect(output.result.strategyId).toBe('gnss')
+    expect(output.result.qualityFindings).toEqual(expect.arrayContaining([expect.objectContaining({ code: expectedCode, severity: 'blocking' })]))
+    expect(output.result.points).toEqual([])
+    service.close()
+  })
+
+  it('blocks a rank-deficient GNSS network with an unobserved unknown point', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'workwise-gnss-rank-'))
+    const service = new SurveyService({ rootDir: root })
+    const covariance = [1e-6, 0, 0, 0, 1e-6, 0, 0, 0, 1e-6]
+    const network = await service.importNetwork({
+      projectId: 'gnss-rank', expectedRevision: 0, idempotencyKey: 'gnss-rank-import', networkType: 'gnss', network: {
+        knownPoints: [{ id: 'A', pointClass: 'known', x: 0, y: 0, height: 10, known: true }],
+        unknownPoints: [
+          { id: 'P', pointClass: 'unknown', x: 1, y: 2, height: 3, known: false },
+          { id: 'Q', pointClass: 'unknown', x: 4, y: 5, height: 6, known: false }
+        ],
+        observations: [{ id: 'A-P', type: 'gnss-baseline', from: 'A', to: 'P', value: 0, vectorX: 1, vectorY: 2, vectorZ: -7, unit: 'm', covariance }]
+      }
+    })
+    const output = service.createAdjustment({ networkId: network.id, expectedRevision: network.revision, idempotencyKey: 'gnss-rank-adjust' })
+    expect(output.run.status).toBe('needs_attention')
+    expect(output.result.qualityFindings).toEqual(expect.arrayContaining([expect.objectContaining({ code: 'rank_deficient', severity: 'blocking' })]))
+    expect(output.result.points).toEqual([])
+    service.close()
+  })
+
   it('applies a configured coordinate transformation and preserves point deltas', async () => {
     const root = await mkdtemp(join(tmpdir(), 'workwise-transform-fixture-'))
     const service = new SurveyService({ rootDir: root })

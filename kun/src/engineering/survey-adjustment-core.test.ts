@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { iterativeWeightedLeastSquares, solveWeightedLeastSquares, surveyMatrix, weightedLeastSquares } from './survey-adjustment-core.js'
+import { choleskyDecompose, iterativeWeightedLeastSquares, solveWeightedLeastSquares, surveyMatrix, weightedLeastSquares, whitenCorrelatedEquations } from './survey-adjustment-core.js'
 
 describe('canonical survey adjustment core', () => {
   it('solves a redundant weighted system with covariance and diagnostics', () => {
@@ -44,5 +44,17 @@ describe('canonical survey adjustment core', () => {
     expect(solved?.converged).toBe(true)
     expect(solved?.parameters[0]).toBeCloseTo(2, 10)
     expect(solved?.iterations).toBeGreaterThan(1)
+  })
+
+  it('whitens a correlated covariance block before solving', () => {
+    const covariance = [[4, 1, 0.5], [1, 3, 0.25], [0.5, 0.25, 2]]
+    expect(choleskyDecompose(covariance)).not.toBeNull()
+    const rows = whitenCorrelatedEquations({ coefficients: [[1], [1], [1]], misclosures: [1, 2, 3], covariance })
+    expect(rows).not.toBeNull()
+    const solved = rows ? weightedLeastSquares(rows) : null
+    // Reference GLS solution: (1' C^-1 l) / (1' C^-1 1).
+    expect(solved?.corrections[0]).toBeCloseTo(2.369175627240143, 12)
+    expect(choleskyDecompose([[1, 2], [2, 1]])).toBeNull()
+    expect(whitenCorrelatedEquations({ coefficients: [[1], [1]], misclosures: [1, 2], covariance: [[1, 2], [2, 1]] })).toBeNull()
   })
 })

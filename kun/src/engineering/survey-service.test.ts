@@ -129,11 +129,11 @@ describe('SurveyService', () => {
     const service = new SurveyService({ rootDir: root })
     const network = await service.importNetwork({ projectId: 'project-gnss-valid', expectedRevision: 0, idempotencyKey: 'survey-import-gnss-valid', networkType: 'gnss', network: {
       projectId: 'project-gnss-valid', networkType: 'gnss',
-      knownPoints: [{ id: 'A', pointClass: 'known', x: 0, y: 0, known: true }, { id: 'B', pointClass: 'known', x: 10, y: 0, known: true }],
-      unknownPoints: [{ id: 'P', pointClass: 'unknown', x: 0, y: 9.9, known: false }],
+      knownPoints: [{ id: 'A', pointClass: 'known', x: 0, y: 0, height: 10, known: true }, { id: 'B', pointClass: 'known', x: 100, y: 0, height: 20, known: true }],
+      unknownPoints: [{ id: 'P', pointClass: 'unknown', x: 9.9, y: 19.9, height: 29.9, known: false }],
       observations: [
-        { id: 'g1', type: 'gnss-baseline', from: 'A', to: 'P', value: 10, unit: 'm', covariance: [0.000001] },
-        { id: 'g2', type: 'gnss-baseline', from: 'B', to: 'P', value: Math.sqrt(100 + 100), unit: 'm', covariance: [0.000001] }
+        { id: 'g1', type: 'gnss-baseline', from: 'A', to: 'P', value: 0, vectorX: 10.001, vectorY: 20, vectorZ: 20, unit: 'm', covariance: [4e-6, 1e-6, 0.2e-6, 1e-6, 9e-6, 0.3e-6, 0.2e-6, 0.3e-6, 4e-6] },
+        { id: 'g2', type: 'gnss-baseline', from: 'B', to: 'P', value: 0, vectorX: -90, vectorY: 20.002, vectorZ: 10, unit: 'm', covariance: [4e-6, 1e-6, 0.2e-6, 1e-6, 9e-6, 0.3e-6, 0.2e-6, 0.3e-6, 4e-6] }
       ]
     } })
     const checked = service.validateNetwork(network.id, { expectedRevision: network.revision, idempotencyKey: 'survey-validate-gnss-valid' })
@@ -141,7 +141,22 @@ describe('SurveyService', () => {
     expect(output.run.status).toBe('completed')
     expect(output.result.strategyId).toBe('gnss')
     expect(output.result.closure.baseline).toBeDefined()
-    expect(output.result.solverDiagnostics?.rank).toBe(2)
+    expect(output.result.observationCount).toBe(6)
+    expect(output.result.unknownCount).toBe(3)
+    expect(output.result.redundancy).toBe(3)
+    expect(output.result.solverDiagnostics?.rank).toBe(3)
+    expect(output.result.points.find((point) => point.id === 'P')).toMatchObject({ x: expect.closeTo(10.0005, 8), y: expect.closeTo(20.001, 8), height: expect.closeTo(30, 8) })
+    expect(output.result.observations.map((item) => item.observationId)).toEqual(['g1:x', 'g1:y', 'g1:z', 'g2:x', 'g2:y', 'g2:z'])
+    service.close()
+  })
+
+  it('imports GNSS ΔX/ΔY/ΔZ aliases and row-major covariance from CSV', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'workwise-survey-gnss-csv-'))
+    const service = new SurveyService({ rootDir: root })
+    const csv = 'type,from,to,dx,dy,dz,unit,covariance\ngnss-baseline,A,P,1000,2000,3000,mm,"1;0.1;0;0.1;2;0;0;0;3"'
+    const network = await service.importNetwork({ projectId: 'project-gnss-csv', expectedRevision: 0, idempotencyKey: 'survey-import-gnss-csv', networkType: 'gnss', name: 'baselines.csv', dataBase64: Buffer.from(csv).toString('base64') })
+    expect(network.observations[0]).toMatchObject({ value: 0, vectorX: 1000, vectorY: 2000, vectorZ: 3000, unit: 'mm' })
+    expect(network.observations[0]?.covariance).toEqual([1, 0.1, 0, 0.1, 2, 0, 0, 0, 3])
     service.close()
   })
 

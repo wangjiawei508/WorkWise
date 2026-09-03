@@ -42,6 +42,12 @@ export type LinearAdjustmentOutcome =
   | { ok: true; result: LinearAdjustmentResult }
   | { ok: false; reason: 'empty' | 'invalid-equation' | 'rank-deficient'; rank: number; conditionEstimate: number }
 
+export type CorrelatedEquationBlock = {
+  coefficients: Matrix
+  misclosures: number[]
+  covariance: Matrix
+}
+
 export const surveyMatrix = {
   transpose(source: Matrix): Matrix {
     if (!source.length) return []
@@ -97,6 +103,80 @@ export const surveyMatrix = {
       conditionEstimate: smallestPivot > 0 ? largestPivot / smallestPivot : Number.POSITIVE_INFINITY
     }
   }
+}
+
+/**
+ * Cholesky factorisation C = L L^T for a symmetric positive-definite
+ * covariance matrix. Returning null is intentional: callers turn malformed
+ * covariance into a typed quality blocker before any normal matrix is built.
+ */
+export function choleskyDecompose(source: Matrix): Matrix | null {
+  const dimension = source.length
+  if (!dimension || source.some((row) => row.length !== dimension || row.some((value) => !Number.isFinite(value)))) return null
+  const scale = Math.max(Number.MIN_VALUE, ...source.flatMap((row) => row.map((value) => Math.abs(value))))
+  const symmetryTolerance = scale * 1e-12
+  for (let row = 0; row < dimension; row += 1) {
+    for (let column = 0; column < row; column += 1) {
+      if (Math.abs(source[row]![column]! - source[column]![row]!) > symmetryTolerance) return null
+    }
+  }
+  const lower = Array.from({ length: dimension }, () => Array.from({ length: dimension }, () => 0))
+  for (let row = 0; row < dimension; row += 1) {
+    for (let column = 0; column <= row; column += 1) {
+      let value = source[row]![column]!
+      for (let index = 0; index < column; index += 1) value -= lower[row]![index]! * lower[column]![index]!
+      if (row === column) {
+        if (!(value > scale * 1e-15)) return null
+        lower[row]![column] = Math.sqrt(value)
+      } else {
+        const diagonal = lower[column]![column]!
+        if (!(diagonal > 0)) return null
+        lower[row]![column] = value / diagonal
+      }
+    }
+  }
+  return lower
+}
+
+export function solveLowerTriangular(lower: Matrix, values: number[]): number[] | null {
+  const dimension = lower.length
+  if (values.length !== dimension || lower.some((row) => row.length !== dimension) || values.some((value) => !Number.isFinite(value))) return null
+  const solved = Array.from({ length: dimension }, () => 0)
+  for (let row = 0; row < dimension; row += 1) {
+    const diagonal = lower[row]![row]!
+    if (!Number.isFinite(diagonal) || Math.abs(diagonal) <= Number.EPSILON) return null
+    let value = values[row]!
+    for (let column = 0; column < row; column += 1) value -= lower[row]![column]! * solved[column]!
+    solved[row] = value / diagonal
+  }
+  return solved
+}
+
+/**
+ * Whiten a correlated observation block with L^-1 where covariance = L L^T.
+ * The returned unit-weight equations can enter the canonical WLS solver while
+ * retaining every off-diagonal covariance term.
+ */
+export function whitenCorrelatedEquations(block: CorrelatedEquationBlock): WeightedEquation[] | null {
+  const rowCount = block.coefficients.length
+  if (!rowCount || block.misclosures.length !== rowCount || block.covariance.length !== rowCount) return null
+  const parameterCount = block.coefficients[0]!.length
+  if (!parameterCount || block.coefficients.some((row) => row.length !== parameterCount || row.some((value) => !Number.isFinite(value)))) return null
+  const lower = choleskyDecompose(block.covariance)
+  if (!lower) return null
+  const whitenedMisclosures = solveLowerTriangular(lower, block.misclosures)
+  if (!whitenedMisclosures) return null
+  const whitenedColumns: number[][] = []
+  for (let column = 0; column < parameterCount; column += 1) {
+    const solved = solveLowerTriangular(lower, block.coefficients.map((row) => row[column]!))
+    if (!solved) return null
+    whitenedColumns.push(solved)
+  }
+  return Array.from({ length: rowCount }, (_, row) => ({
+    coefficients: Array.from({ length: parameterCount }, (_, column) => whitenedColumns[column]![row]!),
+    misclosure: whitenedMisclosures[row]!,
+    weight: 1
+  }))
 }
 
 export function solveWeightedLeastSquares(rows: WeightedEquation[]): LinearAdjustmentOutcome {
