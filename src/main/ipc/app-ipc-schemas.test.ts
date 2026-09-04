@@ -215,6 +215,7 @@ describe('app-ipc-schemas', () => {
       { path: '/v1/engineering/ai/evidence/project_1', method: 'GET' },
       { path: '/v1/engineering/ai/watch-drafts', method: 'POST' },
       { path: '/v1/engineering/ai/plans', method: 'POST' },
+      { path: '/v1/engineering/ai/plans?threadId=thread_1&projectId=project_1', method: 'GET' },
       { path: '/v1/engineering/ai/plans/plan_1', method: 'GET' },
       { path: '/v1/engineering/ai/plans/plan_1/validate', method: 'POST' },
       { path: '/v1/engineering/ai/plans/plan_1/approve', method: 'POST' },
@@ -254,6 +255,14 @@ describe('app-ipc-schemas', () => {
     })).toThrow(/runtime request path is not allowed/)
     expect(() => runtimeRequestPayloadSchema.parse({
       path: '/v1/engineering/deformations?projectId=',
+      method: 'GET'
+    })).toThrow(/runtime request path is not allowed/)
+    expect(() => runtimeRequestPayloadSchema.parse({
+      path: '/v1/engineering/ai/plans?threadId=thread_1&workspace=%2Ftmp',
+      method: 'GET'
+    })).toThrow(/runtime request path is not allowed/)
+    expect(() => runtimeRequestPayloadSchema.parse({
+      path: '/v1/engineering/ai/plans?threadId=thread_1&projectId=project_1&projectId=project_2',
       method: 'GET'
     })).toThrow(/runtime request path is not allowed/)
   })
