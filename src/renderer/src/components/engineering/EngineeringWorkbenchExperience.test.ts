@@ -68,5 +68,8 @@ describe('engineering workbench experience contract', () => {
     expect(source).toContain('dX / dY / dH（m）')
     expect(source).toContain('倾斜 / 收敛构形对')
     expect(source).toContain('稳定速率判据：0.0001 m/day')
+    expect(source).toContain('/v1/engineering/survey/networks?projectId=')
+    expect(source).toContain('已有测量网络')
+    expect(source).toContain("setSection(restoredAdjustment ? 'result' : 'network')")
   })
 })

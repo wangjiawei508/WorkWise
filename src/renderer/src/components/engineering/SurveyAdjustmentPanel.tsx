@@ -7,7 +7,7 @@ type Project = { id: string; revision: number }
 type SurveyPoint = { id: string; pointClass?: string; x?: number; y?: number; height?: number; latitude?: number; longitude?: number; known?: boolean }
 type SurveyObservation = { id: string; type?: string; from?: string; to?: string; station?: string; target?: string; left?: string; right?: string; value?: number; unit?: string; vectorX?: number; vectorY?: number; vectorZ?: number; covariance?: number[]; sigma?: number; sigmaUnit?: string; stationHeightOffset?: number; targetHeightOffset?: number; distance?: number; direction?: number }
 type Network = { id: string; revision: number; networkType: string; transformType?: string; coordinateSystem?: string; verticalDatum?: string; heightDatum?: string; knownPoints: SurveyPoint[]; unknownPoints: SurveyPoint[]; observations: SurveyObservation[]; qualityStatus: string; findings: Array<{ severity: string; message: string }> }
-type Adjustment = { observationEpoch?: string; networkType?: string; coordinateSystem?: string; verticalDatum?: string; run: { id: string; status: string; revision: number; createdAt?: string }; result: { id: string; validation: string; strategyId?: string; transformType?: string; algorithmVersion?: string; observationCount: number; unknownCount: number; redundancy: number; linearUnit?: 'm'; angularUnit?: 'rad'; unitWeightStdDev: number; unitWeightStdDevUnit?: 'dimensionless'; varianceFactor?: number; varianceFactorUnit?: 'dimensionless'; varianceFactorEstimated?: boolean; degreesOfFreedom?: number; closure?: { horizontal?: number; angular?: number; vertical?: number; heightDifference?: number; fx?: number; fy?: number; relativeClosure?: number; baseline?: number; baselineX?: number; baselineY?: number; baselineZ?: number; translationX?: number; translationY?: number; scalePpm?: number; rotationRad?: number }; closureUnits?: Record<string, 'm' | 'rad' | 'ppm' | 'ratio'>; parameters?: Record<string, number>; parameterUnits?: Record<string, 'm' | 'rad' | 'ppm' | 'ratio'>; precision: { maxPointStdDev: number; relativePrecision?: number; passed: boolean }; qualityFindings: Array<{ severity: string; message: string }>; covariance?: number[][]; points?: Array<{ id: string; x?: number; y?: number; height?: number; latitude?: number; longitude?: number; correctionX?: number; correctionY?: number; correctionHeight?: number; standardError?: number }>; observations?: Array<{ observationId: string; correction?: number; residual: number; unit?: 'm' | 'rad'; standardizedResidual?: number; standardizedResidualUnit?: 'sigma'; outlier?: boolean; sourceRow?: number }> } }
+type Adjustment = { observationEpoch?: string; networkType?: string; coordinateSystem?: string; verticalDatum?: string; run: { id: string; networkId: string; status: string; revision: number; createdAt?: string }; result: { id: string; validation: string; strategyId?: string; transformType?: string; algorithmVersion?: string; observationCount: number; unknownCount: number; redundancy: number; linearUnit?: 'm'; angularUnit?: 'rad'; unitWeightStdDev: number; unitWeightStdDevUnit?: 'dimensionless'; varianceFactor?: number; varianceFactorUnit?: 'dimensionless'; varianceFactorEstimated?: boolean; degreesOfFreedom?: number; closure?: { horizontal?: number; angular?: number; vertical?: number; heightDifference?: number; fx?: number; fy?: number; relativeClosure?: number; baseline?: number; baselineX?: number; baselineY?: number; baselineZ?: number; translationX?: number; translationY?: number; scalePpm?: number; rotationRad?: number }; closureUnits?: Record<string, 'm' | 'rad' | 'ppm' | 'ratio'>; parameters?: Record<string, number>; parameterUnits?: Record<string, 'm' | 'rad' | 'ppm' | 'ratio'>; precision: { maxPointStdDev: number; relativePrecision?: number; passed: boolean }; qualityFindings: Array<{ severity: string; message: string }>; covariance?: number[][]; points?: Array<{ id: string; x?: number; y?: number; height?: number; latitude?: number; longitude?: number; correctionX?: number; correctionY?: number; correctionHeight?: number; standardError?: number }>; observations?: Array<{ observationId: string; correction?: number; residual: number; unit?: 'm' | 'rad'; standardizedResidual?: number; standardizedResidualUnit?: 'sigma'; outlier?: boolean; sourceRow?: number }> } }
 type Deformation = { id: string; referenceAdjustmentId: string; currentAdjustmentId: string; referenceEpoch: string; currentEpoch: string; durationDays: number; algorithmVersion: string; inputHash: string; points: Array<{ pointId: string; dX?: number; dY?: number; dH?: number; settlement?: number; horizontalDisplacement?: number; spatialDisplacement: number; rates: { spatialPerDay: number }; trend: string; significant?: boolean; unit: 'm'; rateUnit: 'm/day' }>; pairs: Array<{ id: string; kind: 'tilt' | 'convergence'; firstPointId: string; secondPointId: string; convergence?: number; convergenceRatePerDay?: number; differentialSettlement?: number; tilt?: number; linearUnit: 'm'; rateUnit: 'm/day'; tiltUnit: 'ratio' }> }
 
 const sampleNetwork = JSON.stringify({
@@ -62,6 +62,7 @@ export function SurveyAdjustmentPanel({ project, runtimeReady, onAdjustmentCompl
   const [networkType, setNetworkType] = useState('leveling')
   const [transformType, setTransformType] = useState('similarity-2d')
   const [payload, setPayload] = useState(sampleNetwork)
+  const [networks, setNetworks] = useState<Network[]>([])
   const [network, setNetwork] = useState<Network | null>(null)
   const [adjustment, setAdjustment] = useState<Adjustment | null>(null)
   const [busy, setBusy] = useState(false)
@@ -95,8 +96,43 @@ export function SurveyAdjustmentPanel({ project, runtimeReady, onAdjustmentCompl
   }, [project.id, runtimeReady])
 
   useEffect(() => {
-    void refreshAdjustments().catch((error) => setMessage(error instanceof Error ? error.message : String(error)))
-  }, [refreshAdjustments])
+    if (!runtimeReady || !project.id) return
+    void Promise.all([
+      request<{ networks: Network[] }>(`/v1/engineering/survey/networks?projectId=${encodeURIComponent(project.id)}`, 'GET'),
+      request<{ adjustments: Adjustment[] }>(`/v1/engineering/adjustments?projectId=${encodeURIComponent(project.id)}`, 'GET')
+    ]).then(([networkResult, adjustmentResult]) => {
+      setNetworks(networkResult.networks)
+      setAdjustmentHistory(adjustmentResult.adjustments)
+      const eligible = adjustmentResult.adjustments
+        .filter((item) => item.run.status === 'completed' && item.result.validation === 'valid' && Boolean(item.observationEpoch))
+        .sort((left, right) => Date.parse(left.observationEpoch!) - Date.parse(right.observationEpoch!))
+      setReferenceAdjustmentId(eligible[0]?.run.id ?? '')
+      setCurrentAdjustmentId(eligible.at(-1)?.run.id ?? '')
+      const restoredNetwork = networkResult.networks[0] ?? null
+      const restoredAdjustment = restoredNetwork
+        ? adjustmentResult.adjustments.find((item) => item.run.networkId === restoredNetwork.id) ?? null
+        : null
+      setNetwork(restoredNetwork)
+      setAdjustment(restoredAdjustment)
+      if (restoredNetwork) {
+        setNetworkType(restoredNetwork.networkType)
+        if (restoredNetwork.transformType) setTransformType(restoredNetwork.transformType)
+      }
+      setSection(restoredAdjustment ? 'result' : 'network')
+    }).catch((error) => setMessage(error instanceof Error ? error.message : String(error)))
+  }, [project.id, runtimeReady])
+
+  const selectExistingNetwork = (networkId: string): void => {
+    const selected = networks.find((item) => item.id === networkId)
+    if (!selected) return
+    setNetwork(selected)
+    setNetworkType(selected.networkType)
+    if (selected.transformType) setTransformType(selected.transformType)
+    const restoredAdjustment = adjustmentHistory.find((item) => item.run.networkId === selected.id) ?? null
+    setAdjustment(restoredAdjustment)
+    setSection(restoredAdjustment ? 'result' : 'network')
+    setMessage(restoredAdjustment ? '已恢复该网络的最近一次平差结果。' : '已恢复测量网络，尚无平差结果。')
+  }
 
   const readFile = (file: File): Promise<string> => new Promise((resolve, reject) => {
     const reader = new FileReader()
@@ -110,7 +146,7 @@ export function SurveyAdjustmentPanel({ project, runtimeReady, onAdjustmentCompl
     try {
       const parsed = JSON.parse(payload) as Record<string, unknown>
       const result = await request<{ network: Network }>('/v1/engineering/survey/networks/import', 'POST', { projectId: project.id, networkType, ...(networkType === 'coordinate-transform' ? { transformType } : {}), network: parsed, expectedRevision: project.revision, idempotencyKey: `survey-import-${project.id}-${Date.now()}` })
-      setNetwork(result.network); setAdjustment(null); setSection('network'); setMessage('测量网络已导入。先确认基准、点号和观测表，再执行质量校核。')
+      setNetworks((current) => [result.network, ...current.filter((item) => item.id !== result.network.id)]); setNetwork(result.network); setAdjustment(null); setSection('network'); setMessage('测量网络已导入。先确认基准、点号和观测表，再执行质量校核。')
     } catch (error) { setMessage(error instanceof Error ? error.message : String(error)) } finally { setBusy(false) }
   }
 
@@ -119,7 +155,7 @@ export function SurveyAdjustmentPanel({ project, runtimeReady, onAdjustmentCompl
     try {
       const dataBase64 = await readFile(file)
       const result = await request<{ network: Network }>('/v1/engineering/survey/networks/import', 'POST', { projectId: project.id, networkType, ...(networkType === 'coordinate-transform' ? { transformType } : {}), name: file.name, dataBase64, expectedRevision: project.revision, idempotencyKey: `survey-file-import-${project.id}-${file.name}-${file.size}-${file.lastModified}` })
-      setNetwork(result.network); setAdjustment(null); setSection('network'); setMessage(`${file.name} 已导入，保留源行号和文件哈希。`)
+      setNetworks((current) => [result.network, ...current.filter((item) => item.id !== result.network.id)]); setNetwork(result.network); setAdjustment(null); setSection('network'); setMessage(`${file.name} 已导入，保留源行号和文件哈希。`)
     } catch (error) { setMessage(error instanceof Error ? error.message : String(error)) } finally { setBusy(false); setFileInputKey((value) => value + 1) }
   }
 
@@ -128,7 +164,7 @@ export function SurveyAdjustmentPanel({ project, runtimeReady, onAdjustmentCompl
     setBusy(true); setMessage('')
     try {
       const result = await request<{ network: Network }>(`/v1/engineering/survey/networks/${network.id}/validate`, 'POST', { expectedRevision: network.revision, idempotencyKey: `survey-validate-${network.id}-${network.revision}` })
-      setNetwork(result.network); setMessage(result.network.qualityStatus === 'blocked' ? '质量校核发现阻断项。请处理基准、单位或断网问题后再平差。' : '质量校核通过，可以运行平差。'); setSection('network')
+      setNetworks((current) => current.map((item) => item.id === result.network.id ? result.network : item)); setNetwork(result.network); setMessage(result.network.qualityStatus === 'blocked' ? '质量校核发现阻断项。请处理基准、单位或断网问题后再平差。' : '质量校核通过，可以运行平差。'); setSection('network')
     } catch (error) { setMessage(error instanceof Error ? error.message : String(error)) } finally { setBusy(false) }
   }
 
@@ -169,7 +205,7 @@ export function SurveyAdjustmentPanel({ project, runtimeReady, onAdjustmentCompl
 
   return <section className="survey-adjustment-panel p-4 sm:p-5" aria-label="测量与平差工作台">
     <div className="survey-workbench-surface overflow-hidden border border-ds-border-muted bg-ds-card">
-      <div className="survey-workbench-header flex flex-wrap items-start justify-between gap-4 border-b border-ds-border-muted px-4 py-4"><div className="min-w-0"><div className="flex items-center gap-2"><Ruler className="h-4 w-4 text-accent" /><h3 className="text-[15px] font-semibold">测量与平差控制台</h3><span className="border border-accent/25 bg-accent/5 px-2 py-0.5 text-[10px] font-medium text-accent">Runtime 确定性计算</span></div><p className="mt-1 max-w-2xl text-[11.5px] leading-5 text-ds-muted">按测量软件的工作顺序确认网型、基准、约束和权模型。测绘专业 AI Agent 只负责解释、追问与复核，不改写任何观测或精度数字。</p></div><div className="flex shrink-0 flex-wrap items-center justify-end gap-2"><button type="button" onClick={onOpenAi} disabled={!onOpenAi} className="inline-flex h-8 items-center gap-1.5 border border-accent/40 bg-accent/5 px-2.5 text-[11px] font-semibold text-accent hover:bg-accent/10 disabled:cursor-not-allowed disabled:opacity-50"><Bot className="h-3.5 w-3.5" />让测绘专业 AI Agent 解读</button><label className="sr-only" htmlFor="survey-network-type">网络类型</label><select id="survey-network-type" aria-label="网络类型" value={networkType} onChange={(event) => setNetworkType(event.target.value)} className="h-8 rounded-md border border-ds-border bg-ds-card px-2 text-[11px] text-ds-ink outline-none focus:border-accent"><option value="leveling">水准 / 高程控制网</option><option value="traverse">附合 / 闭合导线</option><option value="plane-control">平面控制网</option><option value="triangulation">三角网</option><option value="cpiii-free-station">CPIII 自由测站</option><option value="cpiii-resection">CPIII 后方交会</option><option value="gnss">GNSS 基线</option><option value="coordinate-transform">坐标 / 高程转换</option></select>{networkType === 'coordinate-transform' ? <><label className="sr-only" htmlFor="survey-transform-type">转换类型</label><select id="survey-transform-type" aria-label="转换类型" value={transformType} onChange={(event) => setTransformType(event.target.value)} className="h-8 rounded-md border border-ds-border bg-ds-card px-2 text-[11px] text-ds-ink outline-none focus:border-accent"><option value="similarity-2d">二维相似</option><option value="helmert-7">三维七参数</option><option value="gauss-kruger-forward">高斯正算</option><option value="gauss-kruger-inverse">高斯反算</option><option value="height-fit">高程拟合</option></select></> : null}<span className={`inline-flex h-8 items-center gap-1.5 px-2.5 text-[10.5px] font-medium ${runtimeReady ? 'bg-green-100 text-green-800 dark:bg-green-500/15 dark:text-green-300' : 'bg-amber-100 text-amber-800 dark:bg-amber-500/15 dark:text-amber-300'}`}><span className={`h-1.5 w-1.5 rounded-full ${runtimeReady ? 'bg-green-600' : 'bg-amber-500'}`} />{runtimeReady ? 'Runtime 在线' : '等待 Runtime'}</span></div></div>
+      <div className="survey-workbench-header flex flex-wrap items-start justify-between gap-4 border-b border-ds-border-muted px-4 py-4"><div className="min-w-0"><div className="flex items-center gap-2"><Ruler className="h-4 w-4 text-accent" /><h3 className="text-[15px] font-semibold">测量与平差控制台</h3><span className="border border-accent/25 bg-accent/5 px-2 py-0.5 text-[10px] font-medium text-accent">Runtime 确定性计算</span></div><p className="mt-1 max-w-2xl text-[11.5px] leading-5 text-ds-muted">按测量软件的工作顺序确认网型、基准、约束和权模型。测绘专业 AI Agent 只负责解释、追问与复核，不改写任何观测或精度数字。</p></div><div className="flex shrink-0 flex-wrap items-center justify-end gap-2"><button type="button" onClick={onOpenAi} disabled={!onOpenAi} className="inline-flex h-8 items-center gap-1.5 border border-accent/40 bg-accent/5 px-2.5 text-[11px] font-semibold text-accent hover:bg-accent/10 disabled:cursor-not-allowed disabled:opacity-50"><Bot className="h-3.5 w-3.5" />让测绘专业 AI Agent 解读</button>{networks.length ? <><label className="sr-only" htmlFor="survey-existing-network">已有测量网络</label><select id="survey-existing-network" aria-label="已有测量网络" value={network?.id ?? ''} onChange={(event) => selectExistingNetwork(event.target.value)} className="h-8 max-w-52 rounded-md border border-ds-border bg-ds-card px-2 text-[11px] text-ds-ink outline-none focus:border-accent">{networks.map((item) => <option key={item.id} value={item.id}>{networkTypeLabel(item.networkType)} · {item.id.slice(-8)}</option>)}</select></> : null}<label className="sr-only" htmlFor="survey-network-type">网络类型</label><select id="survey-network-type" aria-label="网络类型" value={networkType} onChange={(event) => setNetworkType(event.target.value)} className="h-8 rounded-md border border-ds-border bg-ds-card px-2 text-[11px] text-ds-ink outline-none focus:border-accent"><option value="leveling">水准 / 高程控制网</option><option value="traverse">附合 / 闭合导线</option><option value="plane-control">平面控制网</option><option value="triangulation">三角网</option><option value="cpiii-free-station">CPIII 自由测站</option><option value="cpiii-resection">CPIII 后方交会</option><option value="gnss">GNSS 基线</option><option value="coordinate-transform">坐标 / 高程转换</option></select>{networkType === 'coordinate-transform' ? <><label className="sr-only" htmlFor="survey-transform-type">转换类型</label><select id="survey-transform-type" aria-label="转换类型" value={transformType} onChange={(event) => setTransformType(event.target.value)} className="h-8 rounded-md border border-ds-border bg-ds-card px-2 text-[11px] text-ds-ink outline-none focus:border-accent"><option value="similarity-2d">二维相似</option><option value="helmert-7">三维七参数</option><option value="gauss-kruger-forward">高斯正算</option><option value="gauss-kruger-inverse">高斯反算</option><option value="height-fit">高程拟合</option></select></> : null}<span className={`inline-flex h-8 items-center gap-1.5 px-2.5 text-[10.5px] font-medium ${runtimeReady ? 'bg-green-100 text-green-800 dark:bg-green-500/15 dark:text-green-300' : 'bg-amber-100 text-amber-800 dark:bg-amber-500/15 dark:text-amber-300'}`}><span className={`h-1.5 w-1.5 rounded-full ${runtimeReady ? 'bg-green-600' : 'bg-amber-500'}`} />{runtimeReady ? 'Runtime 在线' : '等待 Runtime'}</span></div></div>
 
       <div className="survey-instrument-strip grid grid-cols-2 border-b border-ds-border-muted bg-ds-subtle sm:grid-cols-4" aria-label="测量计算状态"><div className="border-r border-ds-border-muted px-4 py-2.5"><p className="text-[9px] font-semibold uppercase tracking-[0.12em] text-ds-faint">网型</p><p className="mt-0.5 truncate text-[11px] font-medium text-ds-ink">{selectedType}</p></div><div className="border-r border-ds-border-muted px-4 py-2.5"><p className="text-[9px] font-semibold uppercase tracking-[0.12em] text-ds-faint">约束模式</p><label className="sr-only" htmlFor="survey-constraint-mode">约束模式</label><select id="survey-constraint-mode" value={constraintMode} onChange={(event) => setConstraintMode(event.target.value as typeof constraintMode)} className="mt-0.5 max-w-full bg-transparent text-[11px] font-medium text-ds-ink outline-none"><option value="fixed-known-points">固定已知点</option><option value="minimum-constraint">最小约束</option><option value="free">自由网</option></select></div><div className="border-r border-ds-border-muted px-4 py-2.5"><p className="text-[9px] font-semibold uppercase tracking-[0.12em] text-ds-faint">平差方法 / 权模型</p><label className="sr-only" htmlFor="survey-adjustment-method">平差方法</label><select id="survey-adjustment-method" value={adjustmentMethod} onChange={(event) => setAdjustmentMethod(event.target.value as typeof adjustmentMethod)} className="mt-0.5 max-w-full bg-transparent text-[11px] font-medium text-ds-ink outline-none"><option value="weighted-least-squares">加权最小二乘</option><option value="conditional">条件平差</option><option value="height-fit">高程拟合</option><option value="helmert-seven-parameter">七参数转换</option></select></div><div className="px-4 py-2.5"><p className="text-[9px] font-semibold uppercase tracking-[0.12em] text-ds-faint">可解性</p><p className={`mt-0.5 truncate text-[11px] font-medium ${blockers ? 'text-red-700 dark:text-red-300' : network?.qualityStatus === 'validated' ? 'text-green-700 dark:text-green-300' : 'text-ds-ink'}`}>{blockers ? `${blockers} 个阻断` : network?.qualityStatus === 'validated' ? '已通过校核' : '尚未校核'}</p></div></div>
 
