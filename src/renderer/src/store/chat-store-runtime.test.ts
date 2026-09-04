@@ -8,6 +8,7 @@ import {
   completionNotificationDedupeKeyForWatchedThread,
   MAX_PENDING_CLAW_FEISHU_MIRRORS,
   MAX_WATCHED_COMPLETION_NOTIFICATIONS,
+  isCodeThread,
   rememberPendingClawFeishuMirror,
   syncTurnCompletionPoll,
   takePendingClawFeishuMirror,
@@ -64,6 +65,27 @@ function makeSinkHarness(overrides: Partial<ChatState> = {}): {
 afterEach(() => {
   stopTurnCompletionPoll()
   vi.unstubAllGlobals()
+})
+
+it('keeps legacy Write Assistant shells out of the Code session list', () => {
+  expect(isCodeThread({
+    id: 'thread-legacy-write',
+    title: 'Write Assistant',
+    workspace: '/workspace',
+    model: 'deepseek-v4-pro',
+    mode: 'agent',
+    status: 'idle',
+    updatedAt: '2026-09-04T00:00:00.000Z'
+  })).toBe(false)
+  expect(isCodeThread({
+    id: 'thread-code',
+    title: '真实编程会话',
+    workspace: '/workspace',
+    model: 'deepseek-v4-pro',
+    mode: 'agent',
+    status: 'idle',
+    updatedAt: '2026-09-04T00:00:00.000Z'
+  })).toBe(true)
 })
 
 it('clears live usage when a watched background thread completes', async () => {

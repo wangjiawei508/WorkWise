@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { projectAiPlanSteps } from './EngineeringAiCommandCenter'
 
 describe('engineering agent surface contract', () => {
   it('exposes an explicit agent execution protocol alongside the conversation', async () => {
@@ -28,5 +29,28 @@ describe('engineering agent surface contract', () => {
     expect(source).toContain('无量纲 · 方差因子')
     expect(source).toContain('标准化残差（σ）')
     expect(source).toContain("measurementLabel(residual.residual, residual.unit")
+  })
+
+  it('does not present approved steps as completed when TaskRun is stalled', () => {
+    const plan = {
+      id: 'plan-1',
+      projectId: 'project-1',
+      contextHash: 'sha256-context',
+      revision: 3,
+      goal: 'prepare reviewed deliverables',
+      status: 'started',
+      taskId: 'task-1',
+      steps: [
+        { id: 'inspect', title: '校核工程数据', tool: 'monitoring_data_first_check', risk: 'read', approval: 'approved' },
+        { id: 'report', title: '准备报告', tool: 'report_export', risk: 'export', approval: 'approved' }
+      ]
+    }
+
+    expect(projectAiPlanSteps(plan, 'stalled')).toEqual([
+      expect.objectContaining({ title: '校核工程数据', state: 'blocked' }),
+      expect.objectContaining({ title: '准备报告', state: 'blocked' })
+    ])
+    expect(projectAiPlanSteps(plan, 'running').map((step) => step.state)).toEqual(['active', 'ready'])
+    expect(projectAiPlanSteps(plan, 'completed').map((step) => step.state)).toEqual(['done', 'done'])
   })
 })

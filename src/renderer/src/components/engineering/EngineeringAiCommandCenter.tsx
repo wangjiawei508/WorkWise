@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactElement } from 'react'
+import { useCallback, useEffect, useMemo, useState, type ReactElement } from 'react'
 import {
   Activity,
   AlertTriangle,
@@ -23,6 +23,7 @@ import {
   Zap
 } from 'lucide-react'
 import { useShallow } from 'zustand/react/shallow'
+import type { TaskRunStatus, TaskRunV1 } from '@shared/agent-workbench'
 import { rendererRuntimeClient } from '../../agent/runtime-client'
 import { useChatStore } from '../../store/chat-store'
 import { MessageTimeline } from '../chat/MessageTimeline'
@@ -50,6 +51,7 @@ type AiPlan = {
   revision: number
   goal: string
   status: string
+  taskId?: string
   steps: Array<{ id: string; title: string; tool: string; risk: string; approval: string }>
   approval?: { token: string; stepIds: string[]; expiresAt: string }
 }
@@ -110,7 +112,20 @@ function readRuntimeMessage(body: string, fallback: string): string {
 }
 
 function phaseLabel(status: string): string {
-  return ({ draft: '草案', validating: '校验中', awaiting_approval: '待审批', started: '已启动', queued: '排队中', running: '执行中', needs_attention: '需要处理', stale: '已过期', completed: '已完成', failed: '失败', cancelled: '已取消' } as Record<string, string>)[status] ?? status
+  return ({ draft: '草案', validating: '校验中', approved: '已批准', awaiting_approval: '待审批', started: '已启动', queued: '排队中', running: '执行中', retrying: '重试中', waiting_user: '等待补充资料', waiting_approval: '等待审批', stalled: '已暂停，需恢复', needs_attention: '需要处理', stale: '已过期', completed: '已完成', failed: '失败', cancelled: '已取消' } as Record<string, string>)[status] ?? status
+}
+
+export function projectAiPlanSteps(plan: AiPlan, taskStatus?: TaskRunStatus): PlanStep[] {
+  const status = taskStatus ?? plan.status
+  const completed = status === 'completed'
+  const blocked = ['stalled', 'waiting_user', 'waiting_approval', 'failed', 'cancelled', 'needs_attention', 'stale'].includes(status)
+  const running = ['started', 'queued', 'running', 'retrying'].includes(status)
+  return plan.steps.map((step, index) => ({
+    title: step.title,
+    detail: `${step.tool} · ${step.risk === 'read' ? '只读' : '需要审批'} · ${step.approval === 'approved' ? '已批准' : '待批准'}`,
+    state: completed ? 'done' : blocked ? 'blocked' : running && index === 0 ? 'active' : 'ready',
+    tool: step.tool
+  }))
 }
 
 function hashLabel(value?: string): string {
@@ -141,12 +156,13 @@ export function EngineeringAiCommandCenter({ workspaceRoot, runtimeReady, projec
   const [notice, setNotice] = useState<string | null>(null)
   const [evidenceCards, setEvidenceCards] = useState<EvidenceCard[]>([])
   const [aiPlan, setAiPlan] = useState<AiPlan | null>(null)
+  const [taskRun, setTaskRun] = useState<TaskRunV1 | null>(null)
   const [planBusy, setPlanBusy] = useState(false)
   const [showPlan, setShowPlan] = useState(true)
   const projectId = project?.id ?? ''
   const connected = runtimeReady && runtimeConnection === 'ready'
 
-  useEffect(() => { setNotice(null); setAiPlan(null) }, [projectId, activeThreadId])
+  useEffect(() => { setNotice(null); setAiPlan(null); setTaskRun(null) }, [projectId, activeThreadId])
   useEffect(() => {
     let cancelled = false
     if (!connected || !projectId || !activeThreadId) return
@@ -177,14 +193,39 @@ export function EngineeringAiCommandCenter({ workspaceRoot, runtimeReady, projec
     return () => { cancelled = true }
   }, [connected, projectId])
 
+  const refreshTaskRun = useCallback(async (): Promise<TaskRunV1 | null> => {
+    if (!connected || !aiPlan?.taskId) {
+      setTaskRun(null)
+      return null
+    }
+    try {
+      const next = await window.workwise.getTaskRun(aiPlan.taskId)
+      setTaskRun(next)
+      return next
+    } catch {
+      setTaskRun(null)
+      return null
+    }
+  }, [aiPlan?.taskId, connected])
+
+  useEffect(() => {
+    let cancelled = false
+    let timer: number | undefined
+    const poll = async (): Promise<void> => {
+      const next = await refreshTaskRun()
+      if (cancelled || !next || !['queued', 'running', 'retrying'].includes(next.status)) return
+      timer = window.setTimeout(() => void poll(), 1_000)
+    }
+    void poll()
+    return () => {
+      cancelled = true
+      if (timer !== undefined) window.clearTimeout(timer)
+    }
+  }, [refreshTaskRun])
+
   const fallbackPlan = useMemo(() => makePlan(project, dataset, analysis), [analysis, dataset, project])
   const displayedPlan: PlanStep[] = aiPlan
-    ? aiPlan.steps.map((step) => ({
-      title: step.title,
-      detail: `${step.tool} · ${step.risk === 'read' ? '只读' : '需要审批'} · ${step.approval === 'approved' ? '已批准' : '待批准'}`,
-      state: step.approval === 'approved' ? 'done' : ['started', 'queued', 'running'].includes(aiPlan.status) ? 'active' : aiPlan.status === 'needs_attention' ? 'blocked' : 'ready',
-      tool: step.tool
-    }))
+    ? projectAiPlanSteps(aiPlan, taskRun?.status)
     : fallbackPlan
   const openFindings = dataset?.findings.filter((finding) => finding.status === 'open') ?? []
   const blockingCount = openFindings.filter((finding) => finding.severity === 'blocking').length
@@ -196,11 +237,13 @@ export function EngineeringAiCommandCenter({ workspaceRoot, runtimeReady, projec
   const timelineLiveReasoning = engineeringThreadActive ? liveReasoning : ''
   const timelineLiveAssistant = engineeringThreadActive ? liveAssistant : ''
   const timelineHasActivity = timelineBlocks.length > 0 || busy || Boolean(timelineLiveReasoning || timelineLiveAssistant)
-  const firstPendingStep = displayedPlan.findIndex((step) => step.state === 'active' || step.state === 'ready')
+  const firstPendingStep = displayedPlan.findIndex((step) => step.state !== 'done')
   const currentStepIndex = firstPendingStep < 0 ? displayedPlan.length : firstPendingStep
   const nextAction = !project ? { label: '创建工程测量项目', onClick: onCreateProject } : !dataset ? { label: '导入第一份数据', onClick: onImportData } : blockingCount > 0 ? { label: '查看质量问题', onClick: () => onOpenTab('quality') } : !analysis ? { label: '运行确定性分析', onClick: () => onOpenTab('analysis') } : { label: '检查成果门禁', onClick: () => onOpenTab('review') }
-  const controlState = !project ? '待建立项目' : blockingCount > 0 ? '数据被阻断' : latestRun ? phaseLabel(latestRun.status) : dataset ? '等待执行' : '等待资料'
-  const activeCapability = !project ? '工程测量项目上下文' : !dataset ? '资料识别与字段映射' : blockingCount > 0 ? '质量校核与问题定位' : !analysis ? '测量 / 监测确定性计算' : '结果解释与成果审查'
+  const effectivePlanStatus = taskRun?.status ?? aiPlan?.status
+  const controlState = !project ? '待建立项目' : blockingCount > 0 ? '数据被阻断' : effectivePlanStatus ? phaseLabel(effectivePlanStatus) : latestRun ? phaseLabel(latestRun.status) : dataset ? '等待执行' : '等待资料'
+  const taskNeedsAttention = Boolean(taskRun && ['stalled', 'waiting_user', 'waiting_approval', 'failed'].includes(taskRun.status))
+  const activeCapability = taskNeedsAttention ? 'TaskRun 需要恢复' : !project ? '工程测量项目上下文' : !dataset ? '资料识别与字段映射' : blockingCount > 0 ? '质量校核与问题定位' : !analysis ? '测量 / 监测确定性计算' : '结果解释与成果审查'
 
   const sendGoal = async (): Promise<void> => {
     const prompt = goal.trim()
@@ -233,9 +276,28 @@ export function EngineeringAiCommandCenter({ workspaceRoot, runtimeReady, projec
       if (!startedResponse.ok) throw new Error(readRuntimeMessage(startedResponse.body, '工程测量 AI 任务启动失败'))
       const started = JSON.parse(startedResponse.body) as { plan: AiPlan }
       setAiPlan({ ...started.plan, approval: undefined })
+      setTaskRun(null)
       setNotice('计划已通过唯一 TaskRun 启动，执行事件会回到当前工程测量会话。')
       onRefresh()
     } catch (cause) { setNotice(cause instanceof Error ? cause.message : String(cause)) } finally { setPlanBusy(false) }
+  }
+
+  const recoverTaskRun = async (): Promise<void> => {
+    if (!taskRun) return
+    setPlanBusy(true)
+    setNotice(null)
+    try {
+      const request = { expectedRevision: taskRun.revision, idempotencyKey: `engineering-task-recover-${Date.now()}` }
+      if (['stalled', 'waiting_user'].includes(taskRun.status)) await window.workwise.resumeTask(taskRun.id, request)
+      else await window.workwise.retryTask(taskRun.id, request)
+      await refreshTaskRun()
+      setNotice('TaskRun 已提交恢复；计划步骤会按真实运行状态更新。')
+    } catch (cause) {
+      setNotice(cause instanceof Error ? cause.message : String(cause))
+      await refreshTaskRun()
+    } finally {
+      setPlanBusy(false)
+    }
   }
 
   return (
@@ -292,7 +354,7 @@ export function EngineeringAiCommandCenter({ workspaceRoot, runtimeReady, projec
         <aside className="engineering-agent-inspector min-h-0 space-y-3 overflow-y-auto" aria-label="测绘 Copilot 证据检查器">
           <section className="border border-ds-border-muted bg-ds-card"><div className="border-b border-ds-border-muted px-3.5 py-3"><div className="flex items-center justify-between gap-2"><div><p className="text-[12.5px] font-semibold">Copilot 检查器</p><p className="mt-0.5 text-[10.5px] text-ds-faint">AI 的下一步和可验证证据</p></div><Zap className="h-4 w-4 text-accent" /></div></div>{project ? <div className="space-y-3 p-3.5"><div className="grid grid-cols-2 gap-x-4 gap-y-2 text-[10.5px]"><div><p className="text-ds-faint">观测记录</p><p className="mt-0.5 tabular-nums text-[16px] font-semibold text-ds-ink">{dataset?.observationCount.toLocaleString('zh-CN') ?? '—'}</p></div><div><p className="text-ds-faint">异常线索</p><p className={`mt-0.5 tabular-nums text-[16px] font-semibold ${anomalyCount ? 'text-amber-700 dark:text-amber-300' : 'text-ds-ink'}`}>{anomalyCount}</p></div><div><p className="text-ds-faint">阻断 / 警告</p><p className={`mt-0.5 tabular-nums text-[16px] font-semibold ${blockingCount ? 'text-red-700 dark:text-red-300' : 'text-ds-ink'}`}>{blockingCount} / {warningCount}</p></div><div><p className="text-ds-faint">最近运行</p><p className="mt-0.5 truncate text-[11px] font-medium text-ds-ink">{latestRun ? phaseLabel(latestRun.status) : '未开始'}</p></div></div><div className="border-t border-ds-border-muted pt-3"><p className="text-[10.5px] font-medium text-ds-ink">建议下一步</p><p className="mt-1 text-[10.5px] leading-4 text-ds-muted">{!dataset ? '先导入数据，AI 才能引用真实观测和来源行号。' : blockingCount ? '先处理阻断项；当前不允许把不完整数据送入分析。' : !analysis ? '完成确定性分析，AI 才能解释趋势和阈值。' : '检查证据和审查门禁，确认后再归档成果。'}</p><button type="button" onClick={nextAction.onClick} disabled={!runtimeReady} className="mt-2 inline-flex h-8 items-center gap-1.5 rounded-md bg-accent px-2.5 text-[11px] font-semibold text-white disabled:opacity-50">{nextAction.label}<ArrowRight className="h-3.5 w-3.5" /></button></div></div> : <div className="p-3.5"><div className="flex gap-2 text-[11px] leading-4 text-ds-muted"><Bot className="mt-0.5 h-4 w-4 shrink-0 text-accent" /><p>测绘专业 AI Agent 需要一个项目上下文，才能把自然语言目标绑定到确定性工具。</p></div><button type="button" onClick={onCreateProject} disabled={!runtimeReady} className="mt-3 inline-flex h-8 items-center gap-1.5 rounded-md bg-accent px-2.5 text-[11px] font-semibold text-white disabled:opacity-50"><Plus className="h-3.5 w-3.5" />创建项目</button></div>}</section>
 
-          <section className="border border-ds-border-muted bg-ds-card"><div className="flex items-center justify-between border-b border-ds-border-muted px-3.5 py-3"><div><p className="flex items-center gap-1.5 text-[12.5px] font-semibold"><ClipboardList className="h-4 w-4 text-accent" />Typed Plan</p><p className="mt-0.5 text-[10.5px] text-ds-faint">先审查，再让 TaskRun 执行</p></div><button type="button" onClick={() => setShowPlan((value) => !value)} className="text-[10.5px] font-medium text-accent">{showPlan ? '收起' : '展开'}</button></div>{showPlan ? <div className="divide-y divide-ds-border-muted">{displayedPlan.map((step, index) => <div key={`${step.title}-${index}`} className="px-3.5 py-2.5"><div className="flex items-start gap-2"><span className="mt-0.5"><StepIcon state={step.state} /></span><div className="min-w-0 flex-1"><div className="flex items-center justify-between gap-2"><p className="text-[11px] font-medium text-ds-ink">{step.title}</p><span className="text-[9.5px] text-ds-faint">{step.state === 'done' ? '完成' : step.state === 'active' ? '当前' : step.state === 'blocked' ? '等待' : '下一步'}</span></div><p className="mt-0.5 text-[10px] leading-4 text-ds-muted">{step.detail}</p></div></div></div>)}</div> : null}{aiPlan ? <div className="border-t border-ds-border-muted px-3.5 py-3"><p className="font-mono text-[9.5px] text-ds-faint">{aiPlan.id} · context {hashLabel(aiPlan.contextHash)} · {phaseLabel(aiPlan.status)}</p>{aiPlan.status === 'awaiting_approval' && aiPlan.approval ? <button type="button" onClick={() => void approveAndStartPlan()} disabled={planBusy || !connected} className="mt-2 inline-flex h-8 w-full items-center justify-center gap-1.5 rounded-md bg-accent px-2.5 text-[11px] font-semibold text-white disabled:opacity-50"><CheckCircle2 className="h-3.5 w-3.5" />审批并启动</button> : null}</div> : null}</section>
+          <section className="border border-ds-border-muted bg-ds-card"><div className="flex items-center justify-between border-b border-ds-border-muted px-3.5 py-3"><div><p className="flex items-center gap-1.5 text-[12.5px] font-semibold"><ClipboardList className="h-4 w-4 text-accent" />Typed Plan</p><p className="mt-0.5 text-[10.5px] text-ds-faint">先审查，再让 TaskRun 执行</p></div><button type="button" onClick={() => setShowPlan((value) => !value)} className="text-[10.5px] font-medium text-accent">{showPlan ? '收起' : '展开'}</button></div>{showPlan ? <div className="divide-y divide-ds-border-muted">{displayedPlan.map((step, index) => <div key={`${step.title}-${index}`} className="px-3.5 py-2.5"><div className="flex items-start gap-2"><span className="mt-0.5"><StepIcon state={step.state} /></span><div className="min-w-0 flex-1"><div className="flex items-center justify-between gap-2"><p className="text-[11px] font-medium text-ds-ink">{step.title}</p><span className="text-[9.5px] text-ds-faint">{step.state === 'done' ? '完成' : step.state === 'active' ? '执行中' : step.state === 'blocked' ? '已阻断' : '待执行'}</span></div><p className="mt-0.5 text-[10px] leading-4 text-ds-muted">{step.detail}</p></div></div></div>)}</div> : null}{aiPlan ? <div className="border-t border-ds-border-muted px-3.5 py-3"><p className="font-mono text-[9.5px] text-ds-faint">{aiPlan.id} · context {hashLabel(aiPlan.contextHash)} · {phaseLabel(effectivePlanStatus ?? aiPlan.status)}</p>{taskRun?.stalledReason || taskRun?.waitingReason ? <p className="mt-1.5 text-[10px] leading-4 text-amber-700 dark:text-amber-300">{taskRun.stalledReason || taskRun.waitingReason}</p> : null}{aiPlan.status === 'awaiting_approval' && aiPlan.approval ? <button type="button" onClick={() => void approveAndStartPlan()} disabled={planBusy || !connected} className="mt-2 inline-flex h-8 w-full items-center justify-center gap-1.5 rounded-md bg-accent px-2.5 text-[11px] font-semibold text-white disabled:opacity-50"><CheckCircle2 className="h-3.5 w-3.5" />审批并启动</button> : null}{taskRun && ['stalled', 'waiting_user', 'failed', 'cancelled'].includes(taskRun.status) ? <button type="button" onClick={() => void recoverTaskRun()} disabled={planBusy || !connected} className="mt-2 inline-flex h-8 w-full items-center justify-center gap-1.5 rounded-md bg-accent px-2.5 text-[11px] font-semibold text-white disabled:opacity-50"><Play className="h-3.5 w-3.5" />恢复 TaskRun</button> : null}</div> : null}</section>
 
           {evidenceCards.length > 0 ? <section className="border border-ds-border-muted bg-ds-card"><div className="border-b border-ds-border-muted px-3.5 py-3"><p className="flex items-center gap-1.5 text-[12.5px] font-semibold"><FileCheck2 className="h-4 w-4 text-accent" />证据回流</p><p className="mt-0.5 text-[10.5px] text-ds-faint">不是模型的猜测，而是 Runtime 的结构化结果</p></div><div className="divide-y divide-ds-border-muted">{evidenceCards.map((card) => <div key={card.id} className="px-3.5 py-2.5"><div className="flex items-center justify-between gap-2"><span className="truncate text-[11px] font-medium text-ds-ink">{card.title}</span><span className="shrink-0 border border-ds-border-muted px-1.5 py-0.5 text-[9px] text-ds-faint">{card.kind}</span></div><p className="mt-1 text-[10px] leading-4 text-ds-muted">{card.summary}</p><div className="mt-1 flex items-center gap-2 text-[9px] text-ds-faint"><span>{card.locator ?? '来源定位待补'}</span>{card.sourceHash ? <span className="font-mono">{hashLabel(card.sourceHash)}</span> : null}</div></div>)}</div></section> : null}
 

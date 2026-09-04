@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { BrowserStorageLike } from '../lib/browser-storage'
 import {
+  activeDesignDocumentForWorkspace,
   designAssistantThreadIdForDocument,
   consumeRequestedDesignDocument,
   designDocumentIdForAssistantThread,
@@ -9,6 +10,7 @@ import {
   isDesignAssistantThreadId,
   markDesignAssistantThread,
   readDesignThreadRegistry,
+  rememberActiveDesignDocument,
   requestDesignDocumentOpen
 } from './design-thread-registry'
 
@@ -59,5 +61,21 @@ describe('Design assistant thread registry', () => {
     requestDesignDocumentOpen('design-1', storage)
     expect(consumeRequestedDesignDocument(storage)).toBe('design-1')
     expect(consumeRequestedDesignDocument(storage)).toBe('')
+  })
+
+  it('remembers the selected document independently for each workspace', () => {
+    const storage = memoryStorage()
+    rememberActiveDesignDocument('/workspace/one/', 'doc-one', storage)
+    rememberActiveDesignDocument('/workspace/two', 'doc-two', storage)
+
+    expect(activeDesignDocumentForWorkspace('/workspace/one', storage)).toBe('doc-one')
+    expect(activeDesignDocumentForWorkspace('/workspace/two/', storage)).toBe('doc-two')
+    expect(activeDesignDocumentForWorkspace('/workspace/unknown', storage)).toBe('')
+  })
+
+  it('ignores malformed persisted document selection data', () => {
+    const storage = memoryStorage()
+    storage.setItem('workwise.design.activeDocumentByWorkspace.v1', '{broken')
+    expect(activeDesignDocumentForWorkspace('/workspace/one', storage)).toBe('')
   })
 })

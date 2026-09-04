@@ -28,7 +28,8 @@ import {
   upsertUserBlock
 } from './chat-store-runtime-helpers'
 import {
-  isWriteThreadId
+  isWriteThreadId,
+  WRITE_ASSISTANT_THREAD_TITLE
 } from '../write/write-thread-registry'
 import { isSddAssistantThread } from '../sdd/sdd-thread-registry'
 import { isDesignAssistantThread } from '../design/design-thread-registry'
@@ -450,6 +451,7 @@ export function isCodeThread(
     !isInternalTemporaryWorkspace(thread.workspace) &&
     !isClawWorkspacePath(thread.workspace) &&
     (thread.domain === undefined || thread.domain === 'code') &&
+    thread.title.trim() !== WRITE_ASSISTANT_THREAD_TITLE &&
     !isClawThread(thread, clawChannels) &&
     !isWriteThreadId(thread.id) &&
     !isSddAssistantThread(thread) &&

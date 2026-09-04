@@ -18,7 +18,7 @@
 - [x] 3.1 Adapt the MIT Document Illustrator Skill to WorkWise document parsing, configured image generation and workspace artifact rules
 - [x] 3.2 Preserve the MIT license, exact upstream commit and three visual-style references while excluding legacy Gemini credential scripts
 - [x] 3.3 Add the bundled marketplace card, Chinese/English localization, install tests and restricted-source regression test
-- [ ] 3.4 Run a representative document-to-illustration scenario with a configured provider and verify real output files and insertion mapping
+- [x] 3.4 Run a representative document-to-illustration scenario with a configured provider and verify real output files and insertion mapping
 
 ## 4. Restricted Source Product Boundary
 

@@ -4,6 +4,7 @@ import type { DesignDocumentSummaryV1 } from '@shared/design-workspace'
 
 const DESIGN_THREAD_REGISTRY_KEY = 'workwise.design.threadRegistry.v1'
 const PENDING_DESIGN_DOCUMENT_KEY = 'workwise.design.pendingDocument.v1'
+const ACTIVE_DESIGN_DOCUMENTS_KEY = 'workwise.design.activeDocumentByWorkspace.v1'
 const MAX_DESIGN_THREAD_RECORDS = 200
 
 export type DesignThreadRecord = {
@@ -175,6 +176,43 @@ export function consumeRequestedDesignDocument(
     return documentId
   } catch {
     return ''
+  }
+}
+
+export function activeDesignDocumentForWorkspace(
+  workspaceRoot: string,
+  storage: BrowserStorageLike | null = browserStorage()
+): string {
+  const workspace = workspaceRoot.trim().replaceAll('\\', '/').replace(/\/+$/, '')
+  if (!workspace || !storage) return ''
+  try {
+    const parsed = JSON.parse(storage.getItem(ACTIVE_DESIGN_DOCUMENTS_KEY) ?? '{}') as unknown
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return ''
+    return normalizeText((parsed as Record<string, unknown>)[workspace])
+  } catch {
+    return ''
+  }
+}
+
+export function rememberActiveDesignDocument(
+  workspaceRoot: string,
+  documentId: string,
+  storage: BrowserStorageLike | null = browserStorage()
+): void {
+  const workspace = workspaceRoot.trim().replaceAll('\\', '/').replace(/\/+$/, '')
+  const normalizedDocumentId = documentId.trim()
+  if (!workspace || !normalizedDocumentId || !storage) return
+  try {
+    const current = JSON.parse(storage.getItem(ACTIVE_DESIGN_DOCUMENTS_KEY) ?? '{}') as unknown
+    const records = current && typeof current === 'object' && !Array.isArray(current)
+      ? current as Record<string, unknown>
+      : {}
+    storage.setItem(ACTIVE_DESIGN_DOCUMENTS_KEY, JSON.stringify({
+      ...records,
+      [workspace]: normalizedDocumentId
+    }))
+  } catch {
+    /* Design remains usable when browser storage is unavailable or malformed. */
   }
 }
 

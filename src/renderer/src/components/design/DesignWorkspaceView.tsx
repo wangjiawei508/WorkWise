@@ -50,7 +50,11 @@ import type {
   DesignDocumentSummaryV1
 } from '@shared/design-workspace'
 import { useChatStore } from '../../store/chat-store'
-import { consumeRequestedDesignDocument } from '../../design/design-thread-registry'
+import {
+  activeDesignDocumentForWorkspace,
+  consumeRequestedDesignDocument,
+  rememberActiveDesignDocument
+} from '../../design/design-thread-registry'
 import {
   openGeneratedWorkspaceFile,
   revealGeneratedWorkspaceFile,
@@ -350,6 +354,7 @@ export function DesignWorkspaceView({
           activePageId: result.activePageId,
           persistedRevision: result.revision ?? result.document.revision
         })
+        rememberActiveDesignDocument(workspaceRoot, result.document.id)
         await Promise.all(result.document.assets.map(async (asset) => {
           const assetResult = await window.workwise.readDesignAsset({
             workspaceRoot,
@@ -398,7 +403,10 @@ export function DesignWorkspaceView({
         message: error instanceof Error ? error.message : String(error)
       })
     })
-    void restoreDesignDocument()
+    const rememberedDocumentId = activeDesignDocumentForWorkspace(workspaceRoot)
+    void restoreDesignDocument(rememberedDocumentId || undefined).then((result) => {
+      if (rememberedDocumentId && result?.code === 'not_found') void restoreDesignDocument()
+    })
     return () => {
       restoreGenerationRef.current += 1
     }
