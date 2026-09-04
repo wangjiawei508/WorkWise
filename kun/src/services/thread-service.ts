@@ -73,6 +73,11 @@ export type SyncPlanTodosOptions = {
   preserveCompleted?: boolean
 }
 
+export type EnsureEngineeringThreadResult = {
+  thread: ThreadRecord
+  created: boolean
+}
+
 export class ThreadService {
   private readonly threadStore: ThreadStore
   private readonly sessionStore: SessionStore
@@ -80,6 +85,7 @@ export class ThreadService {
   private readonly ids: IdGenerator
   private readonly nowIso: () => string
   private readonly onThreadDeleted?: (threadId: string) => Promise<void>
+  private readonly engineeringThreadCreates = new Map<string, Promise<EnsureEngineeringThreadResult>>()
 
   constructor(options: ThreadServiceOptions) {
     this.threadStore = options.threadStore
@@ -139,6 +145,54 @@ export class ThreadService {
       title: thread.title
     })
     return thread
+  }
+
+  async ensureEngineeringThread(
+    request: CreateThreadRequest
+  ): Promise<EnsureEngineeringThreadResult> {
+    if (request.domain !== 'engineering' || !request.projectId) {
+      return { thread: await this.create(request), created: true }
+    }
+    const scopeKey = engineeringThreadScopeKey(request.workspace, request.projectId)
+    const pending = this.engineeringThreadCreates.get(scopeKey)
+    if (pending) return { thread: (await pending).thread, created: false }
+
+    const ensure = this.findOrCreateEngineeringThread(request)
+    this.engineeringThreadCreates.set(scopeKey, ensure)
+    try {
+      return await ensure
+    } finally {
+      if (this.engineeringThreadCreates.get(scopeKey) === ensure) {
+        this.engineeringThreadCreates.delete(scopeKey)
+      }
+    }
+  }
+
+  private async findOrCreateEngineeringThread(
+    request: CreateThreadRequest
+  ): Promise<EnsureEngineeringThreadResult> {
+    const existing = await this.findEngineeringThread(request.workspace, request.projectId!)
+    if (existing) return { thread: existing, created: false }
+    return { thread: await this.create(request), created: true }
+  }
+
+  private async findEngineeringThread(workspace: string, projectId: string): Promise<ThreadRecord | null> {
+    const workspaceKey = normalizeEngineeringWorkspace(workspace)
+    const candidates = (await this.threadStore.list({
+      domain: 'engineering',
+      projectId,
+      includeArchived: false
+    }))
+      .filter((thread) =>
+        (thread.relation ?? 'primary') === 'primary' &&
+        normalizeEngineeringWorkspace(thread.workspace) === workspaceKey
+      )
+      .sort(compareEngineeringThreadCandidates)
+    for (const candidate of candidates) {
+      const thread = await this.threadStore.get(candidate.id)
+      if (thread && thread.status !== 'archived' && thread.status !== 'deleted') return thread
+    }
+    return null
   }
 
   async update(threadId: string, patch: {
@@ -733,6 +787,23 @@ function matchesThreadSearch(thread: ThreadSummary, query: string): boolean {
     thread.forkedFromTitle,
     thread.forkedFromThreadId
   ].some((value) => value?.toLowerCase().includes(query))
+}
+
+function normalizeEngineeringWorkspace(workspace: string): string {
+  const normalized = workspace.trim().replace(/\\/g, '/').replace(/\/+$/, '')
+  return process.platform === 'win32' ? normalized.toLowerCase() : normalized
+}
+
+function engineeringThreadScopeKey(workspace: string, projectId: string): string {
+  return `${normalizeEngineeringWorkspace(workspace)}\u0000${projectId.trim()}`
+}
+
+function compareEngineeringThreadCandidates(left: ThreadSummary, right: ThreadSummary): number {
+  const leftHasMessages = (left.messageCount ?? 0) > 0 ? 1 : 0
+  const rightHasMessages = (right.messageCount ?? 0) > 0 ? 1 : 0
+  if (leftHasMessages !== rightHasMessages) return rightHasMessages - leftHasMessages
+  const updated = right.updatedAt.localeCompare(left.updatedAt)
+  return updated || right.id.localeCompare(left.id)
 }
 
 function rebuildTurnsFromItems(input: {

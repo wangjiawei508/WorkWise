@@ -656,6 +656,42 @@ describe('HTTP server', () => {
     expect(limitedBody.threads).toHaveLength(1)
   })
 
+  it('idempotently reuses the primary Engineering thread for one workspace and project', async () => {
+    const h = buildHarness()
+    const request = (): Promise<Response> => dispatchRequest(
+      h.router,
+      new Request('http://localhost/v1/threads', {
+        method: 'POST',
+        headers: { authorization: 'Bearer tok-1', 'content-type': 'application/json' },
+        body: JSON.stringify({
+          workspace: '/tmp/survey-project',
+          model: 'deepseek-chat',
+          mode: 'agent',
+          domain: 'engineering',
+          projectId: 'project-survey-1',
+          title: '工程测量 AI · 重启恢复'
+        })
+      })
+    )
+
+    const [firstResponse, replayResponse] = await Promise.all([request(), request()])
+    const first = await readJson(firstResponse) as { id: string }
+    const replay = await readJson(replayResponse) as { id: string }
+
+    expect(firstResponse.status).toBe(201)
+    expect(replayResponse.status).toBe(200)
+    expect(replay.id).toBe(first.id)
+
+    const listed = await dispatchRequest(
+      h.router,
+      new Request('http://localhost/v1/threads?domain=engineering&project_id=project-survey-1&include_archived=true', {
+        headers: { authorization: 'Bearer tok-1' }
+      })
+    )
+    const body = await readJson(listed) as { threads: Array<{ id: string }> }
+    expect(body.threads).toEqual([expect.objectContaining({ id: first.id })])
+  })
+
   it('deletes threads through the HTTP layer', async () => {
     const h = buildHarness()
     const create = await dispatchRequest(

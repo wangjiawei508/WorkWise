@@ -76,6 +76,10 @@ export async function createThread(
   if (!parsed.success) {
     return validationError('invalid create thread body', parsed.error.issues)
   }
+  if (parsed.data.domain === 'engineering' && parsed.data.projectId) {
+    const result = await service.ensureEngineeringThread(parsed.data)
+    return jsonResponse(ThreadSchema.parse(result.thread), result.created ? 201 : 200)
+  }
   const thread = await service.create(parsed.data)
   return jsonResponse(ThreadSchema.parse(thread), 201)
 }

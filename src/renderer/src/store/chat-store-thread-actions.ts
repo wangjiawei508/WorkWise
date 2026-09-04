@@ -104,6 +104,24 @@ type StoreActionContext = {
 
 let drainingQueuedMessages = false
 
+function engineeringThreadContentScore(thread: NormalizedThread): number {
+  if (typeof thread.messageCount !== 'number') return 1
+  return thread.messageCount > 0 ? 2 : 0
+}
+
+function pickEngineeringThreadCandidate(
+  threads: NormalizedThread[]
+): NormalizedThread | undefined {
+  return [...threads].sort((left, right) => {
+    const score = engineeringThreadContentScore(right) - engineeringThreadContentScore(left)
+    if (score !== 0) return score
+    const updated = Date.parse(right.updatedAt) - Date.parse(left.updatedAt)
+    return Number.isNaN(updated) || updated === 0
+      ? right.id.localeCompare(left.id)
+      : updated
+  })[0]
+}
+
 function subscribeThreadEventsWithRecovery(
   provider: AgentProvider,
   threadId: string,
@@ -200,12 +218,12 @@ export function createThreadActions(
     try {
       const current = get()
       const targetWorkspace = normalizeWorkspaceRoot(workspaceRoot) || normalizeWorkspaceRoot(current.workspaceRoot)
-      const inMemory = current.threads.find((thread) =>
+      const inMemory = pickEngineeringThreadCandidate(current.threads.filter((thread) =>
         thread.domain === 'engineering' &&
         thread.projectId === normalizedProjectId &&
         thread.archived !== true &&
         (!targetWorkspace || normalizeWorkspaceRoot(thread.workspace) === targetWorkspace)
-      )
+      ))
       if (inMemory) {
         set({ route: 'engineering' })
         if (current.activeThreadId !== inMemory.id) await get().selectThread(inMemory.id)
@@ -224,7 +242,7 @@ export function createThreadActions(
         thread.archived !== true &&
         (!targetWorkspace || normalizeWorkspaceRoot(thread.workspace) === targetWorkspace)
       )
-      const existing = remote.sort((left, right) => Date.parse(right.updatedAt) - Date.parse(left.updatedAt))[0]
+      const existing = pickEngineeringThreadCandidate(remote)
       if (existing) {
         set((state) => ({
           route: 'engineering',

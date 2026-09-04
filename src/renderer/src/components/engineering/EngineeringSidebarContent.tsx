@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState, type ReactElement } from 'react'
 import { Bot, Database, FolderKanban, HardHat, MessageSquareText, Plus, RefreshCw } from 'lucide-react'
 import { rendererRuntimeClient } from '../../agent/runtime-client'
+import type { NormalizedThread } from '../../agent/types'
 import { useChatStore } from '../../store/chat-store'
 import { SidebarIconButton } from '../sidebar/SidebarPrimitives'
 import {
@@ -43,6 +44,28 @@ function formatUpdatedAt(value: string): string {
   const time = Date.parse(value)
   if (Number.isNaN(time)) return '尚未同步'
   return new Date(time).toLocaleDateString('zh-CN', { month: 'numeric', day: 'numeric' })
+}
+
+function collapseRedundantEmptyEngineeringThreads(
+  threads: NormalizedThread[],
+  activeThreadId: string | null
+): NormalizedThread[] {
+  const byProject = new Map<string, NormalizedThread[]>()
+  for (const thread of threads) {
+    if (!thread.projectId) continue
+    byProject.set(thread.projectId, [...(byProject.get(thread.projectId) ?? []), thread])
+  }
+  const hidden = new Set<string>()
+  for (const group of byProject.values()) {
+    const empty = group.filter((thread) => thread.messageCount === 0)
+    const activeEmpty = empty.find((thread) => thread.id === activeThreadId)
+    const hasRealOrUncertainHistory = group.some((thread) => thread.messageCount !== 0)
+    const keep = activeEmpty ?? (hasRealOrUncertainHistory ? undefined : empty[0])
+    for (const thread of empty) {
+      if (thread.id !== keep?.id) hidden.add(thread.id)
+    }
+  }
+  return hidden.size === 0 ? threads : threads.filter((thread) => !hidden.has(thread.id))
 }
 
 export function EngineeringSidebarContent({ workspaceRoot, runtimeReady }: Props): ReactElement {
@@ -97,10 +120,13 @@ export function EngineeringSidebarContent({ workspaceRoot, runtimeReady }: Props
     [projects, workspaceRoot]
   )
   const engineeringThreads = useMemo(
-    () => threads
-      .filter((thread) => thread.domain === 'engineering' && thread.workspace === workspaceRoot && thread.archived !== true)
-      .sort((left, right) => Date.parse(right.updatedAt) - Date.parse(left.updatedAt)),
-    [threads, workspaceRoot]
+    () => collapseRedundantEmptyEngineeringThreads(
+      threads
+        .filter((thread) => thread.domain === 'engineering' && thread.workspace === workspaceRoot && thread.archived !== true)
+        .sort((left, right) => Date.parse(right.updatedAt) - Date.parse(left.updatedAt)),
+      activeThreadId
+    ),
+    [activeThreadId, threads, workspaceRoot]
   )
 
   return (
