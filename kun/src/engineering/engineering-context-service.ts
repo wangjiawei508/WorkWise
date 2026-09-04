@@ -4,15 +4,19 @@ import { join } from 'node:path'
 import { atomicWriteFile } from '../adapters/file/atomic-write.js'
 import { EngineeringEvidenceCardV1, EngineeringWatchRuleV1, type EngineeringContextSnapshotV1, type EngineeringEvidenceCardV1 as EngineeringEvidenceCard, type EngineeringWatchRuleV1 as EngineeringWatchRule } from '../contracts/engineering-ai.js'
 import type { EngineeringService } from './engineering-service.js'
+import type { SurveyService } from './survey-service.js'
 
 const MAX_FINDINGS_PER_DATASET = 200
 const MAX_DATASETS = 20
 const MAX_ANALYSES = 20
 const MAX_RUNS = 20
+const MAX_SURVEY_NETWORKS = 20
+const MAX_SURVEY_ADJUSTMENTS = 20
 const MAX_CITATIONS = 100
 
 function hashContext(value: Omit<EngineeringContextSnapshotV1, 'contextHash'>): string {
-  return `sha256-${createHash('sha256').update(JSON.stringify(value)).digest('hex')}`
+  const { generatedAt: _generatedAt, ...stableContext } = value
+  return `sha256-${createHash('sha256').update(JSON.stringify(stableContext)).digest('hex')}`
 }
 
 /**
@@ -24,7 +28,11 @@ function hashContext(value: Omit<EngineeringContextSnapshotV1, 'contextHash'>): 
 export class EngineeringContextService {
   private readonly watchDrafts = new Map<string, EngineeringWatchRule[]>()
   private readonly loadedWatchProjects = new Set<string>()
-  constructor(private readonly engineering: EngineeringService, private readonly nowIso: () => string = () => new Date().toISOString()) {}
+  constructor(
+    private readonly engineering: EngineeringService,
+    private readonly nowIso: () => string = () => new Date().toISOString(),
+    private readonly survey?: Pick<SurveyService, 'listNetworks' | 'listAdjustments'>
+  ) {}
 
   async addWatchDraft(input: { projectId: string; name: string; expression: string; enabled?: boolean; idempotencyKey?: string }): Promise<EngineeringWatchRule> {
     const project = this.engineering.getProject(input.projectId)
@@ -52,6 +60,8 @@ export class EngineeringContextService {
 
   snapshot(projectId: string): EngineeringContextSnapshotV1 {
     const overview = this.engineering.getProjectOverview(projectId)
+    const surveyNetworks = this.survey?.listNetworks(projectId).slice(0, MAX_SURVEY_NETWORKS) ?? []
+    const surveyAdjustments = this.survey?.listAdjustments(projectId).slice(0, MAX_SURVEY_ADJUSTMENTS) ?? []
     this.loadWatchDrafts(projectId, overview.project.workspace)
     const base: Omit<EngineeringContextSnapshotV1, 'contextHash'> = {
       schemaVersion: 1,
@@ -95,6 +105,34 @@ export class EngineeringContextService {
         ...(run.analysisId ? { analysisId: run.analysisId } : {}),
         revision: run.revision,
         updatedAt: run.updatedAt
+      })),
+      surveyNetworks: surveyNetworks.map((network) => ({
+        id: network.id,
+        networkType: network.networkType,
+        ...(network.transformType ? { transformType: network.transformType } : {}),
+        coordinateSystem: network.coordinateSystem,
+        verticalDatum: network.verticalDatum,
+        pointCount: network.knownPoints.length + network.unknownPoints.length,
+        observationCount: network.observations.length,
+        qualityStatus: network.qualityStatus,
+        revision: network.revision,
+        ...(network.inputAttachmentHash ? { inputAttachmentHash: network.inputAttachmentHash } : {}),
+        ...(network.observationEpoch ? { observationEpoch: network.observationEpoch } : {})
+      })),
+      surveyAdjustments: surveyAdjustments.map((adjustment) => ({
+        id: adjustment.run.id,
+        networkId: adjustment.run.networkId,
+        status: adjustment.run.status,
+        revision: adjustment.run.revision,
+        ...(adjustment.result?.strategyId ? { strategyId: adjustment.result.strategyId } : {}),
+        algorithmVersion: adjustment.run.algorithmVersion,
+        inputHash: adjustment.run.inputHash,
+        ...(adjustment.result ? {
+          validation: adjustment.result.validation,
+          observationCount: adjustment.result.observationCount,
+          unknownCount: adjustment.result.unknownCount,
+          degreesOfFreedom: adjustment.result.degreesOfFreedom
+        } : {})
       })),
       citations: overview.manifests.flatMap((manifest) => manifest.citations).slice(0, MAX_CITATIONS).map((citation) => ({
         id: citation.id,

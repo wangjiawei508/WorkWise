@@ -141,7 +141,7 @@ export function listDeformations(service: SurveyService | undefined, projectId?:
 export function engineeringCapabilities(service: SurveyService | undefined): JsonResponse {
   const available = Boolean(service)
   const capabilities: EngineeringCapabilityV1[] = [
-    { id: 'survey-adjustment', label: '工程测量与平差', category: 'survey', skillIds: ['data-analysis', 'adjustment-report'], toolIds: ['survey_calculator', 'control_network', 'cpiii_adjustment', 'coord_transform'], available, ...(available ? {} : { reason: 'survey runtime unavailable' }) },
+    { id: 'survey-adjustment', label: '工程测量与平差', category: 'survey', skillIds: ['data-analysis', 'adjustment-report'], toolIds: ['survey_network_validate', 'survey_calculator', 'control_network', 'cpiii_adjustment', 'coord_transform', 'survey_adjustment_read'], available, ...(available ? {} : { reason: 'survey runtime unavailable' }) },
     { id: 'third-party-monitoring', label: '地保与第三方监测', category: 'monitoring', skillIds: ['di-bao-monitoring', 'report-dibao', 'construction-monitoring', 'operational-monitoring'], toolIds: ['monitoring_csv', 'deformation_rate', 'alert_level'], available, ...(available ? {} : { reason: 'engineering runtime unavailable' }) },
     { id: 'engineering-delivery', label: '测绘成果交付', category: 'documents', skillIds: ['report-writing', 'docx-generation', 'excel-operations'], toolIds: ['report_export', 'excel_export', 'chart_generator'], available, ...(available ? {} : { reason: 'survey runtime unavailable' }) },
     { id: 'tender-master', label: '标书编制', category: 'documents', skillIds: ['tender-master', 'bidding-knowledge'], toolIds: ['standard_query'], available, ...(available ? {} : { reason: 'skill runtime unavailable' }) },

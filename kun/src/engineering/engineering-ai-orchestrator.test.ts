@@ -6,6 +6,7 @@ import { EngineeringService } from './engineering-service.js'
 import { EngineeringContextService } from './engineering-context-service.js'
 import { EngineeringAiOrchestrator } from './engineering-ai-orchestrator.js'
 import { EngineeringAiRepository } from './engineering-ai-repository.js'
+import { SurveyService } from './survey-service.js'
 
 describe('Engineering AI orchestration', () => {
   it('creates bounded plans, rejects unsafe tools and replays idempotent requests', async () => {
@@ -16,7 +17,7 @@ describe('Engineering AI orchestration', () => {
     const repository = new EngineeringAiRepository({ rootDir: join(root, 'runtime') })
     const turns = {
       recordCompletedTurn: vi.fn(async () => ({ threadId: 'thread-1', turnId: 'draft-turn', userMessageItemId: 'draft-user', assistantMessageItemId: 'draft-assistant' })),
-      startTurn: vi.fn(async () => ({ threadId: 'thread-1', turnId: 'turn-1' }))
+      startTurn: vi.fn(async (_input: { threadId: string; request: { prompt: string } }) => ({ threadId: 'thread-1', turnId: 'turn-1' }))
     }
     const threadStore = { get: vi.fn(async () => ({ domain: 'engineering', projectId: project.id, turns: [] })) }
     const runTurn = vi.fn()
@@ -41,6 +42,8 @@ describe('Engineering AI orchestration', () => {
     expect(started.plan.status).toBe('started')
     expect(turns.startTurn).toHaveBeenCalledTimes(1)
     expect(runTurn).toHaveBeenCalledWith('thread-1', 'turn-1')
+    expect(runTurn).toHaveBeenCalledTimes(1)
+    expect(turns.startTurn.mock.calls[0]?.[0].request.prompt).toContain('"surveyNetworks":[]')
     repository.close()
     engineering.close()
   })
@@ -57,15 +60,48 @@ describe('Engineering AI orchestration', () => {
     engineering.close()
   })
 
+  it('keeps the context hash stable when only the snapshot timestamp changes', () => {
+    const root = join(tmpdir(), `workwise-engineering-context-hash-${Date.now()}`)
+    const engineering = new EngineeringService({ rootDir: join(root, 'runtime') })
+    const project = engineering.createProject({ name: 'stable-hash', workspace: root, expectedRevision: 0, idempotencyKey: 'ctx-hash-project-001' })
+    let tick = 0
+    const context = new EngineeringContextService(engineering, () => `2026-09-04T00:00:0${tick++}.000Z`)
+    const first = context.snapshot(project.id)
+    const second = context.snapshot(project.id)
+    expect(second.generatedAt).not.toBe(first.generatedAt)
+    expect(second.contextHash).toBe(first.contextHash)
+    engineering.close()
+  })
+
   it('selects survey tools for measurement and adjustment goals', async () => {
     const root = await mkdtemp(join(tmpdir(), 'workwise-engineering-survey-ai-'))
     const engineering = new EngineeringService({ rootDir: join(root, 'runtime') })
     const project = engineering.createProject({ name: 'survey-ai', workspace: root, expectedRevision: 0, idempotencyKey: 'survey-ai-project-001' })
+    const survey = new SurveyService({ rootDir: join(root, 'runtime'), getProject: (id) => engineering.getProject(id) })
+    const network = await survey.importNetwork({ projectId: project.id, expectedRevision: project.revision, idempotencyKey: 'survey-ai-network-001', networkType: 'leveling', network: {
+      knownPoints: [{ id: 'BM', pointClass: 'known', height: 10, known: true }],
+      unknownPoints: [{ id: 'P', pointClass: 'unknown', height: 10.1, known: false }],
+      observations: [{ id: 'BM-P', type: 'height-difference', from: 'BM', to: 'P', value: 0.1, unit: 'm', sigma: 0.001 }]
+    } })
+    const checked = survey.validateNetwork(network.id, { expectedRevision: network.revision, idempotencyKey: 'survey-ai-network-check-001' })
+    const adjustment = survey.createAdjustment({ networkId: network.id, expectedRevision: checked.revision, idempotencyKey: 'survey-ai-adjustment-001' })
     const repository = new EngineeringAiRepository({ rootDir: join(root, 'runtime') })
-    const orchestrator = new EngineeringAiOrchestrator({ context: new EngineeringContextService(engineering), repository, threadStore: { get: vi.fn(async () => ({ domain: 'engineering', projectId: project.id, turns: [] })) } as never, turns: { recordCompletedTurn: vi.fn() } as never, runTurn: vi.fn() })
+    const context = new EngineeringContextService(engineering, undefined, survey)
+    const snapshot = context.snapshot(project.id)
+    expect(snapshot.surveyNetworks[0]).toMatchObject({ id: network.id, networkType: 'leveling', observationCount: 1 })
+    expect(snapshot.surveyAdjustments[0]).toMatchObject({ id: adjustment.run.id, strategyId: 'leveling', status: 'completed' })
+    expect(JSON.stringify(snapshot)).not.toContain('knownPoints')
+    expect(JSON.stringify(snapshot)).not.toContain('observations')
+    const orchestrator = new EngineeringAiOrchestrator({ context, repository, threadStore: { get: vi.fn(async () => ({ domain: 'engineering', projectId: project.id, turns: [] })) } as never, turns: { recordCompletedTurn: vi.fn() } as never, runTurn: vi.fn() })
     const plan = await orchestrator.createPlan({ threadId: 'survey-thread', projectId: project.id, goal: '对水准网执行加权最小二乘平差并检查闭合差', idempotencyKey: 'survey-ai-plan-001' })
-    expect(plan.plan.steps.map((step) => step.tool)).toEqual(expect.arrayContaining(['survey_calculator', 'control_network', 'cpiii_adjustment']))
+    expect(plan.plan.steps.map((step) => step.tool)).toEqual([
+      'survey_network_validate',
+      'survey_calculator',
+      'survey_adjustment_read',
+      'report_export'
+    ])
     repository.close()
+    survey.close()
     engineering.close()
   })
 

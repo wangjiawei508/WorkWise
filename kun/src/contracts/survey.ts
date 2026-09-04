@@ -192,6 +192,7 @@ export const AdjustmentObservationResultV1 = z.object({
    * Optional for adjustment records created before 0.5.0. */
   unit: z.enum(['m', 'rad']).optional(),
   standardizedResidual: z.number().finite().optional(),
+  standardizedResidualUnit: z.literal('sigma').default('sigma'),
   outlier: z.boolean().default(false),
   sourceRow: z.number().int().positive().optional()
 }).strict()
@@ -228,7 +229,12 @@ export const AdjustmentResultV1 = z.object({
   parameters: z.record(z.string(), z.number().finite()).default({}),
   parameterUnits: z.record(z.string(), z.enum(['m', 'rad', 'ppm', 'ratio'])).default({}),
   unitWeightStdDev: z.number().nonnegative(),
+  /** Unit-weight standard deviation and variance factor are statistical
+   * scale values, never coordinate or height measurements. Defaults keep
+   * legacy records readable without rewriting their stored JSON. */
+  unitWeightStdDevUnit: z.literal('dimensionless').default('dimensionless'),
   varianceFactor: z.number().nonnegative(),
+  varianceFactorUnit: z.literal('dimensionless').default('dimensionless'),
   /** False means the a-priori unit variance is retained because the network
    * has no redundancy; older records default to false rather than claiming
    * a posterior estimate. */

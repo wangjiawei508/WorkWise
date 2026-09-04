@@ -27,9 +27,12 @@ describe('SurveyService', () => {
     expect(adjustment.result.validation).toBe('valid')
     expect(adjustment.result.linearUnit).toBe('m')
     expect(adjustment.result.angularUnit).toBe('rad')
+    expect(adjustment.result.unitWeightStdDevUnit).toBe('dimensionless')
+    expect(adjustment.result.varianceFactorUnit).toBe('dimensionless')
     expect(adjustment.result.closure).toEqual({})
     expect(adjustment.result.closureUnits).toEqual({})
     expect(adjustment.result.observations[0]?.unit).toBe('m')
+    expect(adjustment.result.observations[0]?.standardizedResidualUnit).toBe('sigma')
     expect(adjustment.result.points.find((point) => point.id === 'P1')?.height).toBeCloseTo(100.2, 5)
     expect(adjustment.result.inputHash).toBe(adjustment.run.inputHash)
     service.close()
@@ -75,11 +78,16 @@ describe('SurveyService', () => {
 
     const db = new Database(join(root, 'survey.sqlite3'))
     const row = db.prepare('SELECT data_json FROM survey_adjustments WHERE id = ?').get(created.run.id) as { data_json: string }
-    const legacy = JSON.parse(row.data_json) as { result: { linearUnit?: string; angularUnit?: string; closureUnits?: unknown; observations: Array<{ unit?: string }> } }
+    const legacy = JSON.parse(row.data_json) as { result: { linearUnit?: string; angularUnit?: string; unitWeightStdDevUnit?: string; varianceFactorUnit?: string; closureUnits?: unknown; observations: Array<{ unit?: string; standardizedResidualUnit?: string }> } }
     delete legacy.result.linearUnit
     delete legacy.result.angularUnit
     delete legacy.result.closureUnits
-    for (const observation of legacy.result.observations) delete observation.unit
+    delete legacy.result.unitWeightStdDevUnit
+    delete legacy.result.varianceFactorUnit
+    for (const observation of legacy.result.observations) {
+      delete observation.unit
+      delete observation.standardizedResidualUnit
+    }
     db.prepare('UPDATE survey_adjustments SET data_json = ? WHERE id = ?').run(JSON.stringify(legacy), created.run.id)
     db.close()
 
@@ -89,7 +97,10 @@ describe('SurveyService', () => {
     expect(restored?.result?.angularUnit).toBe('rad')
     expect(restored?.result?.closure).toEqual({})
     expect(restored?.result?.closureUnits).toEqual({})
+    expect(restored?.result?.unitWeightStdDevUnit).toBe('dimensionless')
+    expect(restored?.result?.varianceFactorUnit).toBe('dimensionless')
     expect(restored?.result?.observations[0]?.unit).toBe('m')
+    expect(restored?.result?.observations[0]?.standardizedResidualUnit).toBe('sigma')
     reopened.close()
   })
 

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { projectAiPlanSteps } from './EngineeringAiCommandCenter'
+import { numberLabel } from './SurveyAdjustmentPanel'
 
 describe('engineering agent surface contract', () => {
   it('exposes an explicit agent execution protocol alongside the conversation', async () => {
@@ -26,9 +27,15 @@ describe('engineering agent surface contract', () => {
     expect(source).toContain('固定已知点')
     expect(source).toContain('加权最小二乘')
     expect(source).toContain('单位权中误差 σ₀')
-    expect(source).toContain('无量纲 · 方差因子')
+    expect(source).toContain('σ₀/方差因子均为无量纲')
     expect(source).toContain('标准化残差（σ）')
     expect(source).toContain("measurementLabel(residual.residual, residual.unit")
+  })
+
+  it('does not round a non-zero variance factor to zero', () => {
+    expect(numberLabel(2e-7, 6)).toBe('2e-7')
+    expect(numberLabel(0, 6)).toBe('0')
+    expect(numberLabel(0.0004472135955, 6)).toBe('0.000447')
   })
 
   it('does not present approved steps as completed when TaskRun is stalled', () => {

@@ -316,7 +316,6 @@ export async function createKunServeRuntime(
     }),
     nowIso
   })
-  const engineeringContext = new EngineeringContextService(engineeringService, nowIso)
   const engineeringAiRepository = new EngineeringAiRepository({
     rootDir: join(options.dataDir, 'engineering'),
     nowIso
@@ -326,6 +325,7 @@ export async function createKunServeRuntime(
     getProject: (projectId) => engineeringService.getProject(projectId),
     nowIso
   })
+  const engineeringContext = new EngineeringContextService(engineeringService, nowIso, surveyService)
   const visionEvidenceRuntime = createVisionEvidenceService(options.visionEvidence)
   const visionEvidence = visionEvidenceRuntime.service
   const attachmentCleanupTimer = attachmentStore

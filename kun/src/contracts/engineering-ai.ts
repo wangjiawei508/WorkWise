@@ -33,6 +33,18 @@ export const EngineeringContextSnapshotV1 = z.object({
   }).strict()).max(20),
   analyses: z.array(z.object({ id: z.string(), datasetId: z.string(), algorithmVersion: z.string(), resultCount: z.number().int().nonnegative(), inputHash: z.string() }).strict()).max(20),
   runs: z.array(z.object({ id: z.string(), status: z.string(), datasetId: z.string(), analysisId: z.string().optional(), revision: z.number().int().nonnegative(), updatedAt: z.string() }).strict()).max(20),
+  surveyNetworks: z.array(z.object({
+    id: z.string(), networkType: z.string(), transformType: z.string().optional(),
+    coordinateSystem: z.string(), verticalDatum: z.string(), pointCount: z.number().int().nonnegative(),
+    observationCount: z.number().int().nonnegative(), qualityStatus: z.string(), revision: z.number().int().positive(),
+    inputAttachmentHash: z.string().optional(), observationEpoch: z.string().optional()
+  }).strict()).max(20).default([]),
+  surveyAdjustments: z.array(z.object({
+    id: z.string(), networkId: z.string(), status: z.string(), revision: z.number().int().positive(),
+    strategyId: z.string().optional(), algorithmVersion: z.string(), inputHash: z.string(),
+    validation: z.string().optional(), observationCount: z.number().int().nonnegative().optional(),
+    unknownCount: z.number().int().nonnegative().optional(), degreesOfFreedom: z.number().int().nonnegative().optional()
+  }).strict()).max(20).default([]),
   citations: z.array(z.object({ id: z.string(), source: z.string(), sourceType: z.string(), locator: z.string().optional() }).strict()).max(100),
   watchDrafts: z.array(z.object({
     id: z.string(), projectId: z.string(), name: z.string(), expression: z.string(), enabled: z.boolean(), revision: z.number().int().positive(), updatedAt: z.string()

@@ -69,12 +69,20 @@ export class EngineeringAiError extends Error {
   constructor(readonly code: string, message: string) { super(message) }
 }
 
+function surveyAdjustmentTool(goal: string): string {
+  if (/CPIII|自由测站|后方交会/i.test(goal)) return 'cpiii_adjustment'
+  if (/坐标转换|七参数|高斯[—-]?克吕格|高程拟合/i.test(goal)) return 'coord_transform'
+  if (/导线|平面控制|三角网|GNSS/i.test(goal)) return 'control_network'
+  return 'survey_calculator'
+}
+
 function defaultSteps(contextHash: string, goal = ''): EngineeringPlanStep[] {
   if (/(平差|水准|导线|控制网|三角网|CPIII|GNSS|坐标转换|测量)/i.test(goal)) {
+    const adjustmentTool = surveyAdjustmentTool(goal)
     return [
-      { id: 'inspect-survey-network', title: '校核测量网络与基准', tool: 'survey_calculator', risk: 'read', dependsOn: [], inputHash: contextHash, approval: 'pending' },
-      { id: 'adjust-survey-network', title: '执行加权最小二乘平差', tool: 'control_network', risk: 'write', dependsOn: ['inspect-survey-network'], inputHash: contextHash, approval: 'pending' },
-      { id: 'review-survey-quality', title: '检查闭合差、残差与精度', tool: 'cpiii_adjustment', risk: 'read', dependsOn: ['adjust-survey-network'], inputHash: contextHash, approval: 'pending' },
+      { id: 'inspect-survey-network', title: '校核测量网络与基准', tool: 'survey_network_validate', risk: 'read', dependsOn: [], inputHash: contextHash, approval: 'pending' },
+      { id: 'adjust-survey-network', title: '执行确定性测量平差', tool: adjustmentTool, risk: 'write', dependsOn: ['inspect-survey-network'], inputHash: contextHash, approval: 'pending' },
+      { id: 'review-survey-quality', title: '读取闭合差、残差与精度', tool: 'survey_adjustment_read', risk: 'read', dependsOn: ['adjust-survey-network'], inputHash: contextHash, approval: 'pending' },
       { id: 'prepare-survey-report', title: '准备测量成果与证据包', tool: 'report_export', risk: 'export', dependsOn: ['review-survey-quality'], inputHash: contextHash, approval: 'pending' }
     ]
   }
@@ -91,7 +99,7 @@ function validateSteps(steps: EngineeringPlanStep[]): void {
   for (const step of steps) {
     if (ids.has(step.id)) throw new EngineeringAiError('engineering_plan_invalid', `duplicate plan step: ${step.id}`)
     ids.add(step.id)
-    if (!['monitoring_data_first_check', 'deformation_rate', 'chart_generator', 'report_export', 'excel_export', 'standard_query', 'tool_norm_cite', 'survey_calculator', 'control_network', 'cpiii_adjustment', 'coord_transform', 'distance_calculator', 'angle_convert', 'railwise.survey_calculator', 'railwise.control_network', 'railwise.cpiii_adjustment', 'railwise.coord_transform', 'railwise.distance_calculator', 'railwise.angle_convert'].includes(step.tool)) {
+    if (!['monitoring_data_first_check', 'deformation_rate', 'chart_generator', 'report_export', 'excel_export', 'standard_query', 'tool_norm_cite', 'survey_network_validate', 'survey_adjustment_read', 'survey_calculator', 'control_network', 'cpiii_adjustment', 'coord_transform', 'distance_calculator', 'angle_convert', 'railwise.survey_network_validate', 'railwise.survey_adjustment_read', 'railwise.survey_calculator', 'railwise.control_network', 'railwise.cpiii_adjustment', 'railwise.coord_transform', 'railwise.distance_calculator', 'railwise.angle_convert'].includes(step.tool)) {
       throw new EngineeringAiError('engineering_plan_invalid', `tool is not allowlisted: ${step.tool}`)
     }
   }
@@ -216,7 +224,14 @@ export class EngineeringAiOrchestrator {
     if (input.expectedRevision !== plan.revision || input.contextHash !== plan.contextHash) throw new EngineeringAiError('engineering_plan_stale', 'plan is stale; refresh context and replan')
     if (plan.status !== 'approved' || plan.steps.some((step) => step.approval !== 'approved')) throw new EngineeringAiError('engineering_approval_required', 'all plan steps require approval before execution')
     await this.mustScopedThread(plan.threadId, plan.projectId)
-    const turn = await this.deps.turns.startTurn({ threadId: plan.threadId, request: { prompt: `Execute this approved Engineering Run Plan without changing numeric results:\n${JSON.stringify(plan)}`, displayText: plan.goal, model: input.model, mode: 'agent' } })
+    const context = this.deps.context.snapshot(plan.projectId)
+    if (context.contextHash !== plan.contextHash) {
+      const stale = EngineeringRunPlanV1.parse({ ...plan, status: 'stale', revision: plan.revision + 1, updatedAt: this.deps.nowIso?.() ?? new Date().toISOString() })
+      this.deps.repository.savePlan(stale)
+      this.emit(stale, 'stale')
+      throw new EngineeringAiError('engineering_plan_stale', 'engineering context changed after approval; refresh context and replan')
+    }
+    const turn = await this.deps.turns.startTurn({ threadId: plan.threadId, request: { prompt: `Execute this approved Engineering Run Plan through the allowlisted tools. Use only IDs present in the bounded context. Do not change numeric results or units. unitWeightStdDev and varianceFactor are dimensionless; standardizedResidual is measured in sigma multiples. report_export must receive the adjustmentIds produced or listed by the context.\nPlan:\n${JSON.stringify(plan)}\nBounded context (no raw observations):\n${JSON.stringify(context)}`, displayText: plan.goal, model: input.model, mode: 'agent' } })
     this.deps.runTurn(turn.threadId, turn.turnId)
     const task = this.deps.tasks?.activeTask(plan.threadId)
     const now = this.deps.nowIso?.() ?? new Date().toISOString()
