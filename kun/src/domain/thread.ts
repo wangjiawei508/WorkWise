@@ -116,11 +116,19 @@ export function toThreadSummary(
     ...(thread.forkedFromTurnCount !== undefined ? { forkedFromTurnCount: thread.forkedFromTurnCount } : {}),
     ...(thread.goal ? { goal: thread.goal } : {}),
     ...(thread.todos ? { todos: thread.todos } : {}),
-    messageCount: items.length,
+    messageCount: countVisibleThreadMessages(items),
     preview: previewFromThreadItems(items),
     createdAt: thread.createdAt,
     updatedAt: thread.updatedAt
   }
+}
+
+/** User-visible conversation count; reasoning, tools and approvals are not messages. */
+export function countVisibleThreadMessages(items: readonly TurnItem[]): number {
+  return items.reduce(
+    (count, item) => count + (item.kind === 'user_message' || item.kind === 'assistant_text' ? 1 : 0),
+    0
+  )
 }
 
 export function previewFromThreadItems(items: readonly TurnItem[]): string {

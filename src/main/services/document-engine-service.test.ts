@@ -838,31 +838,35 @@ describe('DocumentEngineService', () => {
   it('applies one total deadline even when a custom engine ignores cancellation', async () => {
     const { root } = await fixture()
     let engineSignal: AbortSignal | undefined
+    let markEngineStarted = (): void => undefined
+    const engineStarted = new Promise<void>((resolve) => { markEngineStarted = resolve })
+    vi.useFakeTimers()
     const service = new DocumentEngineService({
       parseTimeoutMs: 30,
       runner: async (input) => {
         engineSignal = input.signal
+        markEngineStarted()
         return new Promise<DocumentSidecarResponse>(() => undefined)
       }
     })
-    let safetyTimer: ReturnType<typeof setTimeout> | undefined
-    const safety = new Promise<never>((_, reject) => {
-      safetyTimer = setTimeout(() => reject(new Error('test safety timeout')), 500)
+    const pending = service.parse({
+      parseId: 'deadline-parse',
+      workspaceRoot: root,
+      relativePath: 'source.pdf',
+      mode: 'fast',
+      idempotencyKey: 'deadline-parse'
     })
-
+    const settled = pending.catch((error: unknown) => error)
     try {
-      await expect(Promise.race([
-        service.parse({
-          parseId: 'deadline-parse',
-          workspaceRoot: root,
-          relativePath: 'source.pdf',
-          mode: 'fast',
-          idempotencyKey: 'deadline-parse'
-        }),
-        safety
-      ])).rejects.toMatchObject({ code: 'document_parse_timeout' })
+      // The deadline covers validation and hashing as well as the engine. Wait
+      // until the engine actually owns the signal before advancing the clock;
+      // otherwise full-suite I/O contention can expire 30 ms before the runner
+      // starts and make this cancellation assertion timing-dependent.
+      await engineStarted
+      await vi.advanceTimersByTimeAsync(30)
+      await expect(settled).resolves.toMatchObject({ code: 'document_parse_timeout' })
     } finally {
-      clearTimeout(safetyTimer)
+      vi.useRealTimers()
     }
     expect(engineSignal?.aborted).toBe(true)
     expect(service.cancel('deadline-parse')).toBe(false)

@@ -14,6 +14,7 @@ import {
 import type { TurnService } from '../services/turn-service.js'
 import type { TaskController } from '../services/task-controller.js'
 import type { RuntimeEventRecorder } from '../services/runtime-event-recorder.js'
+import type { EngineeringAiRepository } from './engineering-ai-repository.js'
 
 export const EngineeringPlanDraftRequest = z.object({
   threadId: z.string().min(1),
@@ -113,14 +114,24 @@ function approvalToken(planId: string, revision: number, contextHash: string, st
   return `${planId}.${revision}.${Buffer.from(contextHash).toString('base64url').slice(0, 12)}.${randomBytes(18).toString('base64url')}.${stepIds.join(',')}`
 }
 
+function planTranscript(plan: EngineeringRunPlan): string {
+  const steps = plan.steps.map((step, index) =>
+    `${index + 1}. ${step.title}（${step.tool}，${step.risk === 'read' ? '只读' : '需单独审批'}）`
+  ).join('\n')
+  return [
+    '已生成工程测量 Typed Plan，当前仅供审查，尚未执行。',
+    `计划编号：${plan.id}`,
+    `上下文哈希：${plan.contextHash}`,
+    steps,
+    '审批并明确启动前，不会创建 TaskRun、调用模型或执行任何工具。'
+  ].join('\n\n')
+}
+
 /** Coordinates typed Engineering plans while delegating execution to TurnService/TaskController. */
 export class EngineeringAiOrchestrator {
-  private readonly plans = new Map<string, EngineeringRunPlan>()
-  private readonly approvals = new Map<string, EngineeringApproval>()
-  private readonly idempotency = new Map<string, unknown>()
-
   constructor(private readonly deps: {
     context: EngineeringContextService
+    repository: EngineeringAiRepository
     threadStore: ThreadStore
     turns: TurnService
     runTurn: (threadId: string, turnId: string) => Promise<'completed' | 'failed' | 'aborted'> | void
@@ -129,11 +140,24 @@ export class EngineeringAiOrchestrator {
     nowIso?: () => string
   }) {}
 
-  getPlan(id: string): EngineeringRunPlan | null { return this.plans.get(id) ?? null }
+  getPlan(id: string): EngineeringRunPlan | null { return this.deps.repository.getPlan(id) }
 
-  createPlan(input: EngineeringPlanDraftRequest): { plan: EngineeringRunPlan; approval: EngineeringApproval } {
-    const replay = this.idempotency.get(input.idempotencyKey)
-    if (replay) return replay as { plan: EngineeringRunPlan; approval: EngineeringApproval }
+  async latestPlan(input: { threadId: string; projectId: string }): Promise<{ plan: EngineeringRunPlan; approval?: EngineeringApproval } | null> {
+    await this.mustScopedThread(input.threadId, input.projectId)
+    const plan = this.deps.repository.latestPlan(input.threadId, input.projectId)
+    if (!plan) return null
+    const approval = this.deps.repository.approvalForPlan(plan.id, plan.revision)
+    return { plan, ...(approval ? { approval } : {}) }
+  }
+
+  async createPlan(input: EngineeringPlanDraftRequest): Promise<{ plan: EngineeringRunPlan; approval: EngineeringApproval }> {
+    const replay = this.deps.repository.replay(input.idempotencyKey)
+    if (replay) {
+      const restored = replay as { plan: EngineeringRunPlan; approval: EngineeringApproval }
+      await this.persistPlanTranscript(restored.plan)
+      return restored
+    }
+    await this.mustScopedThread(input.threadId, input.projectId, true)
     const context = this.deps.context.snapshot(input.projectId)
     if (input.contextHash && input.contextHash !== context.contextHash) throw new EngineeringAiError('engineering_context_stale', 'engineering context has changed; refresh and replan')
     const steps = input.steps ?? defaultSteps(context.contextHash, input.goal)
@@ -142,24 +166,24 @@ export class EngineeringAiOrchestrator {
     const plan = EngineeringRunPlanV1.parse({ schemaVersion: 1, id: `eplan_${randomUUID()}`, threadId: input.threadId, projectId: input.projectId, contextHash: context.contextHash, revision: 1, goal: input.goal, steps, status: 'awaiting_approval', createdAt: now, updatedAt: now })
     const approval = this.issueApproval(plan, plan.steps.map((step) => step.id))
     const result = { plan, approval }
-    this.plans.set(plan.id, plan)
-    this.idempotency.set(input.idempotencyKey, result)
+    this.deps.repository.createPlan(plan, approval, input.idempotencyKey, result)
+    await this.persistPlanTranscript(plan)
     this.emit(plan, 'created')
     return result
   }
 
   validatePlan(planId: string, input: EngineeringPlanValidateRequest): EngineeringRunPlan {
-    const replay = this.idempotency.get(input.idempotencyKey)
+    const replay = this.deps.repository.replay(input.idempotencyKey)
     if (replay) return replay as EngineeringRunPlan
     const plan = this.mustPlan(planId)
     const context = this.deps.context.snapshot(plan.projectId)
     if (input.expectedRevision !== plan.revision || input.contextHash !== plan.contextHash || context.contextHash !== plan.contextHash) {
       const stale = EngineeringRunPlanV1.parse({ ...plan, status: 'stale', revision: plan.revision + 1, updatedAt: this.deps.nowIso?.() ?? new Date().toISOString() })
-      this.plans.set(plan.id, stale)
+      this.deps.repository.savePlan(stale)
       this.emit(stale, 'stale')
       throw new EngineeringAiError('engineering_plan_stale', 'engineering plan is stale; refresh context and replan')
     }
-    this.idempotency.set(input.idempotencyKey, plan)
+    this.deps.repository.saveTransition({ plan, idempotencyKey: input.idempotencyKey, result: plan })
     this.emit(plan, 'validated')
     return plan
   }
@@ -168,48 +192,43 @@ export class EngineeringAiOrchestrator {
     const ids = [...new Set(stepIds)]
     if (!ids.length || ids.some((id) => !plan.steps.some((step) => step.id === id))) throw new EngineeringAiError('engineering_approval_invalid', 'approval references an unknown plan step')
     const approval = EngineeringApprovalV1.parse({ schemaVersion: 1, planId: plan.id, planRevision: plan.revision, contextHash: plan.contextHash, stepIds: ids, token: approvalToken(plan.id, plan.revision, plan.contextHash, ids), expiresAt: new Date(Date.now() + 15 * 60_000).toISOString() })
-    this.approvals.set(approval.token, approval)
     return approval
   }
 
   approvePlan(planId: string, input: EngineeringPlanApprovalRequest): EngineeringRunPlan {
-    const replay = this.idempotency.get(input.idempotencyKey)
+    const replay = this.deps.repository.replay(input.idempotencyKey)
     if (replay) return replay as EngineeringRunPlan
     const plan = this.mustPlan(planId)
     if (input.expectedRevision !== plan.revision || input.contextHash !== plan.contextHash) throw new EngineeringAiError('engineering_approval_stale', 'approval does not match the current plan revision or context')
-    const approval = input.token ? this.approvals.get(input.token) : undefined
+    const approval = input.token ? this.deps.repository.getApproval(input.token) : null
     if (!approval || approval.planId !== plan.id || approval.planRevision !== plan.revision || approval.contextHash !== plan.contextHash || Date.parse(approval.expiresAt) <= Date.now() || input.stepIds.some((id) => !approval.stepIds.includes(id))) throw new EngineeringAiError('engineering_approval_invalid', 'approval token is missing, expired, or already scoped to another plan')
     const now = this.deps.nowIso?.() ?? new Date().toISOString()
     const next = EngineeringRunPlanV1.parse({ ...plan, revision: plan.revision + 1, status: 'approved', steps: plan.steps.map((step) => input.stepIds.includes(step.id) ? { ...step, approval: 'approved' } : step), updatedAt: now })
-    this.plans.set(plan.id, next)
-    this.approvals.delete(approval.token)
-    this.idempotency.set(input.idempotencyKey, next)
+    this.deps.repository.saveTransition({ plan: next, idempotencyKey: input.idempotencyKey, result: next, consumedApprovalToken: approval.token })
     this.emit(next, 'approved')
     return next
   }
 
   async startPlan(planId: string, input: EngineeringPlanStartRequest): Promise<{ plan: EngineeringRunPlan; turn: StartTurnResponse }> {
-    const replay = this.idempotency.get(input.idempotencyKey)
+    const replay = this.deps.repository.replay(input.idempotencyKey)
     if (replay) return replay as { plan: EngineeringRunPlan; turn: StartTurnResponse }
     const plan = this.mustPlan(planId)
     if (input.expectedRevision !== plan.revision || input.contextHash !== plan.contextHash) throw new EngineeringAiError('engineering_plan_stale', 'plan is stale; refresh context and replan')
     if (plan.status !== 'approved' || plan.steps.some((step) => step.approval !== 'approved')) throw new EngineeringAiError('engineering_approval_required', 'all plan steps require approval before execution')
-    const thread = await this.deps.threadStore.get(plan.threadId)
-    if (!thread || thread.domain !== 'engineering' || thread.projectId !== plan.projectId) throw new EngineeringAiError('engineering_thread_scope', 'plan thread is not scoped to this engineering project')
+    await this.mustScopedThread(plan.threadId, plan.projectId)
     const turn = await this.deps.turns.startTurn({ threadId: plan.threadId, request: { prompt: `Execute this approved Engineering Run Plan without changing numeric results:\n${JSON.stringify(plan)}`, displayText: plan.goal, model: input.model, mode: 'agent' } })
     this.deps.runTurn(turn.threadId, turn.turnId)
     const task = this.deps.tasks?.activeTask(plan.threadId)
     const now = this.deps.nowIso?.() ?? new Date().toISOString()
     const started = EngineeringRunPlanV1.parse({ ...plan, revision: plan.revision + 1, status: 'started', ...(task ? { taskId: task.id } : {}), updatedAt: now })
-    this.plans.set(plan.id, started)
     const result = { plan: started, turn }
-    this.idempotency.set(input.idempotencyKey, result)
+    this.deps.repository.saveTransition({ plan: started, idempotencyKey: input.idempotencyKey, result })
     this.emit(started, 'started', turn.turnId)
     return result
   }
 
   async cancelPlan(planId: string, input: EngineeringPlanCancelRequest): Promise<EngineeringRunPlan> {
-    const replay = this.idempotency.get(input.idempotencyKey)
+    const replay = this.deps.repository.replay(input.idempotencyKey)
     if (replay) return replay as EngineeringRunPlan
     const plan = this.mustPlan(planId)
     if (input.expectedRevision !== plan.revision) throw new EngineeringAiError('engineering_plan_conflict', 'plan revision conflict')
@@ -217,14 +236,13 @@ export class EngineeringAiOrchestrator {
     if (task?.activeTurnId) await this.deps.turns.interruptTurn({ threadId: plan.threadId, turnId: task.activeTurnId })
     const now = this.deps.nowIso?.() ?? new Date().toISOString()
     const cancelled = EngineeringRunPlanV1.parse({ ...plan, status: 'cancelled', revision: plan.revision + 1, updatedAt: now })
-    this.plans.set(plan.id, cancelled)
-    this.idempotency.set(input.idempotencyKey, cancelled)
+    this.deps.repository.saveTransition({ plan: cancelled, idempotencyKey: input.idempotencyKey, result: cancelled })
     this.emit(cancelled, 'cancelled')
     return cancelled
   }
 
   async resumePlan(planId: string, input: EngineeringPlanResumeRequest): Promise<{ plan: EngineeringRunPlan; turn: StartTurnResponse }> {
-    const replay = this.idempotency.get(input.idempotencyKey)
+    const replay = this.deps.repository.replay(input.idempotencyKey)
     if (replay) return replay as { plan: EngineeringRunPlan; turn: StartTurnResponse }
     const plan = this.mustPlan(planId)
     if (input.expectedRevision !== plan.revision || input.contextHash !== plan.contextHash) throw new EngineeringAiError('engineering_plan_stale', 'plan is stale; refresh context and replan')
@@ -236,9 +254,8 @@ export class EngineeringAiOrchestrator {
     this.deps.runTurn(turn.threadId, turn.turnId)
     const now = this.deps.nowIso?.() ?? new Date().toISOString()
     const resumed = EngineeringRunPlanV1.parse({ ...plan, status: 'started', revision: plan.revision + 1, updatedAt: now })
-    this.plans.set(plan.id, resumed)
     const result = { plan: resumed, turn }
-    this.idempotency.set(input.idempotencyKey, result)
+    this.deps.repository.saveTransition({ plan: resumed, idempotencyKey: input.idempotencyKey, result })
     this.emit(resumed, 'resumed', turn.turnId)
     return result
   }
@@ -255,5 +272,28 @@ export class EngineeringAiOrchestrator {
     }).catch(() => undefined)
   }
 
-  private mustPlan(id: string): EngineeringRunPlan { const plan = this.plans.get(id); if (!plan) throw new EngineeringAiError('not_found', `engineering plan not found: ${id}`); return plan }
+  private async mustScopedThread(threadId: string, projectId: string, requireIdle = false): Promise<void> {
+    const thread = await this.deps.threadStore.get(threadId)
+    if (!thread || thread.domain !== 'engineering' || thread.projectId !== projectId) {
+      throw new EngineeringAiError('engineering_thread_scope', 'plan thread is not scoped to this engineering project')
+    }
+    if (requireIdle && thread.turns.some((turn) => turn.status === 'running')) {
+      throw new EngineeringAiError('engineering_thread_busy', 'the engineering thread already has a running turn')
+    }
+  }
+
+  private async persistPlanTranscript(plan: EngineeringRunPlan): Promise<void> {
+    await this.deps.turns.recordCompletedTurn({
+      threadId: plan.threadId,
+      userText: plan.goal,
+      assistantText: planTranscript(plan),
+      idempotencyKey: `engineering-plan-transcript:${plan.id}`
+    })
+  }
+
+  private mustPlan(id: string): EngineeringRunPlan {
+    const plan = this.deps.repository.getPlan(id)
+    if (!plan) throw new EngineeringAiError('not_found', `engineering plan not found: ${id}`)
+    return plan
+  }
 }

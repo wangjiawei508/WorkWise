@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { InMemoryEventBus } from '../src/adapters/in-memory-event-bus.js'
 import { HybridSessionStore, HybridThreadStore } from '../src/adapters/hybrid/index.js'
-import { makeUserItem } from '../src/domain/item.js'
+import { makeAssistantTextItem, makeToolCallItem, makeUserItem } from '../src/domain/item.js'
 import { appendTurnItem, createTurnRecord, startTurn } from '../src/domain/turn.js'
 import { createThreadRecord } from '../src/domain/thread.js'
 import { RuntimeEventRecorder } from '../src/services/runtime-event-recorder.js'
@@ -14,6 +14,7 @@ import { SteeringQueue } from '../src/loop/steering-queue.js'
 import { ContextCompactor } from '../src/loop/context-compactor.js'
 import { SequentialIdGenerator } from '../src/ports/id-generator.js'
 import type { UsageSnapshot } from '../src/contracts/usage.js'
+import Database from 'better-sqlite3'
 
 describe('HybridThreadStore', () => {
   let dataDir = ''
@@ -265,6 +266,78 @@ describe('HybridThreadStore', () => {
       idempotencyKey: 'im:weixin:account-1:message-1'
     })
     expect(items.filter((item) => item.kind === 'user_message')).toHaveLength(1)
+  })
+
+  it('records a completed deterministic plan transcript without opening model work', async () => {
+    const { threadStore, sessionStore } = await createHybridStores()
+    const thread = createThreadRecord({
+      id: 'thr_completed_plan',
+      title: 'Completed plan transcript',
+      workspace: '/tmp/project',
+      model: 'deepseek-chat',
+      domain: 'engineering',
+      projectId: 'project-plan',
+      createdAt: '2026-06-04T00:00:00.000Z'
+    })
+    await threadStore.upsert(thread)
+    const turns = createTurnService(threadStore, sessionStore)
+
+    const first = await turns.recordCompletedTurn({
+      threadId: thread.id,
+      userText: '先生成计划，不执行',
+      assistantText: '计划已生成，审批前不执行任何工具。',
+      idempotencyKey: 'engineering-plan-transcript:eplan-1'
+    })
+    const replay = await turns.recordCompletedTurn({
+      threadId: thread.id,
+      userText: '先生成计划，不执行',
+      assistantText: '计划已生成，审批前不执行任何工具。',
+      idempotencyKey: 'engineering-plan-transcript:eplan-1'
+    })
+    const restored = await threadStore.get(thread.id)
+
+    expect(replay).toEqual(first)
+    expect(restored?.status).toBe('idle')
+    expect(restored?.turns).toHaveLength(1)
+    expect(restored?.turns[0]?.status).toBe('completed')
+    expect(restored?.turns[0]?.items.map((item) => item.kind)).toEqual(['user_message', 'assistant_text'])
+    expect((await sessionStore.loadItems(thread.id)).map((item) => item.kind)).toEqual(['user_message', 'assistant_text'])
+  })
+
+  it('migrates message counts to user and assistant messages only', async () => {
+    if (!sqliteAvailable) return
+    const first = await createHybridStores()
+    const thread = createThreadRecord({
+      id: 'thr_message_count_migration',
+      title: 'Message count migration',
+      workspace: '/tmp/project',
+      model: 'deepseek-chat',
+      createdAt: '2026-06-04T00:00:00.000Z'
+    })
+    const turn = createTurnRecord({
+      id: 'turn_message_count_migration',
+      threadId: thread.id,
+      prompt: '复核计划',
+      createdAt: '2026-06-04T00:00:01.000Z',
+      status: 'completed'
+    })
+    const items = [
+      makeUserItem({ id: 'item_count_user', turnId: turn.id, threadId: thread.id, text: '复核计划' }),
+      makeAssistantTextItem({ id: 'item_count_assistant', turnId: turn.id, threadId: thread.id, text: '计划摘要', status: 'completed' }),
+      makeToolCallItem({ id: 'item_count_tool', turnId: turn.id, threadId: thread.id, callId: 'call-count', toolName: 'read', arguments: {}, status: 'completed' })
+    ]
+    const completedTurn = items.reduce((current, item) => appendTurnItem(current, item), turn)
+    for (const item of items) await first.sessionStore.appendItem(thread.id, item)
+    await first.threadStore.upsert({ ...thread, status: 'idle', turns: [completedTurn], updatedAt: '2026-06-04T00:00:02.000Z' })
+    first.threadStore.close()
+
+    const db = new Database(join(dataDir, 'index.sqlite3'))
+    db.prepare('UPDATE threads SET message_count = 93, message_count_version = 0 WHERE id = ?').run(thread.id)
+    db.close()
+
+    const reopened = await createHybridStores()
+    const summary = (await reopened.threadStore.list({ includeArchived: true })).find((item) => item.id === thread.id)
+    expect(summary?.messageCount).toBe(2)
   })
 
   it('replays the same persisted workspace references for an idempotent reconnect', async () => {

@@ -58,7 +58,21 @@ export async function createPlan(runtime: ServerRuntime, request: Request): Prom
   if (!body.ok) return body.response
   const parsed = EngineeringPlanDraftRequest.safeParse(body.value)
   if (!parsed.success) return ERRORS.validation('invalid engineering plan body', parsed.error.issues)
-  try { return jsonResponse(runtime.engineeringAi.createPlan(parsed.data), 201) } catch (error) { return mapError(error) }
+  try { return jsonResponse(await runtime.engineeringAi.createPlan(parsed.data), 201) } catch (error) { return mapError(error) }
+}
+
+export async function latestPlan(runtime: ServerRuntime, request: Request): Promise<JsonResponse> {
+  if (!runtime.engineeringAi) return unavailable()
+  const query = new URL(request.url).searchParams
+  const threadId = query.get('threadId')?.trim() ?? ''
+  const projectId = query.get('projectId')?.trim() ?? ''
+  if (!threadId || !projectId) return ERRORS.validation('threadId and projectId are required')
+  try {
+    const result = await runtime.engineeringAi.latestPlan({ threadId, projectId })
+    return result ? jsonResponse(result) : ERRORS.notFound('engineering plan not found for thread')
+  } catch (error) {
+    return mapError(error)
+  }
 }
 
 export function getPlan(runtime: ServerRuntime, planId: string): JsonResponse {

@@ -86,6 +86,7 @@ import { HttpVisionEvidenceService, type VisionEvidenceConfig } from '../vision/
 import { EngineeringService } from '../engineering/engineering-service.js'
 import { EngineeringContextService } from '../engineering/engineering-context-service.js'
 import { EngineeringAiOrchestrator } from '../engineering/engineering-ai-orchestrator.js'
+import { EngineeringAiRepository } from '../engineering/engineering-ai-repository.js'
 import { buildRailwiseToolProviders } from '../adapters/tool/railwise-tool-provider.js'
 import { SurveyService } from '../engineering/survey-service.js'
 
@@ -316,6 +317,10 @@ export async function createKunServeRuntime(
     nowIso
   })
   const engineeringContext = new EngineeringContextService(engineeringService, nowIso)
+  const engineeringAiRepository = new EngineeringAiRepository({
+    rootDir: join(options.dataDir, 'engineering'),
+    nowIso
+  })
   surveyService = new SurveyService({
     rootDir: join(options.dataDir, 'engineering'),
     getProject: (projectId) => engineeringService.getProject(projectId),
@@ -530,6 +535,7 @@ export async function createKunServeRuntime(
   })
   const engineeringAi = new EngineeringAiOrchestrator({
     context: engineeringContext,
+    repository: engineeringAiRepository,
     threadStore,
     turns: turnService,
     runTurn: (threadId, turnId) => loop.runTurn(threadId, turnId),
@@ -627,6 +633,7 @@ export async function createKunServeRuntime(
         try {
           flowService.shutdown()
           taskRepository.close()
+          engineeringAiRepository.close()
           surveyService.close()
           engineeringService.close()
         } finally {

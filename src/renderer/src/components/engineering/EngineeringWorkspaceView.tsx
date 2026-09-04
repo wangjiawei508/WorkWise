@@ -264,7 +264,7 @@ function DeliveryStage({ index, icon: Icon, title, detail, state, attention = fa
 export function EngineeringWorkspaceView({ workspaceRoot, runtimeReady, leftSidebarCollapsed, onToggleLeftSidebar }: { workspaceRoot: string; runtimeReady: boolean; leftSidebarCollapsed?: boolean; onToggleLeftSidebar?: () => void }): ReactElement {
   const ensureEngineeringThread = useChatStore((state) => state.ensureEngineeringThread)
   const [projects, setProjects] = useState<Project[]>([])
-  const [selectedProjectId, setSelectedProjectId] = useState('')
+  const [selectedProjectId, setSelectedProjectId] = useState(() => activeEngineeringProjectId())
   const [overview, setOverview] = useState<Overview | null>(null)
   const [selectedDatasetId, setSelectedDatasetId] = useState('')
   const [selectedAnalysisId, setSelectedAnalysisId] = useState('')
@@ -297,7 +297,7 @@ export function EngineeringWorkspaceView({ workspaceRoot, runtimeReady, leftSide
   }, [selectedProjectId])
 
   useEffect(() => {
-    setSelectedProjectId('')
+    setSelectedProjectId(activeEngineeringProjectId())
     setOverview(null)
     setProjectDraft(null)
     setSelectedDatasetId('')

@@ -13,6 +13,9 @@ describe('engineering workbench experience contract', () => {
     expect(source).toContain('Typed Plan')
     expect(source).toContain('交给测绘专业 AI Agent')
     expect(source).not.toContain('localStorage')
+    expect(source).not.toContain('await sendMessage(')
+    expect(source).toContain('Typed Plan 已保存，尚未执行任何模型或工具')
+    expect(source).toContain('/v1/engineering/ai/plans?')
   })
 
   it('does not stack the classic delivery header above the AI command surface', async () => {

@@ -122,6 +122,7 @@ export function buildRouter(runtime: ServerRuntime): Router {
   router.add('GET', '/v1/engineering/ai/evidence/:projectId', async (request, ctx) => authorize(request, runtime) ? engineeringAiRoutes.evidence(runtime, ctx.params.projectId) : ERRORS.unauthorized())
   router.add('POST', '/v1/engineering/ai/watch-drafts', async (request) => authorize(request, runtime) ? engineeringAiRoutes.createWatchDraft(runtime, request) : ERRORS.unauthorized())
   router.add('POST', '/v1/engineering/ai/plans', async (request) => authorize(request, runtime) ? engineeringAiRoutes.createPlan(runtime, request) : ERRORS.unauthorized())
+  router.add('GET', '/v1/engineering/ai/plans', async (request) => authorize(request, runtime) ? engineeringAiRoutes.latestPlan(runtime, request) : ERRORS.unauthorized())
   router.add('GET', '/v1/engineering/ai/plans/:id', async (request, ctx) => authorize(request, runtime) ? engineeringAiRoutes.getPlan(runtime, ctx.params.id) : ERRORS.unauthorized())
   router.add('POST', '/v1/engineering/ai/plans/:id/validate', async (request, ctx) => authorize(request, runtime) ? engineeringAiRoutes.validatePlan(runtime, ctx.params.id, request) : ERRORS.unauthorized())
   router.add('POST', '/v1/engineering/ai/plans/:id/approve', async (request, ctx) => authorize(request, runtime) ? engineeringAiRoutes.approvePlan(runtime, ctx.params.id, request) : ERRORS.unauthorized())

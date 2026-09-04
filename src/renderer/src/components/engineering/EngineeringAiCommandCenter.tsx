@@ -119,7 +119,7 @@ function hashLabel(value?: string): string {
 }
 
 export function EngineeringAiCommandCenter({ workspaceRoot, runtimeReady, project, dataset, analysis, latestRun, onCreateProject, onImportData, onOpenTab, onRefresh }: Props): ReactElement {
-  const { activeThreadId, threads, blocks, liveReasoning, liveAssistant, busy, runtimeConnection, runtimeErrorDetail, error, queuedMessages, sendMessage, removeQueuedMessage, interrupt } = useChatStore(useShallow((state) => ({
+  const { activeThreadId, threads, blocks, liveReasoning, liveAssistant, busy, runtimeConnection, runtimeErrorDetail, error, queuedMessages, refreshThreads, selectThread, removeQueuedMessage, interrupt } = useChatStore(useShallow((state) => ({
     activeThreadId: state.activeThreadId,
     threads: state.threads,
     blocks: state.blocks,
@@ -130,7 +130,8 @@ export function EngineeringAiCommandCenter({ workspaceRoot, runtimeReady, projec
     runtimeErrorDetail: state.runtimeErrorDetail,
     error: state.error,
     queuedMessages: state.queuedMessages,
-    sendMessage: state.sendMessage,
+    refreshThreads: state.refreshThreads,
+    selectThread: state.selectThread,
     removeQueuedMessage: state.removeQueuedMessage,
     interrupt: state.interrupt
   })))
@@ -146,6 +147,23 @@ export function EngineeringAiCommandCenter({ workspaceRoot, runtimeReady, projec
   const connected = runtimeReady && runtimeConnection === 'ready'
 
   useEffect(() => { setNotice(null); setAiPlan(null) }, [projectId, activeThreadId])
+  useEffect(() => {
+    let cancelled = false
+    if (!connected || !projectId || !activeThreadId) return
+    const active = threads.find((thread) => thread.id === activeThreadId)
+    if (active?.domain !== 'engineering' || active.projectId !== projectId) return
+    const query = new URLSearchParams({ threadId: activeThreadId, projectId })
+    void rendererRuntimeClient.runtimeRequest(`/v1/engineering/ai/plans?${query.toString()}`).then((response) => {
+      if (cancelled || response.status === 404 || !response.ok) return
+      try {
+        const parsed = JSON.parse(response.body) as { plan: AiPlan; approval?: AiPlan['approval'] }
+        setAiPlan({ ...parsed.plan, approval: parsed.approval })
+      } catch {
+        if (!cancelled) setNotice('已恢复工程测量会话，但计划记录无法解析。请刷新上下文后重新生成。')
+      }
+    }).catch(() => undefined)
+    return () => { cancelled = true }
+  }, [activeThreadId, connected, projectId, threads])
   useEffect(() => {
     let cancelled = false
     if (!connected || !projectId) { setEvidenceCards([]); return }
@@ -197,8 +215,10 @@ export function EngineeringAiCommandCenter({ workspaceRoot, runtimeReady, projec
       if (!draftResponse.ok) throw new Error(readRuntimeMessage(draftResponse.body, '工程测量 AI 计划生成失败'))
       const drafted = JSON.parse(draftResponse.body) as { plan: AiPlan; approval: AiPlan['approval'] }
       setAiPlan({ ...drafted.plan, approval: drafted.approval })
-      const context = [`当前工程测量项目：${project.name}（${project.monitoringType}，单位 ${project.unit}，修订 ${project.revision}）`, '你是 WorkWise 测绘专业 AI Agent。Runtime 已生成可审查 Typed Run Plan；你只能解释、追问和汇总，不得猜测阈值或改写确定性分析结果。', `工程测量目标：${prompt}`, `计划编号：${drafted.plan.id}（修订 ${drafted.plan.revision}）`].join('\n')
-      if (await sendMessage(context, 'agent')) setGoal('')
+      setGoal('')
+      await refreshThreads()
+      await selectThread(activeThreadId)
+      setNotice('Typed Plan 已保存，尚未执行任何模型或工具。请检查步骤后再审批启动。')
     } catch (cause) { setNotice(cause instanceof Error ? cause.message : String(cause)) } finally { setPlanBusy(false); setSending(false); onRefresh() }
   }
 

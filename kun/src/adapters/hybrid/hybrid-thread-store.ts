@@ -17,7 +17,7 @@ import type { Turn } from '../../contracts/turns.js'
 import type { ApprovalPolicy, SandboxMode } from '../../contracts/policy.js'
 import type { ThreadStore, ThreadStoreListOptions } from '../../ports/thread-store.js'
 import type { SessionLatestUsageSnapshot, SessionUsageRecord } from '../../ports/session-store.js'
-import { previewFromThreadItems, toThreadSummary } from '../../domain/thread.js'
+import { countVisibleThreadMessages, previewFromThreadItems, toThreadSummary } from '../../domain/thread.js'
 import { readJsonl } from '../file/file-thread-store.js'
 import {
   emptyUsageSnapshot,
@@ -63,6 +63,7 @@ type ThreadRow = {
   updated_at_ms: number
   preview: string | null
   message_count: number
+  message_count_version: number
   event_seq_high_water: number
   metadata_path: string
   messages_path: string
@@ -87,6 +88,8 @@ type UsageRow = {
   model: string | null
   usage_json: string
 }
+
+const MESSAGE_COUNT_VERSION = 1
 
 /**
  * Hybrid store inspired by Codex: JSONL files are canonical and SQLite
@@ -146,6 +149,14 @@ export class HybridThreadStore implements ThreadStore {
         const summaries: ThreadSummary[] = []
         for (const row of rows) {
           if (await this.rowHasReadableJsonl(row)) {
+            if (row.message_count_version !== MESSAGE_COUNT_VERSION) {
+              const thread = await this.readThreadFromDisk(row.id)
+              if (thread) {
+                this.upsertIndexBestEffort(this.indexRecordForThread(thread))
+                summaries.push(toThreadSummary(thread))
+                continue
+              }
+            }
             summaries.push(summaryFromRow(row))
           } else {
             this.deleteIndexRow(row.id)
@@ -364,6 +375,7 @@ export class HybridThreadStore implements ThreadStore {
         updated_at_ms INTEGER NOT NULL,
         preview TEXT,
         message_count INTEGER NOT NULL DEFAULT 0,
+        message_count_version INTEGER NOT NULL DEFAULT 0,
         event_seq_high_water INTEGER NOT NULL DEFAULT 0,
         metadata_path TEXT NOT NULL,
         messages_path TEXT NOT NULL,
@@ -399,6 +411,7 @@ export class HybridThreadStore implements ThreadStore {
     addColumnIfMissing(this.db, 'threads', 'usage_backfilled INTEGER NOT NULL DEFAULT 0')
     addColumnIfMissing(this.db, 'threads', 'domain TEXT')
     addColumnIfMissing(this.db, 'threads', 'project_id TEXT')
+    addColumnIfMissing(this.db, 'threads', 'message_count_version INTEGER NOT NULL DEFAULT 0')
   }
 
   private cachedStatement(sql: string): Statement {
@@ -421,30 +434,28 @@ export class HybridThreadStore implements ThreadStore {
   private async backfill(): Promise<void> {
     if (!this.db) return
     const rows = this.db
-      .prepare('SELECT id, usage_backfilled FROM threads')
-      .all() as Array<{ id: string; usage_backfilled?: number }>
-    const indexed = new Map(rows.map((row) => [row.id, row.usage_backfilled === 1]))
+      .prepare('SELECT id, usage_backfilled, message_count_version FROM threads')
+      .all() as Array<{ id: string; usage_backfilled?: number; message_count_version?: number }>
+    const indexed = new Map(rows.map((row) => [row.id, {
+      usageBackfilled: row.usage_backfilled === 1,
+      messageCountCurrent: row.message_count_version === MESSAGE_COUNT_VERSION
+    }]))
     for (const threadId of await this.threadIdsFromFilesystem()) {
-      const usageBackfilled = indexed.get(threadId)
+      const indexState = indexed.get(threadId)
       // Threads marked as backfilled never need their events.jsonl re-read;
       // without the marker every startup re-scanned the full event history
       // of threads that simply have no usage events.
-      if (usageBackfilled === true) continue
-      if (usageBackfilled === undefined) {
+      if (!indexState?.messageCountCurrent) {
         const thread = await this.readThreadFromDisk(threadId)
         if (!thread) continue
-        const scan = await this.scanEventsForBackfill(threadId)
-        this.upsertIndexBestEffort({
-          ...this.indexRecordForThread(thread),
-          eventSeqHighWater: scan.highWater
-        })
-        await this.insertUsageEventsChunked(threadId, scan.usage)
-      } else {
+        this.upsertIndexBestEffort(this.indexRecordForThread(thread))
+      }
+      if (!indexState?.usageBackfilled) {
         const scan = await this.scanEventsForBackfill(threadId)
         this.noteEventHighWaterSync(threadId, scan.highWater)
         await this.insertUsageEventsChunked(threadId, scan.usage)
+        this.markUsageBackfilled(threadId)
       }
-      this.markUsageBackfilled(threadId)
       await yieldToEventLoop()
     }
 
@@ -582,7 +593,7 @@ export class HybridThreadStore implements ThreadStore {
             cost_budget_usd, cost_budget_warning_sent, relation, domain, project_id, parent_thread_id,
             forked_from_thread_id, forked_from_title, forked_at, forked_from_message_count,
             forked_from_turn_count, goal_json, todos_json, created_at, updated_at, created_at_ms,
-            updated_at_ms, preview, message_count, event_seq_high_water, metadata_path,
+            updated_at_ms, preview, message_count, message_count_version, event_seq_high_water, metadata_path,
             messages_path, events_path, search_text
           )
           VALUES (
@@ -591,7 +602,7 @@ export class HybridThreadStore implements ThreadStore {
             @cost_budget_usd, @cost_budget_warning_sent, @relation, @domain, @project_id, @parent_thread_id,
             @forked_from_thread_id, @forked_from_title, @forked_at, @forked_from_message_count,
             @forked_from_turn_count, @goal_json, @todos_json, @created_at, @updated_at, @created_at_ms,
-            @updated_at_ms, @preview, @message_count, @event_seq_high_water, @metadata_path,
+            @updated_at_ms, @preview, @message_count, @message_count_version, @event_seq_high_water, @metadata_path,
             @messages_path, @events_path, @search_text
           )
           ON CONFLICT(id) DO UPDATE SET
@@ -624,6 +635,7 @@ export class HybridThreadStore implements ThreadStore {
             updated_at_ms = excluded.updated_at_ms,
             preview = excluded.preview,
             message_count = excluded.message_count,
+            message_count_version = excluded.message_count_version,
             event_seq_high_water = CASE
               WHEN threads.event_seq_high_water > excluded.event_seq_high_water
                 THEN threads.event_seq_high_water
@@ -724,7 +736,7 @@ export class HybridThreadStore implements ThreadStore {
     const itemSource = thread.turns.flatMap((turn) => turn.items)
     return {
       thread,
-      messageCount: itemSource.length,
+      messageCount: countVisibleThreadMessages(itemSource),
       eventSeqHighWater: 0,
       preview: previewFromThreadItems(itemSource)
     }
@@ -1079,6 +1091,7 @@ function rowFromIndexRecord(
     updated_at_ms: isoToMillis(thread.updatedAt),
     preview: record.preview || null,
     message_count: record.messageCount,
+    message_count_version: MESSAGE_COUNT_VERSION,
     event_seq_high_water: record.eventSeqHighWater,
     metadata_path: paths.metadataPath,
     messages_path: paths.messagesPath,

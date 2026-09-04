@@ -5,6 +5,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { EngineeringService } from './engineering-service.js'
 import { EngineeringContextService } from './engineering-context-service.js'
 import { EngineeringAiOrchestrator } from './engineering-ai-orchestrator.js'
+import { EngineeringAiRepository } from './engineering-ai-repository.js'
 
 describe('Engineering AI orchestration', () => {
   it('creates bounded plans, rejects unsafe tools and replays idempotent requests', async () => {
@@ -12,20 +13,27 @@ describe('Engineering AI orchestration', () => {
     const engineering = new EngineeringService({ rootDir: join(root, 'runtime') })
     const project = engineering.createProject({ name: 'AI project', workspace: root, expectedRevision: 0, idempotencyKey: 'ai-project-001' })
     const context = new EngineeringContextService(engineering)
-    const turns = { startTurn: vi.fn(async () => ({ threadId: 'thread-1', turnId: 'turn-1' })) }
-    const threadStore = { get: vi.fn(async () => ({ domain: 'engineering', projectId: project.id })) }
+    const repository = new EngineeringAiRepository({ rootDir: join(root, 'runtime') })
+    const turns = {
+      recordCompletedTurn: vi.fn(async () => ({ threadId: 'thread-1', turnId: 'draft-turn', userMessageItemId: 'draft-user', assistantMessageItemId: 'draft-assistant' })),
+      startTurn: vi.fn(async () => ({ threadId: 'thread-1', turnId: 'turn-1' }))
+    }
+    const threadStore = { get: vi.fn(async () => ({ domain: 'engineering', projectId: project.id, turns: [] })) }
     const runTurn = vi.fn()
-    const orchestrator = new EngineeringAiOrchestrator({ context, threadStore: threadStore as never, turns: turns as never, runTurn })
+    const orchestrator = new EngineeringAiOrchestrator({ context, repository, threadStore: threadStore as never, turns: turns as never, runTurn })
 
-    const first = orchestrator.createPlan({ threadId: 'thread-1', projectId: project.id, goal: '检查本期数据并生成报告', idempotencyKey: 'ai-plan-001' })
+    const first = await orchestrator.createPlan({ threadId: 'thread-1', projectId: project.id, goal: '检查本期数据并生成报告', idempotencyKey: 'ai-plan-001' })
     expect(first.plan.status).toBe('awaiting_approval')
     expect(first.approval.stepIds).toHaveLength(first.plan.steps.length)
-    const replay = orchestrator.createPlan({ threadId: 'thread-1', projectId: project.id, goal: '检查本期数据并生成报告', idempotencyKey: 'ai-plan-001' })
+    expect(turns.startTurn).not.toHaveBeenCalled()
+    expect(runTurn).not.toHaveBeenCalled()
+    expect(turns.recordCompletedTurn).toHaveBeenCalledTimes(1)
+    const replay = await orchestrator.createPlan({ threadId: 'thread-1', projectId: project.id, goal: '检查本期数据并生成报告', idempotencyKey: 'ai-plan-001' })
     expect(replay.plan.id).toBe(first.plan.id)
-    expect(() => orchestrator.createPlan({
+    await expect(orchestrator.createPlan({
       threadId: 'thread-1', projectId: project.id, goal: '不安全计划', idempotencyKey: 'ai-plan-002',
       steps: [{ id: 'bad', title: 'bad', tool: 'shell', risk: 'write', dependsOn: [], inputHash: first.plan.contextHash, approval: 'pending' }]
-    })).toThrow(/allowlisted/)
+    })).rejects.toThrow(/allowlisted/)
 
     const approved = orchestrator.approvePlan(first.plan.id, { expectedRevision: 1, contextHash: first.plan.contextHash, stepIds: first.plan.steps.map((step) => step.id), token: first.approval.token, idempotencyKey: 'ai-approve-001' })
     expect(approved.status).toBe('approved')
@@ -33,6 +41,7 @@ describe('Engineering AI orchestration', () => {
     expect(started.plan.status).toBe('started')
     expect(turns.startTurn).toHaveBeenCalledTimes(1)
     expect(runTurn).toHaveBeenCalledWith('thread-1', 'turn-1')
+    repository.close()
     engineering.close()
   })
 
@@ -52,9 +61,11 @@ describe('Engineering AI orchestration', () => {
     const root = await mkdtemp(join(tmpdir(), 'workwise-engineering-survey-ai-'))
     const engineering = new EngineeringService({ rootDir: join(root, 'runtime') })
     const project = engineering.createProject({ name: 'survey-ai', workspace: root, expectedRevision: 0, idempotencyKey: 'survey-ai-project-001' })
-    const orchestrator = new EngineeringAiOrchestrator({ context: new EngineeringContextService(engineering), threadStore: { get: vi.fn() } as never, turns: { startTurn: vi.fn() } as never, runTurn: vi.fn() })
-    const plan = orchestrator.createPlan({ threadId: 'survey-thread', projectId: project.id, goal: '对水准网执行加权最小二乘平差并检查闭合差', idempotencyKey: 'survey-ai-plan-001' })
+    const repository = new EngineeringAiRepository({ rootDir: join(root, 'runtime') })
+    const orchestrator = new EngineeringAiOrchestrator({ context: new EngineeringContextService(engineering), repository, threadStore: { get: vi.fn(async () => ({ domain: 'engineering', projectId: project.id, turns: [] })) } as never, turns: { recordCompletedTurn: vi.fn() } as never, runTurn: vi.fn() })
+    const plan = await orchestrator.createPlan({ threadId: 'survey-thread', projectId: project.id, goal: '对水准网执行加权最小二乘平差并检查闭合差', idempotencyKey: 'survey-ai-plan-001' })
     expect(plan.plan.steps.map((step) => step.tool)).toEqual(expect.arrayContaining(['survey_calculator', 'control_network', 'cpiii_adjustment']))
+    repository.close()
     engineering.close()
   })
 
@@ -63,20 +74,81 @@ describe('Engineering AI orchestration', () => {
     const engineering = new EngineeringService({ rootDir: join(root, 'runtime') })
     const project = engineering.createProject({ name: 'stale', workspace: root, expectedRevision: 0, idempotencyKey: 'stale-project-001' })
     const context = new EngineeringContextService(engineering)
-    const threadStore = { get: vi.fn(async () => ({ domain: 'engineering', projectId: project.id })) }
+    const threadStore = { get: vi.fn(async () => ({ domain: 'engineering', projectId: project.id, turns: [] })) }
     const events = { record: vi.fn(async () => undefined) }
+    const repository = new EngineeringAiRepository({ rootDir: join(root, 'runtime') })
     const orchestrator = new EngineeringAiOrchestrator({
       context,
+      repository,
       threadStore: threadStore as never,
-      turns: { startTurn: vi.fn() } as never,
+      turns: { recordCompletedTurn: vi.fn() } as never,
       runTurn: vi.fn(),
       events: events as never
     })
-    const created = orchestrator.createPlan({ threadId: 'thread-stale', projectId: project.id, goal: '检查数据', idempotencyKey: 'stale-plan-001' })
+    const created = await orchestrator.createPlan({ threadId: 'thread-stale', projectId: project.id, goal: '检查数据', idempotencyKey: 'stale-plan-001' })
     engineering.updateProject(project.id, { name: 'stale-updated', expectedRevision: project.revision, idempotencyKey: 'stale-project-update-001' })
     await expect(Promise.resolve().then(() => orchestrator.validatePlan(created.plan.id, { expectedRevision: created.plan.revision, contextHash: created.plan.contextHash, idempotencyKey: 'stale-validate-001' }))).rejects.toThrow(/stale/i)
     expect(orchestrator.getPlan(created.plan.id)?.status).toBe('stale')
     expect(events.record).toHaveBeenCalled()
+    repository.close()
+    engineering.close()
+  })
+
+  it('rejects a thread outside the exact Engineering project before persisting or executing', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'workwise-engineering-scope-'))
+    const engineering = new EngineeringService({ rootDir: join(root, 'runtime') })
+    const project = engineering.createProject({ name: 'scope', workspace: root, expectedRevision: 0, idempotencyKey: 'scope-project-001' })
+    const repository = new EngineeringAiRepository({ rootDir: join(root, 'runtime') })
+    const turns = { recordCompletedTurn: vi.fn(), startTurn: vi.fn() }
+    const runTurn = vi.fn()
+    const orchestrator = new EngineeringAiOrchestrator({
+      context: new EngineeringContextService(engineering),
+      repository,
+      threadStore: { get: vi.fn(async () => ({ domain: 'design', projectId: project.id, turns: [] })) } as never,
+      turns: turns as never,
+      runTurn
+    })
+
+    await expect(orchestrator.createPlan({
+      threadId: 'wrong-thread',
+      projectId: project.id,
+      goal: '检查数据',
+      idempotencyKey: 'scope-plan-001'
+    })).rejects.toThrow(/not scoped/)
+    expect(turns.recordCompletedTurn).not.toHaveBeenCalled()
+    expect(turns.startTurn).not.toHaveBeenCalled()
+    expect(runTurn).not.toHaveBeenCalled()
+    repository.close()
+    engineering.close()
+  })
+
+  it('restores an awaiting-approval plan, token and idempotent result after restart', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'workwise-engineering-restart-'))
+    const runtimeRoot = join(root, 'runtime')
+    const engineering = new EngineeringService({ rootDir: runtimeRoot })
+    const project = engineering.createProject({ name: 'restart', workspace: root, expectedRevision: 0, idempotencyKey: 'restart-project-001' })
+    const threadStore = { get: vi.fn(async () => ({ domain: 'engineering', projectId: project.id, turns: [] })) }
+    const makeOrchestrator = (repository: EngineeringAiRepository) => new EngineeringAiOrchestrator({
+      context: new EngineeringContextService(engineering),
+      repository,
+      threadStore: threadStore as never,
+      turns: { recordCompletedTurn: vi.fn(async () => ({ threadId: 'restart-thread', turnId: 'draft-turn', userMessageItemId: 'draft-user', assistantMessageItemId: 'draft-assistant' })) } as never,
+      runTurn: vi.fn()
+    })
+    const firstRepository = new EngineeringAiRepository({ rootDir: runtimeRoot })
+    const first = makeOrchestrator(firstRepository)
+    const created = await first.createPlan({ threadId: 'restart-thread', projectId: project.id, goal: '生成只读复核计划', idempotencyKey: 'restart-plan-001' })
+    firstRepository.close()
+
+    const reopenedRepository = new EngineeringAiRepository({ rootDir: runtimeRoot })
+    const reopened = makeOrchestrator(reopenedRepository)
+    const restored = await reopened.latestPlan({ threadId: 'restart-thread', projectId: project.id })
+    const replay = await reopened.createPlan({ threadId: 'restart-thread', projectId: project.id, goal: '生成只读复核计划', idempotencyKey: 'restart-plan-001' })
+
+    expect(restored?.plan).toEqual(created.plan)
+    expect(restored?.approval?.token).toBe(created.approval.token)
+    expect(replay).toEqual(created)
+    reopenedRepository.close()
     engineering.close()
   })
 

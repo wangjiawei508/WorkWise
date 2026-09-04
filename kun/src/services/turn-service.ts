@@ -14,7 +14,7 @@ import type { UserInputGate } from '../ports/user-input-gate.js'
 import type { InflightTracker } from '../loop/inflight-tracker.js'
 import type { SteeringQueue } from '../loop/steering-queue.js'
 import { ContextCompactor } from '../loop/context-compactor.js'
-import { makeUserItem, makeErrorItem, makeUiActionItem } from '../domain/item.js'
+import { makeUserItem, makeAssistantTextItem, makeErrorItem, makeUiActionItem } from '../domain/item.js'
 import { appendTurnItem, createTurnRecord, finishTurn, replaceTurnItem, startTurn as startTurnRecord } from '../domain/turn.js'
 import { touchThread } from '../domain/thread.js'
 import type { RuntimeEventRecorder } from './runtime-event-recorder.js'
@@ -120,6 +120,141 @@ export class TurnService {
       return await run
     } finally {
       if (this.startQueues.get(input.threadId) === guard) this.startQueues.delete(input.threadId)
+    }
+  }
+
+  /**
+   * Records a deterministic user/assistant exchange without reserving model
+   * execution, creating a TaskRun, or exposing the turn to AgentLoop.
+   * Engineering uses this for an awaiting-approval Typed Plan so the goal and
+   * plan summary survive restart while tool side effects remain impossible.
+   */
+  async recordCompletedTurn(input: {
+    threadId: string
+    userText: string
+    assistantText: string
+    idempotencyKey: string
+  }): Promise<{ threadId: string; turnId: string; userMessageItemId: string; assistantMessageItemId: string }> {
+    const previous = this.startQueues.get(input.threadId) ?? Promise.resolve()
+    const run = previous.catch(() => undefined).then(() => this.recordCompletedTurnInternal(input))
+    const guard = run.then(() => undefined, () => undefined)
+    this.startQueues.set(input.threadId, guard)
+    try {
+      return await run
+    } finally {
+      if (this.startQueues.get(input.threadId) === guard) this.startQueues.delete(input.threadId)
+    }
+  }
+
+  private async recordCompletedTurnInternal(input: {
+    threadId: string
+    userText: string
+    assistantText: string
+    idempotencyKey: string
+  }): Promise<{ threadId: string; turnId: string; userMessageItemId: string; assistantMessageItemId: string }> {
+    const thread = await this.deps.threadStore.get(input.threadId)
+    if (!thread) throw new Error(`thread not found: ${input.threadId}`)
+    const idempotencyKey = input.idempotencyKey.trim()
+    const existing = thread.turns.find((turn) => turn.idempotencyKey === idempotencyKey)
+    if (existing) {
+      const userItem = existing.items.find((item) => item.kind === 'user_message')
+      const assistantItem = existing.items.find((item) => item.kind === 'assistant_text')
+      if (
+        !userItem || !assistantItem ||
+        userItem.text !== input.userText || assistantItem.text !== input.assistantText
+      ) {
+        throw Object.assign(new Error('idempotency key is already bound to a different completed turn'), {
+          code: 'idempotency_conflict'
+        })
+      }
+      return {
+        threadId: input.threadId,
+        turnId: existing.id,
+        userMessageItemId: userItem.id,
+        assistantMessageItemId: assistantItem.id
+      }
+    }
+    if (thread.turns.some((turn) => turn.status === 'running')) {
+      throw Object.assign(new Error('a turn is already running for this thread'), {
+        code: 'turn_in_progress'
+      })
+    }
+
+    const now = this.deps.nowIso()
+    const turnId = this.deps.ids.next('turn')
+    const userItemId = `item_${turnId}_user`
+    const assistantItemId = `item_${turnId}_assistant`
+    const userItem = {
+      ...makeUserItem({
+        id: userItemId,
+        turnId,
+        threadId: input.threadId,
+        text: input.userText
+      }),
+      createdAt: now,
+      finishedAt: now
+    } as TurnItem
+    const assistantItem = {
+      ...makeAssistantTextItem({
+        id: assistantItemId,
+        turnId,
+        threadId: input.threadId,
+        text: input.assistantText,
+        status: 'completed'
+      }),
+      createdAt: now,
+      finishedAt: now
+    } as TurnItem
+    const completedTurn = finishTurn(
+      appendTurnItem(
+        appendTurnItem(createTurnRecord({
+          id: turnId,
+          threadId: input.threadId,
+          prompt: input.userText,
+          idempotencyKey,
+          createdAt: now,
+          status: 'completed'
+        }), userItem),
+        assistantItem
+      ),
+      'completed',
+      now
+    )
+
+    await this.upsertThread(input.threadId, (current) => ({
+      ...touchThread(current, now),
+      status: current.turns.some((turn) => turn.status === 'running') ? 'running' : 'idle',
+      turns: [...current.turns, completedTurn]
+    }))
+    await this.deps.sessionStore.appendItem(input.threadId, userItem)
+    await this.deps.sessionStore.appendItem(input.threadId, assistantItem)
+    await this.deps.events.record({ kind: 'turn_started', threadId: input.threadId, turnId })
+    await this.deps.events.record({
+      kind: 'item_created',
+      threadId: input.threadId,
+      turnId,
+      itemId: userItem.id,
+      item: userItem
+    })
+    await this.deps.events.record({
+      kind: 'item_created',
+      threadId: input.threadId,
+      turnId,
+      itemId: assistantItem.id,
+      item: assistantItem
+    })
+    await this.deps.events.record({
+      kind: 'turn_completed',
+      threadId: input.threadId,
+      turnId,
+      reason: 'completed'
+    })
+    this.rememberTerminalTurn(turnId)
+    return {
+      threadId: input.threadId,
+      turnId,
+      userMessageItemId: userItem.id,
+      assistantMessageItemId: assistantItem.id
     }
   }
 
