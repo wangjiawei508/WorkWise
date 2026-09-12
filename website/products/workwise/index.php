@@ -6,8 +6,8 @@ $workwiseDocs = rw_workwise_docs();
 $currentPage = 'products';
 $bodyClass = 'page-product page-product-workwise';
 $pageTitle = 'WorkWise · DeepSeek V4 Pro 与可靠 AI 工作台';
-$pageDesc = 'WorkWise 0.4.1 修复插件市场安装和自动更新恢复，并提供统一插件市场、DeepSeek Harness 结构化附件处理与清晰可读的桌面工作区。';
-$pageKeywords = 'WorkWise,WorkWise 0.4.1,统一插件市场,Codex 插件,DeepSeek V4 Pro,DeepSeek Harness,结构化视觉,应用内更新,Skills,MCP,AI 工作台';
+$pageDesc = 'WorkWise 0.5.0 新增工程测量工作台，并提供统一插件市场、DeepSeek Harness 结构化附件处理与清晰可读的桌面工作区。';
+$pageKeywords = 'WorkWise,WorkWise 0.5.0,工程测量工作台,统一插件市场,Codex 插件,DeepSeek V4 Pro,DeepSeek Harness,结构化视觉,应用内更新,Skills,MCP,AI 工作台';
 $pageHeroVisualKey = 'product-workwise';
 $pageOgImage = 'https://www.railwise.cn/images/heroes/desktop/product-workwise.jpg';
 $workwiseReleaseUrl = (string)$workwiseManifest['releaseUrl'];
@@ -47,6 +47,7 @@ $workwiseCapabilities = [
   ['title' => 'Codex 与 MCPB 兼容', 'desc' => '支持 WorkWise .wwx、Codex .codex-plugin、标准 .mcpb、Codex marketplace 和 MCP Registry；仅依赖 Codex App Connector 的能力会明确标注。', 'icon' => 'fas fa-puzzle-piece', 'tone' => 'workwise-skills'],
   ['title' => '可验证安装与回滚', 'desc' => '安装前检查来源、许可证、权限、哈希、路径和依赖，使用 staging 原子切换；权限扩张必须重新审查，并保留单版本回滚。', 'icon' => 'fas fa-shield-halved', 'tone' => 'workwise-update'],
   ['title' => '克制的原生玻璃界面', 'desc' => '玻璃效果仅用于启动窗口、标题栏和临时浮层；侧边栏、编辑器与文档区域保持实色、高对比和清晰可读。', 'icon' => 'fas fa-layer-group', 'tone' => 'workwise-session'],
+  ['title' => '工程测量工作台', 'desc' => '支持水准、全站仪、GNSS、Leica GSI、RW5、RTKLIB 与表格导入；保留原始观测和单位证据，提供闭合差、平差、COSA 成果链与 PDF/XLSX 导出。', 'icon' => 'fas fa-compass', 'tone' => 'workwise-local'],
   ['title' => 'Code 工作台', 'desc' => '围绕本地仓库理解、修改、测试与发布，提供 Repo Map、定义引用与诊断信息。', 'icon' => 'fas fa-code', 'tone' => 'workwise-code'],
   ['title' => 'Write 写作工作台', 'desc' => '从结构化写作到 DOCX、PDF 等交付，导出产物经过格式校验。', 'icon' => 'fas fa-pen-nib', 'tone' => 'workwise-write'],
   ['title' => 'Design 设计工作台', 'desc' => '多页画板、文档专属 Agent 会话和选中元素定向修改；支持可编辑 PPTX 原生导入，并为复杂页面保留整页视觉参考。', 'icon' => 'fas fa-object-group', 'tone' => 'workwise-update'],
