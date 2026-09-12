@@ -398,6 +398,13 @@ describe('syncManagedRuntimeConfig', () => {
       defaultHardThreshold: 24000,
       summaryMode: 'heuristic'
     })
+    expect(parsed.models.profiles['deepseek-flash']).toMatchObject({
+      contextWindowTokens: 1_000_000,
+      maxOutputTokens: 384_000,
+      inputModalities: ['text', 'image'],
+      supportsToolCalling: true,
+      messageParts: ['text', 'image_url']
+    })
     expect(parsed.models.profiles['deepseek-v4-pro']).toMatchObject({
       contextWindowTokens: 1_000_000,
       maxOutputTokens: 384_000,

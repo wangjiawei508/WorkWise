@@ -1,0 +1,3 @@
+# WORKWISE-SOUTH-DAT v1 columns=name,northing,easting,height linearUnit=m
+P001,3456789.120,512345.880
+P002,3456795.430,not-a-number

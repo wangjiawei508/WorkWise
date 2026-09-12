@@ -1,0 +1,160 @@
+{
+  "scope": "packaged-runtime-not-gui-acceptance",
+  "package": {
+    "asarSha256": "3c8a0ef0f6f72d19997694dc06a38f6665ccb13d2caa267db3016583f69a5290",
+    "runtimeModules": [
+      {
+        "name": "engineering-service",
+        "sha256": "b9d090d837c2d90dfb988ebea46c111a014a6d7ce274ca66f9aaeb292ba39dce"
+      },
+      {
+        "name": "survey-service",
+        "sha256": "75e11ed5182191a6a075c41b7a95d053c708e05647686b0bbb11a566b39e4dd4"
+      },
+      {
+        "name": "survey-adjustment-core",
+        "sha256": "dcb8ba838ed2190a187f422453f58dec550fdb61caf3c1426e6ca76fad155726"
+      },
+      {
+        "name": "survey-cosa-ou1",
+        "sha256": "23860bba69ca8713cd496da3ce1cd49724e1565c1d5df00ba07df420774c6548"
+      },
+      {
+        "name": "survey-cosa-ou2",
+        "sha256": "7ae952370bd3e2ce00a5f18d98177e9563bf47b6d71f09e8833296185b392ba4"
+      }
+    ],
+    "electron": "43.1.1",
+    "nodeAbi": "148"
+  },
+  "source": {
+    "sha256": "05b5ecc571cb85152a4e36c4c362118b3c71e582e05cf68b5cf8feac877fdf40",
+    "bytes": 8767,
+    "format": "leica-gsi8",
+    "knownPointsSha256": "dfef93712de67cef4bf48016c337d12169eb430ba9a2e8e8e1fe550479cc6750",
+    "knownPointCount": 6
+  },
+  "preflight": {
+    "formatId": "leica-gsi8",
+    "vendor": "Leica/Hexagon",
+    "formatVersion": null,
+    "detectionMethod": "content-signature",
+    "detectionConfidence": 0.98,
+    "extensionClaimed": ".gsi",
+    "extensionContentConflict": false,
+    "matchedSignatures": [
+      "GSI word index/sign/value"
+    ],
+    "requiresManualConfirmation": false,
+    "disposition": "adjustment-ready",
+    "dispositionReason": "adjustment-ready: P0 格式目录 workwise-survey-format-catalog-1.7.0 — 词法、观测语义和单位转换成功后可进入策略校验；固定控制、基准、几何、闭合和精度条件仍由平差入口逐项验证。",
+    "parserId": "leica-gsi-leveling-block-parser",
+    "parserVersion": "0.4.0",
+    "parserSourceHash": "ed208e0314fa82faef1a774e3140b41422b04d31e8ab94c4c85493a23be03445",
+    "canonicalUnits": {
+      "linear": "m",
+      "angular": "rad"
+    },
+    "declaredDatum": null,
+    "declaredHeightSystem": null,
+    "summary": {
+      "pointCount": 27,
+      "stationCount": 0,
+      "observationCount": 28,
+      "recordCount": 156,
+      "skippedRecordCount": 0
+    },
+    "diagnostics": {
+      "total": 3,
+      "info": 2,
+      "warning": 1,
+      "blocking": 0,
+      "codes": [
+        "encoding_detected",
+        "format_detected"
+      ]
+    },
+    "rawRecordAnchors": {
+      "total": 156,
+      "usable": 156,
+      "linkedObservations": 28
+    },
+    "originalPreserved": true,
+    "eligibility": {
+      "eligible": true,
+      "blockingFindingCodes": []
+    }
+  },
+  "status": "completed",
+  "validation": "valid",
+  "integrity": {
+    "status": "verified",
+    "ledgerEntryCount": 2
+  },
+  "algorithm": "workwise-survey-adjustment-6",
+  "observations": 28,
+  "points": 27,
+  "degreesOfFreedom": 7,
+  "iterations": 1,
+  "precision": {
+    "maxPointStdDev": 0.0002613499509763904,
+    "passed": true,
+    "standardizedResidualGate": {
+      "actualMaximumSigma": 0.00003090701530281249,
+      "limitSigma": 3,
+      "exceededCount": 0,
+      "comparator": "<=",
+      "passed": true
+    },
+    "maxPointStdDevGate": {
+      "actualMetres": 0.0002613499509763904,
+      "configuredLimitMetres": null,
+      "status": "reported-no-project-limit-configured"
+    }
+  },
+  "closure": {
+    "independentCycles": 7,
+    "maximumHeightClosureMetres": 0.0007799999999997809,
+    "configuredHeightClosureLimitMetres": null
+  },
+  "delivery": {
+    "pdfPageCount": 3,
+    "verifiedPointCount": 27,
+    "outputs": [
+      {
+        "name": "report.docx",
+        "mediaType": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "sha256": "42ef13dba294f946d5c3fee0dbfb0929d4813833c84f4971cb516cf63276cc5e",
+        "sizeBytes": 10077
+      },
+      {
+        "name": "report.pdf",
+        "mediaType": "application/pdf",
+        "sha256": "4f3dc76c9897112c58d3c50a7b1a2d0d204954f4ec6cf2a656d526f08573e697",
+        "sizeBytes": 37753
+      },
+      {
+        "name": "evidence.xlsx",
+        "mediaType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "sha256": "22387d2e6b56b52dceadfd8072ab0f58cf2cbc0e93edaef9fcb63c07b185f69e",
+        "sizeBytes": 154302
+      }
+    ],
+    "manifest": {
+      "sha256": "4138acafb6b23e668354647d3fabd9ca6fcdf6b24f60bd51191b0163eb7e58a2",
+      "bytes": 240917,
+      "sourceCount": 1,
+      "sourceHashes": [
+        "05b5ecc571cb85152a4e36c4c362118b3c71e582e05cf68b5cf8feac877fdf40"
+      ],
+      "adjustmentCount": 1,
+      "adjustmentInputHashes": [
+        "fbc52ac91ce9686631879c2c3e8e603e68b24395e424a21e2ca280042385286f"
+      ],
+      "outputCount": 3,
+      "valid": true,
+      "runtimeVersion": "0.5.0"
+    },
+    "reviewStatus": "draft"
+  }
+}

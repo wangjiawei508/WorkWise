@@ -2,9 +2,9 @@ import { createHash, randomUUID } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { atomicWriteFile } from '../adapters/file/atomic-write.js'
-import { EngineeringEvidenceCardV1, EngineeringWatchRuleV1, type EngineeringContextSnapshotV1, type EngineeringEvidenceCardV1 as EngineeringEvidenceCard, type EngineeringWatchRuleV1 as EngineeringWatchRule } from '../contracts/engineering-ai.js'
+import { EngineeringEvidenceCardV1, EngineeringWatchRuleV1, type EngineeringContextSnapshotV1, type EngineeringEvidenceCardV1 as EngineeringEvidenceCard, type EngineeringSurveyAdjustmentAdmissionV1, type EngineeringWatchRuleV1 as EngineeringWatchRule } from '../contracts/engineering-ai.js'
 import type { EngineeringService } from './engineering-service.js'
-import type { SurveyService } from './survey-service.js'
+import type { SurveyRawSourceIntegrity, SurveyService, SurveySourceEligibility } from './survey-service.js'
 
 const MAX_FINDINGS_PER_DATASET = 200
 const MAX_DATASETS = 20
@@ -13,6 +13,51 @@ const MAX_RUNS = 20
 const MAX_SURVEY_NETWORKS = 20
 const MAX_SURVEY_ADJUSTMENTS = 20
 const MAX_CITATIONS = 100
+
+function currentSurveyAdjustmentAdmission(
+  rawSourceIntegrity: SurveyRawSourceIntegrity | undefined,
+  sourceEligibility: SurveySourceEligibility | undefined
+): EngineeringSurveyAdjustmentAdmissionV1 {
+  const integrity = rawSourceIntegrity
+    ? {
+      status: rawSourceIntegrity.status,
+      ledgerEntryCount: rawSourceIntegrity.ledgerEntryCount,
+      errors: rawSourceIntegrity.errors
+        .filter((error) => typeof error === 'string' && error.trim().length > 0)
+        .map((error) => error.trim())
+        .slice(0, 20)
+    }
+    : {
+      status: 'legacy-unverified' as const,
+      ledgerEntryCount: 0,
+      errors: ['当前调整记录未提供服务端原始资料完整性状态；只能作为历史记录。']
+    }
+  const eligibility = sourceEligibility
+    ? {
+      eligible: sourceEligibility.eligible,
+      findings: sourceEligibility.findings.slice(0, 20).map((finding) => ({
+        code: finding.code,
+        severity: finding.severity,
+        message: finding.message,
+        ...(finding.suggestion ? { suggestion: finding.suggestion } : {})
+      }))
+    }
+    : {
+      eligible: false,
+      findings: [{
+        code: 'source_not_adjustment_ready',
+        severity: 'blocking',
+        message: '当前调整记录未提供服务端来源资格；不得用于新的平差、变形分析或正式交付。'
+      }]
+    }
+  return {
+    status: integrity.status === 'verified' && eligibility.eligible
+      ? 'current-admissible'
+      : 'historical-non-admissible',
+    rawSourceIntegrity: integrity,
+    sourceEligibility: eligibility
+  }
+}
 
 function hashContext(value: Omit<EngineeringContextSnapshotV1, 'contextHash'>): string {
   const { generatedAt: _generatedAt, ...stableContext } = value
@@ -132,7 +177,8 @@ export class EngineeringContextService {
           observationCount: adjustment.result.observationCount,
           unknownCount: adjustment.result.unknownCount,
           degreesOfFreedom: adjustment.result.degreesOfFreedom
-        } : {})
+        } : {}),
+        sourceAdmission: currentSurveyAdjustmentAdmission(adjustment.rawSourceIntegrity, adjustment.sourceEligibility)
       })),
       citations: overview.manifests.flatMap((manifest) => manifest.citations).slice(0, MAX_CITATIONS).map((citation) => ({
         id: citation.id,
@@ -143,6 +189,44 @@ export class EngineeringContextService {
       watchDrafts: (this.watchDrafts.get(projectId) ?? []).slice(0, 20)
     }
     return { ...base, contextHash: hashContext(base) }
+  }
+
+  workspace(projectId: string): string {
+    return this.engineering.getProjectOverview(projectId).project.workspace
+  }
+
+  conversationEvidence(projectId: string, selection?: { networkId?: string; adjustmentId?: string }): unknown {
+    const networks = this.survey?.listNetworks(projectId) ?? []
+    const adjustments = this.survey?.listAdjustments(projectId) ?? []
+    const network = selection?.networkId ? networks.find((item) => item.id === selection.networkId) : undefined
+    const selectedAdjustment = selection?.adjustmentId ? adjustments.find((item) => item.run.id === selection.adjustmentId) : undefined
+    if (selection?.networkId && !network) throw new Error('network is not in the current Survey project')
+    if (selection?.adjustmentId && (!selectedAdjustment || (network && selectedAdjustment.run.networkId !== network.id))) throw new Error('adjustment is not in the current Survey project/network')
+    return {
+      context: this.snapshot(projectId),
+      evidence: this.evidence(projectId).slice(0, 20),
+      ...(network ? { selectedNetwork: {
+        id: network.id, networkType: network.networkType, revision: network.revision,
+        observationCount: network.observations.length, observations: network.observations.slice(0, 20),
+        pointCount: network.knownPoints.length + network.unknownPoints.length,
+        points: [...network.knownPoints, ...network.unknownPoints].slice(0, 20)
+      } } : {}),
+      adjustments: (selectedAdjustment ? [selectedAdjustment] : adjustments.filter((item) => !network || item.run.networkId === network.id)).slice(0, 5).map(({ run, result, rawSourceIntegrity, sourceEligibility }) => ({
+        runId: run.id, networkId: run.networkId, inputHash: run.inputHash,
+        sourceAdmission: currentSurveyAdjustmentAdmission(rawSourceIntegrity, sourceEligibility),
+        ...(result ? {
+          validation: result.validation, algorithmVersion: result.algorithmVersion,
+          closure: result.closure, closureUnits: result.closureUnits,
+          precision: result.precision, linearUnit: result.linearUnit, angularUnit: result.angularUnit,
+          unitWeightStdDev: result.unitWeightStdDev, unitWeightStdDevUnit: result.unitWeightStdDevUnit,
+          varianceFactor: result.varianceFactor, varianceFactorUnit: result.varianceFactorUnit,
+          degreesOfFreedom: result.degreesOfFreedom,
+          qualityFindings: result.qualityFindings.slice(0, 20),
+          residuals: result.observations.slice(0, 20),
+          residualCount: result.observations.length
+        } : {})
+      }))
+    }
   }
 
   private loadWatchDrafts(projectId: string, workspace: string): void {

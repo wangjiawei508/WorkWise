@@ -1,0 +1,6 @@
+{
+  "$schema":"https://json-schema.org/draft/2020-12/schema",
+  "type":"object",
+  "required":["project","known_points","observations","adjustment_results","tolerances","source_refs"],
+  "properties":{"project":{"type":"object","required":["name","coordinate_system","height_system","standard_version"]},"known_points":{"type":"array"},"observations":{"type":"object"},"adjustment_results":{"type":"object"},"tolerances":{"type":"object"},"source_refs":{"type":"array"}}
+}

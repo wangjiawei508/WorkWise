@@ -3,7 +3,8 @@ import { jsonResponse, type JsonResponse } from '../response.js'
 import { ERRORS } from './runtime-error.js'
 import type { EngineeringService } from '../../engineering/engineering-service.js'
 import type { SurveyService } from '../../engineering/survey-service.js'
-import { SkillProvenanceV1, type EngineeringCapabilityV1 } from '../../contracts/survey.js'
+import { CosaFileGroupInspectionRequestV1, SkillProvenanceV1, type EngineeringCapabilityV1 } from '../../contracts/survey.js'
+import { identifyCosaFileGroups } from '../../engineering/survey-file-groups.js'
 import { AUDITED_SPECIALIST_SKILLS, SPECIALIST_SKILL_ALIASES, SPECIALIST_SKILL_SOURCE } from '../../engineering/specialist-skill-provenance.generated.js'
 
 export async function listProjects(service: EngineeringService | undefined): Promise<JsonResponse> {
@@ -75,24 +76,82 @@ export async function resumeRun(service: EngineeringService | undefined, id: str
 export async function importSurveyNetwork(service: SurveyService | undefined, request: Request): Promise<JsonResponse | Response> {
   if (!service) return ERRORS.unavailable('survey adjustment service is unavailable')
   const body = await readJsonBody(request); if (!body.ok) return body.response
-  try { return jsonResponse({ network: await service.importNetwork(body.value) }, 201) } catch (error) { return mapSurveyError(error) }
+  if (body.value && typeof body.value === 'object' && !Array.isArray(body.value) && Object.prototype.hasOwnProperty.call(body.value, 'network')) {
+    return ERRORS.validation('结构化网络不能直接通过 Runtime 提交；请以 WorkWise JSON 源文件的 name 与 dataBase64 导入，以保留原始字节、SHA-256 与原始资料账本。')
+  }
+  try {
+    const network = await service.importNetwork(body.value)
+    return jsonResponse({ network: { ...network, rawSourceIntegrity: service.getRawSourceIntegrity(network.id), sourceEligibility: service.getSourceEligibility(network.id) } }, 201)
+  } catch (error) { return mapSurveyError(error) }
+}
+
+export async function inspectCosaSurveyFileGroups(request: Request): Promise<JsonResponse | Response> {
+  const body = await readJsonBody(request); if (!body.ok) return body.response
+  try {
+    const input = CosaFileGroupInspectionRequestV1.parse(body.value)
+    return jsonResponse({ inspection: identifyCosaFileGroups(input.files) })
+  } catch (error) { return mapSurveyError(error) }
 }
 
 export function listSurveyNetworks(service: SurveyService | undefined, projectId?: string): JsonResponse {
   if (!service) return ERRORS.unavailable('survey adjustment service is unavailable')
-  return jsonResponse({ networks: service.listNetworks(projectId) })
+  return jsonResponse({
+    networks: service.listNetworks(projectId).map((network) => ({
+      ...network,
+      rawSourceIntegrity: service.getRawSourceIntegrity(network.id),
+      sourceEligibility: service.getSourceEligibility(network.id)
+    }))
+  })
 }
 
 export async function validateSurveyNetwork(service: SurveyService | undefined, request: Request, networkId: string): Promise<JsonResponse | Response> {
   if (!service) return ERRORS.unavailable('survey adjustment service is unavailable')
   const body = await readJsonBody(request); if (!body.ok) return body.response
-  try { return jsonResponse({ network: service.validateNetwork(networkId, body.value) }) } catch (error) { return mapSurveyError(error) }
+  try {
+    const network = service.validateNetwork(networkId, body.value)
+    return jsonResponse({ network: { ...network, rawSourceIntegrity: service.getRawSourceIntegrity(network.id), sourceEligibility: service.getSourceEligibility(network.id) } })
+  } catch (error) { return mapSurveyError(error) }
+}
+
+/** Read-only evidence endpoint; correction writes remain server-trusted only. */
+export function getSurveyDerivedCorrections(service: SurveyService | undefined, networkId: string): JsonResponse {
+  if (!service) return ERRORS.unavailable('survey adjustment service is unavailable')
+  try {
+    const replay = service.getDerivedCorrectionReplay(networkId)
+    const rawSourceIntegrity = service.getRawSourceIntegrity(networkId)
+    return jsonResponse({
+      corrections: service.getDerivedCorrectionLedger(networkId),
+      rawSourceIntegrity,
+      replay
+    })
+  } catch (error) { return mapSurveyError(error) }
+}
+
+/** Read-only replay of the current or explicitly selected immutable chain head. */
+export function replaySurveyDerivedCorrections(service: SurveyService | undefined, networkId: string, correctionHeadHash?: string): JsonResponse {
+  if (!service) return ERRORS.unavailable('survey adjustment service is unavailable')
+  try {
+    return jsonResponse({
+      replay: service.getDerivedCorrectionReplay(networkId, correctionHeadHash),
+      rawSourceIntegrity: service.getRawSourceIntegrity(networkId)
+    })
+  } catch (error) { return mapSurveyError(error) }
 }
 
 export async function createAdjustment(service: SurveyService | undefined, request: Request): Promise<JsonResponse | Response> {
   if (!service) return ERRORS.unavailable('survey adjustment service is unavailable')
   const body = await readJsonBody(request); if (!body.ok) return body.response
-  try { return jsonResponse(service.createAdjustment(body.value), 201) } catch (error) { return mapSurveyError(error) }
+  try {
+    const created = service.createAdjustment(body.value)
+    const adjustment = service.getAdjustment(created.run.id)
+    // Do not make a just-created historical `validation: valid` result look
+    // currently admissible merely because this write endpoint used to return
+    // the bare stored payload. The read model attaches current source status.
+    if (!adjustment?.rawSourceIntegrity || !adjustment.sourceEligibility) {
+      return ERRORS.internal(`newly created adjustment ${created.run.id} is unavailable for current source-admission readback`)
+    }
+    return jsonResponse(adjustment, 201)
+  } catch (error) { return mapSurveyError(error) }
 }
 
 export function getAdjustment(service: SurveyService | undefined, id: string): JsonResponse {
@@ -141,13 +200,13 @@ export function listDeformations(service: SurveyService | undefined, projectId?:
 export function engineeringCapabilities(service: SurveyService | undefined): JsonResponse {
   const available = Boolean(service)
   const capabilities: EngineeringCapabilityV1[] = [
-    { id: 'survey-adjustment', label: '工程测量与平差', category: 'survey', skillIds: ['data-analysis', 'adjustment-report'], toolIds: ['survey_network_validate', 'survey_calculator', 'control_network', 'cpiii_adjustment', 'coord_transform', 'survey_adjustment_read'], available, ...(available ? {} : { reason: 'survey runtime unavailable' }) },
+    { id: 'survey-adjustment', label: '工程测量与平差', category: 'survey', skillIds: ['data-analysis', 'adjustment-report', 'rail-any-station-control-network'], toolIds: ['survey_network_validate', 'survey_calculator', 'control_network', 'cpiii_adjustment', 'coord_transform', 'survey_adjustment_read'], available, ...(available ? {} : { reason: 'survey runtime unavailable' }) },
     { id: 'third-party-monitoring', label: '地保与第三方监测', category: 'monitoring', skillIds: ['di-bao-monitoring', 'report-dibao', 'construction-monitoring', 'operational-monitoring'], toolIds: ['monitoring_csv', 'deformation_rate', 'alert_level'], available, ...(available ? {} : { reason: 'engineering runtime unavailable' }) },
     { id: 'engineering-delivery', label: '测绘成果交付', category: 'documents', skillIds: ['report-writing', 'docx-generation', 'excel-operations'], toolIds: ['report_export', 'excel_export', 'chart_generator'], available, ...(available ? {} : { reason: 'survey runtime unavailable' }) },
     { id: 'tender-master', label: '标书编制', category: 'documents', skillIds: ['tender-master', 'bidding-knowledge'], toolIds: ['standard_query'], available, ...(available ? {} : { reason: 'skill runtime unavailable' }) },
     { id: 'standards', label: '规范与知识库', category: 'standards', skillIds: ['standard-reference'], toolIds: ['standard_query', 'tool_norm_cite'], available, ...(available ? {} : { reason: 'skill runtime unavailable' }) }
   ]
-  return jsonResponse({ schemaVersion: 1, product: { name: '工程测量工作台', subtitle: '测绘专业 AI Agent' }, capabilities })
+  return jsonResponse({ schemaVersion: 1, product: { name: 'WorkWise Survey', subtitle: '工程测量工作台 · 测绘专业 AI Agent' }, capabilities })
 }
 
 export function skillsCatalog(): JsonResponse {

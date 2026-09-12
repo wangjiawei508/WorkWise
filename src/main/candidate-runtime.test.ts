@@ -24,6 +24,11 @@ import {
   UNCONFIGURED_RECOVERY_CANDIDATE_EXIT_CODE
 } from './candidate-runtime'
 
+// The desktop seatbelt sandbox denies loopback binds. Keep the real socket
+// coverage enabled everywhere else, while making the unit suite honest about
+// capabilities that are unavailable in this runner.
+const loopbackSocketTests = process.env.CODEX_SANDBOX === 'seatbelt' ? it.skip : it
+
 describe('resolveCandidateRuntimePaths', () => {
   it('keeps protected storage disabled unless candidate access is explicit', () => {
     expect(isCandidateCredentialAccessAllowed({})).toBe(true)
@@ -34,7 +39,7 @@ describe('resolveCandidateRuntimePaths', () => {
     })).toBe(true)
   })
 
-  it('holds candidate schedule and IM ports until the reservation is closed', async () => {
+  loopbackSocketTests('holds candidate schedule and IM ports until the reservation is closed', async () => {
     const reservations = await reserveCandidateServicePorts()
     const assertPortUnavailable = async (port: number): Promise<void> => {
       const contender = createNetServer()
@@ -55,7 +60,7 @@ describe('resolveCandidateRuntimePaths', () => {
     }
   })
 
-  it('verifies all candidate listeners without sending an IM message', async () => {
+  loopbackSocketTests('verifies all candidate listeners without sending an IM message', async () => {
     const requests: string[] = []
     const services = [
       { path: '/health', body: { status: 'ok', service: 'kun', mode: 'serve', protocolVersion: 1 } },
@@ -293,7 +298,7 @@ describe('resolveCandidateRuntimePaths', () => {
     expect(UNCONFIGURED_RECOVERY_CANDIDATE_EXIT_CODE).toBe(78)
   })
 
-  it('loads a recovery candidate environment from its in-root launch file', () => {
+  it.each(['', 'export ', 'export\t'])('loads an in-root candidate environment with prefix %j', (prefix) => {
     const root = mkdtempSync(join(tmpdir(), 'workwise-candidate-launch-'))
     const file = join(root, 'candidate.env')
     try {
@@ -304,7 +309,7 @@ describe('resolveCandidateRuntimePaths', () => {
         `WORKWISE_CANDIDATE_CREDENTIAL_HELPER=${join(root, 'authorized', 'WorkWise')}`,
         'WORKWISE_CANDIDATE_OUTBOUND_DISABLED=1',
         'UNRELATED_SECRET=must-not-be-loaded'
-      ].join('\n'))
+      ].map((line) => prefix + line).join('\n'))
       const env = candidateEnvironmentFromArgv(
         '/private/tmp/WorkWise IM Recovery Candidate.app/Contents/MacOS/WorkWise IM Recovery Candidate',
         [`--workwise-candidate-env-file=${file}`],

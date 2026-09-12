@@ -47,7 +47,7 @@ export function normalizeImProvider(value: unknown): ClawImProvider {
 }
 
 export function normalizeClawModel(value: unknown): ClawModel {
-  return value === 'deepseek-v4-pro' || value === 'deepseek-v4-flash' ? value : 'auto'
+  return value === 'deepseek-flash' || value === 'deepseek-v4-pro' || value === 'deepseek-v4-flash' ? value : 'auto'
 }
 
 export function normalizeScheduleModel(value: unknown): ScheduleModel {

@@ -79,6 +79,18 @@ const GUI_SCHEDULE_MCP_TIMEOUT_MS = 5_000
 const HISTORICAL_DEFAULT_ATTACHMENT_MIME_TYPES = ['image/png', 'image/jpeg', 'image/webp'] as const
 const MCP_PATH_ENV_KEY = process.platform === 'win32' ? 'Path' : 'PATH'
 const DEFAULT_MANAGED_RUNTIME_MODEL_PROFILES: Record<string, Record<string, unknown>> = {
+  'deepseek-flash': {
+    contextWindowTokens: 1_000_000,
+    maxOutputTokens: 384_000,
+    contextCompaction: {
+      softThreshold: 980_000,
+      hardThreshold: 990_000
+    },
+    inputModalities: ['text', 'image'],
+    outputModalities: ['text'],
+    supportsToolCalling: true,
+    messageParts: ['text', 'image_url']
+  },
   'deepseek-v4-pro': {
     contextWindowTokens: 1_000_000,
     maxOutputTokens: 384_000,
@@ -544,7 +556,8 @@ async function ensureBundledAgentPackForRuntime(options: StartManagedRuntimeChil
 
 const AUTO_INSTALLED_SPECIALIST_SKILLS = [
   { id: 'tender-master', skillName: 'tender-master' },
-  { id: 'document-illustrator', skillName: 'document-illustrator' }
+  { id: 'document-illustrator', skillName: 'document-illustrator' },
+  { id: 'rail-any-station-control-network', skillName: 'rail-any-station-control-network' }
 ] as const
 
 async function ensureBundledSpecialistSkillsForRuntime(
@@ -619,7 +632,7 @@ export async function syncManagedRuntimeConfig(
     runtime.baseUrl &&
     runtime.model &&
     isOfficialDeepSeekBaseUrl(runtime.baseUrl) &&
-    /^deepseek-v4-(?:pro|flash)$/i.test(runtime.model)
+    /^deepseek-(?:flash|v4-(?:pro|flash))$/i.test(runtime.model)
   )
   const next = {
     serve: {

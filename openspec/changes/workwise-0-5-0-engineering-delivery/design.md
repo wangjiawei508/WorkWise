@@ -14,6 +14,12 @@ Workbench route
 
 The seven-page deterministic console stays lazy-loaded as a compatibility panel. It reads the same EngineeringService records and never owns a second AI conversation or queue. Originals stay in Attachment Store; project/run metadata stays in `.workwise/engineering`; generated files stay in `.workwise/deliverables/<projectId>/<runId>`.
 
+## Naming and compatibility boundary
+
+D-04 separates product naming from compatibility-sensitive implementation identifiers. User-facing platform references remain `WorkWise`; the fifth workbench is shown as `Survey` or `WorkWise Survey`; and `RAILWISE Survey` is reserved for commercial-distribution surfaces. New default project-thread titles use `Survey AI`, while an existing persisted title remains unchanged and is never rewritten by a display migration.
+
+The naming update does not rename the package, bundle ID, updater/feed, Runtime API paths, route IDs, persisted storage locations, or the thread `domain: "engineering"` discriminator. This keeps 0.4.x records and the 0.5.0 upgrade chain readable while allowing the visible workbench identity to evolve independently.
+
 ## Contracts
 
 Add `EngineeringAiThreadMetaV1`, `EngineeringContextSnapshotV1`, `EngineeringRunPlanV1`, `EngineeringEvidenceCardV1`, `EngineeringApprovalV1`, and `EngineeringWatchRuleV1` under `kun/src/contracts/engineering-ai.ts`. Additive thread fields are `domain` (`code | write | design | engineering | flow | claw`) and optional `projectId`; old records parse with `domain` omitted and continue to behave as Code/primary threads.
@@ -53,6 +59,29 @@ Each supported network has its own typed strategy boundary:
 - deformation results are derived from immutable adjusted epochs and never from model-authored numbers.
 
 Shared matrix code is allowed; shared strategy validation or an observation-model fallback is not. Every strategy is accepted only through a golden fixture with independent expected values and negative fixtures for incomplete, singular and unsupported data.
+
+## Professional survey-format pipeline
+
+Professional source ingestion is a separate boundary before network validation:
+
+```text
+Attachment Store original
+  -> bounded magic/header/archive sniffing
+  -> SurveyFormatRegistry driver
+  -> raw-record ledger + diagnostics
+  -> normalized point/observation draft
+  -> user confirms datum/units/roles
+  -> typed network validator
+  -> canonical survey-math strategy
+```
+
+Drivers expose `detect`, `inspect`, and `normalize` operations and never select a numerical strategy themselves. Detection reads only bounded prefixes, archive entry names, and declared text encodings. The registry resolves extension/content conflicts explicitly and does not pass an unknown file to the delimited parser.
+
+Native drivers are grouped by observation semantics rather than filename alone. P0 covers COSA `.in1/.in2/.NET/.ou`, South DAT with an explicit column/role/unit mapping, and Leica GSI; the wider set covers Leica HeXML; Trimble JobXML/JXL and DiNi/Zeiss M5/DAT; TDS/Carlson RAW/RW5; Sokkia SDR2x/SDR33; Topcon GTS-7/FC-5; Nikon RAW; Spectra Survey Pro; and LandXML. A valid COSA `.in2` may become adjustment-ready when its parsed controls, observations, units, datum and selected strategy are complete. A COSA `.in1` additionally requires its explicit mapping; South DAT never guesses a column order and remains mapping-dependent. Leica GSI may proceed to strategy validation when its record semantics and canonical units are valid, but is blocked until the chosen strategy has adequate fixed controls and geometry. GNSS drivers cover RINEX 2/3/4, SINEX, NMEA, RTCM 2/3, SP3, IONEX, ANTEX, u-blox UBX, NovAtel OEM, Septentrio SBF, BINEX, Javad JPS, Topcon TPS, South STH, Hi-Target ZHD, CHCNAV HCN, and ComNav CNB. Raw GNSS observations/corrections and auxiliary products stop at `gnss-processing-required` unless a separately audited local processing adapter produces datum-bound baseline vectors and covariance. Unverified field-controller dialects stop at `archive-only`. Standard gzip/ZIP and Hatanaka wrappers are expanded with size, nesting, path, and record limits before the inner driver runs.
+
+Opaque Trimble T00/T01/T02/T04/JOB, Leica DBX/MDB, and Spectra Survey Pro database inputs use `SurveyConverterAdapter` rather than reverse-engineered fallback parsing. A locally user-supplied adapter may process the user's local source without a WorkWise manufacturer-authorization gate; it runs with network disabled, bounded time/output, explicit arguments, and hashed input/output. Its output becomes eligible for import only after a deterministic conversion chain records both sources and the normal parser, semantic, unit, datum, topology, closure, precision, and traceability gates succeed. WorkWise does not bundle or redistribute vendor binaries; any future bundled converter package separately requires license and redistribution review. Missing or invalid adapters produce a reviewable blocker while retaining the original attachment.
+
+`SurveySourceFileV1`, `SurveyFormatDetectionV1`, `SurveyImportDiagnosticV1`, and `SurveyRawRecordAnchorV1` carry provenance into the network, evidence package and manifest. Unknown vendor fields are retained in a bounded raw-record payload or sidecar, while numeric values sent to the canonical kernel use explicit metre/radian conversions. The workbench preflight card shows detection, parser/converter identity, readiness and failures before the user can run validation.
 
 New numeric results use canonical metres and radians with per-closure and per-residual unit metadata. Read compatibility parses old result JSON and adds only deterministic defaults in memory; it does not persist a silent migration. Reports and evidence sheets explicitly label dimensionless `sigma0`/variance factors, linear precision, angular residuals and relative closures.
 

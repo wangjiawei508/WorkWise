@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<LandXML xmlns="http://www.landxml.org/schema/LandXML-1.2" version="1.2">
+  <CoordinateSystem epsgCode="3857" name="Web Mercator"/>
+  <Project name="Example Survey Project">
+    <Application name="Open BIM Survey Workflow" version="1.0"/>
+  </Project>
+  <Surfaces>
+    <Surface name="Example_Terrain">
+      <Definition surfType="TIN">
+        <Pnts>
+          <P id="1">123.456 789.123 145.678</P>
+          <P id="2">145.789 801.456 146.234</P>
+          <P id="3">167.234 823.789 147.123</P>
+        </Pnts>
+        <Faces>
+          <F>1 2 3</F>
+        </Faces>
+      </Definition>
+    </Surface>
+  </Surfaces>
+</LandXML>

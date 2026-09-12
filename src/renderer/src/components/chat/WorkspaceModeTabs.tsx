@@ -1,21 +1,22 @@
 import type { ReactElement } from 'react'
-import { Code2, Dribbble, PencilLine } from 'lucide-react'
+import { Code2, Compass, Dribbble } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
+import type { AppRoute } from '../../store/chat-store'
 
 type Props = {
-  activeView: 'chat' | 'write' | 'claw' | 'schedule' | 'design' | 'flow' | 'engineering'
+  activeRoute: AppRoute
   focusModeEnabled?: boolean
   onCodeOpen: () => void
+  onEngineeringOpen: () => void
   onToggleFocusMode?: () => void
-  onWriteOpen: () => void
 }
 
 export function WorkspaceModeTabs({
-  activeView,
+  activeRoute,
   focusModeEnabled = false,
   onCodeOpen,
-  onToggleFocusMode,
-  onWriteOpen
+  onEngineeringOpen,
+  onToggleFocusMode
 }: Props): ReactElement {
   const { t } = useTranslation('common')
   const showFocusToggle = typeof onToggleFocusMode === 'function'
@@ -35,36 +36,33 @@ export function WorkspaceModeTabs({
     }`
 
   const tabs = (
-    <div
-      role="tablist"
-      aria-label={`${t('code')} / ${t('write')}`}
+    <nav
+      aria-label={`${t('code')} / ${t('survey')}`}
       className={`${showFocusToggle ? '' : 'mb-2'} flex flex-row gap-1 rounded-[8px] border border-[var(--ds-sidebar-row-ring)] bg-[color-mix(in_srgb,var(--ds-sidebar-field-bg)_84%,transparent)] p-1 shadow-[inset_0_1px_0_rgba(255,255,255,0.62)] dark:bg-white/[0.035] dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.035)]`}
     >
       <button
         type="button"
-        role="tab"
-        aria-selected={activeView === 'chat'}
+        aria-current={activeRoute === 'chat' ? 'page' : undefined}
         onClick={onCodeOpen}
-        className={tabClass(activeView === 'chat')}
+        className={tabClass(activeRoute === 'chat')}
       >
-        <span className={iconClass(activeView === 'chat')}>
+        <span className={iconClass(activeRoute === 'chat')}>
           <Code2 className="h-3.5 w-3.5" strokeWidth={1.9} />
         </span>
         <span className="truncate">{t('code')}</span>
       </button>
       <button
         type="button"
-        role="tab"
-        aria-selected={activeView === 'write'}
-        onClick={onWriteOpen}
-        className={tabClass(activeView === 'write')}
+        aria-current={activeRoute === 'engineering' ? 'page' : undefined}
+        onClick={onEngineeringOpen}
+        className={tabClass(activeRoute === 'engineering')}
       >
-        <span className={iconClass(activeView === 'write')}>
-          <PencilLine className="h-3.5 w-3.5" strokeWidth={1.9} />
+        <span className={iconClass(activeRoute === 'engineering')}>
+          <Compass className="h-3.5 w-3.5" strokeWidth={1.9} />
         </span>
-        <span className="truncate">{t('write')}</span>
+        <span className="truncate">{t('survey')}</span>
       </button>
-    </div>
+    </nav>
   )
 
   if (!showFocusToggle) return tabs

@@ -22,6 +22,10 @@
 - [x] Add AI routes/events, evidence-card reads, and renderer cards for plans, approvals, findings, metrics, trends, citations, artifacts, and model/tool unavailable recovery.
 - [ ] Add packaged UI acceptance for Engineering thread isolation, AI-first entry, classic fallback, loading/empty/partial/error/stale states, light/dark themes, narrow windows, keyboard/a11y, and a real CSV/XLSX-to-DOCX/PDF/XLSX/manifest run.
 
+## D-04 product naming compatibility
+
+- [x] Apply the WorkWise / Survey / RAILWISE Survey naming boundary to new user-visible workbench and project-thread labels; preserve package, bundle, updater, API, route, storage, and `domain: "engineering"` compatibility identifiers with regression coverage.
+
 ## Canonical survey adjustment
 
 - [x] Add canonical metre/radian unit metadata to adjustment results, per-observation residuals, closures, UI and DOCX/PDF/XLSX evidence, including non-destructive legacy-read compatibility.
@@ -40,3 +44,13 @@
 - [x] Complete pinned-commit, file-hash, redistribution-license, script, dependency, network, credential and real-scenario audit for every bundled specialist Skill; exclude blocked assets without touching user copies.
 - [x] Close the remaining 0.3.3 and specialist-skill acceptance tasks without modifying user data.
 - [ ] Run typecheck, lint, full tests, build, strict OpenSpec validation, packaged GUI acceptance, and private 0.5.0-rc evidence collection.
+
+## Professional survey source formats
+
+- [x] Add versioned source-file, format-detection, raw-record anchor, parser/converter provenance, diagnostics, and import-disposition contracts; persist them without rewriting existing networks.
+- [x] Implement the bounded `SurveyFormatRegistry`, content-signature conflict handling, canonical-unit contracts, and safe archive-only/blocking dispositions without promoting an unverified vendor format to adjustment-ready.
+- [x] Implement and independently validate native Leica GSI-8/GSI-16/HeXML, Trimble JobXML/JXL/M5/DAT, TDS/Carlson RAW/RW5, Sokkia SDR2x/SDR33, and LandXML drivers against licensed or synthetic golden fixtures before any format can become adjustment-ready.
+- [x] Implement and independently validate GNSS RINEX 2/3/4, compressed/Hatanaka wrapper, SINEX, NMEA, RTCM 2/3, SP3/IONEX/ANTEX, u-blox UBX, NovAtel OEM, Septentrio SBF, BINEX, Javad JPS, Topcon TPS, South STH, Hi-Target ZHD, CHCNAV HCN, and ComNav CNB inspection/import states; require datum-bound baseline vectors and covariance before GNSS adjustment.
+- [x] Complete the deterministic local-converter chain for Trimble T01/T02/T04/JOB, Leica DBX/MDB, and Survey Pro databases: accept only locally user-supplied, allowlisted sandboxed converters; retain both source hashes and provenance; do not bundle vendor binaries or reverse-engineer opaque formats; and apply normal parser, semantics, units, datum, topology, closure, precision, and traceability gates to converted output without a manufacturer-authorization requirement.
+- [x] Add the professional import preflight UI, format/readiness filters, raw-record and diagnostic views, accessible recovery actions, and replace the CSV/XLSX/JSON-only survey copy and file picker.
+- [ ] Add redistributable or synthetic format fixtures for every advertised vendor/receiver family, parser golden/negative tests, decompression-bomb and malformed-record limits, Runtime/UI/artifact provenance tests, and real-project production acceptance: at least two P0 measurement formats must run import -> preflight -> deterministic adjustment -> DOCX/PDF/XLSX/manifest in the packaged candidate, with closure/precision comparison evidence. Do not treat a source as accepted merely because its vendor family is named.

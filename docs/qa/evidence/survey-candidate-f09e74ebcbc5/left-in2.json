@@ -1,0 +1,69 @@
+{
+  "scope": "packaged-runtime-not-gui-acceptance",
+  "package": {
+    "asarSha256": "e8ac874d7af270341ae4b8dcf9e0fa6b9851375c6ff6d8a6c9dbfd1b1c99c684",
+    "runtimeModules": [
+      {
+        "name": "engineering-service",
+        "sha256": "b9d090d837c2d90dfb988ebea46c111a014a6d7ce274ca66f9aaeb292ba39dce"
+      },
+      {
+        "name": "survey-service",
+        "sha256": "66e111e167a7cd5b2d2758e1eb4de875569e12ed3bf5e5c4932a1589a88d29c3"
+      },
+      {
+        "name": "survey-adjustment-core",
+        "sha256": "dcb8ba838ed2190a187f422453f58dec550fdb61caf3c1426e6ca76fad155726"
+      }
+    ],
+    "electron": "43.1.1",
+    "nodeAbi": "148"
+  },
+  "source": {
+    "sha256": "187bac413941a65db23a3edbef9d82faef89c9bc61b4430d4df5a5c857cff709",
+    "bytes": 8769,
+    "format": "cosa-in2"
+  },
+  "status": "completed",
+  "validation": "valid",
+  "integrity": "verified",
+  "algorithm": "workwise-survey-adjustment-6",
+  "observations": 268,
+  "points": 61,
+  "degreesOfFreedom": 130,
+  "iterations": 3,
+  "precision": {
+    "maxPointStdDev": 0.0028839281527792827,
+    "passed": true
+  },
+  "closure": {
+    "independentCycles": 0,
+    "horizontalResidualNormMetres": 0.010168754531960155,
+    "angularResidualNormRadians": 0.000016203283851978655
+  },
+  "delivery": {
+    "pdfPageCount": 6,
+    "verifiedPointCount": 61,
+    "outputs": [
+      {
+        "name": "report.docx",
+        "mediaType": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "sha256": "87859b6412ab6d0570653cc01f1fc1a367db30eefecf4a83dc488cf0e6d8ec80",
+        "sizeBytes": 21319
+      },
+      {
+        "name": "report.pdf",
+        "mediaType": "application/pdf",
+        "sha256": "818b3c0f14a8e532d52d36b2c7ef0887f6faa671d86d9867f1f92fd8f47f59e2",
+        "sizeBytes": 45059
+      },
+      {
+        "name": "evidence.xlsx",
+        "mediaType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "sha256": "a214e11628b08bc40fec4281cceb4d4a9989b149810d6a8344c01f437145db0f",
+        "sizeBytes": 430849
+      }
+    ],
+    "reviewStatus": "draft"
+  }
+}

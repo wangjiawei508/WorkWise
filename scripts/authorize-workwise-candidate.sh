@@ -165,7 +165,9 @@ write_env_assignment() {
   local env_file="$1"
   local name="$2"
   local value="$3"
-  printf '%s=' "${name}" >> "${env_file}"
+  # The generated file is intended to be sourced before launching a candidate.
+  # Export each value so child processes receive the isolated configuration.
+  printf 'export %s=' "${name}" >> "${env_file}"
   printf '%q\n' "${value}" >> "${env_file}"
 }
 

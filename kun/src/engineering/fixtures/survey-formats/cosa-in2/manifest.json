@@ -1,0 +1,53 @@
+{
+  "schemaVersion": 1,
+  "formatId": "cosa-in2",
+  "origin": "synthetic-not-vendor-certified",
+  "purpose": "A-05 COSA .in2 parser fixture groundwork only",
+  "files": [
+    {
+      "path": "golden-single-station.in2",
+      "kind": "golden",
+      "expectation": "One station block with a backsight reset, two foresight directions, and one positive distance."
+    },
+    {
+      "path": "golden-plane-control-e2e.in2",
+      "kind": "golden",
+      "expectation": "X=north, Y=east. S1=(50,50), A=(50,150), B=(150,50), C=(120.710678,120.710678). Clockwise circle readings relative to A are B=270 degrees and C=315 degrees; both distances are 100 m within rounding."
+    },
+    {
+      "path": "golden-multi-station-known-edge.in2",
+      "kind": "golden",
+      "expectation": "Two station blocks; each contains an S,0 known-edge record that must not become a zero-length observation."
+    },
+    {
+      "path": "golden-dms-carry-boundary.in2",
+      "kind": "golden",
+      "expectation": "Contains compact DMS token 12.5959995 (12 degrees, 59 minutes, 59.995 seconds) near the carry boundary; it must not be treated as decimal degrees."
+    },
+    {
+      "path": "negative-header-two-fields.in2",
+      "kind": "negative",
+      "expectation": "Blocking diagnostic at line 1 because the prior-sigma header has only two fields."
+    },
+    {
+      "path": "negative-missing-backsight-reset.in2",
+      "kind": "negative",
+      "expectation": "Blocking diagnostic at the first L record because the station block has no L,0 backsight reset."
+    },
+    {
+      "path": "negative-point-name-comma.in2",
+      "kind": "negative",
+      "expectation": "Blocking diagnostic at the malformed known-point line whose intended point name contains a comma."
+    },
+    {
+      "path": "negative-dms-minutes-60.in2",
+      "kind": "negative",
+      "expectation": "Blocking diagnostic at the direction with minutes equal to 60."
+    },
+    {
+      "path": "negative-dms-seconds-60.in2",
+      "kind": "negative",
+      "expectation": "Blocking diagnostic at the direction with seconds equal to 60."
+    }
+  ]
+}

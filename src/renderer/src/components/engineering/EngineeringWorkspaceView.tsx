@@ -1,8 +1,8 @@
-import { useCallback, useEffect, useMemo, useState, type ReactElement } from 'react'
+import { Fragment, useCallback, useEffect, useMemo, useState, type ReactElement } from 'react'
+import { useTranslation } from 'react-i18next'
 import {
   Activity,
   AlertTriangle,
-  Archive,
   BarChart3,
   BookOpen,
   Calculator,
@@ -30,6 +30,7 @@ import { rendererRuntimeClient } from '../../agent/runtime-client'
 import { useChatStore } from '../../store/chat-store'
 import { EngineeringAiCommandCenter } from './EngineeringAiCommandCenter'
 import { SurveyAdjustmentPanel } from './SurveyAdjustmentPanel'
+import { selectSurveyClosureKey } from './survey-summary'
 import { EngineeringSkillsPanel } from './EngineeringSkillsPanel'
 import {
   activeEngineeringProjectId,
@@ -101,32 +102,68 @@ type Analysis = {
 type Output = { path: string; mediaType: string; sha256: string; sizeBytes: number }
 type Chart = { id: string; chartType: string; relativePath: string; sha256: string; validation: string }
 type Citation = { id: string; sourceType: 'attachment' | 'knowledge-base' | 'standard' | 'other'; source: string; locator?: string }
-type Run = { id: string; datasetId: string; analysisId?: string; status: string; revision: number; createdAt: string; updatedAt: string; error?: string }
+type Run = { id: string; datasetId?: string; analysisId?: string; status: string; revision: number; createdAt: string; updatedAt: string; error?: string }
 type Manifest = { id: string; runId: string; reviewStatus: string; outputs: Output[]; citations: Citation[]; adjustments?: Array<{ id: string; runId: string; networkId: string; validation: string }>; deformations?: Array<{ id: string; referenceEpoch: string; currentEpoch: string; points: Array<{ pointId: string }> }>; validation: { valid: boolean; errors: string[]; warnings: string[] }; finalizedAt?: string }
 type ReportPreview = { run: Run; files: Output[]; charts: Chart[]; citations: Citation[]; adjustments?: Array<{ id: string; runId: string; networkId: string; validation: string; displacements?: Array<{ pointId: string; dX?: number; dY?: number; dH?: number; magnitude: number }> }>; deformations?: Array<{ id: string; referenceEpoch: string; currentEpoch: string; points: Array<{ pointId: string }> }> }
 type Overview = { project: Project; datasets: Dataset[]; analyses: Analysis[]; runs: Run[]; manifests: Manifest[] }
+type SurveyNetworkSummary = {
+  id: string
+  revision: number
+  networkType: string
+  knownPoints?: Array<{ id: string }>
+  unknownPoints?: Array<{ id: string }>
+  observations?: Array<{ station?: string; from?: string; to?: string }>
+  qualityStatus?: string
+  sourceFile?: {
+    name: string
+    disposition: 'adjustment-ready' | 'gnss-processing-required' | 'converter-required' | 'archive-only'
+    detection?: { format?: string }
+    summary?: { pointCount?: number; stationCount?: number; observationCount?: number }
+  }
+}
+type SurveyAdjustmentSummary = {
+  run: { id: string; networkId: string; status: string; updatedAt?: string }
+  result?: {
+    observationCount?: number
+    closure?: Record<string, number>
+    closureUnits?: Record<string, string>
+    precision?: { maxPointStdDev?: number; relativePrecision?: number; passed?: boolean }
+    validation?: string
+  }
+  sourceEligibility?: { eligible: boolean }
+}
 type TabId = 'ai-command' | 'dashboard' | 'project' | 'data' | 'quality' | 'survey' | 'analysis' | 'deliverables' | 'review' | 'skills'
 type Notice = { tone: 'success' | 'warning' | 'error' | 'info'; message: string }
 type ProjectDraft = Pick<Project, 'name' | 'monitoringType' | 'unit' | 'signConvention' | 'reportPeriod'> & { thresholdsText: string }
 
-type TabDefinition = { id: TabId; label: string; shortLabel: string; icon: typeof FolderKanban; group: 'agent' | 'compute' | 'delivery' }
+type TabDefinition = { id: TabId; labelKey: string; shortLabelKey: string; icon: typeof FolderKanban; group: 'agent' | 'compute' | 'delivery' }
 const TABS: ReadonlyArray<TabDefinition> = [
-  { id: 'ai-command', label: 'AI 指挥台', shortLabel: 'AI', icon: Sparkles, group: 'agent' },
-  { id: 'dashboard', label: '交付总览', shortLabel: '总览', icon: Activity, group: 'agent' },
-  { id: 'project', label: '项目配置', shortLabel: '项目', icon: FolderKanban, group: 'compute' },
-  { id: 'data', label: '数据资产', shortLabel: '数据', icon: Database, group: 'compute' },
-  { id: 'quality', label: '质量校核', shortLabel: '校核', icon: ShieldCheck, group: 'compute' },
-  { id: 'survey', label: '测量平差', shortLabel: '平差', icon: Calculator, group: 'compute' },
-  { id: 'analysis', label: '趋势分析', shortLabel: '分析', icon: LineChart, group: 'compute' },
-  { id: 'deliverables', label: '成果中心', shortLabel: '成果', icon: FileOutput, group: 'delivery' },
-  { id: 'review', label: '审查归档', shortLabel: '审查', icon: ClipboardCheck, group: 'delivery' },
-  { id: 'skills', label: '技能与规范', shortLabel: '技能', icon: BookOpen, group: 'delivery' }
+  { id: 'ai-command', labelKey: 'engineeringTabAi', shortLabelKey: 'engineeringTabAiShort', icon: Sparkles, group: 'agent' },
+  { id: 'dashboard', labelKey: 'engineeringTabDashboard', shortLabelKey: 'engineeringTabDashboardShort', icon: Activity, group: 'agent' },
+  { id: 'project', labelKey: 'engineeringTabProject', shortLabelKey: 'engineeringTabProjectShort', icon: FolderKanban, group: 'compute' },
+  { id: 'data', labelKey: 'engineeringTabData', shortLabelKey: 'engineeringTabDataShort', icon: Database, group: 'compute' },
+  { id: 'quality', labelKey: 'engineeringTabQuality', shortLabelKey: 'engineeringTabQualityShort', icon: ShieldCheck, group: 'compute' },
+  { id: 'survey', labelKey: 'engineeringTabSurvey', shortLabelKey: 'engineeringTabSurveyShort', icon: Calculator, group: 'compute' },
+  { id: 'analysis', labelKey: 'engineeringTabAnalysis', shortLabelKey: 'engineeringTabAnalysisShort', icon: LineChart, group: 'compute' },
+  { id: 'deliverables', labelKey: 'engineeringTabDeliverables', shortLabelKey: 'engineeringTabDeliverablesShort', icon: FileOutput, group: 'delivery' },
+  { id: 'review', labelKey: 'engineeringTabReview', shortLabelKey: 'engineeringTabReviewShort', icon: ClipboardCheck, group: 'delivery' },
+  { id: 'skills', labelKey: 'engineeringTabSkills', shortLabelKey: 'engineeringTabSkillsShort', icon: BookOpen, group: 'delivery' }
 ]
-const TAB_GROUPS: ReadonlyArray<{ id: TabDefinition['group']; label: string }> = [
-  { id: 'agent', label: 'AI 工作流' },
-  { id: 'compute', label: '数据与计算' },
-  { id: 'delivery', label: '交付与审查' }
+// The old tab ids remain valid for deep links and persisted sessions. The visible
+// navigation is intentionally stage-oriented so operators follow the production
+// chain instead of having to understand the implementation's former ten tabs.
+type StageDefinition = { id: 'ai-command' | 'import' | 'adjustment' | 'analysis' | 'delivery'; labelKey: string; icon: typeof FolderKanban; tabs: readonly TabId[] }
+const STAGES: ReadonlyArray<StageDefinition> = [
+  { id: 'ai-command', labelKey: 'engineeringStageConversation', icon: Sparkles, tabs: ['ai-command'] },
+  { id: 'import', labelKey: 'engineeringStageImport', icon: Upload, tabs: ['dashboard', 'project', 'data', 'quality'] },
+  { id: 'adjustment', labelKey: 'engineeringStageAdjustment', icon: Calculator, tabs: ['survey'] },
+  { id: 'analysis', labelKey: 'engineeringStageAnalysis', icon: LineChart, tabs: ['analysis'] },
+  { id: 'delivery', labelKey: 'engineeringStageDelivery', icon: FileOutput, tabs: ['deliverables', 'review', 'skills'] }
 ]
+
+function stageForTab(tab: TabId): StageDefinition {
+  return STAGES.find((stage) => stage.tabs.includes(tab)) ?? STAGES[0]
+}
 
 const findingTone: Record<Finding['severity'], string> = {
   blocking: 'border-red-200 bg-red-50 text-red-800 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-200',
@@ -168,46 +205,48 @@ function projectToDraft(project: Project): ProjectDraft {
   }
 }
 
-function parseThresholds(value: string): Record<string, number> {
+type Translate = (key: string, options?: Record<string, unknown>) => string
+
+function parseThresholds(value: string, translate: Translate): Record<string, number> {
   const thresholds: Record<string, number> = {}
   for (const line of value.split(/\r?\n/)) {
     const trimmed = line.trim()
     if (!trimmed) continue
     const separator = trimmed.indexOf('=')
-    if (separator < 1) throw new Error(`阈值格式错误：${trimmed}。请使用“监测项 = 数值”。`)
+    if (separator < 1) throw new Error(translate('engineeringThresholdFormatError', { line: trimmed }))
     const name = trimmed.slice(0, separator).trim()
     const numberValue = Number(trimmed.slice(separator + 1).trim())
-    if (!name || !Number.isFinite(numberValue)) throw new Error(`阈值格式错误：${trimmed}。`)
+    if (!name || !Number.isFinite(numberValue)) throw new Error(translate('engineeringThresholdValueError', { line: trimmed }))
     thresholds[name] = numberValue
   }
   return thresholds
 }
 
-function formatNumber(value: number | undefined): string {
-  return typeof value === 'number' && Number.isFinite(value) ? value.toLocaleString('zh-CN', { maximumFractionDigits: 4 }) : '—'
+function formatNumber(value: number | undefined, locale: string): string {
+  return typeof value === 'number' && Number.isFinite(value) ? value.toLocaleString(locale, { maximumFractionDigits: 4 }) : '—'
 }
 
-function formatDate(value: string | undefined): string {
+function formatDate(value: string | undefined, locale: string): string {
   if (!value) return '—'
   const parsed = new Date(value)
-  return Number.isNaN(parsed.getTime()) ? value : parsed.toLocaleString('zh-CN', { hour12: false })
+  return Number.isNaN(parsed.getTime()) ? value : parsed.toLocaleString(locale, { hour12: false })
 }
 
-function formatBytes(value: number): string {
-  if (value < 1024) return `${value} B`
-  if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KB`
-  return `${(value / (1024 * 1024)).toFixed(1)} MB`
+function formatBytes(value: number, locale: string): string {
+  if (value < 1024) return `${value.toLocaleString(locale)} B`
+  if (value < 1024 * 1024) return `${(value / 1024).toLocaleString(locale, { maximumFractionDigits: 1 })} KB`
+  return `${(value / (1024 * 1024)).toLocaleString(locale, { maximumFractionDigits: 1 })} MB`
 }
 
-function fileToBase64(file: File): Promise<string> {
+function fileToBase64(file: File, translate: Translate): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader()
-    reader.onerror = () => reject(reader.error ?? new Error('无法读取导入文件'))
+    reader.onerror = () => reject(reader.error ?? new Error(translate('engineeringFileReadError')))
     reader.onload = () => {
       const result = typeof reader.result === 'string' ? reader.result : ''
       const separator = result.indexOf(',')
       if (separator < 0) {
-        reject(new Error('无法编码导入文件'))
+        reject(new Error(translate('engineeringFileEncodeError')))
         return
       }
       resolve(result.slice(separator + 1))
@@ -216,8 +255,9 @@ function fileToBase64(file: File): Promise<string> {
   })
 }
 
-function statusLabel(status: string): string {
-  return ({ normal: '正常', warning: '提示', alarm: '报警', control: '控制', unresolved: '待确认', rising: '上升', falling: '下降', stable: '稳定', unknown: '待判定', imported: '已导入', validated: '已校核', completed: '完成', cancelled: '已取消', approved: '已批准', archived: '已归档' } as Record<string, string>)[status] ?? status
+function statusLabel(status: string, translate: Translate): string {
+  const key = ({ normal: 'engineeringStatusNormal', warning: 'engineeringStatusWarning', alarm: 'engineeringStatusAlarm', control: 'engineeringStatusControl', unresolved: 'engineeringStatusUnresolved', rising: 'engineeringStatusRising', falling: 'engineeringStatusFalling', stable: 'engineeringStatusStable', unknown: 'engineeringStatusUnknown', imported: 'engineeringStatusImported', validated: 'engineeringStatusValidated', completed: 'engineeringStatusCompleted', cancelled: 'engineeringStatusCancelled', draft: 'engineeringStatusDraft', approved: 'engineeringStatusApproved', archived: 'engineeringStatusArchived' } as Record<string, string>)[status]
+  return key ? translate(key) : status
 }
 
 function PanelHeading({ title, description, action }: { title: string; description: string; action?: ReactElement }): ReactElement {
@@ -262,15 +302,22 @@ function DeliveryStage({ index, icon: Icon, title, detail, state, attention = fa
 }
 
 export function EngineeringWorkspaceView({ workspaceRoot, runtimeReady, leftSidebarCollapsed, onToggleLeftSidebar }: { workspaceRoot: string; runtimeReady: boolean; leftSidebarCollapsed?: boolean; onToggleLeftSidebar?: () => void }): ReactElement {
+  const { t, i18n } = useTranslation('common')
+  const locale = i18n.language.startsWith('zh') ? 'zh-CN' : 'en-US'
   const ensureEngineeringThread = useChatStore((state) => state.ensureEngineeringThread)
   const [projects, setProjects] = useState<Project[]>([])
   const [selectedProjectId, setSelectedProjectId] = useState(() => activeEngineeringProjectId())
   const [overview, setOverview] = useState<Overview | null>(null)
+  const [surveyNetworks, setSurveyNetworks] = useState<SurveyNetworkSummary[]>([])
+  const [surveyAdjustments, setSurveyAdjustments] = useState<SurveyAdjustmentSummary[]>([])
+  const [selectedSurveyNetworkId, setSelectedSurveyNetworkId] = useState('')
   const [selectedDatasetId, setSelectedDatasetId] = useState('')
   const [selectedAnalysisId, setSelectedAnalysisId] = useState('')
   const [surveyAdjustmentIds, setSurveyAdjustmentIds] = useState<string[]>([])
   const [surveyDeformationIds, setSurveyDeformationIds] = useState<string[]>([])
   const [tab, setTab] = useState<TabId>('ai-command')
+  const [pendingSurveyFiles, setPendingSurveyFiles] = useState<Record<string, File[]>>({})
+  const surveyFileScope = JSON.stringify([workspaceRoot, selectedProjectId])
   const [projectDraft, setProjectDraft] = useState<ProjectDraft | null>(null)
   const [citations, setCitations] = useState<Citation[]>([])
   const [citationSource, setCitationSource] = useState('')
@@ -281,11 +328,17 @@ export function EngineeringWorkspaceView({ workspaceRoot, runtimeReady, leftSide
   const [busy, setBusy] = useState(false)
   const [notice, setNotice] = useState<Notice | null>(null)
   const [createRequestToken, setCreateRequestToken] = useState(0)
+  const handleSurveyNetworkSelected = useCallback((id: string | null): void => {
+    setSelectedSurveyNetworkId(id ?? '')
+  }, [])
 
   const selectProject = useCallback((projectId: string): void => {
     setSelectedProjectId(projectId)
     setSurveyAdjustmentIds([])
     setSurveyDeformationIds([])
+    setSurveyNetworks([])
+    setSurveyAdjustments([])
+    setSelectedSurveyNetworkId('')
     setPreview(null)
     setChart(null)
   }, [])
@@ -299,6 +352,9 @@ export function EngineeringWorkspaceView({ workspaceRoot, runtimeReady, leftSide
   useEffect(() => {
     setSelectedProjectId(activeEngineeringProjectId())
     setOverview(null)
+    setSurveyNetworks([])
+    setSurveyAdjustments([])
+    setSelectedSurveyNetworkId('')
     setProjectDraft(null)
     setSelectedDatasetId('')
     setSelectedAnalysisId('')
@@ -321,6 +377,24 @@ export function EngineeringWorkspaceView({ workspaceRoot, runtimeReady, leftSide
     }
   }, [runtimeReady])
 
+  const loadSurveySummary = useCallback(async (projectId: string): Promise<void> => {
+    if (!runtimeReady || !projectId) return
+    try {
+      const [networkResult, adjustmentResult] = await Promise.all([
+        runtimeRequest<{ networks: SurveyNetworkSummary[] }>(`/v1/engineering/survey/networks?projectId=${encodeURIComponent(projectId)}`),
+        runtimeRequest<{ adjustments: SurveyAdjustmentSummary[] }>(`/v1/engineering/adjustments?projectId=${encodeURIComponent(projectId)}`)
+      ])
+      setSurveyNetworks(networkResult.networks ?? [])
+      setSurveyAdjustments(adjustmentResult.adjustments ?? [])
+      setSelectedSurveyNetworkId((current) => networkResult.networks?.some((network) => network.id === current) ? current : networkResult.networks?.[0]?.id ?? '')
+    } catch (error) {
+      // Survey is an optional companion to the monitoring chain. Keep the
+      // existing overview usable when its read model is unavailable.
+      setSurveyNetworks([])
+      setSurveyAdjustments([])
+    }
+  }, [runtimeReady])
+
   const loadProjects = useCallback(async (): Promise<void> => {
     if (!runtimeReady) return
     try {
@@ -335,11 +409,19 @@ export function EngineeringWorkspaceView({ workspaceRoot, runtimeReady, leftSide
 
   useEffect(() => { void loadProjects() }, [loadProjects])
   useEffect(() => { void loadOverview(selectedProjectId) }, [loadOverview, selectedProjectId])
+  useEffect(() => { void loadSurveySummary(selectedProjectId) }, [loadSurveySummary, selectedProjectId])
+  // A Survey panel can import or switch a network without changing the
+  // classic route. Refresh the compact read model so the summary strip never
+  // renders stale metadata for the newly selected network.
+  useEffect(() => {
+    if (!selectedSurveyNetworkId || !selectedProjectId) return
+    void loadSurveySummary(selectedProjectId)
+  }, [loadSurveySummary, selectedProjectId, selectedSurveyNetworkId])
   useEffect(() => {
     if (!runtimeReady || !selectedProjectId) return
     const selectedProject = projects.find((project) => project.id === selectedProjectId)
     if (!selectedProject) return
-    void ensureEngineeringThread(selectedProject.id, workspaceRoot, `工程测量 AI · ${selectedProject.name}`)
+    void ensureEngineeringThread(selectedProject.id, workspaceRoot, `Survey AI · ${selectedProject.name}`)
   }, [ensureEngineeringThread, projects, runtimeReady, selectedProjectId, workspaceRoot])
   useEffect(() => {
     const openRequestedProject = (): void => {
@@ -380,18 +462,42 @@ export function EngineeringWorkspaceView({ workspaceRoot, runtimeReady, leftSide
   }, [activeAnalysis])
   const latestManifest = overview?.manifests[0] ?? null
   const latestRun = overview?.runs[0] ?? null
+  const hasDeliveryInputs = Boolean(activeDataset || surveyAdjustmentIds.length || surveyDeformationIds.length)
+  const activeSurveyNetwork = selectedSurveyNetworkId
+    ? surveyNetworks.find((network) => network.id === selectedSurveyNetworkId) ?? null
+    : surveyNetworks[0] ?? null
+  const latestSurveyAdjustment = surveyAdjustments.find((item) => item.run.networkId === activeSurveyNetwork?.id) ?? null
+  const surveySourceDisposition = activeSurveyNetwork?.sourceFile?.disposition
+  const surveyPointCount = activeSurveyNetwork?.sourceFile?.summary?.pointCount
+    ?? ((activeSurveyNetwork?.knownPoints?.length ?? 0) + (activeSurveyNetwork?.unknownPoints?.length ?? 0) || undefined)
+  const surveyStationCount = activeSurveyNetwork?.sourceFile?.summary?.stationCount
+    ?? (activeSurveyNetwork?.observations?.length
+      ? new Set(activeSurveyNetwork.observations.map((item) => item.station ?? item.from).filter(Boolean)).size
+      : undefined)
+  const surveyObservationCount = activeSurveyNetwork?.sourceFile?.summary?.observationCount
+    ?? activeSurveyNetwork?.observations?.length
+  const surveyClosure = latestSurveyAdjustment?.result?.closure
+  const surveyClosureKey = selectSurveyClosureKey(activeSurveyNetwork?.networkType, surveyClosure)
+  const surveyClosureValue = surveyClosureKey ? surveyClosure?.[surveyClosureKey] : undefined
+  const surveyClosureUnit = surveyClosureKey ? latestSurveyAdjustment?.result?.closureUnits?.[surveyClosureKey] : undefined
+  const surveyPrecision = latestSurveyAdjustment?.result?.precision
+  const surveyHasBlockingAdmission = latestSurveyAdjustment?.sourceEligibility?.eligible === false
 
   const refreshCurrent = async (): Promise<void> => {
-    if (selectedProjectId) await loadOverview(selectedProjectId)
+    if (selectedProjectId) {
+      await Promise.all([loadOverview(selectedProjectId), loadSurveySummary(selectedProjectId)])
+    }
     else await loadProjects()
-    setNotice({ tone: 'info', message: '已从 Runtime 刷新工程测量状态。' })
+    setNotice({ tone: 'info', message: t('engineeringNoticeRefreshed') })
   }
 
   const createProject = useCallback(async (): Promise<void> => {
     setBusy(true)
     try {
       const result = await runtimeRequest<{ project: Project }>('/v1/engineering/projects', 'POST', {
-        name: '新建监测项目', monitoringType: 'deformation', unit: 'mm', signConvention: 'positive', workspace: workspaceRoot,
+        // Keep the legacy monitoringType field for Runtime compatibility while
+        // starting with a neutral engineering task template.
+        name: t('engineeringDefaultJobName'), monitoringType: 'control-network', unit: 'm', signConvention: 'positive', workspace: workspaceRoot,
         expectedRevision: 0, idempotencyKey: `engineering-project-${Date.now()}`
       })
       setProjects((current) => [result.project, ...current.filter((project) => project.id !== result.project.id)])
@@ -402,11 +508,11 @@ export function EngineeringWorkspaceView({ workspaceRoot, runtimeReady, leftSide
       setChart(null)
       setTab('ai-command')
       window.dispatchEvent(new CustomEvent('workwise:engineering-projects-changed'))
-      setNotice({ tone: 'success', message: '监测项目已创建。请先配置阈值和报告周期，再导入数据。' })
+      setNotice({ tone: 'success', message: t('engineeringNoticeJobCreated') })
     } catch (error) {
       setNotice({ tone: 'error', message: error instanceof Error ? error.message : String(error) })
     } finally { setBusy(false) }
-  }, [workspaceRoot, selectProject])
+  }, [selectProject, t, workspaceRoot])
 
   useEffect(() => {
     const requestCreateProject = (): void => setCreateRequestToken(Date.now())
@@ -425,14 +531,14 @@ export function EngineeringWorkspaceView({ workspaceRoot, runtimeReady, leftSide
     try {
       const project = await runtimeRequest<{ project: Project }>(`/v1/engineering/projects/${overview.project.id}`, 'PATCH', {
         name: projectDraft.name.trim(), monitoringType: projectDraft.monitoringType.trim(), unit: projectDraft.unit.trim(), signConvention: projectDraft.signConvention.trim(),
-        thresholds: parseThresholds(projectDraft.thresholdsText), reportPeriod: projectDraft.reportPeriod,
+        thresholds: parseThresholds(projectDraft.thresholdsText, t), reportPeriod: projectDraft.reportPeriod,
         expectedRevision: overview.project.revision, idempotencyKey: `engineering-project-save-${overview.project.id}-${overview.project.revision}`
       })
       setOverview((current) => current ? { ...current, project: project.project } : current)
       setProjects((current) => current.map((item) => item.id === project.project.id ? project.project : item))
       setProjectDraft(projectToDraft(project.project))
       window.dispatchEvent(new CustomEvent('workwise:engineering-projects-changed'))
-      setNotice({ tone: 'success', message: '项目配置已保存。后续分析会使用当前阈值版本。' })
+      setNotice({ tone: 'success', message: t('engineeringNoticeProjectSaved') })
     } catch (error) {
       setNotice({ tone: 'error', message: error instanceof Error ? error.message : String(error) })
     } finally { setBusy(false) }
@@ -442,7 +548,7 @@ export function EngineeringWorkspaceView({ workspaceRoot, runtimeReady, leftSide
     if (!overview) return
     setBusy(true)
     try {
-      const dataBase64 = await fileToBase64(file)
+      const dataBase64 = await fileToBase64(file, t)
       const result = await runtimeRequest<{ dataset: Dataset }>('/v1/engineering/datasets/import', 'POST', {
         projectId: overview.project.id, name: file.name, dataBase64,
         expectedRevision: overview.project.revision, idempotencyKey: `engineering-import-${overview.project.id}-${file.name}-${file.size}-${file.lastModified}`
@@ -450,7 +556,7 @@ export function EngineeringWorkspaceView({ workspaceRoot, runtimeReady, leftSide
       setSelectedDatasetId(result.dataset.id)
       await loadOverview(overview.project.id)
       setTab('quality')
-      setNotice({ tone: 'success', message: `${file.name} 已导入，识别到 ${result.dataset.observationCount.toLocaleString('zh-CN')} 条观测记录。` })
+      setNotice({ tone: 'success', message: t('engineeringNoticeDatasetImported', { name: file.name, count: result.dataset.observationCount }) })
     } catch (error) {
       setNotice({ tone: 'error', message: error instanceof Error ? error.message : String(error) })
     } finally { setBusy(false) }
@@ -468,7 +574,7 @@ export function EngineeringWorkspaceView({ workspaceRoot, runtimeReady, leftSide
         expectedRevision: activeDataset.revision, idempotencyKey: `engineering-validate-${activeDataset.id}-${activeDataset.revision}`
       })
       replaceDataset(result.dataset)
-      setNotice({ tone: result.dataset.findings.some((finding) => finding.status === 'open' && finding.severity === 'blocking') ? 'warning' : 'success', message: '质量校核已完成，结果已按严重级别更新。' })
+      setNotice({ tone: result.dataset.findings.some((finding) => finding.status === 'open' && finding.severity === 'blocking') ? 'warning' : 'success', message: t('engineeringNoticeValidationComplete') })
     } catch (error) {
       setNotice({ tone: 'error', message: error instanceof Error ? error.message : String(error) })
     } finally { setBusy(false) }
@@ -482,7 +588,7 @@ export function EngineeringWorkspaceView({ workspaceRoot, runtimeReady, leftSide
         expectedRevision: activeDataset.revision, idempotencyKey: `engineering-accept-${activeDataset.id}-${finding.id}-${activeDataset.revision}`
       })
       replaceDataset(result.dataset)
-      setNotice({ tone: 'success', message: '警告项已记录为人工接受。阻断项仍必须回到源数据修正。' })
+      setNotice({ tone: 'success', message: t('engineeringNoticeWarningAccepted') })
     } catch (error) {
       setNotice({ tone: 'error', message: error instanceof Error ? error.message : String(error) })
     } finally { setBusy(false) }
@@ -499,7 +605,7 @@ export function EngineeringWorkspaceView({ workspaceRoot, runtimeReady, leftSide
       setSelectedAnalysisId(result.analysis.id)
       await loadOverview(overview.project.id)
       setTab('analysis')
-      setNotice({ tone: 'success', message: `已完成 ${result.analysis.results.length.toLocaleString('zh-CN')} 个测点/监测项的确定性分析。` })
+      setNotice({ tone: 'success', message: t('engineeringNoticeAnalysisComplete', { count: result.analysis.results.length }) })
     } catch (error) {
       setNotice({ tone: 'error', message: error instanceof Error ? error.message : String(error) })
     } finally { setBusy(false) }
@@ -513,41 +619,41 @@ export function EngineeringWorkspaceView({ workspaceRoot, runtimeReady, leftSide
         analysisId: activeAnalysis.id, chartType: 'trend', expectedRevision: 0, idempotencyKey: `engineering-chart-${activeAnalysis.id}`
       })
       setChart(result.chart)
-      setNotice({ tone: 'success', message: '趋势图已生成，并会随下一次报告预览进入成果包。' })
+      setNotice({ tone: 'success', message: t('engineeringNoticeChartCreated') })
     } catch (error) {
       setNotice({ tone: 'error', message: error instanceof Error ? error.message : String(error) })
     } finally { setBusy(false) }
   }
 
   const previewDeliverables = async (): Promise<void> => {
-    if (!overview || !activeDataset) return
+    if (!overview || !hasDeliveryInputs) return
     setBusy(true)
     try {
       const result = await runtimeRequest<ReportPreview>('/v1/engineering/reports/preview', 'POST', {
-        projectId: overview.project.id, datasetId: activeDataset.id, analysisId: activeAnalysis?.id, adjustmentIds: surveyAdjustmentIds, deformationIds: surveyDeformationIds, citations,
-        expectedRevision: activeDataset.revision, idempotencyKey: `engineering-preview-${activeDataset.id}-${activeDataset.revision}-${Date.now()}`
+        projectId: overview.project.id, datasetId: activeDataset?.id, analysisId: activeDataset ? activeAnalysis?.id : undefined, adjustmentIds: surveyAdjustmentIds, deformationIds: surveyDeformationIds, citations,
+        expectedRevision: activeDataset?.revision ?? overview.project.revision, idempotencyKey: `engineering-preview-${overview.project.id}-${Date.now()}`
       })
       setPreview(result)
       setChart(result.charts[0] ?? chart)
       await loadOverview(overview.project.id)
       setTab('deliverables')
-      setNotice({ tone: 'success', message: 'DOCX、PDF、XLSX 预览成果和趋势图已生成，尚未归档。' })
+      setNotice({ tone: 'success', message: t('engineeringNoticePreviewCreated') })
     } catch (error) {
       setNotice({ tone: 'error', message: error instanceof Error ? error.message : String(error) })
     } finally { setBusy(false) }
   }
 
   const finalizeDeliverables = async (): Promise<void> => {
-    if (!overview || !activeDataset || !activeAnalysis) return
+    if (!overview || !hasDeliveryInputs || (activeDataset && !activeAnalysis)) return
     setBusy(true)
     try {
       const result = await runtimeRequest<{ manifest: Manifest }>('/v1/engineering/deliverables/finalize', 'POST', {
-        projectId: overview.project.id, datasetId: activeDataset.id, analysisId: activeAnalysis.id, adjustmentIds: surveyAdjustmentIds, deformationIds: surveyDeformationIds, citations,
-        acknowledgeWarnings: false, expectedRevision: activeDataset.revision,
-        idempotencyKey: `engineering-finalize-${activeDataset.id}-${activeDataset.revision}-${Date.now()}`
+        projectId: overview.project.id, datasetId: activeDataset?.id, analysisId: activeDataset ? activeAnalysis?.id : undefined, adjustmentIds: surveyAdjustmentIds, deformationIds: surveyDeformationIds, citations,
+        acknowledgeWarnings: false, expectedRevision: activeDataset?.revision ?? overview.project.revision,
+        idempotencyKey: `engineering-finalize-${overview.project.id}-${Date.now()}`
       })
       await loadOverview(overview.project.id)
-      setNotice({ tone: 'success', message: `成果已批准并固化为 ${result.manifest.id}。后续改动将生成新的修订成果。` })
+      setNotice({ tone: 'success', message: t('engineeringNoticeManifestCreated', { id: result.manifest.id }) })
     } catch (error) {
       setNotice({ tone: 'error', message: error instanceof Error ? error.message : String(error) })
     } finally { setBusy(false) }
@@ -556,7 +662,7 @@ export function EngineeringWorkspaceView({ workspaceRoot, runtimeReady, leftSide
   const addCitation = (): void => {
     const source = citationSource.trim()
     if (!source) {
-      setNotice({ tone: 'warning', message: '请先填写规范、知识库或附件来源。' })
+      setNotice({ tone: 'warning', message: t('engineeringNoticeCitationRequired') })
       return
     }
     setCitations((current) => [...current, { id: `citation-${Date.now()}`, sourceType: citationType, source, ...(citationLocator.trim() ? { locator: citationLocator.trim() } : {}) }])
@@ -564,131 +670,196 @@ export function EngineeringWorkspaceView({ workspaceRoot, runtimeReady, leftSide
     setCitationLocator('')
   }
 
-  const finalizationBlocked = !activeDataset || !activeAnalysis || blockingFindings.length > 0 || warningFindings.length > 0
+  const finalizationBlocked = !hasDeliveryInputs || Boolean(activeDataset && !activeAnalysis) || blockingFindings.length > 0 || warningFindings.length > 0
   const manifestOutputs = latestManifest?.outputs ?? preview?.files ?? []
+  const currentStage = stageForTab(tab)
+  const sourceFormat = activeSurveyNetwork?.sourceFile?.detection?.format?.toUpperCase()
+    ?? activeDataset?.sourceFileName.split('.').pop()?.toUpperCase()
+    ?? '—'
+  const readiness = surveyHasBlockingAdmission
+    ? 'blocked'
+    : surveySourceDisposition && surveySourceDisposition !== 'adjustment-ready'
+    ? surveySourceDisposition === 'archive-only' ? 'archive-only' : surveySourceDisposition === 'converter-required' ? 'converter-required' : 'gnss-processing-required'
+    : blockingFindings.length
+    ? 'blocked'
+    : activeDataset && activeDataset.status === 'validated'
+      ? activeAnalysis ? (manifestOutputs.length ? 'reviewed' : 'candidate') : 'adjustment-ready'
+      : activeDataset ? 'needs-confirmation' : 'not-started'
+  const readinessLabel = t(`engineeringReadiness.${readiness}`, { defaultValue: readiness })
 
   return <div className={`engineering-workspace ds-no-drag flex min-h-0 flex-1 flex-col bg-ds-main text-ds-ink ${tab === 'ai-command' ? 'engineering-agent-route' : 'engineering-classic-route'}`}>
-    {tab !== 'ai-command' ? <header className="shrink-0 border-b border-ds-border-muted bg-ds-card px-4 py-3 sm:px-5" data-testid="engineering-classic-header">
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-        {leftSidebarCollapsed && onToggleLeftSidebar ? <button type="button" onClick={onToggleLeftSidebar} className="inline-flex h-8 items-center gap-1.5 rounded-md border border-ds-border bg-ds-card px-2.5 text-[12px] font-medium text-ds-muted hover:bg-ds-hover"><ChevronRight className="h-3.5 w-3.5" />导航</button> : null}
-        <div className="flex min-w-0 flex-1 items-center gap-3">
-          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-accent/12 text-accent"><HardHat className="h-5 w-5" strokeWidth={1.7} /></span>
-          <div className="min-w-0"><p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-ds-faint">Survey delivery</p><h1 className="truncate text-[17px] font-semibold">工程测量工作台</h1><p className="mt-0.5 text-[10.5px] text-ds-muted">测绘专业 AI Agent</p></div>
-        </div>
-        <div className="flex min-w-0 items-center gap-2">
-          <label className="sr-only" htmlFor="engineering-project-select">当前工程测量项目</label>
-          <select id="engineering-project-select" value={selectedProjectId} disabled={!runtimeReady || busy} onChange={(event) => { selectProject(event.target.value); setPreview(null); setChart(null) }} className="h-8 max-w-[220px] rounded-md border border-ds-border bg-ds-card px-2 text-[12px] text-ds-ink outline-none focus:border-accent">
-            <option value="">{projects.length ? '选择工程测量项目' : '暂无工程测量项目'}</option>
-            {projects.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}
-          </select>
-          <button type="button" onClick={() => setTab('ai-command')} disabled={!runtimeReady} className="inline-flex h-8 items-center gap-1.5 rounded-md border border-accent/35 bg-accent/5 px-2.5 text-[11px] font-semibold text-accent hover:bg-accent/10 disabled:cursor-not-allowed disabled:opacity-50"><Sparkles className="h-3.5 w-3.5" />交给测绘专业 AI Agent</button>
-          <button type="button" onClick={() => void refreshCurrent()} disabled={busy || !runtimeReady} className="inline-flex h-8 items-center gap-1.5 rounded-md border border-ds-border bg-ds-card px-2.5 text-[12px] font-medium text-ds-muted hover:bg-ds-hover disabled:opacity-50"><RefreshCw className={`h-3.5 w-3.5 ${busy ? 'animate-spin' : ''}`} />刷新</button>
-          <span className={`inline-flex h-8 items-center rounded-md px-2.5 text-[11px] font-medium ${runtimeReady ? 'bg-green-100 text-green-800 dark:bg-green-500/15 dark:text-green-300' : 'bg-amber-100 text-amber-800 dark:bg-amber-500/15 dark:text-amber-300'}`}>{runtimeReady ? 'Runtime 已连接' : 'Runtime 未连接'}</span>
-        </div>
+    <header className="flex min-h-12 shrink-0 flex-wrap items-center gap-2 border-b border-ds-border-muted bg-ds-card px-3 py-2" data-testid="engineering-workspace-header">
+      {onToggleLeftSidebar ? <button type="button" onClick={onToggleLeftSidebar} title={t(leftSidebarCollapsed ? 'sidebarExpand' : 'sidebarCollapse')} aria-label={t(leftSidebarCollapsed ? 'sidebarExpand' : 'sidebarCollapse')} className="flex h-8 w-8 items-center justify-center rounded-md text-ds-muted hover:bg-ds-hover"><ChevronRight className="h-4 w-4" /></button> : null}
+      <div className="mr-auto min-w-0">
+        <h1 className="truncate text-[15px] font-semibold">{t('engineeringWorkbenchTitle')}</h1>
+        <p className="truncate text-[10.5px] text-ds-muted">{t('engineeringWorkbenchSubtitle')}</p>
       </div>
-    </header> : null}
+      <label className="sr-only" htmlFor="engineering-project-select">{t('engineeringCurrentTask')}</label>
+      <select id="engineering-project-select" value={selectedProjectId} disabled={!runtimeReady || busy} onChange={(event) => selectProject(event.target.value)} className="h-8 min-w-0 max-w-[220px] rounded-md border border-ds-border bg-ds-card px-2 text-[12px]">
+        <option value="">{t('engineeringNoProject')}</option>
+        {projects.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}
+      </select>
+      <label className="sr-only" htmlFor="engineering-view-select">{t('engineeringViewLabel')}</label>
+      <select id="engineering-view-select" value={currentStage.id} onChange={(event) => {
+        const next = event.target.value as StageDefinition['id']
+        if (next === 'ai-command') setTab('ai-command')
+        else if (next === 'import') setTab(activeDataset ? 'quality' : 'data')
+        else if (next === 'adjustment') setTab('survey')
+        else if (next === 'analysis') setTab('analysis')
+        else setTab(manifestOutputs.length ? 'review' : 'deliverables')
+      }} className="h-8 min-w-0 max-w-[190px] rounded-md border border-ds-border bg-ds-card px-2 text-[12px]">
+        {STAGES.map((stage) => <option key={stage.id} value={stage.id}>{t(stage.labelKey, { defaultValue: stage.id })}</option>)}
+      </select>
+      <button type="button" onClick={() => void createProject()} disabled={busy || !runtimeReady} title={t('engineeringNewProject')} aria-label={t('engineeringNewProject')} className="flex h-8 w-8 items-center justify-center rounded-md text-ds-muted hover:bg-ds-hover disabled:opacity-50"><Plus className="h-4 w-4" /></button>
+    </header>
 
-    {tab !== 'ai-command' && !runtimeReady ? <div className="border-b border-amber-300/40 bg-amber-50 px-5 py-2 text-[12px] text-amber-900 dark:bg-amber-500/10 dark:text-amber-200">工程测量工作台需要本地运行时执行校核、分析和成果生成。连接成功后，项目数据会自动刷新。</div> : null}
-    {tab !== 'ai-command' && notice ? <div className={`mx-4 mt-3 flex items-start gap-2 border px-3 py-2 text-[12px] sm:mx-5 ${notice.tone === 'error' ? 'border-red-200 bg-red-50 text-red-800 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-200' : notice.tone === 'warning' ? 'border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200' : notice.tone === 'success' ? 'border-green-200 bg-green-50 text-green-800 dark:border-green-500/30 dark:bg-green-500/10 dark:text-green-200' : 'border-blue-200 bg-blue-50 text-blue-800 dark:border-blue-500/30 dark:bg-blue-500/10 dark:text-blue-200'}`}><Info className="mt-0.5 h-3.5 w-3.5 shrink-0" /><span className="min-w-0 flex-1">{notice.message}</span><button type="button" onClick={() => setNotice(null)} className="text-current/70 hover:text-current" aria-label="关闭提示">×</button></div> : null}
+    {tab !== 'ai-command' && !runtimeReady ? <div className="border-b border-amber-300/40 bg-amber-50 px-5 py-2 text-[12px] text-amber-900 dark:bg-amber-500/10 dark:text-amber-200">{t('engineeringRuntimeOfflineNotice')}</div> : null}
+    {tab !== 'ai-command' && notice ? <div className={`mx-4 mt-3 flex items-start gap-2 border px-3 py-2 text-[12px] sm:mx-5 ${notice.tone === 'error' ? 'border-red-200 bg-red-50 text-red-800 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-200' : notice.tone === 'warning' ? 'border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200' : notice.tone === 'success' ? 'border-green-200 bg-green-50 text-green-800 dark:border-green-500/30 dark:bg-green-500/10 dark:text-green-200' : 'border-blue-200 bg-blue-50 text-blue-800 dark:border-blue-500/30 dark:bg-blue-500/10 dark:text-blue-200'}`}><Info className="mt-0.5 h-3.5 w-3.5 shrink-0" /><span className="min-w-0 flex-1">{notice.message}</span><button type="button" onClick={() => setNotice(null)} className="text-current/70 hover:text-current" aria-label={t('engineeringCloseNotice')}>×</button></div> : null}
 
-    <div className={`min-h-0 flex-1 overflow-hidden ${tab === 'ai-command' ? 'p-0' : 'p-4 sm:p-5'}`}>
-      {tab === 'ai-command' ? <div className="h-full min-h-0 overflow-hidden">
+    {overview ? <div className="engineering-command-strip grid shrink-0 grid-cols-2 gap-px border-b border-ds-border-muted bg-ds-border-muted text-[11px] sm:grid-cols-4 lg:grid-cols-12" data-testid="engineering-summary-strip">
+      <div className="bg-ds-card px-3 py-2"><span className="block text-ds-faint">{t('engineeringSummaryTask')}</span><strong className="mt-0.5 block truncate text-ds-ink">{overview.project.name}</strong></div>
+      <div className="bg-ds-card px-3 py-2"><span className="block text-ds-faint">{t('engineeringSummaryStage')}</span><strong className="mt-0.5 block truncate text-ds-ink">{t(currentStage.labelKey)}</strong></div>
+      <div className="bg-ds-card px-3 py-2"><span className="block text-ds-faint">{t('engineeringSummarySource')}</span><strong className="mt-0.5 block truncate text-ds-ink">{activeDataset?.sourceFileName ?? '—'} · {sourceFormat}</strong></div>
+      <div className="bg-ds-card px-3 py-2"><span className="block text-ds-faint">{t('engineeringSummaryReadiness')}</span><strong className={`mt-0.5 block truncate ${readiness === 'blocked' ? 'text-red-700 dark:text-red-300' : readiness === 'adjustment-ready' ? 'text-green-700 dark:text-green-300' : 'text-amber-700 dark:text-amber-300'}`}>{readinessLabel}</strong></div>
+      <div className="bg-ds-card px-3 py-2"><span className="block text-ds-faint">{t('engineeringSummaryDatum')}</span><strong className="mt-0.5 block truncate text-ds-ink">{overview.project.unit} · {overview.project.monitoringType}</strong></div>
+      <div className="bg-ds-card px-3 py-2"><span className="block text-ds-faint">{t('engineeringSummaryPoints')}</span><strong className="mt-0.5 block truncate tabular-nums text-ds-ink">{surveyPointCount?.toLocaleString(locale) ?? '—'}</strong></div>
+      <div className="bg-ds-card px-3 py-2"><span className="block text-ds-faint">{t('engineeringSummaryStations')}</span><strong className="mt-0.5 block truncate tabular-nums text-ds-ink">{surveyStationCount?.toLocaleString(locale) ?? '—'}</strong></div>
+      <div className="bg-ds-card px-3 py-2"><span className="block text-ds-faint">{t('engineeringSummaryObservations')}</span><strong className="mt-0.5 block truncate tabular-nums text-ds-ink">{(surveyObservationCount ?? activeDataset?.observationCount)?.toLocaleString(locale) ?? '—'}</strong></div>
+      <div className="bg-ds-card px-3 py-2"><span className="block text-ds-faint">{t('engineeringSummaryClosure')}</span><strong className="mt-0.5 block truncate tabular-nums text-ds-ink">{surveyClosureValue === undefined ? '—' : `${formatNumber(surveyClosureValue, locale)}${surveyClosureUnit ? ` ${surveyClosureUnit}` : ''}`}</strong></div>
+      <div className="bg-ds-card px-3 py-2"><span className="block text-ds-faint">{t('engineeringSummaryPrecision')}</span><strong className="mt-0.5 block truncate tabular-nums text-ds-ink">{surveyPrecision ? `${surveyPrecision.passed ? '✓' : '×'} ${formatNumber(surveyPrecision.maxPointStdDev, locale)} m` : activeAnalysis ? t('engineeringSummaryComputed') : '—'}</strong></div>
+      <div className="bg-ds-card px-3 py-2"><span className="block text-ds-faint">{t('engineeringSummaryDeliverable')}</span><strong className="mt-0.5 block truncate text-ds-ink">{manifestOutputs.length ? t('engineeringSummaryCandidate') : '—'}</strong></div>
+    </div> : null}
+
+    <div className={`engineering-continuous-shell min-h-0 flex-1 overflow-hidden ${tab === 'ai-command' ? '' : 'engineering-with-data'}`}>
+      <div className="engineering-persistent-chat h-full min-h-0 min-w-0 overflow-hidden" data-testid="engineering-persistent-chat">
         <EngineeringAiCommandCenter
           workspaceRoot={workspaceRoot}
           runtimeReady={runtimeReady}
-          project={overview?.project ?? null}
+          project={overview?.project.id === selectedProjectId ? overview.project : null}
           dataset={activeDataset}
           analysis={activeAnalysis}
           latestRun={latestRun}
+          compact={tab !== 'ai-command'}
           onCreateProject={() => void createProject()}
           onImportData={() => { if (overview) setTab('data'); else void createProject() }}
+          onSurveyFiles={(files) => { setPendingSurveyFiles((current) => ({ ...current, [surveyFileScope]: [...(current[surveyFileScope] ?? []), ...files] })); setTab('survey') }}
           onOpenTab={(nextTab) => setTab(nextTab)}
           onRefresh={() => void refreshCurrent()}
         />
-      </div> : <div className="engineering-classic-shell grid h-full min-h-0 grid-cols-1 overflow-hidden border border-ds-border-muted bg-ds-card xl:grid-cols-[230px_minmax(0,1fr)]" data-testid="engineering-classic-shell">
-        <aside className="flex min-h-0 flex-col border-b border-ds-border-muted bg-ds-main xl:border-b-0 xl:border-r">
-          <div className="border-b border-ds-border-muted px-4 py-4"><p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-ds-faint">交付流程</p><p className="mt-1 text-[12px] leading-5 text-ds-muted">每一步读取同一份运行数据，成果审核前保留完整来源和版本。</p></div>
-          <nav className="grid grid-cols-3 gap-1 p-2 xl:block xl:space-y-3" aria-label="工程测量工作台阶段">
-            {TAB_GROUPS.map((group) => <section key={group.id} className="xl:space-y-1"><p className="hidden px-2.5 text-[10px] font-semibold uppercase tracking-[0.1em] text-ds-faint xl:block">{group.label}</p>{TABS.filter((item) => item.group === group.id).map((item) => { const Icon = item.icon; const active = item.id === tab; const hasAttention = (item.id === 'quality' && (blockingFindings.length > 0 || warningFindings.length > 0)) || (item.id === 'review' && finalizationBlocked); return <button key={item.id} type="button" onClick={() => setTab(item.id)} className={`flex min-h-11 min-w-0 items-center gap-2 rounded-md px-2.5 py-2 text-left text-[12px] transition ${active ? 'bg-accent/12 text-accent shadow-[inset_0_0_0_1px_rgba(0,136,255,0.20)]' : 'text-ds-muted hover:bg-ds-hover hover:text-ds-ink'}`}><span className="flex h-6 w-6 shrink-0 items-center justify-center rounded bg-ds-card text-[10px] font-semibold tabular-nums"><Icon className="h-3.5 w-3.5" strokeWidth={1.7} /></span><span className="min-w-0 flex-1 truncate"><span className="hidden xl:inline">{item.label}</span><span className="xl:hidden">{item.shortLabel}</span></span>{hasAttention ? <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-amber-500" /> : null}</button> })}</section>)}
-          </nav>
-          <div className="mt-auto hidden border-t border-ds-border-muted p-4 xl:block">
-            <p className="text-[10.5px] font-medium text-ds-faint">当前数据边界</p>
-            <p className="mt-1 text-[11px] leading-4 text-ds-muted">原始 CSV/XLSX 不会被模型逐行读取；分析、阈值与哈希由 Runtime 确定性生成。</p>
-          </div>
-        </aside>
+      </div>
+      {tab !== 'ai-command' ? <div className="engineering-classic-shell grid h-full min-h-0 min-w-0 grid-cols-1 overflow-hidden border border-ds-border-muted bg-ds-card" data-testid="engineering-classic-shell">
+
 
         <main className="min-h-0 overflow-y-auto bg-ds-main">
-          {overview === null ? <EmptyState title="从工程测量项目开始" detail="先建立工程测量项目并写入阈值、单位和报告周期。后续数据、分析和成果都将在该项目下保留可追溯修订。" action={<button type="button" onClick={() => void createProject()} disabled={busy || !runtimeReady} className="inline-flex items-center gap-1.5 rounded-md bg-accent px-3 py-2 text-[12px] font-semibold text-white hover:brightness-95 disabled:opacity-50"><Plus className="h-3.5 w-3.5" />新建工程测量项目</button>} /> : <>
-            <div className="border-b border-ds-border-muted bg-ds-card px-5 py-4">
-              <div className="flex flex-wrap items-start justify-between gap-3"><div className="min-w-0"><p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-ds-faint">{TABS.find((item) => item.id === tab)?.label}</p><h2 className="mt-1 truncate text-[18px] font-semibold">{overview.project.name}</h2><p className="mt-1 text-[12px] text-ds-muted">{overview.project.monitoringType} · {overview.project.unit} · 修订 {overview.project.revision} · 更新于 {formatDate(overview.project.updatedAt)}</p></div><button type="button" onClick={() => void createProject()} disabled={busy || !runtimeReady} className="inline-flex h-8 items-center gap-1.5 rounded-md border border-ds-border bg-ds-card px-2.5 text-[12px] font-medium text-ds-muted hover:bg-ds-hover disabled:opacity-50"><Plus className="h-3.5 w-3.5" />新建项目</button></div>
-              <div className="mt-4 grid grid-cols-2 gap-2 lg:grid-cols-4"><Metric label="数据集" value={overview.datasets.length} detail={activeDataset ? activeDataset.sourceFileName : '尚未导入'} /><Metric label="阻断项" value={blockingFindings.length} detail={blockingFindings.length ? '需修正源数据' : '当前数据无阻断'} tone={blockingFindings.length ? 'danger' : 'success'} /><Metric label="预警状态" value={analysisCounts.warning + analysisCounts.alarm + analysisCounts.control} detail={activeAnalysis ? `${activeAnalysis.results.length} 个分析结果` : '尚未运行分析'} tone={analysisCounts.alarm + analysisCounts.control ? 'danger' : analysisCounts.warning ? 'warning' : 'neutral'} /><Metric label="归档成果" value={overview.manifests.length} detail={latestManifest ? latestManifest.id : '尚未最终归档'} tone={latestManifest ? 'success' : 'neutral'} /></div>
-            </div>
+          {overview === null ? <EmptyState title={t('engineeringEmptyTitle')} detail={t('engineeringEmptyDetail')} action={<button type="button" onClick={() => void createProject()} disabled={busy || !runtimeReady} className="inline-flex items-center gap-1.5 rounded-md bg-accent px-3 py-2 text-[12px] font-semibold text-white hover:brightness-95 disabled:opacity-50"><Plus className="h-3.5 w-3.5" />{t('engineeringNewProject')}</button>} /> : <>
+            {tab === 'dashboard' ? <div className="border-b border-ds-border-muted bg-ds-card px-5 py-4">
+              <div className="flex flex-wrap items-start justify-between gap-3"><div className="min-w-0"><p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-ds-faint">{t(TABS.find((item) => item.id === tab)?.labelKey ?? 'engineeringTabDashboard')}</p><h2 className="mt-1 truncate text-[18px] font-semibold">{overview.project.name}</h2><p className="mt-1 text-[12px] text-ds-muted">{overview.project.monitoringType} · {overview.project.unit} · {t('engineeringRevision')} {overview.project.revision} · {t('engineeringUpdatedAt')} {formatDate(overview.project.updatedAt, locale)}</p></div><button type="button" onClick={() => void createProject()} disabled={busy || !runtimeReady} className="inline-flex h-8 items-center gap-1.5 rounded-md border border-ds-border bg-ds-card px-2.5 text-[12px] font-medium text-ds-muted hover:bg-ds-hover disabled:opacity-50"><Plus className="h-3.5 w-3.5" />{t('engineeringNewProjectShort')}</button></div>
+              <div className="mt-4 grid grid-cols-2 gap-2 lg:grid-cols-4"><Metric label={t('engineeringTabData')} value={overview.datasets.length} detail={activeDataset ? activeDataset.sourceFileName : t('engineeringSummaryNoDataset')} /><Metric label={t('engineeringFindingBlocking')} value={blockingFindings.length} detail={blockingFindings.length ? t('engineeringSummaryNeedsSourceFix') : t('engineeringSummaryNoBlockers')} tone={blockingFindings.length ? 'danger' : 'success'} /><Metric label={t('engineeringSummaryReadiness')} value={analysisCounts.warning + analysisCounts.alarm + analysisCounts.control} detail={activeAnalysis ? t('engineeringSummaryResults', { count: activeAnalysis.results.length }) : t('engineeringSummaryNoAnalysis')} tone={analysisCounts.alarm + analysisCounts.control ? 'danger' : analysisCounts.warning ? 'warning' : 'neutral'} /><Metric label={t('engineeringSummaryDeliverable')} value={overview.manifests.length} detail={latestManifest ? latestManifest.id : t('engineeringSummaryNoArchive')} tone={latestManifest ? 'success' : 'neutral'} /></div>
+            </div> : null}
 
             {tab === 'dashboard' ? <section>
-              <PanelHeading title="交付控制台" description="一个工程测量项目的一次数据交付从源文件、校核、分析到归档都在同一条可追溯链路中完成。选择任一阶段可直接继续处理。" action={<button type="button" onClick={() => setTab(activeDataset ? 'quality' : 'data')} className="inline-flex h-8 items-center gap-1.5 rounded-md bg-accent px-3 text-[12px] font-semibold text-white"><ChevronRight className="h-3.5 w-3.5" />{activeDataset ? '继续交付' : '导入第一份数据'}</button>} />
+              <PanelHeading title={t('engineeringDashboardConsoleTitle')} description={t('engineeringDashboardConsoleDescription')} action={<button type="button" onClick={() => setTab(activeDataset ? 'quality' : 'data')} className="inline-flex h-8 items-center gap-1.5 rounded-md bg-accent px-3 text-[12px] font-semibold text-white"><ChevronRight className="h-3.5 w-3.5" />{activeDataset ? t('engineeringContinueDelivery') : t('engineeringImportFirstData')}</button>} />
               <div className="grid gap-5 p-5 xl:grid-cols-[minmax(0,1.4fr)_minmax(280px,0.8fr)]">
                 <div className="overflow-hidden border border-ds-border-muted bg-ds-card">
-                  <div className="border-b border-ds-border-muted px-4 py-3"><p className="text-[13px] font-semibold text-ds-ink">交付路径</p><p className="mt-1 text-[11px] leading-4 text-ds-muted">数值、阈值和哈希由 Runtime 确定性生成；报告文字不能覆盖分析结论。</p></div>
+                  <div className="border-b border-ds-border-muted px-4 py-3"><p className="text-[13px] font-semibold text-ds-ink">{t('engineeringDeliveryPath')}</p><p className="mt-1 text-[11px] leading-4 text-ds-muted">{t('engineeringDeliveryPathDescription')}</p></div>
                   <div>
-                    <DeliveryStage index={1} icon={FolderKanban} title="项目与阈值" detail={Object.keys(overview.project.thresholds).length ? `${Object.keys(overview.project.thresholds).length} 项阈值已保存 · 修订 ${overview.project.revision}` : '请确认单位、正负号、报告周期与监测阈值'} state={Object.keys(overview.project.thresholds).length ? '已配置' : '待配置'} attention={!Object.keys(overview.project.thresholds).length} onOpen={() => setTab('project')} />
-                    <DeliveryStage index={2} icon={Database} title="数据资产" detail={activeDataset ? `${activeDataset.sourceFileName} · ${activeDataset.observationCount.toLocaleString('zh-CN')} 条观测` : '尚未导入 CSV 或 XLSX 源数据'} state={activeDataset ? statusLabel(activeDataset.status) : '待导入'} attention={!activeDataset} onOpen={() => setTab('data')} />
-                    <DeliveryStage index={3} icon={ShieldCheck} title="质量校核" detail={activeDataset ? (blockingFindings.length ? `${blockingFindings.length} 个阻断项需要回到源数据修正` : warningFindings.length ? `${warningFindings.length} 个警告等待人工确认` : '当前数据没有待处理问题') : '导入后自动检查缺失、重复、单位和时间异常'} state={blockingFindings.length ? '被阻断' : warningFindings.length ? '待确认' : activeDataset ? '通过' : '未开始'} attention={blockingFindings.length > 0 || warningFindings.length > 0} onOpen={() => setTab('quality')} />
-                    <DeliveryStage index={4} icon={LineChart} title="趋势与阈值分析" detail={activeAnalysis ? `${activeAnalysis.results.length.toLocaleString('zh-CN')} 条结果 · ${activeAnalysis.algorithmVersion}` : '尚未计算当前值、累计变化、速率和趋势'} state={activeAnalysis ? '已完成' : '待分析'} attention={Boolean(activeDataset) && !activeAnalysis} onOpen={() => setTab('analysis')} />
-                    <DeliveryStage index={5} icon={FileOutput} title="报告与证据包" detail={manifestOutputs.length ? `${manifestOutputs.length} 个输出带 SHA-256 哈希` : 'DOCX、PDF、XLSX 和图表将在同一次运行中生成'} state={manifestOutputs.length ? '已生成' : '待生成'} attention={Boolean(activeAnalysis) && !manifestOutputs.length} onOpen={() => setTab('deliverables')} />
-                    <DeliveryStage index={6} icon={ClipboardCheck} title="人工审查与归档" detail={latestManifest ? `最近成果 ${latestManifest.id}` : finalizationBlocked ? '门禁尚未满足，成果不会被静默归档' : '可固化新的 manifest.json 版本'} state={latestManifest ? '已归档' : finalizationBlocked ? '待审查' : '可审批'} attention={!latestManifest && finalizationBlocked} onOpen={() => setTab('review')} />
+                    <DeliveryStage index={1} icon={FolderKanban} title={t('engineeringStageProjectThresholds')} detail={Object.keys(overview.project.thresholds).length ? `${Object.keys(overview.project.thresholds).length} ${t('engineeringThresholds')} · ${t('engineeringRevision')} ${overview.project.revision}` : t('engineeringDetailConfirmProject')} state={Object.keys(overview.project.thresholds).length ? t('engineeringStatusConfigured') : t('engineeringStatusPendingConfiguration')} attention={!Object.keys(overview.project.thresholds).length} onOpen={() => setTab('project')} />
+                    <DeliveryStage index={2} icon={Database} title={t('engineeringStageData')} detail={activeDataset ? `${activeDataset.sourceFileName} · ${t('engineeringObservationCount', { count: activeDataset.observationCount })}` : t('engineeringDetailInstrumentData')} state={activeDataset ? statusLabel(activeDataset.status, t) : t('engineeringSummaryNoDataset')} attention={!activeDataset} onOpen={() => setTab('data')} />
+                    <DeliveryStage index={3} icon={ShieldCheck} title={t('engineeringStageQuality')} detail={activeDataset ? (blockingFindings.length ? t('engineeringDetailFixBlockers', { count: blockingFindings.length }) : warningFindings.length ? t('engineeringDetailConfirmWarnings', { count: warningFindings.length }) : t('engineeringDetailNoIssues')) : t('engineeringDetailQualityAutoCheck')} state={blockingFindings.length ? t('engineeringStatusBlocked') : warningFindings.length ? t('engineeringStatusUnresolved') : activeDataset ? t('engineeringStatusPassed') : t('engineeringStatusNotStarted')} attention={blockingFindings.length > 0 || warningFindings.length > 0} onOpen={() => setTab('quality')} />
+                    <DeliveryStage index={4} icon={LineChart} title={t('engineeringStageTrend')} detail={activeAnalysis ? `${t('engineeringSummaryResults', { count: activeAnalysis.results.length })} · ${activeAnalysis.algorithmVersion}` : t('engineeringDetailAnalysisPending')} state={activeAnalysis ? t('engineeringStatusCompleted') : t('engineeringStatusPendingAnalysis')} attention={Boolean(activeDataset) && !activeAnalysis} onOpen={() => setTab('analysis')} />
+                    <DeliveryStage index={5} icon={FileOutput} title={t('engineeringStageReports')} detail={manifestOutputs.length ? t('engineeringDetailReportOutputs', { count: manifestOutputs.length }) : t('engineeringDetailReportPending')} state={manifestOutputs.length ? t('engineeringStatusGenerated') : t('engineeringStatusPendingGeneration')} attention={Boolean(activeAnalysis) && !manifestOutputs.length} onOpen={() => setTab('deliverables')} />
+                    <DeliveryStage index={6} icon={ClipboardCheck} title={t('engineeringStageHumanReview')} detail={latestManifest ? t('engineeringDetailLatestManifest', { id: latestManifest.id }) : finalizationBlocked ? t('engineeringDetailGateBlocked') : t('engineeringDetailManifestReady')} state={latestManifest ? t('engineeringStatusArchived') : finalizationBlocked ? t('engineeringStatusReviewPending') : t('engineeringStatusReviewable')} attention={!latestManifest && finalizationBlocked} onOpen={() => setTab('review')} />
                   </div>
                 </div>
                 <aside className="border border-ds-border-muted bg-ds-card">
-                  <div className="border-b border-ds-border-muted px-4 py-3"><p className="text-[13px] font-semibold text-ds-ink">本次交付状态</p><p className="mt-1 text-[11px] text-ds-faint">项目修订 {overview.project.revision} · 更新于 {formatDate(overview.project.updatedAt)}</p></div>
-                  <div className="space-y-4 px-4 py-4"><div className={`flex items-start gap-2 text-[12px] ${finalizationBlocked ? 'text-amber-800 dark:text-amber-200' : 'text-green-800 dark:text-green-300'}`}>{finalizationBlocked ? <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" /> : <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />}<span>{finalizationBlocked ? '尚有质量、分析或成果门禁未完成。' : '全部门禁已满足，可进入人工审批。'}</span></div><dl className="space-y-3 border-t border-ds-border-muted pt-3 text-[11px]"><div className="flex justify-between gap-3"><dt className="text-ds-muted">当前数据集</dt><dd className="max-w-[150px] truncate text-right font-medium text-ds-ink">{activeDataset?.sourceFileName ?? '未选择'}</dd></div><div className="flex justify-between gap-3"><dt className="text-ds-muted">阻断项</dt><dd className={blockingFindings.length ? 'font-medium text-red-700 dark:text-red-300' : 'font-medium text-green-700 dark:text-green-300'}>{blockingFindings.length}</dd></div><div className="flex justify-between gap-3"><dt className="text-ds-muted">人工警告</dt><dd className="font-medium text-ds-ink">{acceptedWarnings} 已接受 / {warningFindings.length} 待确认</dd></div><div className="flex justify-between gap-3"><dt className="text-ds-muted">成果清单</dt><dd className="font-medium text-ds-ink">{overview.manifests.length} 个已归档</dd></div></dl><div className="border-t border-ds-border-muted pt-3 text-[11px] leading-5 text-ds-muted">原始文件保持不变；每次数据、阈值或字段映射的变化都会产生新的运行版本，旧成果仍可审查。</div></div>
+                  <div className="border-b border-ds-border-muted px-4 py-3"><p className="text-[13px] font-semibold text-ds-ink">{t('engineeringDeliveryStatus')}</p><p className="mt-1 text-[11px] text-ds-faint">{t('engineeringDeliveryStatusUpdated', { revision: overview.project.revision, date: formatDate(overview.project.updatedAt, locale) })}</p></div>
+                  <div className="space-y-4 px-4 py-4"><div className={`flex items-start gap-2 text-[12px] ${finalizationBlocked ? 'text-amber-800 dark:text-amber-200' : 'text-green-800 dark:text-green-300'}`}>{finalizationBlocked ? <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" /> : <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />}<span>{finalizationBlocked ? t('engineeringGateIncompleteShort') : t('engineeringGateCompleteShort')}</span></div><dl className="space-y-3 border-t border-ds-border-muted pt-3 text-[11px]"><div className="flex justify-between gap-3"><dt className="text-ds-muted">{t('engineeringCurrentDatasetShort')}</dt><dd className="max-w-[150px] truncate text-right font-medium text-ds-ink">{activeDataset?.sourceFileName ?? t('engineeringUnselectedShort')}</dd></div><div className="flex justify-between gap-3"><dt className="text-ds-muted">{t('engineeringBlockingShort')}</dt><dd className={blockingFindings.length ? 'font-medium text-red-700 dark:text-red-300' : 'font-medium text-green-700 dark:text-green-300'}>{blockingFindings.length}</dd></div><div className="flex justify-between gap-3"><dt className="text-ds-muted">{t('engineeringManualWarningsShort')}</dt><dd className="font-medium text-ds-ink">{t('engineeringAcceptedPendingShort', { accepted: acceptedWarnings, pending: warningFindings.length })}</dd></div><div className="flex justify-between gap-3"><dt className="text-ds-muted">{t('engineeringDeliverableListShort')}</dt><dd className="font-medium text-ds-ink">{t('engineeringArchivedCountShort', { count: overview.manifests.length })}</dd></div></dl><div className="border-t border-ds-border-muted pt-3 text-[11px] leading-5 text-ds-muted">{t('engineeringImmutableEvidenceShort')}</div></div>
                 </aside>
               </div>
             </section> : null}
 
             {tab === 'project' ? <section>
-              <PanelHeading title="项目与阈值配置" description="阈值、单位和正负号是确定性分析输入。保存后不会覆写已有成果，下一次运行会使用新的项目修订。" action={<button type="button" onClick={() => void saveProject()} disabled={busy || !projectDraft} className="inline-flex h-8 items-center gap-1.5 rounded-md bg-accent px-3 text-[12px] font-semibold text-white disabled:opacity-50"><Save className="h-3.5 w-3.5" />保存配置</button>} />
-              {projectDraft ? <div className="grid gap-x-5 gap-y-4 p-5 lg:grid-cols-2"><label className="block text-[12px] font-medium text-ds-muted">项目名称<input value={projectDraft.name} onChange={(event) => setProjectDraft((current) => current ? { ...current, name: event.target.value } : current)} className="mt-1.5 h-9 w-full rounded-md border border-ds-border bg-ds-card px-2.5 text-[13px] text-ds-ink outline-none focus:border-accent" /></label><label className="block text-[12px] font-medium text-ds-muted">监测类型<input value={projectDraft.monitoringType} onChange={(event) => setProjectDraft((current) => current ? { ...current, monitoringType: event.target.value } : current)} className="mt-1.5 h-9 w-full rounded-md border border-ds-border bg-ds-card px-2.5 text-[13px] text-ds-ink outline-none focus:border-accent" /></label><label className="block text-[12px] font-medium text-ds-muted">计量单位<input value={projectDraft.unit} onChange={(event) => setProjectDraft((current) => current ? { ...current, unit: event.target.value } : current)} className="mt-1.5 h-9 w-full rounded-md border border-ds-border bg-ds-card px-2.5 text-[13px] text-ds-ink outline-none focus:border-accent" /></label><label className="block text-[12px] font-medium text-ds-muted">正负号约定<select value={projectDraft.signConvention} onChange={(event) => setProjectDraft((current) => current ? { ...current, signConvention: event.target.value } : current)} className="mt-1.5 h-9 w-full rounded-md border border-ds-border bg-ds-card px-2.5 text-[13px] text-ds-ink outline-none focus:border-accent"><option value="positive">正值为正向变形</option><option value="negative">正值为负向变形</option><option value="custom">项目自定义</option></select></label><label className="block text-[12px] font-medium text-ds-muted">报告开始日期<input type="date" value={projectDraft.reportPeriod.start ?? ''} onChange={(event) => setProjectDraft((current) => current ? { ...current, reportPeriod: { ...current.reportPeriod, start: event.target.value || undefined } } : current)} className="mt-1.5 h-9 w-full rounded-md border border-ds-border bg-ds-card px-2.5 text-[13px] text-ds-ink outline-none focus:border-accent" /></label><label className="block text-[12px] font-medium text-ds-muted">报告结束日期<input type="date" value={projectDraft.reportPeriod.end ?? ''} onChange={(event) => setProjectDraft((current) => current ? { ...current, reportPeriod: { ...current.reportPeriod, end: event.target.value || undefined } } : current)} className="mt-1.5 h-9 w-full rounded-md border border-ds-border bg-ds-card px-2.5 text-[13px] text-ds-ink outline-none focus:border-accent" /></label><label className="block text-[12px] font-medium text-ds-muted lg:col-span-2">监测阈值<textarea value={projectDraft.thresholdsText} onChange={(event) => setProjectDraft((current) => current ? { ...current, thresholdsText: event.target.value } : current)} placeholder={'沉降 = 10\ndefault = 8'} className="mt-1.5 min-h-28 w-full resize-y rounded-md border border-ds-border bg-ds-card px-2.5 py-2 text-[13px] leading-5 text-ds-ink outline-none focus:border-accent" /><span className="mt-1 block text-[11px] font-normal leading-4 text-ds-faint">每行一项。优先按监测项匹配；`default` 用于未单独配置的监测项。缺少阈值会在分析中显示“待确认”。</span></label></div> : null}
+              <PanelHeading title={t('engineeringProjectConfigTitle')} description={t('engineeringProjectConfigDescription')} action={<button type="button" onClick={() => void saveProject()} disabled={busy || !projectDraft} className="inline-flex h-8 items-center gap-1.5 rounded-md bg-accent px-3 text-[12px] font-semibold text-white disabled:opacity-50"><Save className="h-3.5 w-3.5" />{t('engineeringSaveConfig')}</button>} />
+              {projectDraft ? <div className="grid gap-x-5 gap-y-4 p-5 lg:grid-cols-2"><label className="block text-[12px] font-medium text-ds-muted">{t('engineeringProjectName')}<input value={projectDraft.name} onChange={(event) => setProjectDraft((current) => current ? { ...current, name: event.target.value } : current)} className="mt-1.5 h-9 w-full rounded-md border border-ds-border bg-ds-card px-2.5 text-[13px] text-ds-ink outline-none focus:border-accent" /></label><label className="block text-[12px] font-medium text-ds-muted">{t('engineeringMonitoringType')}<input value={projectDraft.monitoringType} onChange={(event) => setProjectDraft((current) => current ? { ...current, monitoringType: event.target.value } : current)} className="mt-1.5 h-9 w-full rounded-md border border-ds-border bg-ds-card px-2.5 text-[13px] text-ds-ink outline-none focus:border-accent" /></label><label className="block text-[12px] font-medium text-ds-muted">{t('engineeringUnit')}<input value={projectDraft.unit} onChange={(event) => setProjectDraft((current) => current ? { ...current, unit: event.target.value } : current)} className="mt-1.5 h-9 w-full rounded-md border border-ds-border bg-ds-card px-2.5 text-[13px] text-ds-ink outline-none focus:border-accent" /></label><label className="block text-[12px] font-medium text-ds-muted">{t('engineeringSignConvention')}<select value={projectDraft.signConvention} onChange={(event) => setProjectDraft((current) => current ? { ...current, signConvention: event.target.value } : current)} className="mt-1.5 h-9 w-full rounded-md border border-ds-border bg-ds-card px-2.5 text-[13px] text-ds-ink outline-none focus:border-accent"><option value="positive">{t('engineeringSignPositiveOption')}</option><option value="negative">{t('engineeringSignNegativeOption')}</option><option value="custom">{t('engineeringSignCustomOption')}</option></select></label><label className="block text-[12px] font-medium text-ds-muted">{t('engineeringReportStart')}<input type="date" value={projectDraft.reportPeriod.start ?? ''} onChange={(event) => setProjectDraft((current) => current ? { ...current, reportPeriod: { ...current.reportPeriod, start: event.target.value || undefined } } : current)} className="mt-1.5 h-9 w-full rounded-md border border-ds-border bg-ds-card px-2.5 text-[13px] text-ds-ink outline-none focus:border-accent" /></label><label className="block text-[12px] font-medium text-ds-muted">{t('engineeringReportEnd')}<input type="date" value={projectDraft.reportPeriod.end ?? ''} onChange={(event) => setProjectDraft((current) => current ? { ...current, reportPeriod: { ...current.reportPeriod, end: event.target.value || undefined } } : current)} className="mt-1.5 h-9 w-full rounded-md border border-ds-border bg-ds-card px-2.5 text-[13px] text-ds-ink outline-none focus:border-accent" /></label><label className="block text-[12px] font-medium text-ds-muted lg:col-span-2">{t('engineeringThresholds')}<textarea value={projectDraft.thresholdsText} onChange={(event) => setProjectDraft((current) => current ? { ...current, thresholdsText: event.target.value } : current)} placeholder={'settlement = 10\ndefault = 8'} className="mt-1.5 min-h-28 w-full resize-y rounded-md border border-ds-border bg-ds-card px-2.5 py-2 text-[13px] leading-5 text-ds-ink outline-none focus:border-accent" /><span className="mt-1 block text-[11px] font-normal leading-4 text-ds-faint">{t('engineeringThresholdHint')}</span></label></div> : null}
             </section> : null}
 
             {tab === 'data' ? <section>
-              <PanelHeading title="数据资产与字段映射" description="仅导入 CSV 和 XLSX。未知列会保留在证据包；原始文件不被覆盖，规范化记录保留源文件哈希与行号。" action={<label className={`inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-md bg-accent px-3 text-[12px] font-semibold text-white ${busy || !runtimeReady ? 'pointer-events-none opacity-50' : ''}`}><Upload className="h-3.5 w-3.5" />导入 CSV / XLSX<input type="file" accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" className="hidden" disabled={busy || !runtimeReady} onChange={(event) => { const file = event.target.files?.[0]; if (file) void importDataset(file); event.target.value = '' }} /></label>} />
-              <div className="p-5">{overview.datasets.length === 0 ? <EmptyState title="尚未导入监测数据" detail="导入后，Runtime 会识别常见中文字段、保留未知列并建立源文件哈希。请先在项目配置中确认阈值。" /> : <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_300px]"><div className="overflow-hidden border border-ds-border-muted"><div className="overflow-x-auto"><table className="min-w-full text-left text-[12px]"><thead className="bg-ds-subtle text-ds-muted"><tr><th className="px-3 py-2.5 font-semibold">数据集</th><th className="px-3 py-2.5 font-semibold">记录</th><th className="px-3 py-2.5 font-semibold">时间范围</th><th className="px-3 py-2.5 font-semibold">状态</th></tr></thead><tbody className="divide-y divide-ds-border-muted">{overview.datasets.map((dataset) => <tr key={dataset.id} onClick={() => setSelectedDatasetId(dataset.id)} className={`cursor-pointer transition hover:bg-accent/5 ${dataset.id === activeDataset?.id ? 'bg-accent/8' : ''}`}><td className="max-w-[260px] px-3 py-3"><p className="truncate font-medium text-ds-ink">{dataset.sourceFileName}</p><p className="mt-0.5 truncate font-mono text-[10px] text-ds-faint">{dataset.sourceFileHash.slice(0, 16)}…</p></td><td className="px-3 py-3 tabular-nums text-ds-ink">{dataset.observationCount.toLocaleString('zh-CN')}<span className="ml-1 text-[10px] text-ds-faint">/ {dataset.rowCount} 行</span></td><td className="px-3 py-3 text-ds-muted">{formatDate(dataset.timeRange.start)}<br />{formatDate(dataset.timeRange.end)}</td><td className="px-3 py-3"><span className="rounded px-1.5 py-0.5 text-[11px] bg-ds-subtle text-ds-muted">{statusLabel(dataset.status)}</span></td></tr>)}</tbody></table></div></div><div className="border border-ds-border-muted bg-ds-card">{activeDataset ? <><div className="border-b border-ds-border-muted px-3 py-3"><p className="text-[12px] font-semibold text-ds-ink">字段映射</p><p className="mt-1 text-[11px] text-ds-faint">{activeDataset.columnCount} 列 · {activeDataset.unknownColumns.length} 个未知列</p></div><dl className="max-h-64 overflow-y-auto divide-y divide-ds-border-muted">{Object.entries(activeDataset.fieldMapping).map(([canonical, source]) => <div key={canonical} className="grid grid-cols-[110px_minmax(0,1fr)] gap-2 px-3 py-2 text-[11px]"><dt className="text-ds-faint">{canonical}</dt><dd className="truncate font-medium text-ds-ink">{source || '未映射'}</dd></div>)}</dl>{activeDataset.unknownColumns.length ? <div className="border-t border-ds-border-muted px-3 py-3"><p className="text-[11px] font-medium text-ds-muted">保留的未知列</p><p className="mt-1 break-words text-[11px] leading-4 text-ds-faint">{activeDataset.unknownColumns.join('、')}</p></div> : null}</> : null}</div></div>}</div>
+              <PanelHeading title={t('engineeringDataPanelTitle')} description={t('engineeringDataPanelDescription')} action={<label className={`inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-md bg-accent px-3 text-[12px] font-semibold text-white ${busy || !runtimeReady ? 'pointer-events-none opacity-50' : ''}`}><Upload className="h-3.5 w-3.5" />{t('engineeringImportMonitoringData')}<input type="file" accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" className="hidden" disabled={busy || !runtimeReady} onChange={(event) => { const file = event.target.files?.[0]; if (file) void importDataset(file); event.target.value = '' }} /></label>} />
+              <div className="p-5">{overview.datasets.length === 0 ? <EmptyState title={t('engineeringNoMonitoringData')} detail={t('engineeringDataEmptyDetail')} /> : <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_300px]"><div className="overflow-hidden border border-ds-border-muted"><div className="overflow-x-auto"><table className="min-w-full text-left text-[12px]"><thead className="bg-ds-subtle text-ds-muted"><tr><th className="px-3 py-2.5 font-semibold">{t('engineeringTabData')}</th><th className="px-3 py-2.5 font-semibold">{t('engineeringSummaryObservations')}</th><th className="px-3 py-2.5 font-semibold">{t('surveyEpoch')}</th><th className="px-3 py-2.5 font-semibold">{t('engineeringDatasetStatus')}</th></tr></thead><tbody className="divide-y divide-ds-border-muted">{overview.datasets.map((dataset) => <tr key={dataset.id} onClick={() => setSelectedDatasetId(dataset.id)} className={`cursor-pointer transition hover:bg-accent/5 ${dataset.id === activeDataset?.id ? 'bg-accent/8' : ''}`}><td className="max-w-[260px] px-3 py-3"><p className="truncate font-medium text-ds-ink">{dataset.sourceFileName}</p><p className="mt-0.5 truncate font-mono text-[10px] text-ds-faint">{dataset.sourceFileHash.slice(0, 16)}…</p></td><td className="px-3 py-3 tabular-nums text-ds-ink">{dataset.observationCount.toLocaleString(locale)}<span className="ml-1 text-[10px] text-ds-faint">/ {dataset.rowCount}</span></td><td className="px-3 py-3 text-ds-muted">{formatDate(dataset.timeRange.start, locale)}<br />{formatDate(dataset.timeRange.end, locale)}</td><td className="px-3 py-3"><span className="rounded px-1.5 py-0.5 text-[11px] bg-ds-subtle text-ds-muted">{statusLabel(dataset.status, t)}</span></td></tr>)}</tbody></table></div></div><div className="border border-ds-border-muted bg-ds-card">{activeDataset ? <><div className="border-b border-ds-border-muted px-3 py-3"><p className="text-[12px] font-semibold text-ds-ink">{t('engineeringColumnMapping')}</p><p className="mt-1 text-[11px] text-ds-faint">{activeDataset.columnCount} {t('engineeringUnit')} · {activeDataset.unknownColumns.length} {t('engineeringUnknownColumns')}</p></div><dl className="max-h-64 overflow-y-auto divide-y divide-ds-border-muted">{Object.entries(activeDataset.fieldMapping).map(([canonical, source]) => <div key={canonical} className="grid grid-cols-[110px_minmax(0,1fr)] gap-2 px-3 py-2 text-[11px]"><dt className="text-ds-faint">{canonical}</dt><dd className="truncate font-medium text-ds-ink">{source || t('engineeringStatusUnmapped')}</dd></div>)}</dl>{activeDataset.unknownColumns.length ? <div className="border-t border-ds-border-muted px-3 py-3"><p className="text-[11px] font-medium text-ds-muted">{t('engineeringUnknownColumns')}</p><p className="mt-1 break-words text-[11px] leading-4 text-ds-faint">{activeDataset.unknownColumns.join('、')}</p></div> : null}</> : null}</div></div>}</div>
             </section> : null}
 
             {tab === 'quality' ? <section>
-              <PanelHeading title="质量校核与问题处置" description="阻断项必须回到源文件修正并重新导入。警告项可由人工接受，接受记录会进入最终成果清单。" action={<button type="button" onClick={() => void validateDataset()} disabled={busy || !activeDataset} className="inline-flex h-8 items-center gap-1.5 rounded-md border border-ds-border bg-ds-card px-3 text-[12px] font-medium text-ds-ink hover:bg-ds-hover disabled:opacity-50"><ShieldCheck className="h-3.5 w-3.5" />重新校核</button>} />
-              {!activeDataset ? <EmptyState title="请选择或导入数据集" detail="质量校核会检查缺失值、重复测点、非法数值、时间顺序、单位冲突和阈值缺失。" /> : <div className="p-5"><div className="grid grid-cols-2 gap-2 lg:grid-cols-4"><Metric label="阻断项" value={blockingFindings.length} detail="必须修正后重新导入" tone={blockingFindings.length ? 'danger' : 'success'} /><Metric label="待确认警告" value={warningFindings.length} detail="需要人工明确接受" tone={warningFindings.length ? 'warning' : 'success'} /><Metric label="已接受警告" value={acceptedWarnings} detail="已纳入审查记录" tone={acceptedWarnings ? 'warning' : 'neutral'} /><Metric label="数据状态" value={statusLabel(activeDataset.status)} detail={`${activeDataset.observationCount.toLocaleString('zh-CN')} 条观测`} /></div><div className="mt-5 overflow-hidden border border-ds-border-muted"><div className="overflow-x-auto"><table className="min-w-full text-left text-[12px]"><thead className="bg-ds-subtle text-ds-muted"><tr><th className="w-24 px-3 py-2.5 font-semibold">级别</th><th className="px-3 py-2.5 font-semibold">问题与建议</th><th className="w-24 px-3 py-2.5 font-semibold">来源行</th><th className="w-28 px-3 py-2.5 font-semibold">处置</th></tr></thead><tbody className="divide-y divide-ds-border-muted">{activeDataset.findings.length ? activeDataset.findings.map((finding) => <tr key={finding.id} className={finding.status === 'open' && finding.severity === 'blocking' ? 'bg-red-50/60 dark:bg-red-500/5' : ''}><td className="px-3 py-3"><span className={`rounded border px-1.5 py-0.5 text-[10.5px] font-medium ${findingTone[finding.severity]}`}>{finding.severity === 'blocking' ? '阻断' : finding.severity === 'warning' ? '警告' : '提示'}</span></td><td className="min-w-[310px] px-3 py-3"><p className="text-ds-ink">{finding.message}</p><p className="mt-1 text-[11px] leading-4 text-ds-muted">{finding.suggestion}</p></td><td className="px-3 py-3 tabular-nums text-ds-muted">{finding.row ? `第 ${finding.row} 行` : '—'}</td><td className="px-3 py-3">{finding.status === 'accepted' ? <span className="inline-flex items-center gap-1 text-[11px] text-green-700 dark:text-green-300"><CheckCircle2 className="h-3.5 w-3.5" />已接受</span> : finding.severity === 'warning' ? <button type="button" disabled={busy} onClick={() => void acceptWarning(finding)} className="rounded border border-amber-300 px-2 py-1 text-[11px] font-medium text-amber-800 hover:bg-amber-50 disabled:opacity-50 dark:border-amber-500/40 dark:text-amber-200">接受警告</button> : finding.severity === 'blocking' ? <span className="text-[11px] leading-4 text-red-700 dark:text-red-300">修正源数据<br />后重新导入</span> : <span className="text-[11px] text-ds-faint">无需处置</span>}</td></tr>) : <tr><td colSpan={4} className="px-3 py-10 text-center text-ds-muted">未发现质量问题。</td></tr>}</tbody></table></div></div></div>}
+              <PanelHeading title={t('engineeringQualityPanelTitle')} description={t('engineeringQualityPanelDescription')} action={<button type="button" onClick={() => void validateDataset()} disabled={busy || !activeDataset} className="inline-flex h-8 items-center gap-1.5 rounded-md border border-ds-border bg-ds-card px-3 text-[12px] font-medium text-ds-ink hover:bg-ds-hover disabled:opacity-50"><ShieldCheck className="h-3.5 w-3.5" />{t('engineeringRecheck')}</button>} />
+              {!activeDataset ? <EmptyState title={t('engineeringSelectOrImportDataset')} detail={t('engineeringQualityEmptyDetail')} /> : <div className="p-5"><div className="grid grid-cols-2 gap-2 lg:grid-cols-4"><Metric label={t('engineeringFindingBlocking')} value={blockingFindings.length} detail={t('engineeringMustFixSource')} tone={blockingFindings.length ? 'danger' : 'success'} /><Metric label={t('engineeringFindingWarning')} value={warningFindings.length} detail={t('engineeringNeedsHumanConfirmation')} tone={warningFindings.length ? 'warning' : 'success'} /><Metric label={t('engineeringFindingAccepted')} value={acceptedWarnings} detail={t('engineeringIncludedInReview')} tone={acceptedWarnings ? 'warning' : 'neutral'} /><Metric label={t('engineeringDatasetStatus')} value={statusLabel(activeDataset.status, t)} detail={t('engineeringObservationCount', { count: activeDataset.observationCount })} /></div><div className="mt-5 overflow-hidden border border-ds-border-muted"><div className="overflow-x-auto"><table className="min-w-full text-left text-[12px]"><thead className="bg-ds-subtle text-ds-muted"><tr><th className="w-24 px-3 py-2.5 font-semibold">{t('engineeringFindingLevel')}</th><th className="px-3 py-2.5 font-semibold">{t('engineeringFindingProblem')}</th><th className="w-24 px-3 py-2.5 font-semibold">{t('engineeringSourceRow')}</th><th className="w-28 px-3 py-2.5 font-semibold">{t('engineeringDisposition')}</th></tr></thead><tbody className="divide-y divide-ds-border-muted">{activeDataset.findings.length ? activeDataset.findings.map((finding) => <tr key={finding.id} className={finding.status === 'open' && finding.severity === 'blocking' ? 'bg-red-50/60 dark:bg-red-500/5' : ''}><td className="px-3 py-3"><span className={`rounded border px-1.5 py-0.5 text-[10.5px] font-medium ${findingTone[finding.severity]}`}>{finding.severity === 'blocking' ? t('engineeringFindingBlocking') : finding.severity === 'warning' ? t('engineeringFindingWarning') : t('engineeringFindingInfo')}</span></td><td className="min-w-[310px] px-3 py-3"><p className="text-ds-ink">{finding.message}</p><p className="mt-1 text-[11px] leading-4 text-ds-muted">{finding.suggestion}</p></td><td className="px-3 py-3 tabular-nums text-ds-muted">{finding.row ? t('engineeringRowNumber', { row: finding.row }) : '—'}</td><td className="px-3 py-3">{finding.status === 'accepted' ? <span className="inline-flex items-center gap-1 text-[11px] text-green-700 dark:text-green-300"><CheckCircle2 className="h-3.5 w-3.5" />{t('engineeringFindingAccepted')}</span> : finding.severity === 'warning' ? <button type="button" disabled={busy} onClick={() => void acceptWarning(finding)} className="rounded border border-amber-300 px-2 py-1 text-[11px] font-medium text-amber-800 hover:bg-amber-50 disabled:opacity-50 dark:border-amber-500/40 dark:text-amber-200">{t('engineeringFindingAcceptWarning')}</button> : finding.severity === 'blocking' ? <span className="text-[11px] leading-4 text-red-700 dark:text-red-300">{t('engineeringFixSourceShort').split('\n').map((line) => <Fragment key={line}>{line}<br /></Fragment>)}</span> : <span className="text-[11px] text-ds-faint">{t('engineeringNoActionShort')}</span>}</td></tr>) : <tr><td colSpan={4} className="px-3 py-10 text-center text-ds-muted">{t('engineeringNoIssuesShort')}</td></tr>}</tbody></table></div></div></div>}
             </section> : null}
 
             {tab === 'survey' ? <section>
-              <PanelHeading title="测量与平差" description="水准、导线、平面控制、三角网、CPIII 和 GNSS 使用确定性 Runtime 计算；缺少基准或协方差时会明确阻断。" />
-              <SurveyAdjustmentPanel project={overview.project} runtimeReady={runtimeReady} onOpenAi={() => setTab('ai-command')} onAdjustmentComplete={(id) => setSurveyAdjustmentIds((current) => current.includes(id) ? current : [...current, id])} onDeformationComplete={(id) => setSurveyDeformationIds((current) => current.includes(id) ? current : [...current, id])} />
+              <SurveyAdjustmentPanel key={surveyFileScope} project={overview.project} runtimeReady={runtimeReady}
+                onNetworkSelected={handleSurveyNetworkSelected}
+                pendingFiles={pendingSurveyFiles[surveyFileScope] ?? []}
+                onRemovePendingFile={(file) => setPendingSurveyFiles((current) => ({ ...current, [surveyFileScope]: (current[surveyFileScope] ?? []).filter((item) => item !== file) }))}
+                onOpenAi={() => document.querySelector<HTMLTextAreaElement>('.engineering-persistent-chat textarea')?.focus()}
+                onAdjustmentComplete={(id) => { setSurveyAdjustmentIds((current) => current.includes(id) ? current : [...current, id]); void Promise.all([loadOverview(selectedProjectId), loadSurveySummary(selectedProjectId)]) }} onDeformationComplete={(id) => setSurveyDeformationIds((current) => current.includes(id) ? current : [...current, id])} />
             </section> : null}
 
             {tab === 'skills' ? <section>
-              <PanelHeading title="技能与规范" description="查看本项目可调用的专业能力、固定来源、许可证状态和工具边界。" />
+              <PanelHeading title={t('engineeringSkillsPanelTitle')} description={t('engineeringSkillsPanelDescription')} />
               <EngineeringSkillsPanel runtimeReady={runtimeReady} />
             </section> : null}
 
             {tab === 'analysis' ? <section>
-              <PanelHeading title="趋势、异常与阈值分析" description="所有数值由 Runtime 确定性计算。模型不会改写当前值、累计变化、速率或阈值状态。" action={<div className="flex items-center gap-2"><button type="button" onClick={() => void createChart()} disabled={busy || !activeAnalysis} className="inline-flex h-8 items-center gap-1.5 rounded-md border border-ds-border bg-ds-card px-2.5 text-[12px] font-medium text-ds-ink hover:bg-ds-hover disabled:opacity-50"><BarChart3 className="h-3.5 w-3.5" />趋势图</button><button type="button" onClick={() => void runAnalysis()} disabled={busy || !activeDataset} className="inline-flex h-8 items-center gap-1.5 rounded-md bg-accent px-3 text-[12px] font-semibold text-white disabled:opacity-50"><Activity className="h-3.5 w-3.5" />运行分析</button></div>} />
-              {!activeDataset ? <EmptyState title="尚未选择监测数据" detail="分析依赖一个已导入的数据集。您可以先进入数据资产导入 CSV 或 XLSX。" /> : !activeAnalysis ? <EmptyState title="尚未生成分析结果" detail="运行后将按监测项与测点给出当前值、上期值、累计变化、变化速率、趋势、异常与阈值状态。" action={<button type="button" onClick={() => void runAnalysis()} disabled={busy} className="inline-flex items-center gap-1.5 rounded-md bg-accent px-3 py-2 text-[12px] font-semibold text-white disabled:opacity-50"><Activity className="h-3.5 w-3.5" />运行确定性分析</button>} /> : <div className="p-5"><div className="grid grid-cols-2 gap-2 lg:grid-cols-5"><Metric label="正常" value={analysisCounts.normal} detail="低于提示阈值" tone="success" /><Metric label="提示" value={analysisCounts.warning} detail="达到关注区间" tone={analysisCounts.warning ? 'warning' : 'neutral'} /><Metric label="报警" value={analysisCounts.alarm} detail="达到或超过阈值" tone={analysisCounts.alarm ? 'danger' : 'neutral'} /><Metric label="控制" value={analysisCounts.control} detail="控制状态" tone={analysisCounts.control ? 'danger' : 'neutral'} /><Metric label="待确认" value={analysisCounts.unresolved} detail="项目未配置阈值" tone={analysisCounts.unresolved ? 'warning' : 'neutral'} /></div>{chart ? <div className="mt-4 flex items-center gap-2 border border-ds-border-muted bg-ds-card px-3 py-2 text-[12px]"><BarChart3 className="h-4 w-4 text-accent" /><span className="min-w-0 flex-1 truncate text-ds-muted">已生成趋势图：<span className="font-mono text-ds-ink">{chart.relativePath}</span></span><span className="rounded bg-green-100 px-1.5 py-0.5 text-[10.5px] text-green-800 dark:bg-green-500/15 dark:text-green-300">{chart.validation}</span></div> : null}<div className="mt-5 overflow-hidden border border-ds-border-muted"><div className="overflow-x-auto"><table className="min-w-full text-left text-[12px]"><thead className="sticky top-0 bg-ds-subtle text-ds-muted"><tr><th className="px-3 py-2.5 font-semibold">监测项 / 测点</th><th className="px-3 py-2.5 font-semibold">当前值</th><th className="px-3 py-2.5 font-semibold">累计变化</th><th className="px-3 py-2.5 font-semibold">变化速率</th><th className="px-3 py-2.5 font-semibold">趋势</th><th className="px-3 py-2.5 font-semibold">阈值状态</th></tr></thead><tbody className="divide-y divide-ds-border-muted">{activeAnalysis.results.map((result) => <tr key={`${result.monitoringItem}-${result.point}`} className={result.thresholdStatus === 'alarm' || result.thresholdStatus === 'control' ? 'bg-red-50/60 dark:bg-red-500/5' : result.thresholdStatus === 'warning' ? 'bg-amber-50/50 dark:bg-amber-500/5' : 'hover:bg-accent/5'}><td className="px-3 py-3"><p className="font-medium text-ds-ink">{result.point}</p><p className="mt-0.5 text-[10.5px] text-ds-faint">{result.monitoringItem}</p></td><td className="px-3 py-3 tabular-nums font-medium text-ds-ink">{formatNumber(result.currentValue)} <span className="text-[10.5px] font-normal text-ds-faint">{overview.project.unit}</span></td><td className="px-3 py-3 tabular-nums text-ds-ink">{formatNumber(result.cumulativeChange)}</td><td className="px-3 py-3 tabular-nums text-ds-ink">{formatNumber(result.changeRate)}</td><td className="px-3 py-3"><span className="text-ds-muted">{statusLabel(result.trend)}{result.anomaly ? <span className="ml-1.5 text-red-600 dark:text-red-300">异常</span> : null}</span></td><td className="px-3 py-3"><span className={`rounded px-1.5 py-0.5 text-[10.5px] font-medium ${thresholdTone[result.thresholdStatus]}`}>{statusLabel(result.thresholdStatus)}</span></td></tr>)}</tbody></table></div></div><p className="mt-3 text-[11px] text-ds-faint">算法版本：{activeAnalysis.algorithmVersion} · 输入哈希：<span className="font-mono">{activeAnalysis.inputHash}</span></p></div>}
+              <PanelHeading title={t('engineeringAnalysisPanelTitle')} description={t('engineeringAnalysisPanelDescription')} action={<div className="flex items-center gap-2"><button type="button" onClick={() => void createChart()} disabled={busy || !activeAnalysis} className="inline-flex h-8 items-center gap-1.5 rounded-md border border-ds-border bg-ds-card px-2.5 text-[12px] font-medium text-ds-ink hover:bg-ds-hover disabled:opacity-50"><BarChart3 className="h-3.5 w-3.5" />{t('engineeringTrendChart')}</button><button type="button" onClick={() => void runAnalysis()} disabled={busy || !activeDataset} className="inline-flex h-8 items-center gap-1.5 rounded-md bg-accent px-3 text-[12px] font-semibold text-white disabled:opacity-50"><Activity className="h-3.5 w-3.5" />{t('engineeringRunAnalysis')}</button></div>} />
+              {!activeDataset ? <EmptyState title={t('engineeringNoMonitoringSelected')} detail={t('engineeringAnalysisEmptyDetail')} /> : !activeAnalysis ? <EmptyState title={t('engineeringNoAnalysis')} detail={t('engineeringAnalysisResultDetail')} action={<button type="button" onClick={() => void runAnalysis()} disabled={busy} className="inline-flex items-center gap-1.5 rounded-md bg-accent px-3 py-2 text-[12px] font-semibold text-white disabled:opacity-50"><Activity className="h-3.5 w-3.5" />{t('engineeringRunDeterministicAnalysis')}</button>} /> : <div className="p-5"><div className="grid grid-cols-2 gap-2 lg:grid-cols-5"><Metric label={t('engineeringStatusNormal')} value={analysisCounts.normal} detail={t('engineeringBelowWarningThreshold')} tone="success" /><Metric label={t('engineeringStatusWarning')} value={analysisCounts.warning} detail={t('engineeringAttentionRange')} tone={analysisCounts.warning ? 'warning' : 'neutral'} /><Metric label={t('engineeringStatusAlarm')} value={analysisCounts.alarm} detail={t('engineeringAtOrAboveThreshold')} tone={analysisCounts.alarm ? 'danger' : 'neutral'} /><Metric label={t('engineeringStatusControl')} value={analysisCounts.control} detail={t('engineeringControlState')} tone={analysisCounts.control ? 'danger' : 'neutral'} /><Metric label={t('engineeringStatusUnresolved')} value={analysisCounts.unresolved} detail={t('engineeringThresholdMissing')} tone={analysisCounts.unresolved ? 'warning' : 'neutral'} /></div>{chart ? <div className="mt-4 flex items-center gap-2 border border-ds-border-muted bg-ds-card px-3 py-2 text-[12px]"><BarChart3 className="h-4 w-4 text-accent" /><span className="min-w-0 flex-1 truncate text-ds-muted">{t('engineeringChartCreated')} <span className="font-mono text-ds-ink">{chart.relativePath}</span></span><span className="rounded bg-green-100 px-1.5 py-0.5 text-[10.5px] text-green-800 dark:bg-green-500/15 dark:text-green-300">{chart.validation}</span></div> : null}<div className="mt-5 overflow-hidden border border-ds-border-muted"><div className="overflow-x-auto"><table className="min-w-full text-left text-[12px]"><thead className="sticky top-0 bg-ds-subtle text-ds-muted"><tr><th className="px-3 py-2.5 font-semibold">{t('engineeringAnalysisTableItemPoint')}</th><th className="px-3 py-2.5 font-semibold">{t('engineeringCurrentValue')}</th><th className="px-3 py-2.5 font-semibold">{t('engineeringCumulativeChange')}</th><th className="px-3 py-2.5 font-semibold">{t('engineeringChangeRate')}</th><th className="px-3 py-2.5 font-semibold">{t('engineeringTrend')}</th><th className="px-3 py-2.5 font-semibold">{t('engineeringThresholdStatus')}</th></tr></thead><tbody className="divide-y divide-ds-border-muted">{activeAnalysis.results.map((result) => <tr key={`${result.monitoringItem}-${result.point}`} className={result.thresholdStatus === 'alarm' || result.thresholdStatus === 'control' ? 'bg-red-50/60 dark:bg-red-500/5' : result.thresholdStatus === 'warning' ? 'bg-amber-50/50 dark:bg-amber-500/5' : 'hover:bg-accent/5'}><td className="px-3 py-3"><p className="font-medium text-ds-ink">{result.point}</p><p className="mt-0.5 text-[10.5px] text-ds-faint">{result.monitoringItem}</p></td><td className="px-3 py-3 tabular-nums font-medium text-ds-ink">{formatNumber(result.currentValue, locale)} <span className="text-[10.5px] font-normal text-ds-faint">{overview.project.unit}</span></td><td className="px-3 py-3 tabular-nums text-ds-ink">{formatNumber(result.cumulativeChange, locale)}</td><td className="px-3 py-3 tabular-nums text-ds-ink">{formatNumber(result.changeRate, locale)}</td><td className="px-3 py-3"><span className="text-ds-muted">{statusLabel(result.trend, t)}{result.anomaly ? <span className="ml-1.5 text-red-600 dark:text-red-300">{t('engineeringAnomaly')}</span> : null}</span></td><td className="px-3 py-3"><span className={`rounded px-1.5 py-0.5 text-[10.5px] font-medium ${thresholdTone[result.thresholdStatus]}`}>{statusLabel(result.thresholdStatus, t)}</span></td></tr>)}</tbody></table></div></div><p className="mt-3 text-[11px] text-ds-faint">{t('engineeringAlgorithmHash', { algorithm: activeAnalysis.algorithmVersion })} <span className="font-mono">{activeAnalysis.inputHash}</span></p></div>}
             </section> : null}
 
             {tab === 'deliverables' ? <section>
-              <PanelHeading title="成果预览与证据包" description="预览生成 DOCX、PDF、XLSX 和趋势图。预览不等同于归档，最终成果仍需在审查归档中通过门禁。" action={<button type="button" onClick={() => void previewDeliverables()} disabled={busy || !activeDataset} className="inline-flex h-8 items-center gap-1.5 rounded-md bg-accent px-3 text-[12px] font-semibold text-white disabled:opacity-50"><FileOutput className="h-3.5 w-3.5" />生成预览成果</button>} />
-              {!activeDataset ? <EmptyState title="请先导入数据" detail="成果预览会使用当前数据集、确定性分析、图表和引用信息建立完整的本地证据包。" /> : <div className="p-5"><div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_320px]"><div><div className="border border-ds-border-muted"><div className="flex items-center justify-between border-b border-ds-border-muted px-3 py-3"><div><p className="text-[13px] font-semibold text-ds-ink">预览输出</p><p className="mt-0.5 text-[11px] text-ds-faint">{preview ? `运行 ${preview.run.id}` : '尚未生成预览'}</p></div>{preview ? <span className="rounded bg-blue-100 px-1.5 py-0.5 text-[10.5px] text-blue-800 dark:bg-blue-500/15 dark:text-blue-300">未归档</span> : null}</div>{manifestOutputs.length ? <div className="divide-y divide-ds-border-muted">{manifestOutputs.map((output) => <div key={`${output.path}-${output.sha256}`} className="grid grid-cols-[minmax(0,1fr)_auto] gap-3 px-3 py-3"><div className="min-w-0"><p className="truncate font-mono text-[11px] text-ds-ink">{output.path}</p><p className="mt-1 truncate font-mono text-[10px] text-ds-faint">SHA-256 {output.sha256}</p></div><span className="self-center tabular-nums text-[11px] text-ds-muted">{formatBytes(output.sizeBytes)}</span></div>)}</div> : <div className="px-3 py-12 text-center text-[12px] text-ds-muted">运行预览后将在此列出报告、证据包、图表及其文件哈希。</div>}</div>{latestRun ? <div className="mt-4 border border-ds-border-muted px-3 py-3 text-[12px]"><p className="font-medium text-ds-ink">最近运行</p><p className="mt-1 text-ds-muted"><span className="font-mono text-[11px]">{latestRun.id}</span> · {statusLabel(latestRun.status)} · {formatDate(latestRun.updatedAt)}</p>{latestRun.error ? <p className="mt-1 text-red-700 dark:text-red-300">{latestRun.error}</p> : null}</div> : null}</div><div className="border border-ds-border-muted bg-ds-card"><div className="border-b border-ds-border-muted px-3 py-3"><p className="text-[13px] font-semibold text-ds-ink">来源引用</p><p className="mt-1 text-[11px] leading-4 text-ds-faint">加入规范、知识库或附件来源。它们将进入报告、XLSX 索引和最终 manifest。</p></div><div className="space-y-2 px-3 py-3"><select value={citationType} onChange={(event) => setCitationType(event.target.value as Citation['sourceType'])} className="h-8 w-full rounded-md border border-ds-border bg-ds-card px-2 text-[12px] text-ds-ink outline-none focus:border-accent"><option value="standard">规范条文</option><option value="knowledge-base">知识库</option><option value="attachment">本地附件</option><option value="other">其他来源</option></select><input value={citationSource} onChange={(event) => setCitationSource(event.target.value)} placeholder="来源名称或文件路径" className="h-8 w-full rounded-md border border-ds-border bg-ds-card px-2 text-[12px] text-ds-ink outline-none focus:border-accent" /><input value={citationLocator} onChange={(event) => setCitationLocator(event.target.value)} placeholder="定位信息，例如第 5.2 条" className="h-8 w-full rounded-md border border-ds-border bg-ds-card px-2 text-[12px] text-ds-ink outline-none focus:border-accent" /><button type="button" onClick={addCitation} className="inline-flex h-8 items-center gap-1.5 rounded-md border border-ds-border px-2.5 text-[12px] font-medium text-ds-ink hover:bg-ds-hover"><Plus className="h-3.5 w-3.5" />添加引用</button></div><div className="divide-y divide-ds-border-muted border-t border-ds-border-muted">{citations.length ? citations.map((citation) => <div key={citation.id} className="group flex gap-2 px-3 py-2.5"><FileCheck2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-accent" /><div className="min-w-0 flex-1"><p className="truncate text-[11px] font-medium text-ds-ink">{citation.source}</p><p className="mt-0.5 truncate text-[10.5px] text-ds-faint">{citation.sourceType}{citation.locator ? ` · ${citation.locator}` : ''}</p></div><button type="button" onClick={() => setCitations((current) => current.filter((item) => item.id !== citation.id))} className="text-ds-faint opacity-0 transition hover:text-red-600 group-hover:opacity-100" aria-label={`移除引用 ${citation.source}`}>×</button></div>) : <p className="px-3 py-4 text-[11px] text-ds-faint">尚未添加引用。</p>}</div></div></div></div>}
+              <PanelHeading title={t('engineeringDeliverablesTitle')} description={t('engineeringDeliverablesDescription')} action={<button type="button" onClick={() => void previewDeliverables()} disabled={busy || !hasDeliveryInputs} className="inline-flex h-8 items-center gap-1.5 rounded-md bg-accent px-3 text-[12px] font-semibold text-white disabled:opacity-50"><FileOutput className="h-3.5 w-3.5" />{t('engineeringGeneratePreview')}</button>} />
+              {!activeDataset ? <EmptyState title={t('engineeringChooseDataset')} detail={t('engineeringDeliverablesEmptyDetail')} /> : <div className="p-5"><div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_320px]"><div><div className="border border-ds-border-muted"><div className="flex items-center justify-between border-b border-ds-border-muted px-3 py-3"><div><p className="text-[13px] font-semibold text-ds-ink">{t('engineeringPreviewOutput')}</p><p className="mt-0.5 text-[11px] text-ds-faint">{preview ? t('engineeringRunId', { id: preview.run.id }) : t('engineeringPreviewNotGenerated')}</p></div>{preview ? <span className="rounded bg-blue-100 px-1.5 py-0.5 text-[10.5px] text-blue-800 dark:bg-blue-500/15 dark:text-blue-300">{t('engineeringNotArchived')}</span> : null}</div>{manifestOutputs.length ? <div className="divide-y divide-ds-border-muted">{manifestOutputs.map((output) => <div key={`${output.path}-${output.sha256}`} className="grid grid-cols-[minmax(0,1fr)_auto] gap-3 px-3 py-3"><div className="min-w-0"><p className="truncate font-mono text-[11px] text-ds-ink">{output.path}</p><p className="mt-1 truncate font-mono text-[10px] text-ds-faint">SHA-256 {output.sha256}</p></div><span className="self-center tabular-nums text-[11px] text-ds-muted">{formatBytes(output.sizeBytes, locale)}</span></div>)}</div> : <div className="px-3 py-12 text-center text-[12px] text-ds-muted">{t('engineeringPreviewEmpty')}</div>}</div>{latestRun ? <div className="mt-4 border border-ds-border-muted px-3 py-3 text-[12px]"><p className="font-medium text-ds-ink">{t('engineeringLatestRun')}</p><p className="mt-1 text-ds-muted"><span className="font-mono text-[11px]">{latestRun.id}</span> · {statusLabel(latestRun.status, t)} · {formatDate(latestRun.updatedAt, locale)}</p>{latestRun.error ? <p className="mt-1 text-red-700 dark:text-red-300">{latestRun.error}</p> : null}</div> : null}</div><div className="border border-ds-border-muted bg-ds-card"><div className="border-b border-ds-border-muted px-3 py-3"><p className="text-[13px] font-semibold text-ds-ink">{t('engineeringCitations')}</p><p className="mt-1 text-[11px] leading-4 text-ds-faint">{t('engineeringCitationsDescription')}</p></div><div className="space-y-2 px-3 py-3"><select value={citationType} onChange={(event) => setCitationType(event.target.value as Citation['sourceType'])} className="h-8 w-full rounded-md border border-ds-border bg-ds-card px-2 text-[12px] text-ds-ink outline-none focus:border-accent"><option value="standard">{t('engineeringStandardClause')}</option><option value="knowledge-base">{t('engineeringKnowledgeBase')}</option><option value="attachment">{t('engineeringLocalAttachment')}</option><option value="other">{t('engineeringOtherSource')}</option></select><input value={citationSource} onChange={(event) => setCitationSource(event.target.value)} placeholder={t('engineeringSourceNamePlaceholder')} className="h-8 w-full rounded-md border border-ds-border bg-ds-card px-2.5 text-[12px] text-ds-ink outline-none focus:border-accent" /><input value={citationLocator} onChange={(event) => setCitationLocator(event.target.value)} placeholder={t('engineeringLocatorPlaceholder')} className="h-8 w-full rounded-md border border-ds-border bg-ds-card px-2.5 text-[12px] text-ds-ink outline-none focus:border-accent" /><button type="button" onClick={addCitation} className="inline-flex h-8 items-center gap-1.5 rounded-md border border-ds-border px-2.5 text-[12px] font-medium text-ds-ink hover:bg-ds-hover"><Plus className="h-3.5 w-3.5" />{t('engineeringAddCitation')}</button></div><div className="divide-y divide-ds-border-muted border-t border-ds-border-muted">{citations.length ? citations.map((citation) => <div key={citation.id} className="group flex gap-2 px-3 py-2.5"><FileCheck2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-accent" /><div className="min-w-0 flex-1"><p className="truncate text-[11px] font-medium text-ds-ink">{citation.source}</p><p className="mt-0.5 truncate text-[10.5px] text-ds-faint">{citation.sourceType}{citation.locator ? ` · ${citation.locator}` : ''}</p></div><button type="button" onClick={() => setCitations((current) => current.filter((item) => item.id !== citation.id))} className="text-ds-faint opacity-0 transition hover:text-red-600 group-hover:opacity-100" aria-label={t('engineeringRemoveCitation', { source: citation.source })}>×</button></div>) : <p className="px-3 py-4 text-[11px] text-ds-faint">{t('engineeringNoCitations')}</p>}</div></div></div></div>}
             </section> : null}
 
             {tab === 'review' ? <section>
-              <PanelHeading title="审查门禁与归档" description="只有阻断项为零、所有警告已人工接受且存在分析结果时，才可固化成果清单。最终归档不会原地覆盖旧成果。" action={<button type="button" onClick={() => void finalizeDeliverables()} disabled={busy || finalizationBlocked} className="inline-flex h-8 items-center gap-1.5 rounded-md bg-green-700 px-3 text-[12px] font-semibold text-white hover:bg-green-800 disabled:cursor-not-allowed disabled:opacity-50"><Archive className="h-3.5 w-3.5" />批准并归档</button>} />
-              <div className="p-5"><div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_340px]"><div><div className="overflow-hidden border border-ds-border-muted"><div className="border-b border-ds-border-muted bg-ds-subtle px-3 py-2.5 text-[12px] font-semibold text-ds-muted">审查清单</div><div className="divide-y divide-ds-border-muted"><ReviewRow ok={Boolean(activeDataset)} label="已选择并保存数据集" detail={activeDataset ? `${activeDataset.sourceFileName} · ${activeDataset.observationCount.toLocaleString('zh-CN')} 条观测` : '请选择一个数据集。'} /><ReviewRow ok={blockingFindings.length === 0 && Boolean(activeDataset)} label="阻断项已清零" detail={blockingFindings.length ? `仍有 ${blockingFindings.length} 个阻断项，须修正源数据后重新导入。` : '当前数据集没有待处理阻断项。'} /><ReviewRow ok={warningFindings.length === 0 && Boolean(activeDataset)} label="警告项已确认" detail={warningFindings.length ? `仍有 ${warningFindings.length} 个警告项需要人工接受。` : acceptedWarnings ? `${acceptedWarnings} 个警告项已记录为人工接受。` : '当前没有需要接受的警告项。'} /><ReviewRow ok={Boolean(activeAnalysis)} label="已完成确定性分析" detail={activeAnalysis ? `${activeAnalysis.results.length.toLocaleString('zh-CN')} 条分析结果 · ${activeAnalysis.algorithmVersion}` : '请先运行趋势与阈值分析。'} /><ReviewRow ok={manifestOutputs.length > 0} label="已生成可审查成果" detail={manifestOutputs.length ? `${manifestOutputs.length} 个输出文件带有 SHA-256 哈希。` : '请先生成 DOCX、PDF 和 XLSX 预览成果。'} /></div></div><div className="mt-5 border border-ds-border-muted"><div className="border-b border-ds-border-muted px-3 py-3"><p className="text-[13px] font-semibold text-ds-ink">已归档成果</p><p className="mt-1 text-[11px] text-ds-faint">每次批准生成独立 manifest，历史版本保持只读。</p></div>{overview.manifests.length ? <div className="divide-y divide-ds-border-muted">{overview.manifests.map((manifest) => <div key={manifest.id} className="px-3 py-3"><div className="flex items-start gap-2"><CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-green-600 dark:text-green-300" /><div className="min-w-0"><p className="truncate font-mono text-[11px] font-medium text-ds-ink">{manifest.id}</p><p className="mt-1 text-[11px] text-ds-muted">{manifest.outputs.length} 个输出 · {statusLabel(manifest.reviewStatus)} · {formatDate(manifest.finalizedAt)}</p>{manifest.validation.warnings.length ? <p className="mt-1 text-[10.5px] text-amber-700 dark:text-amber-300">已接受警告：{manifest.validation.warnings.length} 项</p> : null}</div></div></div>)}</div> : <p className="px-3 py-8 text-center text-[12px] text-ds-muted">尚无归档成果。</p>}</div></div><aside className="border border-ds-border-muted bg-ds-card"><div className="border-b border-ds-border-muted px-3 py-3"><p className="text-[13px] font-semibold text-ds-ink">审批状态</p><p className="mt-1 text-[11px] text-ds-faint">当前项目修订 {overview.project.revision}</p></div><div className="space-y-3 px-3 py-4"><div className={`flex items-center gap-2 text-[12px] ${finalizationBlocked ? 'text-amber-800 dark:text-amber-200' : 'text-green-800 dark:text-green-300'}`}>{finalizationBlocked ? <AlertTriangle className="h-4 w-4" /> : <CheckCircle2 className="h-4 w-4" />}<span>{finalizationBlocked ? '尚未满足归档门禁' : '已满足归档门禁'}</span></div><p className="text-[11px] leading-5 text-ds-muted">归档会生成新的 manifest.json、记录输出哈希、分析输入哈希、引用和人工处置状态。已归档成果不可原地改写。</p>{latestManifest ? <div className="border-t border-ds-border-muted pt-3"><p className="text-[10.5px] font-medium text-ds-faint">最近 manifest</p><p className="mt-1 break-all font-mono text-[10.5px] text-ds-ink">{latestManifest.id}</p></div> : null}</div></aside></div></div>
+              <PanelHeading
+                title={t('engineeringReviewTitle')}
+                description={t('engineeringReviewDescription')}
+                action={<button type="button" onClick={() => void finalizeDeliverables()} disabled={busy || finalizationBlocked} className="inline-flex h-8 items-center gap-1.5 rounded-md bg-blue-700 px-3 text-[12px] font-semibold text-white hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-50"><FileCheck2 className="h-3.5 w-3.5" />{t('engineeringGenerateReviewManifest')}</button>}
+              />
+              <div className="p-5">
+                <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_340px]">
+                  <div>
+                    <div className="overflow-hidden border border-ds-border-muted">
+                      <div className="border-b border-ds-border-muted bg-ds-subtle px-3 py-2.5 text-[12px] font-semibold text-ds-muted">{t('engineeringReviewChecklist')}</div>
+                      <div className="divide-y divide-ds-border-muted">
+                        <ReviewRow ok={Boolean(activeDataset)} label={t('engineeringReviewDatasetSelected')} detail={activeDataset ? `${activeDataset.sourceFileName} · ${activeDataset.observationCount.toLocaleString(locale)} ${t('engineeringObservationUnit')}` : t('engineeringReviewChooseDataset')} />
+                        <ReviewRow ok={blockingFindings.length === 0 && Boolean(activeDataset)} label={t('engineeringReviewBlockersCleared')} detail={blockingFindings.length ? t('engineeringReviewBlockersRemaining', { count: blockingFindings.length }) : t('engineeringReviewNoBlockers')} />
+                        <ReviewRow ok={warningFindings.length === 0 && Boolean(activeDataset)} label={t('engineeringReviewWarningsConfirmed')} detail={warningFindings.length ? t('engineeringReviewWarningsRemaining', { count: warningFindings.length }) : acceptedWarnings ? t('engineeringReviewWarningsAccepted', { count: acceptedWarnings }) : t('engineeringReviewNoWarnings')} />
+                        <ReviewRow ok={Boolean(activeAnalysis)} label={t('engineeringReviewAnalysisDone')} detail={activeAnalysis ? `${activeAnalysis.results.length.toLocaleString(locale)} ${t('engineeringAnalysisResultUnit')} · ${activeAnalysis.algorithmVersion}` : t('engineeringReviewRunAnalysis')} />
+                        <ReviewRow ok={manifestOutputs.length > 0} label={t('engineeringReviewDeliverablesReady')} detail={manifestOutputs.length ? t('engineeringReviewableOutputs', { count: manifestOutputs.length }) : t('engineeringReviewGenerateDeliverables')} />
+                      </div>
+                    </div>
+                    <div className="mt-5 border border-ds-border-muted">
+                      <div className="border-b border-ds-border-muted px-3 py-3">
+                        <p className="text-[13px] font-semibold text-ds-ink">{t('engineeringReviewManifestTitle')}</p>
+                        <p className="mt-1 text-[11px] text-ds-faint">{t('engineeringReviewManifestHint')}</p>
+                      </div>
+                      {overview.manifests.length ? <div className="divide-y divide-ds-border-muted">{overview.manifests.map((manifest) => <div key={manifest.id} className="px-3 py-3"><div className="flex items-start gap-2"><FileCheck2 className="mt-0.5 h-4 w-4 shrink-0 text-blue-600 dark:text-blue-300" /><div className="min-w-0"><p className="truncate font-mono text-[11px] font-medium text-ds-ink">{manifest.id}</p><p className="mt-1 text-[11px] text-ds-muted">{t('engineeringReviewOutputs', { count: manifest.outputs.length })} · {statusLabel(manifest.reviewStatus, t)} · {formatDate(manifest.finalizedAt, locale)}</p>{manifest.validation.warnings.length ? <p className="mt-1 text-[10.5px] text-amber-700 dark:text-amber-300">{t('engineeringReviewNotes', { count: manifest.validation.warnings.length })}</p> : null}</div></div></div>)}</div> : <p className="px-3 py-8 text-center text-[12px] text-ds-muted">{t('engineeringReviewNone')}</p>}
+                    </div>
+                  </div>
+                  <aside className="border border-ds-border-muted bg-ds-card">
+                    <div className="border-b border-ds-border-muted px-3 py-3"><p className="text-[13px] font-semibold text-ds-ink">{t('engineeringReviewStatus')}</p><p className="mt-1 text-[11px] text-ds-faint">{t('engineeringReviewRevision', { revision: overview.project.revision })}</p></div>
+                    <div className="space-y-3 px-3 py-4">
+                      <div className={`flex items-center gap-2 text-[12px] ${finalizationBlocked ? 'text-amber-800 dark:text-amber-200' : 'text-blue-800 dark:text-blue-300'}`}>{finalizationBlocked ? <AlertTriangle className="h-4 w-4" /> : <FileCheck2 className="h-4 w-4" />}<span>{finalizationBlocked ? t('engineeringReviewGateBlocked') : t('engineeringReviewGateReady')}</span></div>
+                      <p className="text-[11px] leading-5 text-ds-muted">{t('engineeringReviewManifestDescription')}</p>
+                      {latestManifest ? <div className="border-t border-ds-border-muted pt-3"><p className="text-[10.5px] font-medium text-ds-faint">{t('engineeringLatestManifest')}</p><p className="mt-1 break-all font-mono text-[10.5px] text-ds-ink">{latestManifest.id}</p></div> : null}
+                    </div>
+                  </aside>
+                </div>
+              </div>
             </section> : null}
           </>}
         </main>
-      </div>}
+      </div> : null}
     </div>
-    {busy ? <div className="pointer-events-none fixed inset-x-0 bottom-4 z-50 flex justify-center"><span className="inline-flex items-center gap-2 rounded-md border border-ds-border bg-ds-card px-3 py-2 text-[12px] text-ds-muted shadow-panel"><Loader2 className="h-3.5 w-3.5 animate-spin text-accent" />Runtime 正在处理工程测量数据…</span></div> : null}
+    {busy ? <div className="pointer-events-none fixed inset-x-0 bottom-4 z-50 flex justify-center"><span className="inline-flex items-center gap-2 rounded-md border border-ds-border bg-ds-card px-3 py-2 text-[12px] text-ds-muted shadow-panel"><Loader2 className="h-3.5 w-3.5 animate-spin text-accent" />{t('engineeringRuntimeProcessing')}</span></div> : null}
   </div>
 }
 

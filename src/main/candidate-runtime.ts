@@ -234,7 +234,7 @@ function readCandidateEnvironmentFile(path: string): NodeJS.ProcessEnv {
   for (const rawLine of readFileSync(path, 'utf8').split(/\r?\n/)) {
     const line = rawLine.trim()
     if (!line || line.startsWith('#')) continue
-    const match = /^([A-Z][A-Z0-9_]*)=(.*)$/.exec(line)
+    const match = /^(?:export[\t ]+)?([A-Z][A-Z0-9_]*)=(.*)$/.exec(line)
     if (!match || !CANDIDATE_ENV_KEYS.has(match[1]!)) continue
     const value = decodeCandidateEnvironmentValue(match[2]!)
     if (value.includes('\0') || value.length > 8_192) {

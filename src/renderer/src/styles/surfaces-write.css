@@ -777,6 +777,48 @@
 }
 
 /* Classic engineering pages retain a compact instrument-console rhythm. */
+.engineering-workspace {
+  container-type: inline-size;
+}
+
+.engineering-continuous-shell {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
+}
+
+.engineering-with-data {
+  grid-template-columns: minmax(0, 1fr) 380px;
+  grid-template-areas: 'data chat';
+}
+
+.engineering-with-data > .engineering-persistent-chat {
+  grid-area: chat;
+  border-left: 1px solid var(--ds-border-muted);
+}
+
+.engineering-with-data > .engineering-classic-shell {
+  grid-area: data;
+}
+
+.engineering-conversation-surface .ds-floating-composer {
+  width: 100%;
+  min-width: 0;
+}
+
+@container (max-width: 1000px) {
+  .engineering-with-data {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr) minmax(240px, 45%);
+    grid-template-areas: 'data' 'chat';
+  }
+
+  .engineering-with-data > .engineering-persistent-chat {
+    border-left: 0;
+    border-top: 1px solid var(--ds-border-muted);
+  }
+}
+
 .engineering-classic-route {
   background: var(--ds-bg-canvas);
 }

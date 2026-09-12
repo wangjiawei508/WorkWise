@@ -391,6 +391,7 @@ export function allowedToolNamesWithGuiStateTools(
 }
 
 export type AgentLoopOptions = {
+  engineeringTurnPolicy?: (threadId: string, projectId: string, turnId: string) => Promise<{ instruction: string; allowedToolNames: string[] }>
   threadStore: ThreadStore
   sessionStore: SessionStore
   approvalGate: ApprovalGate
@@ -922,12 +923,16 @@ export class AgentLoop {
       prompt: turn?.prompt ?? '',
       workspace: thread?.workspace ?? ''
     })
-    const planTurnActive = effectiveMode === 'plan' || Boolean(activePlanContext)
+    const engineeringTurn = thread?.domain === 'engineering'
+    const engineeringPolicy = engineeringTurn && thread?.projectId
+      ? await this.opts.engineeringTurnPolicy?.(threadId, thread.projectId, turnId)
+      : undefined
+    const planTurnActive = !engineeringTurn && (effectiveMode === 'plan' || Boolean(activePlanContext))
     const turnPrompt = turn?.prompt || latestUserMessageText(healed.items, turnId)
     const workflowPrompt = continuationTurn?.prompt
       ? `${continuationTurn.prompt}\n${turnPrompt}`
       : turnPrompt
-    const requiresFileDeliverable = !planTurnActive && promptRequiresFileDeliverable(workflowPrompt)
+    const requiresFileDeliverable = !engineeringTurn && !planTurnActive && promptRequiresFileDeliverable(workflowPrompt)
     const requiredFileExtensions = requiredFileExtensionsForPrompt(workflowPrompt)
     const hasFileDeliverable = hasSuccessfulFileDeliverable(healed.items, turnId, workflowPrompt)
     const userInputDisabled = turn?.disableUserInput === true
@@ -939,10 +944,10 @@ export class AgentLoop {
           ...(requiredFileExtensions ? { requiredFileExtensions } : {})
         })
       : null
-    const activeGoalInstruction = planTurnActive || userInputDisabled
+    const activeGoalInstruction = engineeringTurn || planTurnActive || userInputDisabled
       ? null
       : goalContinuationInstruction(thread?.goal)
-    const activeTodoInstruction = planTurnActive || userInputDisabled
+    const activeTodoInstruction = engineeringTurn || planTurnActive || userInputDisabled
       ? null
       : todoContinuationInstruction(thread?.todos)
     const skillAllowedToolNames = allowedToolNamesWithGuiStateTools(
@@ -950,10 +955,15 @@ export class AgentLoop {
       activeGoalInstruction !== null,
       activeDesignContext !== undefined
     )
-    const allowedToolNames = intersectAgentToolAllowlist(
+    const generalAllowedToolNames = intersectAgentToolAllowlist(
       skillAllowedToolNames,
       thread?.agentProfile?.toolAllowlist
     )
+    // Domain capability limits apply to advertisement AND tool dispatch. A
+    // natural-language approval or an old plan cannot authorize a new turn.
+    const allowedToolNames = engineeringTurn
+      ? intersectAgentToolAllowlist(engineeringPolicy?.allowedToolNames ?? [], thread?.agentProfile?.toolAllowlist)
+      : generalAllowedToolNames
     const allowedMcpProviderIds = normalizeAgentAllowlist(thread?.agentProfile?.mcpAllowlist)
     // IM/headless turns run without the user-input gate; the tools key
     // their advertisement off `awaitUserInput`, so omitting it hides
@@ -962,7 +972,7 @@ export class AgentLoop {
       threadId,
       turnId,
       workspace: thread?.workspace ?? '',
-      threadMode: effectiveMode,
+      threadMode: engineeringTurn ? 'agent' : effectiveMode,
       ...(activePlanContext ? { guiPlan: activePlanContext } : {}),
       ...(activeDesignContext ? { guiDesign: activeDesignContext } : {}),
       model: modelCapabilities,
@@ -1050,6 +1060,7 @@ export class AgentLoop {
       historyItems: history.length
     })
     const contextInstructions = [
+      ...(engineeringPolicy ? [engineeringPolicy.instruction] : []),
       ...(thread?.agentProfile ? [agentProfileInstruction(thread.agentProfile)] : []),
       ...(activeGoalInstruction ? [activeGoalInstruction] : []),
       ...(activeTodoInstruction ? [activeTodoInstruction] : []),
@@ -1550,9 +1561,9 @@ export class AgentLoop {
       threadId,
       turnId,
       workspace: thread?.workspace ?? '',
-      threadMode: effectiveMode,
-      activePlanContext,
-      activeDesignContext,
+      threadMode: engineeringTurn ? 'agent' : effectiveMode,
+      activePlanContext: engineeringTurn ? undefined : activePlanContext,
+      activeDesignContext: engineeringTurn ? undefined : activeDesignContext,
       modelCapabilities,
       activeSkillIds: skillResolution.activeSkillIds,
       allowedToolNames,

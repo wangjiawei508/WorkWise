@@ -1,0 +1,23 @@
+{
+  "dmg": "/private/tmp/workwise-050-final-gpdxv9f7/dist/WorkWise-Candidate-912e4d30b065-0.5.0-mac-arm64.dmg",
+  "installedApp": "/private/tmp/workwise-050-acceptance-912e4d30b065/Applications/WorkWise Candidate 912e4d30b065.app",
+  "version": "0.5.0",
+  "bundleId": "com.wangjiawei508.workwise.candidate.head912e4d30b065",
+  "executable": "/private/tmp/workwise-050-acceptance-912e4d30b065/Applications/WorkWise Candidate 912e4d30b065.app/Contents/MacOS/WorkWise Candidate 912e4d30b065",
+  "sourceHead": "912e4d30b065a41693eeeb0827e7bc11f927dafa",
+  "dmgSha256": "205104e004661b4f547fdd85cdc9cef6f1bb268bf57e732fe672d5bf4e3cec9d",
+  "asarSha256": "3c8a0ef0f6f72d19997694dc06a38f6665ccb13d2caa267db3016583f69a5290",
+  "signature": "adhoc",
+  "teamId": null,
+  "notarized": false,
+  "gatekeeper": "accepted; override=security disabled; not evidence of Developer ID trust",
+  "notarizationCheck": "stapler returned 66 / kLSDataUnavailableErr; notarization was skipped during packaging",
+  "installation": "readonly DMG attach -> ditto isolated Applications -> detach",
+  "asarVerification": {
+    "passed": true,
+    "files": 18364,
+    "compiledFiles": 461
+  },
+  "updaterFeed": "https://127.0.0.1/",
+  "realUpdaterRoundTrip": "not run; no local Developer ID/notary credentials or private signed build/feed configured"
+}

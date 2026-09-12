@@ -1,367 +1,247 @@
-import { useCallback, useEffect, useMemo, useState, type ReactElement } from 'react'
-import {
-  Activity,
-  AlertTriangle,
-  ArrowRight,
-  Bot,
-  Check,
-  CheckCircle2,
-  ClipboardList,
-  FileCheck2,
-  Gauge,
-  Image as ImageIcon,
-  Lightbulb,
-  MessageSquareText,
-  Paperclip,
-  Play,
-  Plus,
-  RefreshCw,
-  Ruler,
-  ShieldAlert,
-  Sparkles,
-  Upload,
-  Zap
-} from 'lucide-react'
+import { useCallback, useEffect, useState, type ReactElement } from 'react'
+import { useTranslation } from 'react-i18next'
 import { useShallow } from 'zustand/react/shallow'
+import { AlertTriangle, Bot, ChevronDown, ClipboardList, Compass, FileCheck2, Loader2, MessageSquareText, Play, Plus, RefreshCw, Upload } from 'lucide-react'
 import type { TaskRunStatus, TaskRunV1 } from '@shared/agent-workbench'
+import appI18n from '../../i18n'
 import { rendererRuntimeClient } from '../../agent/runtime-client'
 import { useChatStore } from '../../store/chat-store'
 import { MessageTimeline } from '../chat/MessageTimeline'
+import { EngineeringComposer } from './EngineeringComposer'
+import { useEngineeringConversationDrafts } from './engineering-conversation-drafts'
 
-type Project = {
-  id: string
-  name: string
-  monitoringType: string
-  unit: string
-  revision: number
-  reportPeriod: { start?: string; end?: string }
-}
-type Dataset = {
-  sourceFileName: string
-  observationCount: number
-  status: string
-  findings: Array<{ severity: 'blocking' | 'warning' | 'info'; status: string }>
-}
+type Project = { id: string; name: string; monitoringType: string; unit: string; revision: number; reportPeriod: { start?: string; end?: string } }
+type Dataset = { sourceFileName: string; observationCount: number; status: string; findings: Array<{ severity: 'blocking' | 'warning' | 'info'; status: string }> }
 type Analysis = { results: Array<{ thresholdStatus: string; anomaly: boolean }>; algorithmVersion: string }
 type EvidenceCard = { id: string; kind: string; title: string; summary: string; sourceHash?: string; locator?: string }
 type AiPlan = {
-  id: string
-  projectId: string
-  contextHash: string
-  revision: number
-  goal: string
-  status: string
-  taskId?: string
+  id: string; projectId: string; contextHash: string; revision: number; goal: string; status: string; taskId?: string
   steps: Array<{ id: string; title: string; tool: string; risk: string; approval: string }>
   approval?: { token: string; stepIds: string[]; expiresAt: string }
 }
 type Props = {
-  workspaceRoot: string
-  runtimeReady: boolean
-  project: Project | null
-  dataset: Dataset | null
-  analysis: Analysis | null
+  workspaceRoot: string; runtimeReady: boolean; project: Project | null; dataset: Dataset | null; analysis: Analysis | null
   latestRun?: { id: string; status: string } | null
-  onCreateProject: () => void
-  onImportData: () => void
+  compact?: boolean
+  onCreateProject: () => void; onImportData: () => void
+  onSurveyFiles: (files: File[]) => void
   onOpenTab: (tab: 'project' | 'data' | 'quality' | 'survey' | 'analysis' | 'deliverables' | 'review' | 'skills') => void
   onRefresh: () => void
 }
+type Translate = (key: string, options?: Record<string, unknown>) => string
 type PlanStep = { title: string; detail: string; state: 'ready' | 'active' | 'done' | 'blocked'; tool?: string }
+type SessionResourceState = { status: 'idle' | 'loading' | 'ready' | 'empty' | 'error'; error?: string }
 
-function EngineeringAgentEmptyState({ project, runtimeReady, onCreateProject, onImportData, onOpenTab, onSelectSuggestion }: {
-  project: Project | null
-  runtimeReady: boolean
-  onCreateProject: () => void
-  onImportData: () => void
-  onOpenTab: Props['onOpenTab']
-  onSelectSuggestion: (value: string) => void
-}): ReactElement {
-  if (!project) {
-    return <div className="flex min-h-full items-center justify-center px-6 py-12" data-testid="engineering-ai-empty-state"><div className="max-w-lg text-center"><span className="mx-auto flex h-12 w-12 items-center justify-center rounded-xl border border-accent/20 bg-accent/10 text-accent"><Bot className="h-6 w-6" strokeWidth={1.7} /></span><p className="mt-4 text-[10px] font-semibold uppercase tracking-[0.14em] text-accent">工程测量工作台</p><h2 className="mt-2 text-[20px] font-semibold tracking-tight text-ds-ink">先选择一个工程测量项目</h2><p className="mx-auto mt-2 max-w-md text-[12.5px] leading-5 text-ds-muted">创建项目后，AI 会识别测量类型、绑定资料边界、生成可审批的执行计划，并把平差与监测结果回流到同一条证据链。</p><div className="mt-5 flex flex-wrap justify-center gap-2"><button type="button" onClick={onCreateProject} disabled={!runtimeReady} className="inline-flex h-9 items-center gap-1.5 rounded-md bg-accent px-3.5 text-[11.5px] font-semibold text-white shadow-sm hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-50"><Plus className="h-3.5 w-3.5" />创建工程测量项目</button><button type="button" onClick={() => onOpenTab('survey')} disabled={!runtimeReady} className="inline-flex h-9 items-center gap-1.5 rounded-md border border-ds-border bg-ds-card px-3.5 text-[11.5px] font-medium text-ds-ink hover:bg-ds-hover disabled:cursor-not-allowed disabled:opacity-50"><Ruler className="h-3.5 w-3.5" />查看测量平差</button></div><div className="mt-6 grid gap-2 text-left sm:grid-cols-3"><div className="border border-ds-border-muted bg-ds-main px-3 py-2.5"><p className="text-[10.5px] font-medium text-ds-ink">AI 识别</p><p className="mt-1 text-[10px] leading-4 text-ds-muted">从工程测量目标识别网型、监测项和所需资料。</p></div><div className="border border-ds-border-muted bg-ds-main px-3 py-2.5"><p className="text-[10.5px] font-medium text-ds-ink">确定性计算</p><p className="mt-1 text-[10px] leading-4 text-ds-muted">平差、阈值和图表由 Runtime 工具完成。</p></div><div className="border border-ds-border-muted bg-ds-main px-3 py-2.5"><p className="text-[10.5px] font-medium text-ds-ink">证据回流</p><p className="mt-1 text-[10px] leading-4 text-ds-muted">每个结果绑定来源行、输入哈希和运行版本。</p></div></div></div></div>
-  }
-
-  return <div className="flex min-h-full items-center justify-center px-6 py-12" data-testid="engineering-ai-empty-state"><div className="w-full max-w-xl"><div className="flex items-start gap-3"><span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-accent/20 bg-accent/10 text-accent"><Bot className="h-5 w-5" strokeWidth={1.7} /></span><div><p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-accent">测绘专业 AI Agent 已就绪</p><h2 className="mt-1 text-[20px] font-semibold tracking-tight text-ds-ink">从一个工程测量目标开始</h2><p className="mt-1.5 max-w-lg text-[12px] leading-5 text-ds-muted">当前会话属于“{project.name}”。告诉 Agent 你要完成的测量、平差或监测交付，它会先给出 Typed Plan，再调用确定性工具。</p></div></div><div className="mt-6 grid gap-2 sm:grid-cols-3"><button type="button" onClick={() => onSelectSuggestion('识别已导入资料的测量类型，检查字段、单位、基准和质量问题')} className="group border border-ds-border-muted bg-ds-main px-3 py-3 text-left transition hover:border-accent/50 hover:bg-accent/5"><span className="flex items-center gap-1.5 text-[11px] font-semibold text-ds-ink"><Lightbulb className="h-3.5 w-3.5 text-accent" />识别并校核</span><span className="mt-1.5 block text-[10.5px] leading-4 text-ds-muted">先识别资料，再列出可修复的阻断项。</span></button><button type="button" onClick={() => onSelectSuggestion('对本期水准网或监测结果做趋势、异常和阈值分析')} className="group border border-ds-border-muted bg-ds-main px-3 py-3 text-left transition hover:border-accent/50 hover:bg-accent/5"><span className="flex items-center gap-1.5 text-[11px] font-semibold text-ds-ink"><Activity className="h-3.5 w-3.5 text-accent" />分析异常</span><span className="mt-1.5 block text-[10.5px] leading-4 text-ds-muted">把异常测点、闭合差和阈值状态放回证据链。</span></button><button type="button" onClick={() => onSelectSuggestion('完成平差质量评定，并生成可审查的 DOCX、PDF、XLSX 和 manifest')} className="group border border-ds-border-muted bg-ds-main px-3 py-3 text-left transition hover:border-accent/50 hover:bg-accent/5"><span className="flex items-center gap-1.5 text-[11px] font-semibold text-ds-ink"><ClipboardList className="h-3.5 w-3.5 text-accent" />准备成果</span><span className="mt-1.5 block text-[10.5px] leading-4 text-ds-muted">审批前由 Agent 汇总结果和缺资料提醒。</span></button></div><div className="mt-5 flex flex-wrap items-center gap-2 border-t border-ds-border-muted pt-4 text-[10.5px] text-ds-muted"><button type="button" onClick={onImportData} disabled={!runtimeReady} className="inline-flex h-8 items-center gap-1.5 border border-ds-border px-2.5 font-medium text-ds-ink hover:bg-ds-hover disabled:opacity-50"><Upload className="h-3.5 w-3.5" />导入 CSV / XLSX</button><button type="button" onClick={() => onOpenTab('survey')} disabled={!runtimeReady} className="inline-flex h-8 items-center gap-1.5 border border-ds-border px-2.5 font-medium text-ds-ink hover:bg-ds-hover disabled:opacity-50"><Ruler className="h-3.5 w-3.5" />打开测量平差</button><span className="ml-auto text-ds-faint">AI 不直接读取原始观测行</span></div></div></div>
-}
-
-function makePlan(project: Project | null, dataset: Dataset | null, analysis: Analysis | null): PlanStep[] {
-  return [
-    { title: '锁定项目边界', detail: project ? `项目、报告周期、单位和修订 ${project.revision}` : '创建或选择工程测量项目', state: project ? 'done' : 'blocked' },
-    { title: '接收并识别资料', detail: dataset ? `${dataset.sourceFileName} · ${dataset.observationCount.toLocaleString('zh-CN')} 条观测` : '等待 CSV/XLSX 或测量网络文件', state: dataset ? 'done' : 'ready', tool: 'attachment-store' },
-    { title: '质量校核与确定性计算', detail: analysis ? `${analysis.algorithmVersion} 已产出 ${analysis.results.length.toLocaleString('zh-CN')} 条结果` : '检查字段、单位、时间、闭合差和阈值', state: analysis ? 'done' : dataset ? 'active' : 'blocked', tool: 'railwise.*' },
-    { title: '解释结果并形成证据', detail: 'AI 只写解释；每个数值绑定输入哈希、来源行和算法版本', state: analysis ? 'active' : 'blocked', tool: 'evidence-index' },
-    { title: '人工审查与归档', detail: '阻断项清零，警告明确接受后生成不可覆盖的成果修订', state: 'ready', tool: 'review-gate' }
-  ]
-}
-
-function StepIcon({ state }: { state: PlanStep['state'] }): ReactElement {
-  if (state === 'done') return <span className="flex h-5 w-5 items-center justify-center rounded-full bg-green-100 text-green-700 dark:bg-green-500/15 dark:text-green-300"><Check className="h-3 w-3" /></span>
-  if (state === 'blocked') return <span className="flex h-5 w-5 items-center justify-center rounded-full border border-ds-border-muted text-ds-faint"><span className="h-1.5 w-1.5 rounded-full bg-ds-faint" /></span>
-  return <span className={`flex h-5 w-5 items-center justify-center rounded-full ${state === 'active' ? 'bg-accent text-white' : 'border border-accent/40 text-accent'}`}><span className="h-1.5 w-1.5 rounded-full bg-current" /></span>
-}
+const IDLE_RESOURCE_STATE: SessionResourceState = { status: 'idle' }
 
 function readRuntimeMessage(body: string, fallback: string): string {
-  try {
-    const parsed = JSON.parse(body) as { message?: unknown; code?: unknown }
-    if (typeof parsed.message === 'string' && parsed.message.trim()) return parsed.message
-    if (typeof parsed.code === 'string' && parsed.code.trim()) return `${fallback}（${parsed.code}）`
-  } catch {
-    if (body.trim()) return body.trim()
+  try { return (JSON.parse(body) as { message?: string }).message || fallback } catch { return body.trim() || fallback }
+}
+function phaseLabel(status: string, t: Translate): string {
+  const keys: Record<string, string> = {
+    draft: 'engineeringStatusDraft', validating: 'engineeringStatusValidating', approved: 'engineeringStatusApproved', awaiting_approval: 'engineeringStatusAwaitingApproval',
+    started: 'engineeringStatusStarted', queued: 'engineeringStatusQueued', running: 'engineeringStatusRunning', retrying: 'engineeringStatusRetrying',
+    waiting_user: 'engineeringStatusWaitingUser', waiting_approval: 'engineeringStatusWaitingApproval', stalled: 'engineeringStatusStalled',
+    needs_attention: 'engineeringStatusNeedsAttention', stale: 'engineeringStatusStale', completed: 'engineeringStatusCompleted', failed: 'engineeringStatusFailed', cancelled: 'engineeringStatusCancelled'
   }
-  return fallback
+  return keys[status] ? t(keys[status]) : status
 }
-
-function phaseLabel(status: string): string {
-  return ({ draft: '草案', validating: '校验中', approved: '已批准', awaiting_approval: '待审批', started: '已启动', queued: '排队中', running: '执行中', retrying: '重试中', waiting_user: '等待补充资料', waiting_approval: '等待审批', stalled: '已暂停，需恢复', needs_attention: '需要处理', stale: '已过期', completed: '已完成', failed: '失败', cancelled: '已取消' } as Record<string, string>)[status] ?? status
-}
-
-export function projectAiPlanSteps(plan: AiPlan, taskStatus?: TaskRunStatus): PlanStep[] {
+export function projectAiPlanSteps(plan: AiPlan, taskStatus?: TaskRunStatus, t?: Translate): PlanStep[] {
   const status = taskStatus ?? plan.status
-  const completed = status === 'completed'
   const blocked = ['stalled', 'waiting_user', 'waiting_approval', 'failed', 'cancelled', 'needs_attention', 'stale'].includes(status)
   const running = ['started', 'queued', 'running', 'retrying'].includes(status)
+  const translate = t ?? appI18n.t.bind(appI18n)
   return plan.steps.map((step, index) => ({
     title: step.title,
-    detail: `${step.tool} · ${step.risk === 'read' ? '只读' : '需要审批'} · ${step.approval === 'approved' ? '已批准' : '待批准'}`,
-    state: completed ? 'done' : blocked ? 'blocked' : running && index === 0 ? 'active' : 'ready',
-    tool: step.tool
+    detail: `${step.tool} · ${step.risk === 'read' ? translate('engineeringRiskRead') : translate('engineeringRiskApproval')} · ${step.approval === 'approved' ? translate('engineeringApproved') : translate('engineeringPendingApproval')}`,
+    state: status === 'completed' ? 'done' : blocked ? 'blocked' : running && index === 0 ? 'active' : 'ready', tool: step.tool
   }))
 }
 
-function hashLabel(value?: string): string {
-  if (!value) return '未生成'
-  return value.length > 18 ? `${value.slice(0, 10)}…${value.slice(-6)}` : value
-}
-
-export function EngineeringAiCommandCenter({ workspaceRoot, runtimeReady, project, dataset, analysis, latestRun, onCreateProject, onImportData, onOpenTab, onRefresh }: Props): ReactElement {
-  const { activeThreadId, threads, blocks, liveReasoning, liveAssistant, busy, runtimeConnection, runtimeErrorDetail, error, queuedMessages, refreshThreads, selectThread, removeQueuedMessage, interrupt } = useChatStore(useShallow((state) => ({
-    activeThreadId: state.activeThreadId,
-    threads: state.threads,
-    blocks: state.blocks,
-    liveReasoning: state.liveReasoning,
-    liveAssistant: state.liveAssistant,
-    busy: state.busy,
-    runtimeConnection: state.runtimeConnection,
-    runtimeErrorDetail: state.runtimeErrorDetail,
-    error: state.error,
-    queuedMessages: state.queuedMessages,
-    refreshThreads: state.refreshThreads,
-    selectThread: state.selectThread,
-    removeQueuedMessage: state.removeQueuedMessage,
-    interrupt: state.interrupt
+export function EngineeringAiCommandCenter({ workspaceRoot, runtimeReady, project, compact = false, onCreateProject, onImportData, onSurveyFiles, onOpenTab, onRefresh }: Props): ReactElement {
+  const { t } = useTranslation('common')
+  const { activeThreadId, threads, blocks, liveReasoning, liveAssistant, busy, runtimeConnection, error, lastSeq, refreshThreads, selectThread, probeRuntime, openSettings, composerModel } = useChatStore(useShallow((state) => ({
+    activeThreadId: state.activeThreadId, threads: state.threads, blocks: state.blocks,
+    liveReasoning: state.liveReasoning, liveAssistant: state.liveAssistant, busy: state.busy,
+    runtimeConnection: state.runtimeConnection, error: state.error, lastSeq: state.lastSeq,
+    refreshThreads: state.refreshThreads, selectThread: state.selectThread, probeRuntime: state.probeRuntime,
+    openSettings: state.openSettings, composerModel: state.composerModel
   })))
-  const activeThread = threads.find((thread) => thread.id === activeThreadId)
-  const [goal, setGoal] = useState('')
-  const [sending, setSending] = useState(false)
   const [notice, setNotice] = useState<string | null>(null)
   const [evidenceCards, setEvidenceCards] = useState<EvidenceCard[]>([])
   const [aiPlan, setAiPlan] = useState<AiPlan | null>(null)
   const [taskRun, setTaskRun] = useState<TaskRunV1 | null>(null)
+  const [planReadState, setPlanReadState] = useState<SessionResourceState>(IDLE_RESOURCE_STATE)
+  const [evidenceReadState, setEvidenceReadState] = useState<SessionResourceState>(IDLE_RESOURCE_STATE)
+  const [sessionReadRevision, setSessionReadRevision] = useState(0)
   const [planBusy, setPlanBusy] = useState(false)
   const [showPlan, setShowPlan] = useState(true)
+  const [approvedSteps, setApprovedSteps] = useState<string[]>([])
   const projectId = project?.id ?? ''
   const connected = runtimeReady && runtimeConnection === 'ready'
+  const activeThread = threads.find((thread) => thread.id === activeThreadId)
+  const engineeringThreadActive = Boolean(activeThread && project && activeThread.domain === 'engineering' && activeThread.projectId === project.id && activeThread.workspace === workspaceRoot)
+  const timelineBlocks = engineeringThreadActive ? blocks : []
+  const timelineThreadId = engineeringThreadActive ? activeThreadId : null
+  const timelineHasActivity = timelineBlocks.length > 0 || (engineeringThreadActive && (busy || Boolean(liveReasoning || liveAssistant)))
+  const scopedPlan = aiPlan?.projectId === projectId ? aiPlan : null
+  const setGoal = (input: string): void => useEngineeringConversationDrafts.getState().update(JSON.stringify([workspaceRoot, projectId]), (draft) => ({ ...draft, input }))
 
-  useEffect(() => { setNotice(null); setAiPlan(null); setTaskRun(null) }, [projectId, activeThreadId])
+  useEffect(() => {
+    setNotice(null); setAiPlan(null); setTaskRun(null); setEvidenceCards([])
+    setPlanReadState(IDLE_RESOURCE_STATE); setEvidenceReadState(IDLE_RESOURCE_STATE)
+  }, [projectId, activeThreadId])
+  useEffect(() => { setApprovedSteps([]) }, [scopedPlan?.id, scopedPlan?.revision])
   useEffect(() => {
     let cancelled = false
-    if (!connected || !projectId || !activeThreadId) return
-    const active = threads.find((thread) => thread.id === activeThreadId)
-    if (active?.domain !== 'engineering' || active.projectId !== projectId) return
-    const query = new URLSearchParams({ threadId: activeThreadId, projectId })
+    if (!connected || !projectId || !timelineThreadId || busy) return
+    const query = new URLSearchParams({ threadId: timelineThreadId, projectId })
+    setPlanReadState({ status: 'loading' })
+    setEvidenceReadState({ status: 'loading' })
     void rendererRuntimeClient.runtimeRequest(`/v1/engineering/ai/plans?${query.toString()}`).then((response) => {
-      if (cancelled || response.status === 404 || !response.ok) return
+      if (cancelled) return
+      if (response.status === 404) { setAiPlan(null); setPlanReadState({ status: 'empty' }); return }
+      if (!response.ok) throw new Error(readRuntimeMessage(response.body, t('engineeringPlanReadFailed')))
       try {
         const parsed = JSON.parse(response.body) as { plan: AiPlan; approval?: AiPlan['approval'] }
         setAiPlan({ ...parsed.plan, approval: parsed.approval })
-      } catch {
-        if (!cancelled) setNotice('已恢复工程测量会话，但计划记录无法解析。请刷新上下文后重新生成。')
-      }
-    }).catch(() => undefined)
-    return () => { cancelled = true }
-  }, [activeThreadId, connected, projectId, threads])
-  useEffect(() => {
-    let cancelled = false
-    if (!connected || !projectId) { setEvidenceCards([]); return }
+        setPlanReadState({ status: 'ready' })
+      } catch { throw new Error(t('engineeringNoticePlanUnreadable')) }
+    }).catch((cause) => {
+      if (!cancelled) setPlanReadState({ status: 'error', error: cause instanceof Error ? cause.message : t('engineeringPlanReadFailed') })
+    })
     void rendererRuntimeClient.runtimeRequest(`/v1/engineering/ai/evidence/${encodeURIComponent(projectId)}`).then((response) => {
-      if (cancelled || !response.ok) return
+      if (cancelled) return
+      if (!response.ok) throw new Error(readRuntimeMessage(response.body, t('engineeringEvidenceReadFailed')))
       try {
-        const parsed = JSON.parse(response.body) as { cards?: EvidenceCard[] }
-        setEvidenceCards(Array.isArray(parsed.cards) ? parsed.cards.slice(0, 8) : [])
-      } catch { setEvidenceCards([]) }
-    }).catch(() => { if (!cancelled) setEvidenceCards([]) })
+        const cards = ((JSON.parse(response.body) as { cards?: EvidenceCard[] }).cards ?? []).slice(0, 8)
+        setEvidenceCards(cards)
+        setEvidenceReadState({ status: cards.length ? 'ready' : 'empty' })
+      } catch { throw new Error(t('engineeringEvidenceReadFailed')) }
+    }).catch((cause) => {
+      if (!cancelled) setEvidenceReadState({ status: 'error', error: cause instanceof Error ? cause.message : t('engineeringEvidenceReadFailed') })
+    })
     return () => { cancelled = true }
-  }, [connected, projectId])
-
-  const refreshTaskRun = useCallback(async (): Promise<TaskRunV1 | null> => {
-    if (!connected || !aiPlan?.taskId) {
-      setTaskRun(null)
-      return null
-    }
-    try {
-      const next = await window.workwise.getTaskRun(aiPlan.taskId)
-      setTaskRun(next)
-      return next
-    } catch {
-      setTaskRun(null)
-      return null
-    }
-  }, [aiPlan?.taskId, connected])
+  }, [busy, connected, lastSeq, projectId, sessionReadRevision, timelineThreadId, t])
 
   useEffect(() => {
     let cancelled = false
-    let timer: number | undefined
+    let timer: ReturnType<typeof setTimeout> | undefined
+    if (!connected || !scopedPlan?.taskId) return
+    const taskId = scopedPlan.taskId
     const poll = async (): Promise<void> => {
-      const next = await refreshTaskRun()
-      if (cancelled || !next || !['queued', 'running', 'retrying'].includes(next.status)) return
-      timer = window.setTimeout(() => void poll(), 1_000)
+      try {
+        const next = await window.workwise.getTaskRun(taskId)
+        if (cancelled) return
+        setTaskRun(next)
+        if (next && ['queued', 'running', 'retrying'].includes(next.status)) timer = setTimeout(() => void poll(), 1_000)
+      } catch { if (!cancelled) setTaskRun(null) }
     }
     void poll()
-    return () => {
-      cancelled = true
-      if (timer !== undefined) window.clearTimeout(timer)
-    }
-  }, [refreshTaskRun])
-
-  const fallbackPlan = useMemo(() => makePlan(project, dataset, analysis), [analysis, dataset, project])
-  const displayedPlan: PlanStep[] = aiPlan
-    ? projectAiPlanSteps(aiPlan, taskRun?.status)
-    : fallbackPlan
-  const openFindings = dataset?.findings.filter((finding) => finding.status === 'open') ?? []
-  const blockingCount = openFindings.filter((finding) => finding.severity === 'blocking').length
-  const warningCount = openFindings.filter((finding) => finding.severity === 'warning').length
-  const anomalyCount = analysis?.results.filter((result) => result.anomaly).length ?? 0
-  const engineeringThreadActive = Boolean(activeThread && project && activeThread.domain === 'engineering' && activeThread.projectId === project.id)
-  const timelineBlocks = engineeringThreadActive ? blocks : []
-  const timelineThreadId = engineeringThreadActive ? activeThreadId : null
-  const timelineLiveReasoning = engineeringThreadActive ? liveReasoning : ''
-  const timelineLiveAssistant = engineeringThreadActive ? liveAssistant : ''
-  const timelineHasActivity = timelineBlocks.length > 0 || busy || Boolean(timelineLiveReasoning || timelineLiveAssistant)
-  const firstPendingStep = displayedPlan.findIndex((step) => step.state !== 'done')
-  const currentStepIndex = firstPendingStep < 0 ? displayedPlan.length : firstPendingStep
-  const nextAction = !project ? { label: '创建工程测量项目', onClick: onCreateProject } : !dataset ? { label: '导入第一份数据', onClick: onImportData } : blockingCount > 0 ? { label: '查看质量问题', onClick: () => onOpenTab('quality') } : !analysis ? { label: '运行确定性分析', onClick: () => onOpenTab('analysis') } : { label: '检查成果门禁', onClick: () => onOpenTab('review') }
-  const effectivePlanStatus = taskRun?.status ?? aiPlan?.status
-  const controlState = !project ? '待建立项目' : blockingCount > 0 ? '数据被阻断' : effectivePlanStatus ? phaseLabel(effectivePlanStatus) : latestRun ? phaseLabel(latestRun.status) : dataset ? '等待执行' : '等待资料'
-  const taskNeedsAttention = Boolean(taskRun && ['stalled', 'waiting_user', 'waiting_approval', 'failed'].includes(taskRun.status))
-  const activeCapability = taskNeedsAttention ? 'TaskRun 需要恢复' : !project ? '工程测量项目上下文' : !dataset ? '资料识别与字段映射' : blockingCount > 0 ? '质量校核与问题定位' : !analysis ? '测量 / 监测确定性计算' : '结果解释与成果审查'
-
-  const sendGoal = async (): Promise<void> => {
-    const prompt = goal.trim()
-    if (!prompt) return
-    if (!connected) { setNotice('Runtime 尚未连接。目标和附件会保留，连接后可继续。'); return }
-    if (!project) { setNotice('先创建工程测量项目，AI 才能绑定坐标/单位、阈值和成果目录。'); return }
-    if (!engineeringThreadActive || !activeThreadId) { setNotice('正在准备当前项目的独立工程测量会话，请稍候。'); return }
-    setSending(true); setPlanBusy(true); setNotice(null)
-    try {
-      const idempotencyKey = `engineering-plan-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
-      const draftResponse = await rendererRuntimeClient.runtimeRequest('/v1/engineering/ai/plans', 'POST', JSON.stringify({ threadId: activeThreadId, projectId: project.id, goal: prompt, idempotencyKey }))
-      if (!draftResponse.ok) throw new Error(readRuntimeMessage(draftResponse.body, '工程测量 AI 计划生成失败'))
-      const drafted = JSON.parse(draftResponse.body) as { plan: AiPlan; approval: AiPlan['approval'] }
-      setAiPlan({ ...drafted.plan, approval: drafted.approval })
-      setGoal('')
-      await refreshThreads()
-      await selectThread(activeThreadId)
-      setNotice('Typed Plan 已保存，尚未执行任何模型或工具。请检查步骤后再审批启动。')
-    } catch (cause) { setNotice(cause instanceof Error ? cause.message : String(cause)) } finally { setPlanBusy(false); setSending(false); onRefresh() }
-  }
+    return () => { cancelled = true; clearTimeout(timer) }
+  }, [connected, scopedPlan?.taskId, scopedPlan?.revision, busy])
 
   const approveAndStartPlan = async (): Promise<void> => {
-    if (!aiPlan?.approval || !connected) return
-    setPlanBusy(true)
+    if (!scopedPlan || !connected || !engineeringThreadActive || busy || planBusy) return
+    setPlanBusy(true); setNotice(null)
     try {
-      const approvedResponse = await rendererRuntimeClient.runtimeRequest(`/v1/engineering/ai/plans/${encodeURIComponent(aiPlan.id)}/approve`, 'POST', JSON.stringify({ expectedRevision: aiPlan.revision, contextHash: aiPlan.contextHash, stepIds: aiPlan.approval.stepIds, token: aiPlan.approval.token, idempotencyKey: `engineering-approve-${Date.now()}` }))
-      if (!approvedResponse.ok) throw new Error(readRuntimeMessage(approvedResponse.body, '工程测量 AI 计划审批失败'))
-      const approved = JSON.parse(approvedResponse.body) as AiPlan
-      const startedResponse = await rendererRuntimeClient.runtimeRequest(`/v1/engineering/ai/plans/${encodeURIComponent(aiPlan.id)}/start`, 'POST', JSON.stringify({ expectedRevision: approved.revision, contextHash: approved.contextHash, idempotencyKey: `engineering-start-${Date.now()}` }))
-      if (!startedResponse.ok) throw new Error(readRuntimeMessage(startedResponse.body, '工程测量 AI 任务启动失败'))
-      const started = JSON.parse(startedResponse.body) as { plan: AiPlan }
-      setAiPlan({ ...started.plan, approval: undefined })
-      setTaskRun(null)
-      setNotice('计划已通过唯一 TaskRun 启动，执行事件会回到当前工程测量会话。')
+      let approved = scopedPlan
+      if (scopedPlan.status === 'awaiting_approval') {
+        if (!scopedPlan.approval || scopedPlan.steps.some((step) => step.risk !== 'read' && !approvedSteps.includes(step.id))) return
+        const response = await rendererRuntimeClient.runtimeRequest(`/v1/engineering/ai/plans/${encodeURIComponent(scopedPlan.id)}/approve`, 'POST', JSON.stringify({ expectedRevision: scopedPlan.revision, contextHash: scopedPlan.contextHash, stepIds: scopedPlan.approval.stepIds, token: scopedPlan.approval.token, idempotencyKey: `engineering-approve-${crypto.randomUUID()}` }))
+        if (!response.ok) throw new Error(readRuntimeMessage(response.body, t('engineeringNoticeApprovalFailed')))
+        approved = JSON.parse(response.body) as AiPlan
+        setAiPlan(approved)
+      }
+      const response = await rendererRuntimeClient.runtimeRequest(`/v1/engineering/ai/plans/${encodeURIComponent(approved.id)}/start`, 'POST', JSON.stringify({ expectedRevision: approved.revision, contextHash: approved.contextHash, model: composerModel || undefined, idempotencyKey: `engineering-start-${crypto.randomUUID()}` }))
+      if (!response.ok) throw new Error(readRuntimeMessage(response.body, t('engineeringNoticeStartFailed')))
+      setAiPlan((JSON.parse(response.body) as { plan: AiPlan }).plan)
+      await refreshThreads()
+      if (useChatStore.getState().activeThreadId === timelineThreadId && timelineThreadId) await selectThread(timelineThreadId)
       onRefresh()
     } catch (cause) { setNotice(cause instanceof Error ? cause.message : String(cause)) } finally { setPlanBusy(false) }
   }
-
-  const recoverTaskRun = async (): Promise<void> => {
-    if (!taskRun) return
-    setPlanBusy(true)
-    setNotice(null)
+  const replanStalePlan = async (): Promise<void> => {
+    if (!scopedPlan || scopedPlan.status !== 'stale' || !connected || !engineeringThreadActive || !timelineThreadId || busy || planBusy) return
+    setPlanBusy(true); setNotice(null)
     try {
-      const request = { expectedRevision: taskRun.revision, idempotencyKey: `engineering-task-recover-${Date.now()}` }
-      if (['stalled', 'waiting_user'].includes(taskRun.status)) await window.workwise.resumeTask(taskRun.id, request)
-      else await window.workwise.retryTask(taskRun.id, request)
-      await refreshTaskRun()
-      setNotice('TaskRun 已提交恢复；计划步骤会按真实运行状态更新。')
-    } catch (cause) {
-      setNotice(cause instanceof Error ? cause.message : String(cause))
-      await refreshTaskRun()
-    } finally {
-      setPlanBusy(false)
-    }
+      const response = await rendererRuntimeClient.runtimeRequest('/v1/engineering/ai/plans', 'POST', JSON.stringify({
+        threadId: timelineThreadId,
+        projectId,
+        goal: scopedPlan.goal,
+        idempotencyKey: `engineering-replan-${scopedPlan.id}-${crypto.randomUUID()}`
+      }))
+      if (!response.ok) throw new Error(readRuntimeMessage(response.body, t('engineeringNoticeReplanFailed')))
+      const parsed = JSON.parse(response.body) as { plan: AiPlan; approval?: AiPlan['approval'] }
+      setAiPlan({ ...parsed.plan, approval: parsed.approval })
+      setTaskRun(null)
+      setPlanReadState({ status: 'ready' })
+      await refreshThreads()
+      if (useChatStore.getState().activeThreadId === timelineThreadId) await selectThread(timelineThreadId)
+      onRefresh()
+    } catch (cause) { setNotice(cause instanceof Error ? cause.message : t('engineeringNoticeReplanFailed')) } finally { setPlanBusy(false) }
   }
+  const retryRuntime = useCallback((): void => { void probeRuntime('user') }, [probeRuntime])
+  const retrySessionRead = useCallback((): void => { setSessionReadRevision((revision) => revision + 1) }, [])
+  const planStatus = taskRun?.id === scopedPlan?.taskId ? taskRun?.status : scopedPlan?.status
+  const needsApproval = scopedPlan?.status === 'awaiting_approval'
+  const riskConfirmed = scopedPlan?.steps.every((step) => step.risk === 'read' || approvedSteps.includes(step.id))
+  const sessionReadErrors = [planReadState.error, evidenceReadState.error].filter((value): value is string => Boolean(value))
+  const sessionReadLoading = planReadState.status === 'loading' || evidenceReadState.status === 'loading'
+  const sessionReadSettled = [planReadState.status, evidenceReadState.status].some((status) => status === 'ready' || status === 'empty')
+  const sessionReadStatus = sessionReadErrors.length === 2 ? 'error' : sessionReadErrors.length || (sessionReadLoading && sessionReadSettled) ? 'partial' : sessionReadLoading ? 'loading' : 'ready'
+  const sessionReadMessage = sessionReadStatus === 'loading'
+    ? t('engineeringSessionLoading')
+    : sessionReadStatus === 'partial'
+      ? sessionReadErrors.length ? t('engineeringSessionPartialError', { detail: sessionReadErrors.join('；') }) : t('engineeringSessionPartialLoading')
+      : sessionReadStatus === 'error' ? t('engineeringSessionReadError', { detail: sessionReadErrors.join('；') }) : ''
+  const iconButton = 'inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-ds-muted hover:bg-ds-hover hover:text-ds-ink disabled:opacity-50'
 
-  return (
-    <div className="engineering-workspace engineering-agent-surface flex min-h-full min-w-0 flex-col bg-ds-main text-ds-ink">
-      <header className="engineering-agent-header shrink-0 border-b border-ds-border-muted bg-ds-card px-4 py-4 sm:px-5">
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div className="flex min-w-0 items-start gap-3">
-            <span className="engineering-agent-mark flex h-10 w-10 shrink-0 items-center justify-center border border-accent/40 bg-transparent text-accent"><Bot className="h-5 w-5" strokeWidth={1.8} /></span>
-            <div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-accent">WorkWise Runtime</p><span className="inline-flex items-center gap-1 rounded-full border border-accent/20 bg-accent/5 px-2 py-0.5 text-[10px] font-medium text-accent"><Sparkles className="h-3 w-3" />测绘专业 AI Agent</span></div><h1 className="mt-1 text-[21px] font-semibold tracking-tight">工程测量 AI 指挥台</h1><p className="mt-1 max-w-3xl text-[12.5px] leading-5 text-ds-muted">把工程测量目标交给 AI，结果留在证据链里。AI 负责理解任务、拆解计划和解释结果；导入、平差、阈值、图表与成果由同一个 Runtime 的确定性工具完成。</p></div>
-          </div>
-          <div className="flex shrink-0 items-center gap-2"><span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-medium ${connected ? 'bg-green-100 text-green-800 dark:bg-green-500/15 dark:text-green-300' : 'bg-amber-100 text-amber-800 dark:bg-amber-500/15 dark:text-amber-200'}`}><span className={`h-1.5 w-1.5 rounded-full ${connected ? 'bg-green-600' : 'bg-amber-500'}`} />{connected ? 'Runtime 在线' : 'Runtime 等待连接'}</span>{project ? <span className="max-w-[200px] truncate border-l border-ds-border-muted pl-2.5 text-[11px] text-ds-muted">{project.name}</span> : null}</div>
-        </div>
-      </header>
-
-      {error ? <div role="alert" className="mx-4 mt-3 flex items-start gap-2 border border-red-300/50 bg-red-50 px-3 py-2.5 text-[12px] text-red-900 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-200"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" /><span className="min-w-0">{error}{runtimeErrorDetail ? ` · ${runtimeErrorDetail}` : ''}</span></div> : null}
-      {notice ? <div role="status" className="mx-4 mt-3 flex items-start gap-2 border border-amber-300/50 bg-amber-50 px-3 py-2.5 text-[12px] text-amber-900 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" /><span className="min-w-0 flex-1">{notice}</span><button type="button" onClick={() => setNotice(null)} aria-label="关闭提示" className="text-current/60 hover:text-current">×</button></div> : null}
-
-      <section className="engineering-command-strip engineering-agent-command-strip mx-3 mt-3 grid shrink-0 gap-px border border-ds-border-muted bg-ds-border-muted sm:grid-cols-[minmax(0,1.4fr)_minmax(150px,0.8fr)_minmax(150px,0.8fr)_auto]" aria-label="测绘专业 AI Agent 状态">
-        <div className="bg-ds-card px-3.5 py-2.5"><p className="engineering-eyebrow">当前任务</p><p className="mt-1 truncate text-[12px] font-semibold text-ds-ink">{project?.name ?? '尚未绑定工程测量项目'}</p><p className="mt-0.5 truncate text-[10.5px] text-ds-muted">{project ? `${project.monitoringType} · ${project.unit} · 修订 ${project.revision}` : '先建立项目，Agent 才能绑定资料与成果边界'}</p></div>
-        <div className="bg-ds-card px-3.5 py-2.5"><p className="engineering-eyebrow">Agent 正在做</p><p className="mt-1 truncate text-[11.5px] font-medium text-ds-ink">{activeCapability}</p><p className="mt-0.5 text-[10px] text-ds-faint">自然语言 → Typed Plan → 工具</p></div>
-        <div className="bg-ds-card px-3.5 py-2.5"><p className="engineering-eyebrow">运行门禁</p><p className={`mt-1 inline-flex items-center gap-1.5 text-[11.5px] font-semibold ${blockingCount ? 'text-red-700 dark:text-red-300' : controlState === '需要处理' ? 'text-amber-700 dark:text-amber-300' : 'text-ds-ink'}`}><Gauge className="h-3.5 w-3.5" />{controlState}</p><p className="mt-0.5 text-[10px] text-ds-faint">{blockingCount ? `${blockingCount} 个阻断项需人工处理` : '数值由确定性 Runtime 生成'}</p></div>
-        <button type="button" onClick={nextAction.onClick} disabled={!runtimeReady} className="engineering-command-action inline-flex min-h-[68px] items-center justify-center gap-1.5 bg-accent px-3.5 text-[11px] font-semibold text-white hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-50">{nextAction.label}<ArrowRight className="h-3.5 w-3.5" /></button>
-      </section>
-
-      <section className="engineering-agent-runbook shrink-0 border-b border-ds-border-muted px-4 py-3 sm:px-6" aria-label="测绘专业 AI Agent 执行协议">
-        <div className="mx-auto flex max-w-[1440px] flex-wrap items-center gap-x-5 gap-y-2 text-[11px]">
-          <span className="font-semibold text-ds-ink">Agent 执行协议</span>
-          <span className="inline-flex items-center gap-1.5 text-ds-muted"><span className="font-mono text-[10px] text-accent">01</span>理解工程测量目标</span>
-          <ArrowRight className="h-3 w-3 text-ds-faint" aria-hidden="true" />
-          <span className="inline-flex items-center gap-1.5 text-ds-muted"><span className="font-mono text-[10px] text-accent">02</span>生成可审批计划</span>
-          <ArrowRight className="h-3 w-3 text-ds-faint" aria-hidden="true" />
-          <span className="inline-flex items-center gap-1.5 text-ds-muted"><span className="font-mono text-[10px] text-accent">03</span>调用确定性工具</span>
-          <ArrowRight className="h-3 w-3 text-ds-faint" aria-hidden="true" />
-          <span className="inline-flex items-center gap-1.5 text-ds-muted"><span className="font-mono text-[10px] text-accent">04</span>回流证据并请求复核</span>
-          <span className="ml-auto text-[10px] text-ds-faint">AI 不代替测量软件，不猜测缺失资料</span>
-        </div>
-      </section>
-
-      <div className="engineering-agent-grid grid min-h-0 flex-1 gap-3 p-3 sm:p-4 xl:grid-cols-[216px_minmax(0,1fr)_284px]">
-        <aside className="engineering-agent-stage min-h-0 border border-ds-border-muted bg-ds-card" aria-label="测绘专业 AI Agent 运行阶段">
-          <div className="border-b border-ds-border-muted px-3.5 py-3"><p className="text-[10px] font-semibold uppercase tracking-[0.1em] text-ds-faint">当前工程测量上下文</p><p className="mt-1 truncate text-[13px] font-semibold text-ds-ink">{project?.name ?? '尚未选择项目'}</p><p className="mt-1 text-[10.5px] leading-4 text-ds-muted">{project ? `${project.monitoringType} · ${project.unit} · 修订 ${project.revision}` : '创建项目后，AI 会绑定资料边界'}</p></div>
-           <div className="border-b border-ds-border-muted px-3.5 py-3"><div className="flex items-center justify-between gap-2"><p className="text-[11px] font-semibold text-ds-ink">执行路径</p><span className="text-[10px] tabular-nums text-ds-faint">{currentStepIndex >= displayedPlan.length ? displayedPlan.length : currentStepIndex + 1}/{displayedPlan.length}</span></div><div className="mt-3 space-y-0">{displayedPlan.map((step, index) => <div key={`${step.title}-${index}`} className="relative flex gap-2.5 pb-3 last:pb-0"><span className="relative z-10 shrink-0"><StepIcon state={index < currentStepIndex && step.state !== 'blocked' ? 'done' : step.state} /></span>{index < displayedPlan.length - 1 ? <span className="absolute left-[9px] top-5 h-[calc(100%-10px)] w-px bg-ds-border-muted" /> : null}<div className="min-w-0"><p className={`text-[11px] font-medium ${step.state === 'blocked' ? 'text-ds-muted' : 'text-ds-ink'}`}>{step.title}</p><p className="mt-0.5 line-clamp-2 text-[10px] leading-4 text-ds-muted">{step.detail}</p>{step.tool ? <p className="mt-1 font-mono text-[9px] text-ds-faint">{step.tool}</p> : null}</div></div>)}</div></div>
-          <div className="p-3.5"><p className="text-[10px] font-semibold uppercase tracking-[0.1em] text-ds-faint">Agent 规则</p><ul className="mt-2 space-y-2 text-[10.5px] leading-4 text-ds-muted"><li className="flex gap-2"><CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-green-600" />不猜阈值，不改写数值</li><li className="flex gap-2"><CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-green-600" />工具结果带哈希和来源</li><li className="flex gap-2"><CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-green-600" />有风险的步骤先征得审批</li></ul></div>
-        </aside>
-
-        <main className="engineering-agent-conversation flex min-h-0 min-w-0 flex-col overflow-hidden border border-ds-border-muted bg-ds-card">
-          <div className="flex shrink-0 items-center justify-between border-b border-ds-border-muted px-4 py-3"><div className="flex min-w-0 items-center gap-2"><MessageSquareText className="h-4 w-4 shrink-0 text-accent" /><div className="min-w-0"><p className="text-[13px] font-semibold">工程测量 AI 会话</p><p className="truncate text-[10.5px] text-ds-faint">{engineeringThreadActive && activeThread ? `${activeThread.title} · ${activeThread.messageCount ?? timelineBlocks.length} 条消息` : '正在准备当前项目的独立会话'}</p></div></div><button type="button" onClick={() => void onRefresh()} className="inline-flex h-7 items-center gap-1 rounded-md px-2 text-[10.5px] text-ds-muted hover:bg-ds-hover hover:text-ds-ink"><RefreshCw className="h-3 w-3" />刷新上下文</button></div>
-          <div className="min-h-[280px] flex-1 overflow-y-auto">
-            {engineeringThreadActive && timelineHasActivity ? <MessageTimeline blocks={timelineBlocks} liveReasoning={timelineLiveReasoning} live={timelineLiveAssistant} activeThreadId={timelineThreadId} runtimeConnection={runtimeConnection} runtimeError={error} onRetryConnection={() => void useChatStore.getState().probeRuntime('user')} onOpenSettings={() => useChatStore.getState().openSettings('agents')} onSelectSuggestion={setGoal} /> : <EngineeringAgentEmptyState project={project} runtimeReady={runtimeReady} onCreateProject={onCreateProject} onImportData={onImportData} onOpenTab={onOpenTab} onSelectSuggestion={setGoal} />}
-          </div>
-          <div className="shrink-0 border-t border-ds-border-muted bg-ds-main p-3.5"><div className="mb-2 flex flex-wrap items-center gap-1.5 text-[10px] text-ds-faint"><span className="inline-flex items-center gap-1 rounded-full border border-ds-border-muted bg-ds-card px-2 py-1"><Paperclip className="h-3 w-3" />附件由 Attachment Store 托管</span><span className="inline-flex items-center gap-1 rounded-full border border-ds-border-muted bg-ds-card px-2 py-1"><ShieldAlert className="h-3 w-3" />模型只接收摘要和证据索引</span></div><label className="sr-only" htmlFor="engineering-goal">告诉测绘专业 AI Agent 你要完成什么</label><textarea id="engineering-goal" value={goal} onChange={(event) => setGoal(event.target.value)} onKeyDown={(event) => { if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') void sendGoal() }} placeholder={project ? '描述目标：例如“对本期水准网做严密平差，找出粗差并准备审查报告”。' : '先创建工程测量项目，再描述目标。'} className="min-h-[86px] w-full resize-y rounded-lg border border-ds-border bg-ds-card px-3.5 py-3 text-[13px] leading-5 text-ds-ink outline-none transition focus:border-accent focus:ring-2 focus:ring-accent/15" /><div className="mt-2 flex flex-wrap items-center justify-between gap-2"><div className="flex flex-wrap gap-1.5"><button type="button" onClick={() => setGoal('识别这份数据的测量类型，检查字段、单位和质量问题')} className="inline-flex items-center gap-1 rounded-md border border-ds-border-muted bg-ds-card px-2.5 py-1.5 text-[10.5px] text-ds-muted hover:border-accent/40 hover:text-accent"><Lightbulb className="h-3 w-3" />识别并校核</button><button type="button" onClick={() => setGoal('对本期和上期结果做趋势与阈值分析，标记需要复核的测点')} className="inline-flex items-center gap-1 rounded-md border border-ds-border-muted bg-ds-card px-2.5 py-1.5 text-[10.5px] text-ds-muted hover:border-accent/40 hover:text-accent"><Activity className="h-3 w-3" />分析异常</button><button type="button" onClick={() => setGoal('完成平差质量评定，并生成可审查的成果预览')} className="inline-flex items-center gap-1 rounded-md border border-ds-border-muted bg-ds-card px-2.5 py-1.5 text-[10.5px] text-ds-muted hover:border-accent/40 hover:text-accent"><ClipboardList className="h-3 w-3" />准备成果</button></div><button type="button" onClick={() => void sendGoal()} disabled={sending || busy || !goal.trim()} className="inline-flex h-9 items-center gap-1.5 rounded-md bg-accent px-3.5 text-[11.5px] font-semibold text-white shadow-sm hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-50"><Play className="h-3.5 w-3.5" />{sending || busy ? '生成计划…' : '交给测绘专业 AI Agent'}</button></div>{queuedMessages.length > 0 ? <div className="mt-2 flex flex-wrap gap-1.5 text-[10px] text-ds-muted"><span>排队中：</span>{queuedMessages.map((item) => <button key={item.id} type="button" onClick={() => removeQueuedMessage(item.id)} className="max-w-[240px] truncate border border-ds-border-muted bg-ds-card px-2 py-1 hover:border-red-300 hover:text-red-700" title="点击移除排队消息">{item.text}</button>)}</div> : null}{busy && engineeringThreadActive ? <button type="button" onClick={() => void interrupt()} className="mt-2 text-[10.5px] text-amber-700 hover:underline dark:text-amber-300">停止当前回合</button> : null}</div>
-        </main>
-
-        <aside className="engineering-agent-inspector min-h-0 space-y-3 overflow-y-auto" aria-label="测绘 Copilot 证据检查器">
-          <section className="border border-ds-border-muted bg-ds-card"><div className="border-b border-ds-border-muted px-3.5 py-3"><div className="flex items-center justify-between gap-2"><div><p className="text-[12.5px] font-semibold">Copilot 检查器</p><p className="mt-0.5 text-[10.5px] text-ds-faint">AI 的下一步和可验证证据</p></div><Zap className="h-4 w-4 text-accent" /></div></div>{project ? <div className="space-y-3 p-3.5"><div className="grid grid-cols-2 gap-x-4 gap-y-2 text-[10.5px]"><div><p className="text-ds-faint">观测记录</p><p className="mt-0.5 tabular-nums text-[16px] font-semibold text-ds-ink">{dataset?.observationCount.toLocaleString('zh-CN') ?? '—'}</p></div><div><p className="text-ds-faint">异常线索</p><p className={`mt-0.5 tabular-nums text-[16px] font-semibold ${anomalyCount ? 'text-amber-700 dark:text-amber-300' : 'text-ds-ink'}`}>{anomalyCount}</p></div><div><p className="text-ds-faint">阻断 / 警告</p><p className={`mt-0.5 tabular-nums text-[16px] font-semibold ${blockingCount ? 'text-red-700 dark:text-red-300' : 'text-ds-ink'}`}>{blockingCount} / {warningCount}</p></div><div><p className="text-ds-faint">最近运行</p><p className="mt-0.5 truncate text-[11px] font-medium text-ds-ink">{latestRun ? phaseLabel(latestRun.status) : '未开始'}</p></div></div><div className="border-t border-ds-border-muted pt-3"><p className="text-[10.5px] font-medium text-ds-ink">建议下一步</p><p className="mt-1 text-[10.5px] leading-4 text-ds-muted">{!dataset ? '先导入数据，AI 才能引用真实观测和来源行号。' : blockingCount ? '先处理阻断项；当前不允许把不完整数据送入分析。' : !analysis ? '完成确定性分析，AI 才能解释趋势和阈值。' : '检查证据和审查门禁，确认后再归档成果。'}</p><button type="button" onClick={nextAction.onClick} disabled={!runtimeReady} className="mt-2 inline-flex h-8 items-center gap-1.5 rounded-md bg-accent px-2.5 text-[11px] font-semibold text-white disabled:opacity-50">{nextAction.label}<ArrowRight className="h-3.5 w-3.5" /></button></div></div> : <div className="p-3.5"><div className="flex gap-2 text-[11px] leading-4 text-ds-muted"><Bot className="mt-0.5 h-4 w-4 shrink-0 text-accent" /><p>测绘专业 AI Agent 需要一个项目上下文，才能把自然语言目标绑定到确定性工具。</p></div><button type="button" onClick={onCreateProject} disabled={!runtimeReady} className="mt-3 inline-flex h-8 items-center gap-1.5 rounded-md bg-accent px-2.5 text-[11px] font-semibold text-white disabled:opacity-50"><Plus className="h-3.5 w-3.5" />创建项目</button></div>}</section>
-
-          <section className="border border-ds-border-muted bg-ds-card"><div className="flex items-center justify-between border-b border-ds-border-muted px-3.5 py-3"><div><p className="flex items-center gap-1.5 text-[12.5px] font-semibold"><ClipboardList className="h-4 w-4 text-accent" />Typed Plan</p><p className="mt-0.5 text-[10.5px] text-ds-faint">先审查，再让 TaskRun 执行</p></div><button type="button" onClick={() => setShowPlan((value) => !value)} className="text-[10.5px] font-medium text-accent">{showPlan ? '收起' : '展开'}</button></div>{showPlan ? <div className="divide-y divide-ds-border-muted">{displayedPlan.map((step, index) => <div key={`${step.title}-${index}`} className="px-3.5 py-2.5"><div className="flex items-start gap-2"><span className="mt-0.5"><StepIcon state={step.state} /></span><div className="min-w-0 flex-1"><div className="flex items-center justify-between gap-2"><p className="text-[11px] font-medium text-ds-ink">{step.title}</p><span className="text-[9.5px] text-ds-faint">{step.state === 'done' ? '完成' : step.state === 'active' ? '执行中' : step.state === 'blocked' ? '已阻断' : '待执行'}</span></div><p className="mt-0.5 text-[10px] leading-4 text-ds-muted">{step.detail}</p></div></div></div>)}</div> : null}{aiPlan ? <div className="border-t border-ds-border-muted px-3.5 py-3"><p className="font-mono text-[9.5px] text-ds-faint">{aiPlan.id} · context {hashLabel(aiPlan.contextHash)} · {phaseLabel(effectivePlanStatus ?? aiPlan.status)}</p>{taskRun?.stalledReason || taskRun?.waitingReason ? <p className="mt-1.5 text-[10px] leading-4 text-amber-700 dark:text-amber-300">{taskRun.stalledReason || taskRun.waitingReason}</p> : null}{aiPlan.status === 'awaiting_approval' && aiPlan.approval ? <button type="button" onClick={() => void approveAndStartPlan()} disabled={planBusy || !connected} className="mt-2 inline-flex h-8 w-full items-center justify-center gap-1.5 rounded-md bg-accent px-2.5 text-[11px] font-semibold text-white disabled:opacity-50"><CheckCircle2 className="h-3.5 w-3.5" />审批并启动</button> : null}{taskRun && ['stalled', 'waiting_user', 'failed', 'cancelled'].includes(taskRun.status) ? <button type="button" onClick={() => void recoverTaskRun()} disabled={planBusy || !connected} className="mt-2 inline-flex h-8 w-full items-center justify-center gap-1.5 rounded-md bg-accent px-2.5 text-[11px] font-semibold text-white disabled:opacity-50"><Play className="h-3.5 w-3.5" />恢复 TaskRun</button> : null}</div> : null}</section>
-
-          {evidenceCards.length > 0 ? <section className="border border-ds-border-muted bg-ds-card"><div className="border-b border-ds-border-muted px-3.5 py-3"><p className="flex items-center gap-1.5 text-[12.5px] font-semibold"><FileCheck2 className="h-4 w-4 text-accent" />证据回流</p><p className="mt-0.5 text-[10.5px] text-ds-faint">不是模型的猜测，而是 Runtime 的结构化结果</p></div><div className="divide-y divide-ds-border-muted">{evidenceCards.map((card) => <div key={card.id} className="px-3.5 py-2.5"><div className="flex items-center justify-between gap-2"><span className="truncate text-[11px] font-medium text-ds-ink">{card.title}</span><span className="shrink-0 border border-ds-border-muted px-1.5 py-0.5 text-[9px] text-ds-faint">{card.kind}</span></div><p className="mt-1 text-[10px] leading-4 text-ds-muted">{card.summary}</p><div className="mt-1 flex items-center gap-2 text-[9px] text-ds-faint"><span>{card.locator ?? '来源定位待补'}</span>{card.sourceHash ? <span className="font-mono">{hashLabel(card.sourceHash)}</span> : null}</div></div>)}</div></section> : null}
-
-          <section className="border border-ds-border-muted bg-ds-card"><div className="border-b border-ds-border-muted px-3.5 py-3"><p className="text-[12.5px] font-semibold">可用资料入口</p><p className="mt-0.5 text-[10.5px] text-ds-faint">输入是证据，AI 只使用受控摘要</p></div><div className="space-y-2 p-3"><button type="button" onClick={onImportData} className="flex w-full items-center gap-2 border border-dashed border-ds-border-muted bg-ds-main px-2.5 py-2.5 text-left text-[10.5px] text-ds-muted hover:border-accent/50 hover:text-accent"><Upload className="h-4 w-4 shrink-0" /><span><span className="block font-medium text-ds-ink">导入 CSV / XLSX</span><span className="mt-0.5 block">字段映射、单位和源行会保留在证据链。</span></span></button><button type="button" onClick={() => onOpenTab('survey')} className="flex w-full items-center gap-2 border border-ds-border-muted bg-ds-main px-2.5 py-2.5 text-left text-[10.5px] text-ds-muted hover:border-accent/50 hover:text-accent"><Paperclip className="h-4 w-4 shrink-0" /><span><span className="block font-medium text-ds-ink">测量网络 / 平差</span><span className="mt-0.5 block">打开专业观测表、网形和精度面板。</span></span></button><div className="flex items-start gap-2 border border-ds-border-muted bg-ds-main px-2.5 py-2.5 text-left text-[10.5px] text-ds-muted"><ImageIcon className="mt-0.5 h-4 w-4 shrink-0 text-accent" /><span><span className="block font-medium text-ds-ink">现场图片</span><span className="mt-0.5 block">只作为线索，不能改写工程测量数值。</span></span></div></div></section>
-          <p className="px-1 text-[10px] leading-4 text-ds-faint">工作目录：{workspaceRoot}。工程测量线程、审批和成果修订与编程、写作、Design 分开保存。</p>
-        </aside>
-      </div>
+  return <section className="engineering-conversation-surface flex h-full min-h-0 min-w-0 flex-col bg-ds-main" aria-label={t('engineeringSession')}>
+    <header className="flex min-h-12 shrink-0 items-center gap-2 border-b border-ds-border-muted px-3">
+      <MessageSquareText className="h-4 w-4 shrink-0 text-accent" />
+      <div className="min-w-0 flex-1"><h2 className="truncate text-[13px] font-semibold">{t('engineeringSession')}</h2><p className="truncate text-[11px] text-ds-muted">{project?.name ?? t('engineeringWorkbenchTitle')}</p></div>
+      <button type="button" className={iconButton} title={t('engineeringTabData')} aria-label={t('engineeringTabData')} disabled={!connected} onClick={onImportData}><Upload className="h-4 w-4" /></button>
+      <button type="button" className={iconButton} title={t('engineeringTabSurvey')} aria-label={t('engineeringTabSurvey')} onClick={() => onOpenTab('survey')}><Compass className="h-4 w-4" /></button>
+      <button type="button" className={iconButton} title={t('engineeringRefreshContext')} aria-label={t('engineeringRefreshContext')} onClick={onRefresh}><RefreshCw className="h-4 w-4" /></button>
+    </header>
+    {!connected || notice || error ? <div role="status" className="shrink-0 border-b border-ds-border-muted px-3 py-2 text-[12px] text-amber-700 dark:text-amber-300">
+      <p className="flex items-start gap-2 break-words"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />{notice || error || t('engineeringRuntimeNotConnected')}</p>
+      <div className="mt-1 flex flex-wrap gap-3"><button type="button" onClick={retryRuntime}>{t('engineeringRuntimeRetry')}</button><button type="button" onClick={() => openSettings('agents')}>{t('engineeringCheckConfig')}</button></div>
+    </div> : null}
+    {connected && projectId && timelineThreadId && sessionReadStatus !== 'ready' ? <div
+      role={sessionReadStatus === 'error' ? 'alert' : 'status'}
+      aria-live={sessionReadStatus === 'error' ? 'assertive' : 'polite'}
+      data-testid="engineering-session-read-state"
+      data-state={sessionReadStatus}
+      className={`shrink-0 border-b px-3 py-2 text-[12px] ${sessionReadStatus === 'error' ? 'border-red-200 bg-red-50 text-red-800 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-200' : 'border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200'}`}
+    >
+      <p className="flex items-start gap-2 break-words">{sessionReadLoading && !sessionReadErrors.length ? <Loader2 className="mt-0.5 h-4 w-4 shrink-0 animate-spin" /> : <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />}{sessionReadMessage}</p>
+      {sessionReadErrors.length ? <button type="button" data-testid="engineering-session-retry" onClick={retrySessionRead} className="mt-1 font-medium underline underline-offset-2">{t('engineeringSessionRetry')}</button> : null}
+    </div> : null}
+    <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+      {timelineHasActivity ? <MessageTimeline blocks={timelineBlocks} liveReasoning={engineeringThreadActive ? liveReasoning : ''} live={engineeringThreadActive ? liveAssistant : ''} activeThreadId={timelineThreadId} runtimeConnection={runtimeConnection} runtimeError={error} onRetryConnection={retryRuntime} onOpenSettings={() => openSettings('agents')} onSelectSuggestion={setGoal} /> :
+        <div className="flex min-h-0 flex-1 flex-col items-center justify-center overflow-y-auto px-5 py-6 text-center" data-testid="engineering-ai-empty-state">
+          <Bot className="h-7 w-7 shrink-0 text-accent" />
+          <h2 className="mt-3 text-[18px] font-semibold">{project ? t('engineeringAiTitle') : t('engineeringNoProject')}</h2>
+          {!project ? <button type="button" onClick={onCreateProject} disabled={!connected} className="mt-4 inline-flex h-9 items-center gap-2 rounded-md bg-accent px-3 text-[12px] font-medium text-white disabled:opacity-50"><Plus className="h-4 w-4" />{t('engineeringActionCreateProject')}</button> : !compact ? <div className="mt-4 flex flex-wrap justify-center gap-2"><button type="button" onClick={() => setGoal(t('engineeringQuestionPrecision'))} className="px-2 py-1 text-[12px] text-ds-muted hover:text-accent">{t('engineeringQuestionPrecision')}</button><button type="button" onClick={() => setGoal(t('engineeringQuestionResults'))} className="px-2 py-1 text-[12px] text-ds-muted hover:text-accent">{t('engineeringQuestionResults')}</button></div> : null}
+        </div>}
     </div>
-  )
+    {scopedPlan ? <section className="max-h-[35%] shrink-0 overflow-y-auto border-t border-ds-border-muted" aria-label={t('engineeringTypedPlan')}>
+      <button type="button" aria-expanded={showPlan} onClick={() => setShowPlan(!showPlan)} className="flex min-h-10 w-full items-center gap-2 px-3 text-left text-[12px]"><ClipboardList className="h-4 w-4 shrink-0 text-accent" /><span className="min-w-0 flex-1 truncate">{t('engineeringTypedPlan')}</span><span className="text-ds-muted">{phaseLabel(planStatus ?? scopedPlan.status, t)}</span><ChevronDown className={`h-4 w-4 ${showPlan ? 'rotate-180' : ''}`} /></button>
+      {showPlan ? <div className="space-y-2 px-3 pb-3">
+        <p className="break-words text-[12px] font-medium">{scopedPlan.goal}</p>
+        {scopedPlan.steps.map((step) => <label key={step.id} className="flex items-start gap-2 text-[12px]">
+          {needsApproval && step.risk !== 'read' ? <input type="checkbox" checked={approvedSteps.includes(step.id)} onChange={(event) => setApprovedSteps((current) => event.target.checked ? [...current, step.id] : current.filter((id) => id !== step.id))} className="mt-0.5" /> : null}
+          <span className="min-w-0 break-words">{step.title}<span className="ml-2 text-[11px] text-ds-muted">{step.risk === 'read' ? t('engineeringRiskRead') : t('engineeringRiskApproval')}</span></span>
+        </label>)}
+        <p className="break-all font-mono text-[10px] text-ds-faint">{scopedPlan.id} · {scopedPlan.contextHash.slice(0, 22)}</p>
+        {taskRun?.stalledReason || taskRun?.waitingReason ? <p className="break-words text-[11px] text-amber-700 dark:text-amber-300">{taskRun.stalledReason || taskRun.waitingReason}</p> : null}
+        {needsApproval || scopedPlan.status === 'approved' ? <button type="button" onClick={() => void approveAndStartPlan()} disabled={planBusy || busy || !connected || !engineeringThreadActive || (needsApproval && !riskConfirmed)} className="inline-flex h-8 items-center gap-2 rounded-md bg-accent px-3 text-[12px] font-medium text-white disabled:opacity-50">{planBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />}{t('engineeringApproveAndStart')}</button> : null}
+        {scopedPlan.status === 'stale' ? <button type="button" data-testid="engineering-replan" onClick={() => void replanStalePlan()} disabled={planBusy || busy || !connected || !engineeringThreadActive} className="inline-flex h-8 items-center gap-2 rounded-md bg-accent px-3 text-[12px] font-medium text-white disabled:opacity-50">{planBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}{planBusy ? t('engineeringReplanning') : t('engineeringReplan')}</button> : null}
+      </div> : null}
+    </section> : null}
+    {evidenceCards.length && !compact ? <details className="max-h-[20%] shrink-0 overflow-y-auto border-t border-ds-border-muted px-3 py-2 text-[11px]"><summary className="cursor-pointer text-ds-muted"><FileCheck2 className="mr-1 inline h-3.5 w-3.5" />{t('engineeringEvidenceReturn')} ({evidenceCards.length})</summary>{evidenceCards.map((card) => <div key={card.id} className="mt-2 break-words"><p className="font-medium">{card.title}</p><p className="text-ds-muted">{card.summary}</p></div>)}</details> : null}
+    <div className="flex shrink-0 justify-center px-3 pb-3 pt-2"><EngineeringComposer workspaceRoot={workspaceRoot} projectId={projectId} ready={connected} threadId={timelineThreadId} onSurveyFiles={onSurveyFiles} /></div>
+  </section>
 }

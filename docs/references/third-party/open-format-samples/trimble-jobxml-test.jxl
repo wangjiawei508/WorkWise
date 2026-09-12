@@ -1,0 +1,17 @@
+<?xml version="1.0"?>
+<JOBFile xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.trimble.com/schema/JobXML/5_3 http://www.trimble.com/schema/JobXML/5_3/JobXMLSchema-5.3.xsd" jobName="JobName" version="5.3" product="JobXML.cs" productVersion="1.0" TimeStamp="2014-11-09T21:43:17.0212044+01:00">
+  <Reductions>
+    <Point>
+      <ID>1824990300</ID>
+      <Name>1381290539</Name>
+    </Point>
+    <Point>
+      <ID>762097550</ID>
+      <Name>204950560</Name>
+    </Point>
+    <Point>
+      <ID>1963712110</ID>
+      <Name>1701111076</Name>
+    </Point>
+  </Reductions>
+</JOBFile>

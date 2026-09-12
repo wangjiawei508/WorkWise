@@ -104,28 +104,43 @@ function createCandidatePackagingRepo(): { repo: string; sourceHead: string } {
 
 function loadCandidateBuilderConfig(
   repo: string,
-  sourceHead: string
+  sourceHead: string,
+  updateEnv: Record<string, string | undefined> = {}
 ): typeof builderConfig {
   const configPath = join(repo, 'electron-builder.cjs')
-  const previousCandidate = process.env.WORKWISE_CANDIDATE
-  const previousSourceHead = process.env.WORKWISE_CANDIDATE_SOURCE_HEAD
-  const previousReleaseEnv = process.env.WORKWISE_RELEASE_ENV
+  const previous = new Map<string, string | undefined>()
   const releaseEnv = join(tempRoot(), 'release.local.env')
   writeFileSync(releaseEnv, '# isolated candidate packaging test\n')
-  process.env.WORKWISE_CANDIDATE = '1'
-  process.env.WORKWISE_CANDIDATE_SOURCE_HEAD = sourceHead
-  process.env.WORKWISE_RELEASE_ENV = releaseEnv
+  const isolatedEnv = {
+    WORKWISE_CANDIDATE: '1',
+    WORKWISE_CANDIDATE_SOURCE_HEAD: sourceHead,
+    WORKWISE_RELEASE_ENV: releaseEnv,
+    WORKWISE_UPDATE_PROVIDER: undefined,
+    WORKWISE_UPDATE_URL: undefined,
+    WORKWISE_PUBLIC_BASE_URL: undefined,
+    WORKWISE_UPDATE_CHANNEL: undefined,
+    ...updateEnv
+  }
+  for (const [key, value] of Object.entries(isolatedEnv)) {
+    previous.set(key, process.env[key])
+    if (value === undefined) {
+      delete process.env[key]
+    } else {
+      process.env[key] = value
+    }
+  }
   delete require.cache[configPath]
   try {
     return require(configPath)
   } finally {
     delete require.cache[configPath]
-    if (previousCandidate === undefined) delete process.env.WORKWISE_CANDIDATE
-    else process.env.WORKWISE_CANDIDATE = previousCandidate
-    if (previousSourceHead === undefined) delete process.env.WORKWISE_CANDIDATE_SOURCE_HEAD
-    else process.env.WORKWISE_CANDIDATE_SOURCE_HEAD = previousSourceHead
-    if (previousReleaseEnv === undefined) delete process.env.WORKWISE_RELEASE_ENV
-    else process.env.WORKWISE_RELEASE_ENV = previousReleaseEnv
+    for (const [key, value] of previous) {
+      if (value === undefined) {
+        delete process.env[key]
+      } else {
+        process.env[key] = value
+      }
+    }
   }
 }
 
@@ -206,6 +221,7 @@ describe('electron-builder WorkWise packaging', () => {
         to: 'app.asar.unpacked/kun',
         filter: expect.arrayContaining([
           'dist/**/*',
+          'assets/fonts/**/*',
           'package.json',
           'package-lock.json'
         ])
@@ -215,6 +231,8 @@ describe('electron-builder WorkWise packaging', () => {
         to: 'app.asar.unpacked/kun/runtime-deps',
         filter: expect.arrayContaining([
           'zod/**/*',
+          'pdfkit/**/*',
+          'fontkit/**/*',
           '@modelcontextprotocol/sdk/**/*'
         ])
       }),
@@ -340,17 +358,26 @@ describe('electron-builder WorkWise packaging', () => {
 
   it('carries the authorized source HEAD into candidate package metadata', () => {
     const { repo, sourceHead } = createCandidatePackagingRepo()
-    const config = loadCandidateBuilderConfig(repo, sourceHead)
+    const config = loadCandidateBuilderConfig(repo, sourceHead, {
+      WORKWISE_UPDATE_PROVIDER: 'none',
+      WORKWISE_UPDATE_URL: 'https://public.example.test/should-not-ship',
+      WORKWISE_PUBLIC_BASE_URL: 'https://another-public.example.test',
+      WORKWISE_UPDATE_CHANNEL: 'stable'
+    })
     const shortHead = sourceHead.slice(0, 12)
 
     expect(config.extraMetadata).toMatchObject({
-      buildProvenance: { sourceHead }
+      buildProvenance: { sourceHead },
+      updateChannel: 'frontier'
     })
     expect(config.appId).toBe(`com.wangjiawei508.workwise.candidate.head${shortHead}`)
     expect(config.productName).toBe(`WorkWise Candidate ${shortHead}`)
     expect(config.artifactName).toContain(`WorkWise-Candidate-${shortHead}-`)
     expect(config.nsis.shortcutName).toBe(`WorkWise Candidate ${shortHead}`)
     expect(config.nsis.uninstallDisplayName).toBe(`WorkWise Candidate ${shortHead}`)
+    expect(config.publish).toEqual([
+      { provider: 'generic', url: 'https://127.0.0.1/' }
+    ])
   })
 
   it('rejects candidate config loading at a stale source HEAD', () => {

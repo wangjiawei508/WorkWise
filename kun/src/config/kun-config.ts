@@ -21,7 +21,7 @@ import {
 } from '../contracts/model-endpoint-format.js'
 
 export const KUN_CONFIG_FILENAME = 'config.json'
-export const DEFAULT_KUN_MODEL = 'deepseek-v4-pro'
+export const DEFAULT_KUN_MODEL = 'deepseek-flash'
 
 const PositiveInt = z.number().int().positive()
 const PositiveRatio = z.number().positive().max(1)

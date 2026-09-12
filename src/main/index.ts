@@ -923,7 +923,6 @@ async function ensureRuntimeOnce(settings: AppSettingsV1): Promise<void> {
 
 async function ensureManagedRuntime(settings: AppSettingsV1): Promise<void> {
   const runtime = getManagedRuntimeSettings(settings)
-  const hasApiKey = Boolean(resolveConfiguredApiKey(settings))
 
   const healthy = await waitForRuntimeHealth(settings, 2_000)
   if (healthy) {
@@ -932,12 +931,7 @@ async function ensureManagedRuntime(settings: AppSettingsV1): Promise<void> {
     throw runtimeJsonError(threadApi.error, threadApi.message)
   }
 
-  if (!hasApiKey) {
-    throw runtimeJsonError(
-      'missing_api_key',
-      'DeepSeek API Key is required before the GUI can start WorkWise Runtime.'
-    )
-  }
+  // Local deterministic tools use Runtime authentication, not a model provider key.
   if (!runtime.autoStart) {
     throw runtimeJsonError(
       'runtime_offline',
@@ -1140,7 +1134,7 @@ async function restartManagedRuntimeForSettingsChange(
     await waitForManagedRuntimeReadyBeforeStop(prev, 'settings-apply')
     await adapter.stopAndWait()
   }
-  if (!resolveConfiguredApiKey(next) || !runtime.autoStart) return
+  if (!runtime.autoStart) return
 
   try {
     await adapter.ensureRunning(next)
@@ -1161,7 +1155,7 @@ async function restartManagedRuntimeForMcpConfigChange(settings: AppSettingsV1):
   if (!wasRunning) return
   await waitForManagedRuntimeReadyBeforeStop(settings, 'mcp-config')
   await adapter.stopAndWait()
-  if (!resolveConfiguredApiKey(settings) || !runtime.autoStart) return
+  if (!runtime.autoStart) return
 
   try {
     await adapter.ensureRunning(settings)

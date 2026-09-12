@@ -2,16 +2,12 @@ import type { ReactElement } from 'react'
 import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
-  Clock3,
-  HardHat,
-  LayoutGrid,
-  Palette,
   Plus,
   Settings,
   Smartphone
 } from 'lucide-react'
 import type { NormalizedThread } from '../../agent/types'
-import { useChatStore, type SettingsRouteSection } from '../../store/chat-store'
+import { useChatStore, type AppRoute, type SettingsRouteSection } from '../../store/chat-store'
 import type {
   ClawImChannelV1,
 } from '@shared/app-settings'
@@ -30,14 +26,15 @@ import {
   SidebarCommandRow,
   SidebarFrame
 } from '../sidebar/SidebarPrimitives'
+import { WorkspaceSecondaryNavigation } from '../sidebar/WorkspaceSecondaryNavigation'
 
 type Props = {
   threads: NormalizedThread[]
   activeThreadId: string | null
   activeView: 'chat' | 'write' | 'claw' | 'schedule' | 'design' | 'flow' | 'engineering'
+  navigationRoute: AppRoute
   connectPhoneSidebarOpen: boolean
   focusModeEnabled: boolean
-  pluginsActive: boolean
   runtimeReady: boolean
   threadSearch: string
   showArchivedThreads: boolean
@@ -67,9 +64,9 @@ export function Sidebar({
   threads,
   activeThreadId,
   activeView,
+  navigationRoute,
   connectPhoneSidebarOpen,
   focusModeEnabled,
-  pluginsActive,
   runtimeReady,
   threadSearch,
   showArchivedThreads,
@@ -128,6 +125,7 @@ export function Sidebar({
             label={t('claw')}
             onClick={onToggleConnectPhone}
             active={connectPhoneSidebarOpen}
+            activeSemantics="pressed"
             variant="footer"
           />
           <SidebarCommandRow
@@ -141,44 +139,31 @@ export function Sidebar({
     >
       <div className="ds-no-drag flex flex-col px-1">
         <WorkspaceModeTabs
-          activeView={activeView}
+          activeRoute={navigationRoute}
           focusModeEnabled={focusModeEnabled}
           onCodeOpen={onCodeOpen}
           onToggleFocusMode={onToggleFocusMode}
-          onWriteOpen={onWriteOpen}
+          onEngineeringOpen={onEngineeringOpen}
         />
+
+        <WorkspaceSecondaryNavigation
+          activeRoute={navigationRoute}
+          onWriteOpen={onWriteOpen}
+          onOpenPlugins={onOpenPlugins}
+          onScheduleOpen={onScheduleOpen}
+          onFlowOpen={onFlowOpen}
+          onDesignOpen={onDesignOpen}
+        />
+
+        <div className="mx-2 my-2 border-t border-[var(--ds-sidebar-divider)]" />
 
         <SidebarCommandRow
           icon={<Plus className="h-4 w-4" strokeWidth={2} />}
-          label={activeView === 'engineering' ? '新建工程测量项目' : t('newAgent')}
+          label={activeView === 'engineering' ? t('engineeringNewProject') : t('newAgent')}
           onClick={runtimeReady ? (activeView === 'engineering' ? dispatchEngineeringProjectCreate : onNewChat) : undefined}
           disabled={!runtimeReady}
           disabledHint={t('runtimeActionNeedsConnection')}
           variant="accent"
-        />
-        <SidebarCommandRow
-          icon={<LayoutGrid className="h-4 w-4" strokeWidth={1.75} />}
-          label={t('plugins')}
-          onClick={onOpenPlugins}
-          active={pluginsActive}
-        />
-        <SidebarCommandRow
-          icon={<Clock3 className="h-4 w-4" strokeWidth={1.75} />}
-          label={t('schedule')}
-          onClick={onScheduleOpen}
-          active={activeView === 'schedule'}
-        />
-        <SidebarCommandRow
-          icon={<Palette className="h-4 w-4" strokeWidth={1.75} />}
-          label={t('design')}
-          onClick={onDesignOpen}
-          active={activeView === 'design'}
-        />
-        <SidebarCommandRow
-          icon={<HardHat className="h-4 w-4" strokeWidth={1.75} />}
-          label="工程测量工作台"
-          onClick={onEngineeringOpen}
-          active={activeView === 'engineering'}
         />
       </div>
 

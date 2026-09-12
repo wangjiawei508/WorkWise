@@ -1,5 +1,7 @@
+import { createHash } from 'node:crypto'
 import type { EngineeringService } from '../../engineering/engineering-service.js'
-import type { SurveyService } from '../../engineering/survey-service.js'
+import type { EngineeringSurveyAdjustmentAdmissionV1 } from '../../contracts/engineering-ai.js'
+import type { SurveyAdjustmentRead, SurveyRawSourceIntegrity, SurveyService, SurveySourceEligibility } from '../../engineering/survey-service.js'
 import type { CapabilityToolProvider } from './capability-registry.js'
 import { LocalToolHost } from './local-tool-host.js'
 
@@ -43,7 +45,51 @@ export function buildRailwiseToolProviders(service: EngineeringService, survey?:
     revision: network.revision,
     findings: network.findings.slice(0, 200).map((finding) => ({ code: finding.code, severity: finding.severity, status: finding.status, message: finding.message, suggestion: finding.suggestion, row: finding.row }))
   })
-  const adjustmentSummary = (adjustment: ReturnType<SurveyService['createAdjustment']>) => ({
+  const currentSurveyAdjustmentAdmission = (
+    rawSourceIntegrity: SurveyRawSourceIntegrity | undefined,
+    sourceEligibility: SurveySourceEligibility | undefined
+  ): EngineeringSurveyAdjustmentAdmissionV1 => {
+    const integrity = rawSourceIntegrity
+      ? {
+        status: rawSourceIntegrity.status,
+        ledgerEntryCount: rawSourceIntegrity.ledgerEntryCount,
+        errors: rawSourceIntegrity.errors
+          .filter((error) => typeof error === 'string' && error.trim().length > 0)
+          .map((error) => error.trim())
+          .slice(0, 20)
+      }
+      : {
+        status: 'legacy-unverified' as const,
+        ledgerEntryCount: 0,
+        errors: ['当前调整记录未提供服务端原始资料完整性状态；只能作为历史记录。']
+      }
+    const eligibility = sourceEligibility
+      ? {
+        eligible: sourceEligibility.eligible,
+        findings: sourceEligibility.findings.slice(0, 20).map((finding) => ({
+          code: finding.code,
+          severity: finding.severity,
+          message: finding.message,
+          ...(finding.suggestion ? { suggestion: finding.suggestion } : {})
+        }))
+      }
+      : {
+        eligible: false,
+        findings: [{
+          code: 'source_not_adjustment_ready',
+          severity: 'blocking',
+          message: '当前调整记录未提供服务端来源资格；不得用于新的平差、变形分析或正式交付。'
+        }]
+      }
+    return {
+      status: integrity.status === 'verified' && eligibility.eligible
+        ? 'current-admissible'
+        : 'historical-non-admissible',
+      rawSourceIntegrity: integrity,
+      sourceEligibility: eligibility
+    }
+  }
+  const adjustmentSummary = (adjustment: ReturnType<SurveyService['createAdjustment']> & Pick<SurveyAdjustmentRead, 'rawSourceIntegrity' | 'sourceEligibility'>) => ({
     run: adjustment.run,
     result: {
       id: adjustment.result.id,
@@ -81,7 +127,10 @@ export function buildRailwiseToolProviders(service: EngineeringService, survey?:
       observationsReturned: Math.min(adjustment.result.observations.length, 200),
       observationsTotal: adjustment.result.observations.length,
       covarianceStored: Boolean(adjustment.result.covariance?.length)
-    }
+    },
+    // Result validation is immutable historical evidence. This current state
+    // is what governs whether the result may be used by a new operation.
+    sourceAdmission: currentSurveyAdjustmentAdmission(adjustment.rawSourceIntegrity, adjustment.sourceEligibility)
   })
   const validateSurveyNetwork = async (args: Record<string, unknown>) => {
     if (!survey || typeof args.networkId !== 'string') return { output: { error: 'survey validation is unavailable; networkId is required' }, isError: true }
@@ -95,7 +144,12 @@ export function buildRailwiseToolProviders(service: EngineeringService, survey?:
     if (!network) return { output: { error: `survey network not found: ${args.networkId}` }, isError: true }
     const stored = survey.listAdjustments(network.projectId).find((candidate) => candidate.run.networkId === network.id)
     if (!stored?.result) return { output: { error: `survey adjustment not found for network: ${network.id}` }, isError: true }
-    return { output: adjustmentSummary({ run: stored.run, result: stored.result }) }
+    return { output: adjustmentSummary({
+      run: stored.run,
+      result: stored.result,
+      rawSourceIntegrity: stored.rawSourceIntegrity,
+      sourceEligibility: stored.sourceEligibility
+    }) }
   }
   const adjustmentFor = (allowedTypes?: readonly string[]) => async (args: Record<string, unknown>) => {
     if (!survey || typeof args.networkId !== 'string') return { output: { error: 'survey adjustment is unavailable; networkId is required' }, isError: true }
@@ -105,15 +159,24 @@ export function buildRailwiseToolProviders(service: EngineeringService, survey?:
       if (allowedTypes && !allowedTypes.includes(network.networkType)) {
         return { output: { error: `tool does not support ${network.networkType}; expected ${allowedTypes.join(', ')}` }, isError: true }
       }
-      return { output: adjustmentSummary(survey.createAdjustment({ networkId: args.networkId, expectedRevision: Number(args.expectedRevision ?? 0), method: typeof args.method === 'string' ? args.method : undefined, idempotencyKey: String(args.idempotencyKey ?? `railwise-adjustment-${args.networkId}`) })) }
+      const created = survey.createAdjustment({ networkId: args.networkId, expectedRevision: Number(args.expectedRevision ?? 0), method: typeof args.method === 'string' ? args.method : undefined, idempotencyKey: String(args.idempotencyKey ?? `railwise-adjustment-${args.networkId}`) })
+      const current = survey.getAdjustment(created.run.id)
+      return {
+        output: adjustmentSummary({
+          ...created,
+          rawSourceIntegrity: current?.rawSourceIntegrity,
+          sourceEligibility: current?.sourceEligibility
+        })
+      }
     } catch (error) { return { output: { error: error instanceof Error ? error.message : String(error) }, isError: true } }
   }
   const report = async (args: Record<string, unknown>) => {
-    if (typeof args.projectId !== 'string' || typeof args.datasetId !== 'string') return { output: { error: 'projectId and datasetId are required' }, isError: true }
+    if (typeof args.projectId !== 'string') return { output: { error: 'projectId is required' }, isError: true }
     const adjustmentIds = Array.isArray(args.adjustmentIds) ? args.adjustmentIds.filter((id): id is string => typeof id === 'string') : undefined
     const deformationIds = Array.isArray(args.deformationIds) ? args.deformationIds.filter((id): id is string => typeof id === 'string') : undefined
-    return { output: await service.previewReport({ projectId: args.projectId, datasetId: args.datasetId, ...(typeof args.analysisId === 'string' ? { analysisId: args.analysisId } : {}), ...(adjustmentIds?.length ? { adjustmentIds } : {}), ...(deformationIds?.length ? { deformationIds } : {}), expectedRevision: Number(args.expectedRevision ?? 0), idempotencyKey: String(args.idempotencyKey ?? `railwise-report-${args.datasetId}-${adjustmentIds?.join('-') ?? 'none'}`) }) }
+    return { output: await service.previewReport({ projectId: args.projectId, datasetId: args.datasetId, ...(typeof args.analysisId === 'string' ? { analysisId: args.analysisId } : {}), ...(adjustmentIds?.length ? { adjustmentIds } : {}), ...(deformationIds?.length ? { deformationIds } : {}), expectedRevision: Number(args.expectedRevision ?? 0), idempotencyKey: String(args.idempotencyKey ?? `railwise-report-${createHash('sha256').update(JSON.stringify([args.projectId, args.datasetId, args.analysisId, adjustmentIds, deformationIds])).digest('hex')}`) }) }
   }
+  const reportSchema = { type: 'object', properties: { projectId: { type: 'string' }, datasetId: { type: 'string' }, analysisId: { type: 'string' }, adjustmentIds: { type: 'array', items: { type: 'string' } }, deformationIds: { type: 'array', items: { type: 'string' } }, expectedRevision: { type: 'integer' } }, required: ['projectId'], anyOf: [{ required: ['datasetId'] }, { required: ['adjustmentIds'], properties: { adjustmentIds: { minItems: 1 } } }, { required: ['deformationIds'], properties: { deformationIds: { minItems: 1 } } }] }
   const tools = [
     make('monitoring_csv', 'Normalize a managed monitoring dataset without sending raw rows to a model.', { type: 'object', properties: { projectId: { type: 'string' }, datasetId: { type: 'string' } }, required: ['projectId', 'datasetId'] }, analysis),
     make('railwise.monitoring_csv', 'RailWise namespaced alias for monitoring_csv.', { type: 'object', properties: { projectId: { type: 'string' }, datasetId: { type: 'string' } }, required: ['projectId', 'datasetId'] }, analysis),
@@ -123,14 +186,14 @@ export function buildRailwiseToolProviders(service: EngineeringService, survey?:
     make('railwise.monitoring_data_first_check', 'RailWise namespaced alias for monitoring_data_first_check.', { type: 'object', properties: { datasetId: { type: 'string' } }, required: ['datasetId'] }, async (args) => ({ output: { dataset: datasetSummary(service.validateDataset({ datasetId: args.datasetId, expectedRevision: 0, idempotencyKey: String(args.idempotencyKey ?? `railwise-check-${args.datasetId}`) })) } })),
     make('chart_generator', 'Generate a validated SVG monitoring trend chart.', { type: 'object', properties: { analysisId: { type: 'string' }, chartType: { type: 'string' } }, required: ['analysisId'] }, chart),
     make('railwise.chart_generator', 'RailWise namespaced alias for chart_generator.', { type: 'object', properties: { analysisId: { type: 'string' }, chartType: { type: 'string' } }, required: ['analysisId'] }, chart),
-    make('report_export', 'Export a reviewable report from deterministic analysis and explicitly selected survey adjustment IDs.', { type: 'object', properties: { projectId: { type: 'string' }, datasetId: { type: 'string' }, analysisId: { type: 'string' }, adjustmentIds: { type: 'array', items: { type: 'string' } }, deformationIds: { type: 'array', items: { type: 'string' } }, expectedRevision: { type: 'integer' } }, required: ['projectId', 'datasetId'] }, report),
-    make('railwise.report_export', 'RailWise namespaced alias for report_export, including explicit survey adjustment IDs.', { type: 'object', properties: { projectId: { type: 'string' }, datasetId: { type: 'string' }, analysisId: { type: 'string' }, adjustmentIds: { type: 'array', items: { type: 'string' } }, deformationIds: { type: 'array', items: { type: 'string' } }, expectedRevision: { type: 'integer' } }, required: ['projectId', 'datasetId'] }, report),
-    make('excel_export', 'Export the XLSX evidence package for an engineering run.', { type: 'object', properties: { projectId: { type: 'string' }, datasetId: { type: 'string' } }, required: ['projectId', 'datasetId'] }, async (args) => ({ output: await service.previewReport({ projectId: args.projectId, datasetId: args.datasetId, expectedRevision: 0, idempotencyKey: String(args.idempotencyKey ?? `railwise-xlsx-${args.datasetId}`) }) })),
-    make('railwise.excel_export', 'RailWise namespaced alias for excel_export.', { type: 'object', properties: { projectId: { type: 'string' }, datasetId: { type: 'string' } }, required: ['projectId', 'datasetId'] }, async (args) => ({ output: await service.previewReport({ projectId: args.projectId, datasetId: args.datasetId, expectedRevision: 0, idempotencyKey: String(args.idempotencyKey ?? `railwise-xlsx-${args.datasetId}`) }) })),
+    make('report_export', 'Export DOCX/PDF/XLSX from a monitoring dataset or selected survey results. Survey-only delivery does not require monitoring data.', reportSchema, report),
+    make('railwise.report_export', 'RailWise namespaced alias for report_export.', reportSchema, report),
+    make('excel_export', 'Export the XLSX evidence package from a monitoring dataset or selected survey results.', reportSchema, report),
+    make('railwise.excel_export', 'RailWise namespaced alias for excel_export.', reportSchema, report),
     make('standard_query', 'Return a citation placeholder for a local standard or knowledge source.', { type: 'object', properties: { source: { type: 'string' } }, required: ['source'] }, async (args) => ({ output: { citation: { id: `cite_${Date.now()}`, sourceType: 'standard', source: String(args.source), locator: 'user-supplied' } } })),
     make('tool_norm_cite', 'Normalize a RailWise citation without changing source content.', { type: 'object', properties: { source: { type: 'string' } }, required: ['source'] }, async (args) => ({ output: { citation: { id: `cite_${Date.now()}`, sourceType: 'other', source: String(args.source) } } })),
     make('survey_network_validate', 'Validate a bounded survey-network summary without running an adjustment or returning raw observations.', { type: 'object', properties: { networkId: { type: 'string' }, expectedRevision: { type: 'integer' } }, required: ['networkId'] }, validateSurveyNetwork),
-    make('survey_adjustment_read', 'Read the latest bounded deterministic result for a survey network. unitWeightStdDev and varianceFactor are dimensionless; standardizedResidual uses sigma multiples.', { type: 'object', properties: { networkId: { type: 'string' } }, required: ['networkId'] }, readSurveyAdjustment),
+    make('survey_adjustment_read', 'Read the latest bounded deterministic result for a survey network with current source-admission evidence. A historical-non-admissible result is readable evidence only and must not be used for a new calculation, deformation analysis, or formal delivery. unitWeightStdDev and varianceFactor are dimensionless; standardizedResidual uses sigma multiples.', { type: 'object', properties: { networkId: { type: 'string' } }, required: ['networkId'] }, readSurveyAdjustment),
     make('survey_calculator', 'Adjust a leveling or height-control network deterministically. unitWeightStdDev and varianceFactor are dimensionless.', { type: 'object', properties: { networkId: { type: 'string' }, expectedRevision: { type: 'integer' }, method: { type: 'string' } }, required: ['networkId'] }, adjustmentFor(['leveling', 'height-control'])),
     make('control_network', 'Adjust a traverse, plane-control, triangulation or GNSS network through the shared survey Runtime.', { type: 'object', properties: { networkId: { type: 'string' }, expectedRevision: { type: 'integer' } }, required: ['networkId'] }, adjustmentFor(['traverse', 'plane-control', 'triangulation', 'gnss'])),
     make('cpiii_adjustment', 'Adjust only a CPIII free-station or resection network deterministically.', { type: 'object', properties: { networkId: { type: 'string' }, expectedRevision: { type: 'integer' } }, required: ['networkId'] }, adjustmentFor(['cpiii-free-station', 'cpiii-resection'])),

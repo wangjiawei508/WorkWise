@@ -1641,7 +1641,7 @@ describe('DeepseekCompatModelClient', () => {
     expect(assistantToolMessage?.content).toBe('')
   })
 
-  it('treats fixed DeepSeek v4 models as thinking producers', async () => {
+  it.each(['deepseek-v4-pro', 'deepseek-flash'])('treats fixed DeepSeek v4 models as thinking producers (%s)', async (model) => {
     const sentBodies: Array<{ messages?: Array<Record<string, unknown>>; thinking?: unknown; reasoning_effort?: unknown }> = []
     const response = {
       id: 'r1',
@@ -1670,7 +1670,7 @@ describe('DeepseekCompatModelClient', () => {
       nonStreaming: true
     })
     const request = buildRequest(new AbortController().signal)
-    request.model = 'deepseek-v4-pro'
+    request.model = model
     request.history = [
       makeAssistantTextItem({
         id: 'assistant_text',

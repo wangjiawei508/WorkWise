@@ -46,6 +46,13 @@ describe('canonical survey adjustment core', () => {
     expect(solved?.iterations).toBeGreaterThan(1)
   })
 
+  it('backtracks an out-of-domain first nonlinear correction deterministically', () => {
+    const solved = iterativeWeightedLeastSquares([0.1], ([value]) => [{ coefficients: [2 * value!], misclosure: 4 - value! ** 2, weight: 1 }], { convergence: 1e-10 })
+    expect(solved).toMatchObject({ converged: true })
+    expect(solved?.parameters[0]).toBeCloseTo(2, 10)
+    expect(solved?.iterations).toBeGreaterThan(1)
+  })
+
   it('whitens a correlated covariance block before solving', () => {
     const covariance = [[4, 1, 0.5], [1, 3, 0.25], [0.5, 0.25, 2]]
     expect(choleskyDecompose(covariance)).not.toBeNull()
@@ -56,5 +63,21 @@ describe('canonical survey adjustment core', () => {
     expect(solved?.corrections[0]).toBeCloseTo(2.369175627240143, 12)
     expect(choleskyDecompose([[1, 2], [2, 1]])).toBeNull()
     expect(whitenCorrelatedEquations({ coefficients: [[1], [1]], misclosures: [1, 2], covariance: [[1, 2], [2, 1]] })).toBeNull()
+  })
+
+  it('does not report a tiny backtracked step as convergence', () => {
+    const solved = iterativeWeightedLeastSquares([0], ([value]) => [{ coefficients: [1], misclosure: 1 - value!, weight: 1 }], {
+      maxIterations: 1,
+      convergence: 1e-4,
+      objective: ([value]) => value! > 1e-5 ? Number.POSITIVE_INFINITY : (1 - value!) ** 2
+    })
+    expect(solved?.converged).toBe(false)
+    expect(solved?.parameters[0]).toBeLessThan(1e-4)
+    expect(solved?.maxCorrection).toBe(1)
+  })
+
+  it('returns a finite correction diagnostic when no candidate decreases the objective', () => {
+    const solved = iterativeWeightedLeastSquares([0], ([value]) => [{ coefficients: [1], misclosure: value! + 1, weight: 1 }])
+    expect(solved).toMatchObject({ converged: false, parameters: [0], maxCorrection: 1 })
   })
 })

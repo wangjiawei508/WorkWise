@@ -19,7 +19,7 @@ import { useTranslation } from 'react-i18next'
 import type { WorkspaceEntry } from '@shared/workspace-file'
 import { confirmDialog } from '../../lib/confirm-dialog'
 import { formatWorkspacePickerError } from '../../lib/format-workspace-picker-error'
-import { useChatStore, type SettingsRouteSection } from '../../store/chat-store'
+import { useChatStore, type AppRoute, type SettingsRouteSection } from '../../store/chat-store'
 import {
   useWriteWorkspaceStore,
   writeBasenameFromPath,
@@ -36,14 +36,20 @@ import {
   SidebarSectionHeader,
   SidebarTreeRow
 } from '../sidebar/SidebarPrimitives'
+import { WorkspaceSecondaryNavigation } from '../sidebar/WorkspaceSecondaryNavigation'
 import { WriteFileTree } from './WriteFileTree'
 
 type Props = {
-  activeView: 'chat' | 'write' | 'claw' | 'schedule' | 'design' | 'flow' | 'engineering'
+  navigationRoute: AppRoute
   connectPhoneSidebarOpen: boolean
   focusModeEnabled: boolean
   onCodeOpen: () => void
+  onEngineeringOpen: () => void
   onWriteOpen: () => void
+  onOpenPlugins: () => void
+  onScheduleOpen: () => void
+  onFlowOpen: () => void
+  onDesignOpen: () => void
   onNewRequirement: () => void
   onOpenSettings: (section?: SettingsRouteSection) => void
   onToggleFocusMode: () => void
@@ -60,11 +66,16 @@ type EntryDialog =
 type Translate = (key: string, opts?: Record<string, unknown>) => string
 
 export function WriteSidebar({
-  activeView,
+  navigationRoute,
   connectPhoneSidebarOpen,
   focusModeEnabled,
   onCodeOpen,
+  onEngineeringOpen,
   onWriteOpen,
+  onOpenPlugins,
+  onScheduleOpen,
+  onFlowOpen,
+  onDesignOpen,
   onNewRequirement,
   onOpenSettings,
   onToggleFocusMode,
@@ -274,6 +285,7 @@ export function WriteSidebar({
             label={t('claw')}
             onClick={onToggleConnectPhone}
             active={connectPhoneSidebarOpen}
+            activeSemantics="pressed"
             variant="footer"
           />
           <SidebarCommandRow
@@ -287,12 +299,24 @@ export function WriteSidebar({
     >
       <div className="ds-no-drag flex flex-col px-0.5">
         <WorkspaceModeTabs
-          activeView={activeView}
+          activeRoute={navigationRoute}
           focusModeEnabled={focusModeEnabled}
           onCodeOpen={onCodeOpen}
+          onEngineeringOpen={onEngineeringOpen}
           onToggleFocusMode={onToggleFocusMode}
-          onWriteOpen={onWriteOpen}
         />
+
+        <WorkspaceSecondaryNavigation
+          activeRoute={navigationRoute}
+          onWriteOpen={onWriteOpen}
+          onOpenPlugins={onOpenPlugins}
+          onScheduleOpen={onScheduleOpen}
+          onFlowOpen={onFlowOpen}
+          onDesignOpen={onDesignOpen}
+        />
+
+        <div className="mx-2 my-2 border-t border-[var(--ds-sidebar-divider)]" />
+
         <SidebarCommandRow
           icon={<FilePlus2 className="h-4 w-4" strokeWidth={1.9} />}
           label={t('writeCreateFile')}

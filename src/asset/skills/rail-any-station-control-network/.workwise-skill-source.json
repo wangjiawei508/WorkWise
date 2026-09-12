@@ -1,0 +1,7 @@
+{
+  "type": "bundled",
+  "id": "rail-any-station-control-network",
+  "autoUpdate": false,
+  "sourceArchiveSha256": "1aa2a009cd5b4f3aa7f68b3c4f15f1216a4cacb9d9eefc519da63ce88e40e51b",
+  "sourceNotice": "SOURCE_NOTICE.md"
+}

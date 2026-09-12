@@ -111,6 +111,7 @@ export class TurnService {
   async startTurn(input: {
     threadId: string
     request: StartTurnRequest
+    engineeringExecution?: boolean
   }): Promise<StartTurnResponse> {
     const previous = this.startQueues.get(input.threadId) ?? Promise.resolve()
     const run = previous.catch(() => undefined).then(() => this.startTurnInternal(input))
@@ -404,6 +405,7 @@ export class TurnService {
   private async startTurnInternal(input: {
     threadId: string
     request: StartTurnRequest
+    engineeringExecution?: boolean
   }): Promise<StartTurnResponse> {
     const thread = await this.deps.threadStore.get(input.threadId)
     if (!thread) throw new Error(`thread not found: ${input.threadId}`)
@@ -503,7 +505,7 @@ export class TurnService {
       turnId
       })
       this.deps.steering.setTurn(turnId)
-      this.deps.tasks?.ensureTask({ thread, turnId, request: input.request })
+      this.deps.tasks?.ensureTask({ thread, turnId, request: input.request, engineeringExecution: input.engineeringExecution })
       return { threadId: input.threadId, turnId, userMessageItemId: userItem.id }
     } catch (error) {
       if (persisted && turnId) {

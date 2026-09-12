@@ -256,7 +256,7 @@ export function createThreadActions(
 
       const created = await provider.createThread({
         workspace: targetWorkspace || undefined,
-        title: title?.trim() || '工程测量 AI 会话',
+        title: title?.trim() || 'Survey AI 会话',
         mode: 'agent',
         domain: 'engineering',
         projectId: normalizedProjectId
@@ -720,6 +720,8 @@ export function createThreadActions(
       let runtimeText: string
       if (channel) {
         runtimeText = buildClawRuntimePrompt(settings, trimmedText, { channel })
+      } else if (get().threads.find((thread) => thread.id === activeThreadId)?.domain === 'engineering') {
+        runtimeText = trimmedText
       } else {
         runtimeText = buildCodeRuntimePrompt(settings, trimmedText)
       }

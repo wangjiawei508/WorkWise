@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 1,
+  "provenance": "synthetic-probe",
+  "purpose": "bounded GNSS format recognition and safe-disposition coverage",
+  "fixtures": [
+    {"name":"rinex2.obs","format":"rinex-observation","probe":"     2.10           O                   RINEX VERSION / TYPE\n                                                            END OF HEADER\n"},
+    {"name":"rinex3.rnx","format":"rinex-observation","probe":"     3.04           O                   RINEX VERSION / TYPE\n                                                            END OF HEADER\n"},
+    {"name":"rinex4.rnx","format":"rinex-observation","probe":"     4.00           O                   RINEX VERSION / TYPE\n                                                            END OF HEADER\n"},
+    {"name":"navigation.nav","format":"rinex-navigation","probe":"     3.04           N                   RINEX VERSION / TYPE\n                                                            END OF HEADER\n"},
+    {"name":"meteorological.met","format":"rinex-meteorological","probe":"     3.04           M                   RINEX VERSION / TYPE\n                                                            END OF HEADER\n"},
+    {"name":"clock.clk","format":"rinex-clock","probe":"     3.04           C                   RINEX VERSION / TYPE\n                                                            END OF HEADER\n"},
+    {"name":"compressed.crx","format":"hatanaka-rinex","probe":"     3.1            COMPACT RINEX FORMAT                    CRINEX VERS   / TYPE\n                                                            END OF HEADER\n"},
+    {"name":"solution.snx","format":"sinex","probe":"%=SNX 2.02 TEST\n+SOLUTION/ESTIMATE\n-SOLUTION/ESTIMATE\n"},
+    {"name":"track.nmea","format":"nmea-0183","probe":"$GPGGA,120000.00,3110.0000,N,12130.0000,E,1,08,1.0,10.0,M,0.0,M,,*00\n"},
+    {"name":"stream.rtcm2","format":"rtcm2","bytes":[102,0,0,0,0]},
+    {"name":"stream.rtcm3","format":"rtcm3","bytes":[211,0,0,0,0,0]},
+    {"name":"orbit.sp3","format":"sp3","probe":"#cP2024 01 01 00 00 00.00000000      1 ORBIT IGU\n##      1 0.00000000 900.00000000 0.00000000 0.00000000\n"},
+    {"name":"iono.ion","format":"ionex","probe":"     1.0            IONOSPHERE MAPS     GPS                 IONEX VERSION / TYPE\n"},
+    {"name":"antenna.atx","format":"antex","probe":"     1.4            M                                       ANTEX VERSION / SYST\n"},
+    {"name":"receiver.ubx","format":"ublox-ubx","bytes":[181,98,1,7,0,0,0,0]},
+    {"name":"receiver.nov","format":"novatel-oem","bytes":[170,68,18,0]},
+    {"name":"receiver.sbf","format":"septentrio-sbf","bytes":[36,64,0,0,21,0,8,0]},
+    {"name":"receiver.bnx","format":"binex","bytes":[226,0,0,0]},
+    {"name":"receiver.jps","format":"javad-jps","probe":"synthetic Javad receiver stream"},
+    {"name":"receiver.tps","format":"topcon-tps","probe":"synthetic Topcon receiver stream"},
+    {"name":"receiver.sth","format":"south-sth","probe":"synthetic South receiver stream"},
+    {"name":"receiver.zhd","format":"hitarget-zhd","probe":"synthetic Hi-Target receiver stream"},
+    {"name":"receiver.hcn","format":"chcnav-hcn","probe":"synthetic CHCNAV receiver stream"},
+    {"name":"receiver.cnb","format":"comnav-cnb","probe":"synthetic ComNav receiver stream"}
+  ]
+}

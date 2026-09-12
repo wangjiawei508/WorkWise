@@ -1891,6 +1891,11 @@ export function Workbench(): ReactElement {
     void openWrite()
   }
 
+  const openEngineeringMode = (): void => {
+    setConnectPhoneSidebarOpen(false)
+    openEngineering()
+  }
+
   const openPluginsView = (): void => {
     setConnectPhoneSidebarOpen(false)
     openPlugins(sidebarView === 'claw' ? 'claw' : 'chat')
@@ -2187,11 +2192,16 @@ export function Workbench(): ReactElement {
           <div className="ds-workbench-left-panel min-h-0 shrink-0" style={{ width: leftSidebarWidth }}>
             {route === 'write' ? (
               <WriteSidebar
-                activeView={sidebarView}
+                navigationRoute={route}
                 connectPhoneSidebarOpen={connectPhoneSidebarOpen}
                 focusModeEnabled={focusModeEnabled}
                 onCodeOpen={openCodeMode}
+                onEngineeringOpen={openEngineeringMode}
                 onWriteOpen={openWriteMode}
+                onOpenPlugins={openPluginsView}
+                onScheduleOpen={openScheduleView}
+                onFlowOpen={openFlowView}
+                onDesignOpen={openDesignView}
                 onNewRequirement={() => void startNewSddRequirement()}
                 onOpenSettings={(section) => openSettings(section)}
                 onToggleFocusMode={toggleFocusMode}
@@ -2203,9 +2213,9 @@ export function Workbench(): ReactElement {
               threads={codeThreads}
               activeThreadId={activeThreadId}
               activeView={sidebarView}
+              navigationRoute={route}
               connectPhoneSidebarOpen={connectPhoneSidebarOpen}
               focusModeEnabled={focusModeEnabled}
-              pluginsActive={route === 'plugins'}
               runtimeReady={runtimeConnection === 'ready'}
               threadSearch={threadSearch}
               showArchivedThreads={showArchivedThreads}
@@ -2227,7 +2237,7 @@ export function Workbench(): ReactElement {
               onScheduleOpen={openScheduleView}
               onFlowOpen={openFlowView}
               onDesignOpen={openDesignView}
-              onEngineeringOpen={openEngineering}
+              onEngineeringOpen={openEngineeringMode}
               onToggleSidebar={toggleLeftSidebar}
             />
             )}

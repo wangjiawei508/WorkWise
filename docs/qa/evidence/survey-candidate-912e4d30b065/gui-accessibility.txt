@@ -1,0 +1,10 @@
+Observed via CUA native accessibility, 2026-09-10 Asia/Shanghai.
+Bundle: com.wangjiawei508.workwise.candidate.head912e4d30b065
+Window: WorkWise Runtime
+Document URL: file:///private/tmp/workwise-050-acceptance-912e4d30b065/Applications/WorkWise%20Candidate%20912e4d30b065.app/Contents/Resources/app.asar/out/renderer/index.html
+Visible: Code / Survey tabs; Write, Plugins, Scheduled tasks, Flow, Design; New Survey project; Survey projects 0; Survey AI desk; Settings.
+Work surface: RAILWISE Survey; No Survey job selected; Network and adjustment; Survey AI session; Data assets; Survey adjustment; Refresh context; Create Survey job.
+Composer: Connect to the runtime first (see status bar); More actions, Model and reasoning settings, Send disabled.
+Empty state: Start with a Survey project; Create a project and record thresholds, units, and reporting period. Data, analysis, and deliverables remain traceable under that project.
+Evidence limitation: accessibility text only, no screenshot/theme/size/focus/interaction acceptance. Native getApp call returned after 1725.6 seconds despite requested timeout_ms=30000.
+Runtime log independently contains WORKWISE_RUNTIME_READY at 2026-09-10T12:33:26Z with isolated profile path. This does not prove the renderer connection or AI credentials are ready.

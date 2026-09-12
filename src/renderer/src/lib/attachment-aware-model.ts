@@ -5,7 +5,8 @@ import {
 } from '@shared/app-settings'
 import type { ModelProviderModelGroup } from '@shared/workwise-api'
 
-export const DEEPSEEK_VISION_MODEL_ID = 'deepseek-v4-flash-vision-exp'
+export const DEEPSEEK_VISION_MODEL_ID = 'deepseek-flash'
+const LEGACY_DEEPSEEK_VISION_MODEL_ID = 'deepseek-v4-flash-vision-exp'
 
 type AttachmentDescriptor = {
   mimeType?: string
@@ -34,19 +35,21 @@ export function resolveAttachmentAwareModel(input: {
     return { ok: true, model: selectedModel }
   }
 
-  const configuredByCustomProvider =
-    input.activeProvider.id !== DEFAULT_MODEL_PROVIDER_ID &&
-    includesModel(input.activeProvider.models, DEEPSEEK_VISION_MODEL_ID)
-  const discoveredByActiveProvider = input.modelGroups.some((group) =>
-    group.providerId === input.activeProvider.id &&
-    includesModel(group.discoveredModelIds ?? [], DEEPSEEK_VISION_MODEL_ID)
-  )
-  if (
-    isOfficialDeepSeekBaseUrl(input.activeProvider.baseUrl) ||
-    configuredByCustomProvider ||
-    discoveredByActiveProvider
-  ) {
+  if (isOfficialDeepSeekBaseUrl(input.activeProvider.baseUrl)) {
     return { ok: true, model: DEEPSEEK_VISION_MODEL_ID }
+  }
+  // Keep explicitly configured/discovered third-party legacy model IDs intact.
+  for (const model of [DEEPSEEK_VISION_MODEL_ID, LEGACY_DEEPSEEK_VISION_MODEL_ID]) {
+    const configuredByCustomProvider =
+      input.activeProvider.id !== DEFAULT_MODEL_PROVIDER_ID &&
+      includesModel(input.activeProvider.models, model)
+    const discoveredByActiveProvider = input.modelGroups.some((group) =>
+      group.providerId === input.activeProvider.id &&
+      includesModel(group.discoveredModelIds ?? [], model)
+    )
+    if (configuredByCustomProvider || discoveredByActiveProvider) {
+      return { ok: true, model }
+    }
   }
 
   return { ok: false, model: DEEPSEEK_VISION_MODEL_ID }

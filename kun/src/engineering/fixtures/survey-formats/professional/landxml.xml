@@ -1,0 +1,1 @@
+<LandXML version="1.2"><CgPoints><CgPoint name="S1">0 0 0</CgPoint><CgPoint name="P1">10 10 0</CgPoint></CgPoints><Survey><ReducedObservation setupID="S1" targetSetupID="P1" horizAngle="45" slopeDistance="14.142" /></Survey></LandXML>

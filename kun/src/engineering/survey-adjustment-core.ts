@@ -221,7 +221,16 @@ export function weightedLeastSquares(rows: WeightedEquation[]): LinearAdjustment
 export function iterativeWeightedLeastSquares(
   initialParameters: number[],
   buildEquations: (parameters: readonly number[]) => WeightedEquation[],
-  options: { maxIterations?: number; convergence?: number } = {}
+  options: {
+    maxIterations?: number
+    convergence?: number
+    /**
+     * Optional weighted misclosure objective for backtracking. It must use the
+     * same observation model and weights as buildEquations, but need not
+     * allocate a Jacobian for every rejected candidate step.
+     */
+    objective?: (parameters: readonly number[]) => number
+  } = {}
 ): IterativeAdjustmentResult | null {
   const maxIterations = options.maxIterations ?? 10
   const convergence = options.convergence ?? 1e-5
@@ -229,14 +238,36 @@ export function iterativeWeightedLeastSquares(
   let last: LinearAdjustmentResult | null = null
   let maxCorrection = Number.POSITIVE_INFINITY
   for (let iteration = 1; iteration <= maxIterations; iteration += 1) {
-    const solved = weightedLeastSquares(buildEquations(parameters))
+    const equations = buildEquations(parameters)
+    const solved = weightedLeastSquares(equations)
     if (!solved) return null
     last = solved
     maxCorrection = solved.corrections.reduce((max, value) => Math.max(max, Math.abs(value)), 0)
-    for (let index = 0; index < parameters.length; index += 1) parameters[index] = (parameters[index] ?? 0) + (solved.corrections[index] ?? 0)
     if (maxCorrection <= convergence) return { ...solved, parameters, iterations: iteration, converged: true, maxCorrection }
+    const currentObjective = equations.reduce((sum, row) => sum + row.misclosure * row.misclosure * row.weight, 0)
+    if (!Number.isFinite(currentObjective)) return null
+
+    // A full Gauss-Newton correction is not always inside the local
+    // linearisation domain. Use deterministic backtracking before accepting
+    // an update, rather than treating a diverging first step as convergence.
+    let stepScale = 1
+    let candidate: number[] | null = null
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      const proposal = parameters.map((value, index) => value + stepScale * (solved.corrections[index] ?? 0))
+      const proposalObjective = options.objective
+        ? options.objective(proposal)
+        : buildEquations(proposal).reduce((sum, row) => sum + row.misclosure * row.misclosure * row.weight, 0)
+      if (Number.isFinite(proposalObjective) && proposalObjective <= currentObjective) {
+        candidate = proposal
+        break
+      }
+      stepScale *= 0.5
+    }
+    if (!candidate) return { ...solved, parameters, iterations: iteration, converged: false, maxCorrection }
+    for (let index = 0; index < parameters.length; index += 1) parameters[index] = candidate[index]!
   }
-  return last ? { ...last, parameters, iterations: maxIterations, converged: false, maxCorrection } : null
+  const final = last ? weightedLeastSquares(buildEquations(parameters)) : null
+  return final ? { ...final, parameters, iterations: maxIterations, converged: false, maxCorrection } : null
 }
 
 export function wrapRadians(value: number): number {

@@ -1,0 +1,19 @@
+For M5|Adr    43|TO  Start-Line      aBFFB    05|                      |                      |                      | 
+For M5|Adr     9|KD1    sy730                 03|                      |                      |Z       -14.28840 m   | 
+For M5|Adr    10|KD1    sy730      01:14:021  03|Rb        1.77188 m   |HD         29.921 m   |                      | 
+For M5|Adr    11|KD1       z1      01:14:531  03|Rf        0.26072 m   |HD         30.122 m   |                      | 
+For M5|Adr    12|KD1       z1      01:15:351  03|Rf        0.26075 m   |HD         30.079 m   |                      | 
+For M5|Adr    13|KD1    sy730      01:16:051  03|Rb        1.77178 m   |HD         29.965 m   |                      | 
+For M5|Adr    15|KD1       z2      01:18:361  03|Rf        0.48570 m   |HD         23.665 m   |                      | 
+For M5|Adr    18|KD1       z1      01:22:211  03|Rb        1.81212 m   |HD         24.217 m   |                      | 
+For M5|Adr    19|KD1       z1      01:23:021  03|Rb        1.81220 m   |HD         24.383 m   |                      | 
+For M5|Adr    20|KD1       z2      01:24:351  03|Rf        0.48578 m   |HD         23.699 m   |                      | 
+For M5|Adr    22|KD1       z2      01:26:441  03|Rb        1.59821 m   |HD         20.723 m   |                      | 
+For M5|Adr    25|KD1       z3      01:28:521  03|Rf        0.63854 m   |HD         21.297 m   |                      | 
+For M5|Adr    26|KD1       z3      01:29:111  03|Rf        0.63854 m   |HD         21.294 m   |                      | 
+For M5|Adr    27|KD1       z2      01:29:331  03|Rb        1.59816 m   |HD         20.724 m   |                      | 
+For M5|Adr    31|KD1    S6G03      01:33:291  03|Rf        0.46874 m   |HD          8.273 m   |                      | 
+For M5|Adr    32|KD1       z3      01:35:061  03|Rb        1.66239 m   |HD          7.710 m   |                      | 
+For M5|Adr    33|KD1       z3      01:35:191  03|Rb        1.66234 m   |HD          7.710 m   |                      | 
+For M5|Adr    34|KD1    S6G03      01:35:461  03|Rf        0.46870 m   |HD          8.275 m   |                      | 
+For M5|Adr   773|TO  End-Line                 05|                      |                      |                      | 

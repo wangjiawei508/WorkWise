@@ -1,0 +1,1 @@
+<JOBFile version="1.0"><FieldBook><StationRecord ID="setup-1"><StationName>S1</StationName></StationRecord><TargetRecord ID="target-1"><TargetName>P1</TargetName></TargetRecord><Circle><StationID>setup-1</StationID><TargetID>target-1</TargetID><HorizontalCircle>45</HorizontalCircle><EDMDistance>14.142</EDMDistance></Circle></FieldBook></JOBFile>

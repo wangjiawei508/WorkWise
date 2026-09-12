@@ -7,6 +7,7 @@ import { EngineeringContextService } from './engineering-context-service.js'
 import { EngineeringAiOrchestrator } from './engineering-ai-orchestrator.js'
 import { EngineeringAiRepository } from './engineering-ai-repository.js'
 import { SurveyService } from './survey-service.js'
+import { importWorkwiseSurveyNetwork } from './survey-test-helpers.js'
 
 describe('Engineering AI orchestration', () => {
   it('creates bounded plans, rejects unsafe tools and replays idempotent requests', async () => {
@@ -78,10 +79,10 @@ describe('Engineering AI orchestration', () => {
     const engineering = new EngineeringService({ rootDir: join(root, 'runtime') })
     const project = engineering.createProject({ name: 'survey-ai', workspace: root, expectedRevision: 0, idempotencyKey: 'survey-ai-project-001' })
     const survey = new SurveyService({ rootDir: join(root, 'runtime'), getProject: (id) => engineering.getProject(id) })
-    const network = await survey.importNetwork({ projectId: project.id, expectedRevision: project.revision, idempotencyKey: 'survey-ai-network-001', networkType: 'leveling', network: {
+    const network = await importWorkwiseSurveyNetwork(survey, { projectId: project.id, expectedRevision: project.revision, idempotencyKey: 'survey-ai-network-001', networkType: 'leveling', network: {
       knownPoints: [{ id: 'BM', pointClass: 'known', height: 10, known: true }],
       unknownPoints: [{ id: 'P', pointClass: 'unknown', height: 10.1, known: false }],
-      observations: [{ id: 'BM-P', type: 'height-difference', from: 'BM', to: 'P', value: 0.1, unit: 'm', sigma: 0.001 }]
+      observations: [{ id: 'BM-P', type: 'height-difference', from: 'BM', to: 'P', value: 0.1, unit: 'm', sigma: 0.001, sigmaUnit: 'm' }]
     } })
     const checked = survey.validateNetwork(network.id, { expectedRevision: network.revision, idempotencyKey: 'survey-ai-network-check-001' })
     const adjustment = survey.createAdjustment({ networkId: network.id, expectedRevision: checked.revision, idempotencyKey: 'survey-ai-adjustment-001' })
@@ -89,7 +90,16 @@ describe('Engineering AI orchestration', () => {
     const context = new EngineeringContextService(engineering, undefined, survey)
     const snapshot = context.snapshot(project.id)
     expect(snapshot.surveyNetworks[0]).toMatchObject({ id: network.id, networkType: 'leveling', observationCount: 1 })
-    expect(snapshot.surveyAdjustments[0]).toMatchObject({ id: adjustment.run.id, strategyId: 'leveling', status: 'completed' })
+    expect(snapshot.surveyAdjustments[0]).toMatchObject({
+      id: adjustment.run.id,
+      strategyId: 'leveling',
+      status: 'completed',
+      sourceAdmission: {
+        status: 'current-admissible',
+        rawSourceIntegrity: { status: 'verified' },
+        sourceEligibility: { eligible: true }
+      }
+    })
     expect(JSON.stringify(snapshot)).not.toContain('knownPoints')
     expect(JSON.stringify(snapshot)).not.toContain('observations')
     const orchestrator = new EngineeringAiOrchestrator({ context, repository, threadStore: { get: vi.fn(async () => ({ domain: 'engineering', projectId: project.id, turns: [] })) } as never, turns: { recordCompletedTurn: vi.fn() } as never, runTurn: vi.fn() })
@@ -102,6 +112,40 @@ describe('Engineering AI orchestration', () => {
     ])
     repository.close()
     survey.close()
+    engineering.close()
+  })
+
+  it('fails closed in AI context when a historical adjustment lacks current source-admission evidence', () => {
+    const root = join(tmpdir(), `workwise-engineering-historical-context-${Date.now()}`)
+    const engineering = new EngineeringService({ rootDir: join(root, 'runtime') })
+    const project = engineering.createProject({ name: 'historical context', workspace: root, expectedRevision: 0, idempotencyKey: 'historical-context-project' })
+    const historicalSurvey = {
+      listNetworks: () => [],
+      listAdjustments: () => [{
+        run: {
+          id: 'adjustment-historical', networkId: 'network-historical', projectId: project.id,
+          method: 'weighted-least-squares', constraint: 'fixed-known-points', algorithmVersion: 'historical', inputHash: 'historical-input',
+          status: 'completed', revision: 1, idempotencyKey: 'historical-adjustment', createdAt: '2026-09-05T00:00:00.000Z', updatedAt: '2026-09-05T00:00:00.000Z'
+        },
+        result: {
+          id: 'result-historical', networkId: 'network-historical', strategyId: 'leveling', algorithmVersion: 'historical', inputHash: 'historical-input',
+          validation: 'valid', observationCount: 1, unknownCount: 1, degreesOfFreedom: 1
+        }
+      }]
+    } as unknown as Pick<SurveyService, 'listNetworks' | 'listAdjustments'>
+
+    const snapshot = new EngineeringContextService(engineering, undefined, historicalSurvey).snapshot(project.id)
+    expect(snapshot.surveyAdjustments).toEqual([expect.objectContaining({
+      id: 'adjustment-historical',
+      sourceAdmission: {
+        status: 'historical-non-admissible',
+        rawSourceIntegrity: expect.objectContaining({ status: 'legacy-unverified' }),
+        sourceEligibility: expect.objectContaining({
+          eligible: false,
+          findings: expect.arrayContaining([expect.objectContaining({ code: 'source_not_adjustment_ready' })])
+        })
+      }
+    })])
     engineering.close()
   })
 

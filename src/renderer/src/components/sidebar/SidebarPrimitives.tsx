@@ -90,6 +90,7 @@ type SidebarCommandRowProps = {
   variant?: 'flat' | 'accent' | 'footer'
   trailing?: ReactNode
   active?: boolean
+  activeSemantics?: 'current' | 'pressed'
   showChevron?: boolean
 }
 
@@ -103,6 +104,7 @@ export function SidebarCommandRow({
   variant = 'flat',
   trailing,
   active = false,
+  activeSemantics = 'current',
   showChevron = false
 }: SidebarCommandRowProps): ReactElement {
   const accent = variant === 'accent'
@@ -113,6 +115,8 @@ export function SidebarCommandRow({
       disabled={disabled}
       title={disabled ? disabledHint : undefined}
       onClick={onClick}
+      aria-current={active && activeSemantics === 'current' ? 'page' : undefined}
+      aria-pressed={activeSemantics === 'pressed' ? active : undefined}
       className={cx(
         'flex min-h-[34px] w-full items-center gap-2.5 rounded-[8px] px-3 py-1.5 text-[13px] font-normal transition',
         disabled

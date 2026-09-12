@@ -18,7 +18,7 @@ import {
   calculateFloatingSubmenuPlacement,
   composerReasoningEffortRequestValue,
 } from './FloatingComposerModelPicker'
-import { getGoalPanelDraftObjective } from './floating-composer-commands'
+import { getGoalPanelDraftObjective, getSkillMentionAtCursor, replaceSkillMentionInInput } from './floating-composer-commands'
 import { useChatStore } from '../../store/chat-store'
 import {
   buildComposerFileContextPrompt,
@@ -30,6 +30,16 @@ import {
 } from '../../lib/composer-file-references'
 
 describe('FloatingComposer slash commands', () => {
+  it('detects and replaces an @ skill mention without consuming the surrounding prompt', () => {
+    const mention = getSkillMentionAtCursor('请检查 @任意设站', 12)
+    expect(mention).toMatchObject({ query: '任意设站' })
+    expect(replaceSkillMentionInInput('请检查 @任意设站', mention!, 'rail-any-station-control-network')).toEqual({
+      input: '请检查 @rail-any-station-control-network ',
+      cursor: '请检查 @rail-any-station-control-network '.length
+    })
+    expect(getSkillMentionAtCursor('路径 @"raw file.csv"', 20)).toBeNull()
+  })
+
   it('parses compact command aliases', () => {
     expect(parseCompactCommand('/compact')).toEqual({})
     expect(parseCompactCommand('/compress')).toEqual({})

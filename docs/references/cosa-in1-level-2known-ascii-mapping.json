@@ -1,0 +1,28 @@
+{
+  "schemaVersion": "cosa-in1-mapping/v1",
+  "heightUnit": "m",
+  "routeLengthUnit": "km",
+  "textEncoding": "ascii",
+  "knownPointRecordCount": 2,
+  "knownPoints": {
+    "schemaVersion": "survey-column-mapping/v1",
+    "mappingId": "cosa-in1-level-2known-ascii-known-height-v1",
+    "revision": 1,
+    "formatId": "cosa-in1",
+    "delimiter": "csv",
+    "bindings": [{ "field": "point", "columnIndex": 0 }, { "field": "height", "columnIndex": 1 }]
+  },
+  "observations": {
+    "schemaVersion": "survey-column-mapping/v1",
+    "mappingId": "cosa-in1-level-2known-ascii-section-v1",
+    "revision": 1,
+    "formatId": "cosa-in1",
+    "delimiter": "csv",
+    "bindings": [
+      { "field": "from", "columnIndex": 0 },
+      { "field": "to", "columnIndex": 1 },
+      { "field": "value", "columnIndex": 2 },
+      { "field": "routeLengthKm", "columnIndex": 3 }
+    ]
+  }
+}

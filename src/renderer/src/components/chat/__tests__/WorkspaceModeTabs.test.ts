@@ -1,160 +1,95 @@
-import { createElement } from 'react'
+// @vitest-environment happy-dom
+import { act, createElement, type ComponentProps } from 'react'
+import { createRoot } from 'react-dom/client'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import i18n from '../../../i18n'
 import { WorkspaceModeTabs } from '../WorkspaceModeTabs'
+
+type ActiveRoute = ComponentProps<typeof WorkspaceModeTabs>['activeRoute']
+
+function renderTabs(activeRoute: ActiveRoute = 'chat'): string {
+  return renderToStaticMarkup(
+    createElement(WorkspaceModeTabs, {
+      activeRoute,
+      onCodeOpen: vi.fn(),
+      onEngineeringOpen: vi.fn()
+    })
+  )
+}
 
 describe('WorkspaceModeTabs', () => {
   beforeEach(async () => {
     await i18n.changeLanguage('en')
   })
 
-  it('renders two tab buttons', () => {
-    const onCodeOpen = vi.fn()
-    const onWriteOpen = vi.fn()
+  it.each<ActiveRoute>(['chat', 'write', 'claw', 'schedule', 'design', 'flow', 'engineering', 'plugins', 'settings'])(
+    'keeps Code and Survey as the only primary entries on the %s route',
+    (activeView) => {
+      const html = renderTabs(activeView)
 
-    const html = renderToStaticMarkup(
-      createElement(WorkspaceModeTabs, {
-        activeView: 'chat',
-        onCodeOpen,
-        onWriteOpen
-      })
-    )
+      expect(html).toContain('Code')
+      expect(html).toContain('Survey')
+      expect(html).not.toContain('Write')
+      expect(html).toContain('Code / Survey')
+      expect(html).not.toContain('role="tab"')
+      expect(html).not.toContain('role="tablist"')
+    }
+  )
 
-    // Both buttons exist
-    expect(html).toContain('Code')
-    expect(html).toContain('Write')
-    // Both have role="tab"
-    expect(html.match(/role="tab"/g)?.length).toBe(2)
+  it('marks only the current primary workbench as selected', () => {
+    const code = renderTabs('chat')
+    const survey = renderTabs('engineering')
+    const secondary = renderTabs('write')
+
+    expect(code.match(/aria-current="page"/g)?.length).toBe(1)
+    expect(survey.match(/aria-current="page"/g)?.length).toBe(1)
+    expect(secondary).not.toContain('aria-current')
   })
 
-  it('uses horizontal row layout not vertical column', () => {
+  it('routes the fixed primary entries to Code and Survey', async () => {
     const onCodeOpen = vi.fn()
-    const onWriteOpen = vi.fn()
+    const onEngineeringOpen = vi.fn()
+    const container = document.createElement('div')
+    document.body.append(container)
+    const root = createRoot(container)
 
-    const html = renderToStaticMarkup(
-      createElement(WorkspaceModeTabs, {
-        activeView: 'chat',
+    await act(async () => {
+      root.render(createElement(WorkspaceModeTabs, {
+        activeRoute: 'write',
         onCodeOpen,
-        onWriteOpen
-      })
-    )
+        onEngineeringOpen
+      }))
+    })
 
-    // Container should have flex-row, not flex-col
+    const tabs = container.querySelectorAll<HTMLButtonElement>('nav[aria-label="Code / Survey"] button')
+    await act(async () => tabs[0]?.click())
+    await act(async () => tabs[1]?.click())
+
+    expect(onCodeOpen).toHaveBeenCalledOnce()
+    expect(onEngineeringOpen).toHaveBeenCalledOnce()
+    await act(async () => root.unmount())
+    container.remove()
+  })
+
+  it('keeps a stable horizontal layout for narrow sidebars', () => {
+    const html = renderTabs()
+
     expect(html).toContain('flex-row')
     expect(html).not.toContain('flex-col')
-  })
-
-  it('buttons use flex-1 for equal width instead of w-full', () => {
-    const onCodeOpen = vi.fn()
-    const onWriteOpen = vi.fn()
-
-    const html = renderToStaticMarkup(
-      createElement(WorkspaceModeTabs, {
-        activeView: 'chat',
-        onCodeOpen,
-        onWriteOpen
-      })
-    )
-
-    // Each button should have flex-1 to distribute space equally
-    const flex1Matches = html.match(/flex-1/g)
-    expect(flex1Matches?.length).toBe(2)
-  })
-
-  it('marks active button with aria-selected true', () => {
-    const onCodeOpen = vi.fn()
-    const onWriteOpen = vi.fn()
-
-    // Code active
-    const htmlCode = renderToStaticMarkup(
-      createElement(WorkspaceModeTabs, {
-        activeView: 'chat',
-        onCodeOpen,
-        onWriteOpen
-      })
-    )
-    // Exactly one button has aria-selected="true" and one has aria-selected="false"
-    const selectedTrue = htmlCode.match(/aria-selected="true"/g)
-    const selectedFalse = htmlCode.match(/aria-selected="false"/g)
-    expect(selectedTrue?.length).toBe(1)
-    expect(selectedFalse?.length).toBe(1)
-
-    // Write active
-    const htmlWrite = renderToStaticMarkup(
-      createElement(WorkspaceModeTabs, {
-        activeView: 'write',
-        onCodeOpen,
-        onWriteOpen
-      })
-    )
-    const selectedTrueW = htmlWrite.match(/aria-selected="true"/g)
-    const selectedFalseW = htmlWrite.match(/aria-selected="false"/g)
-    expect(selectedTrueW?.length).toBe(1)
-    expect(selectedFalseW?.length).toBe(1)
-  })
-
-  it('preserves truncate class on button text for narrow sidebars', () => {
-    const onCodeOpen = vi.fn()
-    const onWriteOpen = vi.fn()
-
-    const html = renderToStaticMarkup(
-      createElement(WorkspaceModeTabs, {
-        activeView: 'chat',
-        onCodeOpen,
-        onWriteOpen
-      })
-    )
-
-    // Both label spans should have truncate class
-    const truncateMatches = html.match(/truncate/g)
-    expect(truncateMatches?.length).toBe(2)
-  })
-
-  it('preserves min-w-0 on buttons for flex truncation', () => {
-    const onCodeOpen = vi.fn()
-    const onWriteOpen = vi.fn()
-
-    const html = renderToStaticMarkup(
-      createElement(WorkspaceModeTabs, {
-        activeView: 'chat',
-        onCodeOpen,
-        onWriteOpen
-      })
-    )
-
-    // min-w-0 must be present to allow truncate to work in flex children
+    expect(html.match(/flex-1/g)?.length).toBe(2)
+    expect(html.match(/truncate/g)?.length).toBe(2)
     expect(html).toContain('min-w-0')
   })
 
-  it('renders role="tablist" container with descriptive aria-label', () => {
-    const onCodeOpen = vi.fn()
-    const onWriteOpen = vi.fn()
-
+  it('renders the Focus switch below the fixed primary entries', () => {
     const html = renderToStaticMarkup(
       createElement(WorkspaceModeTabs, {
-        activeView: 'chat',
-        onCodeOpen,
-        onWriteOpen
-      })
-    )
-
-    expect(html).toContain('role="tablist"')
-    expect(html).toContain('Code / Write')
-  })
-
-  it('can render an Focus visual mode switch under the tabs', () => {
-    const onCodeOpen = vi.fn()
-    const onWriteOpen = vi.fn()
-    const onToggleFocusMode = vi.fn()
-
-    const html = renderToStaticMarkup(
-      createElement(WorkspaceModeTabs, {
-        activeView: 'chat',
+        activeRoute: 'write',
         focusModeEnabled: true,
-        onCodeOpen,
-        onToggleFocusMode,
-        onWriteOpen
+        onCodeOpen: vi.fn(),
+        onEngineeringOpen: vi.fn(),
+        onToggleFocusMode: vi.fn()
       })
     )
 
@@ -162,6 +97,16 @@ describe('WorkspaceModeTabs', () => {
     expect(html).toContain('aria-checked="true"')
     expect(html).toContain('Focus')
     expect(html).toContain('On')
-    expect(html.match(/role="tab"/g)?.length).toBe(2)
+    expect(html).toContain('Code / Survey')
+  })
+
+  it('uses the configured language for both primary entries', async () => {
+    await i18n.changeLanguage('zh')
+
+    const html = renderTabs('write')
+
+    expect(html).toContain('编程')
+    expect(html).toContain('内业')
+    expect(html).toContain('编程 / 内业')
   })
 })

@@ -1951,7 +1951,9 @@ function requiresReasoningRoundTrip(
 function isThinkingProducerModel(model: string | undefined): boolean {
   const normalized = normalizeModelId(model)
   if (!normalized) return false
-  return normalized === 'deepseek-v4-pro' ||
+  return normalized === 'deepseek-flash' ||
+    normalized.endsWith('/deepseek-flash') ||
+    normalized === 'deepseek-v4-pro' ||
     normalized === 'deepseek-v4-flash' ||
     normalized.includes('deepseek-reasoner') ||
     normalized.endsWith('/deepseek-v4-pro') ||

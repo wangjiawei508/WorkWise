@@ -1,0 +1,1 @@
+<HeXML version="2.0"><Point name="S1"><Northing>0</Northing><Easting>0</Easting></Point><Point name="P1"><Northing>10</Northing><Easting>10</Easting></Point><RawObservation stationName="S1" targetName="P1" horizAngle="45" slopeDistance="14.142" /></HeXML>

@@ -121,6 +121,7 @@ describe('official marketplace catalog', () => {
       'sequential-thinking-mcp',
       'di-bao-monitoring',
       'operational-monitoring',
+      'rail-any-station-control-network',
       'tender-master',
       'document-illustrator',
       'ppt-master',
@@ -150,6 +151,7 @@ describe('official marketplace catalog', () => {
       'officecli',
       'playwright-mcp',
       'ppt-master',
+      'rail-any-station-control-network',
       'schedule',
       'superpowers',
       'tender-master',
@@ -228,6 +230,7 @@ describe('official marketplace catalog', () => {
     const restoredIds = [
       'di-bao-monitoring',
       'operational-monitoring',
+      'rail-any-station-control-network',
       'tender-master',
       'document-illustrator',
       'ppt-master',

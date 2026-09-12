@@ -20,7 +20,7 @@
 
 WorkWise 面向需要长期上下文、反复修改和正式交付的工作。它不只是一个聊天窗口：项目文件、会话、文档、方法和扩展能力围绕同一个本地工作区组织，让 AI 真正参与从理解任务到交付成果的完整过程。
 
-**[0.4.0 正式版](https://github.com/wangjiawei508/WorkWise/releases/tag/v0.4.0)**在上述工作台基础上交付统一插件市场、可验证安装、Codex 插件兼容、跨平台桌面玻璃窗口和结构化附件视觉处理。已安装 0.3.5 的用户可通过应用内更新升级。
+**[0.5.0 正式版](https://github.com/wangjiawei508/WorkWise/releases/tag/v0.5.0)**在上述工作台基础上交付统一插件市场、可验证安装、Codex 插件兼容、跨平台桌面玻璃窗口和结构化附件视觉处理。已安装 0.3.5 的用户可通过应用内更新升级。
 
 ## DeepSeek 原生默认支持
 
@@ -34,6 +34,18 @@ WorkWise 不是在通用聊天客户端上额外增加一个 DeepSeek 选项，�
 - 这里描述的是 WorkWise 实际接入的 Runtime 适配、附件合约和视觉证据路径，不代表客户端内置了上游 DeepSeek Harness 的全部代码或最新能力。模型服务和上游项目的变化以 [DeepSeek 官方文档](https://api-docs.deepseek.com/updates) 为准。
 
 完整支持范围与版本边界见[软件介绍](./docs/product-introduction.zh-CN.md)；实现边界见 [DeepSeek Harness 接入说明](./docs/DEEPSEEK_HARNESS.zh-CN.md)。DeepSeek V4 的公开模型参数和接口说明见[官方发布说明](https://api-docs.deepseek.com/news/news260424)。
+
+## 工程测量工作台
+
+0.5.0 将工程测量从通用对话入口升级为可追溯的专业工作台：
+
+- 支持水准、全站仪、GNSS、Leica GSI、RW5、RTKLIB 及常见表格数据导入，并保留原始文件、单位和来源证据。
+- 自动识别测量格式与列映射，导入前显示诊断；原始观测、单位换算、闭合差、平差改正数和派生成果分别留存，可回溯复核。
+- 内置水准闭合差、控制网平差和 COSA IN1/IN2/OU1/OU2 交付链，支持修正台账、初始值、限差与成果导出。
+- 测量入口使用 Compass 图标；进入工作台后可选择文件、查看测点摘要、运行数值复核，并生成 PDF/表格成果。
+- AI 只负责解释、诊断和编排，计算结果来自确定性的工程服务；正式成果仍应由具备相应资质的人员审核。
+
+详细说明见[工程测量工作台概览](./docs/ENGINEERING_SURVEY_WORKBENCH_OVERVIEW.zh-CN.md)和[测量格式验收矩阵](./docs/qa/WORKWISE_0.5.0_SURVEY_FORMAT_ACCEPTANCE_MATRIX.md)。
 
 ## 一眼看懂
 

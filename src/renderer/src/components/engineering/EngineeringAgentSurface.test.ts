@@ -8,12 +8,13 @@ describe('engineering agent surface contract', () => {
     const { readFile } = await import(/* @vite-ignore */ nodeFs)
     const source = await readFile(new URL('./EngineeringAiCommandCenter.tsx', import.meta.url), 'utf8')
 
-    expect(source).toContain('测绘专业 AI Agent 执行协议')
-    expect(source).toContain('理解工程测量目标')
-    expect(source).toContain('生成可审批计划')
-    expect(source).toContain('调用确定性工具')
-    expect(source).toContain('回流证据并请求复核')
-    expect(source).toContain('AI 不代替测量软件')
+    expect(source).toContain('<EngineeringComposer')
+    expect(source).toContain("t('engineeringTypedPlan')")
+    expect(source).toContain("t('engineeringApproveAndStart')")
+    expect(source).toContain("t('engineeringEvidenceReturn')")
+    expect(source).toContain('type="checkbox"')
+    expect(source).toContain('needsApproval && !riskConfirmed')
+    expect(source).toContain('activeThread.workspace === workspaceRoot')
   })
 
   it('makes the survey console method and constraint explicit', async () => {
@@ -23,13 +24,13 @@ describe('engineering agent surface contract', () => {
 
     expect(source).toContain('survey-adjustment-method')
     expect(source).toContain('survey-constraint-mode')
-    expect(source).toContain('平差方法 / 权模型')
-    expect(source).toContain('固定已知点')
-    expect(source).toContain('加权最小二乘')
-    expect(source).toContain('单位权中误差 σ₀')
-    expect(source).toContain('σ₀/方差因子均为无量纲')
-    expect(source).toContain('标准化残差（σ）')
-    expect(source).toContain("measurementLabel(residual.residual, residual.unit")
+    expect(source).toContain("t('surveyWeightModel')")
+    expect(source).toContain("t('surveyFixedPoints')")
+    expect(source).toContain("t('surveyWeightedLeastSquares')")
+    expect(source).toContain("t('surveySigma0')")
+    expect(source).toContain("t('surveyVarianceFactor',")
+    expect(source).toContain("t('surveyStandardizedResidual')")
+    expect(source).toContain("measurementLabel(t, residual.residual, residual.unit")
   })
 
   it('does not round a non-zero variance factor to zero', () => {

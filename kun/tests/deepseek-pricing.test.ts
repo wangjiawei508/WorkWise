@@ -113,3 +113,26 @@ describe('DeepSeek pricing — provider-aware gate (issue #26)', () => {
     })).toBeNull()
   })
 })
+
+describe('V4.1 Flash peak and off-peak estimates', () => {
+  it.each([
+    ['2026-09-10T00:59:59Z', 1],
+    ['2026-09-10T01:00:00Z', 2],
+    ['2026-09-10T04:00:00Z', 1],
+    ['2026-09-10T06:00:00Z', 2],
+    ['2026-09-10T10:00:00Z', 1],
+    ['2026-09-12T02:00:00Z', 1]
+  ])('uses official rates at %s', (timestamp, multiplier) => {
+    const at = new Date(timestamp)
+    const cost = estimateDeepseekCost({ model: 'deepseek-flash', at,
+      cacheHitTokens: 1_000_000, cacheMissTokens: 1_000_000, outputTokens: 1_000_000 })
+    expect(cost?.costUsd).toBeCloseTo(0.753 * Number(multiplier))
+    expect(cost?.costCny).toBeCloseTo(5.02 * Number(multiplier))
+    expect(estimateDeepseekCacheSavings({ model: 'deepseek-flash', at, cacheHitTokens: 1_000_000 })?.costCny)
+      .toBeCloseTo(0.98 * Number(multiplier))
+  })
+  it('does not apply official prices to a third-party provider', () => {
+    expect(estimateDeepseekInputTokenCost({ model: 'deepseek-flash', inputTokens: 100,
+      providerHost: 'https://third-party.example/v1' })).toBeNull()
+  })
+})

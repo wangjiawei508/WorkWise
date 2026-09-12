@@ -1,4 +1,4 @@
-import { mkdtemp, readFile } from 'node:fs/promises'
+import { mkdtemp, readFile, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import JSZip from 'jszip'
@@ -30,7 +30,8 @@ describe('EngineeringService', () => {
     expect(workbookXml).toContain('analysis_results')
     expect(workbookXml).toContain('manifest_summary')
     const manifest = await service.finalize({ projectId: project.id, datasetId: dataset.id, analysisId: analysis.id, expectedRevision: validated.revision, idempotencyKey: 'finalize-csv-001', acknowledgeWarnings: true })
-    expect(manifest.reviewStatus).toBe('approved')
+    expect(manifest.reviewStatus).toBe('draft')
+    expect(manifest.validation.warnings).toContain('尚未完成复核、审核、批准与签名流程；该成果清单仅供待审查使用，不得作为已批准交付。')
     expect(await readFile(join(workspace, '.workwise', 'deliverables', project.id, manifest.runId, 'manifest.json'), 'utf8')).toContain(manifest.id)
     service.close()
   })
@@ -43,6 +44,138 @@ describe('EngineeringService', () => {
     const first = await service.importDataset(body); const second = await service.importDataset(body)
     expect(second.id).toBe(first.id)
     service.close()
+  })
+
+  it('does not reissue a legacy unbound delivery key while retaining its historical manifest', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'workwise-engineering-legacy-delivery-'))
+    const workspace = join(root, 'workspace')
+    const service = new EngineeringService({ rootDir: join(root, 'runtime') })
+    const project = service.createProject({ name: '历史交付', workspace, thresholds: { default: 10 }, expectedRevision: 0, idempotencyKey: 'legacy-delivery-project' })
+    const dataset = await service.importDataset({
+      projectId: project.id,
+      expectedRevision: project.revision,
+      idempotencyKey: 'legacy-delivery-dataset',
+      name: 'monitoring.csv',
+      dataBase64: Buffer.from('point,time,value\nP1,2026-09-01,1\nP1,2026-09-02,2').toString('base64')
+    })
+    const validated = service.validateDataset({ datasetId: dataset.id, expectedRevision: dataset.revision, idempotencyKey: 'legacy-delivery-validate' })
+    const analysis = service.createAnalysis({ projectId: project.id, datasetId: dataset.id, expectedRevision: validated.revision, idempotencyKey: 'legacy-delivery-analysis' })
+    const request = {
+      projectId: project.id,
+      datasetId: dataset.id,
+      analysisId: analysis.id,
+      expectedRevision: validated.revision,
+      idempotencyKey: 'legacy-delivery-finalize',
+      acknowledgeWarnings: true
+    }
+    const manifest = await service.finalize(request)
+    await expect(service.previewReport({
+      projectId: project.id,
+      datasetId: dataset.id,
+      analysisId: analysis.id,
+      expectedRevision: validated.revision,
+      idempotencyKey: request.idempotencyKey
+    })).rejects.toThrow(/idempotency key is already bound/)
+
+    // Simulate an installation from before delivery requests were fingerprinted.
+    // Its manifest remains in the historical table, but its bare generic
+    // idempotency row must not be treated as a new delivery replay.
+    const db = (service as unknown as {
+      db: { prepare: (sql: string) => { run: (...parameters: unknown[]) => unknown } }
+    }).db
+    db.prepare('DELETE FROM engineering_delivery_idempotency WHERE key = ?').run(request.idempotencyKey)
+    db.prepare('INSERT INTO engineering_idempotency(key, result_json, created_at) VALUES (?, ?, ?)').run(request.idempotencyKey, JSON.stringify(manifest), new Date().toISOString())
+
+    await expect(service.finalize(request)).rejects.toThrow(/legacy unbound result/)
+    expect(service.getProjectOverview(project.id).manifests).toEqual(expect.arrayContaining([expect.objectContaining({ id: manifest.id })]))
+    service.close()
+  })
+
+  it('rejects stale analyses and regenerates automatic preview analyses after project inputs change', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'workwise-engineering-analysis-freshness-'))
+    const service = new EngineeringService({ rootDir: join(root, 'runtime') })
+    const project = service.createProject({ name: '分析快照', workspace: root, thresholds: { default: 10 }, expectedRevision: 0, idempotencyKey: 'analysis-freshness-project' })
+    const dataset = await service.importDataset({
+      projectId: project.id,
+      expectedRevision: project.revision,
+      idempotencyKey: 'analysis-freshness-dataset',
+      name: 'monitoring.csv',
+      dataBase64: Buffer.from('point,time,value\nP1,2026-09-01,2\nP1,2026-09-02,2').toString('base64')
+    })
+    const validated = service.validateDataset({ datasetId: dataset.id, expectedRevision: dataset.revision, idempotencyKey: 'analysis-freshness-validate' })
+    const analysis = service.createAnalysis({ projectId: project.id, datasetId: dataset.id, expectedRevision: validated.revision, idempotencyKey: 'analysis-freshness-analysis' })
+    expect(analysis.results[0]?.thresholdStatus).toBe('normal')
+    const manifest = await service.finalize({ projectId: project.id, datasetId: dataset.id, analysisId: analysis.id, expectedRevision: validated.revision, idempotencyKey: 'analysis-freshness-finalize', acknowledgeWarnings: true })
+
+    service.updateProject(project.id, { expectedRevision: project.revision, thresholds: { default: 1 }, idempotencyKey: 'analysis-freshness-project-update' })
+
+    expect(() => service.createAnalysis({ projectId: project.id, datasetId: dataset.id, expectedRevision: 0, idempotencyKey: 'analysis-freshness-analysis' }))
+      .toThrow(/stale or different project\/dataset inputs/)
+    await expect(service.previewReport({ projectId: project.id, datasetId: dataset.id, analysisId: analysis.id, expectedRevision: validated.revision, idempotencyKey: 'analysis-freshness-stale-preview' }))
+      .rejects.toThrow(/analysis no longer matches/)
+    await expect(service.finalize({ projectId: project.id, datasetId: dataset.id, analysisId: analysis.id, expectedRevision: validated.revision, idempotencyKey: 'analysis-freshness-finalize', acknowledgeWarnings: true }))
+      .rejects.toThrow(/input snapshot|analysis no longer matches/)
+    expect(service.getProjectOverview(project.id).manifests).toEqual(expect.arrayContaining([expect.objectContaining({ id: manifest.id })]))
+
+    const automaticPreview = await service.previewReport({ projectId: project.id, datasetId: dataset.id, expectedRevision: validated.revision, idempotencyKey: 'analysis-freshness-current-preview' })
+    expect(automaticPreview.run.analysisId).not.toBe(analysis.id)
+    const currentAnalysis = (service as unknown as { getAnalysis: (id: string) => { results: Array<{ thresholdStatus: string }> } | null }).getAnalysis(automaticPreview.run.analysisId!)
+    expect(currentAnalysis?.results[0]?.thresholdStatus).toBe('alarm')
+    service.close()
+  })
+
+  it('does not finalize a cancelled preview replay or a replay whose published output changed', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'workwise-engineering-replay-boundary-'))
+    const workspace = join(root, 'workspace')
+    const service = new EngineeringService({ rootDir: join(root, 'runtime') })
+    const project = service.createProject({ name: '交付重放边界', workspace, thresholds: { default: 10 }, expectedRevision: 0, idempotencyKey: 'replay-boundary-project' })
+    const dataset = await service.importDataset({ projectId: project.id, expectedRevision: project.revision, idempotencyKey: 'replay-boundary-dataset', name: 'monitoring.csv', dataBase64: Buffer.from('point,time,value\nP1,2026-09-01,1\nP1,2026-09-02,2').toString('base64') })
+    const validated = service.validateDataset({ datasetId: dataset.id, expectedRevision: dataset.revision, idempotencyKey: 'replay-boundary-validate' })
+    const analysis = service.createAnalysis({ projectId: project.id, datasetId: dataset.id, expectedRevision: validated.revision, idempotencyKey: 'replay-boundary-analysis' })
+
+    const cancelledFinalizeKey = 'replay-boundary-cancel-finalize'
+    const cancelledPreview = await service.previewReport({ projectId: project.id, datasetId: dataset.id, analysisId: analysis.id, expectedRevision: validated.revision, idempotencyKey: `finalize-preview-${cancelledFinalizeKey}` })
+    service.cancelRun(cancelledPreview.run.id, { expectedRevision: cancelledPreview.run.revision, idempotencyKey: 'replay-boundary-cancel-run' })
+    await expect(service.finalize({ projectId: project.id, datasetId: dataset.id, analysisId: analysis.id, expectedRevision: validated.revision, idempotencyKey: cancelledFinalizeKey, acknowledgeWarnings: true }))
+      .rejects.toThrow(/no longer the current completed run/)
+
+    const tamperedFinalizeKey = 'replay-boundary-output-finalize'
+    const tamperedPreview = await service.previewReport({ projectId: project.id, datasetId: dataset.id, analysisId: analysis.id, expectedRevision: validated.revision, idempotencyKey: `finalize-preview-${tamperedFinalizeKey}` })
+    const pdf = tamperedPreview.files.find((file) => file.mediaType === 'application/pdf')
+    if (!pdf) throw new Error('preview must generate a PDF')
+    await writeFile(join(workspace, pdf.path), 'tampered-pdf')
+    await expect(service.finalize({ projectId: project.id, datasetId: dataset.id, analysisId: analysis.id, expectedRevision: validated.revision, idempotencyKey: tamperedFinalizeKey, acknowledgeWarnings: true }))
+      .rejects.toThrow(/delivery output no longer matches its recorded hash/)
+    expect(service.getProjectOverview(project.id).manifests).toEqual([])
+    service.close()
+  })
+
+  it('does not reissue a finalized manifest after its public bytes changed', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'workwise-engineering-manifest-replay-'))
+    const workspace = join(root, 'workspace')
+    const service = new EngineeringService({ rootDir: join(root, 'runtime') })
+    const project = service.createProject({ name: '成果清单重放边界', workspace, thresholds: { default: 10 }, expectedRevision: 0, idempotencyKey: 'manifest-replay-project' })
+    const dataset = await service.importDataset({ projectId: project.id, expectedRevision: project.revision, idempotencyKey: 'manifest-replay-dataset', name: 'monitoring.csv', dataBase64: Buffer.from('point,time,value\nP1,2026-09-01,1\nP1,2026-09-02,2').toString('base64') })
+    const validated = service.validateDataset({ datasetId: dataset.id, expectedRevision: dataset.revision, idempotencyKey: 'manifest-replay-validate' })
+    const analysis = service.createAnalysis({ projectId: project.id, datasetId: dataset.id, expectedRevision: validated.revision, idempotencyKey: 'manifest-replay-analysis' })
+    const request = { projectId: project.id, datasetId: dataset.id, analysisId: analysis.id, expectedRevision: validated.revision, idempotencyKey: 'manifest-replay-finalize', acknowledgeWarnings: true }
+    const manifest = await service.finalize(request)
+    const manifestPath = join(workspace, '.workwise', 'deliverables', project.id, manifest.runId, 'manifest.json')
+    service.close()
+
+    // A byte-identical public manifest remains replayable across a Runtime
+    // restart; this guards the fail-closed byte check against accidentally
+    // rejecting its own durable serialization.
+    const reopened = new EngineeringService({ rootDir: join(root, 'runtime') })
+    await expect(reopened.finalize(request)).resolves.toEqual(manifest)
+    await writeFile(manifestPath, JSON.stringify({
+      ...manifest,
+      validation: { ...manifest.validation, warnings: [...manifest.validation.warnings, 'forged manifest warning'] }
+    }, null, 2))
+
+    await expect(reopened.finalize(request)).rejects.toThrow(/published manifest no longer matches its durable manifest evidence/)
+    expect(reopened.getProjectOverview(project.id).manifests).toEqual([expect.objectContaining({ id: manifest.id })])
+    reopened.close()
   })
 
   it('serializes concurrent imports that reuse an idempotency key', async () => {

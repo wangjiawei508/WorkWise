@@ -219,7 +219,7 @@ describe('JsonSettingsStore', () => {
     expect(loaded.write.inlineCompletion.apiKey).toBe('')
     expect(loaded.write.inlineCompletion.baseUrl).toBe('')
     expect(loaded.write.inlineCompletion.inheritModel).toBe(true)
-    expect(loaded.write.inlineCompletion.model).toBe('deepseek-v4-flash')
+    expect(loaded.write.inlineCompletion.model).toBe('deepseek-flash')
     expect(loaded.write.inlineCompletion.longMaxTokens).toBe(256)
     expect(await readFile(join(loaded.write.defaultWorkspaceRoot, 'welcome.md'), 'utf8')).toContain('Welcome to Write')
   })

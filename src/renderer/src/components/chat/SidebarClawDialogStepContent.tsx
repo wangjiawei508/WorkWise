@@ -116,6 +116,7 @@ export function ClawStepContent({ ctx }: { ctx: Record<string, any> }): ReactEle
                             className="mt-1.5 w-full rounded-xl border border-ds-border bg-ds-card px-3 py-2.5 text-[13px] text-ds-ink outline-none transition focus:border-accent/60"
                           >
                             <option value="auto">auto</option>
+                            <option value="deepseek-flash">deepseek-flash</option>
                             <option value="deepseek-v4-pro">deepseek-v4-pro</option>
                             <option value="deepseek-v4-flash">deepseek-v4-flash</option>
                           </select>

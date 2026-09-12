@@ -55,12 +55,15 @@ import {
 import {
   COMPACT_COMMAND_ALIASES,
   getGoalPanelDraftObjective,
+  getSkillMentionAtCursor,
   getSlashQuery,
   parseBtwCommand,
   parseCompactCommand,
   parseGoalCommand,
   parseReviewCommand,
   REVIEW_COMMAND_ALIASES,
+  replaceSkillMentionInInput,
+  type SkillMentionContext,
   type SlashCommand,
   type SlashCommandId
 } from './floating-composer-commands'
@@ -129,6 +132,8 @@ type Props = {
   onRemoveQueuedMessage: (id: string) => void
   attachments?: AttachmentReference[]
   attachmentUploadEnabled?: boolean
+  attachmentAccept?: string
+  isAdditionalAttachment?: (file: File) => boolean
   attachmentUploadBusy?: boolean
   attachmentUploadError?: string | null
   fileReferenceEnabled?: boolean
@@ -542,6 +547,8 @@ export function FloatingComposer({
   onRemoveQueuedMessage,
   attachments = EMPTY_ATTACHMENTS,
   attachmentUploadEnabled = false,
+  attachmentAccept = '.pdf,.docx,.xlsx,.pptx,.txt,.md,.markdown,.csv,image/png,image/jpeg,image/gif,image/webp',
+  isAdditionalAttachment,
   attachmentUploadBusy = false,
   attachmentUploadError = null,
   fileReferenceEnabled = false,
@@ -668,6 +675,8 @@ export function FloatingComposer({
   const slashQuery = getSlashQuery(input)
   const [composerCursor, setComposerCursor] = useState(() => input.length)
   const [selectedCommandIndex, setSelectedCommandIndex] = useState(0)
+  const [selectedSkillMentionIndex, setSelectedSkillMentionIndex] = useState(0)
+  const [dismissedSkillMentionKey, setDismissedSkillMentionKey] = useState<string | null>(null)
   const [fileMentionSuggestions, setFileMentionSuggestions] = useState<ComposerFileReference[]>([])
   const [fileMentionLoading, setFileMentionLoading] = useState(false)
   const [fileMentionError, setFileMentionError] = useState<string | null>(null)
@@ -865,10 +874,39 @@ export function FloatingComposer({
     filteredSlashCommands.length > 0
       ? filteredSlashCommands[Math.min(selectedCommandIndex, filteredSlashCommands.length - 1)]
       : null
+  const activeSkillMention = useMemo<SkillMentionContext | null>(() => {
+    if (slashQuery != null || route === 'claw') return null
+    return getSkillMentionAtCursor(input, composerCursor)
+  }, [composerCursor, input, route, slashQuery])
+  const skillMentionSuggestions = useMemo(() => {
+    const query = activeSkillMention?.query.trim().toLowerCase() ?? ''
+    if (!query) return []
+    return skillCommands
+      .filter((skill) => {
+        const haystack = `${skill.id} ${skill.name} ${skill.description ?? ''}`.toLowerCase()
+        return haystack.includes(query)
+      })
+      .sort((left, right) => left.name.localeCompare(right.name))
+      .slice(0, 20)
+  }, [activeSkillMention?.query, skillCommands])
+  const activeSkillMentionKey = activeSkillMention
+    ? `${activeSkillMention.start}:${activeSkillMention.query}`
+    : null
+  const showSkillMentionMenu =
+    canCompose &&
+    Boolean(activeSkillMention) &&
+    skillMentionSuggestions.length > 0 &&
+    activeSkillMentionKey !== dismissedSkillMentionKey &&
+    !composerMenuOpen &&
+    !goalPanelOpen
+  const highlightedSkillMention =
+    skillMentionSuggestions.length > 0
+      ? skillMentionSuggestions[Math.min(selectedSkillMentionIndex, skillMentionSuggestions.length - 1)]
+      : null
   const activeFileMention = useMemo<ComposerFileMention | null>(() => {
-    if (!fileReferenceEnabled || slashQuery != null || !effectiveWorkspaceRoot) return null
+    if (!fileReferenceEnabled || slashQuery != null || showSkillMentionMenu || !effectiveWorkspaceRoot) return null
     return getFileMentionAtCursor(input, composerCursor)
-  }, [composerCursor, effectiveWorkspaceRoot, fileReferenceEnabled, input, slashQuery])
+  }, [composerCursor, effectiveWorkspaceRoot, fileReferenceEnabled, input, showSkillMentionMenu, slashQuery])
   const activeFileMentionKey = activeFileMention
     ? `${activeFileMention.start}:${activeFileMention.query}:${activeFileMention.quoted ? 'q' : 'p'}`
     : null
@@ -889,15 +927,19 @@ export function FloatingComposer({
     && runtimeReady
     && canOpenGoalPanel
     && goalPanelDraftObjective.length > 0
-  const primaryActionLabel = highlightedSlashCommand
+  const primaryActionLabel = highlightedSkillMention && showSkillMentionMenu
     ? t('slashCommandApply')
-    : canSetGoalPanelDraft
+    : highlightedSlashCommand
+      ? t('slashCommandApply')
+      : canSetGoalPanelDraft
       ? t('goalSetCurrentInput')
     : busy
       ? t('queueMessage')
       : t('send')
-  const primaryActionDisabled = highlightedSlashCommand
-    ? highlightedSlashCommand.disabled === true
+  const primaryActionDisabled = highlightedSkillMention && showSkillMentionMenu
+    ? false
+    : highlightedSlashCommand
+      ? highlightedSlashCommand.disabled === true
     : canSetGoalPanelDraft
       ? false
     : !canSend
@@ -920,6 +962,10 @@ export function FloatingComposer({
   useEffect(() => {
     setSelectedCommandIndex(0)
   }, [slashQuery])
+
+  useEffect(() => {
+    setSelectedSkillMentionIndex(0)
+  }, [activeSkillMentionKey])
 
   useEffect(() => {
     setSelectedFileMentionIndex(0)
@@ -1181,6 +1227,20 @@ export function FloatingComposer({
     })
   }
 
+  const applySkillMention = (skill: SkillCommand | null): void => {
+    if (!skill || !activeSkillMention) return
+    const next = replaceSkillMentionInInput(input, activeSkillMention, skill.id)
+    setInput(next.input)
+    setDismissedSkillMentionKey(null)
+    window.requestAnimationFrame(() => {
+      const textarea = draft.textareaRef.current
+      if (!textarea) return
+      textarea.focus()
+      textarea.setSelectionRange(next.cursor, next.cursor)
+      setComposerCursor(next.cursor)
+    })
+  }
+
   const removeFileReference = (relativePath: string): void => {
     onRemoveFileReference?.(relativePath)
     const nextInput = removeComposerFileMentionToken(input, relativePath)
@@ -1192,6 +1252,10 @@ export function FloatingComposer({
   }
 
   const handlePrimaryAction = (): void => {
+    if (highlightedSkillMention && showSkillMentionMenu) {
+      applySkillMention(highlightedSkillMention)
+      return
+    }
     if (highlightedSlashCommand) {
       if (highlightedSlashCommand.disabled) return
       applySlashCommand(highlightedSlashCommand.id)
@@ -1243,6 +1307,31 @@ export function FloatingComposer({
     const sendByEnter =
       event.key === 'Enter' && !event.shiftKey && !event.metaKey && !event.ctrlKey
     const composing = draft.isComposingEvent(event)
+
+    if (!composing && showSkillMentionMenu) {
+      if (event.key === 'ArrowDown' && skillMentionSuggestions.length > 0) {
+        event.preventDefault()
+        setSelectedSkillMentionIndex((current) => (current + 1) % skillMentionSuggestions.length)
+        return
+      }
+      if (event.key === 'ArrowUp' && skillMentionSuggestions.length > 0) {
+        event.preventDefault()
+        setSelectedSkillMentionIndex((current) =>
+          current === 0 ? skillMentionSuggestions.length - 1 : current - 1
+        )
+        return
+      }
+      if ((event.key === 'Enter' || event.key === 'Tab') && highlightedSkillMention) {
+        event.preventDefault()
+        applySkillMention(highlightedSkillMention)
+        return
+      }
+      if (event.key === 'Escape') {
+        event.preventDefault()
+        setDismissedSkillMentionKey(activeSkillMentionKey)
+        return
+      }
+    }
 
     if (!composing && showFileMentionMenu) {
       if (event.key === 'ArrowDown' && fileMentionSuggestions.length > 0) {
@@ -1385,7 +1474,7 @@ export function FloatingComposer({
     const rawFiles = Array.from(event.dataTransfer.files ?? [])
     const isImageLike = (file: File): boolean =>
       isImageMimeType(file.type) || Boolean(imageMimeTypeFromFileName(file.name))
-    const documentFiles = rawFiles.filter((file) => !isImageLike(file) && /\.(?:pdf|docx|xlsx|pptx|txt|md|markdown|csv)$/i.test(file.name))
+    const documentFiles = rawFiles.filter((file) => !isImageLike(file) && (/\.(?:pdf|docx|xlsx|pptx|txt|md|markdown|csv)$/i.test(file.name) || isAdditionalAttachment?.(file)))
     const pathFiles = rawFiles.filter((file) => !isImageLike(file) && !documentFiles.includes(file))
     if (imageFiles.length === 0 && documentFiles.length === 0 && pathFiles.length === 0) return
     event.preventDefault()
@@ -1612,6 +1701,44 @@ export function FloatingComposer({
                 {t('slashCommandEmpty')}
               </div>
             )}
+          </div>
+        ) : null}
+
+        {showSkillMentionMenu ? (
+          <div className="ds-card-strong absolute bottom-full left-1/2 z-30 mb-2 w-[calc(100%_-_1rem)] max-w-[680px] -translate-x-1/2 overflow-hidden rounded-[16px] p-1.5 shadow-[0_18px_46px_rgba(15,23,42,0.14)]">
+            <div className="flex h-7 items-center gap-2 px-2.5 text-[11.5px] font-semibold text-ds-muted">
+              <Sparkles className="h-3.5 w-3.5 text-ds-faint" strokeWidth={1.9} />
+              <span>{t('composerSkillMentionMenuTitle')}</span>
+            </div>
+            <div className="flex max-h-[min(280px,calc(100vh-260px))] flex-col gap-0.5 overflow-y-auto pr-1">
+              {skillMentionSuggestions.map((skill) => {
+                const active = highlightedSkillMention?.id === skill.id
+                return (
+                  <button
+                    key={skill.id}
+                    type="button"
+                    onMouseDown={(event) => event.preventDefault()}
+                    onClick={() => applySkillMention(skill)}
+                    className={`flex min-h-[46px] w-full items-center gap-2.5 rounded-[12px] px-2.5 py-2 text-left transition ${
+                      active
+                        ? 'bg-ds-hover text-ds-ink shadow-[inset_0_0_0_1px_rgba(15,23,42,0.06)]'
+                        : 'text-ds-muted hover:bg-ds-hover hover:text-ds-ink'
+                    }`}
+                  >
+                    <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-[10px] ${active ? 'bg-white text-accent shadow-sm dark:bg-ds-card' : 'bg-ds-hover text-ds-muted'}`}>
+                      <Sparkles className="h-4 w-4" strokeWidth={1.8} />
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-[13.5px] font-semibold leading-5 text-inherit">{skill.name}</span>
+                      <span className="mt-0.5 block truncate text-[12px] leading-4 text-ds-faint">{skill.description || skill.id}</span>
+                    </span>
+                    <span className="hidden max-w-[190px] shrink-0 truncate rounded-full border border-ds-border-muted px-2 py-0.5 text-[10.5px] font-semibold leading-4 text-ds-faint sm:block">
+                      @{skill.id}
+                    </span>
+                  </button>
+                )
+              })}
+            </div>
           </div>
         ) : null}
 
@@ -1936,7 +2063,7 @@ export function FloatingComposer({
             <input
               ref={fileInputRef}
               type="file"
-              accept=".pdf,.docx,.xlsx,.pptx,.txt,.md,.markdown,.csv,image/png,image/jpeg,image/gif,image/webp"
+              accept={attachmentAccept}
               multiple
               className="hidden"
               onChange={handleAttachmentInput}

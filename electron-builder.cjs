@@ -87,9 +87,14 @@ const hasNotaryToolCredentials = Boolean(
     (process.env.APPLE_API_KEY || process.env.APPLE_API_KEY_BASE64)
 )
 
-const updateChannel = normalizeUpdateChannel(
+const isCandidateBuild = process.env.WORKWISE_CANDIDATE === '1'
+const requestedUpdateChannel = normalizeUpdateChannel(
   process.env.WORKWISE_UPDATE_CHANNEL || 'stable'
 )
+// A candidate never inherits a public feed or channel from its build
+// environment. It carries a loopback manifest solely so the isolated updater
+// acceptance launcher can replace it with its private HTTPS feed at runtime.
+const updateChannel = isCandidateBuild ? 'frontier' : requestedUpdateChannel
 const configuredPublicBaseUrl = (process.env.WORKWISE_PUBLIC_BASE_URL || 'https://www.railwise.cn/downloads')
   .trim()
   .replace(/\/+$/, '')
@@ -114,12 +119,15 @@ const releaseAppVersion = (
 const candidateSourceHead = (
   process.env.WORKWISE_CANDIDATE_SOURCE_HEAD || ''
 ).trim()
-const isCandidateBuild = process.env.WORKWISE_CANDIDATE === '1'
 const candidateIdentitySuffix = candidateSourceHead ? `head${candidateSourceHead.slice(0, 12)}` : ''
 const packagedProductName = isCandidateBuild
   ? `WorkWise Candidate ${candidateSourceHead.slice(0, 12)}`
   : 'WorkWise'
 const artifactVersion = releaseAppVersion || '${version}'
+const packagedUpdateProvider = isCandidateBuild ? 'generic' : updateProvider
+const packagedGenericUpdateUrl = isCandidateBuild
+  ? 'https://127.0.0.1/'
+  : genericUpdateUrl
 
 function normalizeUpdateChannel(raw) {
   const value = String(raw || '').trim()
@@ -217,6 +225,7 @@ const builderConfig = {
       to: 'app.asar.unpacked/kun',
       filter: [
         'dist/**/*',
+        'assets/fonts/**/*',
         'package.json',
         'package-lock.json'
       ]
@@ -237,7 +246,7 @@ const builderConfig = {
   artifactName: isCandidateBuild
     ? `WorkWise-Candidate-${candidateSourceHead.slice(0, 12)}-${artifactVersion}-\${os}-\${arch}.\${ext}`
     : `WorkWise-${artifactVersion}-\${os}-\${arch}.\${ext}`,
-  publish: updateProvider === 'github'
+  publish: packagedUpdateProvider === 'github'
     ? [
         {
           provider: 'github',
@@ -245,11 +254,11 @@ const builderConfig = {
           repo: githubRepoMatch[2]
         }
       ]
-    : updateProvider === 'generic'
+    : packagedUpdateProvider === 'generic'
       ? [
           {
             provider: 'generic',
-            url: genericUpdateUrl
+            url: packagedGenericUpdateUrl
           }
         ]
       : null,

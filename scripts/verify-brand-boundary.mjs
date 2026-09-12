@@ -29,6 +29,9 @@ const allowedFiles = [
   /^FORK_NOTICE\.md$/,
   /^LICENSE(?:\.|$)/,
   /^docs\/PUBLIC_BEHAVIOR_GAP_0\.2\.5\.zh-CN\.md$/,
+  // QA evidence must preserve exact legacy identifiers (for example the
+  // historical bundle id) so release-gate records remain auditable.
+  /^docs\/qa\/evidence\//,
   /^src\/main\/compat\//,
   /^src\/main\/legacy-data-migration(?:\.test)?\.ts$/,
   /^src\/main\/settings-store(?:\.test)?\.ts$/,

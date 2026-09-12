@@ -70,6 +70,33 @@ describe('Workbench responsive panel contract', () => {
     expect(engineeringSidebar).not.toContain('SidebarProjectsSection')
   })
 
+  it('keeps the shared workspace navigation on Writing and closes the phone panel before opening Survey', async () => {
+    const nodeFs = 'node:fs/promises'
+    const { readFile } = await import(/* @vite-ignore */ nodeFs)
+    const [workbench, writeSidebar, modeTabs, secondaryNavigation] = await Promise.all([
+      readFile(new URL('./Workbench.tsx', import.meta.url), 'utf8'),
+      readFile(new URL('./write/WriteSidebar.tsx', import.meta.url), 'utf8'),
+      readFile(new URL('./chat/WorkspaceModeTabs.tsx', import.meta.url), 'utf8'),
+      readFile(new URL('./sidebar/WorkspaceSecondaryNavigation.tsx', import.meta.url), 'utf8')
+    ])
+
+    expect(modeTabs).not.toContain('onWriteOpen')
+    expect(modeTabs).not.toContain('role="tab"')
+    expect(modeTabs).toContain("activeRoute === 'engineering' ? 'page' : undefined")
+    expect(modeTabs).toContain('onEngineeringOpen: () => void')
+    expect(secondaryNavigation).toContain("activeRoute === 'write'")
+    expect(secondaryNavigation).toContain("activeRoute === 'plugins'")
+    expect(secondaryNavigation).toContain("activeRoute === 'schedule'")
+    expect(secondaryNavigation).toContain("activeRoute === 'flow'")
+    expect(secondaryNavigation).toContain("activeRoute === 'design'")
+    expect(writeSidebar).toContain('<WorkspaceSecondaryNavigation')
+    expect(writeSidebar).toContain('onEngineeringOpen={onEngineeringOpen}')
+    expect(workbench).toMatch(/const openEngineeringMode = \(\): void => \{\s*setConnectPhoneSidebarOpen\(false\)\s*openEngineering\(\)\s*\}/)
+    expect(workbench).not.toContain('onEngineeringOpen={openEngineering}')
+    expect(workbench.match(/onEngineeringOpen=\{openEngineeringMode\}/g)).toHaveLength(2)
+    expect(workbench.match(/navigationRoute=\{route\}/g)).toHaveLength(2)
+  })
+
   it('opens Engineering on an AI command center with a deterministic delivery path', async () => {
     const nodeFs = 'node:fs/promises'
     const { readFile } = await import(/* @vite-ignore */ nodeFs)
@@ -81,12 +108,21 @@ describe('Workbench responsive panel contract', () => {
     expect(engineering).toContain("type TabId = 'ai-command'")
     expect(engineering).toContain("useState<TabId>('ai-command')")
     expect(engineering).toContain('<EngineeringAiCommandCenter')
-    expect(aiCommandCenter).toContain('工程测量 AI 指挥台')
-    expect(engineering).toContain('交付控制台')
+    expect(aiCommandCenter).toContain("t('engineeringAiTitle')")
+    expect(engineering).toContain("t('engineeringDashboardConsoleTitle')")
     expect(engineering).toContain('<DeliveryStage index={1}')
     expect(engineering).toContain('<DeliveryStage index={6}')
-    expect(engineering).toContain('原始文件保持不变；每次数据、阈值或字段映射的变化都会产生新的运行版本')
-    expect(engineering).toContain('交给测绘专业 AI Agent')
+    expect(engineering).toContain("t('engineeringImmutableEvidenceShort')")
+    expect(engineering).toContain('engineering-persistent-chat')
     expect(engineering).toContain('engineering-classic-shell')
+  })
+
+  it('keeps data and conversation side by side or stacked according to available workbench width', async () => {
+    const nodeFs = 'node:fs/promises'
+    const { readFile } = await import(/* @vite-ignore */ nodeFs)
+    const css = await readFile(new URL('../styles/surfaces-write.css', import.meta.url), 'utf8')
+    expect(css).toContain("grid-template-areas: 'data chat'")
+    expect(css).toContain('@container (max-width: 1000px)')
+    expect(css).toContain("grid-template-areas: 'data' 'chat'")
   })
 })

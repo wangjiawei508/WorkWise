@@ -1,0 +1,115 @@
+<?xml version="1.0" ?>
+<LandXML xmlns="http://www.landxml.org/schema/LandXML-1.2" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.landxml.org/schema/LandXML-1.2 http://www.landxml.org/schema/LandXML-1.2/LandXML-1.2.xsd" version="1.2" date="2025-09-10" time="12:00:00">
+  <Units>
+    <Metric areaUnit="squareMeter" linearUnit="meter" volumeUnit="cubicMeter" temperatureUnit="celsius" pressureUnit="milliBars"/>
+  </Units>
+  <CoordinateSystem epsgCode="3006" name="SWEREF99 TM" description="Swedish national coordinate system"/>
+  <Project name="Client Survey Project">
+    <Application name="Open BIM Survey Workflow" version="1.0" manufacturer="Open Source">
+      <Author createdBy="Survey Processing Script"/>
+    </Application>
+  </Project>
+  <CgPoints name="Survey Points" desc="Individual survey point locations">
+    <CgPoint name="994" code="VAG_VM" desc="Offset startpoint">157899.163 6406977.864 20.769</CgPoint>
+    <CgPoint name="995" code="VAG_VM" desc="Value">157898.969 6406986.131 20.475</CgPoint>
+    <CgPoint name="996" code="VAG_VM" desc="Value">157898.824 6406990.676 20.325</CgPoint>
+    <CgPoint name="997" code="VAG_VM" desc="Value">157898.662 6406996.976 20.154</CgPoint>
+    <CgPoint name="998" code="VAG_VM" desc="Value">157898.589 6407002.757 19.992</CgPoint>
+    <CgPoint name="999" code="VAG_VM" desc="Value">157898.484 6407009.653 19.793</CgPoint>
+    <CgPoint name="1000" code="VAG_VM" desc="Value">157898.378 6407016.997 19.568</CgPoint>
+    <CgPoint name="1001" code="VAG_VM" desc="DB 400">157898.308 6407019.977 19.471</CgPoint>
+    <CgPoint name="1002" code="VAG_VM" desc="Value">157898.223 6407026.589 19.315</CgPoint>
+    <CgPoint name="1003" code="VAG_VM" desc="Value">157898.086 6407034.739 19.133</CgPoint>
+    <CgPoint name="1004" code="VAG_VM" desc="Value">157897.876 6407046.360 18.929</CgPoint>
+    <CgPoint name="1005" code="VAG_VM" desc="Value">157897.628 6407062.421 18.855</CgPoint>
+    <CgPoint name="1006" code="VAG_VM" desc="Value">157897.521 6407068.260 18.841</CgPoint>
+    <CgPoint name="1007" code="VAG_VM" desc="Target Z">157897.477 6407071.787 18.833</CgPoint>
+    <CgPoint name="1008" code="VAG_VM" desc="Value">157897.315 6407081.191 18.867</CgPoint>
+    <CgPoint name="1009" code="VAG_VM" desc="Value">157897.181 6407090.074 18.944</CgPoint>
+    <CgPoint name="1010" code="VAG_VM" desc="Value">157897.016 6407099.466 19.032</CgPoint>
+    <CgPoint name="1011" code="VAG_VM" desc="Value">157896.865 6407106.183 19.102</CgPoint>
+    <CgPoint name="1012" code="VAG_VM" desc="Value">157896.571 6407113.255 19.195</CgPoint>
+    <CgPoint name="1013" code="VAG_VM" desc="Value">157896.152 6407121.446 19.303</CgPoint>
+    <CgPoint name="1014" code="VAG_VM" desc="Value">157895.708 6407127.647 19.383</CgPoint>
+    <CgPoint name="1015" code="VAG_VM" desc="Value">157895.169 6407134.902 19.478</CgPoint>
+    <CgPoint name="1016" code="VAG_VM" desc="Value">157894.396 6407143.403 19.566</CgPoint>
+    <CgPoint name="1017" code="VAG_VM" desc="Value">157893.651 6407150.347 19.644</CgPoint>
+    <CgPoint name="1018" code="VAG_VM" desc="Value">157893.159 6407154.656 19.688</CgPoint>
+    <CgPoint name="1019" code="VAG_VM" desc="Endpoint">157894.711 6407073.394 19.055</CgPoint>
+  </CgPoints>
+  <Surfaces>
+    <Surface name="Survey_Surface" desc="Triangulated surface from 26 survey points">
+      <Definition surfType="TIN">
+        <Pnts>
+          <P id="1" name="994" code="VAG_VM" desc="Offset startpoint">157899.163 6406977.864 20.769</P>
+          <P id="2" name="995" code="VAG_VM" desc="Value">157898.969 6406986.131 20.475</P>
+          <P id="3" name="996" code="VAG_VM" desc="Value">157898.824 6406990.676 20.325</P>
+          <P id="4" name="997" code="VAG_VM" desc="Value">157898.662 6406996.976 20.154</P>
+          <P id="5" name="998" code="VAG_VM" desc="Value">157898.589 6407002.757 19.992</P>
+          <P id="6" name="999" code="VAG_VM" desc="Value">157898.484 6407009.653 19.793</P>
+          <P id="7" name="1000" code="VAG_VM" desc="Value">157898.378 6407016.997 19.568</P>
+          <P id="8" name="1001" code="VAG_VM" desc="DB 400">157898.308 6407019.977 19.471</P>
+          <P id="9" name="1002" code="VAG_VM" desc="Value">157898.223 6407026.589 19.315</P>
+          <P id="10" name="1003" code="VAG_VM" desc="Value">157898.086 6407034.739 19.133</P>
+          <P id="11" name="1004" code="VAG_VM" desc="Value">157897.876 6407046.360 18.929</P>
+          <P id="12" name="1005" code="VAG_VM" desc="Value">157897.628 6407062.421 18.855</P>
+          <P id="13" name="1006" code="VAG_VM" desc="Value">157897.521 6407068.260 18.841</P>
+          <P id="14" name="1007" code="VAG_VM" desc="Target Z">157897.477 6407071.787 18.833</P>
+          <P id="15" name="1008" code="VAG_VM" desc="Value">157897.315 6407081.191 18.867</P>
+          <P id="16" name="1009" code="VAG_VM" desc="Value">157897.181 6407090.074 18.944</P>
+          <P id="17" name="1010" code="VAG_VM" desc="Value">157897.016 6407099.466 19.032</P>
+          <P id="18" name="1011" code="VAG_VM" desc="Value">157896.865 6407106.183 19.102</P>
+          <P id="19" name="1012" code="VAG_VM" desc="Value">157896.571 6407113.255 19.195</P>
+          <P id="20" name="1013" code="VAG_VM" desc="Value">157896.152 6407121.446 19.303</P>
+          <P id="21" name="1014" code="VAG_VM" desc="Value">157895.708 6407127.647 19.383</P>
+          <P id="22" name="1015" code="VAG_VM" desc="Value">157895.169 6407134.902 19.478</P>
+          <P id="23" name="1016" code="VAG_VM" desc="Value">157894.396 6407143.403 19.566</P>
+          <P id="24" name="1017" code="VAG_VM" desc="Value">157893.651 6407150.347 19.644</P>
+          <P id="25" name="1018" code="VAG_VM" desc="Value">157893.159 6407154.656 19.688</P>
+          <P id="26" name="1019" code="VAG_VM" desc="Endpoint">157894.711 6407073.394 19.055</P>
+        </Pnts>
+        <Faces>
+          <F>2 3 1</F>
+          <F>3 26 1</F>
+          <F>22 23 26</F>
+          <F>26 24 25</F>
+          <F>23 24 26</F>
+          <F>19 26 18</F>
+          <F>19 20 26</F>
+          <F>21 22 26</F>
+          <F>20 21 26</F>
+          <F>16 14 1</F>
+          <F>11 12 26</F>
+          <F>14 12 1</F>
+          <F>5 3 2</F>
+          <F>10 11 26</F>
+          <F>12 10 1</F>
+          <F>10 12 11</F>
+          <F>26 17 18</F>
+          <F>16 17 26</F>
+          <F>17 16 1</F>
+          <F>14 15 26</F>
+          <F>15 16 26</F>
+          <F>16 15 14</F>
+          <F>13 14 26</F>
+          <F>12 13 26</F>
+          <F>13 12 14</F>
+          <F>3 4 26</F>
+          <F>4 5 26</F>
+          <F>5 4 3</F>
+          <F>6 8 26</F>
+          <F>5 6 26</F>
+          <F>6 5 2</F>
+          <F>8 9 26</F>
+          <F>9 10 26</F>
+          <F>10 9 1</F>
+          <F>6 7 8</F>
+          <F>7 9 8</F>
+          <F>7 6 2</F>
+          <F>7 2 1</F>
+          <F>9 7 1</F>
+        </Faces>
+      </Definition>
+    </Surface>
+  </Surfaces>
+</LandXML>

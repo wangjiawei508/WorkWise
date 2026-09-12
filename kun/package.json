@@ -54,6 +54,7 @@
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "vitest run",
+    "test:survey-converter-sandbox": "WORKWISE_TEST_MACOS_SURVEY_SANDBOX=1 vitest run src/engineering/survey-converter.test.ts --reporter=verbose",
     "test:watch": "vitest",
     "transcript:diff": "node ./scripts/transcript-diff.mjs",
     "serve": "node ./dist/cli/serve-entry.js",
@@ -65,11 +66,13 @@
     "diff": "^9.0.0",
     "ipaddr.js": "2.2.0",
     "jszip": "^3.10.1",
+    "pdfkit": "0.17.2",
     "pptxgenjs": "^4.0.1",
     "zod": "^4.4.3"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.13",
+    "@types/pdfkit": "0.17.3",
     "typescript": "^5.8.2",
     "vitest": "^4.1.7"
   },

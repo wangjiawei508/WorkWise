@@ -5,6 +5,12 @@ export type BuiltinSlashCommandId = 'plan' | 'goal' | 'review' | 'compact' | 'fo
 export type SkillSlashCommandId = `skill:${string}`
 export type SlashCommandId = BuiltinSlashCommandId | SkillSlashCommandId
 
+export type SkillMentionContext = {
+  start: number
+  end: number
+  query: string
+}
+
 export type SlashCommand = {
   id: SlashCommandId
   kind?: 'builtin' | 'skill'
@@ -51,6 +57,33 @@ export function getSlashQuery(input: string): string | null {
   if (!trimmed.startsWith('/')) return null
   if (/\s/.test(trimmed)) return null
   return trimmed.slice(1).toLowerCase()
+}
+
+/** Returns the active @skill token when the cursor is still inside it. */
+export function getSkillMentionAtCursor(input: string, cursor: number): SkillMentionContext | null {
+  const boundedCursor = Math.max(0, Math.min(cursor, input.length))
+  const beforeCursor = input.slice(0, boundedCursor)
+  const match = /(?:^|[\s([{，。；：、])@([^\s@"']*)$/u.exec(beforeCursor)
+  if (!match) return null
+  const query = match[1] ?? ''
+  return {
+    start: boundedCursor - query.length - 1,
+    end: boundedCursor,
+    query
+  }
+}
+
+export function replaceSkillMentionInInput(
+  input: string,
+  mention: SkillMentionContext,
+  skillId: string
+): { input: string; cursor: number } {
+  const replacement = `@${skillId}${input[mention.end] && /\s/u.test(input[mention.end] ?? '') ? '' : ' '}`
+  const nextInput = `${input.slice(0, mention.start)}${replacement}${input.slice(mention.end)}`
+  return {
+    input: nextInput,
+    cursor: mention.start + replacement.length
+  }
 }
 
 export function getGoalPanelDraftObjective(input: string, goalPanelOpen: boolean): string {

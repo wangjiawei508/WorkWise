@@ -70,10 +70,12 @@ export class TaskController {
     thread: ThreadRecord
     turnId: string
     request: StartTurnRequest
+    engineeringExecution?: boolean
   }): TaskRun {
     const active = this.repository.findActiveByThread(input.thread.id)
     const now = this.nowIso()
-    if (active && shouldContinueActiveTask(input.request.prompt)) {
+    const consultation = input.thread.domain === 'engineering' && !input.engineeringExecution
+    if (active && !consultation && shouldContinueActiveTask(input.request.prompt)) {
       return this.repository.update(active.id, active.revision, (current) => ({
         ...current,
         activeTurnId: input.turnId,
@@ -90,7 +92,7 @@ export class TaskController {
       this.finish(active, 'cancelled', '用户发起了新的请求，旧任务已停止。')
     }
 
-    const acceptance = acceptanceForPrompt(input.request.prompt)
+    const acceptance = acceptanceForPrompt(consultation ? 'Answer the Survey question or propose a plan for review.' : input.request.prompt)
     const id = `task_${randomUUID()}`
     const nodes = nodeBlueprint(id, acceptance)
     const profile = input.thread.agentProfile

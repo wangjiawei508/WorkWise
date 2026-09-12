@@ -1,33 +1,184 @@
 import { createHash, randomUUID } from 'node:crypto'
-import { mkdir, readFile } from 'node:fs/promises'
-import { mkdirSync } from 'node:fs'
-import { extname, join, relative, resolve } from 'node:path'
+import { mkdir, readFile, rm } from 'node:fs/promises'
+import { existsSync, mkdirSync, readFileSync, renameSync } from 'node:fs'
+import { extname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import Database from 'better-sqlite3'
 import JSZip from 'jszip'
-import { atomicWriteFile } from '../adapters/file/atomic-write.js'
+import { atomicWriteFile, drainAtomicWrites } from '../adapters/file/atomic-write.js'
 import type { AttachmentStore } from '../attachments/attachment-store.js'
+import type { SurveySourceEligibility } from './survey-service.js'
+import { makeReportPdf } from './engineering-report-pdf.js'
 import {
   AnalysisRequest, ChartArtifactV1, ChartRequest, DatasetImportRequest, DatasetValidateRequest,
   DeliverableManifestV1, EngineeringProjectCreateRequest, EngineeringProjectUpdateRequest, AcceptQualityFindingRequest, FieldMappingV1, FinalizeDeliverableRequest,
   KnowledgeCitationV1, MonitoringAnalysisV1, MonitoringDatasetV1, MonitoringObservationV1,
-  QualityFindingV1, RailwiseProjectV1, ReportPreviewRequest, RunMutationRequest
+  QualityFindingV1, RailwiseProjectV1, ReportPreviewRequest, RunMutationRequest, SurveySourceEvidenceV1
 } from '../contracts/engineering.js'
-import type { AdjustmentResultV1, DeformationComparisonV1 } from '../contracts/survey.js'
+import { AdjustmentResultV1, DeformationComparisonV1, type AdjustmentRunV1, type SurveyObservationV1, type SurveyPointV1, type SurveySourceFileV1 } from '../contracts/survey.js'
 
 type Row = Record<string, string>
 type StoredDataset = MonitoringDatasetV1 & { observations: MonitoringObservationV1[]; findings: QualityFindingV1[] }
-type StoredRun = { id: string; projectId: string; datasetId: string; analysisId?: string; status: 'queued' | 'running' | 'completed' | 'failed' | 'cancelled'; revision: number; idempotencyKey: string; createdAt: string; updatedAt: string; error?: string }
+type StoredRun = { id: string; projectId: string; datasetId?: string; analysisId?: string; /** Canonical project/dataset/analysis snapshot bound when report bytes were published. */ deliveryInputHash?: string; status: 'queued' | 'running' | 'completed' | 'failed' | 'cancelled'; revision: number; idempotencyKey: string; createdAt: string; updatedAt: string; error?: string }
 type SurveyAdjustmentLookup = (projectId: string, ids: string[]) => AdjustmentResultV1[]
+/**
+ * The report-facing adjustment lookup intentionally returns only numerical
+ * results.  Deformation evidence needs the live run binding as well: a
+ * persisted epoch cannot establish its project ownership from a result alone.
+ */
+type SurveyAdjustmentEvidence = {
+  run: Pick<AdjustmentRunV1, 'id' | 'projectId' | 'networkId' | 'inputHash' | 'status'>
+  result: AdjustmentResultV1
+}
+type SurveyAdjustmentEvidenceLookup = (projectId: string, ids: string[]) => SurveyAdjustmentEvidence[]
 type SurveyDeformationLookup = (projectId: string, ids: string[]) => DeformationComparisonV1[]
+type SurveyRawSourceIntegritySnapshot = Readonly<{
+  status: 'verified' | 'legacy-unverified' | 'failed'
+  ledgerEntryCount: number
+  errors: readonly string[]
+}>
+type SurveySourceObservationEvidence = Pick<SurveyObservationV1, 'id' | 'type' | 'sourceRecordId'>
+type SurveySourcePointEvidence = Pick<SurveyPointV1, 'id'>
+type SurveySourceLookup = (projectId: string, networkIds: string[]) => Array<{
+  networkId: string
+  sourceFile?: SurveySourceFileV1
+  rawSourceIntegrity?: SurveyRawSourceIntegritySnapshot
+  /**
+   * Current server-derived admission state.  A source file's persisted
+   * disposition and raw-byte ledger alone are not enough to establish that a
+   * historical network is still safe to use in a newly generated delivery.
+   */
+  sourceEligibility: SurveySourceEligibility
+  /** Required for formalization: source anchor proof is per observation. */
+  observations?: readonly SurveySourceObservationEvidence[]
+  /** Required for formalization: point IDs must not be ambiguous to a solver. */
+  points?: readonly SurveySourcePointEvidence[]
+}>
+
+function sourceFormalizationErrors(networkId: string, sourceFile: SurveySourceFileV1 | undefined, observations: readonly SurveySourceObservationEvidence[] | undefined, points: readonly SurveySourcePointEvidence[] | undefined): string[] {
+  if (!sourceFile) return [`平差网络 ${networkId} 未提供可进入平差的原始资料来源；请从保留的原始文件重新导入并复核后再生成交付清单。`]
+
+  const errors: string[] = []
+  if (sourceFile.disposition !== 'adjustment-ready') {
+    errors.push(`平差网络 ${networkId} 的源文件处置为 ${sourceFile.disposition}，而非 adjustment-ready；请完成所需映射、验证、后处理或受审计转换后重新导入。`)
+  }
+  const hasAuditableLinearEvidence = sourceFile.linearUnitCanonical === 'm'
+    && !['legacy-unknown', 'not-declared'].includes(sourceFile.linearUnitRaw)
+    && sourceFile.parserSourceHash !== 'legacy-unavailable'
+  if (!hasAuditableLinearEvidence) {
+    errors.push(`平差网络 ${networkId} 的源文件未提供可审计的米制线性单位证据（linearUnitCanonical=${sourceFile.linearUnitCanonical}，linearUnitRaw=${sourceFile.linearUnitRaw}）。`)
+  }
+  if (!observations) {
+    errors.push(`平差网络 ${networkId} 未提供观测与原始资料记录锚点映射，不能正式化。`)
+  }
+  if (!points) {
+    errors.push(`平差网络 ${networkId} 未提供点号身份映射，不能正式化。`)
+  }
+  if (!observations || !points) {
+    return errors
+  }
+  const hasAngularObservations = observations.some((observation) => ['direction', 'angle', 'zenith'].includes(observation.type))
+  const hasAuditableAngularEvidence = sourceFile.angularUnitCanonical === 'rad'
+    && !['legacy-unknown', 'not-declared'].includes(sourceFile.angularUnitRaw)
+    && sourceFile.parserSourceHash !== 'legacy-unavailable'
+  if (hasAngularObservations && !hasAuditableAngularEvidence) {
+    errors.push(`平差网络 ${networkId} 的源文件未提供可审计的弧度角度单位证据（angularUnitCanonical=${sourceFile.angularUnitCanonical}，angularUnitRaw=${sourceFile.angularUnitRaw}）。`)
+  }
+
+  const anchorsById = new Map<string, typeof sourceFile.records>()
+  for (const anchor of sourceFile.records) anchorsById.set(anchor.id, [...(anchorsById.get(anchor.id) ?? []), anchor])
+  for (const observation of observations) {
+    const sourceRecordId = observation.sourceRecordId
+    if (!sourceRecordId) {
+      errors.push(`平差网络 ${networkId} 的观测 ${observation.id} 未关联原始资料记录锚点。`)
+      continue
+    }
+    const anchors = anchorsById.get(sourceRecordId) ?? []
+    if (anchors.length !== 1) {
+      errors.push(`平差网络 ${networkId} 的观测 ${observation.id} 的原始资料记录锚点 ${sourceRecordId} 不存在或不唯一。`)
+      continue
+    }
+    const anchor = anchors[0]!
+    const isWholeFileAnchor = sourceFile.records.length > 1 && anchor.rawOffset === 0 && anchor.rawLength >= sourceFile.fileSize
+    if (anchor.rawLength <= 0 || anchor.rawOffset + anchor.rawLength > sourceFile.fileSize || isWholeFileAnchor) {
+      errors.push(`平差网络 ${networkId} 的观测 ${observation.id} 的原始资料记录锚点 ${sourceRecordId} 不是非整文件的精确字节范围。`)
+    }
+  }
+  const duplicateIds = (ids: readonly string[]): string[] => {
+    const seen = new Set<string>()
+    const duplicates = new Set<string>()
+    for (const id of ids) {
+      if (seen.has(id)) duplicates.add(id)
+      seen.add(id)
+    }
+    return [...duplicates].sort()
+  }
+  const duplicateObservationIds = duplicateIds(observations.map((observation) => observation.id))
+  if (duplicateObservationIds.length) errors.push(`平差网络 ${networkId} 的观测编号不唯一（${duplicateObservationIds.slice(0, 10).join('、')}），不能正式化。`)
+  const duplicatePointIds = duplicateIds(points.map((point) => point.id))
+  if (duplicatePointIds.length) errors.push(`平差网络 ${networkId} 的点号不唯一（${duplicatePointIds.slice(0, 10).join('、')}），不能正式化。`)
+  return errors
+}
 
 export class EngineeringRevisionConflictError extends Error { readonly code = 'stale_request' }
-export class EngineeringIdempotencyError extends Error { readonly code = 'idempotency_replay'; constructor(readonly result: unknown) { super('idempotency key already used') } }
+export class EngineeringIdempotencyError extends Error {
+  readonly code = 'idempotency_replay'
+  constructor(readonly result: unknown, message = 'idempotency key is already bound to a different or legacy request') { super(message) }
+}
+
+type DeliveryIdempotencyOperation = 'report-preview' | 'deliverable-finalize'
+type DeliveryIdempotencyRequest = Readonly<{ idempotencyKey: string }>
+type DeliveryIdempotencyRow = Readonly<{ operation: string; request_hash: string; result_json: string }>
+
+/**
+ * Delivery artifacts cannot safely reuse a bare idempotency key: provenance
+ * changes when an adjustment, deformation, citation, or dataset changes.
+ * Keep array order (it is report order), sort object keys, and deliberately
+ * omit only the key itself from the bound request payload.
+ */
+function canonicalDeliveryJson(value: unknown): string {
+  if (value === null || typeof value === 'boolean' || typeof value === 'number' || typeof value === 'string') return JSON.stringify(value)
+  if (Array.isArray(value)) return `[${value.map((item) => canonicalDeliveryJson(item)).join(',')}]`
+  if (typeof value === 'object') {
+    const object = value as Record<string, unknown>
+    return `{${Object.keys(object).sort().filter((key) => object[key] !== undefined).map((key) => `${JSON.stringify(key)}:${canonicalDeliveryJson(object[key])}`).join(',')}}`
+  }
+  // Parsed delivery requests cannot contain undefined/function/symbol values.
+  // Failing closed here is safer than silently making two different payloads
+  // share a fingerprint.
+  throw new Error(`unsupported delivery idempotency value: ${typeof value}`)
+}
+
+function deliveryRequestFingerprint(operation: DeliveryIdempotencyOperation, request: DeliveryIdempotencyRequest): string {
+  const payload = { ...(request as Record<string, unknown>) }
+  delete payload.idempotencyKey
+  return createHash('sha256').update(canonicalDeliveryJson({ operation, payload })).digest('hex')
+}
+
+/**
+ * Survey provenance is only one part of a report. Bind the complete mutable
+ * report input set too, so a dataset/project/analysis update that lands while
+ * a document is rendering cannot be published as if it used current data.
+ */
+function deliveryInputSnapshotHash(project: RailwiseProjectV1, dataset?: StoredDataset, analysis?: MonitoringAnalysisV1): string {
+  return createHash('sha256').update(canonicalDeliveryJson({
+    schemaVersion: 1,
+    project,
+    dataset,
+    analysis
+  })).digest('hex')
+}
+
+/** Keep analysis freshness checks byte-for-byte aligned with createAnalysis. */
+function analysisInputHash(project: RailwiseProjectV1, dataset: Pick<StoredDataset, 'observations'>): string {
+  return createHash('sha256').update(JSON.stringify({ project, observations: dataset.observations })).digest('hex')
+}
 
 export class EngineeringService {
   private readonly db: Database.Database
   private readonly nowIso: () => string
   private readonly idempotencyLocks = new Map<string, Promise<void>>()
-  constructor(private readonly options: { rootDir: string; attachmentStore?: AttachmentStore; runtimeVersion?: string; nowIso?: () => string; getAdjustments?: SurveyAdjustmentLookup; getDeformations?: SurveyDeformationLookup }) {
+  private readonly pendingMetadataWrites = new Set<Promise<void>>()
+  constructor(private readonly options: { rootDir: string; attachmentStore?: AttachmentStore; runtimeVersion?: string; nowIso?: () => string; getAdjustments?: SurveyAdjustmentLookup; getAdjustmentEvidence?: SurveyAdjustmentEvidenceLookup; getDeformations?: SurveyDeformationLookup; getSurveySources?: SurveySourceLookup }) {
     this.nowIso = options.nowIso ?? (() => new Date().toISOString())
     mkdirSync(resolve(options.rootDir), { recursive: true })
     this.db = new Database(resolve(options.rootDir, 'engineering.sqlite3'))
@@ -38,9 +189,24 @@ export class EngineeringService {
       CREATE TABLE IF NOT EXISTS engineering_charts (id TEXT PRIMARY KEY, analysis_id TEXT NOT NULL, data_json TEXT NOT NULL, created_at TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS engineering_runs (id TEXT PRIMARY KEY, project_id TEXT NOT NULL, data_json TEXT NOT NULL, updated_at TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS engineering_manifests (id TEXT PRIMARY KEY, project_id TEXT NOT NULL, data_json TEXT NOT NULL, created_at TEXT NOT NULL);
-      CREATE TABLE IF NOT EXISTS engineering_idempotency (key TEXT PRIMARY KEY, result_json TEXT NOT NULL, created_at TEXT NOT NULL);`)
+      CREATE TABLE IF NOT EXISTS engineering_idempotency (key TEXT PRIMARY KEY, result_json TEXT NOT NULL, created_at TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS engineering_delivery_idempotency (
+        key TEXT PRIMARY KEY,
+        operation TEXT NOT NULL,
+        request_hash TEXT NOT NULL,
+        result_json TEXT NOT NULL,
+        created_at TEXT NOT NULL
+      );`)
   }
   close(): void { this.db.close() }
+
+  /** Wait for recoverable metadata projections before a workspace is closed or removed. */
+  async flush(): Promise<void> {
+    while (this.pendingMetadataWrites.size > 0) {
+      await Promise.all([...this.pendingMetadataWrites])
+    }
+    await drainAtomicWrites()
+  }
 
   listProjects(): RailwiseProjectV1[] {
     return (this.db.prepare('SELECT data_json FROM engineering_projects ORDER BY updated_at DESC').all() as Array<{ data_json: string }>).map((r) => RailwiseProjectV1.parse(JSON.parse(r.data_json)))
@@ -58,7 +224,7 @@ export class EngineeringService {
     const { expectedRevision: _expectedRevision, idempotencyKey: _idempotencyKey, ...projectPatch } = req
     const next = RailwiseProjectV1.parse({ ...project, ...projectPatch, id: project.id, workspace: project.workspace, revision: project.revision + 1, updatedAt: this.nowIso() })
     this.db.prepare('UPDATE engineering_projects SET revision = ?, data_json = ?, updated_at = ? WHERE id = ?').run(next.revision, JSON.stringify(next), next.updatedAt, next.id)
-    void this.persistMetadata(next.workspace, 'projects', next.id, next)
+    this.trackMetadataPersistence(next.workspace, 'projects', next.id, next)
     this.remember(req.idempotencyKey, next)
     return next
   }
@@ -81,7 +247,7 @@ export class EngineeringService {
     const now = this.nowIso(); const id = `project_${randomUUID()}`
     const project = RailwiseProjectV1.parse({ schemaVersion: 1, id, name: parsed.name, monitoringType: parsed.monitoringType ?? 'deformation', unit: parsed.unit ?? 'mm', signConvention: parsed.signConvention ?? 'positive', thresholds: parsed.thresholds ?? {}, reportPeriod: parsed.reportPeriod ?? {}, workspace: resolve(parsed.workspace), revision: 1, createdAt: now, updatedAt: now })
     this.db.prepare('INSERT INTO engineering_projects(id, revision, data_json, updated_at) VALUES (?, ?, ?, ?)').run(id, 1, JSON.stringify(project), now)
-    void this.persistMetadata(project.workspace, 'projects', project.id, project)
+    this.trackMetadataPersistence(project.workspace, 'projects', project.id, project)
     this.remember(parsed.idempotencyKey, project)
     return project
   }
@@ -118,7 +284,7 @@ export class EngineeringService {
     if (req.expectedRevision !== dataset.revision && req.expectedRevision !== 0) throw new EngineeringRevisionConflictError(`dataset revision conflict: expected ${req.expectedRevision}, actual ${dataset.revision}`)
     const findings = mergeFindings(dataset.findings, runQualityChecks(dataset.observations, project, this.nowIso)).map((finding) => ({ ...finding, datasetId: dataset.id }))
     const next = { ...dataset, findings, status: 'validated' as const, revision: dataset.revision + 1, updatedAt: this.nowIso() }
-    this.saveDataset(next); void this.persistMetadata(project.workspace, 'datasets', next.id, next); this.remember(req.idempotencyKey, next); return next
+    this.saveDataset(next); this.trackMetadataPersistence(project.workspace, 'datasets', next.id, next); this.remember(req.idempotencyKey, next); return next
   }
   acceptWarningFinding(input: unknown): StoredDataset {
     const req = AcceptQualityFindingRequest.parse(input)
@@ -131,16 +297,28 @@ export class EngineeringService {
     if (finding.severity !== 'warning') throw new Error('only warning findings can be accepted')
     const next = { ...dataset, findings: dataset.findings.map((item) => item.id === finding.id ? { ...item, status: 'accepted' as const } : item), revision: dataset.revision + 1, updatedAt: this.nowIso() }
     this.saveDataset(next)
-    void this.persistMetadata(this.mustProject(dataset.projectId).workspace, 'datasets', next.id, next)
+    this.trackMetadataPersistence(this.mustProject(dataset.projectId).workspace, 'datasets', next.id, next)
     this.remember(req.idempotencyKey, next)
     return next
   }
 
   createAnalysis(input: unknown): MonitoringAnalysisV1 {
-    const req = AnalysisRequest.parse(input); const replay = this.replay(req.idempotencyKey); if (replay) return replay as MonitoringAnalysisV1; const dataset = this.mustDataset(req.datasetId); const project = this.mustProject(req.projectId)
+    const req = AnalysisRequest.parse(input); const dataset = this.mustDataset(req.datasetId); const project = this.mustProject(req.projectId)
     if (dataset.projectId !== project.id) throw new Error('dataset does not belong to project')
     if (req.expectedRevision !== 0 && req.expectedRevision !== dataset.revision) throw new EngineeringRevisionConflictError(`dataset revision conflict: expected ${req.expectedRevision}, actual ${dataset.revision}`)
-    const inputHash = createHash('sha256').update(JSON.stringify({ project, observations: dataset.observations })).digest('hex')
+    const inputHash = analysisInputHash(project, dataset)
+    const replay = this.replay(req.idempotencyKey)
+    if (replay) {
+      const replayed = MonitoringAnalysisV1.parse(replay)
+      if (replayed.projectId !== project.id || replayed.datasetId !== dataset.id || replayed.inputHash !== inputHash) {
+        throw new EngineeringIdempotencyError(replayed, 'analysis idempotency key is bound to stale or different project/dataset inputs')
+      }
+      const durable = this.getAnalysis(replayed.id)
+      if (!durable || canonicalDeliveryJson(durable) !== canonicalDeliveryJson(replayed)) {
+        throw new EngineeringIdempotencyError(replayed, 'analysis idempotency result is unavailable or differs from its durable analysis')
+      }
+      return durable
+    }
     const existing = this.db.prepare('SELECT data_json FROM engineering_analyses WHERE dataset_id = ? AND project_id = ? AND json_extract(data_json, \'$.inputHash\') = ? ORDER BY created_at DESC LIMIT 1').get(dataset.id, project.id, inputHash) as { data_json: string } | undefined
     if (existing) return MonitoringAnalysisV1.parse(JSON.parse(existing.data_json))
     const grouped = new Map<string, MonitoringObservationV1[]>()
@@ -162,8 +340,22 @@ export class EngineeringService {
   async createChart(input: unknown): Promise<ChartArtifactV1> {
     const req = ChartRequest.parse(input); const analysis = this.getAnalysis(req.analysisId); if (!analysis) throw new Error('analysis not found')
     return this.withIdempotencyLock(req.idempotencyKey, async () => {
-      const replay = this.replay(req.idempotencyKey); if (replay) return replay as ChartArtifactV1
-      const project = this.mustProject(analysis.projectId); const runId = `chart_${randomUUID()}`; const outDir = this.outputDir(project, runId); await mkdir(outDir, { recursive: true })
+      const project = this.mustProject(analysis.projectId)
+      const dataset = this.mustDataset(analysis.datasetId)
+      this.assertAnalysisCurrent(project, dataset, analysis)
+      const replay = this.replay(req.idempotencyKey)
+      if (replay) {
+        const replayed = ChartArtifactV1.parse(replay)
+        if (replayed.analysisId !== analysis.id || replayed.inputHash !== analysis.inputHash) {
+          throw new EngineeringIdempotencyError(replayed, 'chart idempotency key is bound to stale or different analysis input')
+        }
+        const durable = this.getChart(replayed.id)
+        if (!durable || canonicalDeliveryJson(durable) !== canonicalDeliveryJson(replayed)) {
+          throw new EngineeringIdempotencyError(replayed, 'chart idempotency result is unavailable or differs from its durable chart')
+        }
+        return durable
+      }
+      const runId = `chart_${randomUUID()}`; const outDir = this.outputDir(project, runId); await mkdir(outDir, { recursive: true })
       const values = analysis.results.map((r) => r.currentValue).filter((v): v is number => typeof v === 'number'); const min = Math.min(...values, 0); const max = Math.max(...values, 0)
       const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="960" height="360"><rect width="100%" height="100%" fill="#fff"/><polyline fill="none" stroke="#2878d0" stroke-width="3" points="${values.map((v, i) => `${40 + i * (880 / Math.max(1, values.length - 1))},${320 - ((v - min) / Math.max(1e-9, max - min)) * 280}`).join(' ')}"/></svg>`
       const path = join(outDir, `${req.chartType}.svg`); await atomicWriteFile(path, svg); const sha256 = createHash('sha256').update(svg).digest('hex')
@@ -172,36 +364,281 @@ export class EngineeringService {
     })
   }
 
-  async previewReport(input: unknown): Promise<{ run: StoredRun; files: Array<{ path: string; mediaType: string; sha256: string; sizeBytes: number }>; charts: ChartArtifactV1[]; citations: KnowledgeCitationV1[]; adjustments: AdjustmentResultV1[]; deformations: DeformationComparisonV1[] }> {
+  async previewReport(input: unknown): Promise<{ run: StoredRun; files: Array<{ path: string; mediaType: string; sha256: string; sizeBytes: number }>; charts: ChartArtifactV1[]; citations: KnowledgeCitationV1[]; adjustments: AdjustmentResultV1[]; deformations: DeformationComparisonV1[]; surveySources: SurveySourceEvidenceV1[] }> {
     const req = ReportPreviewRequest.parse(input)
     return this.withIdempotencyLock(req.idempotencyKey, async () => {
-      const project = this.mustProject(req.projectId); const dataset = this.mustDataset(req.datasetId); if (req.expectedRevision !== 0 && req.expectedRevision !== dataset.revision) throw new EngineeringRevisionConflictError(`dataset revision conflict: expected ${req.expectedRevision}, actual ${dataset.revision}`); const analysis = req.analysisId ? this.getAnalysis(req.analysisId) : this.createAnalysis({ expectedRevision: dataset.revision, idempotencyKey: `preview-analysis-${dataset.id}`, projectId: project.id, datasetId: dataset.id }); if (!analysis) throw new Error('analysis not found')
-      if (analysis.projectId !== project.id || analysis.datasetId !== dataset.id) throw new Error('analysis does not belong to project and dataset')
+      const project = this.mustProject(req.projectId)
+      const dataset = req.datasetId ? this.mustDataset(req.datasetId) : undefined
+      this.assertDeliveryRevision(project, dataset, req.expectedRevision)
+      const analysis = dataset ? (req.analysisId ? this.getAnalysis(req.analysisId) ?? undefined : this.createAnalysis({ expectedRevision: dataset.revision, idempotencyKey: `preview-analysis-${dataset.id}-${analysisInputHash(project, dataset)}`, projectId: project.id, datasetId: dataset.id })) : undefined
+      if (dataset) {
+        if (!analysis) throw new Error('analysis not found')
+        this.assertAnalysisCurrent(project, dataset, analysis)
+      }
+      const inputSnapshotHash = deliveryInputSnapshotHash(project, dataset, analysis)
       const adjustments = this.lookupAdjustments(project.id, req.adjustmentIds)
       const deformations = this.lookupDeformations(project.id, req.deformationIds)
-      const replay = this.replay(req.idempotencyKey)
+      this.assertDeformationEpochEvidence(project.id, deformations)
+      // A preview is a newly generated computational artifact, not merely a
+      // read of its historical inputs. Check current source admission before
+      // looking up an idempotent result or allocating an output directory.
+      this.assertSurveySourcesAdmissible(project.id, adjustments, deformations)
+      const replay = this.replayDelivery<{
+        run: StoredRun
+        files: Array<{ path: string; mediaType: string; sha256: string; sizeBytes: number }>
+        charts: ChartArtifactV1[]
+        citations: KnowledgeCitationV1[]
+        adjustments?: AdjustmentResultV1[]
+        deformations?: DeformationComparisonV1[]
+        surveySources?: SurveySourceEvidenceV1[]
+      }>('report-preview', req)
       if (replay) {
-        const legacy = replay as { run: StoredRun; files: Array<{ path: string; mediaType: string; sha256: string; sizeBytes: number }>; charts: ChartArtifactV1[]; citations: KnowledgeCitationV1[]; adjustments?: AdjustmentResultV1[]; deformations?: DeformationComparisonV1[] }
-        return { ...legacy, adjustments: legacy.adjustments ?? [], deformations: legacy.deformations ?? [] }
+        if (replay.run.projectId !== project.id || replay.run.datasetId !== dataset?.id || replay.run.analysisId !== analysis?.id) {
+          throw new EngineeringIdempotencyError(replay, 'stored preview does not match its bound delivery request')
+        }
+        if (!replay.run.deliveryInputHash || replay.run.deliveryInputHash !== inputSnapshotHash) {
+          throw new EngineeringIdempotencyError(replay, 'stored preview input snapshot no longer matches the current project, dataset, and analysis')
+        }
+        this.assertCompletedRunCurrent(replay.run)
+        this.assertDeliveryOutputsCurrent(project, replay.files)
+        let replayAdjustments: AdjustmentResultV1[]
+        try {
+          replayAdjustments = (replay.adjustments ?? []).map((item) => AdjustmentResultV1.parse(item))
+        } catch {
+          throw new EngineeringIdempotencyError(replay, 'stored preview has malformed adjustment evidence')
+        }
+        this.assertReplayAdjustmentsMatchLive('stored preview', adjustments, replayAdjustments)
+        let replayDeformations: DeformationComparisonV1[]
+        try {
+          replayDeformations = (replay.deformations ?? []).map((item) => DeformationComparisonV1.parse(item))
+        } catch {
+          throw new EngineeringIdempotencyError(replay, 'stored preview has malformed deformation evidence')
+        }
+        this.assertReplayDeformationsMatchLive('stored preview', deformations, replayDeformations)
+        this.assertDeformationEpochEvidence(project.id, deformations)
+        this.assertSurveySourcesAdmissible(project.id, adjustments, deformations)
+        // Re-read source evidence from the replay's own bound inputs.  Never
+        // pair an old report file with provenance from a new request.
+        const replaySurveySources = this.lookupSurveySources(project.id, this.requiredSurveyNetworkIds(adjustments, deformations))
+        return { ...replay, adjustments, deformations, surveySources: replaySurveySources }
       }
-      const runId = `run_${randomUUID()}`; const outDir = this.outputDir(project, runId); await mkdir(outDir, { recursive: true }); const chart = this.latestChart(analysis.id) ?? await this.createChart({ expectedRevision: 0, idempotencyKey: `preview-chart-${analysis.id}`, analysisId: analysis.id, chartType: 'trend' })
-      const outputs: Array<{ path: string; mediaType: string; sha256: string; sizeBytes: number }> = []
-      const text = reportText(project, dataset, analysis, req.citations, adjustments, deformations)
-      const docxPath = join(outDir, 'report.docx'); await atomicWriteFile(docxPath, await makeDocx(text)); outputs.push(await fileOutput(docxPath, 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', project.workspace))
-      const pdfPath = join(outDir, 'report.pdf'); await atomicWriteFile(pdfPath, makePdf(text)); outputs.push(await fileOutput(pdfPath, 'application/pdf', project.workspace))
-      const xlsxPath = join(outDir, 'evidence.xlsx'); await atomicWriteFile(xlsxPath, await makeXlsx(project, dataset, analysis, req.citations, adjustments, deformations, this.options.runtimeVersion ?? '0.5.0')); outputs.push(await fileOutput(xlsxPath, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', project.workspace))
-      const chartPath = resolve(project.workspace, chart.relativePath); if (await readFile(chartPath).then(() => true).catch(() => false)) outputs.push(await fileOutput(chartPath, 'image/svg+xml', project.workspace))
-      const run: StoredRun = { id: runId, projectId: project.id, datasetId: dataset.id, analysisId: analysis.id, status: 'completed', revision: 1, idempotencyKey: req.idempotencyKey, createdAt: this.nowIso(), updatedAt: this.nowIso() }
-      this.db.prepare('INSERT INTO engineering_runs(id, project_id, data_json, updated_at) VALUES (?, ?, ?, ?)').run(run.id, run.projectId, JSON.stringify(run), run.updatedAt)
-      const result = { run, files: outputs, charts: [chart], citations: req.citations, adjustments, deformations }; this.remember(req.idempotencyKey, result); return result
+      const surveySources = this.lookupSurveySources(project.id, this.requiredSurveyNetworkIds(adjustments, deformations))
+      const runId = `run_${randomUUID()}`
+      const outDir = this.outputDir(project, runId)
+      // Do not write partially generated reports into the public deliverable
+      // tree.  A source/result can change while DOCX/PDF/XLSX generation
+      // yields; staged bytes are published only after a final synchronous
+      // evidence check, so a rejected preview never leaves readable report
+      // files under `.workwise/deliverables`.
+      const stagingDir = this.deliveryStagingDir(project, runId)
+      await mkdir(stagingDir, { recursive: true })
+      let published = false
+      try {
+        const chart = analysis ? this.latestChart(analysis.id) ?? await this.createChart({ expectedRevision: 0, idempotencyKey: `preview-chart-${analysis.id}`, analysisId: analysis.id, chartType: 'trend' }) : undefined
+        const outputs: Array<{ path: string; mediaType: string; sha256: string; sizeBytes: number }> = []
+        const stageOutput = async (name: string, mediaType: string, contents: string | Uint8Array): Promise<void> => {
+          const stagedPath = join(stagingDir, name)
+          await atomicWriteFile(stagedPath, contents)
+          const recorded = await fileOutput(stagedPath, mediaType, project.workspace)
+          outputs.push({ ...recorded, path: relative(project.workspace, join(outDir, name)) })
+        }
+        const text = reportText(project, dataset, analysis, req.citations, adjustments, deformations, surveySources)
+        await stageOutput('report.docx', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', await makeDocx(text))
+        await stageOutput('report.pdf', 'application/pdf', await makeReportPdf(text))
+        await stageOutput('evidence.xlsx', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', await makeXlsx(project, dataset, analysis, req.citations, adjustments, deformations, surveySources, this.options.runtimeVersion ?? '0.5.0'))
+        if (chart) {
+          const chartPath = resolve(project.workspace, chart.relativePath)
+          if (await readFile(chartPath).then(() => true).catch(() => false)) outputs.push(await fileOutput(chartPath, 'image/svg+xml', project.workspace))
+        }
+
+        // Publish the directory only after a synchronous strict re-read.
+        // `publishStagedDeliveryDirectory` deliberately does not await
+        // between this verifier and renameSync, closing the in-process TOCTOU
+        // interval that existed when verification ran after public writes.
+        let completedAdjustments!: AdjustmentResultV1[]
+        let completedDeformations!: DeformationComparisonV1[]
+        let completedSurveySources!: SurveySourceEvidenceV1[]
+        this.publishStagedDeliveryDirectory(stagingDir, outDir, () => {
+          this.assertDeliveryInputsCurrent(project, dataset, analysis, inputSnapshotHash)
+          completedAdjustments = this.lookupAdjustments(project.id, req.adjustmentIds)
+          completedDeformations = this.lookupDeformations(project.id, req.deformationIds)
+          this.assertReplayAdjustmentsMatchLive('preview publication', completedAdjustments, adjustments)
+          this.assertReplayDeformationsMatchLive('preview publication', completedDeformations, deformations)
+          this.assertDeformationEpochEvidence(project.id, completedDeformations)
+          this.assertSurveySourcesAdmissible(project.id, completedAdjustments, completedDeformations)
+          completedSurveySources = this.lookupSurveySources(project.id, this.requiredSurveyNetworkIds(completedAdjustments, completedDeformations))
+          // Provider calls above are synchronous but may observe a mutable
+          // runtime. Re-check project/dataset/analysis after the complete
+          // evidence read, immediately before the no-await publication.
+          this.assertDeliveryInputsCurrent(project, dataset, analysis, inputSnapshotHash)
+        })
+        published = true
+        this.assertDeliveryOutputsCurrent(project, outputs)
+        const run: StoredRun = { id: runId, projectId: project.id, datasetId: dataset?.id, analysisId: analysis?.id, deliveryInputHash: inputSnapshotHash, status: 'completed', revision: 1, idempotencyKey: req.idempotencyKey, createdAt: this.nowIso(), updatedAt: this.nowIso() }
+        const result = { run, files: outputs, charts: chart ? [chart] : [], citations: req.citations, adjustments: completedAdjustments, deformations: completedDeformations, surveySources: completedSurveySources }
+        // If another Runtime has claimed the idempotency key while this one
+        // was rendering, roll back our run rather than leaving a second
+        // public directory that is not the replayed delivery.
+        return this.db.transaction(() => {
+          this.db.prepare('INSERT INTO engineering_runs(id, project_id, data_json, updated_at) VALUES (?, ?, ?, ?)').run(run.id, run.projectId, JSON.stringify(run), run.updatedAt)
+          const remembered = this.rememberDelivery('report-preview', req, result)
+          if (remembered.run.id !== run.id) {
+            throw new EngineeringIdempotencyError(remembered, 'delivery idempotency key was claimed while this preview was publishing')
+          }
+          return remembered
+        }).immediate()
+      } catch (error) {
+        // This path owns a random, containment-checked staging directory. A
+        // failed/revoked preview must not accumulate a second readable copy
+        // of its report outside the delivery tree either.
+        await rm(stagingDir, { recursive: true, force: true }).catch(() => undefined)
+        if (published) await rm(outDir, { recursive: true, force: true }).catch(() => undefined)
+        throw error
+      }
     })
   }
 
   async finalize(input: unknown): Promise<DeliverableManifestV1> {
     const req = FinalizeDeliverableRequest.parse(input)
     return this.withIdempotencyLock(req.idempotencyKey, async () => {
-      const replay = this.replay(req.idempotencyKey); if (replay) return DeliverableManifestV1.parse(replay); const project = this.mustProject(req.projectId); const dataset = this.mustDataset(req.datasetId); if (req.expectedRevision !== 0 && req.expectedRevision !== dataset.revision) throw new EngineeringRevisionConflictError(`dataset revision conflict: expected ${req.expectedRevision}, actual ${dataset.revision}`); const findings = dataset.findings.filter((f) => f.status === 'open'); const blocking = findings.filter((f) => f.severity === 'blocking'); const warnings = findings.filter((f) => f.severity === 'warning'); if (blocking.length) throw new Error(`blocking findings remain: ${blocking.length}`); if (warnings.length && !req.acknowledgeWarnings) throw new Error(`warnings require acknowledgement: ${warnings.length}`)
-      const preview = await this.previewReport({ expectedRevision: req.expectedRevision, idempotencyKey: `finalize-preview-${req.idempotencyKey}`, projectId: project.id, datasetId: dataset.id, citations: req.citations, adjustmentIds: req.adjustmentIds, deformationIds: req.deformationIds, ...(req.analysisId ? { analysisId: req.analysisId } : {}) }); const outputs = [...preview.files]; const runId = preview.run.id; const manifest = DeliverableManifestV1.parse({ schemaVersion: 1, id: `manifest_${randomUUID()}`, projectId: project.id, runId, inputDatasets: [{ id: dataset.id, hash: dataset.sourceFileHash }], analyses: [preview.run.analysisId!], adjustments: preview.adjustments, deformations: preview.deformations, charts: preview.charts, citations: req.citations, outputs, validation: { valid: true, errors: [], warnings: warnings.map((f) => f.message) }, reviewStatus: 'approved', runtimeVersion: this.options.runtimeVersion ?? '0.5.0', createdAt: this.nowIso(), finalizedAt: this.nowIso() }); const path = join(this.outputDir(project, runId), 'manifest.json'); await atomicWriteFile(path, JSON.stringify(manifest, null, 2)); this.db.prepare('INSERT INTO engineering_manifests(id, project_id, data_json, created_at) VALUES (?, ?, ?, ?)').run(manifest.id, manifest.projectId, JSON.stringify(manifest), manifest.createdAt); this.remember(req.idempotencyKey, manifest); return manifest
+      const project = this.mustProject(req.projectId)
+      const dataset = req.datasetId ? this.mustDataset(req.datasetId) : undefined
+      this.assertDeliveryRevision(project, dataset, req.expectedRevision)
+      const requestedAdjustments = this.lookupAdjustments(project.id, req.adjustmentIds)
+      const requestedDeformations = this.lookupDeformations(project.id, req.deformationIds)
+      this.assertDeformationEpochEvidence(project.id, requestedDeformations)
+      // Review current evidence before consulting the idempotency store. A
+      // successful historical manifest remains readable in its table/files,
+      // but it cannot be re-issued after source admission has failed.
+      this.assertSurveySourcesAdmissible(project.id, requestedAdjustments, requestedDeformations)
+      const replay = this.replayDelivery<DeliverableManifestV1>('deliverable-finalize', req)
+      if (replay) {
+        const manifest = DeliverableManifestV1.parse(replay)
+        if (manifest.projectId !== project.id || manifest.inputDatasets.length !== (dataset ? 1 : 0) || manifest.inputDatasets[0]?.id !== dataset?.id) {
+          throw new EngineeringIdempotencyError(manifest, 'stored manifest does not match its bound delivery request')
+        }
+        const manifestRun = this.getRun(manifest.runId)
+        const manifestAnalysisId = manifest.analyses.length === 1 ? manifest.analyses[0] : undefined
+        const manifestAnalysis = manifestAnalysisId ? this.getAnalysis(manifestAnalysisId) ?? undefined : undefined
+        if (!manifestRun
+          || manifestRun.projectId !== project.id
+          || manifestRun.datasetId !== dataset?.id
+          || manifestRun.analysisId !== manifestAnalysisId
+          || !manifestRun.deliveryInputHash
+          || (dataset ? manifest.analyses.length !== 1 || !manifestAnalysis : manifest.analyses.length !== 0)) {
+          throw new EngineeringIdempotencyError(manifest, 'stored manifest lacks a current bound report-input snapshot')
+        }
+        this.assertCompletedRunCurrent(manifestRun)
+        this.assertDeliveryInputsCurrent(project, dataset, manifestAnalysis, manifestRun.deliveryInputHash)
+        this.assertDeliveryOutputsCurrent(project, manifest.outputs)
+        this.assertPublishedManifestCurrent(project, manifest)
+        this.assertReplayAdjustmentsMatchLive('stored deliverable manifest', requestedAdjustments, manifest.adjustments)
+        this.assertReplayDeformationsMatchLive('stored deliverable manifest', requestedDeformations, manifest.deformations)
+        this.assertDeformationEpochEvidence(project.id, requestedDeformations)
+        this.assertSurveySourcesAdmissible(project.id, requestedAdjustments, requestedDeformations)
+        return manifest
+      }
+      const findings = dataset?.findings.filter((finding) => finding.status === 'open') ?? []
+      const blocking = findings.filter((finding) => finding.severity === 'blocking')
+      const warnings = findings.filter((finding) => finding.severity === 'warning')
+      if (blocking.length) throw new Error(`blocking findings remain: ${blocking.length}`)
+      if (warnings.length && !req.acknowledgeWarnings) throw new Error(`warnings require acknowledgement: ${warnings.length}`)
+
+      const preview = await this.previewReport({
+        expectedRevision: req.expectedRevision,
+        idempotencyKey: `finalize-preview-${req.idempotencyKey}`,
+        projectId: project.id,
+        datasetId: dataset?.id,
+        citations: req.citations,
+        adjustmentIds: req.adjustmentIds,
+        deformationIds: req.deformationIds,
+        ...(req.analysisId ? { analysisId: req.analysisId } : {})
+      })
+      const previewAnalysis = preview.run.analysisId ? this.getAnalysis(preview.run.analysisId) ?? undefined : undefined
+      if ((dataset && !previewAnalysis) || (!dataset && preview.run.analysisId) || !preview.run.deliveryInputHash) {
+        throw new Error('preview is missing a bound project/dataset/analysis input snapshot')
+      }
+      this.assertCompletedRunCurrent(preview.run)
+      this.assertDeliveryInputsCurrent(project, dataset, previewAnalysis, preview.run.deliveryInputHash)
+      this.assertDeliveryOutputsCurrent(project, preview.files)
+      // Re-read complete adjustment and deformation payloads immediately
+      // before sealing. This also covers adjustment-only delivery: checking
+      // only deformation epochs would otherwise leave a stale standalone
+      // adjustment in the manifest.
+      const completedAdjustments = this.lookupAdjustments(project.id, req.adjustmentIds)
+      const completedDeformations = this.lookupDeformations(project.id, req.deformationIds)
+      this.assertReplayAdjustmentsMatchLive('finalize before manifest', completedAdjustments, preview.adjustments)
+      this.assertReplayDeformationsMatchLive('finalize before manifest', completedDeformations, preview.deformations)
+      this.assertDeformationEpochEvidence(project.id, completedDeformations)
+      const sourceReview = this.assertSurveySourcesAdmissible(project.id, completedAdjustments, completedDeformations)
+      const completedSurveySources = this.lookupSurveySources(project.id, this.requiredSurveyNetworkIds(completedAdjustments, completedDeformations))
+
+      const outputs = [...preview.files]
+      const runId = preview.run.id
+      const manifest = DeliverableManifestV1.parse({
+        schemaVersion: 1,
+        id: `manifest_${randomUUID()}`,
+        projectId: project.id,
+        runId,
+        inputDatasets: dataset ? [{ id: dataset.id, hash: dataset.sourceFileHash }] : [],
+        analyses: previewAnalysis ? [previewAnalysis.id] : [],
+        adjustments: completedAdjustments,
+        deformations: completedDeformations,
+        surveySources: completedSurveySources,
+        charts: preview.charts,
+        citations: req.citations,
+        outputs,
+        validation: {
+          valid: true,
+          errors: [],
+          warnings: [
+            ...warnings.map((finding) => finding.message),
+            ...sourceReview.warnings,
+            '尚未完成复核、审核、批准与签名流程；该成果清单仅供待审查使用，不得作为已批准交付。'
+          ]
+        },
+        // F-QC-21/22 are not implemented yet.  A materialized manifest is a
+        // review candidate, never evidence of an approval that did not occur.
+        reviewStatus: 'draft',
+        runtimeVersion: this.options.runtimeVersion ?? '0.5.0',
+        createdAt: this.nowIso(),
+        finalizedAt: this.nowIso()
+      })
+      const path = join(this.outputDir(project, runId), 'manifest.json')
+      const stagingPath = this.deliveryManifestStagingPath(project, runId, manifest.id)
+      let manifestPublished = false
+      try {
+        await atomicWriteFile(stagingPath, JSON.stringify(manifest, null, 2))
+        // Materialize the manifest out of band, then synchronously re-check
+        // and rename it into the public run directory. No stale manifest is
+        // observable if its strict survey evidence changed during the write.
+        this.publishStagedManifest(stagingPath, path, () => {
+          this.assertDeliveryInputsCurrent(project, dataset, previewAnalysis, preview.run.deliveryInputHash!)
+          this.assertCompletedRunCurrent(preview.run)
+          this.assertDeliveryOutputsCurrent(project, manifest.outputs)
+          const persistedAdjustments = this.lookupAdjustments(project.id, req.adjustmentIds)
+          const persistedDeformations = this.lookupDeformations(project.id, req.deformationIds)
+          this.assertReplayAdjustmentsMatchLive('manifest publication', persistedAdjustments, manifest.adjustments)
+          this.assertReplayDeformationsMatchLive('manifest publication', persistedDeformations, manifest.deformations)
+          this.assertDeformationEpochEvidence(project.id, persistedDeformations)
+          this.assertSurveySourcesAdmissible(project.id, persistedAdjustments, persistedDeformations)
+          this.assertDeliveryInputsCurrent(project, dataset, previewAnalysis, preview.run.deliveryInputHash!)
+        })
+        manifestPublished = true
+        this.assertPublishedManifestCurrent(project, manifest)
+        return this.db.transaction(() => {
+          this.db.prepare('INSERT INTO engineering_manifests(id, project_id, data_json, created_at) VALUES (?, ?, ?, ?)').run(manifest.id, manifest.projectId, JSON.stringify(manifest), manifest.createdAt)
+          const remembered = this.rememberDelivery('deliverable-finalize', req, manifest)
+          if (remembered.id !== manifest.id) {
+            throw new EngineeringIdempotencyError(remembered, 'delivery idempotency key was claimed while this manifest was publishing')
+          }
+          return remembered
+        }).immediate()
+      } catch (error) {
+        await rm(stagingPath, { force: true }).catch(() => undefined)
+        if (manifestPublished) await rm(path, { force: true }).catch(() => undefined)
+        throw error
+      }
     })
   }
   getRun(id: string): StoredRun | null { const row = this.db.prepare('SELECT data_json FROM engineering_runs WHERE id = ?').get(id) as { data_json: string } | undefined; return row ? JSON.parse(row.data_json) as StoredRun : null }
@@ -213,32 +650,407 @@ export class EngineeringService {
   private latestChart(analysisId: string): ChartArtifactV1 | null { const row = this.db.prepare('SELECT data_json FROM engineering_charts WHERE analysis_id = ? ORDER BY created_at DESC LIMIT 1').get(analysisId) as { data_json: string } | undefined; return row ? ChartArtifactV1.parse(JSON.parse(row.data_json)) : null }
   private lookupAdjustments(projectId: string, ids: string[]): AdjustmentResultV1[] {
     if (!ids.length) return []
-    if (!this.options.getAdjustments) throw new Error('survey adjustment lookup is unavailable')
+    // A numerical result alone cannot prove it is still the completed run that
+    // belongs to this project. Formal preview/finalize must use the live
+    // run/result pair, even for a result that was previously persisted.
+    if (!this.options.getAdjustmentEvidence) throw new Error('survey adjustment evidence lookup is unavailable')
     const uniqueIds = [...new Set(ids)]
-    const results = this.options.getAdjustments(projectId, uniqueIds)
-    if (results.length !== uniqueIds.length) throw new Error('one or more survey adjustments were not found')
-    for (const result of results) {
-      if (result.inputHash.length < 32) throw new Error(`survey adjustment ${result.id} has an invalid input hash`)
+    let evidence: SurveyAdjustmentEvidence[]
+    try {
+      evidence = this.options.getAdjustmentEvidence(projectId, uniqueIds)
+    } catch (error) {
+      throw new Error(`survey adjustment evidence lookup failed: ${error instanceof Error ? error.message : String(error)}`)
     }
+    const errors: string[] = []
+    const selectedRunIds = new Set<string>()
+    const results: AdjustmentResultV1[] = []
+    for (const id of uniqueIds) {
+      // SurveyService permits reading by either run ID or result ID. Preserve
+      // that public compatibility, but reject an ambiguous provider response.
+      const matches = evidence.filter((item) => item.run.id === id || item.result.id === id)
+      if (matches.length !== 1) {
+        errors.push(`平差 ${id} 不存在或不唯一，不能用于正式交付。`)
+        continue
+      }
+      const item = matches[0]!
+      if (selectedRunIds.has(item.run.id)) {
+        errors.push(`平差 ${id} 与已选择的平差运行 ${item.run.id} 重复，不能作为两份独立交付证据。`)
+        continue
+      }
+      selectedRunIds.add(item.run.id)
+      errors.push(...this.adjustmentEvidenceErrors(projectId, item).map((message) => `平差 ${id} ${message}`))
+      results.push(item.result)
+    }
+    if (errors.length) throw new Error(`survey adjustment evidence check failed: ${errors.join('; ')}`)
     return results
+  }
+
+  /**
+   * Validate live run/result binding before a numerical adjustment can be
+   * promoted into a new delivery or deformation evidence chain.  This is
+   * intentionally separate from raw-source review: source admission cannot
+   * prove that a corrupted result still belongs to that source/run.
+   */
+  private adjustmentEvidenceErrors(projectId: string, item: SurveyAdjustmentEvidence): string[] {
+    const { run, result } = item
+    const errors: string[] = []
+    if (run.projectId !== projectId) errors.push(`所属项目 ${run.projectId} 与当前项目 ${projectId} 不匹配。`)
+    if (run.status !== 'completed') errors.push(`运行状态为 ${run.status}，不是 completed。`)
+    if (result.validation !== 'valid') errors.push(`数值结果验证状态为 ${result.validation}，不是 valid。`)
+    if (result.runId !== run.id) errors.push(`结果运行编号 ${result.runId} 与实时运行 ${run.id} 不匹配。`)
+    if (result.networkId !== run.networkId) errors.push(`结果网络编号 ${result.networkId} 与实时运行网络 ${run.networkId} 不匹配。`)
+    if (result.inputHash !== run.inputHash || result.inputHash.length < 32 || run.inputHash.length < 32) {
+      errors.push('结果输入哈希与实时运行不匹配或不是有效的 SHA-256 证据。')
+    }
+    return errors
+  }
+
+  /** A replayed artifact is only safe to re-issue when its adjustment payloads still equal the current live evidence. */
+  private assertReplayAdjustmentsMatchLive(label: string, live: readonly AdjustmentResultV1[], stored: readonly AdjustmentResultV1[]): void {
+    if (live.length !== stored.length) {
+      throw new EngineeringIdempotencyError({ label, liveCount: live.length, storedCount: stored.length }, `${label} adjustment evidence count no longer matches the bound request`)
+    }
+    for (let index = 0; index < live.length; index += 1) {
+      const liveHash = createHash('sha256').update(canonicalDeliveryJson(live[index]!)).digest('hex')
+      const storedHash = createHash('sha256').update(canonicalDeliveryJson(stored[index]!)).digest('hex')
+      if (liveHash !== storedHash) {
+        throw new EngineeringIdempotencyError({ label, index, liveHash, storedHash }, `${label} adjustment evidence no longer matches the current completed run`)
+      }
+    }
+  }
+  /** Cached reports/manifests are historical artifacts, but may only be re-issued while their complete deformation evidence still matches the live comparison record. */
+  private assertReplayDeformationsMatchLive(label: string, live: readonly DeformationComparisonV1[], stored: readonly DeformationComparisonV1[]): void {
+    if (live.length !== stored.length) {
+      throw new EngineeringIdempotencyError({ label, liveCount: live.length, storedCount: stored.length }, `${label} deformation evidence count no longer matches the bound request`)
+    }
+    for (let index = 0; index < live.length; index += 1) {
+      const liveHash = createHash('sha256').update(canonicalDeliveryJson(live[index]!)).digest('hex')
+      const storedHash = createHash('sha256').update(canonicalDeliveryJson(stored[index]!)).digest('hex')
+      if (liveHash !== storedHash) {
+        throw new EngineeringIdempotencyError({ label, index, liveHash, storedHash }, `${label} deformation evidence no longer matches the current live comparison`)
+      }
+    }
   }
   private lookupDeformations(projectId: string, ids: string[]): DeformationComparisonV1[] {
     if (!ids.length) return []
     if (!this.options.getDeformations) throw new Error('survey deformation lookup is unavailable')
     const uniqueIds = [...new Set(ids)]
     const results = this.options.getDeformations(projectId, uniqueIds)
-    if (results.length !== uniqueIds.length) throw new Error('one or more survey deformation comparisons were not found')
-    for (const result of results) {
+    const byId = new Map<string, DeformationComparisonV1[]>()
+    for (const result of results) byId.set(result.id, [...(byId.get(result.id) ?? []), result])
+    const resolved: DeformationComparisonV1[] = []
+    const errors: string[] = []
+    for (const id of uniqueIds) {
+      const matches = byId.get(id) ?? []
+      if (matches.length !== 1) {
+        errors.push(`变形成果 ${id} 不存在或不唯一，不能用于正式交付。`)
+        continue
+      }
+      const result = matches[0]!
+      if (result.projectId !== projectId) {
+        errors.push(`变形成果 ${id} 所属项目 ${result.projectId} 与当前项目 ${projectId} 不匹配。`)
+        continue
+      }
       if (result.inputHash.length < 32) throw new Error(`survey deformation ${result.id} has an invalid input hash`)
+      resolved.push(result)
     }
-    return results
+    if (results.length !== uniqueIds.length || byId.size !== uniqueIds.length || errors.length) {
+      throw new Error(`survey deformation lookup failed: ${errors.length ? errors.join('; ') : 'provider returned an unexpected deformation identity set'}`)
+    }
+    return resolved
+  }
+  /**
+   * A deformation comparison is immutable historical evidence, but it can be
+   * selected again for a newly generated delivery. Before doing so, bind every
+   * persisted epoch back to its current adjustment run and result. This is
+   * deliberately separate from source admission: otherwise a tampered epoch
+   * could make us review the wrong network IDs.
+   */
+  private assertDeformationEpochEvidence(projectId: string, deformations: readonly DeformationComparisonV1[]): void {
+    if (!deformations.length) return
+    if (!this.options.getAdjustmentEvidence) {
+      throw new Error('deformation epoch evidence lookup is unavailable')
+    }
+
+    const errors: string[] = []
+    for (const deformation of deformations) {
+      if (deformation.projectId !== projectId) {
+        errors.push(`变形成果 ${deformation.id} 不属于当前项目 ${projectId}`)
+        continue
+      }
+      const epochAdjustmentIds = [...new Set(deformation.epochs.map((epoch) => epoch.adjustmentId))]
+      let current: SurveyAdjustmentEvidence[]
+      try {
+        // The provider must perform a project-scoped lookup. We also inspect
+        // the returned run.projectId below so a faulty provider cannot turn a
+        // cross-project adjustment into delivery evidence.
+        current = this.options.getAdjustmentEvidence(projectId, epochAdjustmentIds)
+      } catch (error) {
+        errors.push(`变形成果 ${deformation.id} 的实时平差证据读取失败：${error instanceof Error ? error.message : String(error)}`)
+        continue
+      }
+      const byAdjustmentId = new Map<string, Array<(typeof current)[number]>>()
+      for (const item of current) byAdjustmentId.set(item.run.id, [...(byAdjustmentId.get(item.run.id) ?? []), item])
+
+      for (const epoch of deformation.epochs) {
+        const matches = byAdjustmentId.get(epoch.adjustmentId) ?? []
+        if (matches.length !== 1) {
+          errors.push(`变形成果 ${deformation.id} 的期次平差 ${epoch.adjustmentId} 不存在或不唯一，不能用于新交付。`)
+          continue
+        }
+        const { run, result } = matches[0]!
+        errors.push(...this.adjustmentEvidenceErrors(projectId, { run, result }).map((message) => `变形成果 ${deformation.id} 的期次平差 ${epoch.adjustmentId} ${message}`))
+        if (run.id !== epoch.adjustmentId) errors.push(`变形成果 ${deformation.id} 的期次平差编号不匹配：${epoch.adjustmentId}`)
+        if (run.projectId !== projectId) errors.push(`变形成果 ${deformation.id} 的期次平差 ${epoch.adjustmentId} 不属于当前项目。`)
+        if (run.networkId !== epoch.networkId || result.networkId !== epoch.networkId) {
+          errors.push(`变形成果 ${deformation.id} 的期次平差 ${epoch.adjustmentId} 网络编号与实时结果不匹配。`)
+        }
+        if (result.runId !== run.id || result.runId !== epoch.adjustmentId) {
+          errors.push(`变形成果 ${deformation.id} 的期次平差 ${epoch.adjustmentId} 与实时结果运行编号不匹配。`)
+        }
+        if (result.id !== epoch.resultId) errors.push(`变形成果 ${deformation.id} 的期次平差 ${epoch.adjustmentId} 结果编号与实时结果不匹配。`)
+        if (run.inputHash !== epoch.inputHash || result.inputHash !== epoch.inputHash) {
+          errors.push(`变形成果 ${deformation.id} 的期次平差 ${epoch.adjustmentId} 输入哈希与实时结果不匹配。`)
+        }
+        const resultHash = createHash('sha256').update(JSON.stringify(result)).digest('hex')
+        if (resultHash !== epoch.resultHash) errors.push(`变形成果 ${deformation.id} 的期次平差 ${epoch.adjustmentId} 结果哈希与实时结果不匹配。`)
+      }
+    }
+    if (errors.length) throw new Error(`deformation epoch evidence check failed: ${errors.join('; ')}`)
+  }
+  private requiredSurveyNetworkIds(adjustments: readonly AdjustmentResultV1[], deformations: readonly DeformationComparisonV1[]): string[] {
+    return [...new Set([
+      ...adjustments.map((item) => item.networkId),
+      ...deformations.flatMap((item) => item.epochs.map((epoch) => epoch.networkId))
+    ])]
+  }
+  private lookupSurveySources(projectId: string, networkIds: string[]): SurveySourceEvidenceV1[] {
+    if (!networkIds.length || !this.options.getSurveySources) return []
+    const uniqueIds = [...new Set(networkIds)]
+    return this.options.getSurveySources(projectId, uniqueIds)
+      .filter((item) => Boolean(item.sourceFile))
+      .map((item) => SurveySourceEvidenceV1.parse({ networkId: item.networkId, source: item.sourceFile! }))
+  }
+  private reviewSurveySources(projectId: string, networkIds: string[]): { errors: string[]; warnings: string[] } {
+    const uniqueIds = [...new Set(networkIds)]
+    if (!uniqueIds.length) return { errors: [], warnings: [] }
+    if (!this.options.getSurveySources) return {
+      errors: uniqueIds.map((networkId) => `平差网络 ${networkId} 未提供原始资料完整性校验；请从保留的原始文件重新导入并复核后再生成交付清单。`),
+      warnings: []
+    }
+
+    const byNetworkId = new Map(this.options.getSurveySources(projectId, uniqueIds).map((item) => [item.networkId, item]))
+    const errors: string[] = []
+    const warnings: string[] = []
+    for (const networkId of uniqueIds) {
+      const source = byNetworkId.get(networkId)
+      if (!source) {
+        errors.push(`平差网络 ${networkId} 未提供原始资料来源；请从保留的原始文件重新导入并复核后再生成交付清单。`)
+        continue
+      }
+      errors.push(...sourceFormalizationErrors(networkId, source.sourceFile, source.observations, source.points))
+      const sourceEligibility = source.sourceEligibility
+      const hasCurrentSourceEligibility = sourceEligibility?.eligible === true && Array.isArray(sourceEligibility.findings)
+      if (!hasCurrentSourceEligibility) {
+        const findings = Array.isArray(sourceEligibility?.findings)
+          ? sourceEligibility.findings.slice(0, 10).map((finding) => `[${finding.code}] ${finding.message}`)
+          : []
+        errors.push(`平差网络 ${networkId} 未通过当前服务端来源资格校验${findings.length ? `：${findings.join('；')}` : '；服务端未提供可用的来源资格证明。'}`)
+      }
+      const integrity = source.rawSourceIntegrity
+      if (!integrity) {
+        errors.push(`平差网络 ${networkId} 未在当前运行时重验原始资料；请从保留的原始文件重新导入并复核后再生成交付清单。`)
+        continue
+      }
+      if (integrity.status !== 'verified') {
+        if (integrity.status === 'failed') {
+          errors.push(`平差网络 ${networkId} 原始资料完整性校验失败：${integrity.errors.join('；')}`)
+        } else {
+          errors.push(`平差网络 ${networkId} 为旧结构化/兼容输入，原始资料未验证；请从保留的原始文件重新导入并复核后再生成交付清单。`)
+        }
+      }
+    }
+    return { errors, warnings }
+  }
+  private assertSurveySourcesAdmissible(projectId: string, adjustments: readonly AdjustmentResultV1[], deformations: readonly DeformationComparisonV1[]): { errors: string[]; warnings: string[] } {
+    const review = this.reviewSurveySources(projectId, this.requiredSurveyNetworkIds(adjustments, deformations))
+    if (review.errors.length) throw new Error(`raw survey source integrity check failed: ${review.errors.join('; ')}`)
+    return review
+  }
+  private assertAnalysisCurrent(project: RailwiseProjectV1, dataset: StoredDataset, analysis: MonitoringAnalysisV1): void {
+    if (analysis.projectId !== project.id || analysis.datasetId !== dataset.id) {
+      throw new Error('analysis does not belong to the current project and dataset')
+    }
+    if (analysis.inputHash !== analysisInputHash(project, dataset)) {
+      throw new Error('analysis no longer matches the current project thresholds or dataset observations; create a new analysis before generating a report')
+    }
+  }
+  private assertDeliveryRevision(project: RailwiseProjectV1, dataset: StoredDataset | undefined, expectedRevision: number): void {
+    if (dataset && dataset.projectId !== project.id) throw new Error('dataset does not belong to project')
+    const revision = dataset?.revision ?? project.revision
+    if (expectedRevision !== 0 && expectedRevision !== revision) {
+      throw new EngineeringRevisionConflictError(`${dataset ? 'dataset' : 'project'} revision conflict: expected ${expectedRevision}, actual ${revision}`)
+    }
+  }
+  /** Re-read every non-survey report input at the publication boundary. */
+  private assertDeliveryInputsCurrent(project: RailwiseProjectV1, dataset: StoredDataset | undefined, analysis: MonitoringAnalysisV1 | undefined, expectedSnapshotHash: string): void {
+    const currentProject = this.mustProject(project.id)
+    const currentDataset = dataset ? this.mustDataset(dataset.id) : undefined
+    const currentAnalysis = analysis ? this.getAnalysis(analysis.id) ?? undefined : undefined
+    if (currentDataset) {
+      if (!currentAnalysis) throw new Error('analysis disappeared before report publication')
+      this.assertAnalysisCurrent(currentProject, currentDataset, currentAnalysis)
+    } else if (currentAnalysis) throw new Error('monitoring analysis requires a dataset')
+    if (deliveryInputSnapshotHash(currentProject, currentDataset, currentAnalysis) !== expectedSnapshotHash) {
+      throw new Error('report project, dataset, or analysis input changed during generation; regenerate the report from the current revision')
+    }
+  }
+  /** A replayed preview/manifest cannot revive a cancelled or rewritten run. */
+  private assertCompletedRunCurrent(expected: StoredRun): void {
+    const durable = this.getRun(expected.id)
+    if (!durable
+      || durable.status !== 'completed'
+      || canonicalDeliveryJson(durable) !== canonicalDeliveryJson(expected)) {
+      throw new Error(`delivery run ${expected.id} is no longer the current completed run`)
+    }
+  }
+  /**
+   * Manifest hashes describe bytes, not just paths. Re-read every already
+   * published output at each formalization/replay boundary so a workspace
+   * edit cannot silently pair changed files with old manifest evidence.
+   */
+  private assertDeliveryOutputsCurrent(project: RailwiseProjectV1, outputs: ReadonlyArray<{ path: string; sha256: string; sizeBytes: number }>): void {
+    const root = resolve(project.workspace)
+    const deliverableRoot = this.nestedWorkspacePath(project, '.workwise', 'deliverables', project.id)
+    const seenPaths = new Set<string>()
+    for (const output of outputs) {
+      const absolute = resolve(root, output.path)
+      const pathFromDeliverables = relative(deliverableRoot, absolute)
+      if (!pathFromDeliverables || pathFromDeliverables === '..' || pathFromDeliverables.startsWith(`..${sep}`) || isAbsolute(pathFromDeliverables)) {
+        throw new Error(`delivery output path escapes the project deliverable tree: ${output.path}`)
+      }
+      if (seenPaths.has(absolute)) throw new Error(`delivery output list contains duplicate path: ${output.path}`)
+      seenPaths.add(absolute)
+      let bytes: Buffer
+      try {
+        bytes = readFileSync(absolute)
+      } catch {
+        throw new Error(`delivery output is unavailable: ${output.path}`)
+      }
+      const sha256 = createHash('sha256').update(bytes).digest('hex')
+      if (bytes.byteLength !== output.sizeBytes || sha256 !== output.sha256) {
+        throw new Error(`delivery output no longer matches its recorded hash: ${output.path}`)
+      }
+    }
+  }
+  /**
+   * The manifest is the formal public wrapper around otherwise-hashed output
+   * files. It is not part of `manifest.outputs`, so verify its exact durable
+   * bytes separately before returning a fresh or idempotently replayed seal.
+   */
+  private assertPublishedManifestCurrent(project: RailwiseProjectV1, expected: DeliverableManifestV1): void {
+    const publishedPath = join(this.outputDir(project, expected.runId), 'manifest.json')
+    let bytes: Buffer
+    try {
+      bytes = readFileSync(publishedPath)
+    } catch {
+      throw new Error(`published manifest is unavailable: ${publishedPath}`)
+    }
+    try {
+      DeliverableManifestV1.parse(JSON.parse(bytes.toString('utf8')))
+    } catch {
+      throw new Error(`published manifest is malformed: ${publishedPath}`)
+    }
+    const expectedBytes = Buffer.from(JSON.stringify(expected, null, 2))
+    if (!bytes.equals(expectedBytes)) {
+      throw new Error('published manifest no longer matches its durable manifest evidence')
+    }
   }
   private getAnalysis(id: string): MonitoringAnalysisV1 | null { const row = this.db.prepare('SELECT data_json FROM engineering_analyses WHERE id = ?').get(id) as { data_json: string } | undefined; return row ? MonitoringAnalysisV1.parse(JSON.parse(row.data_json)) : null }
+  private getChart(id: string): ChartArtifactV1 | null { const row = this.db.prepare('SELECT data_json FROM engineering_charts WHERE id = ?').get(id) as { data_json: string } | undefined; return row ? ChartArtifactV1.parse(JSON.parse(row.data_json)) : null }
   private mustProject(id: string): RailwiseProjectV1 { const project = this.getProject(id); if (!project) throw new Error(`project not found: ${id}`); return project }
   private mustDataset(id: string): StoredDataset { const row = this.db.prepare('SELECT data_json FROM engineering_datasets WHERE id = ?').get(id) as { data_json: string } | undefined; if (!row) throw new Error(`dataset not found: ${id}`); return validateStoredDataset(JSON.parse(row.data_json)) }
   private saveDataset(dataset: StoredDataset): void { this.db.prepare('UPDATE engineering_datasets SET revision = ?, data_json = ?, updated_at = ? WHERE id = ?').run(dataset.revision, JSON.stringify(dataset), dataset.updatedAt, dataset.id) }
   private async persistMetadata(workspace: string, kind: string, id: string, value: unknown): Promise<void> { const root = resolve(workspace); const directory = resolve(root, '.workwise', 'engineering', kind); if (!(directory === root || directory.startsWith(`${root}/`))) throw new Error('workspace containment violation'); await mkdir(directory, { recursive: true }); await atomicWriteFile(join(directory, `${id}.json`), JSON.stringify(value, null, 2)) }
-  private outputDir(project: RailwiseProjectV1, runId: string): string { const root = resolve(project.workspace); const out = resolve(root, '.workwise', 'deliverables', project.id, runId); if (!(out === root || out.startsWith(`${root}/`))) throw new Error('workspace containment violation'); return out }
+  private trackMetadataPersistence(workspace: string, kind: string, id: string, value: unknown): void {
+    const pending = this.persistMetadata(workspace, kind, id, value)
+    this.pendingMetadataWrites.add(pending)
+    void pending.finally(() => this.pendingMetadataWrites.delete(pending)).catch(() => undefined)
+  }
+  private nestedWorkspacePath(project: RailwiseProjectV1, ...segments: string[]): string {
+    const root = resolve(project.workspace)
+    const candidate = resolve(root, ...segments)
+    const pathFromRoot = relative(root, candidate)
+    if (!pathFromRoot || pathFromRoot === '..' || pathFromRoot.startsWith(`..${sep}`) || isAbsolute(pathFromRoot)) {
+      throw new Error('workspace containment violation')
+    }
+    return candidate
+  }
+  private outputDir(project: RailwiseProjectV1, runId: string): string {
+    return this.nestedWorkspacePath(project, '.workwise', 'deliverables', project.id, runId)
+  }
+  /** Staging is deliberately a sibling of, never a child of, public deliverables. */
+  private deliveryStagingDir(project: RailwiseProjectV1, runId: string): string {
+    return this.nestedWorkspacePath(project, '.workwise', '.staging', 'deliverables', project.id, runId)
+  }
+  private deliveryManifestStagingPath(project: RailwiseProjectV1, runId: string, manifestId: string): string {
+    return this.nestedWorkspacePath(project, '.workwise', '.staging', 'manifests', project.id, runId, `${manifestId}.json`)
+  }
+  /**
+   * The verifier and directory rename intentionally run without an `await`
+   * between them. Survey callbacks are synchronous strict readers, so no
+   * in-process writer can interleave after evidence has been checked and
+   * before staged bytes become part of the public delivery tree.
+   */
+  private publishStagedDeliveryDirectory(stagingDir: string, outputDir: string, verify: () => void): void {
+    if (!existsSync(stagingDir)) throw new Error('delivery staging directory is unavailable')
+    if (existsSync(outputDir)) throw new Error('delivery output directory already exists')
+    mkdirSync(resolve(outputDir, '..'), { recursive: true })
+    verify()
+    renameSync(stagingDir, outputDir)
+  }
+  /** Same synchronous publication boundary for a final manifest file. */
+  private publishStagedManifest(stagingPath: string, outputPath: string, verify: () => void): void {
+    if (!existsSync(stagingPath)) throw new Error('delivery manifest staging file is unavailable')
+    if (existsSync(outputPath)) throw new Error('delivery manifest already exists')
+    mkdirSync(resolve(outputPath, '..'), { recursive: true })
+    verify()
+    renameSync(stagingPath, outputPath)
+  }
+  /**
+   * Delivery replay is intentionally separate from the historical generic
+   * idempotency table.  The latter contains bare results written before a
+   * request fingerprint existed, so replaying one could attach a report or
+   * manifest to different adjustment/deformation provenance.
+   */
+  private replayDelivery<T>(operation: DeliveryIdempotencyOperation, request: DeliveryIdempotencyRequest): T | null {
+    const fingerprint = deliveryRequestFingerprint(operation, request)
+    const row = this.db.prepare('SELECT operation, request_hash, result_json FROM engineering_delivery_idempotency WHERE key = ?').get(request.idempotencyKey) as DeliveryIdempotencyRow | undefined
+    if (row) {
+      if (row.operation !== operation || row.request_hash !== fingerprint) {
+        throw new EngineeringIdempotencyError({ operation, fingerprint, storedOperation: row.operation, storedFingerprint: row.request_hash })
+      }
+      return JSON.parse(row.result_json) as T
+    }
+
+    // Preserve legacy rows for historical audit/read APIs, but a delivery
+    // endpoint must never re-issue an artifact whose original request cannot
+    // be verified exactly.
+    const legacy = this.db.prepare('SELECT key FROM engineering_idempotency WHERE key = ?').get(request.idempotencyKey) as { key: string } | undefined
+    if (legacy) {
+      throw new EngineeringIdempotencyError({ operation, fingerprint, legacyKey: legacy.key }, 'idempotency key refers to a legacy unbound result and cannot re-issue a delivery')
+    }
+    return null
+  }
+  private rememberDelivery<T>(operation: DeliveryIdempotencyOperation, request: DeliveryIdempotencyRequest, value: T): T {
+    const fingerprint = deliveryRequestFingerprint(operation, request)
+    const inserted = this.db.prepare('INSERT OR IGNORE INTO engineering_delivery_idempotency(key, operation, request_hash, result_json, created_at) VALUES (?, ?, ?, ?, ?)')
+      .run(request.idempotencyKey, operation, fingerprint, JSON.stringify(value), this.nowIso())
+    if (inserted.changes === 1) return value
+    const replay = this.replayDelivery<T>(operation, request)
+    if (replay !== null) return replay
+    throw new EngineeringIdempotencyError({ operation, fingerprint }, 'delivery idempotency record could not be stored')
+  }
   private replay(key: string): unknown | null { const row = this.db.prepare('SELECT result_json FROM engineering_idempotency WHERE key = ?').get(key) as { result_json: string } | undefined; return row ? JSON.parse(row.result_json) : null }
   private remember(key: string, value: unknown): void { this.db.prepare('INSERT OR IGNORE INTO engineering_idempotency(key, result_json, created_at) VALUES (?, ?, ?)').run(key, JSON.stringify(value), this.nowIso()) }
   private async withIdempotencyLock<T>(key: string, operation: () => Promise<T> | T): Promise<T> {
@@ -408,15 +1220,16 @@ function decodeCodePoint(entity: string, codePoint: number): string {
     ? String.fromCodePoint(codePoint)
     : entity
 }
-function reportText(project: RailwiseProjectV1, dataset: StoredDataset, analysis: MonitoringAnalysisV1, citations: KnowledgeCitationV1[] = [], adjustments: AdjustmentResultV1[] = [], deformations: DeformationComparisonV1[] = []): string {
+function reportText(project: RailwiseProjectV1, dataset: StoredDataset | undefined, analysis: MonitoringAnalysisV1 | undefined, citations: KnowledgeCitationV1[] = [], adjustments: AdjustmentResultV1[] = [], deformations: DeformationComparisonV1[] = [], surveySources: SurveySourceEvidenceV1[] = []): string {
   const period = project.reportPeriod.start || project.reportPeriod.end
     ? `${project.reportPeriod.start ?? '-'} ~ ${project.reportPeriod.end ?? '-'}`
-    : `${dataset.timeRange.start ?? '-'} ~ ${dataset.timeRange.end ?? '-'}`
+    : `${dataset?.timeRange.start ?? '-'} ~ ${dataset?.timeRange.end ?? '-'}`
   const thresholdLines = Object.entries(project.thresholds).map(([name, value]) => `${name}: ${value} ${project.unit}`)
   const measurement = (value: number | undefined, unit: string): string => value === undefined ? '-' : `${value} ${unit}`
   const statisticalUnit = (unit: 'dimensionless' | 'sigma'): string => unit === 'dimensionless' ? '无量纲' : 'sigma'
   return [
     `项目：${project.name}`,
+    ...(dataset ? [
     `监测类型：${project.monitoringType}`,
     `报告周期：${period}`,
     `单位：${project.unit}；符号约定：${project.signConvention}`,
@@ -424,14 +1237,19 @@ function reportText(project: RailwiseProjectV1, dataset: StoredDataset, analysis
     `源文件 SHA-256：${dataset.sourceFileHash}`,
     `字段映射：${JSON.stringify(dataset.fieldMapping)}`,
     `观测记录：${dataset.observationCount}（原始行 ${dataset.rowCount}，列 ${dataset.columnCount}）`,
+    ] : ['测量平差成果报告（待审查）', '单位：长度 m；角度 rad；统计量按各项标注。']),
     '',
-    '阈值配置',
+    '专业测量源文件',
+    ...(surveySources.length ? surveySources.map(({ networkId, source }) => `网络 ${networkId}: ${source.name}；厂商=${source.detection.vendor}；格式=${source.detection.format}${source.detection.version ? ` ${source.detection.version}` : ''}；置信度=${Math.round(source.detection.confidence * 100)}%；状态=${source.disposition}；解析器=${source.parserId}/${source.parserVersion}；SHA-256=${source.sha256}${source.converter ? `；转换器=${source.converter.id}/${source.converter.version}（${source.converter.status}，网络=${source.converter.networkAccess}）` : ''}`) : ['本报告关联的平差网络未记录专业源文件，可能来自结构化或旧版兼容输入']),
+    '',
+    ...(analysis ? ['阈值配置',
     ...(thresholdLines.length ? thresholdLines : ['待确认']),
     '',
     '分析结果',
     ...analysis.results.map((r) => `${r.monitoringItem} / ${r.point}: 当前=${r.currentValue ?? '-'} 上期=${r.previousValue ?? '-'} 累计=${r.cumulativeChange ?? '-'} 速率=${r.changeRate ?? '-'} 趋势=${r.trend} 异常=${r.anomaly ? '是' : '否'} 阈值=${r.thresholdStatus}`),
     `分析输入 SHA-256：${analysis.inputHash}`,
     `算法版本：${analysis.algorithmVersion}`,
+    ] : []),
     '',
     '测量平差结果',
     ...(adjustments.length ? adjustments.flatMap((adjustment) => [
@@ -453,7 +1271,8 @@ function reportText(project: RailwiseProjectV1, dataset: StoredDataset, analysis
     ]) : ['本报告未关联变形期次比较']),
     '',
     '质量问题',
-    ...(dataset.findings.length ? dataset.findings.map((f) => `${f.severity}: ${f.message}（第 ${f.row ?? '-'} 行，${f.code}，${f.status}）`) : ['无']),
+    ...(dataset?.findings.map((f) => `${f.severity}: ${f.message}（第 ${f.row ?? '-'} 行，${f.code}，${f.status}）`) ?? []),
+    ...adjustments.flatMap((adjustment) => adjustment.qualityFindings.map((f) => `${adjustment.runId}: ${f.severity}: ${f.message}（${f.code}，${f.status}）`)),
     '',
     '来源引用',
     ...(citations.length ? citations.map((citation) => `${citation.id}: ${citation.sourceType} ${citation.source}${citation.page ? ` 第 ${citation.page} 页` : ''}${citation.worksheet ? ` 工作表 ${citation.worksheet}` : ''}${citation.row ? ` 第 ${citation.row} 行` : ''}${citation.locator ? ` (${citation.locator})` : ''}`) : ['无']),
@@ -463,27 +1282,31 @@ function reportText(project: RailwiseProjectV1, dataset: StoredDataset, analysis
 }
 async function fileOutput(path: string, mediaType: string, workspace: string): Promise<{ path: string; mediaType: string; sha256: string; sizeBytes: number }> { const data = await readFile(path); return { path: relative(workspace, path), mediaType, sha256: createHash('sha256').update(data).digest('hex'), sizeBytes: data.byteLength } }
 async function makeDocx(text: string): Promise<Buffer> { const zip = new JSZip(); zip.file('[Content_Types].xml', '<?xml version="1.0" encoding="UTF-8"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>'); zip.file('_rels/.rels', '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>'); zip.file('word/document.xml', `<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>${text.split('\n').map((line) => `<w:p><w:r><w:t xml:space="preserve">${escapeXml(line)}</w:t></w:r></w:p>`).join('')}<w:sectPr/></w:body></w:document>`); return zip.generateAsync({ type: 'nodebuffer' }) }
-function makePdf(text: string): Buffer { const body = text.replace(/[()\\]/g, (m) => `\\${m}`).slice(0, 5000); const stream = `BT /F1 10 Tf 40 760 Td (${body.replaceAll('\n', ') Tj 0 -14 Td (')}) Tj ET`; const pdf = `%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n2 0 obj<</Type/Pages/Count 1/Kids[3 0 R]>>endobj\n3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 595 842]/Resources<</Font<</F1 4 0 R>>>>/Contents 5 0 R>>endobj\n4 0 obj<</Type/Font/Subtype/Type1/BaseFont/Helvetica>>endobj\n5 0 obj<</Length ${Buffer.byteLength(stream)}>>stream\n${stream}\nendstream endobj\ntrailer<</Root 1 0 R>>\n%%EOF`; return Buffer.from(pdf) }
-async function makeXlsx(project: RailwiseProjectV1, dataset: StoredDataset, analysis: MonitoringAnalysisV1, citations: KnowledgeCitationV1[], adjustments: AdjustmentResultV1[], deformations: DeformationComparisonV1[], runtimeVersion: string): Promise<Buffer> {
+async function makeXlsx(project: RailwiseProjectV1, dataset: StoredDataset | undefined, analysis: MonitoringAnalysisV1 | undefined, citations: KnowledgeCitationV1[], adjustments: AdjustmentResultV1[], deformations: DeformationComparisonV1[], surveySources: SurveySourceEvidenceV1[], runtimeVersion: string): Promise<Buffer> {
   const zip = new JSZip()
   const sheets: Array<{ name: string; rows: string[][] }> = [
+    ...(dataset && analysis ? [
     { name: 'field_mapping', rows: [['canonical_field', 'source_column'], ...Object.entries(dataset.fieldMapping).map(([key, value]) => [key, value ?? ''])] },
     { name: 'normalized_data', rows: [['id', 'monitoringItem', 'point', 'timestamp', 'value', 'unit', 'cumulative', 'rate', 'sourceRow', 'sourceFileHash'], ...dataset.observations.map((o) => [o.id, o.monitoringItem, o.point, o.timestamp, String(o.value), o.unit ?? '', String(o.cumulative ?? ''), String(o.rate ?? ''), String(o.sourceRow), dataset.sourceFileHash])] },
     { name: 'quality_findings', rows: [['id', 'severity', 'code', 'row', 'status', 'message', 'suggestion'], ...dataset.findings.map((f) => [f.id, f.severity, f.code, String(f.row ?? ''), f.status, f.message, f.suggestion])] },
     { name: 'analysis_results', rows: [['monitoringItem', 'point', 'currentValue', 'previousValue', 'cumulativeChange', 'changeRate', 'trend', 'anomaly', 'thresholdStatus', 'inputHash'], ...analysis.results.map((r) => [r.monitoringItem, r.point, String(r.currentValue ?? ''), String(r.previousValue ?? ''), String(r.cumulativeChange ?? ''), String(r.changeRate ?? ''), r.trend, String(r.anomaly), r.thresholdStatus, analysis.inputHash])] },
     { name: 'threshold_status', rows: [['monitoringItem', 'point', 'thresholdStatus', 'configuredThreshold', 'unit'], ...analysis.results.map((r) => [r.monitoringItem, r.point, r.thresholdStatus, String(project.thresholds[r.monitoringItem] ?? project.thresholds.default ?? ''), project.unit])] },
     { name: 'chart_data', rows: [['monitoringItem', 'point', 'currentValue'], ...analysis.results.map((r) => [r.monitoringItem, r.point, String(r.currentValue ?? '')])] },
+    ] : []),
     { name: 'survey_adjustments', rows: [['runId', 'networkId', 'resultId', 'strategyId', 'transformType', 'algorithmVersion', 'observationCount', 'unknownCount', 'redundancy', 'unitWeightStdDev', 'unitWeightStdDevUnit', 'varianceFactor', 'varianceFactorUnit', 'varianceFactorEstimated', 'maxPointStdDev', 'maxPointStdDevUnit', 'validation', 'inputHash'], ...adjustments.map((a) => [a.runId, a.networkId, a.id, a.strategyId ?? '', a.transformType ?? '', a.algorithmVersion, String(a.observationCount), String(a.unknownCount), String(a.redundancy), String(a.unitWeightStdDev), a.unitWeightStdDevUnit, String(a.varianceFactor), a.varianceFactorUnit, String(a.varianceFactorEstimated), String(a.precision.maxPointStdDev), a.linearUnit, a.validation, a.inputHash])] },
+    { name: 'survey_sources', rows: [['networkId', 'sourceName', 'sha256', 'vendor', 'format', 'version', 'confidence', 'disposition', 'parserId', 'parserVersion', 'recordCount', 'originalPreserved', 'extension', 'extensionConflict', 'matchedSignatures', 'converterId', 'converterVersion', 'converterLicense', 'converterExecutableHash', 'converterInputHash', 'converterOutputHash', 'converterNetworkAccess', 'converterStatus'], ...surveySources.map(({ networkId, source }) => [networkId, source.name, source.sha256, source.detection.vendor, source.detection.format, source.detection.version ?? '', String(source.detection.confidence), source.disposition, source.parserId, source.parserVersion, String(source.recordCount), String(source.originalPreserved), source.detection.extension ?? '', String(source.detection.extensionConflict), source.detection.matchedSignatures.join(';'), source.converter?.id ?? '', source.converter?.version ?? '', source.converter?.origin === 'workwise-bundled' ? source.converter.license : '', source.converter?.executableHash ?? '', source.converter?.inputHash ?? '', source.converter?.outputHash ?? '', source.converter?.networkAccess ?? '', source.converter?.status ?? ''])] },
+    { name: 'survey_source_diagnostics', rows: [['networkId', 'sourceName', 'code', 'severity', 'message', 'sourceRecord', 'byteOffset'], ...surveySources.flatMap(({ networkId, source }) => source.diagnostics.map((item) => [networkId, source.name, item.code, item.severity, item.message, String(item.sourceRecord ?? ''), String(item.byteOffset ?? '')]))] },
+    { name: 'survey_raw_anchors', rows: [['networkId', 'sourceName', 'anchorId', 'sourceRecord', 'line', 'byteOffset', 'byteLength', 'section', 'recordType'], ...surveySources.flatMap(({ networkId, source }) => source.rawRecordAnchors.map((item) => [networkId, source.name, item.id, String(item.sourceRecord), String(item.line ?? ''), String(item.byteOffset ?? ''), String(item.byteLength ?? ''), item.section ?? '', item.recordType ?? '']))] },
     { name: 'survey_closures', rows: [['runId', 'closureKey', 'value', 'unit'], ...adjustments.flatMap((a) => Object.entries(a.closure).map(([key, value]) => [a.runId, key, String(value), a.closureUnits[key] ?? '']))] },
     { name: 'survey_parameters', rows: [['runId', 'parameterKey', 'value', 'unit'], ...adjustments.flatMap((a) => Object.entries(a.parameters).map(([key, value]) => [a.runId, key, String(value), a.parameterUnits[key] ?? '']))] },
     { name: 'survey_points', rows: [['runId', 'pointId', 'x', 'y', 'height', 'latitudeDeg', 'longitudeDeg', 'correctionX', 'correctionY', 'correctionHeight', 'standardError', 'linearUnit'], ...adjustments.flatMap((a) => a.points.map((point) => [a.runId, point.id, String(point.x ?? ''), String(point.y ?? ''), String(point.height ?? ''), String(point.latitude ?? ''), String(point.longitude ?? ''), String(point.correctionX ?? ''), String(point.correctionY ?? ''), String(point.correctionHeight ?? ''), String(point.standardError ?? ''), a.linearUnit]))] },
-    { name: 'survey_residuals', rows: [['runId', 'observationId', 'correction', 'residual', 'unit', 'standardizedResidual', 'standardizedResidualUnit', 'outlier', 'sourceRow'], ...adjustments.flatMap((a) => a.observations.map((o) => [a.runId, o.observationId, String(o.correction), String(o.residual), o.unit ?? '', String(o.standardizedResidual ?? ''), o.standardizedResidualUnit, String(o.outlier), String(o.sourceRow ?? '')]))] },
+    { name: 'survey_residuals', rows: [['runId', 'observationId', 'correction', 'residual', 'unit', 'standardizedResidual', 'standardizedResidualUnit', 'outlier', 'sourceRow', 'sourceRecordId'], ...adjustments.flatMap((a) => a.observations.map((o) => [a.runId, o.observationId, String(o.correction), String(o.residual), o.unit ?? '', String(o.standardizedResidual ?? ''), o.standardizedResidualUnit, String(o.outlier), String(o.sourceRow ?? ''), o.sourceRecordId ?? '']))] },
     { name: 'survey_displacements', rows: [['runId', 'pointId', 'dX', 'dY', 'dH', 'magnitude', 'unit', 'kind'], ...adjustments.flatMap((a) => a.displacements.map((d) => [a.runId, d.pointId, String(d.dX ?? ''), String(d.dY ?? ''), String(d.dH ?? ''), String(d.magnitude), a.linearUnit, d.kind]))] },
     { name: 'deformation_epochs', rows: [['comparisonId', 'adjustmentId', 'resultId', 'networkId', 'observationEpoch', 'inputHash', 'resultHash'], ...deformations.flatMap((comparison) => comparison.epochs.map((epoch) => [comparison.id, epoch.adjustmentId, epoch.resultId, epoch.networkId, epoch.observationEpoch, epoch.inputHash, epoch.resultHash]))] },
     { name: 'deformation_points', rows: [['comparisonId', 'pointId', 'dX', 'dY', 'dH', 'settlement', 'horizontalDisplacement', 'spatialDisplacement', 'dXPerDay', 'dYPerDay', 'dHPerDay', 'settlementPerDay', 'horizontalPerDay', 'spatialPerDay', 'trend', 'combinedStandardError', 'standardizedDisplacement', 'significant', 'unit', 'rateUnit'], ...deformations.flatMap((comparison) => comparison.points.map((point) => [comparison.id, point.pointId, String(point.dX ?? ''), String(point.dY ?? ''), String(point.dH ?? ''), String(point.settlement ?? ''), String(point.horizontalDisplacement ?? ''), String(point.spatialDisplacement), String(point.rates.dXPerDay ?? ''), String(point.rates.dYPerDay ?? ''), String(point.rates.dHPerDay ?? ''), String(point.rates.settlementPerDay ?? ''), String(point.rates.horizontalPerDay ?? ''), String(point.rates.spatialPerDay), point.trend, String(point.combinedStandardError ?? ''), String(point.standardizedDisplacement ?? ''), String(point.significant ?? ''), point.unit, point.rateUnit]))] },
     { name: 'deformation_pairs', rows: [['comparisonId', 'pairId', 'kind', 'firstPointId', 'secondPointId', 'distanceMode', 'referenceDistance', 'currentDistance', 'convergence', 'convergenceRatePerDay', 'baselineM', 'differentialSettlement', 'tilt', 'linearUnit', 'rateUnit', 'tiltUnit'], ...deformations.flatMap((comparison) => comparison.pairs.map((pair) => [comparison.id, pair.id, pair.kind, pair.firstPointId, pair.secondPointId, pair.distanceMode, String(pair.referenceDistance ?? ''), String(pair.currentDistance ?? ''), String(pair.convergence ?? ''), String(pair.convergenceRatePerDay ?? ''), String(pair.baselineM ?? ''), String(pair.differentialSettlement ?? ''), String(pair.tilt ?? ''), pair.linearUnit, pair.rateUnit, pair.tiltUnit]))] },
     { name: 'citations', rows: [['id', 'sourceType', 'source', 'page', 'worksheet', 'row', 'url', 'locator'], ...citations.map((c) => [c.id, c.sourceType, c.source, String(c.page ?? ''), c.worksheet ?? '', String(c.row ?? ''), c.url ?? '', c.locator ?? ''])] },
-    { name: 'manifest_summary', rows: [['schemaVersion', 'projectId', 'datasetId', 'sourceFileHash', 'analysisId', 'analysisInputHash', 'adjustmentIds', 'deformationIds', 'runtimeVersion', 'generatedAt'], ['1', project.id, dataset.id, dataset.sourceFileHash, analysis.id, analysis.inputHash, adjustments.map((a) => a.id).join(','), deformations.map((item) => item.id).join(','), runtimeVersion, new Date().toISOString()]] }
+    { name: 'manifest_summary', rows: [['schemaVersion', 'projectId', 'datasetId', 'sourceFileHash', 'analysisId', 'analysisInputHash', 'adjustmentIds', 'deformationIds', 'surveySourceHashes', 'runtimeVersion', 'generatedAt'], ['1', project.id, dataset?.id ?? '', dataset?.sourceFileHash ?? '', analysis?.id ?? '', analysis?.inputHash ?? '', adjustments.map((a) => a.id).join(','), deformations.map((item) => item.id).join(','), surveySources.map((item) => item.source.sha256).join(','), runtimeVersion, new Date().toISOString()]] }
   ]
   const xmlEscape = (value: string): string => escapeXml(value)
   const sheetXml = (rows: string[][]): string => `<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>${rows.map((row, ri) => `<row r="${ri + 1}">${row.map((value, ci) => `<c r="${columnName(ci)}${ri + 1}" t="inlineStr"><is><t>${xmlEscape(value)}</t></is></c>`).join('')}</row>`).join('')}</sheetData></worksheet>`

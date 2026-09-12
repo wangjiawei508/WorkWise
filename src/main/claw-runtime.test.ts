@@ -3212,10 +3212,10 @@ describe('ClawRuntime', () => {
     })
 
     expect(runtimeRequest).not.toHaveBeenCalled()
-    expect(current().claw.channels[0].model).toBe('deepseek-v4-flash')
+    expect(current().claw.channels[0].model).toBe('deepseek-flash')
     expect(send).toHaveBeenCalledWith(
       'oc_chat_a',
-      { markdown: 'Claw IM model switched to `deepseek-v4-flash`.' },
+      { markdown: 'Claw IM model switched to `deepseek-flash`.' },
       { replyTo: 'om_inbound', replyInThread: false }
     )
   })

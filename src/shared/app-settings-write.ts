@@ -176,7 +176,8 @@ export function shouldInheritWriteInlineCompletionModel(
 ): boolean {
   if (typeof input?.inheritModel === 'boolean') return input.inheritModel
   const trimmed = typeof input?.model === 'string' ? input.model.trim() : ''
-  return !trimmed || trimmed === DEFAULT_WRITE_INLINE_COMPLETION_MODEL
+  // Older settings omitted inheritModel when using the then-default Flash id.
+  return !trimmed || trimmed === DEFAULT_WRITE_INLINE_COMPLETION_MODEL || trimmed === 'deepseek-v4-flash'
 }
 
 function getNormalizedWriteInlineCompletionSettings(settings: AppSettingsV1): WriteInlineCompletionSettingsV1 {

@@ -13,6 +13,27 @@ export const EngineeringAiThreadMetaV1 = z.object({
 }).strict()
 export type EngineeringAiThreadMetaV1 = z.infer<typeof EngineeringAiThreadMetaV1>
 
+/**
+ * Current admission evidence for an immutable historical adjustment.  A valid
+ * result is not automatically eligible for a new computation, deformation
+ * comparison, or formal deliverable after its source changes.
+ */
+export const EngineeringSurveyAdjustmentAdmissionV1 = z.object({
+  status: z.enum(['current-admissible', 'historical-non-admissible']),
+  rawSourceIntegrity: z.object({
+    status: z.enum(['verified', 'legacy-unverified', 'failed']),
+    ledgerEntryCount: z.number().int().nonnegative(),
+    errors: z.array(z.string().min(1)).max(20)
+  }).strict(),
+  sourceEligibility: z.object({
+    eligible: z.boolean(),
+    findings: z.array(z.object({
+      code: z.string(), severity: z.string(), message: z.string(), suggestion: z.string().optional()
+    }).strict()).max(20)
+  }).strict()
+}).strict()
+export type EngineeringSurveyAdjustmentAdmissionV1 = z.infer<typeof EngineeringSurveyAdjustmentAdmissionV1>
+
 export const EngineeringContextSnapshotV1 = z.object({
   schemaVersion: z.literal(EngineeringAiSchemaVersion),
   projectId: z.string().min(1),
@@ -32,7 +53,7 @@ export const EngineeringContextSnapshotV1 = z.object({
     }).strict()).max(200)
   }).strict()).max(20),
   analyses: z.array(z.object({ id: z.string(), datasetId: z.string(), algorithmVersion: z.string(), resultCount: z.number().int().nonnegative(), inputHash: z.string() }).strict()).max(20),
-  runs: z.array(z.object({ id: z.string(), status: z.string(), datasetId: z.string(), analysisId: z.string().optional(), revision: z.number().int().nonnegative(), updatedAt: z.string() }).strict()).max(20),
+  runs: z.array(z.object({ id: z.string(), status: z.string(), datasetId: z.string().optional(), analysisId: z.string().optional(), revision: z.number().int().nonnegative(), updatedAt: z.string() }).strict()).max(20),
   surveyNetworks: z.array(z.object({
     id: z.string(), networkType: z.string(), transformType: z.string().optional(),
     coordinateSystem: z.string(), verticalDatum: z.string(), pointCount: z.number().int().nonnegative(),
@@ -43,7 +64,8 @@ export const EngineeringContextSnapshotV1 = z.object({
     id: z.string(), networkId: z.string(), status: z.string(), revision: z.number().int().positive(),
     strategyId: z.string().optional(), algorithmVersion: z.string(), inputHash: z.string(),
     validation: z.string().optional(), observationCount: z.number().int().nonnegative().optional(),
-    unknownCount: z.number().int().nonnegative().optional(), degreesOfFreedom: z.number().int().nonnegative().optional()
+    unknownCount: z.number().int().nonnegative().optional(), degreesOfFreedom: z.number().int().nonnegative().optional(),
+    sourceAdmission: EngineeringSurveyAdjustmentAdmissionV1
   }).strict()).max(20).default([]),
   citations: z.array(z.object({ id: z.string(), source: z.string(), sourceType: z.string(), locator: z.string().optional() }).strict()).max(100),
   watchDrafts: z.array(z.object({
@@ -75,6 +97,7 @@ export const EngineeringRunPlanV1 = z.object({
   steps: z.array(EngineeringPlanStepV1).min(1).max(32),
   status: z.enum(['draft', 'validating', 'awaiting_approval', 'approved', 'stale', 'started', 'queued', 'running', 'completed', 'failed', 'cancelled', 'needs_attention', 'rejected']),
   taskId: z.string().min(1).optional(),
+  executionTurnId: z.string().min(1).optional(),
   createdAt: z.string().min(1),
   updatedAt: z.string().min(1)
 }).strict()

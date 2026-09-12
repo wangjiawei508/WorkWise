@@ -83,6 +83,8 @@ const DEFAULT_MODEL_OUTPUT_MODALITIES: readonly ModelInputModality[] = ['text']
 const DEFAULT_MODEL_MESSAGE_PARTS: readonly ModelMessagePartSupport[] = ['text']
 
 export const MODEL_CONTEXT_PROFILES: readonly ModelContextProfile[] = [
+  // DeepSeek-V4.1-Flash official API id (2026-09-10); text and vision.
+  deepseekV4VisionProfile('deepseek-flash'),
   deepseekV4Profile('deepseek-v4-pro', ['deepseek-v4-pro']),
   deepseekV4Profile('deepseek-v4-flash', [
     'deepseek-v4-flash',

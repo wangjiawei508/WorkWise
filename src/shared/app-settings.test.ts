@@ -86,8 +86,15 @@ describe('kun defaults', () => {
     expect(defaultManagedRuntimeSettings().dataDir).toBe(DEFAULT_MANAGED_RUNTIME_DATA_DIR)
   })
 
-  it('defaults the assistant model to v4 pro', () => {
-    expect(defaultManagedRuntimeSettings().model).toBe(DEFAULT_MANAGED_RUNTIME_MODEL)
+  it('defaults new assistants to the official V4.1 Flash id while preserving explicit models', () => {
+    expect(DEFAULT_MANAGED_RUNTIME_MODEL).toBe('deepseek-flash')
+    expect(defaultManagedRuntimeSettings().model).toBe('deepseek-flash')
+    expect(defaultModelProviderSettings().providers[0].models).toContain('deepseek-flash')
+    for (const model of ['deepseek-v4-pro', 'deepseek-v4-flash', 'custom-model']) {
+      const saved = settings()
+      saved.agents.kun.model = model
+      expect(normalizeAppSettings(saved).agents.kun.model).toBe(model)
+    }
   })
 
   it('defaults approval policy to auto', () => {

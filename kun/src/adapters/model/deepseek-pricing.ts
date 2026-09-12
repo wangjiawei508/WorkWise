@@ -66,6 +66,25 @@ function pricingTierForModel(model: string): keyof typeof DEEPSEEK_V4_PRICES | n
   return null
 }
 
+// DeepSeek-V4.1-Flash (official API id deepseek-flash), verified 2026-09-10.
+// Peak: weekdays 01:00–04:00 and 06:00–10:00 UTC. This is a local estimate;
+// the provider's billing timestamp remains authoritative.
+function pricesForModel(model: string, at: Date = new Date()): DeepseekPriceSet | null {
+  const normalized = model.trim().toLowerCase()
+  if (normalized === 'deepseek-flash' || normalized.endsWith('/deepseek-flash')) {
+    const weekday = at.getUTCDay()
+    const hour = at.getUTCHours()
+    const multiplier = weekday >= 1 && weekday <= 5 &&
+      ((hour >= 1 && hour < 4) || (hour >= 6 && hour < 10)) ? 2 : 1
+    return {
+      usd: { inputCacheHit: 0.003 * multiplier, inputCacheMiss: 0.15 * multiplier, output: 0.6 * multiplier },
+      cny: { inputCacheHit: 0.02 * multiplier, inputCacheMiss: 1 * multiplier, output: 4 * multiplier }
+    }
+  }
+  const tier = pricingTierForModel(model)
+  return tier ? DEEPSEEK_V4_PRICES[tier] : null
+}
+
 function computeCost(
   price: DeepseekPrice,
   cacheHitTokens: number,
@@ -92,13 +111,13 @@ export function estimateDeepseekCost(input: {
    * name. See issue #26.
    */
   providerHost?: string
+  at?: Date
 }): DeepseekCurrencyCosts | null {
   if (input.providerHost !== undefined && !isDeepSeekHost(input.providerHost)) {
     return null
   }
-  const tier = pricingTierForModel(input.model)
-  if (!tier) return null
-  const prices = DEEPSEEK_V4_PRICES[tier]
+  const prices = pricesForModel(input.model, input.at)
+  if (!prices) return null
   return {
     costUsd: computeCost(prices.usd, input.cacheHitTokens, input.cacheMissTokens, input.outputTokens),
     costCny: computeCost(prices.cny, input.cacheHitTokens, input.cacheMissTokens, input.outputTokens)
@@ -109,13 +128,15 @@ export function estimateDeepseekInputTokenCost(input: {
   model: string
   inputTokens: number
   providerHost?: string
+  at?: Date
 }): DeepseekCurrencyCosts | null {
   return estimateDeepseekCost({
     model: input.model,
     cacheHitTokens: 0,
     cacheMissTokens: input.inputTokens,
     outputTokens: 0,
-    providerHost: input.providerHost
+    providerHost: input.providerHost,
+    at: input.at
   })
 }
 
@@ -123,13 +144,13 @@ export function estimateDeepseekCacheSavings(input: {
   model: string
   cacheHitTokens: number
   providerHost?: string
+  at?: Date
 }): DeepseekCurrencyCosts | null {
   if (input.providerHost !== undefined && !isDeepSeekHost(input.providerHost)) {
     return null
   }
-  const tier = pricingTierForModel(input.model)
-  if (!tier) return null
-  const prices = DEEPSEEK_V4_PRICES[tier]
+  const prices = pricesForModel(input.model, input.at)
+  if (!prices) return null
   return {
     costUsd: (input.cacheHitTokens / TOKENS_PER_MILLION) *
       Math.max(0, prices.usd.inputCacheMiss - prices.usd.inputCacheHit),

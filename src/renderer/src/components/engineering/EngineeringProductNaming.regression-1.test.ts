@@ -11,14 +11,29 @@ describe('engineering survey product naming regression', () => {
       readFile(new URL('./EngineeringAiCommandCenter.tsx', import.meta.url), 'utf8'),
       readFile(new URL('./EngineeringWorkspaceView.tsx', import.meta.url), 'utf8'),
       readFile(new URL('./EngineeringSidebarContent.tsx', import.meta.url), 'utf8'),
-      readFile(new URL('../chat/Sidebar.tsx', import.meta.url), 'utf8')
+      readFile(new URL('../chat/Sidebar.tsx', import.meta.url), 'utf8'),
+      readFile(new URL('../../store/chat-store-thread-actions.ts', import.meta.url), 'utf8'),
+      readFile(new URL('../../locales/zh/common.json', import.meta.url), 'utf8')
     ])
     const source = sources.join('\n')
+    const deprecatedNames = ['RAILWISE ' + 'SURVEYOR', '睿测' + '智算工作台']
 
-    expect(source).toContain('工程测量工作台')
-    expect(source).toContain('工程测量 AI 指挥台')
-    expect(source).toContain('测绘专业 AI Agent')
-    expect(source).toContain('创建工程测量项目')
-    expect(source).not.toMatch(/工程 AI 指挥台|工程 Agent|创建工程项目|新建工程项目|选择工程项目|暂无工程项目/)
+    expect(source).toContain("t('engineeringWorkbenchTitle')")
+    expect(source).toContain("t('engineeringWorkbenchSubtitle')")
+    expect(source).toContain('engineeringAiTitle')
+    expect(source).toContain('engineeringSession')
+    expect(source).toContain('Survey AI · ${selectedProject.name}')
+    expect(source).toContain("domain: 'engineering'")
+    expect(source).toContain('engineeringAiAgent')
+    expect(source).toContain('engineeringActionCreateProject')
+    expect(source).toContain('"engineeringAiTitle": "Survey AI"')
+    expect(source).toContain('"engineeringSession": "Survey AI 会话"')
+    expect(source).toContain('"appName": "RAILWISE AI"')
+    expect(source).toContain('"surveyProductName": "RAILWISE Survey"')
+    expect(source).toContain('"surveyProductSubtitle": "工程测量内业"')
+    expect(source).toContain('"engineeringAiAgent": "测绘专业 AI Agent"')
+    expect(source).not.toContain('工程测量 AI 会话')
+    expect(source).not.toContain('<h1 className="mr-auto text-[15px] font-semibold">WorkWise Survey</h1>')
+    expect(source).not.toMatch(new RegExp([...deprecatedNames, '工程 AI 指挥台', '工程 Agent', '创建工程项目', '新建工程项目', '选择工程项目', '暂无工程项目'].join('|')))
   })
 })

@@ -224,10 +224,14 @@ describe('app-ipc-schemas', () => {
       { path: '/v1/engineering/ai/plans/plan_1/resume', method: 'POST' }
       ,{ path: '/v1/engineering/capabilities', method: 'GET' }
       ,{ path: '/v1/engineering/skills/catalog', method: 'GET' }
+      ,{ path: '/v1/engineering/survey/source-groups/cosa/inspect', method: 'POST' }
       ,{ path: '/v1/engineering/survey/networks/import', method: 'POST' }
       ,{ path: '/v1/engineering/survey/networks', method: 'GET' }
       ,{ path: '/v1/engineering/survey/networks?projectId=project_1', method: 'GET' }
       ,{ path: '/v1/engineering/survey/networks/network_1/validate', method: 'POST' }
+      ,{ path: '/v1/engineering/survey/networks/network_1/corrections', method: 'GET' }
+      ,{ path: '/v1/engineering/survey/networks/network_1/corrections/replay', method: 'GET' }
+      ,{ path: '/v1/engineering/survey/networks/network_1/corrections/replay?head=abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789', method: 'GET' }
       ,{ path: '/v1/engineering/adjustments', method: 'POST' }
       ,{ path: '/v1/engineering/adjustments?projectId=project_1', method: 'GET' }
       ,{ path: '/v1/engineering/adjustments/adjustment_1', method: 'GET' }

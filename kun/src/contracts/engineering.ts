@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { AdjustmentResultV1, DeformationComparisonV1 } from './survey.js'
+import { AdjustmentResultV1, DeformationComparisonV1, SurveySourceFileV1 } from './survey.js'
 
 export const ENGINEERING_SCHEMA_VERSION = 1 as const
 export const ENGINEERING_MAX_OBSERVATIONS = 500_000
@@ -89,6 +89,12 @@ export const KnowledgeCitationV1 = z.object({
 }).strict()
 export type KnowledgeCitationV1 = z.infer<typeof KnowledgeCitationV1>
 
+export const SurveySourceEvidenceV1 = z.object({
+  networkId: z.string().min(1),
+  source: SurveySourceFileV1
+}).strict()
+export type SurveySourceEvidenceV1 = z.infer<typeof SurveySourceEvidenceV1>
+
 export const DeliverableManifestV1 = z.object({
   schemaVersion: z.literal(ENGINEERING_SCHEMA_VERSION), id: z.string().min(1), projectId: z.string().min(1), runId: z.string().min(1),
   inputDatasets: z.array(z.object({ id: z.string(), hash: z.string() }).strict()), analyses: z.array(z.string()), charts: z.array(ChartArtifactV1),
@@ -97,6 +103,8 @@ export const DeliverableManifestV1 = z.object({
   adjustments: z.array(AdjustmentResultV1).default([]),
   /** Immutable comparisons derived only from the linked adjustment results. */
   deformations: z.array(DeformationComparisonV1).default([]),
+  /** Instrument/GNSS source provenance linked through adjustment network IDs. */
+  surveySources: z.array(SurveySourceEvidenceV1).default([]),
   validation: z.object({ valid: z.boolean(), errors: z.array(z.string()), warnings: z.array(z.string()) }).strict(), reviewStatus: z.enum(['draft', 'approved', 'archived']),
   runtimeVersion: z.string(), createdAt: z.string(), finalizedAt: z.string().optional()
 }).strict()
@@ -115,14 +123,19 @@ export const DatasetValidateRequest = RevisionMutationV1.extend({ datasetId: z.s
 export const AcceptQualityFindingRequest = RevisionMutationV1.extend({ datasetId: z.string().min(1), findingId: z.string().min(1) }).strict()
 export const AnalysisRequest = RevisionMutationV1.extend({ projectId: z.string().min(1), datasetId: z.string().min(1) }).strict()
 export const ChartRequest = RevisionMutationV1.extend({ analysisId: z.string().min(1), chartType: z.string().default('trend') }).strict()
-export const ReportPreviewRequest = RevisionMutationV1.extend({
+const DeliveryInputs = {
   projectId: z.string().min(1),
-  datasetId: z.string().min(1),
-  analysisId: z.string().optional(),
+  // With no monitoring dataset, expectedRevision refers to the project.
+  datasetId: z.string().min(1).optional(),
+  analysisId: z.string().min(1).optional(),
   citations: z.array(KnowledgeCitationV1).default([]),
   adjustmentIds: z.array(z.string().min(1)).max(100).default([]),
   deformationIds: z.array(z.string().min(1)).max(100).default([])
-}).strict()
-export const FinalizeDeliverableRequest = RevisionMutationV1.extend({ projectId: z.string().min(1), datasetId: z.string().min(1), analysisId: z.string().optional(), adjustmentIds: z.array(z.string().min(1)).max(100).default([]), deformationIds: z.array(z.string().min(1)).max(100).default([]), acknowledgeWarnings: z.boolean().default(false), citations: z.array(KnowledgeCitationV1).default([]) }).strict()
+}
+const hasDeliveryInputs = (value: { datasetId?: string; analysisId?: string; adjustmentIds: string[]; deformationIds: string[] }): boolean =>
+  Boolean(value.datasetId || (!value.analysisId && (value.adjustmentIds.length || value.deformationIds.length)))
+const deliveryInputsError = { message: 'a monitoring dataset or selected survey results are required; analysisId requires datasetId' }
+export const ReportPreviewRequest = RevisionMutationV1.extend(DeliveryInputs).strict().refine(hasDeliveryInputs, deliveryInputsError)
+export const FinalizeDeliverableRequest = RevisionMutationV1.extend({ ...DeliveryInputs, acknowledgeWarnings: z.boolean().default(false) }).strict().refine(hasDeliveryInputs, deliveryInputsError)
 export const RunMutationRequest = RevisionMutationV1.extend({}).strict()
 export type DatasetImportRequest = z.infer<typeof DatasetImportRequest>

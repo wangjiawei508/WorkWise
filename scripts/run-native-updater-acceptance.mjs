@@ -45,6 +45,13 @@ function installMac(installer, root) {
     run('ditto', [join(mount, appName), destination])
     run('codesign', ['--verify', '--deep', '--strict', '--verbose=2', destination])
     run('spctl', ['--assess', '--type', 'execute', '--verbose=2', destination])
+    const updaterMetadata = join(destination, 'Contents', 'Resources', 'app-update.yml')
+    if (!existsSync(updaterMetadata)) {
+      throw new Error(
+        'Installed macOS baseline lacks Contents/Resources/app-update.yml; '
+        + 'an updater-disabled candidate cannot be used as a native updater acceptance baseline.'
+      )
+    }
     return destination
   } finally {
     run('hdiutil', ['detach', mount])

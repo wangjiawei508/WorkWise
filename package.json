@@ -1,7 +1,7 @@
 {
   "name": "workwise",
   "productName": "WorkWise",
-  "version": "0.4.2",
+  "version": "0.5.0",
   "description": "AI workbench for engineering, infrastructure, and operations workflows",
   "license": "MIT",
   "engines": {
@@ -16,6 +16,7 @@
     "build:markitdown-sidecar": "node ./scripts/build-markitdown-sidecar.mjs",
     "lint": "eslint .",
     "test": "vitest run",
+    "test:survey-converter-sandbox": "npm --prefix kun run test:survey-converter-sandbox",
     "test:watch": "vitest",
     "test:stability": "node ./scripts/stability-cycle.mjs",
     "test:managed-tools:live": "node ./scripts/run-managed-tool-live-test.cjs",

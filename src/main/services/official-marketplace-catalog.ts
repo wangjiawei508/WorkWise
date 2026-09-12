@@ -90,6 +90,7 @@ const PACKAGE_ICON_OVERRIDES: Record<string, MarketplaceIconV1> = {
   'github-mcp': { kind: 'monogram', value: 'GH', tone: 'blue', alt: 'GitHub' },
   'playwright-mcp': { kind: 'monogram', value: 'PW', tone: 'orange', alt: 'Playwright' },
   'playwright-cli-skills': { kind: 'monogram', value: 'PW', tone: 'orange', alt: 'Playwright' },
+  'rail-any-station-control-network': { kind: 'monogram', value: '测', tone: 'teal', alt: '任意设站控制网测量' },
   context7: { kind: 'monogram', value: 'C7', tone: 'teal', alt: 'Context7' },
   dbhub: { kind: 'monogram', value: 'DB', tone: 'green', alt: 'DBHub' },
   'antv-chart-mcp': { kind: 'monogram', value: 'AV', tone: 'red', alt: 'AntV' },
@@ -869,6 +870,18 @@ const officialPackages: MarketplacePackageV1[] = [
     license: 'MIT',
     category: 'engineering',
     tier: 'advanced',
+    permissions: [FILESYSTEM_READ_PERMISSION, FILESYSTEM_WRITE_PERMISSION]
+  }),
+  managedSkillPackage({
+    id: 'rail-any-station-control-network',
+    name: '任意设站控制网测量',
+    summary: '导入任意设站控制网观测文件，执行预检、确定性平差、精度解释和成果交付。',
+    publisher: publisher('workwise-user-provided', 'WorkWise 用户提供专项技能', 'workwise://skills/rail-any-station-control-network', false),
+    location: 'workwise://skills/rail-any-station-control-network',
+    license: 'User-provided internal source',
+    category: 'engineering',
+    tier: 'recommended',
+    version: '0.5.0',
     permissions: [FILESYSTEM_READ_PERMISSION, FILESYSTEM_WRITE_PERMISSION]
   }),
   managedSkillPackage({

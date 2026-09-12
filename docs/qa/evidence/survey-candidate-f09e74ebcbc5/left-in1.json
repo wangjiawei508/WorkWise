@@ -1,0 +1,75 @@
+{
+  "scope": "packaged-runtime-not-gui-acceptance",
+  "package": {
+    "asarSha256": "e8ac874d7af270341ae4b8dcf9e0fa6b9851375c6ff6d8a6c9dbfd1b1c99c684",
+    "runtimeModules": [
+      {
+        "name": "engineering-service",
+        "sha256": "b9d090d837c2d90dfb988ebea46c111a014a6d7ce274ca66f9aaeb292ba39dce"
+      },
+      {
+        "name": "survey-service",
+        "sha256": "66e111e167a7cd5b2d2758e1eb4de875569e12ed3bf5e5c4932a1589a88d29c3"
+      },
+      {
+        "name": "survey-adjustment-core",
+        "sha256": "dcb8ba838ed2190a187f422453f58dec550fdb61caf3c1426e6ca76fad155726"
+      }
+    ],
+    "electron": "43.1.1",
+    "nodeAbi": "148"
+  },
+  "source": {
+    "sha256": "c885737c43f6403bae6eacee84094e7feddb5d4ba2fd469b4d11994b101cf413",
+    "bytes": 6720,
+    "format": "cosa-in1",
+    "mappingSha256": "0844f29ecea6d808e1cf8f0fba757ed40778f11eaa691bf825500f50bb174313"
+  },
+  "status": "completed",
+  "validation": "valid",
+  "integrity": "verified",
+  "algorithm": "workwise-survey-adjustment-6",
+  "observations": 134,
+  "points": 61,
+  "degreesOfFreedom": 75,
+  "iterations": 1,
+  "precision": {
+    "maxPointStdDev": 0.0006225647883912831,
+    "passed": true
+  },
+  "closure": {
+    "independentCycles": 75,
+    "maximumHeightClosureMetres": 0.003989999999994609
+  },
+  "delivery": {
+    "pdfPageCount": 6,
+    "verifiedPointCount": 61,
+    "outputs": [
+      {
+        "name": "report.docx",
+        "mediaType": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "sha256": "00b021ec9be4b90b5094e16bf64e24b504c749e344029c66c9e9fc6aead48ac2",
+        "sizeBytes": 19803
+      },
+      {
+        "name": "report.pdf",
+        "mediaType": "application/pdf",
+        "sha256": "a129c7b6e44def34044ac5d69ee3db9dbc38c13a37946517402cf07b32650438",
+        "sizeBytes": 41824
+      },
+      {
+        "name": "evidence.xlsx",
+        "mediaType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "sha256": "d958f50ad53cbc45b828ee3e5d6dc22c4ff26c87f96a528606964b0a0d0751b9",
+        "sizeBytes": 270913
+      }
+    ],
+    "reviewStatus": "draft"
+  },
+  "referenceComparison": {
+    "sourceSha256": "5adb855e3b408e7d82aa1df37392fdc79062a7bdf7840b6d3a16c7f7d68aaeb5",
+    "comparedPoints": 61,
+    "mismatches": 0,
+    "maximumHeightDifferenceMetres": 0.0000049802540367238635
+  }
+}

@@ -1,0 +1,148 @@
+{
+  "scope": "isolated-runtime-not-packaged-gui-acceptance",
+  "source": {
+    "sha256": "5feaa91f6ee20e20aeace1bf87bb113ff47d5282e4fc22b62898846dde8728fc",
+    "bytes": 90748,
+    "format": "trimble-m5",
+    "knownPointsSha256": "0b5161f5b1548a47265c012e2c621296589da45621f4e2203c3150cffb454215",
+    "knownPointCount": 2
+  },
+  "preflight": {
+    "formatId": "trimble-m5",
+    "vendor": "Trimble/Zeiss",
+    "formatVersion": null,
+    "detectionMethod": "content-signature",
+    "detectionConfidence": 0.96,
+    "extensionClaimed": ".dat",
+    "extensionContentConflict": true,
+    "matchedSignatures": [
+      "M5 tagged record"
+    ],
+    "requiresManualConfirmation": false,
+    "disposition": "adjustment-ready",
+    "dispositionReason": "adjustment-ready: P0 格式目录 workwise-survey-format-catalog-1.7.0 — 严格识别 For M5 aBFFB 测段、Rb/Rf 顺序、米制读数和原始记录锚点后可进入策略校验；已知高程基准、闭合、拓扑和精度条件仍由平差入口逐项验证。",
+    "parserId": "trimble-m5-abffb-parser",
+    "parserVersion": "0.2.0",
+    "parserSourceHash": "70bbd5903ea07b1b6197e95a35378b62a63ee494ec7a135d378bbb3a26074b44",
+    "canonicalUnits": {
+      "linear": "m",
+      "angular": "rad"
+    },
+    "declaredDatum": null,
+    "declaredHeightSystem": null,
+    "summary": {
+      "pointCount": 78,
+      "stationCount": 0,
+      "observationCount": 148,
+      "recordCount": 750,
+      "skippedRecordCount": 0
+    },
+    "diagnostics": {
+      "total": 4,
+      "info": 2,
+      "warning": 2,
+      "blocking": 0,
+      "codes": [
+        "encoding_detected",
+        "format_conflict",
+        "format_detected"
+      ]
+    },
+    "rawRecordAnchors": {
+      "total": 750,
+      "usable": 750,
+      "linkedObservations": 148
+    },
+    "originalPreserved": true,
+    "eligibility": {
+      "eligible": true,
+      "blockingFindingCodes": []
+    }
+  },
+  "status": "completed",
+  "validation": "valid",
+  "integrity": {
+    "status": "verified",
+    "ledgerEntryCount": 2
+  },
+  "algorithm": "workwise-survey-adjustment-6",
+  "observations": 148,
+  "points": 78,
+  "degreesOfFreedom": 72,
+  "iterations": 1,
+  "precision": {
+    "maxPointStdDev": 0.0011172743983526292,
+    "passed": true,
+    "standardizedResidualGate": {
+      "actualMaximumSigma": 0.00016274707363884844,
+      "limitSigma": 3,
+      "exceededCount": 0,
+      "comparator": "<=",
+      "passed": true
+    },
+    "maxPointStdDevGate": {
+      "actualMetres": 0.0011172743983526292,
+      "configuredLimitMetres": null,
+      "status": "reported-no-project-limit-configured"
+    }
+  },
+  "closure": {
+    "independentCycles": 72,
+    "maximumHeightClosureMetres": 0.0040599999999999525,
+    "configuredHeightClosureLimitMetres": null
+  },
+  "delivery": {
+    "pdfPageCount": 7,
+    "verifiedPointCount": 78,
+    "outputs": [
+      {
+        "name": "report.docx",
+        "mediaType": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "sha256": "9c340a3a853b5fc4ad3274091a24846ff3f21d76721a5be501a6cb8f022968be",
+        "sizeBytes": 23334
+      },
+      {
+        "name": "report.pdf",
+        "mediaType": "application/pdf",
+        "sha256": "2924a22126ff6a05ea68f4f42682772294ccecc260b77329dfdca79b42863284",
+        "sizeBytes": 45139
+      },
+      {
+        "name": "evidence.xlsx",
+        "mediaType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "sha256": "603a9e976eab88e85f6183dc4aa10f1eef2aa1493cf881c2388b9567a4b0fe3c",
+        "sizeBytes": 619626
+      }
+    ],
+    "manifest": {
+      "sha256": "949dd8f301c43bde531586c67d855d7ca3c7365194503c4a35a9be3ebac7ddd1",
+      "bytes": 1281054,
+      "sourceCount": 1,
+      "sourceHashes": [
+        "5feaa91f6ee20e20aeace1bf87bb113ff47d5282e4fc22b62898846dde8728fc"
+      ],
+      "adjustmentCount": 1,
+      "adjustmentInputHashes": [
+        "d6511e580629eb518a75f772def0858cd635b25532a4d935083e57500a901ce7"
+      ],
+      "outputCount": 3,
+      "valid": true,
+      "runtimeVersion": "0.5.0"
+    },
+    "reviewStatus": "draft"
+  },
+  "referenceComparison": {
+    "kind": "leveling-reference-adjusted-heights",
+    "sourceSha256": "9c3f7e0f279b279b3d17d31973a780101f0002faf626805a0502a91932902734",
+    "comparedPoints": 74,
+    "strictPublishedRoundingMismatches": 64,
+    "precisionEnvelopeMismatches": 0,
+    "adjustedPointCount": 78,
+    "extraAdjustedPoints": 4,
+    "maximumHeightDifferenceMetres": 0.00011140075697113616,
+    "maximumPublishedRoundingToleranceMetres": 0.000005001,
+    "maximumStandardErrorToleranceMetres": 0.0008900000000000001,
+    "toleranceRule": "published-rounding-is-reported-strictly; acceptance-uses-max(half-published-resolution, reference-standard-error)",
+    "passed": true
+  }
+}

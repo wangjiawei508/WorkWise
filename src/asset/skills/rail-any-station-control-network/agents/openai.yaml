@@ -1,0 +1,6 @@
+interface:
+  display_name: "任意设站控制网测量"
+  short_description: "任意设站控制网导入、平差与成果交付"
+  default_prompt: "使用 $rail-any-station-control-network 检查这组控制网文件并给出可复核的平差与成果交付计划。"
+policy:
+  allow_implicit_invocation: true

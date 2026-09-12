@@ -3,6 +3,7 @@ import { execFileSync } from 'node:child_process'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { describe, expect, it } from 'vitest'
+import { candidateEnvironmentFromArgv } from './candidate-runtime'
 
 function createCandidateRepo(testRoot: string): { repo: string; script: string; sourceHead: string } {
   const repo = join(testRoot, 'repo')
@@ -66,6 +67,34 @@ describe('authorize-workwise-candidate.sh', () => {
         join(resolvedCandidateRoot, 'user-data'),
         resolvedHelper
       ].join('\n') + '\n')
+
+      const childEnvironment = JSON.parse(execFileSync('bash', [
+        '-c',
+        'set -euo pipefail; source "$1"; exec "$2" -e \'console.log(JSON.stringify(process.env))\'',
+        'workwise-candidate-child-env-test',
+        envFile,
+        process.execPath
+      ], { encoding: 'utf8' }))
+      expect(childEnvironment).toMatchObject({
+        WORKWISE_CANDIDATE: '1',
+        WORKWISE_CANDIDATE_SOURCE_HEAD: sourceHead,
+        WORKWISE_CANDIDATE_ROOT: resolvedCandidateRoot,
+        WORKWISE_CANDIDATE_USER_DATA: join(resolvedCandidateRoot, 'user-data'),
+        WORKWISE_CANDIDATE_CREDENTIAL_ACCESS: '0'
+      })
+
+      const launchEnvironment = candidateEnvironmentFromArgv(
+        `/private/tmp/WorkWise Candidate ${sourceHead.slice(0, 12)}.app/Contents/MacOS/WorkWise Candidate ${sourceHead.slice(0, 12)}`,
+        [`--workwise-candidate-env-file=${join(resolvedCandidateRoot, 'candidate.env')}`],
+        {}
+      )
+      expect(launchEnvironment).toMatchObject({
+        WORKWISE_CANDIDATE: '1',
+        WORKWISE_CANDIDATE_ROOT: resolvedCandidateRoot,
+        WORKWISE_CANDIDATE_USER_DATA: join(resolvedCandidateRoot, 'user-data'),
+        WORKWISE_CANDIDATE_CREDENTIAL_HELPER: resolvedHelper,
+        WORKWISE_CANDIDATE_CREDENTIAL_ACCESS: '0'
+      })
     } finally {
       rmSync(testRoot, { recursive: true, force: true })
     }

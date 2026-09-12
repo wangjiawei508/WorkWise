@@ -89,3 +89,9 @@ describe('attachment-aware model routing', () => {
     })).toEqual({ ok: true, model: 'auto' })
   })
 })
+
+it('preserves a third-party legacy vision id instead of inventing new model availability', () => {
+  expect(resolveAttachmentAwareModel({ selectedModel: 'auto', attachments: [image],
+    activeProvider: { id: 'custom', baseUrl: 'https://custom.example', models: ['deepseek-v4-flash-vision-exp'] },
+    modelGroups: [] })).toEqual({ ok: true, model: 'deepseek-v4-flash-vision-exp' })
+})

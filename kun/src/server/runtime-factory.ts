@@ -86,6 +86,7 @@ import { HttpVisionEvidenceService, type VisionEvidenceConfig } from '../vision/
 import { EngineeringService } from '../engineering/engineering-service.js'
 import { EngineeringContextService } from '../engineering/engineering-context-service.js'
 import { EngineeringAiOrchestrator } from '../engineering/engineering-ai-orchestrator.js'
+import { buildEngineeringConversationTools } from '../adapters/tool/engineering-conversation-tools.js'
 import { EngineeringAiRepository } from '../engineering/engineering-ai-repository.js'
 import { buildRailwiseToolProviders } from '../adapters/tool/railwise-tool-provider.js'
 import { SurveyService } from '../engineering/survey-service.js'
@@ -306,13 +307,40 @@ export async function createKunServeRuntime(
     ...(attachmentStore ? { attachmentStore } : {}),
     runtimeVersion: '0.5.0',
     getAdjustments: (projectId, ids) => ids.flatMap((id) => {
-      const stored = surveyService.getAdjustment(id)
-      if (!stored || stored.run.projectId !== projectId || !stored.result) return []
+      const stored = surveyService.getAdjustmentForProjectNewUse(projectId, id)
+      if (!stored || !stored.result) return []
       return [stored.result]
     }),
+    getAdjustmentEvidence: (projectId, ids) => ids.flatMap((id) => {
+      const stored = surveyService.getAdjustmentForProjectNewUse(projectId, id)
+      if (!stored || !stored.result) return []
+      return [{
+        run: {
+          id: stored.run.id,
+          projectId: stored.run.projectId,
+          networkId: stored.run.networkId,
+          inputHash: stored.run.inputHash,
+          status: stored.run.status
+        },
+        result: stored.result
+      }]
+    }),
     getDeformations: (projectId, ids) => ids.flatMap((id) => {
-      const result = surveyService.getDeformation(id)
-      return result?.projectId === projectId ? [result] : []
+      const result = surveyService.getDeformationForProjectNewUse(projectId, id)
+      return result ? [result] : []
+    }),
+    getSurveySources: (projectId, networkIds) => networkIds.flatMap((id) => {
+      const network = surveyService.getNetwork(id)
+      return network?.projectId === projectId
+        ? [{
+          networkId: id,
+          ...(network.sourceFile ? { sourceFile: network.sourceFile } : {}),
+          rawSourceIntegrity: surveyService.getRawSourceIntegrity(id),
+          sourceEligibility: surveyService.getSourceEligibility(id),
+          observations: network.observations.map(({ id: observationId, type, sourceRecordId }) => ({ id: observationId, type, sourceRecordId })),
+          points: [...network.knownPoints, ...network.unknownPoints].map(({ id: pointId }) => ({ id: pointId }))
+        }]
+        : []
     }),
     nowIso
   })
@@ -488,8 +516,11 @@ export async function createKunServeRuntime(
     },
     ...buildDelegationToolProviders(delegationRuntime)
   ])
+  let engineeringAi: EngineeringAiOrchestrator
   const toolHost = new LocalToolHost({ registry, readTracker: true })
-  const loop = new AgentLoop({
+  let loop: AgentLoop
+  registry.registerProvider(buildEngineeringConversationTools(threadStore, () => engineeringAi))
+  loop = new AgentLoop({
     threadStore,
     sessionStore,
     approvalGate,
@@ -531,9 +562,10 @@ export async function createKunServeRuntime(
     },
     tasks: taskController,
     spanService,
-    workspaceReferences: workspaceReferenceService
+    workspaceReferences: workspaceReferenceService,
+    engineeringTurnPolicy: (threadId, projectId, turnId) => engineeringAi.conversationPolicy(threadId, projectId, turnId)
   })
-  const engineeringAi = new EngineeringAiOrchestrator({
+  engineeringAi = new EngineeringAiOrchestrator({
     context: engineeringContext,
     repository: engineeringAiRepository,
     threadStore,
@@ -634,6 +666,8 @@ export async function createKunServeRuntime(
           flowService.shutdown()
           taskRepository.close()
           engineeringAiRepository.close()
+          await surveyService.flush()
+          await engineeringService.flush()
           surveyService.close()
           engineeringService.close()
         } finally {

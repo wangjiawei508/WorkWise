@@ -1,23 +1,122 @@
 import { useCallback, useEffect, useMemo, useState, type ReactElement } from 'react'
-import { Activity, AlertTriangle, Bot, CheckCircle2, CircleDot, FileCode2, FileUp, GitBranch, Grid3X3, Play, Ruler, ShieldAlert, SlidersHorizontal } from 'lucide-react'
+import { useTranslation } from 'react-i18next'
+import type { TFunction } from 'i18next'
+import appI18n from '../../i18n'
+import { Activity, AlertTriangle, Bot, CheckCircle2, CircleDot, Compass, FileCode2, FileUp, GitBranch, Grid3X3, Play, ShieldAlert, SlidersHorizontal, X } from 'lucide-react'
 import { rendererRuntimeClient } from '../../agent/runtime-client'
 import { buildSurveyTopology } from './survey-topology'
+import { SURVEY_FILE_ACCEPT } from './survey-file-selection'
+import { useEngineeringConversationDrafts } from './engineering-conversation-drafts'
+import { CosaIn1MappingForm, type CosaIn1Mapping } from './CosaIn1MappingForm'
+import { surveyImportKey } from './survey-import-identity'
 
-type Project = { id: string; revision: number }
+type Project = { id: string; revision: number; workspace?: string }
 type SurveyPoint = { id: string; pointClass?: string; x?: number; y?: number; height?: number; latitude?: number; longitude?: number; known?: boolean }
-type SurveyObservation = { id: string; type?: string; from?: string; to?: string; station?: string; target?: string; left?: string; right?: string; value?: number; unit?: string; vectorX?: number; vectorY?: number; vectorZ?: number; covariance?: number[]; sigma?: number; sigmaUnit?: string; stationHeightOffset?: number; targetHeightOffset?: number; distance?: number; direction?: number }
-type Network = { id: string; revision: number; networkType: string; transformType?: string; coordinateSystem?: string; verticalDatum?: string; heightDatum?: string; knownPoints: SurveyPoint[]; unknownPoints: SurveyPoint[]; observations: SurveyObservation[]; qualityStatus: string; findings: Array<{ severity: string; message: string }> }
-type Adjustment = { observationEpoch?: string; networkType?: string; coordinateSystem?: string; verticalDatum?: string; run: { id: string; networkId: string; status: string; revision: number; createdAt?: string }; result: { id: string; validation: string; strategyId?: string; transformType?: string; algorithmVersion?: string; observationCount: number; unknownCount: number; redundancy: number; linearUnit?: 'm'; angularUnit?: 'rad'; unitWeightStdDev: number; unitWeightStdDevUnit?: 'dimensionless'; varianceFactor?: number; varianceFactorUnit?: 'dimensionless'; varianceFactorEstimated?: boolean; degreesOfFreedom?: number; closure?: { horizontal?: number; angular?: number; vertical?: number; heightDifference?: number; fx?: number; fy?: number; relativeClosure?: number; baseline?: number; baselineX?: number; baselineY?: number; baselineZ?: number; translationX?: number; translationY?: number; scalePpm?: number; rotationRad?: number }; closureUnits?: Record<string, 'm' | 'rad' | 'ppm' | 'ratio'>; parameters?: Record<string, number>; parameterUnits?: Record<string, 'm' | 'rad' | 'ppm' | 'ratio'>; precision: { maxPointStdDev: number; relativePrecision?: number; passed: boolean }; qualityFindings: Array<{ severity: string; message: string }>; covariance?: number[][]; points?: Array<{ id: string; x?: number; y?: number; height?: number; latitude?: number; longitude?: number; correctionX?: number; correctionY?: number; correctionHeight?: number; standardError?: number }>; observations?: Array<{ observationId: string; correction?: number; residual: number; unit?: 'm' | 'rad'; standardizedResidual?: number; standardizedResidualUnit?: 'sigma'; outlier?: boolean; sourceRow?: number }> } }
+type SurveyObservation = { id: string; type?: string; from?: string; to?: string; station?: string; target?: string; left?: string; right?: string; value?: number; unit?: string; vectorX?: number; vectorY?: number; vectorZ?: number; covariance?: number[]; sigma?: number; sigmaUnit?: string; stationHeightOffset?: number; targetHeightOffset?: number; distance?: number; direction?: number; sourceRecordId?: string }
+type SurveyImportDisposition = 'adjustment-ready' | 'gnss-processing-required' | 'converter-required' | 'archive-only'
+type RawSourceIntegrity = { status: 'verified' | 'legacy-unverified' | 'failed'; ledgerEntryCount: number; errors: string[] }
+type SourceEligibilityFinding = { code?: string; severity?: string; message?: string; suggestion?: string }
+type SourceEligibility = { eligible: boolean; findings?: SourceEligibilityFinding[] }
+type NetworkWithRawSourceIntegrity = Network & { rawSourceIntegrity?: RawSourceIntegrity; sourceEligibility?: SourceEligibility }
+type RawRecordAnchor = {
+  id: string
+  sourceRecord?: number
+  rawOffset?: number
+  rawLength?: number
+  rawLineNo?: number
+  /** Legacy aliases remain display-only; residual tracing requires rawOffset/rawLength. */
+  line?: number
+  byteOffset?: number
+  byteLength?: number
+  section?: string
+  recordType?: string
+  rawSnippet?: string
+}
+type SurveySourceFile = {
+  name: string
+  size: number
+  sha256: string
+  originalPreserved: true
+  /** Optional flattened provenance fields keep old persisted source records readable. */
+  formatId?: string
+  vendor?: string
+  formatVersion?: string | null
+  detectionMethod?: string
+  detectionConfidence?: number
+  extensionClaimed?: string | null
+  extensionContentConflict?: boolean
+  requiresManualConfirmation?: boolean
+  dispositionReason?: string
+  parserSourceHash?: string
+  converterId?: string
+  converterVersion?: string
+  converterBinaryHash?: string
+  linearUnitRaw?: string
+  angularUnitRaw?: string
+  linearUnitCanonical?: string
+  angularUnitCanonical?: string
+  datumDeclared?: string | null
+  heightSystemDeclared?: string | null
+  summary?: { pointCount?: number; stationCount?: number; observationCount?: number; recordCount?: number; skippedRecordCount?: number }
+  detection: { format: string; vendor: string; version?: string; method?: string; confidence: number; extension?: string; matchedSignatures: string[]; extensionConflict: boolean }
+  disposition: SurveyImportDisposition
+  parserId: string
+  parserVersion: string
+  recordCount: number
+  diagnostics: Array<{ code: string; severity: 'info' | 'warning' | 'blocking'; message: string; suggestedAction?: string; sourceRecord?: number; byteOffset?: number }>
+  /** Canonical source-record index. Old Runtime records only have rawRecordAnchors. */
+  records?: RawRecordAnchor[]
+  rawRecordAnchors: RawRecordAnchor[]
+  converter?: { id: string; version: string; license: string; executableHash: string; inputHash: string; outputHash?: string; networkAccess: 'none'; arguments: string[]; status: 'passed' | 'blocked' }
+}
+type CosaFileGroupMemberKind = 'in1' | 'in2' | 'net' | 'xyo' | 'ou1' | 'ou2'
+type CosaFileGroupInspection = {
+  groups: Array<{
+    id: string
+    normalizedStem: string
+    normalizedDirectory: string
+    state: 'ready' | 'blocked'
+    members: Record<CosaFileGroupMemberKind, Array<{ name: string; sha256: string; size: number }>>
+    diagnostics: Array<{ code: string; severity: 'blocking'; message: string; suggestedAction: string; memberKind: CosaFileGroupMemberKind }>
+  }>
+  diagnostics: Array<{ code: string; severity: 'blocking'; message: string; suggestedAction: string; memberKind: CosaFileGroupMemberKind }>
+}
+type Network = { id: string; revision: number; networkType: string; transformType?: string; coordinateSystem?: string; verticalDatum?: string; heightDatum?: string; knownPoints: SurveyPoint[]; unknownPoints: SurveyPoint[]; observations: SurveyObservation[]; qualityStatus: string; sourceFile?: SurveySourceFile; findings: Array<{ code?: string; severity: string; message: string; row?: number }> }
+type Adjustment = { observationEpoch?: string; networkType?: string; coordinateSystem?: string; verticalDatum?: string; /** Current, server-recomputed admission state; history without it must not power a new computation. */ rawSourceIntegrity?: RawSourceIntegrity; sourceEligibility?: SourceEligibility; run: { id: string; networkId: string; status: string; revision: number; createdAt?: string }; result: { id: string; validation: string; strategyId?: string; transformType?: string; algorithmVersion?: string; observationCount: number; unknownCount: number; redundancy: number; linearUnit?: 'm'; angularUnit?: 'rad'; unitWeightStdDev: number; unitWeightStdDevUnit?: 'dimensionless'; varianceFactor?: number; varianceFactorUnit?: 'dimensionless'; varianceFactorEstimated?: boolean; degreesOfFreedom?: number; closure?: { horizontal?: number; angular?: number; vertical?: number; heightDifference?: number; fx?: number; fy?: number; relativeClosure?: number; baseline?: number; baselineX?: number; baselineY?: number; baselineZ?: number; translationX?: number; translationY?: number; scalePpm?: number; rotationRad?: number }; closureUnits?: Record<string, 'm' | 'rad' | 'ppm' | 'ratio'>; parameters?: Record<string, number>; parameterUnits?: Record<string, 'm' | 'rad' | 'ppm' | 'ratio'>; precision: { maxPointStdDev: number; relativePrecision?: number; passed: boolean }; qualityFindings: Array<{ severity: string; message: string }>; covariance?: number[][]; points?: Array<{ id: string; x?: number; y?: number; height?: number; latitude?: number; longitude?: number; correctionX?: number; correctionY?: number; correctionHeight?: number; standardError?: number }>; observations?: Array<{ observationId: string; correction?: number; residual: number; unit?: 'm' | 'rad'; standardizedResidual?: number; standardizedResidualUnit?: 'sigma'; outlier?: boolean; sourceRow?: number; /** Immutable raw-source anchor inherited from the adjusted observation. */ sourceRecordId?: string }> } }
 type Deformation = { id: string; referenceAdjustmentId: string; currentAdjustmentId: string; referenceEpoch: string; currentEpoch: string; durationDays: number; algorithmVersion: string; inputHash: string; points: Array<{ pointId: string; dX?: number; dY?: number; dH?: number; settlement?: number; horizontalDisplacement?: number; spatialDisplacement: number; rates: { spatialPerDay: number }; trend: string; significant?: boolean; unit: 'm'; rateUnit: 'm/day' }>; pairs: Array<{ id: string; kind: 'tilt' | 'convergence'; firstPointId: string; secondPointId: string; convergence?: number; convergenceRatePerDay?: number; differentialSettlement?: number; tilt?: number; linearUnit: 'm'; rateUnit: 'm/day'; tiltUnit: 'ratio' }> }
 
+/** A completed result remains visible for audit, but can only feed a new calculation after a current server admission check. */
+function isAdmissibleCompletedAdjustment(adjustment: Adjustment): boolean {
+  return adjustment.run.status === 'completed'
+    && adjustment.result.validation === 'valid'
+    && Boolean(adjustment.observationEpoch)
+    && adjustment.sourceEligibility?.eligible === true
+}
+
+const WORKWISE_SURVEY_SOURCE_FORMAT = 'workwise-survey-network'
+const WORKWISE_SURVEY_SOURCE_FORMAT_VERSION = 1
+const COSA_GROUP_MEMBER_PATTERN = /\.(?:in1|in2|net|xyo|ou1|ou2)$/i
+
 const sampleNetwork = JSON.stringify({
-  networkType: 'leveling',
-  coordinateSystem: '工程独立坐标系',
-  heightDatum: '项目高程基准',
-  knownPoints: [{ id: 'BM-01', pointClass: 'known', height: 100, known: true }],
-  unknownPoints: [{ id: 'P-01', pointClass: 'unknown', height: 100.2, known: false }],
-  observations: [{ id: 'obs-1', type: 'height-difference', from: 'BM-01', to: 'P-01', value: 0.2, unit: 'm', sigma: 0.002 }]
+  format: WORKWISE_SURVEY_SOURCE_FORMAT,
+  formatVersion: WORKWISE_SURVEY_SOURCE_FORMAT_VERSION,
+  network: {
+    networkType: 'leveling',
+    coordinateSystem: '工程独立坐标系',
+    verticalDatum: '项目高程基准',
+    unit: 'm',
+    knownPoints: [{ id: 'BM-01', pointClass: 'known', height: 100, known: true }],
+    unknownPoints: [{ id: 'P-01', pointClass: 'unknown', height: 100.2, known: false }],
+    observations: [{ id: 'obs-1', type: 'height-difference', from: 'BM-01', to: 'P-01', value: 0.2, unit: 'm', sigma: 0.002, sigmaUnit: 'm' }]
+  }
 }, null, 2)
+
+function encodeUtf8Base64(value: string): string {
+  const bytes = new TextEncoder().encode(value)
+  let binary = ''
+  for (const byte of bytes) binary += String.fromCharCode(byte)
+  return btoa(binary)
+}
 
 async function request<T>(path: string, method: string, body?: unknown): Promise<T> {
   const response = await rendererRuntimeClient.runtimeRequest(path, method, body === undefined ? undefined : JSON.stringify(body))
@@ -30,12 +129,12 @@ export function numberLabel(value: number | undefined, digits = 4): string {
   if (value !== 0 && Math.abs(value) < 10 ** -digits) {
     return value.toExponential(Math.max(0, digits - 1)).replace(/\.0+(?=e)/, '')
   }
-  return value.toLocaleString('zh-CN', { maximumFractionDigits: digits })
+  return value.toLocaleString(appI18n.language.startsWith('en') ? 'en-US' : 'zh-CN', { maximumFractionDigits: digits })
 }
 
-function measurementLabel(value: number | undefined, unit: string | undefined, digits = 4): string {
+function measurementLabel(t: TFunction, value: number | undefined, unit: string | undefined, digits = 4): string {
   const number = numberLabel(value, digits)
-  return number === '—' ? number : `${number} ${unit ?? '单位未记录'}`
+  return number === '—' ? number : `${number} ${unit ?? t('surveyUnitMissing')}`
 }
 
 function observationValueLabel(observation: SurveyObservation): string {
@@ -45,12 +144,105 @@ function observationValueLabel(observation: SurveyObservation): string {
   return numberLabel(observation.value, 6)
 }
 
-function pointLabel(point: SurveyPoint): string {
-  return point.known || point.pointClass === 'known' ? '已知' : '未知'
+function pointLabel(t: TFunction, point: SurveyPoint): string {
+  return point.known || point.pointClass === 'known' ? t('surveyKnown') : t('surveyUnknown')
 }
 
-function networkTypeLabel(value: string): string {
-  return ({ leveling: '水准 / 高程控制网', traverse: '附合 / 闭合导线', 'plane-control': '平面控制网', triangulation: '三角网', 'cpiii-free-station': 'CPIII 自由测站', 'cpiii-resection': 'CPIII 后方交会', gnss: 'GNSS 基线', 'coordinate-transform': '坐标 / 高程转换' } as Record<string, string>)[value] ?? value
+function networkTypeLabel(t: TFunction, value: string): string {
+  return ({ leveling: t('surveyLeveling'), traverse: t('surveyTraverse'), 'plane-control': t('surveyPlaneControl'), triangulation: t('surveyTriangulation'), 'cpiii-free-station': t('surveyCpiiiStation'), 'cpiii-resection': t('surveyCpiiiResection'), gnss: t('surveyGnssBaseline'), 'coordinate-transform': t('surveyCoordinateTransform') } as Record<string, string>)[value] ?? value
+}
+
+function sourceFormatLabel(t: TFunction, value: string): string {
+  return ({
+    'workwise-json': t('surveyStructuredJson'), 'delimited-text': t('surveyDelimitedText'), xlsx: 'Excel OOXML',
+    'leica-gsi8': 'Leica GSI-8', 'leica-gsi16': 'Leica GSI-16', 'leica-hexml': 'Leica HeXML',
+    'trimble-jobxml': 'Trimble JobXML / JXL', 'trimble-m5': 'Trimble / Zeiss M5',
+    'tds-raw': 'TDS RAW', 'carlson-rw5': 'Carlson RW5', 'sokkia-sdr': 'Sokkia SDR2x / SDR33',
+    'topcon-gts7': 'Topcon GTS-7', 'topcon-fc5': 'Topcon FC-5', 'nikon-raw': 'Nikon RAW', 'spectra-survey-pro': 'Spectra Survey Pro', landxml: 'LandXML', 'survey-cloud-suc': t('surveySucArchive'),
+    'rinex-observation': t('surveyRinexObservation'), 'rinex-navigation': t('surveyRinexNavigation'), 'rinex-meteorological': t('surveyRinexMeteorological'), 'rinex-clock': t('surveyRinexClock'), 'hatanaka-rinex': 'Hatanaka / CRINEX',
+    sinex: 'SINEX', 'nmea-0183': 'NMEA 0183', rtcm2: 'RTCM 2', rtcm3: 'RTCM 3', sp3: t('surveySp3'), ionex: 'IONEX', antex: 'ANTEX',
+    'ublox-ubx': 'u-blox UBX', 'novatel-oem': 'NovAtel OEM', 'septentrio-sbf': 'Septentrio SBF', binex: 'BINEX', 'javad-jps': 'Javad JPS', 'topcon-tps': 'Topcon TPS',
+    'south-sth': t('surveySouth'), 'hitarget-zhd': t('surveyHitarget'), 'chcnav-hcn': t('surveyChcnav'), 'comnav-cnb': t('surveyComnav'),
+    'trimble-t00': 'Trimble T00', 'trimble-t01': 'Trimble T01', 'trimble-t02': 'Trimble T02', 'trimble-t04': 'Trimble T04', 'trimble-job': 'Trimble JOB', 'leica-dbx': 'Leica DBX', 'leica-mdb': 'Leica MDB', unknown: t('surveyUnknownFormat')
+  } as Record<string, string>)[value] ?? value
+}
+
+function detectionMethodLabel(t: TFunction, value: string | undefined): string {
+  if (!value) return t('surveyLegacyMissing')
+  return ({
+    'content-signature': t('surveyContentSignature'),
+    'structural-probe': t('surveyStructuralProbe'),
+    'extension-fallback': t('surveyExtensionFallback')
+  } as Record<string, string>)[value] ?? value
+}
+
+function dispositionLabel(t: TFunction, value: SurveyImportDisposition): string {
+  return ({
+    'adjustment-ready': t('surveyDispositionReady'),
+    'gnss-processing-required': t('surveyDispositionGnss'),
+    'converter-required': t('surveyDispositionConverter'),
+    'archive-only': t('surveyDispositionArchive')
+  } as Record<SurveyImportDisposition, string>)[value]
+}
+
+function dispositionTone(value: SurveyImportDisposition): string {
+  if (value === 'adjustment-ready') return 'border-green-200 bg-green-50 text-green-800 dark:border-green-500/30 dark:bg-green-500/10 dark:text-green-300'
+  if (value === 'archive-only') return 'border-red-200 bg-red-50 text-red-800 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-300'
+  return 'border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200'
+}
+
+function dispositionRecovery(t: TFunction, value: SurveyImportDisposition): string {
+  return ({
+    'adjustment-ready': t('surveyRecoveryReady'),
+    'gnss-processing-required': t('surveyRecoveryGnss'),
+    'converter-required': t('surveyRecoveryConverter'),
+    'archive-only': t('surveyRecoveryArchive')
+  } as Record<SurveyImportDisposition, string>)[value]
+}
+
+function canonicalUnitLabel(t: TFunction, value: string | undefined): string {
+  if (!value) return t('surveyLegacyMissing')
+  return value === 'unverified' ? t('surveyUnitUnverified') : value
+}
+
+type ResidualSourceAnchorResolution =
+  | { status: 'exact'; sourceRecordId: string; anchor: RawRecordAnchor }
+  | { status: 'unavailable'; sourceRecordId: string; reason: string }
+
+/**
+ * The Runtime emits `records` as the canonical index and keeps
+ * `rawRecordAnchors` as a compatibility alias. A residual may only claim a
+ * location when one, and only one, source record supplies an exact byte range.
+ */
+function resolveResidualSourceAnchor(t: TFunction, source: SurveySourceFile | undefined, sourceRecordId: string): ResidualSourceAnchorResolution {
+  if (!source) {
+    return { status: 'unavailable', sourceRecordId, reason: t('surveyAnchorNoSource') }
+  }
+  const anchors = source.records?.length ? source.records : source.rawRecordAnchors
+  const sourceRecordCount = Math.max(source.records?.length ?? 0, source.rawRecordAnchors.length)
+  const matches = anchors.filter((anchor) => anchor.id === sourceRecordId)
+  if (matches.length === 0) {
+    return { status: 'unavailable', sourceRecordId, reason: t('surveyAnchorMissing') }
+  }
+  if (matches.length > 1) {
+    return { status: 'unavailable', sourceRecordId, reason: t('surveyAnchorAmbiguous') }
+  }
+  const anchor = matches[0]!
+  const rawOffset = anchor.rawOffset
+  const rawLength = anchor.rawLength
+  if (typeof rawOffset !== 'number' || !Number.isInteger(rawOffset) || rawOffset < 0 || typeof rawLength !== 'number' || !Number.isInteger(rawLength) || rawLength <= 0) {
+    return { status: 'unavailable', sourceRecordId, reason: t('surveyAnchorNoRange') }
+  }
+  if (!Number.isInteger(source.size) || source.size < 0 || rawOffset + rawLength > source.size) {
+    return { status: 'unavailable', sourceRecordId, reason: t('surveyAnchorOutOfBounds') }
+  }
+  if (sourceRecordCount > 1 && rawOffset === 0 && rawLength >= source.size) {
+    return { status: 'unavailable', sourceRecordId, reason: t('surveyAnchorWholeFile') }
+  }
+  if (typeof anchor.rawSnippet !== 'string') {
+    return { status: 'unavailable', sourceRecordId, reason: t('surveyAnchorNoSnippet') }
+  }
+  return { status: 'exact', sourceRecordId, anchor }
 }
 
 function Stat({ label, value, detail, tone = 'neutral' }: { label: string; value: string; detail: string; tone?: 'neutral' | 'good' | 'warn' | 'danger' }): ReactElement {
@@ -58,7 +250,8 @@ function Stat({ label, value, detail, tone = 'neutral' }: { label: string; value
   return <div className="border border-ds-border-muted bg-ds-main px-3 py-2.5"><p className="text-[10px] text-ds-faint">{label}</p><p className={`mt-0.5 tabular-nums text-[17px] font-semibold ${color}`}>{value}</p><p className="mt-0.5 truncate text-[10px] text-ds-faint">{detail}</p></div>
 }
 
-export function SurveyAdjustmentPanel({ project, runtimeReady, onAdjustmentComplete, onDeformationComplete, onOpenAi }: { project: Project; runtimeReady: boolean; onAdjustmentComplete?: (id: string) => void; onDeformationComplete?: (id: string) => void; onOpenAi?: () => void }): ReactElement {
+export function SurveyAdjustmentPanel({ project, runtimeReady, onAdjustmentComplete, onDeformationComplete, onOpenAi, onNetworkSelected, pendingFiles = [], onRemovePendingFile }: { project: Project; runtimeReady: boolean; onAdjustmentComplete?: (id: string) => void; onDeformationComplete?: (id: string) => void; onOpenAi?: () => void; onNetworkSelected?: (id: string | null) => void; pendingFiles?: File[]; onRemovePendingFile?: (file: File) => void }): ReactElement {
+  const { t } = useTranslation('common')
   const [networkType, setNetworkType] = useState('leveling')
   const [transformType, setTransformType] = useState('similarity-2d')
   const [payload, setPayload] = useState(sampleNetwork)
@@ -68,35 +261,94 @@ export function SurveyAdjustmentPanel({ project, runtimeReady, onAdjustmentCompl
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState('')
   const [fileInputKey, setFileInputKey] = useState(0)
+  const [mappingBatch, setMappingBatch] = useState<{ id: string; files: readonly File[]; mappings: Map<File, CosaIn1Mapping> } | null>(null)
   const [section, setSection] = useState<'network' | 'observations' | 'points' | 'result' | 'deformation'>('network')
   const [showRaw, setShowRaw] = useState(false)
-  const [adjustmentMethod, setAdjustmentMethod] = useState<'weighted-least-squares' | 'conditional' | 'helmert-seven-parameter' | 'height-fit'>('weighted-least-squares')
-  const [constraintMode, setConstraintMode] = useState<'fixed-known-points' | 'minimum-constraint' | 'free'>('fixed-known-points')
   const [adjustmentHistory, setAdjustmentHistory] = useState<Adjustment[]>([])
   const [referenceAdjustmentId, setReferenceAdjustmentId] = useState('')
   const [currentAdjustmentId, setCurrentAdjustmentId] = useState('')
   const [pairPayload, setPairPayload] = useState('[]')
   const [deformation, setDeformation] = useState<Deformation | null>(null)
+  const [formatFilter, setFormatFilter] = useState('all')
+  const [readinessFilter, setReadinessFilter] = useState<'all' | SurveyImportDisposition>('all')
+  const [showSourceRecords, setShowSourceRecords] = useState(false)
+  const [selectedResidualSourceRecordId, setSelectedResidualSourceRecordId] = useState<string | null>(null)
+  const [cosaFileGroupInspection, setCosaFileGroupInspection] = useState<CosaFileGroupInspection | null>(null)
+
+  useEffect(() => {
+    onNetworkSelected?.(network?.id ?? null)
+  }, [network?.id, onNetworkSelected])
+
+  useEffect(() => {
+    if (!project.workspace || !network) return
+    const scope = JSON.stringify([project.workspace, project.id])
+    useEngineeringConversationDrafts.getState().update(scope, (draft) => ({
+      ...draft, viewContext: { networkId: network.id, ...(adjustment ? { adjustmentId: adjustment.run.id } : {}), section }
+    }))
+  }, [project.workspace, project.id, network, adjustment, section])
 
   const points = useMemo(() => [...(network?.knownPoints ?? []), ...(network?.unknownPoints ?? [])], [network])
   const topology = useMemo(() => buildSurveyTopology(points, network?.observations ?? []), [network, points])
   const blockers = network?.findings.filter((finding) => finding.severity === 'blocking').length ?? 0
-  const selectedType = network ? networkTypeLabel(network.networkType) : networkTypeLabel(networkType)
-  const completedAdjustments = useMemo(() => adjustmentHistory.filter((item) => item.run.status === 'completed' && item.result.validation === 'valid' && Boolean(item.observationEpoch)), [adjustmentHistory])
+  const selectedType = network ? networkTypeLabel(t, network.networkType) : networkTypeLabel(t, networkType)
+  const executionMethod = (network?.networkType ?? networkType) === 'coordinate-transform'
+    ? t('surveySelectedTransform')
+    : t('surveyWeightedLeastSquares')
+  const completedAdjustments = useMemo(() => adjustmentHistory.filter(isAdmissibleCompletedAdjustment), [adjustmentHistory])
+  const rawSourceIntegrity = (network as NetworkWithRawSourceIntegrity | null)?.rawSourceIntegrity
+  const sourceEligibility = (network as NetworkWithRawSourceIntegrity | null)?.sourceEligibility
+  // The service owns eligibility. Older payloads intentionally fail closed:
+  // a file's disposition or its integrity note is not proof of admissibility.
+  const sourceIsReady = sourceEligibility?.eligible === true
+  const sourceEligibilityFindings = Array.isArray(sourceEligibility?.findings)
+    ? sourceEligibility.findings.filter((finding) => typeof finding.message === 'string' && finding.message.trim())
+    : []
+  const sourceGateReason = !network
+    ? t('surveySelectNetworkFirst')
+    : !sourceEligibility
+      ? t('surveyEligibilityPending')
+      : sourceEligibility.eligible
+        ? t('surveyEligibilityConfirmed')
+        : sourceEligibilityFindings.map((finding) => finding.message!.trim()).join('；') || t('surveyEligibilityDenied')
+  const adjustmentIsAdmissible = adjustment ? isAdmissibleCompletedAdjustment(adjustment) : false
+  const adjustmentEligibilityFindings = Array.isArray(adjustment?.sourceEligibility?.findings)
+    ? adjustment.sourceEligibility.findings.filter((finding) => typeof finding.message === 'string' && finding.message.trim())
+    : []
+  const adjustmentAdmissionReason = !adjustment
+    ? ''
+    : !adjustment.sourceEligibility
+      ? t('surveyHistoricalEligibilityMissing')
+      : !adjustment.sourceEligibility.eligible
+        ? adjustmentEligibilityFindings.map((finding) => finding.message!.trim()).join('；') || t('surveyHistoricalEligibilityDenied')
+        : adjustment.run.status !== 'completed' || adjustment.result.validation !== 'valid' || !adjustment.observationEpoch
+          ? t('surveyHistoricalIncomplete')
+          : ''
+  const formatOptions = useMemo(() => [...new Set(networks.map((item) => item.sourceFile?.detection.format).filter((value): value is string => Boolean(value)))].sort(), [networks])
+  const filteredNetworks = useMemo(() => networks.filter((item) => {
+    if (formatFilter !== 'all' && item.sourceFile?.detection.format !== formatFilter) return false
+    if (readinessFilter !== 'all' && item.sourceFile?.disposition !== readinessFilter) return false
+    return true
+  }), [formatFilter, networks, readinessFilter])
+  const selectedResidualSourceAnchor = useMemo(() => selectedResidualSourceRecordId
+    ? resolveResidualSourceAnchor(t, network?.sourceFile, selectedResidualSourceRecordId)
+    : null, [network?.sourceFile, selectedResidualSourceRecordId, t])
 
-  const refreshAdjustments = useCallback(async (): Promise<void> => {
+  const refreshAdjustments = useCallback(async (): Promise<Adjustment[] | undefined> => {
     if (!runtimeReady || !project.id) return
     const result = await request<{ adjustments: Adjustment[] }>(`/v1/engineering/adjustments?projectId=${encodeURIComponent(project.id)}`, 'GET')
     setAdjustmentHistory(result.adjustments)
     const eligible = result.adjustments
-      .filter((item) => item.run.status === 'completed' && item.result.validation === 'valid' && Boolean(item.observationEpoch))
+      .filter(isAdmissibleCompletedAdjustment)
       .sort((left, right) => Date.parse(left.observationEpoch!) - Date.parse(right.observationEpoch!))
     setReferenceAdjustmentId((current) => eligible.some((item) => item.run.id === current) ? current : eligible[0]?.run.id ?? '')
     setCurrentAdjustmentId((current) => eligible.some((item) => item.run.id === current) ? current : eligible.at(-1)?.run.id ?? '')
+    return result.adjustments
   }, [project.id, runtimeReady])
 
   useEffect(() => {
     if (!runtimeReady || !project.id) return
+    setMappingBatch(null)
+    setCosaFileGroupInspection(null)
     void Promise.all([
       request<{ networks: Network[] }>(`/v1/engineering/survey/networks?projectId=${encodeURIComponent(project.id)}`, 'GET'),
       request<{ adjustments: Adjustment[] }>(`/v1/engineering/adjustments?projectId=${encodeURIComponent(project.id)}`, 'GET')
@@ -104,7 +356,7 @@ export function SurveyAdjustmentPanel({ project, runtimeReady, onAdjustmentCompl
       setNetworks(networkResult.networks)
       setAdjustmentHistory(adjustmentResult.adjustments)
       const eligible = adjustmentResult.adjustments
-        .filter((item) => item.run.status === 'completed' && item.result.validation === 'valid' && Boolean(item.observationEpoch))
+        .filter(isAdmissibleCompletedAdjustment)
         .sort((left, right) => Date.parse(left.observationEpoch!) - Date.parse(right.observationEpoch!))
       setReferenceAdjustmentId(eligible[0]?.run.id ?? '')
       setCurrentAdjustmentId(eligible.at(-1)?.run.id ?? '')
@@ -130,13 +382,14 @@ export function SurveyAdjustmentPanel({ project, runtimeReady, onAdjustmentCompl
     if (selected.transformType) setTransformType(selected.transformType)
     const restoredAdjustment = adjustmentHistory.find((item) => item.run.networkId === selected.id) ?? null
     setAdjustment(restoredAdjustment)
+    setSelectedResidualSourceRecordId(null)
     setSection(restoredAdjustment ? 'result' : 'network')
-    setMessage(restoredAdjustment ? '已恢复该网络的最近一次平差结果。' : '已恢复测量网络，尚无平差结果。')
+    setMessage(restoredAdjustment ? t('surveyRestoredResult') : t('surveyRestoredNetwork'))
   }
 
   const readFile = (file: File): Promise<string> => new Promise((resolve, reject) => {
     const reader = new FileReader()
-    reader.onerror = () => reject(reader.error ?? new Error('无法读取测量文件'))
+    reader.onerror = () => reject(reader.error ?? new Error(t('surveyReadFileFailed')))
     reader.onload = () => { const value = typeof reader.result === 'string' ? reader.result : ''; const comma = value.indexOf(','); resolve(comma >= 0 ? value.slice(comma + 1) : value) }
     reader.readAsDataURL(file)
   })
@@ -144,18 +397,66 @@ export function SurveyAdjustmentPanel({ project, runtimeReady, onAdjustmentCompl
   const importNetwork = async (): Promise<void> => {
     setBusy(true); setMessage('')
     try {
-      const parsed = JSON.parse(payload) as Record<string, unknown>
-      const result = await request<{ network: Network }>('/v1/engineering/survey/networks/import', 'POST', { projectId: project.id, networkType, ...(networkType === 'coordinate-transform' ? { transformType } : {}), network: parsed, expectedRevision: project.revision, idempotencyKey: `survey-import-${project.id}-${Date.now()}` })
-      setNetworks((current) => [result.network, ...current.filter((item) => item.id !== result.network.id)]); setNetwork(result.network); setAdjustment(null); setSection('network'); setMessage('测量网络已导入。先确认基准、点号和观测表，再执行质量校核。')
+      const parsed = JSON.parse(payload)
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error(t('surveyJsonObjectRequired'))
+      const envelope = parsed as { format?: unknown; formatVersion?: unknown; network?: unknown }
+      if (envelope.format !== WORKWISE_SURVEY_SOURCE_FORMAT || envelope.formatVersion !== WORKWISE_SURVEY_SOURCE_FORMAT_VERSION || !envelope.network || typeof envelope.network !== 'object' || Array.isArray(envelope.network)) {
+        throw new Error(t('surveyJsonContract', { format: WORKWISE_SURVEY_SOURCE_FORMAT, version: WORKWISE_SURVEY_SOURCE_FORMAT_VERSION }))
+      }
+      const result = await request<{ network: Network }>('/v1/engineering/survey/networks/import', 'POST', { projectId: project.id, networkType, ...(networkType === 'coordinate-transform' ? { transformType } : {}), name: 'workwise-network.json', dataBase64: encodeUtf8Base64(payload), expectedRevision: project.revision, idempotencyKey: `survey-import-${project.id}-${Date.now()}` })
+      setNetworks((current) => [result.network, ...current.filter((item) => item.id !== result.network.id)]); setNetwork(result.network); setAdjustment(null); setSelectedResidualSourceRecordId(null); setSection('network'); setMessage(t('surveyJsonImported'))
     } catch (error) { setMessage(error instanceof Error ? error.message : String(error)) } finally { setBusy(false) }
   }
 
-  const importFile = async (file: File): Promise<void> => {
+  const importFiles = async (files: readonly File[], mappings = new Map<File, CosaIn1Mapping>()): Promise<void> => {
+    if (!files.length) return
+    if (files.some((file) => /\.in1$/i.test(file.name) && !mappings.has(file))) {
+      setMappingBatch({ id: crypto.randomUUID(), files, mappings }); setSection('network')
+      return
+    }
+    setMappingBatch(null)
     setBusy(true); setMessage('')
     try {
-      const dataBase64 = await readFile(file)
-      const result = await request<{ network: Network }>('/v1/engineering/survey/networks/import', 'POST', { projectId: project.id, networkType, ...(networkType === 'coordinate-transform' ? { transformType } : {}), name: file.name, dataBase64, expectedRevision: project.revision, idempotencyKey: `survey-file-import-${project.id}-${file.name}-${file.size}-${file.lastModified}` })
-      setNetworks((current) => [result.network, ...current.filter((item) => item.id !== result.network.id)]); setNetwork(result.network); setAdjustment(null); setSection('network'); setMessage(`${file.name} 已导入，保留源行号和文件哈希。`)
+      const imported: Network[] = []
+      const failures: string[] = []
+      for (const file of files) {
+        try {
+          const dataBase64 = await readFile(file)
+          const input = { networkType, ...(networkType === 'coordinate-transform' ? { transformType } : {}), name: file.name, dataBase64, ...(mappings.has(file) ? { cosaIn1Mapping: mappings.get(file)! } : {}) }
+          const idempotencyKey = await surveyImportKey(project.id, input)
+          const result = await request<{ network: Network }>('/v1/engineering/survey/networks/import', 'POST', { projectId: project.id, ...input, expectedRevision: project.revision, idempotencyKey })
+          imported.push(result.network)
+          onRemovePendingFile?.(file)
+        } catch (error) {
+          failures.push(t('surveyFileFailure', { file: file.name, details: error instanceof Error ? error.message : String(error) }))
+        }
+      }
+
+      const cosaSources = imported
+        .map((item) => item.sourceFile)
+        .filter((source): source is SurveySourceFile => Boolean(source && COSA_GROUP_MEMBER_PATTERN.test(source.name)))
+        .map((source) => ({ name: source.name, sha256: source.sha256, size: source.size }))
+      let groupInspection: CosaFileGroupInspection | null = null
+      if (cosaSources.length) {
+        try {
+          const grouped = await request<{ inspection: CosaFileGroupInspection }>('/v1/engineering/survey/source-groups/cosa/inspect', 'POST', { files: cosaSources })
+          groupInspection = grouped.inspection
+        } catch (error) {
+          failures.push(`${t('surveyCosaPreflight')}: ${error instanceof Error ? error.message : String(error)}`)
+        }
+      }
+      setCosaFileGroupInspection(groupInspection)
+
+      if (imported.length) {
+        const selected = imported.find((item) => item.sourceFile && /\.(?:in1|in2)$/i.test(item.sourceFile.name)) ?? imported[0]!
+        setNetworks((current) => [...imported, ...current.filter((item) => !imported.some((candidate) => candidate.id === item.id))])
+        setNetwork(selected); setAdjustment(null); setSelectedResidualSourceRecordId(null); setSection('network')
+      }
+      const groupBlockers = groupInspection?.diagnostics.length ?? 0
+      const importedMessage = imported.length ? t('surveyImportCount', { count: imported.length }) : t('surveyImportNone')
+      const groupMessage = cosaSources.length ? t('surveyCosaCount', { count: cosaSources.length }) : ''
+      const failureMessage = failures.length ? t('surveyImportFailures', { count: failures.length, details: failures.join('; ') }) : ''
+      setMessage([importedMessage, groupMessage, groupBlockers ? t('surveyCosaBlockers', { count: groupBlockers }) : '', failureMessage].filter(Boolean).join('; '))
     } catch (error) { setMessage(error instanceof Error ? error.message : String(error)) } finally { setBusy(false); setFileInputKey((value) => value + 1) }
   }
 
@@ -164,7 +465,15 @@ export function SurveyAdjustmentPanel({ project, runtimeReady, onAdjustmentCompl
     setBusy(true); setMessage('')
     try {
       const result = await request<{ network: Network }>(`/v1/engineering/survey/networks/${network.id}/validate`, 'POST', { expectedRevision: network.revision, idempotencyKey: `survey-validate-${network.id}-${network.revision}` })
-      setNetworks((current) => current.map((item) => item.id === result.network.id ? result.network : item)); setNetwork(result.network); setMessage(result.network.qualityStatus === 'blocked' ? '质量校核发现阻断项。请处理基准、单位或断网问题后再平差。' : '质量校核通过，可以运行平差。'); setSection('network')
+      const currentEligibility = (result.network as NetworkWithRawSourceIntegrity).sourceEligibility
+      const validationMessage = currentEligibility?.eligible !== true
+        ? currentEligibility
+          ? t('surveyValidationEligibilityLost')
+          : t('surveyValidationEligibilityMissing')
+        : result.network.qualityStatus === 'blocked'
+          ? t('surveyValidationBlocked')
+          : t('surveyValidationPassed')
+      setNetworks((current) => current.map((item) => item.id === result.network.id ? result.network : item)); setNetwork(result.network); setMessage(validationMessage); setSection('network')
     } catch (error) { setMessage(error instanceof Error ? error.message : String(error)) } finally { setBusy(false) }
   }
 
@@ -172,22 +481,24 @@ export function SurveyAdjustmentPanel({ project, runtimeReady, onAdjustmentCompl
     if (!network) return
     setBusy(true); setMessage('')
     try {
-      const result = await request<Adjustment>('/v1/engineering/adjustments', 'POST', { networkId: network.id, expectedRevision: network.revision, idempotencyKey: `survey-adjust-${network.id}-${network.revision}-${adjustmentMethod}-${constraintMode}`, method: adjustmentMethod, constraint: constraintMode })
-      setAdjustment(result); onAdjustmentComplete?.(result.run.id); await refreshAdjustments(); setSection('result'); setMessage(result.run.status === 'completed' ? '平差完成。结果已锁定输入哈希和算法版本，可进入成果审查。' : '平差未完成，请查看结果页的质量问题。')
+      const result = await request<Adjustment>('/v1/engineering/adjustments', 'POST', { networkId: network.id, expectedRevision: network.revision, idempotencyKey: `survey-adjust-${network.id}-${network.revision}` })
+      const currentAdjustments = await refreshAdjustments()
+      const currentAdjustment = currentAdjustments?.find((item) => item.run.id === result.run.id) ?? result
+      setAdjustment(currentAdjustment); setSelectedResidualSourceRecordId(null); if (isAdmissibleCompletedAdjustment(currentAdjustment)) onAdjustmentComplete?.(result.run.id); setSection('result'); setMessage(result.run.status === 'completed' && isAdmissibleCompletedAdjustment(currentAdjustment) ? t('surveyAdjustmentComplete') : result.run.status === 'completed' ? t('surveyAdjustmentAuditOnly') : t('surveyAdjustmentIncomplete'))
     } catch (error) { setMessage(error instanceof Error ? error.message : String(error)) } finally { setBusy(false) }
   }
 
   const compareDeformation = async (): Promise<void> => {
     if (!referenceAdjustmentId || !currentAdjustmentId || referenceAdjustmentId === currentAdjustmentId) {
-      setMessage('请选择两个不同的已完成平差期次。')
+      setMessage(t('surveyChooseDifferentEpochs'))
       return
     }
     setBusy(true); setMessage('')
     try {
       const parsedPairs = JSON.parse(pairPayload) as unknown
-      if (!Array.isArray(parsedPairs)) throw new Error('构形对必须是 JSON 数组')
+      if (!Array.isArray(parsedPairs)) throw new Error(t('surveyPairsArrayRequired'))
       const currentRun = completedAdjustments.find((item) => item.run.id === currentAdjustmentId)?.run
-      if (!currentRun) throw new Error('当前期次平差结果不可用')
+      if (!currentRun) throw new Error(t('surveyCurrentEpochUnavailable'))
       const result = await request<{ deformation: Deformation }>('/v1/engineering/deformations', 'POST', {
         projectId: project.id,
         adjustmentIds: [referenceAdjustmentId, currentAdjustmentId],
@@ -199,60 +510,174 @@ export function SurveyAdjustmentPanel({ project, runtimeReady, onAdjustmentCompl
       setDeformation(result.deformation)
       onDeformationComplete?.(result.deformation.id)
       setSection('deformation')
-      setMessage('期次比较完成。结果已绑定两个平差输入哈希，可进入成果审查。')
+      setMessage(t('surveyComparisonComplete'))
     } catch (error) { setMessage(error instanceof Error ? error.message : String(error)) } finally { setBusy(false) }
   }
 
-  return <section className="survey-adjustment-panel p-4 sm:p-5" aria-label="测量与平差工作台">
+  const mappingFile = mappingBatch?.files.find((file) => /\.in1$/i.test(file.name) && !mappingBatch.mappings.has(file))
+  return <section className="survey-adjustment-panel p-4 sm:p-5" aria-label={t('surveyWorkbenchTitle')}>
+    {mappingBatch && mappingFile ? <CosaIn1MappingForm key={`${project.id}-${mappingBatch.id}`} fileName={mappingFile.name} disabled={!runtimeReady || busy} onCancel={() => { setMappingBatch(null); setFileInputKey((value) => value + 1) }} onConfirm={(mapping) => {
+        const mappings = new Map(mappingBatch.mappings).set(mappingFile, mapping)
+        void importFiles(mappingBatch.files, mappings)
+      }} /> : null}
+    {pendingFiles.length ? <div className="mb-3 border-b border-ds-border-muted pb-3" aria-label={t('surveyPendingFiles')}>
+      <div className="flex flex-wrap items-center justify-between gap-2"><h3 className="text-[12px] font-semibold">{t('surveyPendingFiles')}</h3><button type="button" disabled={!runtimeReady || busy} onClick={() => void importFiles(pendingFiles)} className="inline-flex h-8 items-center gap-1.5 rounded-md bg-accent px-3 text-[12px] text-white disabled:opacity-50"><FileUp className="h-3.5 w-3.5" />{t('surveyImportPending', { type: networkTypeLabel(t, networkType) })}</button></div>
+      {pendingFiles.map((file, index) => <div key={`${file.name}-${index}`} className="flex items-center gap-2 text-[12px]"><span className="min-w-0 flex-1 break-all">{file.name}</span><button type="button" disabled={busy} onClick={() => onRemovePendingFile?.(file)} title={t('surveyRemovePending')} aria-label={`${t('surveyRemovePending')} ${file.name}`} className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md hover:bg-ds-hover"><X className="h-3.5 w-3.5" /></button></div>)}
+    </div> : null}
     <div className="survey-workbench-surface overflow-hidden border border-ds-border-muted bg-ds-card">
-      <div className="survey-workbench-header flex flex-wrap items-start justify-between gap-4 border-b border-ds-border-muted px-4 py-4"><div className="min-w-0"><div className="flex items-center gap-2"><Ruler className="h-4 w-4 text-accent" /><h3 className="text-[15px] font-semibold">测量与平差控制台</h3><span className="border border-accent/25 bg-accent/5 px-2 py-0.5 text-[10px] font-medium text-accent">Runtime 确定性计算</span></div><p className="mt-1 max-w-2xl text-[11.5px] leading-5 text-ds-muted">按测量软件的工作顺序确认网型、基准、约束和权模型。测绘专业 AI Agent 只负责解释、追问与复核，不改写任何观测或精度数字。</p></div><div className="flex shrink-0 flex-wrap items-center justify-end gap-2"><button type="button" onClick={onOpenAi} disabled={!onOpenAi} className="inline-flex h-8 items-center gap-1.5 border border-accent/40 bg-accent/5 px-2.5 text-[11px] font-semibold text-accent hover:bg-accent/10 disabled:cursor-not-allowed disabled:opacity-50"><Bot className="h-3.5 w-3.5" />让测绘专业 AI Agent 解读</button>{networks.length ? <><label className="sr-only" htmlFor="survey-existing-network">已有测量网络</label><select id="survey-existing-network" aria-label="已有测量网络" value={network?.id ?? ''} onChange={(event) => selectExistingNetwork(event.target.value)} className="h-8 max-w-52 rounded-md border border-ds-border bg-ds-card px-2 text-[11px] text-ds-ink outline-none focus:border-accent">{networks.map((item) => <option key={item.id} value={item.id}>{networkTypeLabel(item.networkType)} · {item.id.slice(-8)}</option>)}</select></> : null}<label className="sr-only" htmlFor="survey-network-type">网络类型</label><select id="survey-network-type" aria-label="网络类型" value={networkType} onChange={(event) => setNetworkType(event.target.value)} className="h-8 rounded-md border border-ds-border bg-ds-card px-2 text-[11px] text-ds-ink outline-none focus:border-accent"><option value="leveling">水准 / 高程控制网</option><option value="traverse">附合 / 闭合导线</option><option value="plane-control">平面控制网</option><option value="triangulation">三角网</option><option value="cpiii-free-station">CPIII 自由测站</option><option value="cpiii-resection">CPIII 后方交会</option><option value="gnss">GNSS 基线</option><option value="coordinate-transform">坐标 / 高程转换</option></select>{networkType === 'coordinate-transform' ? <><label className="sr-only" htmlFor="survey-transform-type">转换类型</label><select id="survey-transform-type" aria-label="转换类型" value={transformType} onChange={(event) => setTransformType(event.target.value)} className="h-8 rounded-md border border-ds-border bg-ds-card px-2 text-[11px] text-ds-ink outline-none focus:border-accent"><option value="similarity-2d">二维相似</option><option value="helmert-7">三维七参数</option><option value="gauss-kruger-forward">高斯正算</option><option value="gauss-kruger-inverse">高斯反算</option><option value="height-fit">高程拟合</option></select></> : null}<span className={`inline-flex h-8 items-center gap-1.5 px-2.5 text-[10.5px] font-medium ${runtimeReady ? 'bg-green-100 text-green-800 dark:bg-green-500/15 dark:text-green-300' : 'bg-amber-100 text-amber-800 dark:bg-amber-500/15 dark:text-amber-300'}`}><span className={`h-1.5 w-1.5 rounded-full ${runtimeReady ? 'bg-green-600' : 'bg-amber-500'}`} />{runtimeReady ? 'Runtime 在线' : '等待 Runtime'}</span></div></div>
+      <div className="survey-workbench-header flex flex-wrap items-start justify-between gap-4 border-b border-ds-border-muted px-4 py-4"><div className="min-w-0"><div className="flex items-center gap-2"><Compass className="h-4 w-4 text-accent" /><h3 className="text-[15px] font-semibold">{t('surveyWorkbenchTitle')}</h3><span className="border border-accent/25 bg-accent/5 px-2 py-0.5 text-[10px] font-medium text-accent">{t('surveyRuntimeDeterministic')}</span></div></div><div className="flex shrink-0 flex-wrap items-center justify-end gap-2"><button type="button" onClick={onOpenAi} disabled={!onOpenAi} className="inline-flex h-8 items-center gap-1.5 border border-accent/40 bg-accent/5 px-2.5 text-[11px] font-semibold text-accent hover:bg-accent/10 disabled:cursor-not-allowed disabled:opacity-50"><Bot className="h-3.5 w-3.5" />{t('surveyAskAgent')}</button>{networks.length ? <><label className="sr-only" htmlFor="survey-existing-network">{t('surveyExistingNetwork')}</label><select id="survey-existing-network" aria-label={t('surveyExistingNetwork')} value={filteredNetworks.some((item) => item.id === network?.id) ? network?.id : ''} onChange={(event) => selectExistingNetwork(event.target.value)} className="h-8 max-w-64 rounded-md border border-ds-border bg-ds-card px-2 text-[11px] text-ds-ink outline-none focus:border-accent"><option value="" disabled>{filteredNetworks.length ? t('surveySelectNetwork') : t('surveyFilterEmpty')}</option>{filteredNetworks.map((item) => <option key={item.id} value={item.id}>{item.sourceFile ? `${sourceFormatLabel(t, item.sourceFile.detection.format)} · ${dispositionLabel(t, item.sourceFile.disposition)}` : networkTypeLabel(t, item.networkType)} · {item.id.slice(-8)}</option>)}</select></> : null}<label className="sr-only" htmlFor="survey-network-type">{t('surveyNetworkType')}</label><select id="survey-network-type" aria-label={t('surveyNetworkType')} value={networkType} onChange={(event) => setNetworkType(event.target.value)} className="h-8 rounded-md border border-ds-border bg-ds-card px-2 text-[11px] text-ds-ink outline-none focus:border-accent"><option value="leveling">{t('surveyLeveling')}</option><option value="traverse">{t('surveyTraverse')}</option><option value="plane-control">{t('surveyPlaneControl')}</option><option value="triangulation">{t('surveyTriangulation')}</option><option value="cpiii-free-station">{t('surveyCpiiiStation')}</option><option value="cpiii-resection">{t('surveyCpiiiResection')}</option><option value="gnss">{t('surveyGnssBaseline')}</option><option value="coordinate-transform">{t('surveyCoordinateTransform')}</option></select>{networkType === 'coordinate-transform' ? <><label className="sr-only" htmlFor="survey-transform-type">{t('surveyTransformType')}</label><select id="survey-transform-type" aria-label={t('surveyTransformType')} value={transformType} onChange={(event) => setTransformType(event.target.value)} className="h-8 rounded-md border border-ds-border bg-ds-card px-2 text-[11px] text-ds-ink outline-none focus:border-accent"><option value="similarity-2d">{t('surveySimilarity2d')}</option><option value="helmert-7">{t('surveyHelmert7')}</option><option value="gauss-kruger-forward">{t('surveyGaussForward')}</option><option value="gauss-kruger-inverse">{t('surveyGaussInverse')}</option><option value="height-fit">{t('surveyHeightFit')}</option></select></> : null}<span className={`inline-flex h-8 items-center gap-1.5 px-2.5 text-[10.5px] font-medium ${runtimeReady ? 'bg-green-100 text-green-800 dark:bg-green-500/15 dark:text-green-300' : 'bg-amber-100 text-amber-800 dark:bg-amber-500/15 dark:text-amber-300'}`}><span className={`h-1.5 w-1.5 rounded-full ${runtimeReady ? 'bg-green-600' : 'bg-amber-500'}`} />{runtimeReady ? t('engineeringRuntimeOnline') : t('surveyRuntimeWaiting')}</span></div></div>
 
-      <div className="survey-instrument-strip grid grid-cols-2 border-b border-ds-border-muted bg-ds-subtle sm:grid-cols-4" aria-label="测量计算状态"><div className="border-r border-ds-border-muted px-4 py-2.5"><p className="text-[9px] font-semibold uppercase tracking-[0.12em] text-ds-faint">网型</p><p className="mt-0.5 truncate text-[11px] font-medium text-ds-ink">{selectedType}</p></div><div className="border-r border-ds-border-muted px-4 py-2.5"><p className="text-[9px] font-semibold uppercase tracking-[0.12em] text-ds-faint">约束模式</p><label className="sr-only" htmlFor="survey-constraint-mode">约束模式</label><select id="survey-constraint-mode" value={constraintMode} onChange={(event) => setConstraintMode(event.target.value as typeof constraintMode)} className="mt-0.5 max-w-full bg-transparent text-[11px] font-medium text-ds-ink outline-none"><option value="fixed-known-points">固定已知点</option><option value="minimum-constraint">最小约束</option><option value="free">自由网</option></select></div><div className="border-r border-ds-border-muted px-4 py-2.5"><p className="text-[9px] font-semibold uppercase tracking-[0.12em] text-ds-faint">平差方法 / 权模型</p><label className="sr-only" htmlFor="survey-adjustment-method">平差方法</label><select id="survey-adjustment-method" value={adjustmentMethod} onChange={(event) => setAdjustmentMethod(event.target.value as typeof adjustmentMethod)} className="mt-0.5 max-w-full bg-transparent text-[11px] font-medium text-ds-ink outline-none"><option value="weighted-least-squares">加权最小二乘</option><option value="conditional">条件平差</option><option value="height-fit">高程拟合</option><option value="helmert-seven-parameter">七参数转换</option></select></div><div className="px-4 py-2.5"><p className="text-[9px] font-semibold uppercase tracking-[0.12em] text-ds-faint">可解性</p><p className={`mt-0.5 truncate text-[11px] font-medium ${blockers ? 'text-red-700 dark:text-red-300' : network?.qualityStatus === 'validated' ? 'text-green-700 dark:text-green-300' : 'text-ds-ink'}`}>{blockers ? `${blockers} 个阻断` : network?.qualityStatus === 'validated' ? '已通过校核' : '尚未校核'}</p></div></div>
+      <div className="survey-instrument-strip grid grid-cols-2 border-b border-ds-border-muted bg-ds-subtle sm:grid-cols-4" aria-label={t('surveyComputationStatus')}><div className="border-r border-ds-border-muted px-4 py-2.5"><p className="text-[9px] font-semibold uppercase tracking-[0.12em] text-ds-faint">{t('surveyNetworkKind')}</p><p className="mt-0.5 truncate text-[11px] font-medium text-ds-ink">{selectedType}</p></div><div id="survey-constraint-mode" className="border-r border-ds-border-muted px-4 py-2.5"><p className="text-[9px] font-semibold uppercase tracking-[0.12em] text-ds-faint">{t('surveyCurrentConstraint')}</p><p aria-label={t('surveyRuntimeConstraint')} className="mt-0.5 truncate text-[11px] font-medium text-ds-ink" title={t('surveyFixedPointsHint')}>{t('surveyFixedPoints')}</p></div><div id="survey-adjustment-method" className="border-r border-ds-border-muted px-4 py-2.5"><p className="text-[9px] font-semibold uppercase tracking-[0.12em] text-ds-faint">{t('surveyWeightModel')}</p><p aria-label={t('surveyRuntimeMethod')} className="mt-0.5 truncate text-[11px] font-medium text-ds-ink" title={t('surveyMethodHint')}>{executionMethod}</p></div><div className="px-4 py-2.5"><p className="text-[9px] font-semibold uppercase tracking-[0.12em] text-ds-faint">{t('surveySolvability')}</p><p className={`mt-0.5 truncate text-[11px] font-medium ${blockers ? 'text-red-700 dark:text-red-300' : network?.qualityStatus === 'validated' ? 'text-green-700 dark:text-green-300' : 'text-ds-ink'}`}>{blockers ? t('surveyStatBlocked', { count: blockers }) : network?.qualityStatus === 'validated' ? t('surveyValidated') : t('surveyNotValidated')}</p></div></div>
 
       <div className="survey-workbench-grid grid min-h-0 lg:grid-cols-[190px_minmax(0,1fr)] 2xl:grid-cols-[190px_minmax(0,1fr)_260px]">
-        <nav className="survey-workbench-nav border-b border-ds-border-muted bg-ds-main p-2 lg:border-b-0 lg:border-r" aria-label="平差工作区导航"><p className="px-2 py-2 text-[10px] font-semibold uppercase tracking-[0.1em] text-ds-faint">工作区</p>{([['network', '网形与基准', GitBranch], ['observations', '观测表', Grid3X3], ['points', '点位与坐标', CircleDot], ['result', '平差结果', CheckCircle2], ['deformation', '期次变形', Activity]] as const).map(([value, label, Icon]) => <button key={value} type="button" aria-current={section === value ? 'page' : undefined} onClick={() => setSection(value)} className={`flex min-h-10 w-full items-center gap-2 px-2.5 py-2 text-left text-[11px] ${section === value ? 'bg-accent/10 font-semibold text-accent' : 'text-ds-muted hover:bg-ds-hover hover:text-ds-ink'}`}><Icon className="h-3.5 w-3.5 shrink-0" />{label}<span className="ml-auto text-[9px] text-ds-faint">{value === 'observations' ? network?.observations.length ?? 0 : value === 'points' ? points.length : value === 'deformation' ? completedAdjustments.length : ''}</span></button>)}</nav>
+        <nav className="survey-workbench-nav border-b border-ds-border-muted bg-ds-main p-2 lg:border-b-0 lg:border-r" aria-label={t('surveyNavigation')}><p className="px-2 py-2 text-[10px] font-semibold uppercase tracking-[0.1em] text-ds-faint">{t('surveyWorkspace')}</p>{([['network', t('surveySectionNetwork'), GitBranch], ['observations', t('surveySectionObservations'), Grid3X3], ['points', t('surveyNavPoints'), CircleDot], ['result', t('surveyNavResults'), CheckCircle2], ['deformation', t('surveyNavDeformation'), Activity]] as const).map(([value, label, Icon]) => <button key={value} type="button" aria-current={section === value ? 'page' : undefined} onClick={() => setSection(value)} className={`flex min-h-10 w-full items-center gap-2 px-2.5 py-2 text-left text-[11px] ${section === value ? 'bg-accent/10 font-semibold text-accent' : 'text-ds-muted hover:bg-ds-hover hover:text-ds-ink'}`}><Icon className="h-3.5 w-3.5 shrink-0" />{label}<span className="ml-auto text-[9px] text-ds-faint">{value === 'observations' ? network?.observations.length ?? 0 : value === 'points' ? points.length : value === 'deformation' ? completedAdjustments.length : ''}</span></button>)}</nav>
 
         <div className="survey-workbench-main min-w-0 bg-ds-card">
 
-          {section === 'network' ? <div className="p-4"><div className="grid gap-3 2xl:grid-cols-[minmax(0,1fr)_260px]"><div className="border border-ds-border-muted bg-ds-main p-3"><div className="flex items-center justify-between gap-2"><div><p className="text-[12px] font-semibold">导入测量网络</p><p className="mt-0.5 text-[10.5px] text-ds-muted">支持 CSV / XLSX / JSON，原始文件由 Attachment Store 托管。</p></div><FileUp className="h-4 w-4 text-accent" /></div><div className="mt-3 flex flex-wrap gap-2"><label className="inline-flex h-8 cursor-pointer items-center gap-1.5 border border-ds-border bg-ds-card px-2.5 text-[11px] font-medium text-ds-ink hover:bg-ds-hover"><FileUp className="h-3.5 w-3.5" />选择文件<input key={fileInputKey} type="file" accept=".csv,.xlsx,.json,application/json,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" className="sr-only" disabled={!runtimeReady || busy} onChange={(event) => { const file = event.target.files?.[0]; if (file) void importFile(file) }} /></label><button type="button" onClick={() => void importNetwork()} disabled={!runtimeReady || busy} className="inline-flex h-8 items-center gap-1.5 bg-accent px-2.5 text-[11px] font-semibold text-white disabled:opacity-50"><FileCode2 className="h-3.5 w-3.5" />导入结构化网络</button><button type="button" onClick={() => setShowRaw((value) => !value)} className="inline-flex h-8 items-center gap-1.5 border border-ds-border px-2.5 text-[11px] font-medium text-ds-muted hover:bg-ds-hover">{showRaw ? '收起 JSON' : '高级 JSON'}</button></div>{showRaw ? <><label className="mt-3 block text-[10px] font-medium text-ds-muted" htmlFor="survey-network-json">结构化网络输入（高级）</label><textarea id="survey-network-json" value={payload} onChange={(event) => setPayload(event.target.value)} className="mt-1 min-h-[180px] w-full rounded-md border border-ds-border bg-ds-card p-3 font-mono text-[10.5px] leading-5 text-ds-ink outline-none focus:border-accent" spellCheck={false} /></> : <div className="mt-3 border border-dashed border-ds-border-muted px-3 py-3 text-[10.5px] leading-4 text-ds-muted">先选文件导入，或打开高级 JSON 粘贴网络。导入后这里会变成可扫描的点位、观测和基准表。</div>}</div><div className="border border-ds-border-muted bg-ds-main p-3"><div className="flex items-center gap-2"><SlidersHorizontal className="h-4 w-4 text-accent" /><p className="text-[12px] font-semibold">项目基准</p></div><dl className="mt-3 space-y-2 text-[10.5px]"><div className="flex justify-between gap-3"><dt className="text-ds-faint">网络类型</dt><dd className="text-right font-medium text-ds-ink">{selectedType}</dd></div><div className="flex justify-between gap-3"><dt className="text-ds-faint">平面坐标系</dt><dd className="text-right text-ds-ink">{network?.coordinateSystem ?? '待确认'}</dd></div><div className="flex justify-between gap-3"><dt className="text-ds-faint">高程基准</dt><dd className="text-right text-ds-ink">{network?.verticalDatum ?? network?.heightDatum ?? '待确认'}</dd></div><div className="flex justify-between gap-3"><dt className="text-ds-faint">输入修订</dt><dd className="font-mono text-ds-ink">{network?.revision ?? '—'}</dd></div></dl></div></div><div className="mt-4 grid grid-cols-2 gap-2 lg:grid-cols-4"><Stat label="点位" value={`${points.length}`} detail={`${network?.knownPoints.length ?? 0} 已知 · ${network?.unknownPoints.length ?? 0} 未知`} /><Stat label="观测" value={`${network?.observations.length ?? 0}`} detail={network ? '已保留单位与权' : '等待导入'} /><Stat label="质量状态" value={network?.qualityStatus ?? '—'} detail={blockers ? `${blockers} 个阻断项` : '未校核'} tone={blockers ? 'danger' : network?.qualityStatus === 'validated' ? 'good' : 'neutral'} /><Stat label="运行状态" value={adjustment?.run.status ?? '—'} detail={adjustment?.run.id ?? '尚未平差'} tone={adjustment?.run.status === 'completed' ? 'good' : 'neutral'} /></div><div className="mt-4 flex flex-wrap gap-2"><button type="button" onClick={() => void validate()} disabled={!network || busy} className="inline-flex h-8 items-center gap-1.5 border border-ds-border px-3 text-[11px] font-medium text-ds-ink disabled:opacity-50"><ShieldAlert className="h-3.5 w-3.5" />质量校核</button><button type="button" onClick={() => void adjust()} disabled={!network || busy || network.qualityStatus === 'blocked'} className="inline-flex h-8 items-center gap-1.5 bg-green-700 px-3 text-[11px] font-semibold text-white disabled:opacity-50"><Play className="h-3.5 w-3.5" />运行加权最小二乘</button></div></div> : null}
+          <p role="note" className="border-b border-ds-border-muted bg-amber-50 px-4 py-2 text-[10px] leading-4 text-amber-900 dark:bg-amber-500/10 dark:text-amber-100">{t('surveySourceBoundary')}</p>
 
-          {section === 'observations' ? <div className="p-4"><div className="flex flex-wrap items-center justify-between gap-2"><div><h4 className="text-[13px] font-semibold">观测表</h4><p className="mt-0.5 text-[10.5px] text-ds-muted">每条观测都显示测站、目标、单位和先验中误差；GNSS 显示三分量基线和完整协方差状态。</p></div><button type="button" onClick={() => void validate()} disabled={!network || busy} className="inline-flex h-8 items-center gap-1.5 border border-ds-border px-2.5 text-[11px] font-medium disabled:opacity-50"><ShieldAlert className="h-3.5 w-3.5" />重新校核</button></div>{network ? <div className="mt-4 overflow-x-auto border border-ds-border-muted"><table className="min-w-full text-left text-[11px]"><thead className="bg-ds-subtle text-ds-muted"><tr><th className="px-3 py-2 font-semibold">观测 ID</th><th className="px-3 py-2 font-semibold">类型</th><th className="px-3 py-2 font-semibold">测站 → 目标</th><th className="px-3 py-2 font-semibold">观测值</th><th className="px-3 py-2 font-semibold">单位</th><th className="px-3 py-2 font-semibold">权 / 协方差</th></tr></thead><tbody className="divide-y divide-ds-border-muted">{network.observations.map((observation) => <tr key={observation.id} className="hover:bg-ds-hover"><td className="px-3 py-2.5 font-mono text-ds-ink">{observation.id}</td><td className="px-3 py-2.5 text-ds-muted">{observation.type ?? '—'}</td><td className="px-3 py-2.5 text-ds-ink">{observation.station ?? observation.from ?? '—'} <span className="text-ds-faint">→</span> {observation.target ?? observation.to ?? '—'}</td><td className="px-3 py-2.5 tabular-nums font-medium text-ds-ink">{observationValueLabel(observation)}</td><td className="px-3 py-2.5 text-ds-muted">{observation.unit ?? '—'}</td><td className="px-3 py-2.5 tabular-nums text-ds-muted">{observation.type === 'gnss-baseline' ? (observation.covariance?.length === 9 ? '3×3 已提供' : '3×3 缺失') : numberLabel(observation.sigma, 6)}</td></tr>)}</tbody></table></div> : <div className="mt-4 border border-dashed border-ds-border-muted px-4 py-10 text-center text-[11px] text-ds-muted">导入网络后显示观测表。</div>}</div> : null}
+          {section === 'network' ? <div className="p-4"><div className="grid gap-3 2xl:grid-cols-[minmax(0,1fr)_260px]"><div className="border border-ds-border-muted bg-ds-main p-3"><div className="flex items-center justify-between gap-2"><div><p className="text-[12px] font-semibold">{t('surveyImportTitle')}</p><p className="mt-0.5 text-[10.5px] text-ds-muted">{t('surveyImportHint')}</p></div><FileUp className="h-4 w-4 text-accent" /></div><div className="mt-3 flex flex-wrap gap-2"><label className="inline-flex h-8 cursor-pointer items-center gap-1.5 border border-ds-border bg-ds-card px-2.5 text-[11px] font-medium text-ds-ink hover:bg-ds-hover"><FileUp className="h-3.5 w-3.5" />{t('surveyChooseFiles')}<input key={fileInputKey} type="file" multiple accept={SURVEY_FILE_ACCEPT} aria-label={t('surveyChooseFilesAria')} className="sr-only" disabled={!runtimeReady || busy} onChange={(event) => { const files = Array.from(event.target.files ?? []); if (files.length) void importFiles(files) }} /></label><button type="button" onClick={() => void importNetwork()} disabled={!runtimeReady || busy} className="inline-flex h-8 items-center gap-1.5 bg-accent px-2.5 text-[11px] font-semibold text-white disabled:opacity-50"><FileCode2 className="h-3.5 w-3.5" />{t('surveyImportJson')}</button><button type="button" onClick={() => setShowRaw((value) => !value)} className="inline-flex h-8 items-center gap-1.5 border border-ds-border px-2.5 text-[11px] font-medium text-ds-muted hover:bg-ds-hover">{showRaw ? t('surveyHideJson') : t('surveyAdvancedJson')}</button></div>{showRaw ? <><label className="mt-3 block text-[10px] font-medium text-ds-muted" htmlFor="survey-network-json">{t('surveyJsonSource')}</label><textarea id="survey-network-json" value={payload} onChange={(event) => setPayload(event.target.value)} className="mt-1 min-h-[180px] w-full rounded-md border border-ds-border bg-ds-card p-3 font-mono text-[10.5px] leading-5 text-ds-ink outline-none focus:border-accent" spellCheck={false} /><p className="mt-1 text-[10px] leading-4 text-ds-faint">{t('surveyJsonUnits', { format: WORKWISE_SURVEY_SOURCE_FORMAT, version: WORKWISE_SURVEY_SOURCE_FORMAT_VERSION })}</p></> : <div className="mt-3 border border-dashed border-ds-border-muted px-3 py-3 text-[10.5px] leading-4 text-ds-muted">{t('surveyImportBoundary')}</div>}</div><div className="border border-ds-border-muted bg-ds-main p-3"><div className="flex items-center gap-2"><SlidersHorizontal className="h-4 w-4 text-accent" /><p className="text-[12px] font-semibold">{t('surveyProjectDatum')}</p></div><dl className="mt-3 space-y-2 text-[10.5px]"><div className="flex justify-between gap-3"><dt className="text-ds-faint">{t('surveyNetworkType')}</dt><dd className="text-right font-medium text-ds-ink">{selectedType}</dd></div><div className="flex justify-between gap-3"><dt className="text-ds-faint">{t('surveyCoordinateSystem')}</dt><dd className="text-right text-ds-ink">{network?.coordinateSystem ?? t('surveyPendingConfirmation')}</dd></div><div className="flex justify-between gap-3"><dt className="text-ds-faint">{t('surveyHeightDatum')}</dt><dd className="text-right text-ds-ink">{network?.verticalDatum ?? network?.heightDatum ?? t('surveyPendingConfirmation')}</dd></div><div className="flex justify-between gap-3"><dt className="text-ds-faint">{t('surveyInputRevision')}</dt><dd className="font-mono text-ds-ink">{network?.revision ?? '—'}</dd></div></dl></div></div>
+            {cosaFileGroupInspection ? <CosaFileGroupInspectionPanel inspection={cosaFileGroupInspection} /> : null}
+            <div className="mt-3 flex flex-wrap items-center gap-2 border border-ds-border-muted bg-ds-main px-3 py-2" aria-label={t('surveySourceFilterAria')}><span className="text-[10px] font-semibold text-ds-muted">{t('surveyExistingSourceFilter')}</span><label className="sr-only" htmlFor="survey-format-filter">{t('surveyFormat')}</label><select id="survey-format-filter" aria-label={t('surveyFormatFilterAria')} value={formatFilter} onChange={(event) => setFormatFilter(event.target.value)} className="h-7 border border-ds-border bg-ds-card px-2 text-[10.5px] text-ds-ink"><option value="all">{t('surveyAllFormats', { count: networks.length })}</option>{formatOptions.map((format) => <option key={format} value={format}>{sourceFormatLabel(t, format)}</option>)}</select><label className="sr-only" htmlFor="survey-readiness-filter">{t('surveyReadiness')}</label><select id="survey-readiness-filter" aria-label={t('surveyReadinessFilterAria')} value={readinessFilter} onChange={(event) => setReadinessFilter(event.target.value as typeof readinessFilter)} className="h-7 border border-ds-border bg-ds-card px-2 text-[10.5px] text-ds-ink"><option value="all">{t('surveyAllStatuses')}</option><option value="adjustment-ready">{t('surveyAdjustmentReady')}</option><option value="gnss-processing-required">{t('surveyGnssPending')}</option><option value="converter-required">{t('surveyConverterRequired')}</option><option value="archive-only">{t('surveyArchiveOnly')}</option></select><span className="ml-auto text-[10px] text-ds-faint">{t('surveyShowing', { shown: filteredNetworks.length, total: networks.length })}</span></div>
+            <RawSourceIntegrityNote integrity={rawSourceIntegrity} />
+            {network && !sourceIsReady ? <p role="note" className="mt-3 border border-amber-200 bg-amber-50 px-3 py-2 text-[10.5px] leading-4 text-amber-900 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-100">{t('surveyLockedValidation', { reason: sourceGateReason })}</p> : null}
+            {network && sourceEligibilityFindings.length ? <div aria-label={t('surveySourceGateTitle')} className="mt-3 border border-red-200 bg-red-50 px-3 py-2 text-[10.5px] leading-4 text-red-900 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-100"><p className="font-semibold">{t('surveySourceGateTitle')}</p><ul className="mt-1 list-disc space-y-1 pl-4">{sourceEligibilityFindings.map((finding, index) => <li key={`${finding.code ?? 'source-eligibility'}-${finding.message}-${index}`}>{typeof finding.code === 'string' ? <code className="mr-1 font-mono text-[9px]">{finding.code}</code> : null}{finding.message}{typeof finding.suggestion === 'string' && finding.suggestion.trim() ? <span className="mt-0.5 block">{t('surveyNextStep')}{finding.suggestion}</span> : null}</li>)}</ul></div> : null}
+            {network?.sourceFile ? <SurveySourcePreflight source={network.sourceFile} showRecords={showSourceRecords} onToggleRecords={() => setShowSourceRecords((value) => !value)} /> : <div className="mt-3 border border-dashed border-ds-border-muted px-3 py-3 text-[10.5px] leading-4 text-ds-muted">{t('surveyNoSourcePreflight')}</div>}
+            <div className="mt-4 grid grid-cols-2 gap-2 lg:grid-cols-4"><Stat label={t('surveyStatPoints')} value={`${points.length}`} detail={t('surveyStatKnownUnknown', { known: network?.knownPoints.length ?? 0, unknown: network?.unknownPoints.length ?? 0 })} /><Stat label={t('surveyStatObservations')} value={`${network?.observations.length ?? 0}`} detail={network ? t('surveyStatUnitsWeights') : t('surveyStatWaitingImport')} /><Stat label={t('surveyStatQuality')} value={network?.qualityStatus ?? '—'} detail={blockers ? t('surveyStatBlocked', { count: blockers }) : t('surveyStatNotValidated')} tone={blockers ? 'danger' : network?.qualityStatus === 'validated' ? 'good' : 'neutral'} /><Stat label={t('surveyStatRun')} value={adjustment?.run.status ?? '—'} detail={adjustment?.run.id ?? t('surveyNotAdjusted')} tone={adjustment?.run.status === 'completed' ? 'good' : 'neutral'} /></div><div className="mt-4 flex flex-wrap items-center gap-2"><button type="button" onClick={() => void validate()} disabled={!network || busy || !sourceIsReady} title={!sourceIsReady && network?.sourceFile ? dispositionLabel(t, network.sourceFile.disposition) : undefined} className="inline-flex h-8 items-center gap-1.5 border border-ds-border px-3 text-[11px] font-medium text-ds-ink disabled:cursor-not-allowed disabled:opacity-50"><ShieldAlert className="h-3.5 w-3.5" />{t('engineeringTabQuality')}</button><button type="button" onClick={() => void adjust()} disabled={!network || busy || !sourceIsReady || network.qualityStatus === 'blocked'} title={!sourceIsReady && network?.sourceFile ? dispositionLabel(t, network.sourceFile.disposition) : undefined} className="inline-flex h-8 items-center gap-1.5 bg-green-700 px-3 text-[11px] font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"><Play className="h-3.5 w-3.5" />{t('surveyRunAdjustment')}</button>{!sourceIsReady && network?.sourceFile ? <><span role="note" className="max-w-xl text-[10.5px] text-amber-700 dark:text-amber-300">{t('surveyLockedCalculation', { reason: dispositionRecovery(t, network.sourceFile.disposition) })}</span><button type="button" onClick={onOpenAi} disabled={!onOpenAi} className="h-8 border border-accent/35 px-2.5 text-[10.5px] font-semibold text-accent disabled:opacity-50">{t('surveyPlanMissingData')}</button></> : null}</div></div> : null}
 
-          {section === 'points' ? <div className="p-4"><div><h4 className="text-[13px] font-semibold">点位与网形</h4><p className="mt-0.5 text-[10.5px] text-ds-muted">已知点是约束，未知点是待估参数。连线严格来自观测的起点/终点；没有完整坐标时才使用标注过的示意布局。</p></div>{network ? <div className="mt-4 grid gap-4 lg:grid-cols-[minmax(0,1fr)_240px]"><div className="border border-ds-border-muted bg-[#f8fafc] p-3 dark:bg-ds-main"><svg viewBox="0 0 520 230" className="h-[230px] w-full" role="img" aria-label={`测量网络关系图（${topology.hasCoordinateLayout ? '按坐标绘制' : '示意布局'}）`}><g stroke="currentColor" strokeOpacity="0.3" strokeWidth="1.5">{topology.edges.map((edge) => { const from = topology.nodes.find((node) => node.id === edge.from); const to = topology.nodes.find((node) => node.id === edge.to); return from && to ? <line key={edge.id} x1={from.x} y1={from.y} x2={to.x} y2={to.y} /> : null })}</g>{topology.nodes.map((point) => <g key={point.id} transform={`translate(${point.x},${point.y})`}><circle r="14" fill={pointLabel(point) === '已知' ? '#2563eb' : '#fff'} stroke="#2563eb" strokeWidth="2" /><text y="4" textAnchor="middle" fontSize="9" fill={pointLabel(point) === '已知' ? '#fff' : '#2563eb'}>{point.index + 1}</text><text y="29" textAnchor="middle" fontSize="10" fill="currentColor">{point.id}</text></g>)}</svg><div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-[10px] text-ds-muted"><span className="inline-flex items-center gap-1"><span className="h-2.5 w-2.5 rounded-full bg-blue-600" />已知点</span><span className="inline-flex items-center gap-1"><span className="h-2.5 w-2.5 rounded-full border-2 border-blue-600 bg-white dark:bg-ds-main" />未知点</span><span className="text-ds-faint">{topology.hasCoordinateLayout ? '按 X/Y 坐标归一化' : '示意布局，连线仍按真实点号'}</span></div></div><div className="overflow-hidden border border-ds-border-muted"><table className="min-w-full text-left text-[10.5px]"><thead className="bg-ds-subtle text-ds-muted"><tr><th className="px-2.5 py-2 font-semibold">点号</th><th className="px-2.5 py-2 font-semibold">角色</th><th className="px-2.5 py-2 font-semibold">初始高程</th></tr></thead><tbody className="divide-y divide-ds-border-muted">{points.map((point) => <tr key={point.id}><td className="px-2.5 py-2 font-medium text-ds-ink">{point.id}</td><td className="px-2.5 py-2 text-ds-muted">{pointLabel(point)}</td><td className="px-2.5 py-2 tabular-nums text-ds-muted">{numberLabel(point.height, 4)}</td></tr>)}</tbody></table></div></div> : <div className="mt-4 border border-dashed border-ds-border-muted px-4 py-10 text-center text-[11px] text-ds-muted">导入网络后显示点位和拓扑关系。</div>}</div> : null}
+          {section === 'observations' ? <div className="p-4"><div className="flex flex-wrap items-center justify-between gap-2"><div><h4 className="text-[13px] font-semibold">{t('surveySectionObservations')}</h4></div><button type="button" onClick={() => void validate()} disabled={!network || busy || !sourceIsReady} title={!sourceIsReady && network?.sourceFile ? `${dispositionLabel(t, network.sourceFile.disposition)}：${network.sourceFile.dispositionReason ?? t('surveyLegacyMissing')}` : undefined} className="inline-flex h-8 items-center gap-1.5 border border-ds-border px-2.5 text-[11px] font-medium disabled:opacity-50"><ShieldAlert className="h-3.5 w-3.5" />{t('surveyRevalidate')}</button></div>{network ? <div className="mt-4 overflow-x-auto border border-ds-border-muted"><table className="min-w-full text-left text-[11px]"><thead className="bg-ds-subtle text-ds-muted"><tr><th className="px-3 py-2 font-semibold">{t('surveyObservationId')}</th><th className="px-3 py-2 font-semibold">{t('surveyType')}</th><th className="px-3 py-2 font-semibold">{t('surveyStationTarget')}</th><th className="px-3 py-2 font-semibold">{t('surveyObservationValue')}</th><th className="px-3 py-2 font-semibold">{t('surveyUnit')}</th><th className="px-3 py-2 font-semibold">{t('surveyWeightCovariance')}</th></tr></thead><tbody className="divide-y divide-ds-border-muted">{network.observations.map((observation) => <tr key={observation.id} className="hover:bg-ds-hover"><td className="px-3 py-2.5 font-mono text-ds-ink">{observation.id}</td><td className="px-3 py-2.5 text-ds-muted">{observation.type ?? '—'}</td><td className="px-3 py-2.5 text-ds-ink">{observation.station ?? observation.from ?? '—'} <span className="text-ds-faint">→</span> {observation.target ?? observation.to ?? '—'}</td><td className="px-3 py-2.5 tabular-nums font-medium text-ds-ink">{observationValueLabel(observation)}</td><td className="px-3 py-2.5 text-ds-muted">{observation.unit ?? '—'}</td><td className="px-3 py-2.5 tabular-nums text-ds-muted">{observation.type === 'gnss-baseline' ? (observation.covariance?.length === 9 ? t('surveyCovarianceProvided') : t('surveyCovarianceMissing')) : numberLabel(observation.sigma, 6)}</td></tr>)}</tbody></table></div> : <div className="mt-4 border border-dashed border-ds-border-muted px-4 py-10 text-center text-[11px] text-ds-muted">{t('surveyObservationsEmpty')}</div>}</div> : null}
+
+          {section === 'points' ? <div className="p-4"><div><h4 className="text-[13px] font-semibold">{t('surveySectionPoints')}</h4></div>{network ? <div className="mt-4 grid gap-4 lg:grid-cols-[minmax(0,1fr)_240px]"><div className="border border-ds-border-muted bg-[#f8fafc] p-3 dark:bg-ds-main"><svg viewBox="0 0 520 230" className="h-[230px] w-full" role="img" aria-label={t('surveyTopologyAria', { layout: topology.hasCoordinateLayout ? t('surveyCoordinateLayout') : t('surveySchematicLayout') })}><g stroke="currentColor" strokeOpacity="0.3" strokeWidth="1.5">{topology.edges.map((edge) => { const from = topology.nodes.find((node) => node.id === edge.from); const to = topology.nodes.find((node) => node.id === edge.to); return from && to ? <line key={edge.id} x1={from.x} y1={from.y} x2={to.x} y2={to.y} /> : null })}</g>{topology.nodes.map((point) => <g key={point.id} transform={`translate(${point.x},${point.y})`}><circle r="14" fill={(point.known || point.pointClass === 'known') ? '#2563eb' : '#fff'} stroke="#2563eb" strokeWidth="2" /><text y="4" textAnchor="middle" fontSize="9" fill={(point.known || point.pointClass === 'known') ? '#fff' : '#2563eb'}>{point.index + 1}</text><text y="29" textAnchor="middle" fontSize="10" fill="currentColor">{point.id}</text></g>)}</svg><div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-[10px] text-ds-muted"><span className="inline-flex items-center gap-1"><span className="h-2.5 w-2.5 rounded-full bg-blue-600" />{t('surveyKnownPoints')}</span><span className="inline-flex items-center gap-1"><span className="h-2.5 w-2.5 rounded-full border-2 border-blue-600 bg-white dark:bg-ds-main" />{t('surveyUnknownPoints')}</span><span className="text-ds-faint">{topology.hasCoordinateLayout ? t('surveyNormalizedLayout') : t('surveySchematicHint')}</span></div></div><div className="overflow-hidden border border-ds-border-muted"><table className="min-w-full text-left text-[10.5px]"><thead className="bg-ds-subtle text-ds-muted"><tr><th className="px-2.5 py-2 font-semibold">{t('surveyPointId')}</th><th className="px-2.5 py-2 font-semibold">{t('surveyRole')}</th><th className="px-2.5 py-2 font-semibold">{t('surveyInitialHeight')}</th></tr></thead><tbody className="divide-y divide-ds-border-muted">{points.map((point) => <tr key={point.id}><td className="px-2.5 py-2 font-medium text-ds-ink">{point.id}</td><td className="px-2.5 py-2 text-ds-muted">{pointLabel(t, point)}</td><td className="px-2.5 py-2 tabular-nums text-ds-muted">{numberLabel(point.height, 4)}</td></tr>)}</tbody></table></div></div> : <div className="mt-4 border border-dashed border-ds-border-muted px-4 py-10 text-center text-[11px] text-ds-muted">{t('surveyPointsEmpty')}</div>}</div> : null}
 
           {section === 'result' ? <div className="p-4">
-            <div className="flex flex-wrap items-start justify-between gap-3"><div><h4 className="text-[13px] font-semibold">平差结果与精度评定</h4><p className="mt-0.5 text-[10.5px] text-ds-muted">结果来自 Runtime 的加权最小二乘计算，AI 只解释，不改写数字。</p></div>{adjustment ? <div className="flex flex-wrap items-center justify-end gap-2"><span className="border border-ds-border-muted bg-ds-subtle px-2 py-1 font-mono text-[10px] text-ds-muted">策略 {adjustment.result.strategyId ?? 'legacy'}{adjustment.result.transformType ? `/${adjustment.result.transformType}` : ''} · {adjustment.result.algorithmVersion ?? 'unknown'}</span><span className={`inline-flex items-center gap-1.5 px-2.5 py-1 text-[10.5px] font-medium ${adjustment.result.precision.passed ? 'bg-green-100 text-green-800 dark:bg-green-500/15 dark:text-green-300' : 'bg-amber-100 text-amber-800 dark:bg-amber-500/15 dark:text-amber-200'}`}><CheckCircle2 className="h-3.5 w-3.5" />{adjustment.result.precision.passed ? '精度通过' : '需要复核'}</span></div> : null}</div>
+            <div className="flex flex-wrap items-start justify-between gap-3"><div><h4 className="text-[13px] font-semibold">{t('surveySectionResult')}</h4></div>{adjustment ? <div className="flex flex-wrap items-center justify-end gap-2"><span className="border border-ds-border-muted bg-ds-subtle px-2 py-1 font-mono text-[10px] text-ds-muted">{t('surveyStrategy')}{adjustment.result.strategyId ?? 'legacy'}{adjustment.result.transformType ? `/${adjustment.result.transformType}` : ''} · {adjustment.result.algorithmVersion ?? 'unknown'}</span><span className={`inline-flex items-center gap-1.5 px-2.5 py-1 text-[10.5px] font-medium ${adjustmentIsAdmissible && adjustment.result.precision.passed ? 'bg-green-100 text-green-800 dark:bg-green-500/15 dark:text-green-300' : 'bg-amber-100 text-amber-800 dark:bg-amber-500/15 dark:text-amber-200'}`}><CheckCircle2 className="h-3.5 w-3.5" />{adjustmentIsAdmissible ? adjustment.result.precision.passed ? t('surveyPrecisionPassed') : t('surveyReviewNeeded') : t('surveyAuditOnly')}</span></div> : null}</div>
             {adjustment ? <>
-              <div className="mt-4 grid grid-cols-2 gap-2 lg:grid-cols-4"><Stat label="观测 / 未知数" value={`${adjustment.result.observationCount} / ${adjustment.result.unknownCount}`} detail={`多余观测 ${adjustment.result.redundancy}`} /><Stat label="自由度" value={`${adjustment.result.degreesOfFreedom ?? adjustment.result.redundancy}`} detail="法方程可解性" /><Stat label="单位权中误差 σ₀" value={numberLabel(adjustment.result.unitWeightStdDev, 6)} detail={`σ₀/方差因子均为无量纲 · ${numberLabel(adjustment.result.varianceFactor, 6)}`} /><Stat label="最大点位中误差" value={measurementLabel(adjustment.result.precision.maxPointStdDev, adjustment.result.linearUnit ?? 'm', 6)} detail={adjustment.result.precision.passed ? '满足项目精度' : '超出项目精度'} tone={adjustment.result.precision.passed ? 'good' : 'warn'} /></div>
-              <div className="mt-4 grid gap-4 lg:grid-cols-[minmax(0,1fr)_240px]"><div className="overflow-hidden border border-ds-border-muted"><div className="border-b border-ds-border-muted bg-ds-subtle px-3 py-2 text-[11px] font-semibold text-ds-muted">残差与粗差候选</div>{adjustment.result.observations?.length ? <div className="overflow-x-auto"><table className="min-w-full text-left text-[10.5px]"><thead className="text-ds-muted"><tr><th className="px-3 py-2 font-semibold">观测</th><th className="px-3 py-2 font-semibold">残差（规范化单位）</th><th className="px-3 py-2 font-semibold">标准化残差（σ）</th></tr></thead><tbody className="divide-y divide-ds-border-muted">{adjustment.result.observations.map((residual) => <tr key={residual.observationId}><td className="px-3 py-2 font-mono text-ds-ink">{residual.observationId}</td><td className="px-3 py-2 tabular-nums text-ds-ink">{measurementLabel(residual.residual, residual.unit, 7)}</td><td className={`px-3 py-2 tabular-nums ${Math.abs(residual.standardizedResidual ?? 0) > 3 ? 'font-semibold text-red-700 dark:text-red-300' : 'text-ds-muted'}`}>{measurementLabel(residual.standardizedResidual, 'σ', 4)}</td></tr>)}</tbody></table></div> : <p className="px-3 py-6 text-[10.5px] text-ds-muted">当前 Runtime 未返回逐条残差，完整结果仍保存在运行记录中。</p>}</div>
-                <div className="border border-ds-border-muted bg-ds-main p-3"><p className="text-[11px] font-semibold text-ds-ink">闭合与复核</p><dl className="mt-3 space-y-2 text-[10.5px]"><div className="flex justify-between gap-2"><dt className="text-ds-faint">水平残差范数</dt><dd className="tabular-nums text-ds-ink">{measurementLabel(adjustment.result.closure?.horizontal, adjustment.result.closureUnits?.horizontal ?? 'm', 6)}</dd></div><div className="flex justify-between gap-2"><dt className="text-ds-faint">角度残差范数</dt><dd className="tabular-nums text-ds-ink">{measurementLabel(adjustment.result.closure?.angular, adjustment.result.closureUnits?.angular ?? 'rad', 8)}</dd></div><div className="flex justify-between gap-2"><dt className="text-ds-faint">高程闭合差</dt><dd className="tabular-nums text-ds-ink">{measurementLabel(adjustment.result.closure?.vertical ?? adjustment.result.closure?.heightDifference, adjustment.result.closureUnits?.vertical ?? adjustment.result.closureUnits?.heightDifference ?? 'm', 6)}</dd></div><div className="flex justify-between gap-2"><dt className="text-ds-faint">导线 fx / fy</dt><dd className="tabular-nums text-ds-ink">{adjustment.result.closure?.fx === undefined ? '—' : `${measurementLabel(adjustment.result.closure.fx, adjustment.result.closureUnits?.fx ?? 'm', 6)} / ${measurementLabel(adjustment.result.closure.fy, adjustment.result.closureUnits?.fy ?? 'm', 6)}`}</dd></div><div className="flex justify-between gap-2"><dt className="text-ds-faint">相对闭合差</dt><dd className="tabular-nums text-ds-ink">{measurementLabel(adjustment.result.closure?.relativeClosure, adjustment.result.closureUnits?.relativeClosure ?? 'ratio', 8)}</dd></div><div className="flex justify-between gap-2"><dt className="text-ds-faint">GNSS 基线残差范数</dt><dd className="tabular-nums text-ds-ink">{measurementLabel(adjustment.result.closure?.baseline, adjustment.result.closureUnits?.baseline ?? 'm', 6)}</dd></div>{adjustment.result.closure?.baseline !== undefined ? <div className="flex justify-between gap-2"><dt className="text-ds-faint">GNSS X / Y / Z</dt><dd className="tabular-nums text-ds-ink">{[adjustment.result.closure.baselineX, adjustment.result.closure.baselineY, adjustment.result.closure.baselineZ].map((value) => numberLabel(value, 6)).join(' / ')} m</dd></div> : null}{Object.entries(adjustment.result.parameters ?? {}).map(([key, value]) => <div key={key} className="flex justify-between gap-2"><dt className="text-ds-faint">{key.startsWith('orientation:') ? `测站定向 ${key.slice(12)}` : key}</dt><dd className="tabular-nums text-ds-ink">{measurementLabel(value, adjustment.result.parameterUnits?.[key], 8)}</dd></div>)}</dl><div className="mt-3 border-t border-ds-border-muted pt-3"><p className="font-mono text-[9.5px] text-ds-faint">运行 {adjustment.run.id}</p><p className="mt-1 text-[10px] text-ds-muted">{adjustment.result.validation}</p></div></div></div>
+              {!adjustmentIsAdmissible ? <div aria-label={t('surveyHistoricalLocked')} className="mt-4 border border-amber-200 bg-amber-50 px-3 py-2 text-[10.5px] leading-4 text-amber-900 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-100"><p className="font-semibold">{t('surveyHistoricalLocked')}</p><p className="mt-1">{adjustmentAdmissionReason} {t('surveyHistoricalRestriction')}</p>{adjustmentEligibilityFindings.length ? <ul className="mt-1 list-disc space-y-1 pl-4">{adjustmentEligibilityFindings.map((finding, index) => <li key={`${finding.code ?? 'adjustment-source-eligibility'}-${finding.message}-${index}`}>{finding.message}{typeof finding.suggestion === 'string' && finding.suggestion.trim() ? <span className="block">{t('surveyNextStep')}{finding.suggestion}</span> : null}</li>)}</ul> : null}</div> : null}
+              <div className="mt-4 grid grid-cols-2 gap-2 lg:grid-cols-4"><Stat label={t('surveyObservationsUnknowns')} value={`${adjustment.result.observationCount} / ${adjustment.result.unknownCount}`} detail={t('surveyRedundancy', { count: adjustment.result.redundancy })} /><Stat label={t('surveyDegreesOfFreedom')} value={`${adjustment.result.degreesOfFreedom ?? adjustment.result.redundancy}`} detail={t('surveyEquationSolvability')} /><Stat label={t('surveySigma0')} value={numberLabel(adjustment.result.unitWeightStdDev, 6)} detail={t('surveyVarianceFactor', { value: numberLabel(adjustment.result.varianceFactor, 6) })} /><Stat label={t('surveyMaxPointError')} value={measurementLabel(t, adjustment.result.precision.maxPointStdDev, adjustment.result.linearUnit ?? 'm', 6)} detail={adjustmentIsAdmissible ? adjustment.result.precision.passed ? t('surveyPrecisionMet') : t('surveyPrecisionExceeded') : t('surveyAuditNoComputation')} tone={adjustmentIsAdmissible && adjustment.result.precision.passed ? 'good' : 'warn'} /></div>
+              <div className="mt-4 grid gap-4 lg:grid-cols-[minmax(0,1fr)_240px]"><div className="overflow-hidden border border-ds-border-muted"><div className="border-b border-ds-border-muted bg-ds-subtle px-3 py-2 text-[11px] font-semibold text-ds-muted">{t('surveyResidualsOutliers')}</div>{adjustment.result.observations?.length ? <div className="overflow-x-auto"><table className="min-w-full text-left text-[10.5px]"><thead className="text-ds-muted"><tr><th className="px-3 py-2 font-semibold">{t('surveyStatObservations')}</th><th className="px-3 py-2 font-semibold">{t('surveyResidualCanonical')}</th><th className="px-3 py-2 font-semibold">{t('surveyStandardizedResidual')}</th><th className="px-3 py-2 font-semibold">{t('surveyRawRecord')}</th></tr></thead><tbody className="divide-y divide-ds-border-muted">{adjustment.result.observations.map((residual) => <tr key={residual.observationId}><td className="px-3 py-2 font-mono text-ds-ink">{residual.observationId}</td><td className="px-3 py-2 tabular-nums text-ds-ink">{measurementLabel(t, residual.residual, residual.unit, 7)}</td><td className={`px-3 py-2 tabular-nums ${Math.abs(residual.standardizedResidual ?? 0) > 3 ? 'font-semibold text-red-700 dark:text-red-300' : 'text-ds-muted'}`}>{measurementLabel(t, residual.standardizedResidual, 'σ', 4)}</td><td className="px-3 py-2">{residual.sourceRecordId ? <div className="flex min-w-40 flex-wrap items-center gap-1.5"><code className="max-w-40 truncate font-mono text-[9.5px] text-ds-ink" title={residual.sourceRecordId}>{residual.sourceRecordId}</code><button type="button" aria-label={t('surveyLocateRecordAria', { observation: residual.observationId, record: residual.sourceRecordId })} onClick={() => setSelectedResidualSourceRecordId(residual.sourceRecordId!)} className="border border-accent/35 px-1.5 py-1 text-[9.5px] font-medium text-accent hover:bg-accent/10">{t('surveyLocateRecord')}</button></div> : <span className="text-[10px] text-amber-700 dark:text-amber-300">{t('surveyRecordUnlinked')}</span>}</td></tr>)}</tbody></table></div> : <p className="px-3 py-6 text-[10.5px] text-ds-muted">{t('surveyResidualsMissing')}</p>}{selectedResidualSourceAnchor ? <ResidualSourceAnchorPanel resolution={selectedResidualSourceAnchor} onDismiss={() => setSelectedResidualSourceRecordId(null)} /> : null}</div>
+                <div className="border border-ds-border-muted bg-ds-main p-3"><p className="text-[11px] font-semibold text-ds-ink">{t('surveyClosureReview')}</p><dl className="mt-3 space-y-2 text-[10.5px]"><div className="flex justify-between gap-2"><dt className="text-ds-faint">{t('surveyHorizontalNorm')}</dt><dd className="tabular-nums text-ds-ink">{measurementLabel(t, adjustment.result.closure?.horizontal, adjustment.result.closureUnits?.horizontal ?? 'm', 6)}</dd></div><div className="flex justify-between gap-2"><dt className="text-ds-faint">{t('surveyAngularNorm')}</dt><dd className="tabular-nums text-ds-ink">{measurementLabel(t, adjustment.result.closure?.angular, adjustment.result.closureUnits?.angular ?? 'rad', 8)}</dd></div><div className="flex justify-between gap-2"><dt className="text-ds-faint">{t('surveyHeightClosure')}</dt><dd className="tabular-nums text-ds-ink">{measurementLabel(t, adjustment.result.closure?.vertical ?? adjustment.result.closure?.heightDifference, adjustment.result.closureUnits?.vertical ?? adjustment.result.closureUnits?.heightDifference ?? 'm', 6)}</dd></div><div className="flex justify-between gap-2"><dt className="text-ds-faint">{t('surveyTraverseClosure')}</dt><dd className="tabular-nums text-ds-ink">{adjustment.result.closure?.fx === undefined ? '—' : `${measurementLabel(t, adjustment.result.closure.fx, adjustment.result.closureUnits?.fx ?? 'm', 6)} / ${measurementLabel(t, adjustment.result.closure.fy, adjustment.result.closureUnits?.fy ?? 'm', 6)}`}</dd></div><div className="flex justify-between gap-2"><dt className="text-ds-faint">{t('surveyRelativeClosure')}</dt><dd className="tabular-nums text-ds-ink">{measurementLabel(t, adjustment.result.closure?.relativeClosure, adjustment.result.closureUnits?.relativeClosure ?? 'ratio', 8)}</dd></div><div className="flex justify-between gap-2"><dt className="text-ds-faint">{t('surveyBaselineNorm')}</dt><dd className="tabular-nums text-ds-ink">{measurementLabel(t, adjustment.result.closure?.baseline, adjustment.result.closureUnits?.baseline ?? 'm', 6)}</dd></div>{adjustment.result.closure?.baseline !== undefined ? <div className="flex justify-between gap-2"><dt className="text-ds-faint">GNSS X / Y / Z</dt><dd className="tabular-nums text-ds-ink">{[adjustment.result.closure.baselineX, adjustment.result.closure.baselineY, adjustment.result.closure.baselineZ].map((value) => numberLabel(value, 6)).join(' / ')} m</dd></div> : null}{Object.entries(adjustment.result.parameters ?? {}).map(([key, value]) => <div key={key} className="flex justify-between gap-2"><dt className="text-ds-faint">{key.startsWith('orientation:') ? t('surveyStationOrientation', { station: key.slice(12) }) : key}</dt><dd className="tabular-nums text-ds-ink">{measurementLabel(t, value, adjustment.result.parameterUnits?.[key], 8)}</dd></div>)}</dl><div className="mt-3 border-t border-ds-border-muted pt-3"><p className="font-mono text-[9.5px] text-ds-faint">{t('surveyRun')}{adjustment.run.id}</p><p className="mt-1 text-[10px] text-ds-muted">{adjustment.result.validation}</p></div></div></div>
               {adjustment.result.qualityFindings.length ? <div className="mt-4 space-y-2">{adjustment.result.qualityFindings.map((finding, index) => <div key={`${finding.message}-${index}`} className="flex gap-2 border border-amber-200 bg-amber-50 px-3 py-2 text-[10.5px] text-amber-800 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200"><AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />{finding.message}</div>)}</div> : null}
-            </> : <div className="mt-4 border border-dashed border-ds-border-muted px-4 py-12 text-center text-[11px] text-ds-muted">运行平差后显示闭合差、残差、协方差、方差因子和精度评定。</div>}
+            </> : <div className="mt-4 border border-dashed border-ds-border-muted px-4 py-12 text-center text-[11px] text-ds-muted">{t('surveyResultsEmpty')}</div>}
           </div> : null}
 
-          {section === 'deformation' ? <div className="p-4"><div className="flex flex-wrap items-start justify-between gap-3"><div><h4 className="text-[13px] font-semibold">不可变期次变形比较</h4><p className="mt-0.5 max-w-2xl text-[10.5px] leading-4 text-ds-muted">只比较已完成且有效的确定性平差结果。Runtime 校验网型、坐标系、投影、椭球、高程基准和观测期次后，计算位移、沉降、速率与趋势。</p></div><button type="button" onClick={() => void refreshAdjustments()} disabled={!runtimeReady || busy} className="inline-flex h-8 items-center gap-1.5 border border-ds-border px-2.5 text-[11px] font-medium text-ds-ink disabled:opacity-50"><Activity className="h-3.5 w-3.5" />刷新期次</button></div>
-            {completedAdjustments.length < 2 ? <div className="mt-4 border border-dashed border-ds-border-muted px-4 py-10 text-center text-[11px] text-ds-muted">至少需要两个带有效 observationEpoch 的已完成平差期次。当前可用 {completedAdjustments.length} 个。</div> : <><div className="mt-4 grid gap-3 border border-ds-border-muted bg-ds-main p-3 lg:grid-cols-2"><label className="text-[10.5px] font-medium text-ds-muted">参考期次<select aria-label="参考平差期次" value={referenceAdjustmentId} onChange={(event) => setReferenceAdjustmentId(event.target.value)} className="mt-1 h-9 w-full border border-ds-border bg-ds-card px-2 text-[11px] text-ds-ink outline-none focus:border-accent">{completedAdjustments.map((item) => <option key={item.run.id} value={item.run.id}>{item.observationEpoch} · {item.result.strategyId ?? 'legacy'} · {item.coordinateSystem}/{item.verticalDatum}</option>)}</select></label><label className="text-[10.5px] font-medium text-ds-muted">当前期次<select aria-label="当前平差期次" value={currentAdjustmentId} onChange={(event) => setCurrentAdjustmentId(event.target.value)} className="mt-1 h-9 w-full border border-ds-border bg-ds-card px-2 text-[11px] text-ds-ink outline-none focus:border-accent">{completedAdjustments.map((item) => <option key={item.run.id} value={item.run.id}>{item.observationEpoch} · {item.result.strategyId ?? 'legacy'} · {item.coordinateSystem}/{item.verticalDatum}</option>)}</select></label><label className="lg:col-span-2 text-[10.5px] font-medium text-ds-muted">倾斜 / 收敛构形对（JSON）<textarea aria-label="倾斜和收敛构形对" value={pairPayload} onChange={(event) => setPairPayload(event.target.value)} spellCheck={false} className="mt-1 min-h-20 w-full border border-ds-border bg-ds-card p-2 font-mono text-[10px] leading-4 text-ds-ink outline-none focus:border-accent" placeholder={'[{"id":"断面1","firstPointId":"L","secondPointId":"R","kind":"convergence","distanceMode":"horizontal"}]'} /><span className="mt-1 block font-normal text-ds-faint">倾斜使用参考期水平基线；收敛可选 horizontal、spatial 或 vertical。没有构形对时填 []。</span></label><div className="lg:col-span-2 flex items-center justify-between gap-3 border-t border-ds-border-muted pt-3"><p className="text-[10px] text-ds-faint">稳定速率判据：0.0001 m/day；正沉降表示高程降低。</p><button type="button" onClick={() => void compareDeformation()} disabled={busy || referenceAdjustmentId === currentAdjustmentId} className="inline-flex h-8 items-center gap-1.5 bg-green-700 px-3 text-[11px] font-semibold text-white disabled:opacity-50"><Play className="h-3.5 w-3.5" />运行期次比较</button></div></div>
-              {deformation ? <div className="mt-4"><div className="grid grid-cols-2 gap-2 lg:grid-cols-4"><Stat label="比较周期" value={`${numberLabel(deformation.durationDays, 3)} d`} detail={`${deformation.referenceEpoch} → ${deformation.currentEpoch}`} /><Stat label="共同测点" value={`${deformation.points.length}`} detail="每个期次均存在且坐标可比" /><Stat label="构形结果" value={`${deformation.pairs.length}`} detail="倾斜与收敛" /><Stat label="显著位移" value={`${deformation.points.filter((point) => point.significant).length}`} detail="组合中误差超过 3σ" tone={deformation.points.some((point) => point.significant) ? 'warn' : 'good'} /></div><div className="mt-4 overflow-x-auto border border-ds-border-muted"><table className="min-w-full text-left text-[10.5px]"><thead className="bg-ds-subtle text-ds-muted"><tr><th className="px-3 py-2 font-semibold">测点</th><th className="px-3 py-2 font-semibold">dX / dY / dH（m）</th><th className="px-3 py-2 font-semibold">沉降（m）</th><th className="px-3 py-2 font-semibold">水平 / 三维位移（m）</th><th className="px-3 py-2 font-semibold">速率（m/day）</th><th className="px-3 py-2 font-semibold">趋势</th></tr></thead><tbody className="divide-y divide-ds-border-muted">{deformation.points.map((point) => <tr key={point.pointId} className="hover:bg-ds-hover"><td className="px-3 py-2.5 font-medium text-ds-ink">{point.pointId}</td><td className="px-3 py-2.5 tabular-nums text-ds-ink">{[point.dX, point.dY, point.dH].map((value) => numberLabel(value, 7)).join(' / ')}</td><td className="px-3 py-2.5 tabular-nums text-ds-ink">{numberLabel(point.settlement, 7)}</td><td className="px-3 py-2.5 tabular-nums text-ds-ink">{numberLabel(point.horizontalDisplacement, 7)} / {numberLabel(point.spatialDisplacement, 7)}</td><td className="px-3 py-2.5 tabular-nums text-ds-ink">{numberLabel(point.rates.spatialPerDay, 8)}</td><td className={`px-3 py-2.5 ${point.significant ? 'font-semibold text-amber-700 dark:text-amber-300' : 'text-ds-muted'}`}>{point.trend}{point.significant ? ' · >3σ' : ''}</td></tr>)}</tbody></table></div>{deformation.pairs.length ? <div className="mt-4 overflow-x-auto border border-ds-border-muted"><table className="min-w-full text-left text-[10.5px]"><thead className="bg-ds-subtle text-ds-muted"><tr><th className="px-3 py-2 font-semibold">构形</th><th className="px-3 py-2 font-semibold">点对</th><th className="px-3 py-2 font-semibold">差异沉降 / 收敛（m）</th><th className="px-3 py-2 font-semibold">倾斜（ratio）</th><th className="px-3 py-2 font-semibold">收敛速率（m/day）</th></tr></thead><tbody className="divide-y divide-ds-border-muted">{deformation.pairs.map((pair) => <tr key={pair.id}><td className="px-3 py-2.5 font-medium text-ds-ink">{pair.id} · {pair.kind}</td><td className="px-3 py-2.5 text-ds-muted">{pair.firstPointId} ↔ {pair.secondPointId}</td><td className="px-3 py-2.5 tabular-nums text-ds-ink">{numberLabel(pair.differentialSettlement ?? pair.convergence, 7)}</td><td className="px-3 py-2.5 tabular-nums text-ds-ink">{numberLabel(pair.tilt, 9)}</td><td className="px-3 py-2.5 tabular-nums text-ds-ink">{numberLabel(pair.convergenceRatePerDay, 8)}</td></tr>)}</tbody></table></div> : null}<p className="mt-3 break-all font-mono text-[9.5px] text-ds-faint">{deformation.algorithmVersion} · {deformation.inputHash}</p></div> : null}</>}
+          {section === 'deformation' ? <div className="p-4"><div className="flex flex-wrap items-start justify-between gap-3"><div><h4 className="text-[13px] font-semibold">{t('surveyDeformationTitle')}</h4></div><button type="button" onClick={() => void refreshAdjustments()} disabled={!runtimeReady || busy} className="inline-flex h-8 items-center gap-1.5 border border-ds-border px-2.5 text-[11px] font-medium text-ds-ink disabled:opacity-50"><Activity className="h-3.5 w-3.5" />{t('surveyRefreshEpochs')}</button></div>
+            {completedAdjustments.length < 2 ? <div className="mt-4 border border-dashed border-ds-border-muted px-4 py-10 text-center text-[11px] text-ds-muted">{t('surveyEpochsRequired', { count: completedAdjustments.length })}</div> : <><div className="mt-4 grid gap-3 border border-ds-border-muted bg-ds-main p-3 lg:grid-cols-2"><label className="text-[10.5px] font-medium text-ds-muted">{t('surveyReferenceEpoch')}<select aria-label={t('surveyReferenceEpochAria')} value={referenceAdjustmentId} onChange={(event) => setReferenceAdjustmentId(event.target.value)} className="mt-1 h-9 w-full border border-ds-border bg-ds-card px-2 text-[11px] text-ds-ink outline-none focus:border-accent">{completedAdjustments.map((item) => <option key={item.run.id} value={item.run.id}>{item.observationEpoch} · {item.result.strategyId ?? 'legacy'} · {item.coordinateSystem}/{item.verticalDatum}</option>)}</select></label><label className="text-[10.5px] font-medium text-ds-muted">{t('surveyCurrentEpoch')}<select aria-label={t('surveyCurrentEpochAria')} value={currentAdjustmentId} onChange={(event) => setCurrentAdjustmentId(event.target.value)} className="mt-1 h-9 w-full border border-ds-border bg-ds-card px-2 text-[11px] text-ds-ink outline-none focus:border-accent">{completedAdjustments.map((item) => <option key={item.run.id} value={item.run.id}>{item.observationEpoch} · {item.result.strategyId ?? 'legacy'} · {item.coordinateSystem}/{item.verticalDatum}</option>)}</select></label><label className="lg:col-span-2 text-[10.5px] font-medium text-ds-muted">{t('surveyPairsJson')}<textarea aria-label={t('surveyPairsAria')} value={pairPayload} onChange={(event) => setPairPayload(event.target.value)} spellCheck={false} className="mt-1 min-h-20 w-full border border-ds-border bg-ds-card p-2 font-mono text-[10px] leading-4 text-ds-ink outline-none focus:border-accent" placeholder={'[{"id":"断面1","firstPointId":"L","secondPointId":"R","kind":"convergence","distanceMode":"horizontal"}]'} /><span className="mt-1 block font-normal text-ds-faint">{t('surveyPairsHint')}</span></label><div className="lg:col-span-2 flex items-center justify-between gap-3 border-t border-ds-border-muted pt-3"><p className="text-[10px] text-ds-faint">{t('surveyStabilityThreshold')}</p><button type="button" onClick={() => void compareDeformation()} disabled={busy || referenceAdjustmentId === currentAdjustmentId} className="inline-flex h-8 items-center gap-1.5 bg-green-700 px-3 text-[11px] font-semibold text-white disabled:opacity-50"><Play className="h-3.5 w-3.5" />{t('surveyCompareEpochs')}</button></div></div>
+              {deformation ? <div className="mt-4"><div className="grid grid-cols-2 gap-2 lg:grid-cols-4"><Stat label={t('surveyDuration')} value={`${numberLabel(deformation.durationDays, 3)} d`} detail={`${deformation.referenceEpoch} → ${deformation.currentEpoch}`} /><Stat label={t('surveyCommonPoints')} value={`${deformation.points.length}`} detail={t('surveyCommonPointsDetail')} /><Stat label={t('surveyPairResults')} value={`${deformation.pairs.length}`} detail={t('surveyTiltConvergence')} /><Stat label={t('surveySignificantDisplacement')} value={`${deformation.points.filter((point) => point.significant).length}`} detail={t('surveyCombinedError')} tone={deformation.points.some((point) => point.significant) ? 'warn' : 'good'} /></div><div className="mt-4 overflow-x-auto border border-ds-border-muted"><table className="min-w-full text-left text-[10.5px]"><thead className="bg-ds-subtle text-ds-muted"><tr><th className="px-3 py-2 font-semibold">{t('surveyPoint')}</th><th className="px-3 py-2 font-semibold">dX / dY / dH（m）</th><th className="px-3 py-2 font-semibold">{t('surveySettlement')}</th><th className="px-3 py-2 font-semibold">{t('surveyDisplacement')}</th><th className="px-3 py-2 font-semibold">{t('surveyRate')}</th><th className="px-3 py-2 font-semibold">{t('surveyTrend')}</th></tr></thead><tbody className="divide-y divide-ds-border-muted">{deformation.points.map((point) => <tr key={point.pointId} className="hover:bg-ds-hover"><td className="px-3 py-2.5 font-medium text-ds-ink">{point.pointId}</td><td className="px-3 py-2.5 tabular-nums text-ds-ink">{[point.dX, point.dY, point.dH].map((value) => numberLabel(value, 7)).join(' / ')}</td><td className="px-3 py-2.5 tabular-nums text-ds-ink">{numberLabel(point.settlement, 7)}</td><td className="px-3 py-2.5 tabular-nums text-ds-ink">{numberLabel(point.horizontalDisplacement, 7)} / {numberLabel(point.spatialDisplacement, 7)}</td><td className="px-3 py-2.5 tabular-nums text-ds-ink">{numberLabel(point.rates.spatialPerDay, 8)}</td><td className={`px-3 py-2.5 ${point.significant ? 'font-semibold text-amber-700 dark:text-amber-300' : 'text-ds-muted'}`}>{point.trend}{point.significant ? ' · >3σ' : ''}</td></tr>)}</tbody></table></div>{deformation.pairs.length ? <div className="mt-4 overflow-x-auto border border-ds-border-muted"><table className="min-w-full text-left text-[10.5px]"><thead className="bg-ds-subtle text-ds-muted"><tr><th className="px-3 py-2 font-semibold">{t('surveyGeometry')}</th><th className="px-3 py-2 font-semibold">{t('surveyPointPair')}</th><th className="px-3 py-2 font-semibold">{t('surveyDifferentialSettlement')}</th><th className="px-3 py-2 font-semibold">{t('surveyTilt')}</th><th className="px-3 py-2 font-semibold">{t('surveyConvergenceRate')}</th></tr></thead><tbody className="divide-y divide-ds-border-muted">{deformation.pairs.map((pair) => <tr key={pair.id}><td className="px-3 py-2.5 font-medium text-ds-ink">{pair.id} · {pair.kind}</td><td className="px-3 py-2.5 text-ds-muted">{pair.firstPointId} ↔ {pair.secondPointId}</td><td className="px-3 py-2.5 tabular-nums text-ds-ink">{numberLabel(pair.differentialSettlement ?? pair.convergence, 7)}</td><td className="px-3 py-2.5 tabular-nums text-ds-ink">{numberLabel(pair.tilt, 9)}</td><td className="px-3 py-2.5 tabular-nums text-ds-ink">{numberLabel(pair.convergenceRatePerDay, 8)}</td></tr>)}</tbody></table></div> : null}<p className="mt-3 break-all font-mono text-[9.5px] text-ds-faint">{deformation.algorithmVersion} · {deformation.inputHash}</p></div> : null}</>}
           </div> : null}
         </div>
 
-        <aside className="survey-workbench-aside border-t border-ds-border-muted bg-ds-main p-3 lg:col-span-2 2xl:col-span-1 2xl:border-l 2xl:border-t-0"><p className="text-[10px] font-semibold uppercase tracking-[0.1em] text-ds-faint">质量门禁</p><div className="mt-3 space-y-2">{network?.findings.length ? network.findings.slice(0, 6).map((finding, index) => <div key={`${finding.message}-${index}`} className={`flex gap-2 border px-2.5 py-2 text-[10.5px] leading-4 ${finding.severity === 'blocking' ? 'border-red-200 bg-red-50 text-red-800 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-200' : 'border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200'}`}><ShieldAlert className="mt-0.5 h-3.5 w-3.5 shrink-0" />{finding.message}</div>) : <div className="border border-dashed border-ds-border-muted px-2.5 py-3 text-[10.5px] leading-4 text-ds-muted">导入后这里会列出缺点、断网、单位冲突、秩亏和闭合差超限。</div>}</div><div className="mt-4 border-t border-ds-border-muted pt-3"><p className="text-[10px] font-semibold text-ds-ink">当前输入</p><dl className="mt-2 space-y-2 text-[10px]"><div className="flex justify-between gap-2"><dt className="text-ds-faint">来源</dt><dd className="max-w-[145px] truncate text-right text-ds-ink">{network?.id ?? '尚未导入'}</dd></div><div className="flex justify-between gap-2"><dt className="text-ds-faint">单位</dt><dd className="text-right text-ds-ink">项目配置</dd></div><div className="flex justify-between gap-2"><dt className="text-ds-faint">阻断项</dt><dd className={blockers ? 'font-semibold text-red-700 dark:text-red-300' : 'text-green-700 dark:text-green-300'}>{blockers}</dd></div></dl></div><div className="mt-4 border-t border-ds-border-muted pt-3"><p className="flex items-center gap-1.5 text-[10px] font-semibold text-ds-ink"><FileCode2 className="h-3.5 w-3.5 text-accent" />结果可追溯</p><p className="mt-1 text-[10px] leading-4 text-ds-muted">运行记录带输入哈希、算法版本和复核状态，不能原地覆盖。</p></div></aside>
+        <aside className="survey-workbench-aside border-t border-ds-border-muted bg-ds-main p-3 lg:col-span-2 2xl:col-span-1 2xl:border-l 2xl:border-t-0"><p className="text-[10px] font-semibold uppercase tracking-[0.1em] text-ds-faint">{t('surveyQualityGate')}</p><div className="mt-3 space-y-2">{network?.findings.length ? network.findings.slice(0, 6).map((finding, index) => <div key={`${finding.message}-${index}`} className={`flex gap-2 border px-2.5 py-2 text-[10.5px] leading-4 ${finding.severity === 'blocking' ? 'border-red-200 bg-red-50 text-red-800 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-200' : 'border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200'}`}><ShieldAlert className="mt-0.5 h-3.5 w-3.5 shrink-0" />{finding.message}{finding.row ? <span className="ml-auto shrink-0 font-mono text-[9px]">{t('surveyRecord')}{finding.row}</span> : null}</div>) : <div className="border border-dashed border-ds-border-muted px-2.5 py-3 text-[10.5px] leading-4 text-ds-muted">{t('surveyQualityEmpty')}</div>}</div><div className="mt-4 border-t border-ds-border-muted pt-3"><p className="text-[10px] font-semibold text-ds-ink">{t('surveyCurrentInput')}</p><dl className="mt-2 space-y-2 text-[10px]"><div className="flex justify-between gap-2"><dt className="text-ds-faint">{t('surveySource')}</dt><dd className="max-w-[145px] truncate text-right text-ds-ink">{network?.sourceFile?.name ?? network?.id ?? t('surveyNotImported')}</dd></div><div className="flex justify-between gap-2"><dt className="text-ds-faint">{t('surveyFormat')}</dt><dd className="max-w-[145px] truncate text-right text-ds-ink">{network?.sourceFile ? sourceFormatLabel(t, network.sourceFile.detection.format) : t('surveyStructuredLegacy')}</dd></div><div className="flex justify-between gap-2"><dt className="text-ds-faint">{t('surveyReadiness')}</dt><dd className={`max-w-[145px] text-right ${network?.sourceFile && !sourceIsReady ? 'font-semibold text-amber-700 dark:text-amber-300' : 'text-ds-ink'}`}>{network?.sourceFile ? dispositionLabel(t, network.sourceFile.disposition) : network ? t('surveyLegacyPath') : '—'}</dd></div><div className="flex justify-between gap-2"><dt className="text-ds-faint">{t('surveyBlockers')}</dt><dd className={blockers ? 'font-semibold text-red-700 dark:text-red-300' : 'text-green-700 dark:text-green-300'}>{blockers}</dd></div></dl></div><div className="mt-4 border-t border-ds-border-muted pt-3"><p className="flex items-center gap-1.5 text-[10px] font-semibold text-ds-ink"><FileCode2 className="h-3.5 w-3.5 text-accent" />{t('surveyTraceability')}</p></div></aside>
       </div>
     </div>
     <SurveyResultSummary adjustment={adjustment} />
     {message ? <p role="status" className="mt-3 border border-ds-border-muted bg-ds-subtle px-3 py-2 text-[11px] text-ds-muted">{message}</p> : null}
-    {busy ? <p className="mt-2 text-[10.5px] text-ds-faint">Runtime 正在处理测量网络…</p> : null}
+    {busy ? <p className="mt-2 text-[10.5px] text-ds-faint">{t('surveyProcessing')}</p> : null}
   </section>
 }
 
+function RawSourceIntegrityNote({ integrity }: { integrity: RawSourceIntegrity | undefined }): ReactElement | null {
+  const { t } = useTranslation('common')
+  if (!integrity) return null
+  if (integrity.status === 'verified') {
+    return <div className="mt-3 border border-blue-200 bg-blue-50 px-3 py-2 text-[10.5px] leading-4 text-blue-900 dark:border-blue-500/30 dark:bg-blue-500/10 dark:text-blue-100" role="status">{t('surveyIntegrityVerified', { count: integrity.ledgerEntryCount })}</div>
+  }
+  if (integrity.status === 'legacy-unverified') {
+    return <div className="mt-3 border border-amber-200 bg-amber-50 px-3 py-2 text-[10.5px] leading-4 text-amber-900 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-100" role="status">{t('surveyIntegrityLegacy')}</div>
+  }
+  return <div className="mt-3 border border-red-200 bg-red-50 px-3 py-2 text-[10.5px] leading-4 text-red-900 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-100" role="alert">{t('surveyIntegrityFailed', { reason: integrity.errors.join('; ') || t('surveyIntegrityRecovery') })}</div>
+}
+
+function CosaFileGroupInspectionPanel({ inspection }: { inspection: CosaFileGroupInspection }): ReactElement {
+  const { t } = useTranslation('common')
+  return <section aria-label={t('surveyCosaPreflight')} className="mt-3 border border-ds-border-muted bg-ds-main px-3 py-3">
+    <div className="flex flex-wrap items-center justify-between gap-2">
+      <div><p className="text-[11px] font-semibold text-ds-ink">{t('surveyCosaGroups')}</p><p className="mt-0.5 text-[10px] text-ds-muted">{t('surveyCosaHint')}</p></div>
+      <span className={`border px-2 py-1 text-[10px] font-medium ${inspection.diagnostics.length ? 'border-red-200 bg-red-50 text-red-800 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-200' : 'border-green-200 bg-green-50 text-green-800 dark:border-green-500/30 dark:bg-green-500/10 dark:text-green-200'}`}>{inspection.diagnostics.length ? t('surveyStatBlocked', { count: inspection.diagnostics.length }) : t('surveyGroupsLinked', { count: inspection.groups.length })}</span>
+    </div>
+    <div className="mt-3 space-y-2">
+      {inspection.groups.map((group) => <div key={group.id} className="border border-ds-border-muted bg-ds-card px-3 py-2.5">
+        <div className="flex flex-wrap items-center justify-between gap-2"><p className="font-mono text-[10px] text-ds-ink">{group.id}</p><span className={`text-[10px] font-medium ${group.state === 'blocked' ? 'text-red-700 dark:text-red-300' : 'text-green-700 dark:text-green-300'}`}>{group.state === 'blocked' ? t('engineeringStatusNeedsAttention') : t('surveyLinked')}</span></div>
+        <div className="mt-2 grid gap-1.5 sm:grid-cols-2 lg:grid-cols-3">{(['in1', 'in2', 'net', 'xyo', 'ou1', 'ou2'] as const).map((kind) => <div key={kind} className="flex min-w-0 items-center gap-2 text-[10px]"><span className="w-10 shrink-0 font-mono uppercase text-ds-faint">.{kind}</span><span className="truncate text-ds-muted" title={group.members[kind].map((item) => item.name).join(', ')}>{group.members[kind].length ? group.members[kind].map((item) => item.name).join(', ') : t('surveyNotSelected')}</span></div>)}</div>
+        {group.diagnostics.length ? <div className="mt-2 space-y-1">{group.diagnostics.map((diagnostic, index) => <div key={`${diagnostic.code}-${diagnostic.memberKind}-${index}`} className="border-l-2 border-red-500 bg-red-50 px-2 py-1.5 text-[10px] leading-4 text-red-800 dark:bg-red-500/10 dark:text-red-200"><span className="mr-1 font-mono text-[9px]">{diagnostic.code}</span>{diagnostic.message}<span className="mt-0.5 block font-medium">{t('surveyNextStep')}{diagnostic.suggestedAction}</span></div>)}</div> : null}
+      </div>)}
+    </div>
+  </section>
+}
+
+function SurveySourcePreflight({ source, showRecords, onToggleRecords }: { source: SurveySourceFile; showRecords: boolean; onToggleRecords: () => void }): ReactElement {
+  const { t, i18n } = useTranslation('common')
+  const blocking = source.diagnostics.filter((item) => item.severity === 'blocking').length
+  const warnings = source.diagnostics.filter((item) => item.severity === 'warning').length
+  const anchors = source.rawRecordAnchors.slice(0, 50)
+  return <section className="mt-3 border border-ds-border-muted bg-ds-card" aria-label={t('surveyPreflight')}>
+    <div className="flex flex-wrap items-start justify-between gap-3 border-b border-ds-border-muted px-3 py-3">
+      <div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><p className="truncate text-[12px] font-semibold text-ds-ink">{source.name}</p><span className={`border px-2 py-0.5 text-[10px] font-semibold ${dispositionTone(source.disposition)}`}>{dispositionLabel(t, source.disposition)}</span></div><p className="mt-1 text-[10.5px] text-ds-muted">{source.detection.vendor} · {sourceFormatLabel(t, source.detection.format)}{source.detection.version ? ` ${t('surveyVersion', { version: source.detection.version })}` : ''} · {t('surveyConfidence', { value: Math.round(source.detection.confidence * 100) })}</p></div>
+      <div className="text-right text-[10px] text-ds-faint"><p>{t('surveySourceSize', { count: source.recordCount, size: (source.size / 1024).toLocaleString(i18n.language, { maximumFractionDigits: 1 }) })}</p><p className="mt-1">{t('surveyOriginal')}{source.originalPreserved ? t('surveyPreserved') : t('surveyAbnormalStatus')}</p></div>
+    </div>
+    <SurveySourceProvenance source={source} />
+    <div className="grid gap-0 lg:grid-cols-[minmax(0,1fr)_300px]">
+      <div className="min-w-0 px-3 py-3">
+        <dl className="grid gap-x-5 gap-y-2 text-[10.5px] sm:grid-cols-2"><div><dt className="text-ds-faint">SHA-256</dt><dd className="mt-0.5 break-all font-mono text-[9.5px] text-ds-ink">{source.sha256}</dd></div><div><dt className="text-ds-faint">{t('surveyParser')}</dt><dd className="mt-0.5 text-ds-ink">{source.parserId} · {source.parserVersion}</dd></div><div><dt className="text-ds-faint">{t('surveyContentSignature')}</dt><dd className="mt-0.5 text-ds-ink">{source.detection.matchedSignatures.join('、') || t('surveyUnmatched')}</dd></div><div><dt className="text-ds-faint">{t('surveyExtensionConsistency')}</dt><dd className={`mt-0.5 ${source.detection.extensionConflict ? 'font-semibold text-red-700 dark:text-red-300' : 'text-ds-ink'}`}>{source.detection.extension ?? t('surveyNoExtension')} · {source.detection.extensionConflict ? t('surveyContentConflict') : t('surveyNoConflict')}</dd></div>{source.converter ? <><div><dt className="text-ds-faint">{t('surveyLocalConverter')}</dt><dd className="mt-0.5 text-ds-ink">{source.converter.id} {source.converter.version} · {source.converter.status}</dd></div><div><dt className="text-ds-faint">{t('surveyConverterPermissions')}</dt><dd className="mt-0.5 text-ds-ink">{t('surveyNetworkAccess')}{source.converter.networkAccess} · {source.converter.license}</dd></div></> : null}</dl>
+        <div className="mt-3 border-t border-ds-border-muted pt-3"><div className="flex items-center justify-between gap-2"><p className="text-[10.5px] font-semibold text-ds-ink">{t('surveyDiagnostics')}</p><span className="text-[10px] text-ds-faint">{t('surveyDiagnosticCounts', { blocking, warnings })}</span></div><div className="mt-2 space-y-1.5">{source.diagnostics.length ? source.diagnostics.slice(0, 20).map((item, index) => <div key={`${item.code}-${item.sourceRecord ?? item.byteOffset ?? index}`} className={`flex items-start gap-2 border-l-2 px-2 py-1.5 text-[10px] leading-4 ${item.severity === 'blocking' ? 'border-red-500 bg-red-50 text-red-800 dark:bg-red-500/10 dark:text-red-200' : item.severity === 'warning' ? 'border-amber-500 bg-amber-50 text-amber-800 dark:bg-amber-500/10 dark:text-amber-200' : 'border-ds-border bg-ds-subtle text-ds-muted'}`}><span className="shrink-0 font-mono text-[9px] uppercase">{item.code}</span><span>{item.message}{item.sourceRecord ? ` · ${t('surveyRecordNumber', { number: item.sourceRecord })}` : ''}{item.byteOffset !== undefined ? ` · ${t('surveyByteNumber', { number: item.byteOffset })}` : ''}{item.suggestedAction ? <span className="mt-0.5 block font-medium">{t('surveyNextStep')}{item.suggestedAction}</span> : null}</span></div>) : <p className="text-[10px] text-ds-muted">{t('surveyNoDiagnostics')}</p>}</div></div>
+      </div>
+      <aside className="border-t border-ds-border-muted bg-ds-main px-3 py-3 lg:border-l lg:border-t-0"><div className="flex items-center justify-between gap-2"><p className="text-[10.5px] font-semibold text-ds-ink">{t('surveyRawAnchors')}</p><button type="button" onClick={onToggleRecords} disabled={!anchors.length} aria-expanded={showRecords} className="h-7 border border-ds-border px-2 text-[10px] text-ds-muted disabled:opacity-50">{showRecords ? t('engineeringCollapse') : t('surveyViewRecords', { count: source.rawRecordAnchors.length })}</button></div><p className="mt-1 text-[10px] leading-4 text-ds-faint">{t('surveyAnchorsHint')}</p>{showRecords ? <div className="mt-2 max-h-48 overflow-y-auto border border-ds-border-muted bg-ds-card"><table className="min-w-full text-left text-[9.5px]"><thead className="sticky top-0 bg-ds-subtle text-ds-faint"><tr><th className="px-2 py-1.5">{t('surveyRecord')}</th><th className="px-2 py-1.5">{t('surveyTypeSection')}</th><th className="px-2 py-1.5">{t('surveyLocation')}</th></tr></thead><tbody className="divide-y divide-ds-border-muted">{anchors.map((item) => <tr key={item.id}><td className="px-2 py-1.5 font-mono text-ds-ink">{item.sourceRecord}</td><td className="px-2 py-1.5 text-ds-muted">{item.recordType ?? '—'}{item.section ? ` / ${item.section}` : ''}</td><td className="px-2 py-1.5 text-ds-muted">{item.line ? t('surveyLineNumber', { number: item.line }) : item.byteOffset !== undefined ? t('surveyByteNumber', { number: item.byteOffset }) : '—'}</td></tr>)}</tbody></table></div> : null}{source.rawRecordAnchors.length > anchors.length ? <p className="mt-2 text-[9.5px] text-ds-faint">{t('surveyAnchorLimit', { count: anchors.length })}</p> : null}</aside>
+    </div>
+  </section>
+}
+
+function ResidualSourceAnchorPanel({ resolution, onDismiss }: { resolution: ResidualSourceAnchorResolution; onDismiss: () => void }): ReactElement {
+  const { t } = useTranslation('common')
+  if (resolution.status === 'unavailable') {
+    return <section aria-label={t('surveyResidualLocation')} role="status" className="border-t border-amber-200 bg-amber-50 px-3 py-3 text-[10.5px] leading-4 text-amber-900 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-100"><div className="flex items-start justify-between gap-3"><div><p className="font-semibold">{t('surveyRecordUnavailable')}</p><p className="mt-1">sourceRecordId：<code className="font-mono">{resolution.sourceRecordId}</code></p><p className="mt-1">{resolution.reason}</p></div><button type="button" onClick={onDismiss} className="shrink-0 border border-amber-300 px-2 py-1 text-[10px] font-medium hover:bg-amber-100 dark:border-amber-500/40 dark:hover:bg-amber-500/20">{t('surveyClose')}</button></div></section>
+  }
+
+  const { anchor } = resolution
+  return <section aria-label={t('surveyResidualLocation')} className="border-t border-blue-200 bg-blue-50 px-3 py-3 text-[10.5px] leading-4 text-blue-950 dark:border-blue-500/30 dark:bg-blue-500/10 dark:text-blue-50"><div className="flex items-start justify-between gap-3"><div><p className="font-semibold">{t('surveyRecordLocation')}</p><p className="mt-1 text-blue-800 dark:text-blue-100">{t('surveyRecordLocationHint')}</p></div><button type="button" onClick={onDismiss} className="shrink-0 border border-blue-300 px-2 py-1 text-[10px] font-medium text-blue-900 hover:bg-blue-100 dark:border-blue-500/40 dark:text-blue-100 dark:hover:bg-blue-500/20">{t('surveyClose')}</button></div><dl className="mt-3 grid gap-x-4 gap-y-2 sm:grid-cols-2"><div><dt className="text-blue-700 dark:text-blue-200">{t('surveyRawRecordId')}</dt><dd className="mt-0.5 break-all font-mono text-ds-ink dark:text-white">{resolution.sourceRecordId}</dd></div><div><dt className="text-blue-700 dark:text-blue-200">{t('surveySectionType')}</dt><dd className="mt-0.5 text-ds-ink dark:text-white">{anchor.section ?? t('surveyUndeclared')}{anchor.recordType ? ` / ${anchor.recordType}` : ''}</dd></div><div><dt className="text-blue-700 dark:text-blue-200">{t('surveyByteOffset')}</dt><dd className="mt-0.5 font-mono tabular-nums text-ds-ink dark:text-white">{anchor.rawOffset}</dd></div><div><dt className="text-blue-700 dark:text-blue-200">{t('surveyByteLength')}</dt><dd className="mt-0.5 font-mono tabular-nums text-ds-ink dark:text-white">{anchor.rawLength}</dd></div></dl><div className="mt-3"><p className="text-blue-700 dark:text-blue-200">{t('surveyRawExcerpt')}</p><pre className="mt-1 max-h-40 overflow-auto whitespace-pre-wrap break-words border border-blue-200 bg-ds-card p-2 font-mono text-[9.5px] leading-4 text-ds-ink dark:border-blue-500/30 dark:bg-ds-main dark:text-white">{anchor.rawSnippet || t('surveyExcerptMissing')}</pre></div></section>
+}
+
+function SurveySourceProvenance({ source }: { source: SurveySourceFile }): ReactElement {
+  const { t, i18n } = useTranslation('common')
+  const sourceFormat = source.formatId ?? source.detection.format
+  const sourceVendor = source.vendor ?? source.detection.vendor ?? t('surveyLegacyMissing')
+  const formatVersion = source.formatVersion === null ? t('surveyUndeclared') : source.formatVersion ?? source.detection.version ?? t('surveyLegacyMissing')
+  const declaredExtension = source.extensionClaimed ?? source.detection.extension ?? t('surveyUndeclared')
+  const detectionMethod = source.detectionMethod ?? source.detection.method
+  const detectionConfidence = source.detectionConfidence ?? source.detection.confidence
+  const extensionConflict = source.extensionContentConflict ?? source.detection.extensionConflict
+  const summaryCount = (value: number | undefined): string => value === undefined ? t('surveyLegacyMissing') : value.toLocaleString(i18n.language.startsWith('en') ? 'en-US' : 'zh-CN')
+  const converterId = source.converterId ?? source.converter?.id
+  const converterVersion = source.converterVersion ?? source.converter?.version
+  const converterBinaryHash = source.converterBinaryHash ?? source.converter?.executableHash
+  const hasConverter = Boolean(converterId || converterVersion || converterBinaryHash || source.converter)
+
+  return <div className="border-b border-ds-border-muted bg-ds-main px-3 py-3" aria-label={t('surveyProvenance')}>
+    <dl className="grid gap-x-5 gap-y-2.5 text-[10.5px] sm:grid-cols-2 xl:grid-cols-3">
+      <div><dt className="text-ds-faint">{t('surveyDeclaredExtension')}</dt><dd className="mt-0.5 font-mono text-ds-ink">{declaredExtension}</dd></div>
+      <div><dt className="text-ds-faint">{t('surveyVendorFormat')}</dt><dd className="mt-0.5 text-ds-ink">{sourceVendor} · {sourceFormatLabel(t, sourceFormat)} · {t('surveyVersion', { version: formatVersion })}</dd></div>
+      <div><dt className="text-ds-faint">{t('surveyDetectionConfidence')}</dt><dd className="mt-0.5 text-ds-ink">{detectionMethodLabel(t, detectionMethod)} · {typeof detectionConfidence === 'number' ? `${Math.round(detectionConfidence * 100)}%` : t('surveyLegacyMissing')}</dd></div>
+      <div><dt className="text-ds-faint">{t('surveyExtensionConfirmation')}</dt><dd className={`mt-0.5 ${extensionConflict ? 'font-semibold text-red-700 dark:text-red-300' : 'text-ds-ink'}`}>{extensionConflict ? t('surveyContentConflict') : t('surveyNoConflict')} · {source.requiresManualConfirmation === undefined ? t('surveyLegacyMissing') : source.requiresManualConfirmation ? t('surveyConfirmationRequired') : t('surveyConfirmationNotRequired')}</dd></div>
+      <div className="sm:col-span-2"><dt className="text-ds-faint">{t('surveyDispositionNext')}</dt><dd className="mt-0.5 leading-4 text-ds-ink"><span className="font-medium">{dispositionLabel(t, source.disposition)}</span> · {source.dispositionReason ?? t('surveyLegacyMissing')}<span className="block text-ds-muted">{dispositionRecovery(t, source.disposition)}</span></dd></div>
+      <div><dt className="text-ds-faint">{t('surveyLinearUnits')}</dt><dd className="mt-0.5 text-ds-ink">{source.linearUnitRaw ?? t('surveyLegacyMissing')} → {canonicalUnitLabel(t, source.linearUnitCanonical)}</dd></div>
+      <div><dt className="text-ds-faint">{t('surveyAngularUnits')}</dt><dd className="mt-0.5 text-ds-ink">{source.angularUnitRaw ?? t('surveyLegacyMissing')} → {canonicalUnitLabel(t, source.angularUnitCanonical)}</dd></div>
+      <div><dt className="text-ds-faint">{t('surveyDatums')}</dt><dd className="mt-0.5 text-ds-ink">{source.datumDeclared === null ? t('surveyUndeclared') : source.datumDeclared ?? t('surveyLegacyMissing')} / {source.heightSystemDeclared === null ? t('surveyUndeclared') : source.heightSystemDeclared ?? t('surveyLegacyMissing')}</dd></div>
+      <div><dt className="text-ds-faint">{t('surveyPointsStations')}</dt><dd className="mt-0.5 tabular-nums text-ds-ink">{summaryCount(source.summary?.pointCount)} / {summaryCount(source.summary?.stationCount)}</dd></div>
+      <div><dt className="text-ds-faint">{t('surveyObservationCounts')}</dt><dd className="mt-0.5 tabular-nums text-ds-ink">{summaryCount(source.summary?.observationCount)} / {summaryCount(source.summary?.recordCount ?? source.recordCount)} / {summaryCount(source.summary?.skippedRecordCount)}</dd></div>
+      <div><dt className="text-ds-faint">{t('surveyParserHash')}</dt><dd className="mt-0.5 break-all font-mono text-[9.5px] text-ds-ink">{source.parserSourceHash ?? t('surveyLegacyMissing')}</dd></div>
+      <div className="sm:col-span-2"><dt className="text-ds-faint">{t('surveyConverterIdentity')}</dt><dd className="mt-0.5 break-all text-ds-ink">{hasConverter ? <>{converterId ?? t('surveyLegacyMissing')} {converterVersion ?? t('surveyLegacyMissing')} · <span className="font-mono text-[9.5px]">{converterBinaryHash ?? t('surveyLegacyMissing')}</span></> : t('surveyNoConverter')}</dd></div>
+    </dl>
+  </div>
+}
+
 function SurveyResultSummary({ adjustment }: { adjustment: Adjustment | null }): ReactElement | null {
+  const { t } = useTranslation('common')
   // 粗差候选判定采用标准化残差 > 3σ，并同时尊重 Runtime 返回的 outlier 标记。
   if (!adjustment || !adjustment.result.points?.length) return null
+  const admissible = isAdmissibleCompletedAdjustment(adjustment)
   const pointRows = adjustment.result.points
   const outlierCount = adjustment.result.observations?.filter((item) => item.outlier || Math.abs(item.standardizedResidual ?? 0) > 3).length ?? 0
   const linearUnit = adjustment.result.linearUnit ?? 'm'
-  return <section className="survey-result-summary mt-3 border border-ds-border-muted bg-ds-card" aria-label="平差点位成果">
-    <div className="flex flex-wrap items-start justify-between gap-3 border-b border-ds-border-muted px-4 py-3"><div><h4 className="text-[12.5px] font-semibold text-ds-ink">点位成果与复核摘要</h4><p className="mt-0.5 text-[10.5px] text-ds-muted">平差后的坐标/高程、改正数和点位中误差；这是可写入成果包的确定性结果。</p></div><div className="flex items-center gap-3 text-[10.5px] text-ds-faint"><span>长度单位 {linearUnit}</span><span>协方差 {adjustment.result.covariance?.length ? '已返回' : '未返回'}</span><span className={outlierCount ? 'font-semibold text-red-700 dark:text-red-300' : 'text-green-700 dark:text-green-300'}>粗差候选 {outlierCount}</span></div></div>
-    <div className="overflow-x-auto"><table className="min-w-full text-left text-[10.5px]"><thead className="bg-ds-subtle text-ds-muted"><tr><th className="px-3 py-2 font-semibold">点号</th><th className="px-3 py-2 font-semibold">平差 X（{linearUnit}）</th><th className="px-3 py-2 font-semibold">平差 Y（{linearUnit}）</th><th className="px-3 py-2 font-semibold">纬度 / 经度（°）</th><th className="px-3 py-2 font-semibold">平差高程（{linearUnit}）</th><th className="px-3 py-2 font-semibold">改正数（{linearUnit}）</th><th className="px-3 py-2 font-semibold">点位中误差（{linearUnit}）</th></tr></thead><tbody className="divide-y divide-ds-border-muted">{pointRows.map((point) => <tr key={point.id} className="hover:bg-ds-hover"><td className="px-3 py-2.5 font-medium text-ds-ink">{point.id}</td><td className="px-3 py-2.5 tabular-nums text-ds-ink">{numberLabel(point.x, 6)}</td><td className="px-3 py-2.5 tabular-nums text-ds-ink">{numberLabel(point.y, 6)}</td><td className="px-3 py-2.5 tabular-nums text-ds-ink">{point.latitude === undefined && point.longitude === undefined ? '—' : `${numberLabel(point.latitude, 8)} / ${numberLabel(point.longitude, 8)}`}</td><td className="px-3 py-2.5 tabular-nums text-ds-ink">{numberLabel(point.height, 6)}</td><td className="px-3 py-2.5 tabular-nums text-ds-muted">{numberLabel(point.correctionHeight ?? point.correctionX ?? point.correctionY, 7)}</td><td className="px-3 py-2.5 tabular-nums text-ds-muted">{numberLabel(point.standardError, 6)}</td></tr>)}</tbody></table></div>
+  return <section className="survey-result-summary mt-3 border border-ds-border-muted bg-ds-card" aria-label={t('surveyPointResults')}>
+    <div className="flex flex-wrap items-start justify-between gap-3 border-b border-ds-border-muted px-4 py-3"><div><h4 className="text-[12.5px] font-semibold text-ds-ink">{t('surveyPointSummary')}</h4><p className="mt-0.5 text-[10.5px] text-ds-muted">{admissible ? t('surveyPointResultsValid') : t('surveyPointResultsAudit')}</p></div><div className="flex items-center gap-3 text-[10.5px] text-ds-faint"><span>{t('surveyLengthUnit')}{linearUnit}</span><span>{t('surveyCovariance')}{adjustment.result.covariance?.length ? t('surveyReturned') : t('surveyNotReturned')}</span><span className={outlierCount ? 'font-semibold text-red-700 dark:text-red-300' : 'text-green-700 dark:text-green-300'}>{t('surveyOutliers')}{outlierCount}</span></div></div>
+    <div className="overflow-x-auto"><table className="min-w-full text-left text-[10.5px]"><thead className="bg-ds-subtle text-ds-muted"><tr><th className="px-3 py-2 font-semibold">{t('surveyPointId')}</th><th className="px-3 py-2 font-semibold">{t('surveyAdjustedX', { unit: linearUnit })}</th><th className="px-3 py-2 font-semibold">{t('surveyAdjustedY', { unit: linearUnit })}</th><th className="px-3 py-2 font-semibold">{t('surveyLatitudeLongitude')}</th><th className="px-3 py-2 font-semibold">{t('surveyAdjustedHeight', { unit: linearUnit })}</th><th className="px-3 py-2 font-semibold">{t('surveyCorrection', { unit: linearUnit })}</th><th className="px-3 py-2 font-semibold">{t('surveyPointError', { unit: linearUnit })}</th></tr></thead><tbody className="divide-y divide-ds-border-muted">{pointRows.map((point) => <tr key={point.id} className="hover:bg-ds-hover"><td className="px-3 py-2.5 font-medium text-ds-ink">{point.id}</td><td className="px-3 py-2.5 tabular-nums text-ds-ink">{numberLabel(point.x, 6)}</td><td className="px-3 py-2.5 tabular-nums text-ds-ink">{numberLabel(point.y, 6)}</td><td className="px-3 py-2.5 tabular-nums text-ds-ink">{point.latitude === undefined && point.longitude === undefined ? '—' : `${numberLabel(point.latitude, 8)} / ${numberLabel(point.longitude, 8)}`}</td><td className="px-3 py-2.5 tabular-nums text-ds-ink">{numberLabel(point.height, 6)}</td><td className="px-3 py-2.5 tabular-nums text-ds-muted">{numberLabel(point.correctionHeight ?? point.correctionX ?? point.correctionY, 7)}</td><td className="px-3 py-2.5 tabular-nums text-ds-muted">{numberLabel(point.standardError, 6)}</td></tr>)}</tbody></table></div>
   </section>
 }

@@ -1,0 +1,19 @@
+{
+  "id": "rail-any-station-control-network",
+  "name": "任意设站控制网测量",
+  "description": "轨道交通任意设站控制网的 IN1/IN2 导入、预检、确定性平差、精度解释和成果报告交付。",
+  "version": "0.5.0",
+  "entry": "SKILL.md",
+  "triggers": {
+    "commands": ["/rail-any-station-control-network", "/任意设站控制网测量"],
+    "promptPatterns": ["任意设站控制网", "轨道任意设站", "CPⅢ平差", "CP3平差"],
+    "fileTypes": [".in1", ".in2", ".in3", ".suc", ".ou1", ".ou2", ".cor", ".our"]
+  },
+  "allowedTools": [],
+  "assets": [
+    "assets/templates/adjustment-report.docx",
+    "assets/templates/轨道基础控制网初测评估报告-模板.docx",
+    "assets/schemas/locked-facts.schema.json"
+  ],
+  "priority": 30
+}
