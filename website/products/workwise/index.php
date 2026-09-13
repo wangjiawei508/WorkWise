@@ -224,7 +224,7 @@ require_once __DIR__ . '/../../includes/header.php';
           <div>
             <span class="pd-eyebrow dark">2026-08-13 · DEEPSEEK-V4-PRO-0813</span>
             <h3>V4 Pro 已正式发布，无需重装 WorkWise</h3>
-            <p>正式 V4 Pro 的 API 模型 ID 仍是 <code>deepseek-v4-pro</code>，官方基础地址仍是 <code>https://api.deepseek.com</code>。WorkWise 0.4.1 已使用这两个稳定标识，因此服务端模型升级可直接生效。Responses/Anthropic 的完整推理续接与精确推理档位映射属于后续增强，不描述为 0.4.1 已交付能力。</p>
+            <p>正式 V4 Pro 的 API 模型 ID 仍是 <code>deepseek-v4-pro</code>，官方基础地址仍是 <code>https://api.deepseek.com</code>。WorkWise 0.5.0 继续使用这两个稳定标识，因此服务端模型升级可直接生效。Responses/Anthropic 的完整推理续接与精确推理档位映射属于后续增强。</p>
             <a href="https://api-docs.deepseek.com/updates" target="_blank" rel="noopener" class="cli-inline-link">查看 DeepSeek 官方更新日志 <i class="fas fa-arrow-up-right-from-square"></i></a>
           </div>
         </div>
