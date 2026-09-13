@@ -53,7 +53,12 @@ function printedCoordinate(raw: string): Readonly<{ value: number; resolution: n
   const match = /^[+-]?\d+\.(\d{1,12})$/.exec(raw)
   if (!match) return null
   const value = Number(raw)
-  return Number.isFinite(value) ? { value, resolution: 10 ** -match[1]!.length } : null
+  const decimals = match[1]!
+  // Parse the printed unit as the same decimal literal users see in the
+  // report. Exponentiation introduces a different binary rounding for values
+  // such as 0.0001, which made the provenance test platform dependent.
+  const resolution = Number(`0.${'0'.repeat(Math.max(0, decimals.length - 1))}1`)
+  return Number.isFinite(value) ? { value, resolution } : null
 }
 
 function finiteDecimal(raw: string): number | null {
