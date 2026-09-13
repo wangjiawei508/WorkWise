@@ -119,7 +119,12 @@ describe('document helper packaging policy', () => {
     expect(workflow).toContain('markitdown-darwin-arm64')
     expect(workflow).toContain('markitdown-darwin-x64')
     expect(workflow).toContain('markitdown-win32-x64')
-    expect(workflow).toContain('@napi-rs/canvas-darwin-x64@0.1.100')
+    const lock = JSON.parse(await readFile(resolve(root, 'package-lock.json'), 'utf8'))
+    expect(lock.packages['node_modules/@napi-rs/canvas-darwin-x64']).toMatchObject({
+      optional: true,
+      cpu: ['x64'],
+      os: ['darwin']
+    })
     expect(workflow).toContain('Restore macOS sidecars with framework links and permissions')
     expect(workflow).toContain(
       'chmod 755 build/sidecars/markitdown-darwin-arm64/workwise-markitdown/workwise-markitdown'

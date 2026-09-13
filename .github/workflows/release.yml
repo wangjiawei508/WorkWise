@@ -364,7 +364,8 @@ jobs:
     needs: [prepare, stability, build-document-sidecars]
     env:
       WORKWISE_APP_VERSION: ${{ needs.prepare.outputs.version }}
-      WORKWISE_UPDATE_CHANNEL: stable
+      WORKWISE_UPDATE_CHANNEL: ${{ inputs.candidate_only == true && 'frontier' || 'stable' }}
+      WORKWISE_UPDATE_URL: ${{ inputs.candidate_only == true && 'https://127.0.0.1/' || '' }}
       WORKWISE_REQUIRE_DOCUMENT_SIDECAR: '1'
       RELEASE_CHANNEL: stable
       # Mapped to env so steps can branch on presence (secrets are not allowed
@@ -484,7 +485,7 @@ jobs:
 
       - name: Build signed macOS packages
         if: steps.signing.outputs.enabled == 'true'
-        run: npm run dist:mac:signed
+        run: node scripts/with-mac-signing-keychain.mjs npm run dist:mac:signed
 
       - name: Build unsigned macOS packages
         if: steps.signing.outputs.enabled != 'true'
@@ -524,7 +525,8 @@ jobs:
     needs: [prepare, stability, build-document-sidecars]
     env:
       WORKWISE_APP_VERSION: ${{ needs.prepare.outputs.version }}
-      WORKWISE_UPDATE_CHANNEL: stable
+      WORKWISE_UPDATE_CHANNEL: ${{ inputs.candidate_only == true && 'frontier' || 'stable' }}
+      WORKWISE_UPDATE_URL: ${{ inputs.candidate_only == true && 'https://127.0.0.1/' || '' }}
       WORKWISE_REQUIRE_DOCUMENT_SIDECAR: '1'
       RELEASE_CHANNEL: stable
       CSC_IDENTITY_AUTO_DISCOVERY: 'false'
