@@ -257,9 +257,26 @@ export function candidateEnvironmentFromArgv(
   env: NodeJS.ProcessEnv = process.env,
   resourcesPath: string | undefined = process.resourcesPath
 ): NodeJS.ProcessEnv {
-  const paths = argv
+  let paths = argv
     .filter((arg) => arg.startsWith(CANDIDATE_ENV_FILE_ARG))
     .map((arg) => arg.slice(CANDIDATE_ENV_FILE_ARG.length).trim())
+  // Squirrel.Mac relaunches the installed bundle without preserving the
+  // original argv. Recovery candidates can recover their in-root environment
+  // from the sibling candidate.env file in that isolated delivery root.
+  if (paths.length === 0 && isRecoveryCandidateExecutable(executablePath, resourcesPath)) {
+    let current = resolve(executablePath)
+    for (let index = 0; index < 8; index += 1) {
+      current = resolve(current, '..')
+      const candidateEnv = join(current, 'candidate.env')
+      try {
+        readFileSync(candidateEnv, 'utf8')
+        paths = [candidateEnv]
+        break
+      } catch {
+        // Continue toward the isolated delivery root.
+      }
+    }
+  }
   if (paths.length === 0) return env
   if (!isRecoveryCandidateExecutable(executablePath, resourcesPath)) {
     throw new Error('Candidate environment files are accepted only by an isolated recovery candidate.')
