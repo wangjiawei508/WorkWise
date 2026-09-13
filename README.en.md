@@ -13,7 +13,7 @@ WorkWise is a local-first desktop AI workbench. It brings **Code**, **Write**, s
 
 ## Current release
 
-The current stable release is **[v0.4.0](https://github.com/wangjiawei508/WorkWise/releases/tag/v0.4.0)**. It adds the unified plugin market, verifiable installation, Codex plugin compatibility, cross-platform glass window chrome, and structured attachment vision handling. Installed 0.3.5 clients can update in the application. Public releases have three user-facing installers:
+The current stable release is **[v0.5.0](https://github.com/wangjiawei508/WorkWise/releases/tag/v0.5.0)**. It adds the engineering survey workbench, unified plugin market, verifiable installation, Codex plugin compatibility, cross-platform glass window chrome, and structured attachment vision handling. Installed 0.4.2 clients can update in the application. Public releases have three user-facing installers:
 
 | Platform | Installer | Download |
 | --- | --- | --- |
@@ -22,6 +22,17 @@ The current stable release is **[v0.4.0](https://github.com/wangjiawei508/WorkWi
 | Windows x64 | `WorkWise-<version>-win-x64.exe` | [Release assets](https://github.com/wangjiawei508/WorkWise/releases) |
 
 GitHub Releases remains the public release log and manual installer source. Signed updater metadata and platform update artifacts are published through the official `railwise.cn` Stable channel. There is currently no Linux client, portable edition, or activation-code flow.
+
+## Engineering survey workbench
+
+WorkWise 0.5.0 turns engineering survey work from a general chat entry point into a traceable specialist workspace:
+
+- Import leveling, total station, GNSS, Leica GSI, RW5, RTKLIB, and common tabular data while preserving the original files, units, and source evidence.
+- Diagnose formats and column mappings before import, then retain raw observations, unit conversions, closure checks, adjustment corrections, and derived results as separate reviewable records.
+- Run deterministic leveling closure, control-network adjustment, and COSA IN1/IN2/OU1/OU2 delivery workflows with correction ledgers, initial values, tolerances, and PDF/table exports.
+- Use the Compass entry to select files, inspect point summaries, run numeric checks, and generate deliverables. AI explains, diagnoses, and orchestrates; engineering calculations remain deterministic and require qualified human review.
+
+See the [engineering survey workbench overview](./docs/ENGINEERING_SURVEY_WORKBENCH_OVERVIEW.zh-CN.md) and [survey format acceptance matrix](./docs/qa/WORKWISE_0.5.0_SURVEY_FORMAT_ACCEPTANCE_MATRIX.md) for scope and evidence.
 
 ## Why WorkWise
 
