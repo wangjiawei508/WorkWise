@@ -5,7 +5,7 @@ $workwiseManifest = rw_workwise_manifest();
 $workwiseDocs = rw_workwise_docs();
 $currentPage = 'products';
 $bodyClass = 'page-product page-product-workwise';
-$pageTitle = 'WorkWise · DeepSeek V4 Pro 与可靠 AI 工作台';
+$pageTitle = 'WorkWise 0.5.0 · 工程测量与 AI 工作台';
 $pageDesc = 'WorkWise 0.5.0 新增工程测量工作台，并提供统一插件市场、DeepSeek Harness 结构化附件处理与清晰可读的桌面工作区。';
 $pageKeywords = 'WorkWise,WorkWise 0.5.0,工程测量工作台,统一插件市场,Codex 插件,DeepSeek V4 Pro,DeepSeek Harness,结构化视觉,应用内更新,Skills,MCP,AI 工作台';
 $pageHeroVisualKey = 'product-workwise';
@@ -47,7 +47,7 @@ $workwiseCapabilities = [
   ['title' => 'Codex 与 MCPB 兼容', 'desc' => '支持 WorkWise .wwx、Codex .codex-plugin、标准 .mcpb、Codex marketplace 和 MCP Registry；仅依赖 Codex App Connector 的能力会明确标注。', 'icon' => 'fas fa-puzzle-piece', 'tone' => 'workwise-skills'],
   ['title' => '可验证安装与回滚', 'desc' => '安装前检查来源、许可证、权限、哈希、路径和依赖，使用 staging 原子切换；权限扩张必须重新审查，并保留单版本回滚。', 'icon' => 'fas fa-shield-halved', 'tone' => 'workwise-update'],
   ['title' => '克制的原生玻璃界面', 'desc' => '玻璃效果仅用于启动窗口、标题栏和临时浮层；侧边栏、编辑器与文档区域保持实色、高对比和清晰可读。', 'icon' => 'fas fa-layer-group', 'tone' => 'workwise-session'],
-  ['title' => '工程测量工作台', 'desc' => '支持水准、全站仪、GNSS、Leica GSI、RW5、RTKLIB 与表格导入；保留原始观测和单位证据，提供闭合差、平差、COSA 成果链与 PDF/XLSX 导出。', 'icon' => 'fas fa-compass', 'tone' => 'workwise-local'],
+  ['title' => '工程测量工作台', 'desc' => '项目数据、格式诊断、闭合差、控制网平差与 PDF/XLSX 成果集中处理，保留原始观测、单位及来源。COSA IN1/IN2 用作输入，OU1/OU2 用于只读成果比较；RW5 等来源按诊断归档，GNSS 原始数据需后处理。', 'icon' => 'fas fa-compass', 'tone' => 'workwise-local'],
   ['title' => 'Code 工作台', 'desc' => '围绕本地仓库理解、修改、测试与发布，提供 Repo Map、定义引用与诊断信息。', 'icon' => 'fas fa-code', 'tone' => 'workwise-code'],
   ['title' => 'Write 写作工作台', 'desc' => '从结构化写作到 DOCX、PDF 等交付，导出产物经过格式校验。', 'icon' => 'fas fa-pen-nib', 'tone' => 'workwise-write'],
   ['title' => 'Design 设计工作台', 'desc' => '多页画板、文档专属 Agent 会话和选中元素定向修改；支持可编辑 PPTX 原生导入，并为复杂页面保留整页视觉参考。', 'icon' => 'fas fa-object-group', 'tone' => 'workwise-update'],
@@ -149,7 +149,7 @@ require_once __DIR__ . '/../../includes/header.php';
         <div class="pd-eyebrow"><span class="dot"></span> DeepSeek V4 原生默认支持 <span class="pd-product-badge brand-workwise">WorkWise</span></div>
         <h1 class="pd-title">WorkWise · 让 AI 进入真实工作流</h1>
         <p class="pd-subtitle">主 Agent 默认 V4 Pro · Write 默认 V4 Flash</p>
-        <p class="pd-desc">WorkWise 以 DeepSeek V4 作为开箱即用的默认模型底座。0.4.1 修复插件市场命令解析、可执行文件定位和自动更新恢复，并继续提供可验证安装、在线目录同步、Codex 插件兼容和 DeepSeek Harness 结构化附件处理。</p>
+        <p class="pd-desc">WorkWise 0.5.0 新增工程测量工作台：集中管理测量项目与原始数据，完成格式诊断、闭合差与平差复核，导出可追溯成果。工程数值由确定性计算服务生成，AI 协助解释与编排；继续提供 Code、Write、Design 和统一插件市场。</p>
         <div class="pd-cta-row">
           <a href="#download" class="pd-btn primary" <?php echo rw_tracking_attrs('conversion_click', ['location' => 'product_hero', 'label' => 'WorkWise 站内下载', 'product' => 'workwise', 'source' => 'product', 'destination' => 'local_mirror']); ?>>站内下载 <i class="fas fa-download"></i></a>
           <a href="https://kb.railwise.cn/products/workwise/" class="pd-btn ghost" <?php echo rw_tracking_attrs('conversion_click', ['location' => 'product_hero', 'label' => 'WorkWise 知识库', 'product' => 'workwise', 'source' => 'product', 'destination' => 'knowledge_base']); ?>>知识库文档 <i class="fas fa-book-open"></i></a>
@@ -157,6 +157,7 @@ require_once __DIR__ . '/../../includes/header.php';
           <a href="/contact?subject=<?php echo urlencode('WorkWise 产品演示'); ?>&product=workwise&source=product" class="pd-btn ghost" <?php echo rw_tracking_attrs('conversion_click', ['location' => 'product_hero', 'label' => 'WorkWise 预约演示', 'product' => 'workwise', 'source' => 'product', 'destination' => 'contact']); ?>>预约演示 <i class="fas fa-comments"></i></a>
         </div>
         <div class="pd-stack">
+          <span>Survey 工程测量</span>
           <span>Code</span>
           <span>Write</span>
           <span>Design</span>
@@ -192,7 +193,7 @@ require_once __DIR__ . '/../../includes/header.php';
     <div class="pd-section-head">
       <div class="pd-eyebrow dark">DEEPSEEK V4 NATIVE</div>
       <h2>不是一个模型选项，而是开箱即用的默认模型底座</h2>
-      <p class="pd-section-sub">以下产品口径与 WorkWise GitHub README、软件介绍一致；模型状态同时以 DeepSeek 官方文档为依据。0.4.1 已交付能力与后续增强分别标注。</p>
+      <p class="pd-section-sub">主 Agent 默认 V4 Pro，Write 默认 V4 Flash；支持思考、工具调用与结构化附件处理，模型服务能力以官方文档为准。</p>
     </div>
     <div class="pd-caps-grid">
       <article class="pd-cap">
