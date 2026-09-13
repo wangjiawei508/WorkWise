@@ -327,6 +327,21 @@ describe('resolveCandidateRuntimePaths', () => {
     }
   })
 
+  it('recovers an isolated environment when Squirrel relaunches without arguments', () => {
+    const root = mkdtempSync(join(tmpdir(), 'workwise-updater-relaunch-'))
+    const executable = join(root, 'Applications', 'WorkWise Candidate 123456abcdef.app', 'Contents', 'MacOS', 'WorkWise')
+    try {
+      writeFileSync(join(root, 'candidate.env'), `WORKWISE_CANDIDATE=1\nWORKWISE_CANDIDATE_ROOT=${root}\n`)
+      expect(candidateEnvironmentFromArgv(executable, [], {})).toMatchObject({
+        WORKWISE_CANDIDATE: '1',
+        WORKWISE_CANDIDATE_ROOT: root
+      })
+      expect(candidateEnvironmentFromArgv(join(root, 'Applications', 'WorkWise.app', 'Contents', 'MacOS', 'WorkWise'), [], {})).toEqual({})
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
   it('decodes shell-escaped paths emitted by the candidate authorization script', () => {
     const parent = mkdtempSync(join(tmpdir(), 'workwise-candidate-launch-'))
     const root = join(parent, 'root with spaces')
