@@ -286,7 +286,7 @@ container_run mv -f "$include_path.workwise-next" "$include_path"
 container_run mv -f "$json_path.workwise-next" "$json_path"
 container_run mv -f "$page_path.workwise-next" "$page_path"
 container_run install -d -m 755 "$site_root/products/screenshots/workwise"
-container_run tar -xf "$stage/screenshots.tar" -C "$site_root/products/screenshots/workwise"
+container_run tar -xf "$stage/screenshots.payload" -C "$site_root/products/screenshots/workwise"
 committed=1
 trap - EXIT HUP INT TERM
 printf 'Deployed WorkWise product page %s with a server-side backup.\n' "$version"
@@ -364,10 +364,10 @@ function deploy(sourceDirectory, version, deployId) {
     copyToStage(config, file.source, `${stage}/${file.relative}`)
   }
   const screenshotDirectory = resolve(sourceDirectory, 'products/screenshots/workwise')
-  const screenshotArchive = `/tmp/workwise-product-screenshots-${deployId}.tar`
+  const screenshotArchive = `/tmp/workwise-product-screenshots-${deployId}.payload`
   execFileSync('tar', ['-C', screenshotDirectory, '-cf', screenshotArchive, '.'], { stdio: 'inherit' })
   try {
-    copyToStage(config, screenshotArchive, `${stage}/screenshots.tar`)
+    copyToStage(config, screenshotArchive, `${stage}/screenshots.payload`)
   } finally {
     try { execFileSync('rm', ['-f', screenshotArchive]) } catch {}
   }
