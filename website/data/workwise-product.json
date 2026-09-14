@@ -44,9 +44,9 @@
   ],
   "capabilityStatus": {
     "stable": [
-      "DeepSeek-V4-Pro-0813 正式可用",
-      "DeepSeek V4 1M 上下文 / 最高 384K 输出",
-      "主 Agent 默认 V4 Pro / Write 默认 V4 Flash",
+      "DeepSeek V4.1-Flash 正式可用（API ID: deepseek-flash）",
+      "DeepSeek V4.1-Flash 1M 上下文 / 最高 384K 输出",
+      "Agent、Write、Survey 默认使用 deepseek-flash",
       "DeepSeek Harness 结构化附件与视觉证据路径",
       "精选分类插件市场与在线目录同步",
       "34 个经过筛选的插件与 16 个精选插件",

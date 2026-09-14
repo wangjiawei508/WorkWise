@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { execFileSync } from 'node:child_process'
-import { existsSync, readFileSync, statSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import { basename, resolve } from 'node:path'
 
 const SAFE_TOKEN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/
@@ -40,11 +40,23 @@ function normalizeToken(value, label) {
 
 function sourceFiles(sourceDirectory) {
   const source = resolve(sourceDirectory)
-  return [
+  const files = [
     { source: resolve(source, 'products/workwise/index.php'), relative: 'products/workwise/index.php' },
     { source: resolve(source, 'includes/workwise_product.php'), relative: 'includes/workwise_product.php' },
     { source: resolve(source, 'data/workwise-product.json'), relative: 'data/workwise-product.json' }
   ]
+  const screenshotDirectory = resolve(source, 'products/screenshots/workwise')
+  if (existsSync(screenshotDirectory) && statSync(screenshotDirectory).isDirectory()) {
+    for (const name of readdirSync(screenshotDirectory).sort()) {
+      if (/^[A-Za-z0-9._-]+\.(?:png|jpe?g|webp)$/i.test(name)) {
+        files.push({
+          source: resolve(screenshotDirectory, name),
+          relative: `products/screenshots/workwise/${name}`
+        })
+      }
+    }
+  }
+  return files
 }
 
 function validateSource(sourceDirectory, version) {
@@ -152,7 +164,7 @@ deploy_id="$2"
 case "$release_root" in /*/downloads/workwise) ;; *) exit 64 ;; esac
 stage="/tmp/workwise-product-deploy-$deploy_id/payload"
 case "$stage" in /tmp/workwise-product-deploy-*/payload) ;; *) exit 64 ;; esac
-install -d -m 700 "$stage/products/workwise" "$stage/includes" "$stage/data"
+install -d -m 700 "$stage/products/workwise" "$stage/products/screenshots/workwise" "$stage/includes" "$stage/data"
 printf '%s\n' "$stage"
 `
 

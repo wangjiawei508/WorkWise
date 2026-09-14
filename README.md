@@ -3,7 +3,7 @@
   <h1>WorkWise</h1>
   <p><strong>让 AI 进入真实工作流。</strong></p>
   <p>本地优先的桌面 AI 工作台，把代码、写作、设计、技能与交付放在一个应用里。</p>
-  <p><strong>DeepSeek V4 原生默认支持</strong> · 主 Agent 默认 V4 Pro · Write 默认 V4 Flash</p>
+  <p><strong>DeepSeek V4.1-Flash 原生默认支持</strong> · 默认模型 <code>deepseek-flash</code> · Survey 工程测量工作台</p>
   <p>
     简体中文 · <a href="./README.en.md">English</a>
   </p>
@@ -27,13 +27,13 @@ WorkWise 面向需要长期上下文、反复修改和正式交付的工作。�
 WorkWise 不是在通用聊天客户端上额外增加一个 DeepSeek 选项，而是从项目起点就围绕 DeepSeek 的模型能力和真实工作场景构建。DeepSeek 是当前开箱即用的默认模型底座，其他兼容模型服务则作为后续可选扩展。
 
 - **安装后直接配置 DeepSeek**：首次启动的模型配置只提供 DeepSeek API Key 和可选服务地址，不需要先理解或切换服务商；完成一次配置后，对话、写作和手机连接即可共用。没有 API Key 时仍可先使用本地写作和导出。
-- **按模型特长分工**：默认主 Agent 使用 `deepseek-v4-pro`，Write 行内补全默认使用 `deepseek-v4-flash`；定时任务、Flow 和其他 Agent 场景也可在两者之间选择。
-- **不是简单转发接口**：当前版本按 DeepSeek V4 的 100 万 token 上下文配置运行时，并支持思考模式、工具调用、长对话延续、上下文压缩和缓存用量统计。
+- **统一默认模型**：0.5.0 的主 Agent、Write、定时任务和其他 Agent 默认使用官方模型 ID `deepseek-flash`（DeepSeek V4.1-Flash）；`deepseek-v4-pro` 仍可显式选择，旧 Flash ID 仅为迁移兼容保留。
+- **V4.1 能力完整接入**：运行时按 100 万 token 上下文与最高 384K 输出配置，支持思考模式、工具调用、长对话延续、上下文压缩、缓存统计、JSON 与 Responses API。
 - **接入 DeepSeek Harness**：WorkWise Runtime 根据模型能力处理图片附件，支持结构化 `text/image` 消息部分；文本模型使用本机回环视觉证据分析器生成 OCR、布局、语义和视觉摘要。分析器不可用或失败时明确报告失败，不把图片退化为 Base64 文本。
-- **0.4.2 图片回合**：支持 JPEG、PNG、GIF 和 WebP。`auto` 只在当前配置使用 DeepSeek 官方地址，或当前 Provider 显式配置或实际发现 `deepseek-v4-flash-vision-exp` 时，为本回合选择该模型；否则保留文字和附件并显示错误。Chat Completions、Responses 和 Anthropic Messages 的结构化图片块均有自动化序列化测试，但这不代表 DeepSeek 官方 API 默认提供全部三种协议。
+- **结构化视觉回合**：支持 JPEG、PNG、GIF 和 WebP。V4.1-Flash 按模型能力接收结构化 `text/image` 消息部分；不支持视觉的 Provider 会明确报告并保留附件，不把图片退化为 Base64 文本。
 - 这里描述的是 WorkWise 实际接入的 Runtime 适配、附件合约和视觉证据路径，不代表客户端内置了上游 DeepSeek Harness 的全部代码或最新能力。模型服务和上游项目的变化以 [DeepSeek 官方文档](https://api-docs.deepseek.com/updates) 为准。
 
-完整支持范围与版本边界见[软件介绍](./docs/product-introduction.zh-CN.md)；实现边界见 [DeepSeek Harness 接入说明](./docs/DEEPSEEK_HARNESS.zh-CN.md)。DeepSeek V4 的公开模型参数和接口说明见[官方发布说明](https://api-docs.deepseek.com/news/news260424)。
+完整支持范围与版本边界见[软件介绍](./docs/product-introduction.zh-CN.md)；实现边界见 [DeepSeek Harness 接入说明](./docs/DEEPSEEK_HARNESS.zh-CN.md)。DeepSeek V4.1-Flash 的公开模型参数和接口说明以[官方文档](https://api-docs.deepseek.com/updates)为准。
 
 ## 工程测量工作台
 
@@ -137,7 +137,7 @@ Flow 默认可见并标注 Preview。未配置模型、外部账号或配套 CLI
 
 ## 更新与帮助
 
-WorkWise 0.4.0 继续使用 `railwise.cn` 官方 Stable 更新源：
+WorkWise 0.5.0 继续使用 `railwise.cn` 官方 Stable 更新源：
 
 - 启动后检查，并每 24 小时在后台复查；发现新版本时顶部显示蓝色更新图标。
 - 第一次点击只在后台下载并显示进度，不会退出应用；下载完成后变为“重启并更新”。
