@@ -286,11 +286,7 @@ container_run mv -f "$include_path.workwise-next" "$include_path"
 container_run mv -f "$json_path.workwise-next" "$json_path"
 container_run mv -f "$page_path.workwise-next" "$page_path"
 container_run install -d -m 755 "$site_root/products/screenshots/workwise"
-for image in "$stage"/products/screenshots/workwise/*; do
-  [ -f "$image" ] || continue
-  image_name="\${image##*/}"
-  container_run cp -p "$image" "$site_root/products/screenshots/workwise/$image_name"
-done
+container_run tar -xf "$stage/screenshots.tar" -C "$site_root/products/screenshots/workwise"
 committed=1
 trap - EXIT HUP INT TERM
 printf 'Deployed WorkWise product page %s with a server-side backup.\n' "$version"
@@ -363,7 +359,18 @@ function deploy(sourceDirectory, version, deployId) {
   if (stage !== `/tmp/workwise-product-deploy-${deployId}/payload`) {
     throw new Error('Remote deployment stage was not recognized.')
   }
-  for (const file of validated.files) copyToStage(config, file.source, `${stage}/${file.relative}`)
+  for (const file of validated.files) {
+    if (file.relative.startsWith('products/screenshots/workwise/')) continue
+    copyToStage(config, file.source, `${stage}/${file.relative}`)
+  }
+  const screenshotDirectory = resolve(sourceDirectory, 'products/screenshots/workwise')
+  const screenshotArchive = `/tmp/workwise-product-screenshots-${deployId}.tar`
+  execFileSync('tar', ['-C', screenshotDirectory, '-cf', screenshotArchive, '.'], { stdio: 'inherit' })
+  try {
+    copyToStage(config, screenshotArchive, `${stage}/screenshots.tar`)
+  } finally {
+    try { execFileSync('rm', ['-f', screenshotArchive]) } catch {}
+  }
   process.stdout.write(runRemote(config, DEPLOY_SCRIPT, [config.releaseRoot, version, deployId]))
 }
 
