@@ -252,6 +252,9 @@ container_run install -d -m 700 "$backup" || fail 'could not create backup direc
 container_run cp -p "$page_path" "$backup/product-page.php" || fail 'could not back up product page'
 container_run cp -p "$include_path" "$backup/workwise_product.php" || fail 'could not back up product include'
 container_run cp -p "$json_path" "$backup/workwise-product.json" || fail 'could not back up product manifest'
+if container_run test -d "$site_root/products/screenshots/workwise"; then
+  container_run cp -R "$site_root/products/screenshots/workwise" "$backup/screenshots" || fail 'could not back up product screenshots'
+fi
 
 stage_replacement() {
   live="$1"
@@ -271,6 +274,10 @@ rollback() {
     if container_run test -f "$backup/product-page.php"; then container_run cp -p "$backup/product-page.php" "$page_path"; fi
     if container_run test -f "$backup/workwise_product.php"; then container_run cp -p "$backup/workwise_product.php" "$include_path"; fi
     if container_run test -f "$backup/workwise-product.json"; then container_run cp -p "$backup/workwise-product.json" "$json_path"; fi
+    if container_run test -d "$backup/screenshots"; then
+      container_run install -d -m 755 "$site_root/products/screenshots/workwise"
+      container_run cp -R "$backup/screenshots/." "$site_root/products/screenshots/workwise/"
+    fi
     container_run rm -f "$page_path.workwise-next" "$include_path.workwise-next" "$json_path.workwise-next"
   fi
 }
@@ -278,6 +285,12 @@ trap rollback EXIT HUP INT TERM
 container_run mv -f "$include_path.workwise-next" "$include_path"
 container_run mv -f "$json_path.workwise-next" "$json_path"
 container_run mv -f "$page_path.workwise-next" "$page_path"
+container_run install -d -m 755 "$site_root/products/screenshots/workwise"
+for image in "$stage"/products/screenshots/workwise/*; do
+  [ -f "$image" ] || continue
+  image_name="\${image##*/}"
+  container_run cp -p "$image" "$site_root/products/screenshots/workwise/$image_name"
+done
 committed=1
 trap - EXIT HUP INT TERM
 printf 'Deployed WorkWise product page %s with a server-side backup.\n' "$version"
