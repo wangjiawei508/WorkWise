@@ -217,6 +217,11 @@ container_run() {
 container_write() {
   docker exec -i -u 0 "$web_container" tee "$1" >/dev/null
 }
+container_decode() {
+  encoded="$1"
+  target="$2"
+  sed -e 's/^{"data":"//' -e 's/"}$//' "$encoded" | base64 -d | docker exec -i -u 0 "$web_container" tee "$target" >/dev/null
+}
 verify_live_targets() {
   container_run test -f "$page_path" || fail 'missing live WorkWise product page'
   container_run test -f "$include_path" || fail 'missing live WorkWise product include'
@@ -289,7 +294,7 @@ container_run install -d -m 755 "$site_root/products/screenshots/workwise"
 for encoded in "$stage"/products/screenshots/workwise/*.json; do
   [ -f "$encoded" ] || continue
   image_name="$(basename "$encoded" .json)"
-  sed -e 's/^{"data":"//' -e 's/"}$//' "$encoded" | base64 -d > "$site_root/products/screenshots/workwise/$image_name"
+  container_decode "$encoded" "$site_root/products/screenshots/workwise/$image_name"
 done
 committed=1
 trap - EXIT HUP INT TERM
