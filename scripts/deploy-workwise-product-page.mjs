@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { execFileSync } from 'node:child_process'
-import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { basename, resolve } from 'node:path'
 
 const SAFE_TOKEN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/
@@ -286,7 +286,11 @@ container_run mv -f "$include_path.workwise-next" "$include_path"
 container_run mv -f "$json_path.workwise-next" "$json_path"
 container_run mv -f "$page_path.workwise-next" "$page_path"
 container_run install -d -m 755 "$site_root/products/screenshots/workwise"
-container_run tar -xf "$stage/screenshots.json" -C "$site_root/products/screenshots/workwise"
+for encoded in "$stage"/products/screenshots/workwise/*.json; do
+  [ -f "$encoded" ] || continue
+  image_name="$(basename "$encoded" .json)"
+  sed -e 's/^{"data":"//' -e 's/"}$//' "$encoded" | base64 -d > "$site_root/products/screenshots/workwise/$image_name"
+done
 committed=1
 trap - EXIT HUP INT TERM
 printf 'Deployed WorkWise product page %s with a server-side backup.\n' "$version"
@@ -363,13 +367,20 @@ function deploy(sourceDirectory, version, deployId) {
     if (file.relative.startsWith('products/screenshots/workwise/')) continue
     copyToStage(config, file.source, `${stage}/${file.relative}`)
   }
-  const screenshotDirectory = resolve(sourceDirectory, 'products/screenshots/workwise')
-  const screenshotArchive = `/tmp/workwise-product-screenshots-${deployId}.json`
-  execFileSync('tar', ['-C', screenshotDirectory, '-cf', screenshotArchive, '.'], { stdio: 'inherit' })
+  const encodedScreenshots = validated.files.filter((file) => file.relative.startsWith('products/screenshots/workwise/'))
+  const temporaryEncoded = []
   try {
-    copyToStage(config, screenshotArchive, `${stage}/screenshots.json`)
+    for (const file of encodedScreenshots) {
+      const imageName = basename(file.source)
+      const encodedPath = `/tmp/workwise-product-${deployId}-${imageName}.json`
+      writeFileSync(encodedPath, JSON.stringify({ data: readFileSync(file.source).toString('base64') }))
+      temporaryEncoded.push(encodedPath)
+      copyToStage(config, encodedPath, `${stage}/products/screenshots/workwise/${imageName}.json`)
+    }
   } finally {
-    try { execFileSync('rm', ['-f', screenshotArchive]) } catch {}
+    for (const encodedPath of temporaryEncoded) {
+      try { execFileSync('rm', ['-f', encodedPath]) } catch {}
+    }
   }
   process.stdout.write(runRemote(config, DEPLOY_SCRIPT, [config.releaseRoot, version, deployId]))
 }
