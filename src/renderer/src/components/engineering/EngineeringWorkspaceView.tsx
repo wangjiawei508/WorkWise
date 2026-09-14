@@ -42,6 +42,7 @@ import {
 type Project = {
   id: string
   name: string
+  taskType?: string
   monitoringType: string
   unit: string
   signConvention: string
@@ -134,7 +135,7 @@ type SurveyAdjustmentSummary = {
 }
 type TabId = 'ai-command' | 'dashboard' | 'project' | 'data' | 'quality' | 'survey' | 'analysis' | 'deliverables' | 'review' | 'skills'
 type Notice = { tone: 'success' | 'warning' | 'error' | 'info'; message: string }
-type ProjectDraft = Pick<Project, 'name' | 'monitoringType' | 'unit' | 'signConvention' | 'reportPeriod'> & { thresholdsText: string }
+type ProjectDraft = Pick<Project, 'name' | 'taskType' | 'monitoringType' | 'unit' | 'signConvention' | 'reportPeriod'> & { thresholdsText: string }
 
 type TabDefinition = { id: TabId; labelKey: string; shortLabelKey: string; icon: typeof FolderKanban; group: 'agent' | 'compute' | 'delivery' }
 const TABS: ReadonlyArray<TabDefinition> = [
@@ -197,6 +198,7 @@ async function runtimeRequest<T>(path: string, method = 'GET', body?: unknown): 
 function projectToDraft(project: Project): ProjectDraft {
   return {
     name: project.name,
+    taskType: project.taskType ?? project.monitoringType,
     monitoringType: project.monitoringType,
     unit: project.unit,
     signConvention: project.signConvention,
@@ -497,7 +499,7 @@ export function EngineeringWorkspaceView({ workspaceRoot, runtimeReady, leftSide
       const result = await runtimeRequest<{ project: Project }>('/v1/engineering/projects', 'POST', {
         // Keep the legacy monitoringType field for Runtime compatibility while
         // starting with a neutral engineering task template.
-        name: t('engineeringDefaultJobName'), monitoringType: 'control-network', unit: 'm', signConvention: 'positive', workspace: workspaceRoot,
+        name: t('engineeringDefaultJobName'), taskType: 'control-network', monitoringType: 'control-network', unit: 'm', signConvention: 'positive', workspace: workspaceRoot,
         expectedRevision: 0, idempotencyKey: `engineering-project-${Date.now()}`
       })
       setProjects((current) => [result.project, ...current.filter((project) => project.id !== result.project.id)])
@@ -530,7 +532,7 @@ export function EngineeringWorkspaceView({ workspaceRoot, runtimeReady, leftSide
     setBusy(true)
     try {
       const project = await runtimeRequest<{ project: Project }>(`/v1/engineering/projects/${overview.project.id}`, 'PATCH', {
-        name: projectDraft.name.trim(), monitoringType: projectDraft.monitoringType.trim(), unit: projectDraft.unit.trim(), signConvention: projectDraft.signConvention.trim(),
+        name: projectDraft.name.trim(), taskType: (projectDraft.taskType ?? projectDraft.monitoringType).trim(), monitoringType: projectDraft.monitoringType.trim(), unit: projectDraft.unit.trim(), signConvention: projectDraft.signConvention.trim(),
         thresholds: parseThresholds(projectDraft.thresholdsText, t), reportPeriod: projectDraft.reportPeriod,
         expectedRevision: overview.project.revision, idempotencyKey: `engineering-project-save-${overview.project.id}-${overview.project.revision}`
       })
@@ -721,7 +723,7 @@ export function EngineeringWorkspaceView({ workspaceRoot, runtimeReady, leftSide
       <div className="bg-ds-card px-3 py-2"><span className="block text-ds-faint">{t('engineeringSummaryStage')}</span><strong className="mt-0.5 block truncate text-ds-ink">{t(currentStage.labelKey)}</strong></div>
       <div className="bg-ds-card px-3 py-2"><span className="block text-ds-faint">{t('engineeringSummarySource')}</span><strong className="mt-0.5 block truncate text-ds-ink">{activeDataset?.sourceFileName ?? '—'} · {sourceFormat}</strong></div>
       <div className="bg-ds-card px-3 py-2"><span className="block text-ds-faint">{t('engineeringSummaryReadiness')}</span><strong className={`mt-0.5 block truncate ${readiness === 'blocked' ? 'text-red-700 dark:text-red-300' : readiness === 'adjustment-ready' ? 'text-green-700 dark:text-green-300' : 'text-amber-700 dark:text-amber-300'}`}>{readinessLabel}</strong></div>
-      <div className="bg-ds-card px-3 py-2"><span className="block text-ds-faint">{t('engineeringSummaryDatum')}</span><strong className="mt-0.5 block truncate text-ds-ink">{overview.project.unit} · {overview.project.monitoringType}</strong></div>
+      <div className="bg-ds-card px-3 py-2"><span className="block text-ds-faint">{t('engineeringSummaryDatum')}</span><strong className="mt-0.5 block truncate text-ds-ink">{overview.project.unit} · {overview.project.taskType ?? overview.project.monitoringType}</strong></div>
       <div className="bg-ds-card px-3 py-2"><span className="block text-ds-faint">{t('engineeringSummaryPoints')}</span><strong className="mt-0.5 block truncate tabular-nums text-ds-ink">{surveyPointCount?.toLocaleString(locale) ?? '—'}</strong></div>
       <div className="bg-ds-card px-3 py-2"><span className="block text-ds-faint">{t('engineeringSummaryStations')}</span><strong className="mt-0.5 block truncate tabular-nums text-ds-ink">{surveyStationCount?.toLocaleString(locale) ?? '—'}</strong></div>
       <div className="bg-ds-card px-3 py-2"><span className="block text-ds-faint">{t('engineeringSummaryObservations')}</span><strong className="mt-0.5 block truncate tabular-nums text-ds-ink">{(surveyObservationCount ?? activeDataset?.observationCount)?.toLocaleString(locale) ?? '—'}</strong></div>
@@ -753,7 +755,7 @@ export function EngineeringWorkspaceView({ workspaceRoot, runtimeReady, leftSide
         <main className="min-h-0 overflow-y-auto bg-ds-main">
           {overview === null ? <EmptyState title={t('engineeringEmptyTitle')} detail={t('engineeringEmptyDetail')} action={<button type="button" onClick={() => void createProject()} disabled={busy || !runtimeReady} className="inline-flex items-center gap-1.5 rounded-md bg-accent px-3 py-2 text-[12px] font-semibold text-white hover:brightness-95 disabled:opacity-50"><Plus className="h-3.5 w-3.5" />{t('engineeringNewProject')}</button>} /> : <>
             {tab === 'dashboard' ? <div className="border-b border-ds-border-muted bg-ds-card px-5 py-4">
-              <div className="flex flex-wrap items-start justify-between gap-3"><div className="min-w-0"><p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-ds-faint">{t(TABS.find((item) => item.id === tab)?.labelKey ?? 'engineeringTabDashboard')}</p><h2 className="mt-1 truncate text-[18px] font-semibold">{overview.project.name}</h2><p className="mt-1 text-[12px] text-ds-muted">{overview.project.monitoringType} · {overview.project.unit} · {t('engineeringRevision')} {overview.project.revision} · {t('engineeringUpdatedAt')} {formatDate(overview.project.updatedAt, locale)}</p></div><button type="button" onClick={() => void createProject()} disabled={busy || !runtimeReady} className="inline-flex h-8 items-center gap-1.5 rounded-md border border-ds-border bg-ds-card px-2.5 text-[12px] font-medium text-ds-muted hover:bg-ds-hover disabled:opacity-50"><Plus className="h-3.5 w-3.5" />{t('engineeringNewProjectShort')}</button></div>
+              <div className="flex flex-wrap items-start justify-between gap-3"><div className="min-w-0"><p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-ds-faint">{t(TABS.find((item) => item.id === tab)?.labelKey ?? 'engineeringTabDashboard')}</p><h2 className="mt-1 truncate text-[18px] font-semibold">{overview.project.name}</h2><p className="mt-1 text-[12px] text-ds-muted">{overview.project.taskType ?? overview.project.monitoringType} · {overview.project.unit} · {t('engineeringRevision')} {overview.project.revision} · {t('engineeringUpdatedAt')} {formatDate(overview.project.updatedAt, locale)}</p></div><button type="button" onClick={() => void createProject()} disabled={busy || !runtimeReady} className="inline-flex h-8 items-center gap-1.5 rounded-md border border-ds-border bg-ds-card px-2.5 text-[12px] font-medium text-ds-muted hover:bg-ds-hover disabled:opacity-50"><Plus className="h-3.5 w-3.5" />{t('engineeringNewProjectShort')}</button></div>
               <div className="mt-4 grid grid-cols-2 gap-2 lg:grid-cols-4"><Metric label={t('engineeringTabData')} value={overview.datasets.length} detail={activeDataset ? activeDataset.sourceFileName : t('engineeringSummaryNoDataset')} /><Metric label={t('engineeringFindingBlocking')} value={blockingFindings.length} detail={blockingFindings.length ? t('engineeringSummaryNeedsSourceFix') : t('engineeringSummaryNoBlockers')} tone={blockingFindings.length ? 'danger' : 'success'} /><Metric label={t('engineeringSummaryReadiness')} value={analysisCounts.warning + analysisCounts.alarm + analysisCounts.control} detail={activeAnalysis ? t('engineeringSummaryResults', { count: activeAnalysis.results.length }) : t('engineeringSummaryNoAnalysis')} tone={analysisCounts.alarm + analysisCounts.control ? 'danger' : analysisCounts.warning ? 'warning' : 'neutral'} /><Metric label={t('engineeringSummaryDeliverable')} value={overview.manifests.length} detail={latestManifest ? latestManifest.id : t('engineeringSummaryNoArchive')} tone={latestManifest ? 'success' : 'neutral'} /></div>
             </div> : null}
 

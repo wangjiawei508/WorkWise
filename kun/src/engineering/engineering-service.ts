@@ -245,7 +245,7 @@ export class EngineeringService {
     const replay = this.replay(parsed.idempotencyKey)
     if (replay) return replay as RailwiseProjectV1
     const now = this.nowIso(); const id = `project_${randomUUID()}`
-    const project = RailwiseProjectV1.parse({ schemaVersion: 1, id, name: parsed.name, monitoringType: parsed.monitoringType ?? 'deformation', unit: parsed.unit ?? 'mm', signConvention: parsed.signConvention ?? 'positive', thresholds: parsed.thresholds ?? {}, reportPeriod: parsed.reportPeriod ?? {}, workspace: resolve(parsed.workspace), revision: 1, createdAt: now, updatedAt: now })
+    const project = RailwiseProjectV1.parse({ schemaVersion: 1, id, name: parsed.name, taskType: parsed.taskType ?? parsed.monitoringType ?? 'deformation', monitoringType: parsed.monitoringType ?? parsed.taskType ?? 'deformation', unit: parsed.unit ?? 'mm', signConvention: parsed.signConvention ?? 'positive', thresholds: parsed.thresholds ?? {}, reportPeriod: parsed.reportPeriod ?? {}, workspace: resolve(parsed.workspace), revision: 1, createdAt: now, updatedAt: now })
     this.db.prepare('INSERT INTO engineering_projects(id, revision, data_json, updated_at) VALUES (?, ?, ?, ?)').run(id, 1, JSON.stringify(project), now)
     this.trackMetadataPersistence(project.workspace, 'projects', project.id, project)
     this.remember(parsed.idempotencyKey, project)

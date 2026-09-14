@@ -14,6 +14,8 @@ export const RailwiseProjectV1 = z.object({
   schemaVersion: z.literal(ENGINEERING_SCHEMA_VERSION),
   id: z.string().min(1),
   name: z.string().min(1).max(200),
+  /** Additive task classification. Legacy records may omit it and remain deformation-compatible. */
+  taskType: z.string().min(1).default('deformation'),
   monitoringType: z.string().min(1).default('deformation'),
   unit: z.string().min(1).default('mm'),
   signConvention: z.string().min(1).default('positive'),
@@ -111,11 +113,11 @@ export const DeliverableManifestV1 = z.object({
 export type DeliverableManifestV1 = z.infer<typeof DeliverableManifestV1>
 
 export const EngineeringProjectCreateRequest = RevisionMutationV1.extend({
-  name: z.string().min(1).max(200), monitoringType: z.string().optional(), unit: z.string().optional(), signConvention: z.string().optional(),
+  name: z.string().min(1).max(200), taskType: z.string().min(1).optional(), monitoringType: z.string().optional(), unit: z.string().optional(), signConvention: z.string().optional(),
   thresholds: z.record(z.string(), z.number().finite()).optional(), reportPeriod: z.object({ start: z.string().optional(), end: z.string().optional() }).strict().optional(), workspace: z.string().min(1)
 }).strict()
 export const EngineeringProjectUpdateRequest = RevisionMutationV1.extend({
-  name: z.string().min(1).max(200).optional(), monitoringType: z.string().min(1).optional(), unit: z.string().min(1).optional(), signConvention: z.string().min(1).optional(),
+  name: z.string().min(1).max(200).optional(), taskType: z.string().min(1).optional(), monitoringType: z.string().min(1).optional(), unit: z.string().min(1).optional(), signConvention: z.string().min(1).optional(),
   thresholds: z.record(z.string(), z.number().finite()).optional(), reportPeriod: z.object({ start: z.string().optional(), end: z.string().optional() }).strict().optional()
 }).strict()
 export const DatasetImportRequest = RevisionMutationV1.extend({ projectId: z.string().min(1), attachmentId: z.string().optional(), name: z.string().min(1).optional(), dataBase64: z.string().min(1).optional(), fieldMapping: FieldMappingV1.optional() }).strict().refine((v) => Boolean(v.attachmentId || (v.name && v.dataBase64)), { message: 'attachmentId or name/dataBase64 is required' })

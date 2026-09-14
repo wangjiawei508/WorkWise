@@ -15,6 +15,7 @@ import {
 type EngineeringProject = {
   id: string
   name: string
+  taskType?: string
   monitoringType: string
   unit: string
   workspace: string
@@ -214,7 +215,7 @@ export function EngineeringSidebarContent({ workspaceRoot, runtimeReady }: Props
                 <span className="min-w-0 flex-1">
                   <span className="block truncate text-[12px] font-medium">{project.name}</span>
                   <span className="mt-0.5 block truncate text-[10.5px] text-ds-faint">
-                    {project.monitoringType} · {project.unit} · {formatUpdatedAt(project.updatedAt, i18n.language, t('engineeringNotSynced'))}
+                    {project.taskType ?? project.monitoringType} · {project.unit} · {formatUpdatedAt(project.updatedAt, i18n.language, t('engineeringNotSynced'))}
                   </span>
                 </span>
               </button>
