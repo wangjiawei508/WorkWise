@@ -172,7 +172,7 @@ require_once __DIR__ . '/../../includes/header.php';
             <span></span><span></span><span></span>
             <div class="pd-url">WorkWise · Code / Survey 工作台</div>
           </div>
-          <img src="<?php echo htmlspecialchars(optimizeImage('/products/screenshots/workwise/01-workbench-dark.png')); ?>" alt="WorkWise Code 与 Survey 工作台" fetchpriority="high" decoding="async">
+          <img src="<?php echo htmlspecialchars(optimizeImage('/products/screenshots/workwise/02-workbench-light.png')); ?>" alt="WorkWise 中文浅色工作台" fetchpriority="high" decoding="async">
         </div>
       </div>
     </div>
