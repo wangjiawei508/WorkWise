@@ -115,6 +115,7 @@ export class EngineeringContextService {
       generatedAt: this.nowIso(),
       project: {
         name: overview.project.name,
+        taskType: overview.project.taskType ?? overview.project.monitoringType,
         monitoringType: overview.project.monitoringType,
         unit: overview.project.unit,
         reportPeriod: overview.project.reportPeriod,

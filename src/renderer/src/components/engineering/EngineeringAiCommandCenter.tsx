@@ -10,7 +10,7 @@ import { MessageTimeline } from '../chat/MessageTimeline'
 import { EngineeringComposer } from './EngineeringComposer'
 import { useEngineeringConversationDrafts } from './engineering-conversation-drafts'
 
-type Project = { id: string; name: string; monitoringType: string; unit: string; revision: number; reportPeriod: { start?: string; end?: string } }
+type Project = { id: string; name: string; taskType?: string; monitoringType: string; unit: string; revision: number; reportPeriod: { start?: string; end?: string } }
 type Dataset = { sourceFileName: string; observationCount: number; status: string; findings: Array<{ severity: 'blocking' | 'warning' | 'info'; status: string }> }
 type Analysis = { results: Array<{ thresholdStatus: string; anomaly: boolean }>; algorithmVersion: string }
 type EvidenceCard = { id: string; kind: string; title: string; summary: string; sourceHash?: string; locator?: string }
