@@ -61,7 +61,7 @@ const network = {
     summary: { pointCount: 2, stationCount: 1, observationCount: 1, recordCount: 1, skippedRecordCount: 0 },
     diagnostics: [
       { code: 'format_detected', severity: 'info', message: '识别为 Leica GSI-8' },
-      { code: 'mapping_required', severity: 'warning', message: '字段映射需要确认。', suggestedAction: '确认字段映射、单位和基准后重新导入。' }
+      { code: 'mapping_required', severity: 'warning', message: '字段映射需要确认。', suggestedAction: '确认字段映射、单位和基准后重新导入。', localized: { en: { message: 'Field mapping requires confirmation for record 19.', suggestedAction: 'Confirm units for record 19 and reimport.' } } }
     ],
     records: [{ id: 'record-1', sourceRecord: 1, rawOffset: 137, rawLength: 29, rawLineNo: 1, line: 1, recordType: 'GSI', section: 'network.observations', rawSnippet: '{"id":"obs-1","value":0.2}' }],
     rawRecordAnchors: [{ id: 'record-1', sourceRecord: 1, rawOffset: 137, rawLength: 29, rawLineNo: 1, line: 1, recordType: 'GSI', section: 'network.observations', rawSnippet: '{"id":"obs-1","value":0.2}' }]
@@ -406,6 +406,12 @@ describe('SurveyAdjustmentPanel persisted state restoration', () => {
     await act(async () => { await i18n.changeLanguage('en') })
     await settle()
     expect(container.querySelector('h3')?.textContent).toContain('Survey and adjustment console')
+    const networkTab = [...container.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent?.includes('Network and datum'))
+    await act(async () => networkTab?.click())
+    await settle()
+    expect(container.textContent).toContain('Field mapping requires confirmation for record 19.')
+    expect(container.textContent).toContain('Confirm units for record 19 and reimport.')
+    expect(container.textContent).not.toContain('字段映射需要确认。')
     expect(selector?.value).toBe(network.id)
 
     await act(async () => {

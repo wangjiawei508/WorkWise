@@ -612,7 +612,7 @@ function sourceImportFindingsFromSourceFile(
   if (!sourceFile) return []
   const diagnostics = sourceFile.diagnostics
     .filter((item) => item.severity !== 'info')
-    .map((item) => finding(
+    .map((item) => ({ ...finding(
       networkId,
       item.code === 'format_detected' ? 'format_detected'
         : item.code === 'format_conflict' ? 'format_conflict'
@@ -633,7 +633,7 @@ function sourceImportFindingsFromSourceFile(
             : '检查文件格式、扩展名和原始记录后重试'),
       item.sourceRecord,
       nowIso
-    ))
+    ), ...(item.localized ? { localized: item.localized } : {}) }))
   const disposition = sourceFile.disposition === 'adjustment-ready'
     ? []
     : [finding(

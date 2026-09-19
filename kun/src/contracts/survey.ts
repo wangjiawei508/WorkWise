@@ -82,6 +82,14 @@ export const SurveyFormatDetectionV1 = z.preprocess((input) => {
 }, SurveyFormatDetectionCreateV1)
 export type SurveyFormatDetectionV1 = z.infer<typeof SurveyFormatDetectionV1>
 
+/** Additive presentation metadata. Original audit messages remain unchanged. */
+export const SurveyLocalizedDiagnosticV1 = z.object({
+  en: z.object({
+    message: z.string().min(1),
+    suggestedAction: z.string().min(1).max(2_000).optional()
+  }).strict()
+}).strict()
+
 export const SurveyImportDiagnosticV1 = z.object({
   code: z.enum([
     'format_detected', 'format_conflict', 'unknown_format', 'invalid_record',
@@ -91,6 +99,7 @@ export const SurveyImportDiagnosticV1 = z.object({
   ]),
   severity: z.enum(['info', 'warning', 'blocking']),
   message: z.string().min(1),
+  localized: SurveyLocalizedDiagnosticV1.optional(),
   sourceRecord: z.number().int().positive().optional(),
   byteOffset: z.number().int().nonnegative().optional(),
   /** Stable ID of the corresponding raw-record anchor, when one exists. */
@@ -312,6 +321,7 @@ const SurveySourceFileCreateShapeV1 = z.object({
   detection: SurveyFormatDetectionV1,
   disposition: SurveyImportDispositionV1,
   dispositionReason: z.string().min(1),
+  dispositionReasonEn: z.string().min(1).optional(),
   parserId: z.string().min(1),
   parserVersion: z.string().min(1),
   parserSourceHash: z.string().min(1),
@@ -626,6 +636,7 @@ export const SurveyQualityFindingV1 = z.object({
   ]),
   severity: z.enum(['blocking', 'warning', 'info']),
   message: z.string().min(1),
+  localized: SurveyLocalizedDiagnosticV1.optional(),
   suggestion: z.string().min(1),
   row: z.number().int().positive().optional(),
   status: z.enum(['open', 'resolved', 'accepted']).default('open'),
