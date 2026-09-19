@@ -2963,5 +2963,8 @@
     "applied": "Applied",
     "rejected": "Rejected",
     "stale": "Outdated"
-  }
+  },
+  "engineeringDatePlaceholder": "YYYY-MM-DD",
+  "engineeringDateFormat": "Calendar date in YYYY-MM-DD format (for example, 2026-09-19).",
+  "engineeringReportPeriodInvalid": "Enter valid dates as YYYY-MM-DD. The end date must not precede the start date."
 }

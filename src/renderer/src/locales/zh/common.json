@@ -2963,5 +2963,8 @@
     "applied": "已应用",
     "rejected": "未采用",
     "stale": "已过期"
-  }
+  },
+  "engineeringDatePlaceholder": "年-月-日（YYYY-MM-DD）",
+  "engineeringDateFormat": "按 YYYY-MM-DD 输入日期，例如 2026-09-19。",
+  "engineeringReportPeriodInvalid": "请输入 YYYY-MM-DD 格式的有效日期，结束日期不能早于开始日期。"
 }

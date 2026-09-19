@@ -9,7 +9,7 @@ import { useEngineeringConversationDrafts } from './engineering-conversation-dra
 const { request, ensureThread } = vi.hoisted(() => ({ request: vi.fn(), ensureThread: vi.fn() }))
 vi.mock('../../agent/runtime-client', () => ({ rendererRuntimeClient: { runtimeRequest: request } }))
 vi.mock('../../store/chat-store', () => ({ useChatStore: (select: (s: unknown) => unknown) => select({ ensureEngineeringThread: ensureThread }) }))
-vi.mock('./EngineeringAiCommandCenter', () => ({ EngineeringAiCommandCenter: () => null }))
+vi.mock('./EngineeringAiCommandCenter', () => ({ EngineeringAiCommandCenter: ({ onRefresh }: { onRefresh: () => void }) => createElement('button', { onClick: onRefresh }, 'Refresh confirmed project') }))
 vi.mock('./SurveyAdjustmentPanel', () => ({ SurveyAdjustmentPanel: () => null }))
 vi.mock('./EngineeringSkillsPanel', () => ({ EngineeringSkillsPanel: () => null }))
 const project = { id: 'job', name: 'Test control network', taskType: 'control-network', monitoringType: 'control-network', unit: 'm', signConvention: 'positive', thresholds: {}, reportPeriod: {}, workspace: '/test', revision: 2, updatedAt: '2026-09-19T00:00:00Z' }
@@ -59,6 +59,51 @@ beforeEach(async () => {
 afterEach(async () => { await act(async () => root.unmount()); container.remove() })
 
 describe('Survey delivery without a monitoring dataset', () => {
+  it('uses language-independent calendar input and blocks invalid or reversed report dates before saving', async () => {
+    await act(async () => root.render(createElement(EngineeringWorkspaceView, { workspaceRoot: '/test', runtimeReady: true })))
+    await settle()
+    await act(async () => button('Project setup').click())
+    const start = [...container.querySelectorAll('label')].find(label => label.textContent === 'Report start date')!.querySelector('input')!
+    const end = [...container.querySelectorAll('label')].find(label => label.textContent === 'Report end date')!.querySelector('input')!
+    expect(start.type).toBe('text')
+    expect(start.placeholder).toBe('YYYY-MM-DD')
+    const set = async (input: HTMLInputElement, value: string) => {
+      await act(async () => {
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, value)
+        input.dispatchEvent(new Event('input', { bubbles: true }))
+      })
+    }
+    await set(start, '2026-02-29')
+    request.mockClear()
+    await act(async () => button('Save configuration').click())
+    expect(request).not.toHaveBeenCalled()
+    expect(container.textContent).toContain('Enter valid dates as YYYY-MM-DD')
+    await set(start, '2026-09-20'); await set(end, '2026-09-19')
+    await act(async () => button('Save configuration').click())
+    expect(request).not.toHaveBeenCalled()
+    await i18n.changeLanguage('zh')
+    await settle()
+    expect(start.placeholder).toContain('年-月-日')
+  })
+  it('refreshes the selector and sidebar after a confirmed project change without changing the selected task', async () => {
+    await renderDelivery()
+    const renamed = { ...project, name: 'Confirmed name', revision: 3 }
+    request.mockImplementation(async (path: string) => ({ ok: true, status: 200, body: JSON.stringify(
+      path === '/v1/engineering/projects' ? { projects: [renamed] }
+        : path.endsWith('/overview') ? { project: renamed, datasets: [], analyses: [], runs: [], manifests: [] }
+          : path.includes('/survey/networks?') ? { networks: [network] } : { adjustments }
+    ) }))
+    const sidebarRefresh = vi.fn()
+    window.addEventListener('workwise:engineering-projects-changed', sidebarRefresh)
+    try {
+      await act(async () => button('Refresh confirmed project').click())
+      await settle()
+      const selectors = [...container.querySelectorAll('select')]
+      expect(selectors.some(select => select.value === 'job' && select.selectedOptions[0]?.textContent === 'Confirmed name')).toBe(true)
+      expect(sidebarRefresh).toHaveBeenCalledOnce()
+      expect(container.textContent).toContain('Confirmed name')
+    } finally { window.removeEventListener('workwise:engineering-projects-changed', sidebarRefresh) }
+  })
   it('restores an admitted result and displays generated preview files and truthful review checks', async () => {
     await renderDelivery()
     expect(button('Generate preview').disabled).toBe(false)

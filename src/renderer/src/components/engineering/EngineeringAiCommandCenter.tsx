@@ -10,6 +10,7 @@ import { useChatStore } from '../../store/chat-store'
 import { MessageTimeline } from '../chat/MessageTimeline'
 import { EngineeringComposer } from './EngineeringComposer'
 import { EngineeringProjectSuggestions } from './EngineeringProjectSuggestions'
+import { engineeringPlanTranscriptText } from './engineering-plan-transcript'
 import { useEngineeringConversationDrafts } from './engineering-conversation-drafts'
 
 type Project = { id: string; name: string; taskType?: string; monitoringType: string; unit: string; revision: number; reportPeriod: { start?: string; end?: string } }
@@ -83,7 +84,8 @@ export function EngineeringAiCommandCenter({ workspaceRoot, runtimeReady, projec
   const connected = runtimeReady && runtimeConnection === 'ready'
   const activeThread = threads.find((thread) => thread.id === activeThreadId)
   const engineeringThreadActive = Boolean(activeThread && project && activeThread.domain === 'engineering' && activeThread.projectId === project.id && activeThread.workspace === workspaceRoot)
-  const timelineBlocks = engineeringThreadActive ? blocks : []
+  const timelineBlocks = engineeringThreadActive ? blocks.map(block => block.kind === 'assistant'
+    ? { ...block, text: engineeringPlanTranscriptText(block.text, i18n.language) } : block) : []
   const timelineThreadId = engineeringThreadActive ? activeThreadId : null
   const timelineHasActivity = timelineBlocks.length > 0 || (engineeringThreadActive && (busy || Boolean(liveReasoning || liveAssistant)))
   const scopedPlan = aiPlan?.projectId === projectId ? aiPlan : null
