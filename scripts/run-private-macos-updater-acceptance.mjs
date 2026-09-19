@@ -1,67 +1,68 @@
 #!/usr/bin/env node
-import { spawn, spawnSync } from 'node:child_process'
-import { createHash, randomBytes } from 'node:crypto'
-import { createReadStream, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { createHash, randomBytes, X509Certificate } from 'node:crypto'
+import { createReadStream, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { basename, dirname, join, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { parse } from 'yaml'
 import { startPrivateUpdaterFeed } from './private-updater-feed.mjs'
 import packagedAsar from './verify-packaged-asar.cjs'
+import { boundedCommand, boundedProcess } from './updater-acceptance-process.mjs'
 
 const BASE_VERSION = '0.0.0'
 const scriptRoot = dirname(fileURLToPath(import.meta.url))
 
-function execute(command, args) {
-  const result = spawnSync(command, args, { encoding: 'utf8' })
-  if (result.error || result.status !== 0) {
-    // Keychain command arguments contain temporary passwords. Never echo them.
-    throw new Error(`${basename(command)} ${args[0] ?? ''} failed (exit ${result.status ?? 'unknown'}): ${result.stderr || result.error?.message || ''}`)
+function execute(command, args, progress) {
+  return boundedCommand(command, args, { progress }).stdout
+}
+
+export function createEvidenceReporter(path, report) {
+  const persist = () => {
+    report.updatedAt = new Date().toISOString()
+    const temporary = `${path}.tmp`
+    writeFileSync(temporary, JSON.stringify(report, null, 2) + '\n', { mode: 0o600 })
+    renameSync(temporary, path)
   }
-  return result.stdout
+  persist()
+  return (event) => {
+    if (event) {
+      const entry = { ...event, at: new Date().toISOString() }
+      report.steps ??= []
+      report.steps.push(entry)
+      console.info(`[private-native-updater] ${entry.operation}: ${entry.status}`)
+    }
+    persist()
+  }
+}
+
+export function redactAcceptanceLog(text, env = process.env) {
+  let redacted = text.slice(-250_000)
+  for (const [name, value] of Object.entries(env)) {
+    if (value?.length >= 4 && /(?:SECRET|TOKEN|PASSWORD|PRIVATE_KEY|API_KEY|CSC_LINK|P12_BASE64)/i.test(name)) {
+      redacted = redacted.replaceAll(value, '[redacted]')
+    }
+  }
+  return redacted
+    .replace(/-----BEGIN [^-]*PRIVATE KEY-----[\s\S]*?-----END [^-]*PRIVATE KEY-----/g, '[redacted private key]')
+    .replace(/(authorization["']?\s*[:=]\s*["']?)(?:Bearer\s+|Basic\s+)?[^\s,"'}]+/gi, '$1[redacted]')
+    .replace(/((?:password|api[_-]?key|access[_-]?token|secret)["']?\s*[:=]\s*["']?)[^\s,"'}]+/gi, '$1[redacted]')
+    .replace(/\/private-[a-f0-9]{64}\//g, '/private-[redacted]/')
 }
 
 export function requirePrivateRunner(env = process.env, platform = process.platform) {
   if (platform !== 'darwin' || env.GITHUB_ACTIONS !== 'true' || env.RUNNER_OS !== 'macOS' || !env.RUNNER_TEMP?.startsWith('/')) {
-    throw new Error('Private updater TLS trust may run only on an ephemeral macOS Actions runner.')
+    throw new Error('Private updater transport may run only on an ephemeral macOS Actions runner.')
   }
-  if (env.RUNNER_ENVIRONMENT !== 'github-hosted') throw new Error('Self-hosted machines are excluded from temporary TLS trust setup.')
+  if (env.RUNNER_ENVIRONMENT !== 'github-hosted') throw new Error('Self-hosted machines are excluded from private updater acceptance.')
 }
 
-function keychains(text) {
-  return text.split('\n').map(line => line.trim().replace(/^"|"$/g, '')).filter(Boolean)
-}
-
-export async function withPrivateTlsTrust(root, certificate, operation, run = execute) {
-  const keychain = join(root, 'tls-test.keychain-db')
-  const password = randomBytes(32).toString('hex')
-  const previous = keychains(run('/usr/bin/security', ['list-keychains', '-d', 'user']))
-  let created = false; let trustAttempted = false
-  let value; let failure
-  const cleanupFailures = []
-  try {
-    run('/usr/bin/security', ['create-keychain', '-p', password, keychain]); created = true
-    run('/usr/bin/security', ['unlock-keychain', '-p', password, keychain])
-    run('/usr/bin/security', ['set-keychain-settings', '-lut', '1800', keychain])
-    run('/usr/bin/security', ['list-keychains', '-d', 'user', '-s', keychain, ...previous])
-    // Trust only this one-day leaf for loopback SSL, in the runner's user domain.
-    // No admin/system keychain, allowedError, TLS bypass, or signing trust changes.
-    trustAttempted = true
-    run('/usr/bin/security', ['add-trusted-cert', '-r', 'trustRoot', '-p', 'ssl', '-s', '127.0.0.1', '-k', keychain, certificate])
-    value = await operation()
-  } catch (error) {
-    failure = error
-  } finally {
-    const clean = (args) => { try { run('/usr/bin/security', args) } catch (error) { cleanupFailures.push(error.message) } }
-    if (trustAttempted) clean(['remove-trusted-cert', certificate])
-    if (created) {
-      clean(['list-keychains', '-d', 'user', '-s', ...previous])
-      clean(['delete-keychain', keychain])
-    }
-  }
-  if (cleanupFailures.length) throw new Error(`Private TLS cleanup failed: ${cleanupFailures.join('; ')}${failure ? `; original failure: ${failure.message}` : ''}`)
-  if (failure) throw failure
-  return value
+export function createPrivateCertificate(root, run = execute) {
+  const certificate = join(root, 'loopback.pem'); const key = join(root, 'loopback.key')
+  const config = join(root, 'openssl.cnf')
+  writeFileSync(config, '[req]\nprompt=no\ndistinguished_name=dn\nx509_extensions=ext\n[dn]\nCN=127.0.0.1\n[ext]\nsubjectAltName=IP:127.0.0.1\nbasicConstraints=critical,CA:FALSE\nkeyUsage=critical,digitalSignature,keyEncipherment\nextendedKeyUsage=serverAuth\n', { mode: 0o600 })
+  run('/usr/bin/openssl', ['req', '-new', '-newkey', 'rsa:2048', '-x509', '-nodes', '-days', '1', '-keyout', key, '-out', certificate, '-config', config])
+  const certificateSha256 = createHash('sha256').update(new X509Certificate(readFileSync(certificate)).raw).digest('hex')
+  return { certificate, key, certificateSha256 }
 }
 
 function required(name) {
@@ -107,15 +108,16 @@ export function parseDesignatedRequirement(result) {
   return [...requirements][0]
 }
 
-export function verifyBundle(app, head, version) {
-  const info = JSON.parse(execute('/usr/bin/plutil', ['-convert', 'json', '-o', '-', join(app, 'Contents/Info.plist')]))
+export function verifyBundle(app, head, version, progress) {
+  const run = (command, args) => execute(command, args, progress)
+  const info = JSON.parse(run('/usr/bin/plutil', ['-convert', 'json', '-o', '-', join(app, 'Contents/Info.plist')]))
   validateBundleIdentity(info, head, version)
-  execute('/usr/bin/codesign', ['--verify', '--deep', '--strict', app])
-  execute('/usr/bin/xcrun', ['stapler', 'validate', app])
-  execute('/usr/sbin/spctl', ['--assess', '--type', 'execute', app])
+  run('/usr/bin/codesign', ['--verify', '--deep', '--strict', app])
+  run('/usr/bin/xcrun', ['stapler', 'validate', app])
+  run('/usr/sbin/spctl', ['--assess', '--type', 'execute', app])
   validatePrivateUpdateMetadata(readFileSync(join(app, 'Contents/Resources/app-update.yml'), 'utf8'), head)
   packagedAsar._internals.verifyPackagedSourceHead(join(app, 'Contents/Resources/app.asar'), head)
-  const identity = spawnSync('/usr/bin/codesign', ['-d', '-r-', app], { encoding: 'utf8' })
+  const identity = boundedCommand('/usr/bin/codesign', ['-d', '-r-', app], { progress })
   const requirement = parseDesignatedRequirement(identity)
   return { bundleId: info.CFBundleIdentifier, version, designatedRequirement: requirement }
 }
@@ -126,12 +128,8 @@ async function sha256(path) {
   return hash.digest('hex')
 }
 
-function runHarness(args, env) {
-  return new Promise((resolveRun, reject) => {
-    const child = spawn(process.execPath, [join(scriptRoot, 'run-native-updater-acceptance.mjs'), ...args], { env, stdio: 'inherit' })
-    child.once('error', reject)
-    child.once('exit', code => code === 0 ? resolveRun() : reject(new Error(`Native updater harness failed (exit ${code}).`)))
-  })
+function runHarness(args, env, progress) {
+  return boundedProcess(process.execPath, [join(scriptRoot, 'run-native-updater-acceptance.mjs'), ...args], { env, progress, timeoutMs: 25 * 60_000 })
 }
 
 function stopCandidateProcesses(root) {
@@ -156,20 +154,22 @@ async function main() {
   if (![baseDist, targetDist, evidence].every(path => path.startsWith(`${runnerTemp}/`))) throw new Error('Artifacts and evidence must stay inside RUNNER_TEMP.')
   mkdirSync(evidence, { recursive: true, mode: 0o700 })
   const root = mkdtempSync(join(runnerTemp, 'workwise-private-updater-'))
-  const report = { schemaVersion: 1, status: 'running', sourceHead: head, baseVersion: BASE_VERSION, targetVersion, platform: 'darwin', arch: process.arch, productionTouched: false, publicFeedUploaded: false, privateTransport: 'loopback-https', baselinePurpose: 'same-source isolated updater probe; not a historical-data migration', tlsTrustCleaned: false }
+  const report = { schemaVersion: 1, status: 'running', sourceHead: head, baseVersion: BASE_VERSION, targetVersion, platform: 'darwin', arch: process.arch, productionTouched: false, publicFeedUploaded: false, privateTransport: 'certificate-pinned loopback HTTPS manifest and ZIP; Squirrel uses electron-updater internal localhost HTTP', baselinePurpose: 'same-source isolated updater probe; not a historical-data migration', systemTrustModified: false }
+  const progress = createEvidenceReporter(join(evidence, 'private-updater.json'), report)
+  const run = (command, args) => execute(command, args, progress)
   let feed
   let ownedUpdaterCache
   try {
     const appDirectory = process.arch === 'arm64' ? 'mac-arm64' : 'mac'
     const baseApp = soleFile(join(baseDist, appDirectory), name => name.endsWith('.app'))
     const targetApp = soleFile(join(targetDist, appDirectory), name => name.endsWith('.app'))
-    const base = verifyBundle(baseApp, head, BASE_VERSION)
-    const target = verifyBundle(targetApp, head, targetVersion)
+    const base = verifyBundle(baseApp, head, BASE_VERSION, progress)
+    const target = verifyBundle(targetApp, head, targetVersion, progress)
     if (base.designatedRequirement !== target.designatedRequirement) throw new Error('Baseline and target signing identities differ.')
     const updaterCache = join(homedir(), 'Library/Caches', `workwise-private-updater-${head.slice(0, 12)}-updater`)
     if (existsSync(updaterCache)) throw new Error('Private updater cache already exists; refusing to reuse or delete prior data.')
     ownedUpdaterCache = updaterCache
-    const gatekeeper = spawnSync('/usr/sbin/spctl', ['--status'], { encoding: 'utf8' })
+    const gatekeeper = boundedCommand('/usr/sbin/spctl', ['--status'], { progress, allowedExitCodes: [0, 1] })
     Object.assign(report, { bundleId: target.bundleId, signature: 'verified', stapledNotarization: 'verified', gatekeeperStatus: `${gatekeeper.stdout ?? ''}${gatekeeper.stderr ?? ''}`.trim(), gatekeeperStatusExitCode: gatekeeper.status })
     const installer = soleFile(baseDist, name => name.endsWith('.dmg'))
     const zip = soleFile(targetDist, name => name.endsWith(`-mac-${process.arch}.zip`))
@@ -189,34 +189,36 @@ async function main() {
     const sentinel = JSON.stringify({ sourceHead: head, nonce: randomBytes(32).toString('hex') })
     writeFileSync(sentinelPath, sentinel, { mode: 0o600 })
 
-    const certificate = join(root, 'loopback.pem'); const key = join(root, 'loopback.key')
-    const config = join(root, 'openssl.cnf')
-    writeFileSync(config, '[req]\nprompt=no\ndistinguished_name=dn\nx509_extensions=ext\n[dn]\nCN=127.0.0.1\n[ext]\nsubjectAltName=IP:127.0.0.1\nbasicConstraints=critical,CA:FALSE\nkeyUsage=critical,digitalSignature,keyEncipherment\nextendedKeyUsage=serverAuth\n', { mode: 0o600 })
-    execute('/usr/bin/openssl', ['req', '-new', '-newkey', 'rsa:2048', '-x509', '-nodes', '-days', '1', '-keyout', key, '-out', certificate, '-config', config])
+    const { certificate, key, certificateSha256 } = createPrivateCertificate(root, run)
+    report.certificateSha256 = certificateSha256
     const env = { ...process.env, ...candidate }
     for (const name of Object.keys(env)) {
-      if (/^(?:CSC_|APPLE_|MAC_CODESIGN_|R2_|S3_|WORKWISE_WEBSITE_)/.test(name) || /^WORKWISE_UPDATE_/.test(name) || name === 'RELEASE_CHANNEL' || name === 'WORKWISE_PUBLIC_BASE_URL') delete env[name]
+      if (/^(?:CSC_|APPLE_|MAC_CODESIGN_|R2_|S3_|WORKWISE_WEBSITE_)/.test(name) || /(?:SECRET|TOKEN|PASSWORD|PRIVATE_KEY|API_KEY|P12_BASE64)/i.test(name) || /^WORKWISE_UPDATE_/.test(name) || name === 'RELEASE_CHANNEL' || name === 'WORKWISE_PUBLIC_BASE_URL') delete env[name]
     }
-    await withPrivateTlsTrust(root, certificate, async () => {
-      feed = await startPrivateUpdaterFeed({ key, cert: certificate, zipPath: zip, version: targetVersion })
-      await runHarness([
-        `--installer=${installer}`, `--feed-url=${feed.url}`, `--base-version=${BASE_VERSION}`, `--target-version=${targetVersion}`,
-        '--channel=frontier', `--expected-arch=${process.arch}`, `--report=${join(evidence, 'native-updater.json')}`,
-        `--candidate-root=${root}`, `--candidate-source-head=${head}`
-      ], env)
-      if (feed.requests.manifest < 1 || feed.requests.zip < 1 || feed.requests.bytesServed === 0) throw new Error('Native updater did not fetch the real private manifest and ZIP.')
-      const installed = join(root, 'Applications', basename(targetApp))
-      verifyBundle(installed, head, targetVersion)
-      const installedHash = await sha256(join(installed, 'Contents/Resources/app.asar'))
-      if (installedHash !== report.targetAsarSha256) throw new Error('Relaunched package differs from the signed target.')
-      if (readFileSync(sentinelPath, 'utf8') !== sentinel) throw new Error('Isolated data sentinel changed during native installation.')
-      Object.assign(report, { installedAsarSha256: installedHash, userDataSentinelPreserved: true, feedRequests: feed.requests, manifestSha256: feed.manifestSha256 })
-    })
-    report.tlsTrustCleaned = true
+    feed = await startPrivateUpdaterFeed({ key, cert: certificate, zipPath: zip, version: targetVersion })
+    await runHarness([
+      `--installer=${installer}`, `--feed-url=${feed.url}`, `--base-version=${BASE_VERSION}`, `--target-version=${targetVersion}`,
+      '--channel=frontier', `--expected-arch=${process.arch}`, `--report=${join(evidence, 'native-updater.json')}`,
+      `--candidate-root=${root}`, `--candidate-source-head=${head}`, `--certificate-sha256=${certificateSha256}`
+    ], env, progress)
+    if (feed.requests.manifest < 1 || feed.requests.zip < 1 || feed.requests.bytesServed === 0) throw new Error('Native updater did not fetch the real private manifest and ZIP.')
+    const installed = join(root, 'Applications', basename(targetApp))
+    verifyBundle(installed, head, targetVersion, progress)
+    const installedHash = await sha256(join(installed, 'Contents/Resources/app.asar'))
+    if (installedHash !== report.targetAsarSha256) throw new Error('Relaunched package differs from the signed target.')
+    if (readFileSync(sentinelPath, 'utf8') !== sentinel) throw new Error('Isolated data sentinel changed during native installation.')
+    Object.assign(report, { installedAsarSha256: installedHash, userDataSentinelPreserved: true, feedRequests: feed.requests, manifestSha256: feed.manifestSha256 })
     report.status = 'passed'
   } catch (error) {
     report.status = 'failed'; report.failure = error.message
+    progress({ operation: 'acceptance', status: 'failed' })
   } finally {
+    const logPath = join(evidence, 'native-updater.log')
+    if (existsSync(logPath)) {
+      try { writeFileSync(join(evidence, 'native-updater.redacted.log'), redactAcceptanceLog(readFileSync(logPath, 'utf8')), { mode: 0o600 }) } catch (error) {
+        report.status = 'failed'; report.failure = `${report.failure ?? ''} Log retention: ${error.message}`.trim()
+      }
+    }
     const cleanup = [() => feed?.close(), () => stopCandidateProcesses(root), () => rmSync(root, { recursive: true, force: true }), () => { if (ownedUpdaterCache) rmSync(ownedUpdaterCache, { recursive: true, force: true }) }]
     for (const action of cleanup) {
       try { await action() } catch (error) {
@@ -224,7 +226,7 @@ async function main() {
       }
     }
     // Only the explicit evidence files are uploaded; no key, environment or user data.
-    writeFileSync(join(evidence, 'private-updater.json'), JSON.stringify(report, null, 2) + '\n', { mode: 0o600 })
+    progress({ operation: 'cleanup', status: report.status === 'passed' ? 'completed' : 'failed' })
   }
   if (report.status !== 'passed') throw new Error(report.failure)
 }

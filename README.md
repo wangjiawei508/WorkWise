@@ -33,6 +33,8 @@ RAILWISE AI 以“编程 / 内业”为主入口。RAILWISE Survey 将任务、�
 
 AI 会话跨阶段保留，计算与导出计划先展示具体参数再确认。生成成果、完整性复验与人工批准是不同状态；当前成果仍为待审查草稿。
 
+最新源码增加水准网外部学生化残差诊断、原记录定位与 JSON 导出，读取前严格复验历史计算与来源。它不改变原平差结果；统计假设未验证，不作异常判定或专业验收结论。新控件仍待精确签名包实机验收。
+
 **[0.5.0 正式版](https://github.com/wangjiawei508/WorkWise/releases/tag/v0.5.0)**新增工程测量工作台，将项目数据、格式诊断、闭合差与平差复核、成果导出组织在同一工作区；继续提供统一插件市场、Codex 插件兼容和结构化附件处理。旧版本用户可通过应用内检查更新升级。
 
 ## DeepSeek 原生默认支持
@@ -63,7 +65,7 @@ AI 会话跨阶段保留，计算与导出计划先展示具体参数再确认�
 
 ## 候选界面预览
 
-以下为已安装候选包的中文浅色实拍，使用仓库合成数据；每张图片的精确提交与哈希见[截图清单](./website/products/screenshots/workwise/candidate-screenshots.json)。截图不代表正式 0.5.0 安装包已替换。最新 `94f1550` 已完成签名、公证与两类真实来源的包内 Runtime 校验；私有升级往返和用户专业验收尚未完成。
+以下为 `94f1550` 已安装候选包的中文浅色实拍，使用仓库合成数据；每张图片的精确提交与哈希见[截图清单](./website/products/screenshots/workwise/candidate-screenshots.json)。截图不代表正式 0.5.0 安装包已替换。后续 `8b80b92` 已完成签名公证、真实 GSI/IN2 全成果链界面操作、六份文件完整性检查及重启复验；私有升级往返、参考数据差异的专业复核和用户确认尚未完成。各源码增量的验收边界见下方台账。
 
 ![RAILWISE Survey 中文浅色候选界面](./website/products/screenshots/workwise/04-survey-candidate-zh-light.jpg)
 

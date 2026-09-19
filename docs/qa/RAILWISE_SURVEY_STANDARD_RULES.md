@@ -41,12 +41,12 @@ const evaluation = registry.evaluate(exactRuleReference, {
 
 ## 质检记录
 
-入口为 `kun/src/engineering/survey-quality-record.ts`。`appendSurveyQualityEvent(history, event)` 返回新的事件数组，不改变历史。事件类型为检查、发现问题、记录整改、复核问题；阶段名称由项目流程提供，不声称是标准规定的检查层级。
+入口为 `kun/src/engineering/survey-quality-record.ts`。`appendSurveyQualityEvent(history, event)` 返回新的事件数组，不改变历史。事件类型为原始检查、指定成果检查（`artifact-check`）、发现问题、记录整改、复核问题；阶段名称由项目流程提供，不声称是标准规定的检查层级。现有 V1 事件及其哈希保持兼容。
 
 - 每条事件绑定项目和原成果摘要，保持连续序号、非倒退时间、前项哈希与自身哈希。
 - 问题必须引用之前的非通过检查；整改必须对应未关闭问题，并绑定新的成果摘要。
 - 复核必须引用该问题最新的整改编号和同一整改成果摘要；未解决结果保留问题，已关闭问题不能重复关闭。
-- 重复事件、检查、问题或整改编号、跨项目混入、篡改和非法顺序被拒绝。
+- 原始检查编号唯一；`artifact-check` 可重复引用该逻辑检查编号，必须明确 `checkedArtifactSha256`，且不能更换或省略原检查的规范规则版本。重复事件、原始检查、问题或整改编号、跨项目混入、篡改和非法顺序被拒绝。
 
 ```ts
 const next = appendSurveyQualityEvent(history, recordedEvent)
@@ -62,7 +62,32 @@ const integrity = verifySurveyQualityRecord(reloadedEvents, retainedCheckpoint)
 
 无独立检查点时，哈希链不能证明末尾没有被截断，也不能抵御整条链被重新计算后替换。`valid` 只表示记录完整性；为空的链可完整但没有检查。`standardConformity` 和 `humanSignatureVerification` 始终为 `not-evaluated`。事件中的摘要和人员标识本身不证明原文件存在、数字签名有效或人员已签认；`valid: false` 时不可把附带数量用于验收。尚未接入数据库、HTTP 路由、交付 manifest 或 UI。
 
-`openIssueCount = 0` 只说明各问题分别记录了闭环，整改可能对应不同成果版本；它不证明同一个最终成果通过全部检查。接入交付门禁前，仍需定义最终成果版本及其完整检查覆盖，不能直接以该计数放行。
+## 最终成果检查覆盖
+
+`openIssueCount = 0` 只说明各问题分别记录了闭环，整改可能对应不同成果版本。新增 `evaluateSurveyFinalArtifactCoverage(history, request)` 独立评估指定最终成果的记录覆盖，不能直接以问题计数放行。
+
+```ts
+const coverage = evaluateSurveyFinalArtifactCoverage(reloadedEvents, {
+  schemaVersion: 1,
+  projectId,
+  finalArtifactSha256,
+  requiredCheckIds: independentlyRetainedCheckPlan.checkIds,
+  checkpoint: independentlyRetainedCheckpoint
+})
+```
+
+`requiredCheckIds` 必须非空且唯一，由独立保存的项目检查计划提供，不能从本次通过的检查动态挑选；缺少独立检查点或非法请求抛出合同错误。完整性检查不通过（包括篡改、重排、检查点不符或尾部截断）及项目不符时，返回 `coverageStatus: 'not-evaluated'`，不返回可供拼接的通过检查列表。
+
+返回 `covered` 必须同时满足以下条件：
+
+- 链完整且符合独立检查点，所有已打开问题都已闭环。
+- 每个必需编号都有检查记录；按链上序号选择该逻辑检查的最新记录，同时间戳不会造成歧义。
+- 每项最新记录都绑定请求中的同一个 `finalArtifactSha256`，且结果为 `passed`。不能回退选取较早的通过结果，也不能拼接不同版本上的通过检查。
+- 每项检查都晚于链上最后一次整改事件。任一后续整改都会要求最终成果重新完成全部必需检查，避免先前检查对新成果失效。
+
+旧 `check` 仅覆盖链头原始成果；`issue-rechecked: resolved` 只关闭问题，不能替代对最终成果的 `artifact-check: passed`。缺项、失败、未评估、成果摘要不符、整改后未重检或未闭环返回 `incomplete`，并列出逐项状态与关联事件。
+
+输出明确标记 `assessmentBasis: 'recorded-events-only'`，`standardConformity` 和 `humanSignatureVerification` 仍为 `not-evaluated`。`covered` 表示给定检查计划在事件记录中的覆盖，不表示已批准交付。调用方仍须核实最终成果及检查证据的真实字节、检查语义、计划完整性与人员身份；内核不会把任意填写的 `passed`、摘要或同链现算的检查点提升为独立证明。该函数尚未接入持久化、GUI 或交付流程。
 
 ## 验证
 
@@ -72,4 +97,4 @@ npm test -- --run src/engineering/survey-standard-registry.test.ts src/engineeri
 npm run typecheck
 ```
 
-2026-09-19：20 项独立测试通过，覆盖版本隔离、来源与条款篡改、元数据默认不执行、规则冲突、时间/单位边界、整改产物绑定及独立检查点；Runtime 类型检查与新增文件 ESLint 通过。
+2026-09-20：28 项独立测试通过，覆盖版本隔离、来源与条款篡改、元数据默认不执行、规则冲突、时间/单位边界、整改产物绑定、独立检查点，以及最终成果的混合版本、最新失败/未评估、规则版本替换、缺项与未闭环边界；Runtime 类型检查与相关文件 ESLint 通过。

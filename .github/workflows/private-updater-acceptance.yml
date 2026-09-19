@@ -33,6 +33,9 @@ jobs:
       - run: npm ci
       - name: Check private transport and isolation guards
         run: node --test scripts/private-updater-acceptance.test.mjs
+      - name: Preflight actual Electron HTTPS certificate pinning
+        timeout-minutes: 3
+        run: node scripts/run-private-updater-tls-preflight.mjs --evidence-dir="${RUNNER_TEMP}/private-updater-evidence"
       - name: Build audited document sidecar
         run: |
           set -euo pipefail
@@ -49,6 +52,7 @@ jobs:
           source "${WORKWISE_CANDIDATE_ROOT}/candidate.env"
           npm run build
       - name: Sign and notarize isolated baseline and target
+        id: signed
         env:
           MAC_CODESIGN_P12_BASE64: ${{ secrets.MAC_CODESIGN_P12_BASE64 }}
           CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
@@ -86,6 +90,7 @@ jobs:
           done
           git diff --exit-code -- package.json package-lock.json
       - name: Exercise actual private HTTPS download and Squirrel relaunch
+        timeout-minutes: 35
         run: |
           set -euo pipefail
           node scripts/run-private-macos-updater-acceptance.mjs \
@@ -104,7 +109,10 @@ jobs:
           path: |
             ${{ runner.temp }}/private-updater-evidence/private-updater.json
             ${{ runner.temp }}/private-updater-evidence/native-updater.json
+            ${{ runner.temp }}/private-updater-evidence/tls-preflight.json
+            ${{ runner.temp }}/private-updater-evidence/native-updater.redacted.log
       - name: Retain authenticated exact target package
+        if: ${{ always() && steps.signed.outcome == 'success' }}
         uses: actions/upload-artifact@v4
         with:
           name: private-updater-target-arm64-${{ github.sha }}

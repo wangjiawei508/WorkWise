@@ -8,6 +8,8 @@ RAILWISE AI is a local-first desktop platform with Code and Survey as its primar
 
 The naming migration and four-stage Survey interface are undergoing isolated candidate acceptance. The public 0.5.0 installers are unchanged.
 
+The latest source adds read-only externally studentized leveling residual diagnostics, original-record navigation and JSON export after strict source and calculation replay. It preserves historical adjustment results, leaves statistical assumptions unverified and makes no outlier or professional acceptance decision. These new controls still require exact signed-package UI acceptance.
+
 - Product page: [www.railwise.cn/products/workwise](https://www.railwise.cn/products/workwise/)
 - Direct mirror downloads: [Download and installation](https://www.railwise.cn/products/workwise/#download)
 - Documentation: [kb.railwise.cn/products/workwise](https://kb.railwise.cn/products/workwise/)
@@ -38,7 +40,7 @@ See the [engineering survey workbench overview](./docs/ENGINEERING_SURVEY_WORKBE
 
 ## Candidate UI preview
 
-These Chinese light-theme screenshots show installed candidates with repository synthetic data. Each image's commit and hash are recorded in the [screenshot manifest](./website/products/screenshots/workwise/candidate-screenshots.json). They do not replace the released 0.5.0 installers. Candidate `94f1550` has passed signing, notarization and real GSI/IN2 packaged Runtime checks. A real private updater round trip and human professional acceptance remain incomplete.
+These Chinese light-theme screenshots show installed candidate `94f1550` with repository synthetic data. Each image's commit and hash are recorded in the [screenshot manifest](./website/products/screenshots/workwise/candidate-screenshots.json). They do not replace the released 0.5.0 installers. Later candidate `8b80b92` has completed signing/notarization, both real GSI/IN2 GUI delivery workflows, six output-file integrity checks and restart reverification. A real private updater round trip, professional review of reference-data differences and personal acceptance remain incomplete. The ledger below separates each source increment from its package evidence.
 
 ![RAILWISE Survey candidate with synthetic data](./website/products/screenshots/workwise/04-survey-candidate-zh-light.jpg)
 

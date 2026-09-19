@@ -49,6 +49,10 @@ export const SurveyQualityEventV1 = z.object({
   event: z.discriminatedUnion('kind', [
     z.object({ kind: z.literal('check'), checkId: identity, rule: SurveyStandardRuleRefV1.optional(),
       outcome: z.enum(['passed', 'failed', 'not-evaluated']), evidenceSha256: digest }).strict(),
+    // Repeat a logical check against explicit bytes without rewriting its original record.
+    z.object({ kind: z.literal('artifact-check'), checkId: identity, checkedArtifactSha256: digest,
+      rule: SurveyStandardRuleRefV1.optional(), outcome: z.enum(['passed', 'failed', 'not-evaluated']),
+      evidenceSha256: digest }).strict(),
     z.object({ kind: z.literal('issue-opened'), issueId: identity, checkId: identity,
       evidenceSha256: digest }).strict(),
     z.object({ kind: z.literal('correction-recorded'), issueId: identity, correctionId: identity,
@@ -64,3 +68,26 @@ export const SurveyQualityCheckpointV1 = z.object({
   projectId: identity, artifactSha256: digest, eventCount: z.number().int().nonnegative(), headHash: digest
 }).strict()
 export type SurveyQualityCheckpointV1 = z.infer<typeof SurveyQualityCheckpointV1>
+
+/** Required checks and checkpoint must come from an independently retained project plan. */
+export const SurveyFinalArtifactCoverageRequestV1 = z.object({
+  schemaVersion: z.literal(1), projectId: identity, finalArtifactSha256: digest,
+  requiredCheckIds: z.array(identity).min(1).refine(ids => new Set(ids).size === ids.length, 'Duplicate required check ID'),
+  checkpoint: SurveyQualityCheckpointV1
+}).strict()
+export type SurveyFinalArtifactCoverageRequestV1 = z.infer<typeof SurveyFinalArtifactCoverageRequestV1>
+
+export const SurveyFinalArtifactCoverageV1 = z.object({
+  schemaVersion: z.literal(1), projectId: identity, finalArtifactSha256: digest,
+  assessmentBasis: z.literal('recorded-events-only'),
+  coverageStatus: z.enum(['covered', 'incomplete', 'not-evaluated']),
+  recordIntegrity: z.boolean(), reasons: z.array(z.string()),
+  checks: z.array(z.object({
+    checkId: identity,
+    status: z.enum(['passed', 'failed', 'not-evaluated', 'missing', 'artifact-mismatch', 'stale-after-correction']),
+    eventId: identity.optional(), sequence: z.number().int().positive().optional(),
+    checkedArtifactSha256: digest.optional(), evidenceSha256: digest.optional()
+  }).strict()),
+  standardConformity: z.literal('not-evaluated'), humanSignatureVerification: z.literal('not-evaluated')
+}).strict()
+export type SurveyFinalArtifactCoverageV1 = z.infer<typeof SurveyFinalArtifactCoverageV1>

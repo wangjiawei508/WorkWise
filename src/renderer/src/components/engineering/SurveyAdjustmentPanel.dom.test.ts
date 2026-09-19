@@ -310,6 +310,35 @@ afterEach(async () => {
 })
 
 describe('SurveyAdjustmentPanel persisted state restoration', () => {
+  it('connects the leveling precision page to diagnostics using the restored input and source bindings', async () => {
+    const inputHash = 'e'.repeat(64)
+    const baseRequest = runtimeRequest.getMockImplementation() as (path: string, method: string) => Promise<unknown>
+    runtimeRequest.mockImplementation(async (path: string, method: string) => {
+      if (path === '/v1/engineering/adjustments?projectId=project-restored-001') {
+        return runtimeResponse({ adjustments: [{ ...adjustment, result: { ...adjustment.result, inputHash } }] })
+      }
+      if (path.endsWith('/statistical-diagnostics')) return runtimeResponse({
+        schemaVersion: 1, diagnosticsVersion: 'leveling-deleted-t-1', projectId: 'project-restored-001',
+        networkId: network.id, runId: adjustment.run.id, resultId: adjustment.result.id, inputHash,
+        algorithmVersion: adjustment.result.algorithmVersion, sourceSha256: network.sourceFile.sha256,
+        calculationHash: 'f'.repeat(64), status: 'unavailable', reason: 'insufficient-redundancy', decision: 'not-evaluated'
+      })
+      return baseRequest(path, method)
+    })
+    await act(async () => root.render(createElement(SurveyAdjustmentPanel, {
+      key: 'statistics-binding', project: { id: 'project-restored-001', revision: 1 }, runtimeReady: true, preferredSection: 'result'
+    })))
+    await settle(); await settle()
+    const panel = container.querySelector('section[aria-label="水准统计诊断"]')!
+    const read = panel.querySelector('button') as HTMLButtonElement
+    expect(read.disabled).toBe(false)
+    await act(async () => read.click())
+    expect(runtimeRequest).toHaveBeenLastCalledWith(`/v1/engineering/projects/project-restored-001/adjustments/${adjustment.run.id}/statistical-diagnostics`, 'GET')
+    expect(panel.textContent).toContain('自由度不足')
+    expect(panel.textContent).toContain('未作统计判定')
+    expect(panel.querySelector('table')).toBeNull()
+  })
+
   it('prepares a residual question with exact revision and source identity without executing a model or calculation', async () => {
     const focus = vi.fn()
     const scope = JSON.stringify(['/acceptance', 'project-restored-001'])

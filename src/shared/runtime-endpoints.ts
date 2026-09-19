@@ -88,6 +88,10 @@ export const RUNTIME_ENGINEERING_ADJUSTMENT_TEMPLATE = '/v1/engineering/adjustme
 export const RUNTIME_ENGINEERING_ADJUSTMENT_CANCEL_TEMPLATE = '/v1/engineering/adjustments/{id}/cancel'
 export const RUNTIME_ENGINEERING_ADJUSTMENT_RESUME_TEMPLATE = '/v1/engineering/adjustments/{id}/resume'
 export const RUNTIME_ENGINEERING_ADJUSTMENT_PREVIEW_TEMPLATE = '/v1/engineering/adjustments/{id}/preview'
+export const RUNTIME_ENGINEERING_STATISTICAL_DIAGNOSTICS_TEMPLATE = '/v1/engineering/projects/{id}/adjustments/{adjustmentId}/statistical-diagnostics'
+export function runtimeSurveyStatisticalDiagnosticsPath(projectId: string, adjustmentId: string, download = false): string {
+  return `/v1/engineering/projects/${encodeURIComponent(projectId)}/adjustments/${encodeURIComponent(adjustmentId)}/statistical-diagnostics${download ? '?download=1' : ''}`
+}
 export const RUNTIME_ENGINEERING_DEFORMATIONS_TEMPLATE = '/v1/engineering/deformations'
 export const RUNTIME_ENGINEERING_DEFORMATION_TEMPLATE = '/v1/engineering/deformations/{id}'
 

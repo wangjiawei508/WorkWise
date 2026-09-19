@@ -81,6 +81,7 @@ import {
   ,RUNTIME_ENGINEERING_ADJUSTMENT_CANCEL_TEMPLATE
   ,RUNTIME_ENGINEERING_ADJUSTMENT_RESUME_TEMPLATE
   ,RUNTIME_ENGINEERING_ADJUSTMENT_PREVIEW_TEMPLATE
+  ,RUNTIME_ENGINEERING_STATISTICAL_DIAGNOSTICS_TEMPLATE
   ,RUNTIME_ENGINEERING_DEFORMATIONS_TEMPLATE
   ,RUNTIME_ENGINEERING_DEFORMATION_TEMPLATE
 } from '../../shared/runtime-endpoints'
@@ -171,10 +172,10 @@ function compileEndpoint(
   allowedQueryParams?: readonly string[]
 ): EndpointTemplate {
   // Build a regex from the template by escaping the literal parts and
-  // substituting the `{id}` / `{turn}` / `{manifestId}` placeholders with `[^/]+`. The
+  // substituting the approved identifier placeholders with `[^/]+`. The
   // template fragments are URL-encoded by the path helpers, so they
   // contain only characters that are safe to escape directly.
-  const pattern = template.replace(/[.+*?^$()|[\]\\]/g, '\\$&').replace(/\{(?:id|turn|manifestId)\}/g, '[^/]+')
+  const pattern = template.replace(/[.+*?^$()|[\]\\]/g, '\\$&').replace(/\{(?:id|turn|manifestId|adjustmentId)\}/g, '[^/]+')
   const regex = new RegExp(`^${pattern}$`)
   return {
     match: (path: string) => regex.test(path),
@@ -188,6 +189,7 @@ function hasAllowedQuery(url: URL, endpoint: EndpointTemplate): boolean {
   const seen = new Set<string>()
   for (const [key, value] of url.searchParams.entries()) {
     if (!endpoint.allowedQueryParams.has(key) || seen.has(key)) return false
+    if (key === 'download' && value !== '1') return false
     if (!value.trim() || value.length > MAX_ID_LENGTH) return false
     seen.add(key)
   }
@@ -263,6 +265,7 @@ const ENDPOINTS: readonly EndpointTemplate[] = [
   compileEndpoint(RUNTIME_ENGINEERING_ADJUSTMENT_CANCEL_TEMPLATE, ['POST']),
   compileEndpoint(RUNTIME_ENGINEERING_ADJUSTMENT_RESUME_TEMPLATE, ['POST']),
   compileEndpoint(RUNTIME_ENGINEERING_ADJUSTMENT_PREVIEW_TEMPLATE, ['POST']),
+  compileEndpoint(RUNTIME_ENGINEERING_STATISTICAL_DIAGNOSTICS_TEMPLATE, ['GET'], ['download']),
   compileEndpoint(RUNTIME_ENGINEERING_DEFORMATIONS_TEMPLATE, ['GET', 'POST'], ['projectId']),
   compileEndpoint(RUNTIME_ENGINEERING_DEFORMATION_TEMPLATE, ['GET']),
   compileEndpoint(RUNTIME_MEMORY_TEMPLATE, ['GET', 'POST']),

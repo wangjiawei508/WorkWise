@@ -14,6 +14,7 @@ import type {
 } from '../shared/gui-update'
 import { nextGuiUpdateCheckDelay } from '../shared/gui-update-schedule'
 import { DEFAULT_GUI_UPDATE_CHANNEL, normalizeGuiUpdateChannel } from '../shared/gui-update'
+import { configurePrivateUpdaterTls } from './private-updater-tls'
 import {
   legacyDownloadUrl,
   legacyGithubRepo,
@@ -543,6 +544,7 @@ function configureUpdaterChannel(channel: GuiUpdateChannel): void {
     if (!/^https:\/\//i.test(feed.url) && app.isPackaged) {
       throw new Error('Production update feeds must use HTTPS.')
     }
+    configurePrivateUpdaterTls(() => autoUpdater.netSession, feed.url)
     autoUpdater.setFeedURL({ provider: 'generic', url: feed.url })
   } else if (feed.kind === 'github') {
     autoUpdater.setFeedURL({

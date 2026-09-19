@@ -274,6 +274,19 @@ describe('app-ipc-schemas', () => {
     })).toThrow(/runtime request path is not allowed/)
   })
 
+  it('allows only project-scoped read-only statistical diagnostics and the explicit download flag', () => {
+    const path = '/v1/engineering/projects/project_1/adjustments/adjustment_1/statistical-diagnostics'
+    expect(runtimeRequestPayloadSchema.parse({ path, method: 'GET' }).path).toBe(path)
+    expect(runtimeRequestPayloadSchema.parse({ path: `${path}?download=1`, method: 'GET' }).path).toBe(`${path}?download=1`)
+    for (const request of [
+      { path, method: 'POST' }, { path, method: 'DELETE' },
+      { path: `${path}?download=2`, method: 'GET' },
+      { path: `${path}?download=1&download=1`, method: 'GET' },
+      { path: `${path}?projectId=other`, method: 'GET' },
+      { path: '/v1/engineering/adjustments/adjustment_1/statistical-diagnostics', method: 'GET' }
+    ]) expect(runtimeRequestPayloadSchema.safeParse(request).success).toBe(false)
+  })
+
   it('accepts the revision-safe thread Agent selection endpoint', () => {
     expect(runtimeRequestPayloadSchema.parse({
       path: '/v1/threads/thr_1/agent',

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { spawn, spawnSync } from 'node:child_process'
+import { spawn } from 'node:child_process'
 import {
   closeSync,
   existsSync,
@@ -15,6 +15,7 @@ import {
 import { tmpdir } from 'node:os'
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
+import { boundedCommand } from './updater-acceptance-process.mjs'
 
 export function validateCandidateAcceptanceRoot(root, env = process.env) {
   const prefix = env.RUNNER_TEMP && realpathSync(env.RUNNER_TEMP)
@@ -39,10 +40,12 @@ function required(name) {
   return value
 }
 
+function progress(event) {
+  console.info(`[native-updater] ${event.operation}: ${event.status}`)
+}
+
 function run(command, args) {
-  const result = spawnSync(command, args, { stdio: 'inherit', windowsHide: true })
-  if (result.error) throw result.error
-  if (result.status !== 0) throw new Error(`${command} exited with ${result.status}`)
+  boundedCommand(command, args, { stdio: 'inherit', windowsHide: true, progress })
 }
 
 function installMac(installer, root, candidateHead = '') {
@@ -155,6 +158,10 @@ async function main() {
 
   const candidateRoot = argument('candidate-root')
   const candidateHead = argument('candidate-source-head')
+  const certificateSha256 = argument('certificate-sha256')
+  if (certificateSha256 && (!candidateHead || !/^[a-f0-9]{64}$/.test(certificateSha256))) {
+    throw new Error('A private certificate pin requires the isolated candidate and a complete SHA256.')
+  }
   if (Boolean(candidateRoot) !== Boolean(candidateHead) || (candidateHead && !/^[a-f0-9]{40}$/.test(candidateHead))) {
     throw new Error('Private acceptance requires both candidate-root and the exact candidate source HEAD.')
   }
@@ -173,7 +180,8 @@ async function main() {
     targetVersion,
     channel,
     feedUrl,
-    reportPath
+    reportPath,
+    ...(certificateSha256 ? { privateTls: { certificateSha256, sourceHead: candidateHead } } : {})
   }, null, 2)}\n`, 'utf8')
 
   const executable = process.platform === 'darwin'
@@ -183,7 +191,7 @@ async function main() {
     // Verify the app actually copied from the DMG, not merely the adjacent
     // unpacked build directory. Keep generic legacy harness runs dependency-free.
     const { verifyBundle } = await import('./run-private-macos-updater-acceptance.mjs')
-    verifyBundle(executable, candidateHead, baseVersion)
+    verifyBundle(executable, candidateHead, baseVersion, progress)
   }
   const logPath = join(dirname(reportPath), `${basename(reportPath, '.json')}.log`)
   const log = openSync(logPath, 'a')
@@ -195,6 +203,8 @@ async function main() {
         '--stdout', logPath,
         '--stderr', logPath,
         '--env', 'WORKWISE_STARTUP_TRACE=1',
+        ...(certificateSha256 ? ['GITHUB_ACTIONS', 'RUNNER_OS', 'RUNNER_ENVIRONMENT', 'RUNNER_TEMP']
+          .flatMap(name => ['--env', `${name}=${process.env[name] ?? ''}`]) : []),
         executable,
         '--args', acceptanceArgument,
         ...(candidateRoot ? [`--workwise-candidate-env-file=${join(root, 'candidate.env')}`] : [])

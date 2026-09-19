@@ -8,10 +8,11 @@ import { dirname, join } from 'node:path'
 import { test } from 'node:test'
 import { parse } from 'yaml'
 import { startPrivateUpdaterFeed } from './private-updater-feed.mjs'
-import { parseDesignatedRequirement, requirePrivateRunner, validateBundleIdentity, validatePrivateUpdateMetadata, withPrivateTlsTrust } from './run-private-macos-updater-acceptance.mjs'
+import { createEvidenceReporter, parseDesignatedRequirement, redactAcceptanceLog, requirePrivateRunner, validateBundleIdentity, validatePrivateUpdateMetadata } from './run-private-macos-updater-acceptance.mjs'
 import { validateCandidateAcceptanceRoot } from './run-native-updater-acceptance.mjs'
+import { boundedCommand, boundedProcess } from './updater-acceptance-process.mjs'
 
-test('temporary trust refuses local and self-hosted machines', () => {
+test('private transport refuses local and self-hosted machines', () => {
   const hosted = { GITHUB_ACTIONS: 'true', RUNNER_OS: 'macOS', RUNNER_ENVIRONMENT: 'github-hosted', RUNNER_TEMP: '/runner/temp' }
   assert.doesNotThrow(() => requirePrivateRunner(hosted, 'darwin'))
   for (const patch of [{ GITHUB_ACTIONS: 'false' }, { RUNNER_OS: 'Linux' }, { RUNNER_ENVIRONMENT: 'self-hosted' }, { RUNNER_TEMP: '' }]) {
@@ -68,34 +69,42 @@ test('actual macOS codesign display yields a designated requirement without muta
   assert.match(parseDesignatedRequirement(result), /^designated => /)
 })
 
-test('TLS trust is user-only, loopback SSL constrained, and cleaned after updater failure', async () => {
-  const calls = []
-  const run = (command, args) => {
-    calls.push([command, ...args])
-    return args[0] === 'list-keychains' && !args.includes('-s') ? '"/runner/login.keychain-db"\n' : ''
-  }
-  await assert.rejects(withPrivateTlsTrust('/runner/private', '/runner/private/leaf.pem', async () => { throw new Error('updater failed') }, run), /updater failed/)
-  const trust = calls.find(call => call[1] === 'add-trusted-cert')
-  assert.deepEqual(trust, ['/usr/bin/security', 'add-trusted-cert', '-r', 'trustRoot', '-p', 'ssl', '-s', '127.0.0.1', '-k', '/runner/private/tls-test.keychain-db', '/runner/private/leaf.pem'])
-  assert.equal(trust.includes('-d'), false)
-  assert.equal(trust.includes('-e'), false)
-  assert.deepEqual(calls.slice(-3), [
-    ['/usr/bin/security', 'remove-trusted-cert', '/runner/private/leaf.pem'],
-    ['/usr/bin/security', 'list-keychains', '-d', 'user', '-s', '/runner/login.keychain-db'],
-    ['/usr/bin/security', 'delete-keychain', '/runner/private/tls-test.keychain-db']
-  ])
+test('hung commands are forcibly terminated and their timeout evidence survives', () => {
+  const root = mkdtempSync(join(tmpdir(), 'updater-timeout-test-'))
+  try {
+    const path = join(root, 'report.json')
+    const report = { status: 'running' }
+    const progress = createEvidenceReporter(path, report)
+    assert.equal(JSON.parse(readFileSync(path)).status, 'running')
+    const started = Date.now()
+    assert.throws(() => boundedCommand(process.execPath, ['-e', 'process.on("SIGTERM", () => {}); setInterval(() => {}, 1000)'], { timeoutMs: 100, progress }), /timed out/)
+    assert.ok(Date.now() - started < 5_000)
+    const persisted = JSON.parse(readFileSync(path))
+    assert.equal(persisted.steps.at(-1).status, 'timed-out')
+    assert.equal(persisted.steps.at(-1).signal, 'SIGKILL')
+    assert.equal(persisted.steps[0].status, 'started')
+  } finally { rmSync(root, { recursive: true, force: true }) }
 })
 
-test('TLS trust setup failure still restores keychains and never executes native update', async () => {
-  const calls = []; let executed = false
-  const run = (_command, args) => {
-    calls.push(args)
-    if (args[0] === 'add-trusted-cert') throw new Error('trust denied')
-    return args[0] === 'list-keychains' && !args.includes('-s') ? '"/runner/login.keychain-db"' : ''
-  }
-  await assert.rejects(withPrivateTlsTrust('/runner/private', '/runner/private/leaf.pem', async () => { executed = true }, run), /trust denied/)
-  assert.equal(executed, false)
-  assert.equal(calls.at(-1)[0], 'delete-keychain')
+test('outer harness timeout rejects promptly and retains a timed-out checkpoint', async () => {
+  const events = []
+  await assert.rejects(boundedProcess(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], {
+    timeoutMs: 100, progress: event => events.push(event)
+  }), /timed out/)
+  assert.equal(events.some(event => event.status === 'timed-out'), true)
+  assert.equal(events.some(event => event.status === 'completed'), false)
+})
+
+test('private runner never changes macOS trust or disables TLS validation', () => {
+  const source = readFileSync(new URL('./run-private-macos-updater-acceptance.mjs', import.meta.url), 'utf8')
+  assert.doesNotMatch(source, /add-trusted-cert|authorizationdb|NODE_TLS_REJECT_UNAUTHORIZED|ignore-certificate-errors|rejectUnauthorized:\s*false/)
+})
+
+test('retained logs redact secrets, credentials, private keys and the random feed path', () => {
+  const log = 'updater failed; build-key-123; Authorization: Bearer aaa; password="bbb"\n-----BEGIN PRIVATE KEY-----\nxxx\n-----END PRIVATE KEY-----\n/private-' + 'a'.repeat(64) + '/latest-mac.yml'
+  const output = redactAcceptanceLog(log, { APPLE_API_KEY: 'build-key-123' })
+  assert.doesNotMatch(output, /build-key-123|aaa|bbb|xxx|a{64}/)
+  assert.match(output, /updater failed/)
 })
 
 test('release dispatch private mode excludes public jobs even with conflicting switches', () => {
