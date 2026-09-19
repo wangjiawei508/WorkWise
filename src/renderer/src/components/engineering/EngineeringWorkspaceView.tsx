@@ -355,6 +355,9 @@ export function EngineeringWorkspaceView({ workspaceRoot, runtimeReady, leftSide
   }, [])
 
   const selectProject = useCallback((projectId: string): void => {
+    // Reopening a thread in the current task must not erase its loaded summary
+    // or preview: no project-id change will trigger a reload in that case.
+    if (projectId === selectedProjectId) return
     setSelectedProjectId(projectId)
     setSurveyAdjustmentIds([])
     setSurveyDeformationIds([])
@@ -363,7 +366,7 @@ export function EngineeringWorkspaceView({ workspaceRoot, runtimeReady, leftSide
     setSelectedSurveyNetworkId('')
     setPreview(null)
     setChart(null)
-  }, [])
+  }, [selectedProjectId])
 
   useEffect(() => {
     if (!selectedProjectId) return
@@ -450,8 +453,6 @@ export function EngineeringWorkspaceView({ workspaceRoot, runtimeReady, leftSide
       const projectId = consumeRequestedEngineeringProject()
       if (!projectId) return
       selectProject(projectId)
-      setPreview(null)
-      setChart(null)
     }
     window.addEventListener('workwise:engineering-open-project', openRequestedProject)
     const openAiCommand = (): void => setTab('ai-command')

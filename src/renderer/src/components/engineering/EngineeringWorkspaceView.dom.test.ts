@@ -4,6 +4,7 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { EngineeringWorkspaceView } from './EngineeringWorkspaceView'
 import i18n from '../../i18n'
+import { dispatchEngineeringProjectOpen } from './engineering-project-navigation'
 import { useEngineeringConversationDrafts } from './engineering-conversation-drafts'
 
 const { request, ensureThread } = vi.hoisted(() => ({ request: vi.fn(), ensureThread: vi.fn() }))
@@ -59,6 +60,18 @@ beforeEach(async () => {
 afterEach(async () => { await act(async () => root.unmount()); container.remove() })
 
 describe('Survey delivery without a monitoring dataset', () => {
+  it('preserves the summary, selected result and preview when reopening the current project thread', async () => {
+    await renderDelivery()
+    await act(async () => button('Generate preview').click())
+    const summary = container.querySelector('[data-testid="engineering-summary-strip"]')!.textContent
+    expect(summary).toContain('survey.in2')
+    await act(async () => dispatchEngineeringProjectOpen(project.id))
+    await settle()
+    expect(container.querySelector('[data-testid="engineering-summary-strip"]')!.textContent).toBe(summary)
+    expect(container.textContent).toContain(file.path)
+    expect(button('Generate preview').disabled).toBe(false)
+  })
+
   it('uses language-independent calendar input and blocks invalid or reversed report dates before saving', async () => {
     await act(async () => root.render(createElement(EngineeringWorkspaceView, { workspaceRoot: '/test', runtimeReady: true })))
     await settle()

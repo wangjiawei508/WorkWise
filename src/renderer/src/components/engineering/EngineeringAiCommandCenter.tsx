@@ -226,7 +226,7 @@ export function EngineeringAiCommandCenter({ workspaceRoot, runtimeReady, projec
       {sessionReadErrors.length ? <button type="button" data-testid="engineering-session-retry" onClick={retrySessionRead} className="mt-1 font-medium underline underline-offset-2">{t('engineeringSessionRetry')}</button> : null}
     </div> : null}
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-      {timelineHasActivity ? <MessageTimeline blocks={timelineBlocks} liveReasoning={engineeringThreadActive ? liveReasoning : ''} live={engineeringThreadActive ? liveAssistant : ''} activeThreadId={timelineThreadId} runtimeConnection={runtimeConnection} runtimeError={error} onRetryConnection={retryRuntime} onOpenSettings={() => openSettings('agents')} onSelectSuggestion={setGoal} /> :
+      {timelineHasActivity ? <MessageTimeline blocks={timelineBlocks} liveReasoning={engineeringThreadActive ? liveReasoning : ''} live={engineeringThreadActive ? liveAssistant : ''} activeThreadId={timelineThreadId} runtimeConnection={runtimeConnection} runtimeError={error ? surveyRuntimeErrorText(error, i18n.language) : error} onRetryConnection={retryRuntime} onOpenSettings={() => openSettings('agents')} onSelectSuggestion={setGoal} /> :
         <div className="flex min-h-0 flex-1 flex-col items-center justify-center overflow-y-auto px-5 py-6 text-center" data-testid="engineering-ai-empty-state">
           <Bot className="h-7 w-7 shrink-0 text-accent" />
           <h2 className="mt-3 text-[18px] font-semibold">{project ? t('engineeringAiTitle') : t('engineeringNoProject')}</h2>

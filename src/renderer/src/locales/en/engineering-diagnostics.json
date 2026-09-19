@@ -68,5 +68,6 @@
   "分析覆盖范围": "Analysis coverage",
   "{0} 条观测 · {1}": "{0} observations · {1}",
   "{0} 条趋势与阈值分析结果": "{0} trend and threshold analysis results",
-  "本次运行覆盖 {0} 个监测项/测点组合": "This run covers {0} monitoring item/point combinations"
+  "本次运行覆盖 {0} 个监测项/测点组合": "This run covers {0} monitoring item/point combinations",
+  "本次模型或工具尝试失败，任务将从检查点继续。": "This model or tool attempt failed. The task will resume from its checkpoint."
 }

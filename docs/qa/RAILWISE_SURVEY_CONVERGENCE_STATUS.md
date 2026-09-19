@@ -176,3 +176,9 @@
 [f404608 记录](./evidence/railwise-convergence-f404608d8e0d/README.md)：签名通过，公证缺失；GSI 包内 Runtime 通过，但 IN2 被新增椭圆过严的浮点对称阈值阻断。候选验收记为失败。源码修复将椭圆对称校核统一到既有协方差规则，保留非正定/明显不对称拒绝和原数值/hash边界。解析 Hilbert 逆回归旧代码失败、新代码通过；真实 IN2 修正版编译服务成果与独立参考通过，尚待新精确候选。
 
 修正最终检查：桌面 2496 通过/2 跳过，Runtime 1607 通过/3 跳过；双端类型、构建、严格 OpenSpec 11/11 通过，lint 保持 0 error/1 条既有 warning。算法 6 数据库副本严格重放仍通过，结果 SHA-256 未变。英文 GUI 暴露的 unknown-format 及 disposition/code 嵌套中文已增加受限显示适配和 opaque ID 回归；新包待复验。COSA .NET 独立原型没有接入生产界面，其临时译文未计入完成项。
+
+## 8e38dfd 安装包通过双真实格式计算；会话恢复增量
+
+[8e38dfd 精确包](./evidence/railwise-convergence-8e38dfde1bec/README.md)已完成签名、隔离安装、双真实格式 Runtime/独立参考验收。两条 GitHub 检查 35427895059、35427891905 通过。真实 IN2 GUI 已完成导入、校核和平差，显示 31 个未知点的 XY 误差椭圆；成果链继续验收。
+
+真实普通咨询使用 deepseek-flash，再次返回 401 Authentication Fails (governor)，没有成功模型回答。后续修正同项目重选错误清空摘要/预览，并在 Survey 两处恢复界面翻译 Runtime 错误；不改对话原文。两个回归旧代码失败、新代码通过，桌面全量 2498 通过/2 跳过，类型/构建/严格规范通过，lint 仅既有 warning；Runtime 无新增逻辑，沿用1607通过。新修正需精确包复验。

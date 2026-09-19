@@ -10,7 +10,7 @@ import { useEngineeringConversationDrafts } from './engineering-conversation-dra
 
 vi.mock('./EngineeringProjectSuggestions', () => ({ EngineeringProjectSuggestions: () => null }))
 
-vi.mock('../chat/MessageTimeline', () => ({ MessageTimeline: () => createElement('div', { 'data-testid': 'message-timeline' }) }))
+vi.mock('../chat/MessageTimeline', () => ({ MessageTimeline: ({ runtimeError }: { runtimeError?: string | null }) => createElement('div', { 'data-testid': 'message-timeline' }, runtimeError) }))
 vi.mock('./EngineeringComposer', () => ({ EngineeringComposer: () => createElement('textarea', { 'aria-label': 'Survey composer' }) }))
 
 type RuntimeResponse = { ok: boolean; status: number; body: string }
@@ -84,6 +84,19 @@ afterEach(async () => {
 })
 
 describe('Engineering AI session recovery states', () => {
+  it('localizes a recorded model failure in both recovery surfaces without rewriting stored state', async () => {
+    const error = '本次模型或工具尝试失败，任务将从检查点继续。'
+    useChatStore.setState({ error, blocks: [{ id: 'question', kind: 'user', text: 'Explain precision' }] as never })
+    runtimeRequest.mockImplementation(async path => response(200, path.startsWith('/v1/engineering/ai/plans?') ? { plan: null } : { cards: [] }))
+    await render(); await settle()
+    expect(container.querySelector('[role="status"]')?.textContent).toContain('This model or tool attempt failed.')
+    expect(container.querySelector('[data-testid="message-timeline"]')?.textContent).toContain('This model or tool attempt failed.')
+    expect(container.textContent).not.toContain(error)
+    expect(useChatStore.getState().error).toBe(error)
+    await act(async () => { await i18n.changeLanguage('zh') })
+    expect(container.querySelector('[data-testid="message-timeline"]')?.textContent).toBe(error)
+  })
+
   it('displays reviewed parameters, bindings, outputs and reversibility before enabling execution', async () => {
     const plan = { ...refreshedPlan, steps: refreshedPlan.steps.map(step => ({ ...step, parameterBindings: [{ parameter: 'expectedRevision', stepId: 'validate', output: 'network.revision' }] })) }
     runtimeRequest.mockImplementation(async path => response(200, path.startsWith('/v1/engineering/ai/plans?') ? { plan, approval: plan.approval } : { cards: [] }))
