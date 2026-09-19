@@ -60,6 +60,58 @@ beforeEach(async () => {
 afterEach(async () => { await act(async () => root.unmount()); container.remove() })
 
 describe('Survey delivery without a monitoring dataset', () => {
+  it('shows saved project datum without a network, but never promotes unsaved form edits', async () => {
+    let savedProject = { ...project, taskContext: { coordinateSystem: '', verticalDatum: '' } }
+    request.mockImplementation(async (path: string, method = 'GET', payload?: string) => {
+      let body: unknown
+      if (path === `/v1/engineering/projects/${project.id}` && method === 'PATCH') {
+        savedProject = { ...savedProject, ...JSON.parse(payload!), revision: 3 }
+        body = { project: savedProject }
+      } else if (path === '/v1/engineering/projects') body = { projects: [savedProject] }
+      else if (path.endsWith('/overview')) body = { project: savedProject, datasets: [], analyses: [], runs: [], manifests: [] }
+      else if (path.includes('/survey/networks?')) body = { networks: [] }
+      else if (path.includes('/adjustments?')) body = { adjustments: [] }
+      else throw new Error(`Unexpected request: ${path}`)
+      return { ok: true, status: 200, body: JSON.stringify(body) }
+    })
+    await act(async () => root.render(createElement(EngineeringWorkspaceView, { workspaceRoot: '/test', runtimeReady: true })))
+    await settle()
+    await act(async () => button('Project setup').click())
+    const datumText = () => container.querySelector('[data-testid="engineering-summary-strip"]')!.textContent!
+    for (const [field, value] of [['coordinateSystem', 'LOCAL-TEST-CRS'], ['verticalDatum', 'NO-HEIGHT']] as const) {
+      const input = [...container.querySelectorAll('label')].find(label => label.textContent === i18n.t(`engineeringTaskContext.${field}`))!.querySelector('input')!
+      await act(async () => {
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, value)
+        input.dispatchEvent(new Event('input', { bubbles: true }))
+      })
+      expect(datumText()).not.toContain(value)
+    }
+    await act(async () => button('Save configuration').click())
+    expect(savedProject.taskContext).toEqual({ coordinateSystem: 'LOCAL-TEST-CRS', verticalDatum: 'NO-HEIGHT' })
+    expect(datumText()).toContain('NO-HEIGHT · LOCAL-TEST-CRS')
+    await act(async () => button('Refresh confirmed project').click())
+    await settle()
+    expect(datumText()).toContain('NO-HEIGHT · LOCAL-TEST-CRS')
+  })
+
+  it.each([
+    { coordinateSystem: 'NETWORK-CRS', verticalDatum: 'NETWORK-HEIGHT', expected: 'NETWORK-HEIGHT · NETWORK-CRS' },
+    { coordinateSystem: '待确认', verticalDatum: '', expected: undefined }
+  ])('keeps active network datum authoritative over saved project context: $coordinateSystem', async datum => {
+    const configured = { ...project, taskContext: { coordinateSystem: 'PROJECT-CRS', verticalDatum: 'PROJECT-HEIGHT' } }
+    request.mockImplementation(async (path: string) => ({ ok: true, status: 200, body: JSON.stringify(
+      path === '/v1/engineering/projects' ? { projects: [configured] }
+        : path.endsWith('/overview') ? { project: configured, datasets: [], analyses: [], runs: [], manifests: [] }
+          : path.includes('/survey/networks?') ? { networks: [{ ...network, coordinateSystem: datum.coordinateSystem, verticalDatum: datum.verticalDatum }] }
+            : { adjustments: [] }
+    ) }))
+    await renderDelivery()
+    const summary = container.querySelector('[data-testid="engineering-summary-strip"]')!.textContent!
+    expect(summary).toContain(datum.expected ?? `${i18n.t('surveyPendingConfirmation')} · ${i18n.t('surveyPendingConfirmation')}`)
+    expect(summary).not.toContain('PROJECT-CRS')
+    expect(summary).not.toContain('PROJECT-HEIGHT')
+  })
+
   it('exposes named data selection buttons and switches the reviewed dataset without mutating it', async () => {
     datasets = ['first.csv', 'second.csv'].map((name, index) => ({
       id: `dataset-${index}`, sourceFileName: name, sourceFileHash: 'b'.repeat(64),

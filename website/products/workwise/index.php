@@ -9,7 +9,7 @@ $pageTitle = 'RAILWISE AI · Survey 工程测量内业';
 $pageDesc = 'RAILWISE Survey 将原始测量资料处理为可审查、可追溯的成果：导入预检、建网平差、精度分析与待审查成果包。新版候选正在验收，正式下载仍为 WorkWise 0.5.0。';
 $pageKeywords = 'WorkWise,WorkWise 0.5.0,工程测量工作台,DeepSeek V4.1-Flash,deepseek-flash,统一插件市场,Codex 插件,DeepSeek Harness,结构化视觉,应用内更新,Skills,MCP,AI 工作台';
 $pageHeroVisualKey = 'product-workwise';
-$pageOgImage = 'https://www.railwise.cn/images/heroes/desktop/product-workwise.jpg';
+$pageOgImage = 'https://www.railwise.cn/products/screenshots/workwise/04-survey-candidate-zh-light.jpg';
 $workwiseReleaseUrl = (string)$workwiseManifest['releaseUrl'];
 $workwiseRepoUrl = (string)$workwiseManifest['repositoryUrl'];
 $workwiseVersion = 'v' . (string)$workwiseManifest['version'];
@@ -41,7 +41,7 @@ $workwiseCapabilities = [
 ];
 $workwiseStatus = [
   ['label' => '正式下载', 'title' => 'WorkWise 0.5.0', 'text' => '下方下载沿用已发布版本；本页新命名与四阶段界面为候选预览。', 'icon' => 'fas fa-download'],
-  ['label' => '候选验收', 'title' => 'RAILWISE Survey 核心内业链', 'text' => '真实 GSI 与 IN2 的导入、平差、成果生成已在本机候选中走通；专业复核、公证及真实升级往返尚待完成。', 'icon' => 'fas fa-flask'],
+  ['label' => '候选验收', 'title' => 'RAILWISE Survey 核心内业链', 'text' => '候选包已通过签名、公证与 GSI/IN2 包内计算校验；精确包界面、专业复核和真实升级往返仍按验收台账推进。', 'icon' => 'fas fa-flask'],
   ['label' => '后续计划', 'title' => '专业可信度与生态扩展', 'text' => '规范规则、质量评定、高级平差、外业采集与点云仍在计划中，不作为当前已交付能力宣传。', 'icon' => 'fas fa-route'],
 ];
 $workwiseAdvantages = [
@@ -124,7 +124,7 @@ require_once __DIR__ . '/../../includes/header.php';
     <div class="pd-hero-grid">
       <div class="pd-hero-text">
         <div class="pd-eyebrow"><span class="dot"></span> DeepSeek V4.1-Flash 原生默认支持 <span class="pd-product-badge brand-workwise">RAILWISE AI</span></div>
-        <h1 class="pd-title">RAILWISE Survey · 从原始测量资料到可追溯成果</h1>
+        <h1 class="pd-title">RAILWISE Survey</h1>
         <p class="pd-subtitle">RAILWISE AI 平台 · 工程测量内业</p>
         <p class="pd-desc">面向内业计算员，在同一工程任务中完成导入与预检、建网与平差、分析与精度、成果与审查。AI 持续协助理解问题、解释证据和规划步骤；坐标、高程、闭合差与精度由确定性计算服务生成。</p>
         <p class="pd-desc"><strong>新版候选预览：</strong>本页四阶段界面正在安装包验收，尚未作为正式版本发布。下方下载仍对应已发布的 WorkWise 0.5.0；候选成果需人工审查，不等于已批准交付。</p>
@@ -171,7 +171,7 @@ require_once __DIR__ . '/../../includes/header.php';
     <div class="pd-section-head">
       <div class="pd-eyebrow dark">DEEPSEEK V4.1-FLASH NATIVE</div>
       <h2>DeepSeek V4.1-Flash，协助理解与规划</h2>
-      <p class="pd-section-sub">官方模型 ID `deepseek-flash` 贯穿 Agent、Write、Survey 和附件视觉路径；支持思考、工具调用、结构化输出与 1M 上下文。</p>
+      <p class="pd-section-sub">默认模型 ID <code>deepseek-flash</code> 贯穿 Agent、Write 和 Survey。运行时已适配思考、工具调用和结构化附件；实际服务能力与额度以账户和服务端为准。</p>
     </div>
     <div class="pd-caps-grid">
       <article class="pd-cap">
@@ -179,7 +179,7 @@ require_once __DIR__ . '/../../includes/header.php';
           <span class="pd-cap-ico workwise-code"><i class="fas fa-bolt"></i></span>
           <div>
             <span class="pd-eyebrow dark">WORKWISE <?php echo htmlspecialchars($workwiseVersion); ?> · AVAILABLE NOW</span>
-            <h3>统一使用 `deepseek-flash`</h3>
+            <h3>统一默认模型 deepseek-flash</h3>
             <p>首次启动只需配置 DeepSeek API Key 和可选服务地址。0.5.0 的主 Agent、Write、定时任务和其他 Agent 默认使用官方模型 ID <code>deepseek-flash</code>；<code>deepseek-v4-pro</code> 可作为显式兼容选择，旧 Flash ID 仅为迁移保留。</p>
             <a href="https://github.com/wangjiawei508/WorkWise/blob/main/docs/product-introduction.zh-CN.md" target="_blank" rel="noopener" class="cli-inline-link">查看 WorkWise 软件介绍 <i class="fas fa-arrow-up-right-from-square"></i></a>
           </div>
@@ -191,7 +191,7 @@ require_once __DIR__ . '/../../includes/header.php';
           <div>
             <span class="pd-eyebrow dark">1M CONTEXT · UP TO 384K OUTPUT</span>
             <h3>长上下文与结构化工具调用</h3>
-            <p><?php echo htmlspecialchars($workwiseVersion); ?> 按 DeepSeek V4.1-Flash 的 100 万 token 上下文与最高 384K 输出配置运行时，支持思考模式、工具调用、长对话延续、上下文压缩、缓存统计、JSON 与 Responses API。</p>
+            <p>模型目录按 100 万 token 上下文与最高 384K 输出配置，并提供思考模式、工具调用、上下文压缩、缓存统计、JSON 与 Responses API 适配。本地协议测试不等于真实模型服务验收。</p>
             <a href="https://api-docs.deepseek.com/quick_start/pricing" target="_blank" rel="noopener" class="cli-inline-link">查看 DeepSeek 官方模型说明 <i class="fas fa-arrow-up-right-from-square"></i></a>
           </div>
         </div>

@@ -1,10 +1,12 @@
-# WorkWise
+# RAILWISE AI
 
 [简体中文](./README.md) | English
 
-> Put AI into real workflows.
+> Engineering survey processing and coding collaboration.
 
-WorkWise is a local-first desktop AI workbench. It brings **Code**, **Write**, structured **Design**, reusable **Skills**, **MCP extensions**, local workspaces, and document delivery into one application for work that needs durable context, iteration, and a reviewable result.
+RAILWISE AI is a local-first desktop platform with Code and Survey as its primary workspaces. RAILWISE Survey connects original observations, deterministic adjustment, precision evidence and reviewable deliverables. Write, Design, Flow, plugins and schedules remain available as supporting tools. WorkWise package, storage and update identifiers are retained for compatibility.
+
+The naming migration and four-stage Survey interface are undergoing isolated candidate acceptance. The public 0.5.0 installers are unchanged.
 
 - Product page: [www.railwise.cn/products/workwise](https://www.railwise.cn/products/workwise/)
 - Direct mirror downloads: [Download and installation](https://www.railwise.cn/products/workwise/#download)
@@ -36,7 +38,7 @@ See the [engineering survey workbench overview](./docs/ENGINEERING_SURVEY_WORKBE
 
 ## Candidate UI preview
 
-These Chinese light-theme screenshots were captured from installed candidate `b8df9790e37f` using redistributable synthetic data. They do not replace the released 0.5.0 installers. This package passed the synthetic IN2 GUI delivery flow and real GSI/IN2 Runtime checks; dual real-format GUI evidence belongs to historical candidate `613e99012a0b`. Notarization, a real private updater round trip and human professional acceptance remain incomplete.
+These Chinese light-theme screenshots show installed candidates with repository synthetic data. Each image's commit and hash are recorded in the [screenshot manifest](./website/products/screenshots/workwise/candidate-screenshots.json). They do not replace the released 0.5.0 installers. Candidate `94f1550` has passed signing, notarization and real GSI/IN2 packaged Runtime checks. A real private updater round trip and human professional acceptance remain incomplete.
 
 ![RAILWISE Survey candidate with synthetic data](./website/products/screenshots/workwise/04-survey-candidate-zh-light.jpg)
 
@@ -79,7 +81,7 @@ Attach PDF, DOCX, XLSX, PPTX, TXT, Markdown, CSV, PNG, JPEG, or WebP files direc
 
 Document content is always treated as untrusted reference material. It cannot override system instructions or grant tool permission. Encrypted, damaged, disguised, or oversized files are rejected with an explicit reason. MarkItDown is bundled for local parsing, while MinerU remains an optional local high-accuracy component for difficult scanned PDFs.
 
-WorkWise 0.5.0 integrates DeepSeek V4.1-Flash in its Runtime with the official model ID `deepseek-flash`. The default path supports 1M context, up to 384K output, reasoning, tool calls, JSON, Responses API, and structured `text`/`image` message parts when the selected provider advertises vision. Text-only providers use the configured loopback visual-evidence analyzer; failures remain explicit and never fall back to putting image Base64 into the model prompt.
+The desktop and Runtime default to DeepSeek V4.1-Flash using `deepseek-flash`, while preserving saved explicit selections. The model catalog specifies 1M context and up to 384K output, with adapters for reasoning, tools, JSON, Responses API and structured image parts. Actual availability and limits depend on the provider and account; local protocol tests do not establish successful live-service acceptance. Text-only providers use the configured loopback visual-evidence analyzer and report failures explicitly.
 
 ### Design workbench
 

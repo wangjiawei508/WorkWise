@@ -1,18 +1,23 @@
 {
-  "sourceHead": "b8df9790e37fc6dc42dac0dec30a4a69799b681b",
+  "sourceHead": "94f1550a794643f69f259027c6a6a889a18b02f6",
   "kind": "installed-candidate-screenshots",
   "locale": "zh-CN",
   "theme": "light",
   "data": "synthetic repository fixture golden-plane-control-e2e.in2; not a real project",
   "released": false,
+  "capturedAt": "2026-09-19T23:11:30+08:00",
+  "packageVersion": "0.5.0",
+  "bundleId": "com.wangjiawei508.workwise.candidate.head94f1550a7946",
+  "packageAsarSha256": "6eaeb230fe2fd2cca7474a9362e7dfe0b5ea17bf391f4818180e719787381fbf",
+  "evidence": "docs/qa/evidence/railwise-convergence-94f1550a7946/README.md",
   "screenshots": [
     {
       "path": "04-survey-candidate-zh-light.jpg",
-      "sha256": "637a59f8c3f44dde359749728938d78e063874f4e20103749d0297a2a5297249"
+      "sha256": "acf839a93e98690610b0f5947750a0aa0076064af7176c579a36add900fcc9b3"
     },
     {
       "path": "05-survey-candidate-delivery.jpg",
-      "sha256": "72e9f5e8ec30deefe52b7512850bb3c8f486c6a2fd6e6b7209fe6bc20e15f6c3"
+      "sha256": "06db037d4fb5177b2d67479ae2e2582d56405a7ed0b68e60cfdfd34a2da441b4"
     },
     {
       "path": "06-candidate-model-settings.jpg",

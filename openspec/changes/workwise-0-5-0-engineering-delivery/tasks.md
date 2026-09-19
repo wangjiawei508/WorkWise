@@ -89,7 +89,7 @@ These code and automated-test items do not close task 39: a successful real-mode
 
 - [x] Add a project-scoped read-only check for persisted manifests, output hashes/sizes, current input bindings, exact Survey recomputation and source provenance; retain original review status.
 - [x] Expose authenticated Runtime route and desktop IPC plus bilingual review controls; reject cross-project, tampered and stale evidence; clear stale UI results on retries/offline transitions.
-- [ ] Verify the new control in its exact signed packaged candidate. This does not complete digital signing, professional review or standards compliance.
+- [x] Verify the new control in its exact signed packaged candidate. This does not complete digital signing, professional review or standards compliance. Evidence: `docs/qa/evidence/railwise-convergence-94f1550a7946/README.md` (Chinese light pass, English dark tamper rejection and restored pass).
 
 ## Packaged sidebar creation regression
 

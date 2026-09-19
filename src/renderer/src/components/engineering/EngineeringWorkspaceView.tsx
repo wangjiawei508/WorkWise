@@ -489,6 +489,9 @@ export function EngineeringWorkspaceView({ workspaceRoot, runtimeReady, leftSide
   const activeSurveyNetwork = selectedSurveyNetworkId
     ? surveyNetworks.find((network) => network.id === selectedSurveyNetworkId) ?? null
     : surveyNetworks[0] ?? null
+  // A project's saved datum describes the task until a network exists. Once
+  // selected, the network's own missing datum must remain visibly unresolved.
+  const surveySummaryDatum = activeSurveyNetwork ?? overview?.project.taskContext
   const latestSurveyAdjustment = surveyAdjustments.find((item) => item.run.networkId === activeSurveyNetwork?.id) ?? null
   // Restore a completed one-off result after remount/restart. Admission comes
   // from the current Runtime read model; missing or revoked admission fails closed.
@@ -775,7 +778,7 @@ export function EngineeringWorkspaceView({ workspaceRoot, runtimeReady, leftSide
       <div className="bg-ds-card px-3 py-2"><span className="block text-ds-faint">{t('engineeringSummaryStage')}</span><strong className="mt-0.5 block truncate text-ds-ink">{t(currentStage.labelKey)}</strong></div>
       <div className="bg-ds-card px-3 py-2"><span className="block text-ds-faint">{t('engineeringSummarySource')}</span><strong className="mt-0.5 block truncate text-ds-ink">{activeSurveyNetwork?.sourceFile?.name ?? activeDataset?.sourceFileName ?? '—'} · {sourceFormat}</strong></div>
       <div className="bg-ds-card px-3 py-2"><span className="block text-ds-faint">{t('engineeringSummaryReadiness')}</span><strong className={`mt-0.5 block truncate ${readiness === 'blocked' ? 'text-red-700 dark:text-red-300' : readiness === 'adjustment-ready' ? 'text-green-700 dark:text-green-300' : 'text-amber-700 dark:text-amber-300'}`}>{readinessLabel}</strong></div>
-      <div className="bg-ds-card px-3 py-2"><span className="block text-ds-faint">{t('engineeringSummaryDatum')}</span><strong className="mt-0.5 block truncate text-ds-ink">{surveyDatumLabel(activeSurveyNetwork?.verticalDatum, t)} · {surveyDatumLabel(activeSurveyNetwork?.coordinateSystem, t)}</strong></div>
+      <div className="bg-ds-card px-3 py-2"><span className="block text-ds-faint">{t('engineeringSummaryDatum')}</span><strong className="mt-0.5 block truncate text-ds-ink">{surveyDatumLabel(surveySummaryDatum?.verticalDatum, t)} · {surveyDatumLabel(surveySummaryDatum?.coordinateSystem, t)}</strong></div>
       <div className="bg-ds-card px-3 py-2"><span className="block text-ds-faint">{t('engineeringSummaryPoints')}</span><strong className="mt-0.5 block truncate tabular-nums text-ds-ink">{surveyPointCount?.toLocaleString(locale) ?? '—'}</strong></div>
       <div className="bg-ds-card px-3 py-2"><span className="block text-ds-faint">{t('engineeringSummaryStations')}</span><strong className="mt-0.5 block truncate tabular-nums text-ds-ink">{surveyStationCount?.toLocaleString(locale) ?? '—'}</strong></div>
       <div className="bg-ds-card px-3 py-2"><span className="block text-ds-faint">{t('engineeringSummaryObservations')}</span><strong className="mt-0.5 block truncate tabular-nums text-ds-ink">{(surveyObservationCount ?? activeDataset?.observationCount)?.toLocaleString(locale) ?? '—'}</strong></div>

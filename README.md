@@ -1,8 +1,8 @@
 <div align="center">
-  <img src="./src/asset/img/workwise.png" width="112" alt="WorkWise 图标" />
+  <img src="./src/asset/img/workwise.png" width="112" alt="RAILWISE AI 图标" />
   <h1>RAILWISE AI</h1>
-  <p><strong>让 AI 进入真实工作流。</strong></p>
-  <p>本地优先的桌面 AI 工作台，把代码、写作、设计、技能与交付放在一个应用里。</p>
+  <p><strong>工程测量内业与编程协作。</strong></p>
+  <p>本地优先的桌面工作平台。RAILWISE Survey 将原始测量资料处理为可审查、可追溯的成果。</p>
   <p><strong>DeepSeek V4.1-Flash 原生默认支持</strong> · 默认模型 <code>deepseek-flash</code> · Survey 工程测量工作台</p>
   <p>
     简体中文 · <a href="./README.en.md">English</a>
@@ -20,20 +20,28 @@
 
 > 命名迁移与四阶段 Survey 界面正在隔离候选包中验收；公开 0.5.0 安装包和更新渠道未变更。底层 WorkWise 标识保留兼容。
 
-RAILWISE AI 平台上的 Survey 工作台，面向可审查、可追溯的工程测量内业。
+RAILWISE AI 以“编程 / 内业”为主入口。RAILWISE Survey 将任务、原始资料、计算记录和候选成果组织在同一工作区；写作、设计、Flow、插件和定时任务提供辅助工具。
 
+**原始文件 → 内容识别与预检 → 建网和基准确认 → 确定性平差 → 精度与异常复核 → 成果包 → 人工审查。**
 
-WorkWise 面向需要长期上下文、反复修改和正式交付的工作。它不只是一个聊天窗口：项目文件、会话、文档、方法和扩展能力围绕同一个本地工作区组织，让 AI 真正参与从理解任务到交付成果的完整过程。
+| 生产阶段 | 当前候选能力 |
+| --- | --- |
+| 导入与预检 | 内容识别、来源哈希、解析诊断、原始记录锚点与明确处置 |
+| 建网与平差 | 确认网型、控制点和单位，经过质量校核后执行本地确定性计算 |
+| 分析与精度 | 闭合差、残差、点位精度、XY 标准误差椭圆及原始记录定位 |
+| 成果与审查 | DOCX、PDF、XLSX 和关联清单，逐项只读复验输入、计算及输出完整性 |
+
+AI 会话跨阶段保留，计算与导出计划先展示具体参数再确认。生成成果、完整性复验与人工批准是不同状态；当前成果仍为待审查草稿。
 
 **[0.5.0 正式版](https://github.com/wangjiawei508/WorkWise/releases/tag/v0.5.0)**新增工程测量工作台，将项目数据、格式诊断、闭合差与平差复核、成果导出组织在同一工作区；继续提供统一插件市场、Codex 插件兼容和结构化附件处理。旧版本用户可通过应用内检查更新升级。
 
 ## DeepSeek 原生默认支持
 
-WorkWise 不是在通用聊天客户端上额外增加一个 DeepSeek 选项，而是从项目起点就围绕 DeepSeek 的模型能力和真实工作场景构建。DeepSeek 是当前开箱即用的默认模型底座，其他兼容模型服务则作为后续可选扩展。
+当前桌面和 Runtime 默认使用 DeepSeek V4.1-Flash，正式模型 ID 为 `deepseek-flash`。已经保存的显式模型选择保持不变。
 
 - **安装后直接配置 DeepSeek**：首次启动的模型配置只提供 DeepSeek API Key 和可选服务地址，不需要先理解或切换服务商；完成一次配置后，对话、写作和手机连接即可共用。没有 API Key 时仍可先使用本地写作和导出。
 - **统一默认模型**：0.5.0 的主 Agent、Write、定时任务和其他 Agent 默认使用官方模型 ID `deepseek-flash`（DeepSeek V4.1-Flash）；`deepseek-v4-pro` 仍可显式选择，旧 Flash ID 仅为迁移兼容保留。
-- **V4.1 能力完整接入**：运行时按 100 万 token 上下文与最高 384K 输出配置，支持思考模式、工具调用、长对话延续、上下文压缩、缓存统计、JSON 与 Responses API。
+- **V4.1 运行时适配**：模型目录配置 100 万 token 上下文与最高 384K 输出，并接入思考模式、工具调用、上下文压缩、缓存统计、JSON 和 Responses API 路径。实际额度、能力与输出上限取决于服务端和账户；本地协议测试不等于真实服务验收。
 - **接入 DeepSeek Harness**：WorkWise Runtime 根据模型能力处理图片附件，支持结构化 `text/image` 消息部分；文本模型使用本机回环视觉证据分析器生成 OCR、布局、语义和视觉摘要。分析器不可用或失败时明确报告失败，不把图片退化为 Base64 文本。
 - **结构化视觉回合**：支持 JPEG、PNG、GIF 和 WebP。V4.1-Flash 按模型能力接收结构化 `text/image` 消息部分；不支持视觉的 Provider 会明确报告并保留附件，不把图片退化为 Base64 文本。
 - 这里描述的是 WorkWise 实际接入的 Runtime 适配、附件合约和视觉证据路径，不代表客户端内置了上游 DeepSeek Harness 的全部代码或最新能力。模型服务和上游项目的变化以 [DeepSeek 官方文档](https://api-docs.deepseek.com/updates) 为准。
@@ -55,7 +63,7 @@ WorkWise 不是在通用聊天客户端上额外增加一个 DeepSeek 选项，�
 
 ## 候选界面预览
 
-以下为已安装候选 `b8df9790e37f` 的中文浅色实拍，使用可再分发的合成数据；不代表正式 0.5.0 安装包已替换。本包通过合成 IN2 的 GUI 成果链与真实 GSI、IN2 的 Runtime 校验；双真实 GUI 证据来自历史候选 `613e99012a0b`。完整公证、升级链与用户专业验收仍未完成。
+以下为已安装候选包的中文浅色实拍，使用仓库合成数据；每张图片的精确提交与哈希见[截图清单](./website/products/screenshots/workwise/candidate-screenshots.json)。截图不代表正式 0.5.0 安装包已替换。最新 `94f1550` 已完成签名、公证与两类真实来源的包内 Runtime 校验；私有升级往返和用户专业验收尚未完成。
 
 ![RAILWISE Survey 中文浅色候选界面](./website/products/screenshots/workwise/04-survey-candidate-zh-light.jpg)
 
@@ -138,7 +146,7 @@ Flow 默认可见并标注 Preview。未配置模型、外部账号或配套 CLI
 
 1. 从 [GitHub Releases](https://github.com/wangjiawei508/WorkWise/releases) 下载与你的电脑匹配的安装包。
 2. 首次启动时选择语言，配置你有权使用的模型 API Key，并选择本地工作区。
-3. 在 Code 中处理项目、在 Write 中创建文档，或把业务文件添加到对话；需要自动化时打开 Flow Preview。
+3. 在“内业”创建测量任务、确认基准并导入资料，或在“编程”处理本地项目；写作、设计与 Flow 从侧边工具进入。
 
 ### 支持平台
 
