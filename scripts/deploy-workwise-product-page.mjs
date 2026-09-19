@@ -384,7 +384,7 @@ function deploy(sourceDirectory, version, deployId) {
     }
   } finally {
     for (const encodedPath of temporaryEncoded) {
-      try { execFileSync('rm', ['-f', encodedPath]) } catch {}
+      try { execFileSync('rm', ['-f', encodedPath]) } catch { /* Best-effort cleanup of the temporary payload. */ }
     }
   }
   process.stdout.write(runRemote(config, DEPLOY_SCRIPT, [config.releaseRoot, version, deployId]))

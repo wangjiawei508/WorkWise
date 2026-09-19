@@ -1,3 +1,4 @@
+const productBrand = require('./src/shared/product-brand.json')
 const { existsSync, readFileSync } = require('node:fs')
 const { join } = require('node:path')
 const { verifyCandidateSourceTree } = require('./scripts/candidate-source-provenance.cjs')
@@ -121,7 +122,7 @@ const candidateSourceHead = (
 ).trim()
 const candidateIdentitySuffix = candidateSourceHead ? `head${candidateSourceHead.slice(0, 12)}` : ''
 const packagedProductName = isCandidateBuild
-  ? `WorkWise Candidate ${candidateSourceHead.slice(0, 12)}`
+  ? `${productBrand.platform} Candidate ${candidateSourceHead.slice(0, 12)}`
   : 'WorkWise'
 const artifactVersion = releaseAppVersion || '${version}'
 const packagedUpdateProvider = isCandidateBuild ? 'generic' : updateProvider

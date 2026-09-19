@@ -12,7 +12,7 @@ import {
   AnalysisRequest, ChartArtifactV1, ChartRequest, DatasetImportRequest, DatasetValidateRequest,
   DeliverableManifestV1, EngineeringProjectCreateRequest, EngineeringProjectUpdateRequest, AcceptQualityFindingRequest, FieldMappingV1, FinalizeDeliverableRequest,
   KnowledgeCitationV1, MonitoringAnalysisV1, MonitoringDatasetV1, MonitoringObservationV1,
-  QualityFindingV1, RailwiseProjectV1, ReportPreviewRequest, RunMutationRequest, SurveySourceEvidenceV1
+  QualityFindingV1, RailwiseProjectV1, inferEngineeringTaskType, ReportPreviewRequest, RunMutationRequest, SurveySourceEvidenceV1
 } from '../contracts/engineering.js'
 import { AdjustmentResultV1, DeformationComparisonV1, type AdjustmentRunV1, type SurveyObservationV1, type SurveyPointV1, type SurveySourceFileV1 } from '../contracts/survey.js'
 
@@ -208,12 +208,18 @@ export class EngineeringService {
     await drainAtomicWrites()
   }
 
+  private readProject(json: string): RailwiseProjectV1 {
+    const project = RailwiseProjectV1.parse(JSON.parse(json))
+    const taskType = project.taskType ?? inferEngineeringTaskType(project.monitoringType)
+    return taskType ? { ...project, taskType } : project
+  }
+
   listProjects(): RailwiseProjectV1[] {
-    return (this.db.prepare('SELECT data_json FROM engineering_projects ORDER BY updated_at DESC').all() as Array<{ data_json: string }>).map((r) => RailwiseProjectV1.parse(JSON.parse(r.data_json)))
+    return (this.db.prepare('SELECT data_json FROM engineering_projects ORDER BY updated_at DESC').all() as Array<{ data_json: string }>).map((r) => this.readProject(r.data_json))
   }
   getProject(id: string): RailwiseProjectV1 | null {
     const row = this.db.prepare('SELECT data_json FROM engineering_projects WHERE id = ?').get(id) as { data_json: string } | undefined
-    return row ? RailwiseProjectV1.parse(JSON.parse(row.data_json)) : null
+    return row ? this.readProject(row.data_json) : null
   }
   updateProject(id: string, input: unknown): RailwiseProjectV1 {
     const req = EngineeringProjectUpdateRequest.parse(input)
@@ -245,7 +251,7 @@ export class EngineeringService {
     const replay = this.replay(parsed.idempotencyKey)
     if (replay) return replay as RailwiseProjectV1
     const now = this.nowIso(); const id = `project_${randomUUID()}`
-    const project = RailwiseProjectV1.parse({ schemaVersion: 1, id, name: parsed.name, taskType: parsed.taskType ?? parsed.monitoringType ?? 'deformation', monitoringType: parsed.monitoringType ?? parsed.taskType ?? 'deformation', unit: parsed.unit ?? 'mm', signConvention: parsed.signConvention ?? 'positive', thresholds: parsed.thresholds ?? {}, reportPeriod: parsed.reportPeriod ?? {}, workspace: resolve(parsed.workspace), revision: 1, createdAt: now, updatedAt: now })
+    const project = RailwiseProjectV1.parse({ schemaVersion: 1, id, name: parsed.name, ...(parsed.taskContext ? { taskContext: parsed.taskContext } : {}), taskType: parsed.taskType ?? (parsed.monitoringType ? inferEngineeringTaskType(parsed.monitoringType) : 'control-network'), monitoringType: parsed.monitoringType ?? parsed.taskType ?? 'control-network', unit: parsed.unit ?? 'mm', signConvention: parsed.signConvention ?? 'positive', thresholds: parsed.thresholds ?? {}, reportPeriod: parsed.reportPeriod ?? {}, workspace: resolve(parsed.workspace), revision: 1, createdAt: now, updatedAt: now })
     this.db.prepare('INSERT INTO engineering_projects(id, revision, data_json, updated_at) VALUES (?, ?, ?, ?)').run(id, 1, JSON.stringify(project), now)
     this.trackMetadataPersistence(project.workspace, 'projects', project.id, project)
     this.remember(parsed.idempotencyKey, project)

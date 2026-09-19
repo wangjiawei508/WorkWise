@@ -21,3 +21,22 @@ export function selectSurveyClosureKey(networkType: string | undefined, closure:
   const candidates = priorities[networkType ?? ''] ?? fallback
   return candidates.find((key) => Number.isFinite(closure[key]))
 }
+
+export function surveyReadiness(input: {
+  blocked: boolean
+  disposition?: string
+  networkValidated: boolean
+  datasetValidated: boolean
+  hasSource: boolean
+  hasResult: boolean
+  hasOutputs: boolean
+  reviewStatus?: string
+  manifestValid: boolean
+}): string {
+  if (input.blocked) return 'blocked'
+  if (input.disposition && input.disposition !== 'adjustment-ready') return input.disposition
+  if (input.hasOutputs) return input.manifestValid && input.reviewStatus === 'approved' ? 'reviewed' : 'candidate'
+  if (input.hasResult) return 'candidate'
+  if (input.networkValidated || input.datasetValidated) return 'adjustment-ready'
+  return input.hasSource ? 'needs-confirmation' : 'not-started'
+}

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { selectSurveyClosureKey } from './survey-summary'
+import { selectSurveyClosureKey, surveyReadiness } from './survey-summary'
 
 describe('survey summary closure metric selection', () => {
   it('uses height closure for leveling even when another field is serialized first', () => {
@@ -14,5 +14,24 @@ describe('survey summary closure metric selection', () => {
   it('falls back to a finite generic metric for legacy or unknown network types', () => {
     expect(selectSurveyClosureKey('legacy', { angular: Number.NaN, vertical: 0.003 })).toBe('vertical')
     expect(selectSurveyClosureKey(undefined, undefined)).toBeUndefined()
+  })
+})
+
+
+describe('survey summary review boundaries', () => {
+  const ready = { blocked: false, networkValidated: true, datasetValidated: false, hasSource: true, hasResult: false, hasOutputs: false, manifestValid: false }
+  it('allows a validated survey network without a monitoring dataset', () => {
+    expect(surveyReadiness(ready)).toBe('adjustment-ready')
+  })
+  it('never treats preview files or a draft manifest as reviewed', () => {
+    expect(surveyReadiness({ ...ready, hasOutputs: true })).toBe('candidate')
+    expect(surveyReadiness({ ...ready, hasOutputs: true, manifestValid: true, reviewStatus: 'draft' })).toBe('candidate')
+    expect(surveyReadiness({ ...ready, hasOutputs: true, manifestValid: true, reviewStatus: 'approved' })).toBe('reviewed')
+  })
+  it('gives source blockers precedence over historical outputs', () => {
+    for (const disposition of ['archive-only', 'converter-required', 'gnss-processing-required']) {
+      expect(surveyReadiness({ ...ready, disposition, hasOutputs: true })).toBe(disposition)
+    }
+    expect(surveyReadiness({ ...ready, blocked: true, hasOutputs: true, manifestValid: true, reviewStatus: 'approved' })).toBe('blocked')
   })
 })

@@ -7,7 +7,7 @@ The Runtime and renderer MUST provide one primary Engineering AI thread per `wor
 #### Scenario: Open a project
 
 - **WHEN** a user opens an existing Engineering project
-- **THEN** the app selects or idempotently creates its Engineering AI thread, restores its messages, and shows the AI command center as the first surface
+- **THEN** the app selects or idempotently creates its Engineering AI thread, restores its messages, and shows the current production stage with a continuously mounted AI conversation
 
 #### Scenario: Switch from Design or Code
 
@@ -19,9 +19,9 @@ The Runtime and renderer MUST provide one primary Engineering AI thread per `wor
 - **WHEN** an old thread has no `domain` or `projectId` fields
 - **THEN** it remains readable through the existing detail path and is not silently migrated into an Engineering project list
 
-### Requirement: Three-layer WorkWise Survey naming
+### Requirement: RAILWISE AI and Survey display naming
 
-The renderer MUST use `WorkWise` for platform references and `Survey` or `WorkWise Survey` for the fifth workbench. `RAILWISE Survey` MUST be reserved for commercial-distribution surfaces. New user-visible Survey project-thread titles MUST use `Survey AI`; existing persisted titles and records MUST remain unchanged unless a user explicitly edits them.
+The renderer MUST use `RAILWISE AI` for platform references, `RAILWISE Survey` for the professional workbench, and `工程测量内业` / `Engineering Survey Processing` as its subtitle. Main entry labels MUST be 编程 / 内业 or Code / Survey. Shared display branding MUST NOT rename persisted technical identifiers. Existing persisted titles and records MUST remain unchanged unless a user explicitly edits them.
 
 The D-04 naming boundary MUST NOT rename the package name, bundle ID, updater/feed, Runtime API paths, route IDs, storage locations, or thread `domain: "engineering"` discriminator during 0.5.0.
 
@@ -186,3 +186,18 @@ The implementation MUST preserve legacy attachment records, tool IDs, Skills, MC
 #### Scenario: Repeated request
 - **WHEN** the same mutation is submitted with the same idempotency key
 - **THEN** the original result is returned without duplicate datasets, runs, or files
+
+
+### Requirement: Compatible engineering task classification
+The Runtime MUST support six explicit task types and optional task context for datum, measurement grade and standard version/clause. Legacy monitoringType records MUST remain readable without storage rewriting or unit changes. Unknown legacy types MUST NOT be silently mapped to deformation. Updates MUST preserve revision and idempotency checks.
+
+#### Scenario: Read a legacy control network
+- **WHEN** a control-network project lacks taskType
+- **THEN** reads infer control-network without changing stored JSON or monitoring settings
+
+### Requirement: Production stage and review status
+The workspace MUST expose four production stages and keep its AI conversation mounted. A preview or draft manifest MUST NOT be shown as reviewed. Blocked source admission MUST take precedence over historical deliverables.
+
+#### Scenario: Draft output exists
+- **WHEN** a report preview or a draft manifest contains files
+- **THEN** the summary calls it candidate output and retains its actual review status

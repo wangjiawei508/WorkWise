@@ -34,3 +34,8 @@ WorkWise already has the Electron shell, Kun Runtime, attachments, Flow, Design,
 - Adds engineering AI contracts, survey contracts and canonical units, professional source-format contracts and parsers, independent survey strategies, thread metadata and filtering, context/orchestration services, TaskRun projection, authenticated AI routes/events, evidence cards, renderer session components, specialist-Skill provenance, golden fixtures, and tests.
 - Keeps the old seven-page Engineering console available behind an explicit compatibility entry; it is not the default route.
 - Does not change provider credentials, DeepSeek model selection, Electron/Tauri architecture, public version metadata, release feeds, or download pages.
+
+
+## Consolidated plan amendment (2026-09-19)
+
+The user-provided RAILWISE AI / Survey convergence plan supersedes the older D-04 display-name rule and the AI-only first-screen design above. The platform display name is RAILWISE AI; Survey is RAILWISE Survey with Engineering Survey Processing / 工程测量内业. Four production stages share a persistent conversation. Six typed engineering jobs and non-destructive legacy migration replace the monitoring-only assumption. P1 and P2 remain queued behind P0 packaged acceptance, as the consolidated plan requires. Technical identifiers, user data and public release gates remain unchanged.

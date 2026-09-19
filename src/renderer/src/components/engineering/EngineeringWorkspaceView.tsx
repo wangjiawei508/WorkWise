@@ -30,7 +30,8 @@ import { rendererRuntimeClient } from '../../agent/runtime-client'
 import { useChatStore } from '../../store/chat-store'
 import { EngineeringAiCommandCenter } from './EngineeringAiCommandCenter'
 import { SurveyAdjustmentPanel } from './SurveyAdjustmentPanel'
-import { selectSurveyClosureKey } from './survey-summary'
+import { selectSurveyClosureKey, surveyReadiness } from './survey-summary'
+import { engineeringTaskTypes, engineeringTaskLabel } from './engineering-task-types'
 import { EngineeringSkillsPanel } from './EngineeringSkillsPanel'
 import {
   activeEngineeringProjectId,
@@ -42,6 +43,7 @@ import {
 type Project = {
   id: string
   name: string
+  taskContext?: Partial<Record<'networkType' | 'coordinateSystem' | 'verticalDatum' | 'measurementGrade' | 'standard' | 'standardVersion' | 'standardClause', string>>
   taskType?: string
   monitoringType: string
   unit: string
@@ -111,6 +113,8 @@ type SurveyNetworkSummary = {
   id: string
   revision: number
   networkType: string
+  coordinateSystem?: string
+  verticalDatum?: string
   knownPoints?: Array<{ id: string }>
   unknownPoints?: Array<{ id: string }>
   observations?: Array<{ station?: string; from?: string; to?: string }>
@@ -135,7 +139,7 @@ type SurveyAdjustmentSummary = {
 }
 type TabId = 'ai-command' | 'dashboard' | 'project' | 'data' | 'quality' | 'survey' | 'analysis' | 'deliverables' | 'review' | 'skills'
 type Notice = { tone: 'success' | 'warning' | 'error' | 'info'; message: string }
-type ProjectDraft = Pick<Project, 'name' | 'taskType' | 'monitoringType' | 'unit' | 'signConvention' | 'reportPeriod'> & { thresholdsText: string }
+type ProjectDraft = Pick<Project, 'name' | 'taskContext' | 'taskType' | 'monitoringType' | 'unit' | 'signConvention' | 'reportPeriod'> & { thresholdsText: string }
 
 type TabDefinition = { id: TabId; labelKey: string; shortLabelKey: string; icon: typeof FolderKanban; group: 'agent' | 'compute' | 'delivery' }
 const TABS: ReadonlyArray<TabDefinition> = [
@@ -153,9 +157,8 @@ const TABS: ReadonlyArray<TabDefinition> = [
 // The old tab ids remain valid for deep links and persisted sessions. The visible
 // navigation is intentionally stage-oriented so operators follow the production
 // chain instead of having to understand the implementation's former ten tabs.
-type StageDefinition = { id: 'ai-command' | 'import' | 'adjustment' | 'analysis' | 'delivery'; labelKey: string; icon: typeof FolderKanban; tabs: readonly TabId[] }
+type StageDefinition = { id: 'import' | 'adjustment' | 'analysis' | 'delivery'; labelKey: string; icon: typeof FolderKanban; tabs: readonly TabId[] }
 const STAGES: ReadonlyArray<StageDefinition> = [
-  { id: 'ai-command', labelKey: 'engineeringStageConversation', icon: Sparkles, tabs: ['ai-command'] },
   { id: 'import', labelKey: 'engineeringStageImport', icon: Upload, tabs: ['dashboard', 'project', 'data', 'quality'] },
   { id: 'adjustment', labelKey: 'engineeringStageAdjustment', icon: Calculator, tabs: ['survey'] },
   { id: 'analysis', labelKey: 'engineeringStageAnalysis', icon: LineChart, tabs: ['analysis'] },
@@ -198,7 +201,8 @@ async function runtimeRequest<T>(path: string, method = 'GET', body?: unknown): 
 function projectToDraft(project: Project): ProjectDraft {
   return {
     name: project.name,
-    taskType: project.taskType ?? project.monitoringType,
+    taskType: project.taskType,
+    taskContext: project.taskContext,
     monitoringType: project.monitoringType,
     unit: project.unit,
     signConvention: project.signConvention,
@@ -317,7 +321,7 @@ export function EngineeringWorkspaceView({ workspaceRoot, runtimeReady, leftSide
   const [selectedAnalysisId, setSelectedAnalysisId] = useState('')
   const [surveyAdjustmentIds, setSurveyAdjustmentIds] = useState<string[]>([])
   const [surveyDeformationIds, setSurveyDeformationIds] = useState<string[]>([])
-  const [tab, setTab] = useState<TabId>('ai-command')
+  const [tab, setTab] = useState<TabId>('data')
   const [pendingSurveyFiles, setPendingSurveyFiles] = useState<Record<string, File[]>>({})
   const surveyFileScope = JSON.stringify([workspaceRoot, selectedProjectId])
   const [projectDraft, setProjectDraft] = useState<ProjectDraft | null>(null)
@@ -508,7 +512,7 @@ export function EngineeringWorkspaceView({ workspaceRoot, runtimeReady, leftSide
       setProjectDraft(projectToDraft(result.project))
       setPreview(null)
       setChart(null)
-      setTab('ai-command')
+      setTab('project')
       window.dispatchEvent(new CustomEvent('workwise:engineering-projects-changed'))
       setNotice({ tone: 'success', message: t('engineeringNoticeJobCreated') })
     } catch (error) {
@@ -532,7 +536,8 @@ export function EngineeringWorkspaceView({ workspaceRoot, runtimeReady, leftSide
     setBusy(true)
     try {
       const project = await runtimeRequest<{ project: Project }>(`/v1/engineering/projects/${overview.project.id}`, 'PATCH', {
-        name: projectDraft.name.trim(), taskType: (projectDraft.taskType ?? projectDraft.monitoringType).trim(), monitoringType: projectDraft.monitoringType.trim(), unit: projectDraft.unit.trim(), signConvention: projectDraft.signConvention.trim(),
+        ...(projectDraft.taskContext ? { taskContext: projectDraft.taskContext } : {}),
+        name: projectDraft.name.trim(), ...(projectDraft.taskType ? { taskType: projectDraft.taskType } : {}), monitoringType: projectDraft.monitoringType.trim(), unit: projectDraft.unit.trim(), signConvention: projectDraft.signConvention.trim(),
         thresholds: parseThresholds(projectDraft.thresholdsText, t), reportPeriod: projectDraft.reportPeriod,
         expectedRevision: overview.project.revision, idempotencyKey: `engineering-project-save-${overview.project.id}-${overview.project.revision}`
       })
@@ -678,15 +683,17 @@ export function EngineeringWorkspaceView({ workspaceRoot, runtimeReady, leftSide
   const sourceFormat = activeSurveyNetwork?.sourceFile?.detection?.format?.toUpperCase()
     ?? activeDataset?.sourceFileName.split('.').pop()?.toUpperCase()
     ?? '—'
-  const readiness = surveyHasBlockingAdmission
-    ? 'blocked'
-    : surveySourceDisposition && surveySourceDisposition !== 'adjustment-ready'
-    ? surveySourceDisposition === 'archive-only' ? 'archive-only' : surveySourceDisposition === 'converter-required' ? 'converter-required' : 'gnss-processing-required'
-    : blockingFindings.length
-    ? 'blocked'
-    : activeDataset && activeDataset.status === 'validated'
-      ? activeAnalysis ? (manifestOutputs.length ? 'reviewed' : 'candidate') : 'adjustment-ready'
-      : activeDataset ? 'needs-confirmation' : 'not-started'
+  const readiness = surveyReadiness({
+    blocked: surveyHasBlockingAdmission || blockingFindings.length > 0,
+    disposition: surveySourceDisposition,
+    networkValidated: activeSurveyNetwork?.qualityStatus === 'validated',
+    datasetValidated: activeDataset?.status === 'validated',
+    hasSource: Boolean(activeSurveyNetwork || activeDataset),
+    hasResult: Boolean(activeAnalysis || latestSurveyAdjustment?.result),
+    hasOutputs: manifestOutputs.length > 0,
+    reviewStatus: latestManifest?.reviewStatus,
+    manifestValid: latestManifest?.validation.valid === true
+  })
   const readinessLabel = t(`engineeringReadiness.${readiness}`, { defaultValue: readiness })
 
   return <div className={`engineering-workspace ds-no-drag flex min-h-0 flex-1 flex-col bg-ds-main text-ds-ink ${tab === 'ai-command' ? 'engineering-agent-route' : 'engineering-classic-route'}`}>
@@ -704,8 +711,7 @@ export function EngineeringWorkspaceView({ workspaceRoot, runtimeReady, leftSide
       <label className="sr-only" htmlFor="engineering-view-select">{t('engineeringViewLabel')}</label>
       <select id="engineering-view-select" value={currentStage.id} onChange={(event) => {
         const next = event.target.value as StageDefinition['id']
-        if (next === 'ai-command') setTab('ai-command')
-        else if (next === 'import') setTab(activeDataset ? 'quality' : 'data')
+        if (next === 'import') setTab(activeDataset ? 'quality' : 'data')
         else if (next === 'adjustment') setTab('survey')
         else if (next === 'analysis') setTab('analysis')
         else setTab(manifestOutputs.length ? 'review' : 'deliverables')
@@ -721,15 +727,17 @@ export function EngineeringWorkspaceView({ workspaceRoot, runtimeReady, leftSide
     {overview ? <div className="engineering-command-strip grid shrink-0 grid-cols-2 gap-px border-b border-ds-border-muted bg-ds-border-muted text-[11px] sm:grid-cols-4 lg:grid-cols-12" data-testid="engineering-summary-strip">
       <div className="bg-ds-card px-3 py-2"><span className="block text-ds-faint">{t('engineeringSummaryTask')}</span><strong className="mt-0.5 block truncate text-ds-ink">{overview.project.name}</strong></div>
       <div className="bg-ds-card px-3 py-2"><span className="block text-ds-faint">{t('engineeringSummaryStage')}</span><strong className="mt-0.5 block truncate text-ds-ink">{t(currentStage.labelKey)}</strong></div>
-      <div className="bg-ds-card px-3 py-2"><span className="block text-ds-faint">{t('engineeringSummarySource')}</span><strong className="mt-0.5 block truncate text-ds-ink">{activeDataset?.sourceFileName ?? '—'} · {sourceFormat}</strong></div>
+      <div className="bg-ds-card px-3 py-2"><span className="block text-ds-faint">{t('engineeringSummarySource')}</span><strong className="mt-0.5 block truncate text-ds-ink">{activeSurveyNetwork?.sourceFile?.name ?? activeDataset?.sourceFileName ?? '—'} · {sourceFormat}</strong></div>
       <div className="bg-ds-card px-3 py-2"><span className="block text-ds-faint">{t('engineeringSummaryReadiness')}</span><strong className={`mt-0.5 block truncate ${readiness === 'blocked' ? 'text-red-700 dark:text-red-300' : readiness === 'adjustment-ready' ? 'text-green-700 dark:text-green-300' : 'text-amber-700 dark:text-amber-300'}`}>{readinessLabel}</strong></div>
-      <div className="bg-ds-card px-3 py-2"><span className="block text-ds-faint">{t('engineeringSummaryDatum')}</span><strong className="mt-0.5 block truncate text-ds-ink">{overview.project.unit} · {overview.project.taskType ?? overview.project.monitoringType}</strong></div>
+      <div className="bg-ds-card px-3 py-2"><span className="block text-ds-faint">{t('engineeringSummaryDatum')}</span><strong className="mt-0.5 block truncate text-ds-ink">{activeSurveyNetwork?.verticalDatum ?? '—'} · {activeSurveyNetwork?.coordinateSystem ?? '—'}</strong></div>
       <div className="bg-ds-card px-3 py-2"><span className="block text-ds-faint">{t('engineeringSummaryPoints')}</span><strong className="mt-0.5 block truncate tabular-nums text-ds-ink">{surveyPointCount?.toLocaleString(locale) ?? '—'}</strong></div>
       <div className="bg-ds-card px-3 py-2"><span className="block text-ds-faint">{t('engineeringSummaryStations')}</span><strong className="mt-0.5 block truncate tabular-nums text-ds-ink">{surveyStationCount?.toLocaleString(locale) ?? '—'}</strong></div>
       <div className="bg-ds-card px-3 py-2"><span className="block text-ds-faint">{t('engineeringSummaryObservations')}</span><strong className="mt-0.5 block truncate tabular-nums text-ds-ink">{(surveyObservationCount ?? activeDataset?.observationCount)?.toLocaleString(locale) ?? '—'}</strong></div>
       <div className="bg-ds-card px-3 py-2"><span className="block text-ds-faint">{t('engineeringSummaryClosure')}</span><strong className="mt-0.5 block truncate tabular-nums text-ds-ink">{surveyClosureValue === undefined ? '—' : `${formatNumber(surveyClosureValue, locale)}${surveyClosureUnit ? ` ${surveyClosureUnit}` : ''}`}</strong></div>
       <div className="bg-ds-card px-3 py-2"><span className="block text-ds-faint">{t('engineeringSummaryPrecision')}</span><strong className="mt-0.5 block truncate tabular-nums text-ds-ink">{surveyPrecision ? `${surveyPrecision.passed ? '✓' : '×'} ${formatNumber(surveyPrecision.maxPointStdDev, locale)} m` : activeAnalysis ? t('engineeringSummaryComputed') : '—'}</strong></div>
       <div className="bg-ds-card px-3 py-2"><span className="block text-ds-faint">{t('engineeringSummaryDeliverable')}</span><strong className="mt-0.5 block truncate text-ds-ink">{manifestOutputs.length ? t('engineeringSummaryCandidate') : '—'}</strong></div>
+      <div className="bg-ds-card px-3 py-2"><span className="block text-ds-faint">{t('engineeringSummaryNetwork')}</span><strong className="mt-0.5 block truncate text-ds-ink">{activeSurveyNetwork?.networkType ?? '—'}</strong></div>
+      <div className="bg-ds-card px-3 py-2"><span className="block text-ds-faint">{t('engineeringSummaryReview')}</span><strong className="mt-0.5 block truncate text-ds-ink">{latestManifest ? statusLabel(latestManifest.reviewStatus, t) : '—'}</strong></div>
     </div> : null}
 
     <div className={`engineering-continuous-shell min-h-0 flex-1 overflow-hidden ${tab === 'ai-command' ? '' : 'engineering-with-data'}`}>
@@ -753,9 +761,12 @@ export function EngineeringWorkspaceView({ workspaceRoot, runtimeReady, leftSide
 
 
         <main className="min-h-0 overflow-y-auto bg-ds-main">
+          <nav aria-label={t('engineeringViewLabel')} className="flex flex-wrap gap-1 border-b border-ds-border-muted bg-ds-card p-2">
+            {TABS.filter((item) => currentStage.tabs.includes(item.id)).map((item) => <button key={item.id} type="button" aria-current={tab === item.id ? 'page' : undefined} onClick={() => setTab(item.id)} className={`rounded px-3 py-2 text-[12px] ${tab === item.id ? 'bg-accent/10 text-accent' : 'text-ds-muted hover:bg-ds-hover'}`}>{t(item.labelKey)}</button>)}
+          </nav>
           {overview === null ? <EmptyState title={t('engineeringEmptyTitle')} detail={t('engineeringEmptyDetail')} action={<button type="button" onClick={() => void createProject()} disabled={busy || !runtimeReady} className="inline-flex items-center gap-1.5 rounded-md bg-accent px-3 py-2 text-[12px] font-semibold text-white hover:brightness-95 disabled:opacity-50"><Plus className="h-3.5 w-3.5" />{t('engineeringNewProject')}</button>} /> : <>
             {tab === 'dashboard' ? <div className="border-b border-ds-border-muted bg-ds-card px-5 py-4">
-              <div className="flex flex-wrap items-start justify-between gap-3"><div className="min-w-0"><p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-ds-faint">{t(TABS.find((item) => item.id === tab)?.labelKey ?? 'engineeringTabDashboard')}</p><h2 className="mt-1 truncate text-[18px] font-semibold">{overview.project.name}</h2><p className="mt-1 text-[12px] text-ds-muted">{overview.project.taskType ?? overview.project.monitoringType} · {overview.project.unit} · {t('engineeringRevision')} {overview.project.revision} · {t('engineeringUpdatedAt')} {formatDate(overview.project.updatedAt, locale)}</p></div><button type="button" onClick={() => void createProject()} disabled={busy || !runtimeReady} className="inline-flex h-8 items-center gap-1.5 rounded-md border border-ds-border bg-ds-card px-2.5 text-[12px] font-medium text-ds-muted hover:bg-ds-hover disabled:opacity-50"><Plus className="h-3.5 w-3.5" />{t('engineeringNewProjectShort')}</button></div>
+              <div className="flex flex-wrap items-start justify-between gap-3"><div className="min-w-0"><p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-ds-faint">{t(TABS.find((item) => item.id === tab)?.labelKey ?? 'engineeringTabDashboard')}</p><h2 className="mt-1 truncate text-[18px] font-semibold">{overview.project.name}</h2><p className="mt-1 text-[12px] text-ds-muted">{engineeringTaskLabel(overview.project.taskType ?? overview.project.monitoringType, t)} · {overview.project.unit} · {t('engineeringRevision')} {overview.project.revision} · {t('engineeringUpdatedAt')} {formatDate(overview.project.updatedAt, locale)}</p></div><button type="button" onClick={() => void createProject()} disabled={busy || !runtimeReady} className="inline-flex h-8 items-center gap-1.5 rounded-md border border-ds-border bg-ds-card px-2.5 text-[12px] font-medium text-ds-muted hover:bg-ds-hover disabled:opacity-50"><Plus className="h-3.5 w-3.5" />{t('engineeringNewProjectShort')}</button></div>
               <div className="mt-4 grid grid-cols-2 gap-2 lg:grid-cols-4"><Metric label={t('engineeringTabData')} value={overview.datasets.length} detail={activeDataset ? activeDataset.sourceFileName : t('engineeringSummaryNoDataset')} /><Metric label={t('engineeringFindingBlocking')} value={blockingFindings.length} detail={blockingFindings.length ? t('engineeringSummaryNeedsSourceFix') : t('engineeringSummaryNoBlockers')} tone={blockingFindings.length ? 'danger' : 'success'} /><Metric label={t('engineeringSummaryReadiness')} value={analysisCounts.warning + analysisCounts.alarm + analysisCounts.control} detail={activeAnalysis ? t('engineeringSummaryResults', { count: activeAnalysis.results.length }) : t('engineeringSummaryNoAnalysis')} tone={analysisCounts.alarm + analysisCounts.control ? 'danger' : analysisCounts.warning ? 'warning' : 'neutral'} /><Metric label={t('engineeringSummaryDeliverable')} value={overview.manifests.length} detail={latestManifest ? latestManifest.id : t('engineeringSummaryNoArchive')} tone={latestManifest ? 'success' : 'neutral'} /></div>
             </div> : null}
 
@@ -782,7 +793,8 @@ export function EngineeringWorkspaceView({ workspaceRoot, runtimeReady, leftSide
 
             {tab === 'project' ? <section>
               <PanelHeading title={t('engineeringProjectConfigTitle')} description={t('engineeringProjectConfigDescription')} action={<button type="button" onClick={() => void saveProject()} disabled={busy || !projectDraft} className="inline-flex h-8 items-center gap-1.5 rounded-md bg-accent px-3 text-[12px] font-semibold text-white disabled:opacity-50"><Save className="h-3.5 w-3.5" />{t('engineeringSaveConfig')}</button>} />
-              {projectDraft ? <div className="grid gap-x-5 gap-y-4 p-5 lg:grid-cols-2"><label className="block text-[12px] font-medium text-ds-muted">{t('engineeringProjectName')}<input value={projectDraft.name} onChange={(event) => setProjectDraft((current) => current ? { ...current, name: event.target.value } : current)} className="mt-1.5 h-9 w-full rounded-md border border-ds-border bg-ds-card px-2.5 text-[13px] text-ds-ink outline-none focus:border-accent" /></label><label className="block text-[12px] font-medium text-ds-muted">{t('engineeringMonitoringType')}<input value={projectDraft.monitoringType} onChange={(event) => setProjectDraft((current) => current ? { ...current, monitoringType: event.target.value } : current)} className="mt-1.5 h-9 w-full rounded-md border border-ds-border bg-ds-card px-2.5 text-[13px] text-ds-ink outline-none focus:border-accent" /></label><label className="block text-[12px] font-medium text-ds-muted">{t('engineeringUnit')}<input value={projectDraft.unit} onChange={(event) => setProjectDraft((current) => current ? { ...current, unit: event.target.value } : current)} className="mt-1.5 h-9 w-full rounded-md border border-ds-border bg-ds-card px-2.5 text-[13px] text-ds-ink outline-none focus:border-accent" /></label><label className="block text-[12px] font-medium text-ds-muted">{t('engineeringSignConvention')}<select value={projectDraft.signConvention} onChange={(event) => setProjectDraft((current) => current ? { ...current, signConvention: event.target.value } : current)} className="mt-1.5 h-9 w-full rounded-md border border-ds-border bg-ds-card px-2.5 text-[13px] text-ds-ink outline-none focus:border-accent"><option value="positive">{t('engineeringSignPositiveOption')}</option><option value="negative">{t('engineeringSignNegativeOption')}</option><option value="custom">{t('engineeringSignCustomOption')}</option></select></label><label className="block text-[12px] font-medium text-ds-muted">{t('engineeringReportStart')}<input type="date" value={projectDraft.reportPeriod.start ?? ''} onChange={(event) => setProjectDraft((current) => current ? { ...current, reportPeriod: { ...current.reportPeriod, start: event.target.value || undefined } } : current)} className="mt-1.5 h-9 w-full rounded-md border border-ds-border bg-ds-card px-2.5 text-[13px] text-ds-ink outline-none focus:border-accent" /></label><label className="block text-[12px] font-medium text-ds-muted">{t('engineeringReportEnd')}<input type="date" value={projectDraft.reportPeriod.end ?? ''} onChange={(event) => setProjectDraft((current) => current ? { ...current, reportPeriod: { ...current.reportPeriod, end: event.target.value || undefined } } : current)} className="mt-1.5 h-9 w-full rounded-md border border-ds-border bg-ds-card px-2.5 text-[13px] text-ds-ink outline-none focus:border-accent" /></label><label className="block text-[12px] font-medium text-ds-muted lg:col-span-2">{t('engineeringThresholds')}<textarea value={projectDraft.thresholdsText} onChange={(event) => setProjectDraft((current) => current ? { ...current, thresholdsText: event.target.value } : current)} placeholder={'settlement = 10\ndefault = 8'} className="mt-1.5 min-h-28 w-full resize-y rounded-md border border-ds-border bg-ds-card px-2.5 py-2 text-[13px] leading-5 text-ds-ink outline-none focus:border-accent" /><span className="mt-1 block text-[11px] font-normal leading-4 text-ds-faint">{t('engineeringThresholdHint')}</span></label></div> : null}
+              {projectDraft ? <div className="grid gap-3 px-5 pt-4 lg:grid-cols-2">{(['coordinateSystem', 'verticalDatum', 'measurementGrade', 'standard', 'standardVersion', 'standardClause'] as const).map((field) => <label key={field} className="text-[12px] text-ds-muted">{t(`engineeringTaskContext.${field}`)}<input value={projectDraft.taskContext?.[field] ?? ''} maxLength={200} onChange={(event) => setProjectDraft((current) => current ? { ...current, taskContext: { ...current.taskContext, [field]: event.target.value } } : current)} className="mt-1 h-9 w-full rounded border border-ds-border bg-ds-card px-2 text-ds-ink" /></label>)}</div> : null}
+              {projectDraft ? <div className="grid gap-x-5 gap-y-4 p-5 lg:grid-cols-2"><label className="block text-[12px] font-medium text-ds-muted">{t('engineeringProjectName')}<input value={projectDraft.name} onChange={(event) => setProjectDraft((current) => current ? { ...current, name: event.target.value } : current)} className="mt-1.5 h-9 w-full rounded-md border border-ds-border bg-ds-card px-2.5 text-[13px] text-ds-ink outline-none focus:border-accent" /></label><label className="block text-[12px] font-medium text-ds-muted">{t('engineeringTaskType')}<select value={projectDraft.taskType ?? ''} onChange={(event) => setProjectDraft((current) => current ? { ...current, taskType: event.target.value } : current)} className="mt-1.5 h-9 w-full rounded-md border border-ds-border bg-ds-card px-2.5 text-[13px] text-ds-ink outline-none focus:border-accent"><option value="" disabled>{projectDraft.monitoringType}</option>{engineeringTaskTypes.map((type) => <option key={type} value={type}>{engineeringTaskLabel(type, t)}</option>)}</select></label><label className="block text-[12px] font-medium text-ds-muted">{t('engineeringUnit')}<input value={projectDraft.unit} onChange={(event) => setProjectDraft((current) => current ? { ...current, unit: event.target.value } : current)} className="mt-1.5 h-9 w-full rounded-md border border-ds-border bg-ds-card px-2.5 text-[13px] text-ds-ink outline-none focus:border-accent" /></label><label className="block text-[12px] font-medium text-ds-muted">{t('engineeringSignConvention')}<select value={projectDraft.signConvention} onChange={(event) => setProjectDraft((current) => current ? { ...current, signConvention: event.target.value } : current)} className="mt-1.5 h-9 w-full rounded-md border border-ds-border bg-ds-card px-2.5 text-[13px] text-ds-ink outline-none focus:border-accent"><option value="positive">{t('engineeringSignPositiveOption')}</option><option value="negative">{t('engineeringSignNegativeOption')}</option><option value="custom">{t('engineeringSignCustomOption')}</option></select></label><label className="block text-[12px] font-medium text-ds-muted">{t('engineeringReportStart')}<input type="date" value={projectDraft.reportPeriod.start ?? ''} onChange={(event) => setProjectDraft((current) => current ? { ...current, reportPeriod: { ...current.reportPeriod, start: event.target.value || undefined } } : current)} className="mt-1.5 h-9 w-full rounded-md border border-ds-border bg-ds-card px-2.5 text-[13px] text-ds-ink outline-none focus:border-accent" /></label><label className="block text-[12px] font-medium text-ds-muted">{t('engineeringReportEnd')}<input type="date" value={projectDraft.reportPeriod.end ?? ''} onChange={(event) => setProjectDraft((current) => current ? { ...current, reportPeriod: { ...current.reportPeriod, end: event.target.value || undefined } } : current)} className="mt-1.5 h-9 w-full rounded-md border border-ds-border bg-ds-card px-2.5 text-[13px] text-ds-ink outline-none focus:border-accent" /></label><label className="block text-[12px] font-medium text-ds-muted lg:col-span-2">{t('engineeringThresholds')}<textarea value={projectDraft.thresholdsText} onChange={(event) => setProjectDraft((current) => current ? { ...current, thresholdsText: event.target.value } : current)} placeholder={'settlement = 10\ndefault = 8'} className="mt-1.5 min-h-28 w-full resize-y rounded-md border border-ds-border bg-ds-card px-2.5 py-2 text-[13px] leading-5 text-ds-ink outline-none focus:border-accent" /><span className="mt-1 block text-[11px] font-normal leading-4 text-ds-faint">{t('engineeringThresholdHint')}</span></label></div> : null}
             </section> : null}
 
             {tab === 'data' ? <section>

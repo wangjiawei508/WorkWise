@@ -1,3 +1,4 @@
+import { EngineeringTaskContextV1 } from './engineering.js'
 import { z } from 'zod'
 
 export const EngineeringAiSchemaVersion = 1 as const
@@ -41,7 +42,7 @@ export const EngineeringContextSnapshotV1 = z.object({
   contextHash: z.string().min(1),
   generatedAt: z.string().min(1),
   project: z.object({
-    name: z.string(), taskType: z.string().default('deformation'), monitoringType: z.string(), unit: z.string(),
+    name: z.string(), taskType: z.string().optional(), taskContext: EngineeringTaskContextV1.optional(), monitoringType: z.string(), unit: z.string(),
     reportPeriod: z.object({ start: z.string().optional(), end: z.string().optional() }).strict(),
     thresholds: z.record(z.string(), z.number())
   }).strict(),

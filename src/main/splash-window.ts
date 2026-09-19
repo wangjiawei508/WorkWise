@@ -1,3 +1,4 @@
+import brand from '../shared/product-brand.json'
 import { BrowserWindow } from 'electron'
 import type { WindowAppearanceV1 } from '../shared/window-appearance'
 import { applyWindowMaterial, windowMaterialOptions } from './window-appearance'
@@ -77,7 +78,7 @@ export function buildSplashHtml(options: SplashWindowOptions, initial: SplashPro
   <meta charset="UTF-8" />
   <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data:; style-src 'unsafe-inline'; script-src 'unsafe-inline'" />
   <meta name="color-scheme" content="light dark" />
-  <title>WorkWise</title>
+  <title>${brand.platform}</title>
   <style>
     * { box-sizing: border-box; }
     html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; background: transparent; }
@@ -141,7 +142,7 @@ export function buildSplashHtml(options: SplashWindowOptions, initial: SplashPro
 <body>
   <main class="splash">
     ${logo}
-    <div class="brand">WorkWise</div>
+    <div class="brand">${brand.platform}</div>
     <div class="version">${escapeHtml(options.version)}</div>
     <div class="progress" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${Math.round(progress * 100)}">
       <div class="track"><div class="bar"></div></div>

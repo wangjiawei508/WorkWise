@@ -1,3 +1,4 @@
+import brand from '../shared/product-brand.json'
 import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, nativeTheme, Notification, powerSaveBlocker, shell, Tray, type MessageBoxOptions } from 'electron'
 import { randomBytes } from 'node:crypto'
 import { existsSync, mkdirSync, openAsBlob } from 'node:fs'
@@ -540,15 +541,15 @@ if (!gotSingleInstanceLock) app.quit()
 function trayLabels(locale: AppSettingsV1['locale']): { show: string; quit: string; tooltip: string } {
   if (locale === 'zh') {
     return {
-      show: '显示 WorkWise Runtime',
+      show: `显示 ${brand.platform}`,
       quit: '退出',
-      tooltip: 'WorkWise Runtime'
+      tooltip: brand.platform
     }
   }
   return {
-    show: 'Show WorkWise Runtime',
+    show: `Show ${brand.platform}`,
     quit: 'Quit',
-    tooltip: 'WorkWise Runtime'
+    tooltip: brand.platform
   }
 }
 
@@ -601,7 +602,7 @@ function showAboutDialog(): void {
   const options: MessageBoxOptions = {
     type: 'info',
     title: labels.app.about,
-    message: 'WorkWise',
+    message: brand.platform,
     detail: currentLocale === 'zh'
       ? `智能工作台\n版本 ${app.getVersion()}`
       : `AI workbench\nVersion ${app.getVersion()}`,
@@ -626,7 +627,7 @@ function checkForUpdatesFromMenu(): void {
 function showGuiUpdateAvailableNotification(info: Extract<GuiUpdateState, { status: 'available' }>['info']): void {
   if (!Notification.isSupported()) return
   const notification = new Notification({
-    title: currentLocale === 'zh' ? 'WorkWise 有新版本' : 'A WorkWise update is available',
+    title: currentLocale === 'zh' ? `${brand.platform} 有新版本` : `A ${brand.platform} update is available`,
     body: currentLocale === 'zh'
       ? `版本 ${info.latestVersion} 已发布，点击查看更新。`
       : `Version ${info.latestVersion} is available. Click to view the update.`,

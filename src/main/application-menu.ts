@@ -1,3 +1,4 @@
+import brand from '../shared/product-brand.json'
 import type { MenuItemConstructorOptions } from 'electron'
 import type { AppSettingsV1 } from '../shared/app-settings'
 import type { ApplicationMenuAction } from '../shared/workwise-api'
@@ -77,12 +78,12 @@ type MenuLabels = {
 const LABELS: Record<AppSettingsV1['locale'], MenuLabels> = {
   zh: {
     app: {
-      about: '关于 WorkWise',
+      about: `关于 ${brand.platform}`,
       services: '服务',
-      hide: '隐藏 WorkWise',
+      hide: `隐藏 ${brand.platform}`,
       hideOthers: '隐藏其他',
       showAll: '全部显示',
-      quit: '退出 WorkWise'
+      quit: `退出 ${brand.platform}`
     },
     file: {
       title: '文件',
@@ -121,7 +122,7 @@ const LABELS: Record<AppSettingsV1['locale'], MenuLabels> = {
     help: {
       title: '帮助',
       center: '帮助中心',
-      productHome: 'WorkWise 主页',
+      productHome: `${brand.platform} 主页`,
       authorHome: '个人主页',
       productIntro: '软件介绍',
       github: 'GitHub 项目',
@@ -132,12 +133,12 @@ const LABELS: Record<AppSettingsV1['locale'], MenuLabels> = {
   },
   en: {
     app: {
-      about: 'About WorkWise',
+      about: `About ${brand.platform}`,
       services: 'Services',
-      hide: 'Hide WorkWise',
+      hide: `Hide ${brand.platform}`,
       hideOthers: 'Hide Others',
       showAll: 'Show All',
-      quit: 'Quit WorkWise'
+      quit: `Quit ${brand.platform}`
     },
     file: {
       title: 'File',
@@ -203,7 +204,7 @@ export function buildApplicationMenuTemplate(
 
   if (platform === 'darwin') {
     template.push({
-      label: 'WorkWise',
+      label: brand.platform,
       submenu: [
         { label: l.app.about, click: actions.showAbout },
         { label: l.help.checkUpdates, click: actions.checkForUpdates },

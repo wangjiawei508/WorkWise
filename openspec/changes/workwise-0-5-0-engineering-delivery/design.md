@@ -96,3 +96,10 @@ Bundled specialist assets pass a generated provenance manifest before packaging.
 Add local-authenticated `GET/POST /v1/engineering/ai/threads`, `POST /v1/engineering/ai/plans`, `PATCH /v1/engineering/ai/plans/:id`, `POST .../validate`, `POST .../approve`, `POST .../start`, `GET /v1/engineering/ai/runs/:id`, cancel/resume, events with `Last-Event-ID`, context/evidence reads, and Watch rule routes. Existing deterministic project/dataset/analysis/chart/report routes remain compatible. Mutations require `expectedRevision` and `idempotencyKey`; duplicate keys replay the original result and stale revisions return `409 engineering_revision_conflict`.
 
 The AI plan route uses the active provider/model and never changes credentials or model settings. If the provider cannot produce a typed plan or lacks required tool/vision capability, the run becomes `needs_attention` with a retry or classic-console action. No error request is sent to an incompatible model.
+
+
+## Consolidated plan implementation amendment (2026-09-19)
+
+Display branding comes from src/shared/product-brand.json; it must not change app.setName or production bundle/data identity. taskType is optional on legacy reads and inferred only for recognized historical types. Unknown values remain unclassified and readable. New tasks default to control-network. Optional taskContext carries coordinate/height datum, grade and standard/version/clause, and participates in the existing project revision/context hash boundaries. Four production stages retain internal Tab IDs for compatibility and keep one mounted AI conversation. Candidate output cannot become reviewed merely by containing files.
+
+Acceptance now includes all items in the appended consolidated-baseline task list. Prior test totals or released 0.5.0 evidence do not close the new candidate gate. P1/P2 expansion waits for P0 acceptance.

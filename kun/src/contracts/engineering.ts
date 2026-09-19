@@ -4,18 +4,42 @@ import { AdjustmentResultV1, DeformationComparisonV1, SurveySourceFileV1 } from 
 export const ENGINEERING_SCHEMA_VERSION = 1 as const
 export const ENGINEERING_MAX_OBSERVATIONS = 500_000
 
+export const EngineeringTaskTypeV1 = z.enum(['control-network', 'leveling-network', 'traverse-network', 'resection', 'deformation', 'gnss'])
+export type EngineeringTaskTypeV1 = z.infer<typeof EngineeringTaskTypeV1>
+
+/** Unknown legacy classifications remain readable without inventing a task type. */
+export function inferEngineeringTaskType(monitoringType: string): EngineeringTaskTypeV1 | undefined {
+  const aliases: Record<string, EngineeringTaskTypeV1> = {
+    leveling: 'leveling-network', traverse: 'traverse-network', 'plane-control': 'control-network',
+    'cpiii-free-station': 'resection', 'cpiii-resection': 'resection'
+  }
+  const parsed = EngineeringTaskTypeV1.safeParse(monitoringType)
+  return parsed.success ? parsed.data : aliases[monitoringType]
+}
+
 export const RevisionMutationV1 = z.object({
   expectedRevision: z.number().int().nonnegative(),
   idempotencyKey: z.string().min(8).max(200)
 }).strict()
 export type RevisionMutationV1 = z.infer<typeof RevisionMutationV1>
 
+export const EngineeringTaskContextV1 = z.object({
+  networkType: z.string().max(100).optional(),
+  coordinateSystem: z.string().max(200).optional(),
+  verticalDatum: z.string().max(200).optional(),
+  measurementGrade: z.string().max(100).optional(),
+  standard: z.string().max(200).optional(),
+  standardVersion: z.string().max(100).optional(),
+  standardClause: z.string().max(200).optional()
+}).strict()
+
 export const RailwiseProjectV1 = z.object({
   schemaVersion: z.literal(ENGINEERING_SCHEMA_VERSION),
   id: z.string().min(1),
   name: z.string().min(1).max(200),
-  /** Additive task classification. Legacy records may omit it and remain deformation-compatible. */
-  taskType: z.string().min(1).default('deformation'),
+  /** No default on reads: infer from legacy classification without rewriting storage. */
+  taskType: EngineeringTaskTypeV1.optional(),
+  taskContext: EngineeringTaskContextV1.optional(),
   monitoringType: z.string().min(1).default('deformation'),
   unit: z.string().min(1).default('mm'),
   signConvention: z.string().min(1).default('positive'),
@@ -113,11 +137,11 @@ export const DeliverableManifestV1 = z.object({
 export type DeliverableManifestV1 = z.infer<typeof DeliverableManifestV1>
 
 export const EngineeringProjectCreateRequest = RevisionMutationV1.extend({
-  name: z.string().min(1).max(200), taskType: z.string().min(1).optional(), monitoringType: z.string().optional(), unit: z.string().optional(), signConvention: z.string().optional(),
+  name: z.string().min(1).max(200), taskType: EngineeringTaskTypeV1.optional(), taskContext: EngineeringTaskContextV1.optional(), monitoringType: z.string().optional(), unit: z.string().optional(), signConvention: z.string().optional(),
   thresholds: z.record(z.string(), z.number().finite()).optional(), reportPeriod: z.object({ start: z.string().optional(), end: z.string().optional() }).strict().optional(), workspace: z.string().min(1)
 }).strict()
 export const EngineeringProjectUpdateRequest = RevisionMutationV1.extend({
-  name: z.string().min(1).max(200).optional(), taskType: z.string().min(1).optional(), monitoringType: z.string().min(1).optional(), unit: z.string().min(1).optional(), signConvention: z.string().min(1).optional(),
+  name: z.string().min(1).max(200).optional(), taskType: EngineeringTaskTypeV1.optional(), taskContext: EngineeringTaskContextV1.optional(), monitoringType: z.string().min(1).optional(), unit: z.string().min(1).optional(), signConvention: z.string().min(1).optional(),
   thresholds: z.record(z.string(), z.number().finite()).optional(), reportPeriod: z.object({ start: z.string().optional(), end: z.string().optional() }).strict().optional()
 }).strict()
 export const DatasetImportRequest = RevisionMutationV1.extend({ projectId: z.string().min(1), attachmentId: z.string().optional(), name: z.string().min(1).optional(), dataBase64: z.string().min(1).optional(), fieldMapping: FieldMappingV1.optional() }).strict().refine((v) => Boolean(v.attachmentId || (v.name && v.dataBase64)), { message: 'attachmentId or name/dataBase64 is required' })
