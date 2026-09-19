@@ -1,7 +1,23 @@
-import { EngineeringTaskContextV1 } from './engineering.js'
+import { EngineeringTaskContextV1, EngineeringProjectUpdateRequest } from './engineering.js'
 import { z } from 'zod'
 
 export const EngineeringAiSchemaVersion = 1 as const
+
+export const EngineeringProjectSuggestionPatchV1 = EngineeringProjectUpdateRequest.omit({ expectedRevision: true, idempotencyKey: true })
+  .refine(value => Object.keys(value).length > 0, 'at least one project field is required')
+  .refine(value => JSON.stringify(value).length <= 12000, 'project suggestion is too large')
+export const EngineeringProjectSuggestionRequestV1 = z.object({
+  reason: z.string().trim().min(1).max(2000), patch: EngineeringProjectSuggestionPatchV1
+}).strict()
+export const EngineeringProjectSuggestionV1 = z.object({
+  schemaVersion: z.literal(1), id: z.string(), threadId: z.string(), projectId: z.string(),
+  expectedRevision: z.number().int().positive(), contextHash: z.string(),
+  reason: z.string(), patch: EngineeringProjectSuggestionPatchV1,
+  before: z.record(z.string(), z.unknown()),
+  status: z.enum(['pending', 'applied', 'rejected', 'stale']),
+  createdAt: z.string(), updatedAt: z.string(), appliedRevision: z.number().int().positive().optional()
+}).strict()
+export type EngineeringProjectSuggestionV1 = z.infer<typeof EngineeringProjectSuggestionV1>
 
 export const EngineeringAiThreadMetaV1 = z.object({
   schemaVersion: z.literal(EngineeringAiSchemaVersion),
@@ -92,6 +108,18 @@ export const EngineeringEvidenceSelectionV1 = z.object({
 }).strict()
 export type EngineeringEvidenceSelectionV1 = z.infer<typeof EngineeringEvidenceSelectionV1>
 
+export const EngineeringPlanParameterValueV1 = z.union([
+  z.string().max(4000), z.number().finite(), z.boolean(), z.null(),
+  z.array(z.union([z.string().max(4000), z.number().finite(), z.boolean()])).max(200)
+])
+export const EngineeringPlanParametersV1 = z.record(z.string().regex(/^[A-Za-z][A-Za-z0-9]*$/).max(80), EngineeringPlanParameterValueV1)
+export const EngineeringPlanParameterBindingV1 = z.object({
+  parameter: z.string().regex(/^[A-Za-z][A-Za-z0-9]*$/).max(80),
+  stepId: z.string().min(1).max(80),
+  output: z.enum(['network.id', 'network.revision', 'dataset.id', 'dataset.revision', 'analysis.id', 'run.id']),
+  asArray: z.boolean().optional()
+}).strict()
+
 export const EngineeringPlanStepV1 = z.object({
   id: z.string().min(1).max(80),
   title: z.string().min(1).max(200),
@@ -99,6 +127,12 @@ export const EngineeringPlanStepV1 = z.object({
   risk: EngineeringPlanRiskV1,
   dependsOn: z.array(z.string().min(1)).max(32).default([]),
   inputHash: z.string().min(1),
+  // Optional only for non-destructive reads of historical plans. New execution
+  // requires complete, reviewed parameters and Runtime-owned effect metadata.
+  parameters: EngineeringPlanParametersV1.optional(),
+  parameterBindings: z.array(EngineeringPlanParameterBindingV1).max(32).optional(),
+  expectedOutputs: z.array(z.string().min(1).max(100)).max(8).optional(),
+  reversibility: z.enum(['read-only', 'revisioned-write', 'append-only']).optional(),
   approval: z.enum(['pending', 'approved', 'rejected']).default('pending')
 }).strict()
 export type EngineeringPlanStepV1 = z.infer<typeof EngineeringPlanStepV1>
@@ -109,6 +143,7 @@ export const EngineeringRunPlanV1 = z.object({
   threadId: z.string().min(1),
   projectId: z.string().min(1),
   contextHash: z.string().min(1),
+  requestHash: z.string().min(1).optional(),
   revision: z.number().int().positive(),
   goal: z.string().trim().min(1).max(4_000),
   steps: z.array(EngineeringPlanStepV1).min(1).max(32),

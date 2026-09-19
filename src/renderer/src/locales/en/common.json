@@ -2919,5 +2919,49 @@
   "surveyClearEvidence": "Remove reference",
   "engineeringManifestCountShort": "{{count}} review list(s)",
   "engineeringSurveyAnalysisPending": "Run deterministic adjustment and inspect closure, residuals and precision.",
-  "engineeringSurveyReviewRequired": "Inspect source and result findings"
+  "engineeringSurveyReviewRequired": "Inspect source and result findings",
+  "engineeringPlanTool": "Tool",
+  "engineeringPlanParameters": "Approved parameters and result bindings",
+  "engineeringPlanOutputs": "Expected outputs",
+  "engineeringPlanReversibility": "Reversibility",
+  "engineeringPlanDetailsMissing": "Parameters or review details are incomplete. Confirm the inputs in the conversation and request a new plan before execution.",
+  "engineeringPlanReversal": {
+    "read-only": "Reads existing evidence; no stored state changes.",
+    "revisioned-write": "Updates validation state with a new revision; original files remain unchanged. No automatic undo.",
+    "append-only": "Adds computation or candidate files; earlier evidence is retained. No automatic undo."
+  },
+  "engineeringPlanOutput": {
+    "network-validation": "Network validation revision",
+    "dataset-validation": "Dataset validation revision",
+    "deterministic-analysis": "Deterministic analysis record",
+    "adjustment-run": "Adjustment run",
+    "deterministic-adjustment-evidence": "Residuals, closure and precision",
+    "existing-adjustment-evidence": "Existing adjustment evidence",
+    "chart-svg": "SVG chart",
+    "candidate-docx": "Candidate DOCX",
+    "candidate-pdf": "Candidate PDF",
+    "evidence-xlsx": "XLSX evidence",
+    "citation-placeholder": "Citation source placeholder (not a verified clause)"
+  },
+  "engineeringSuggestionTitle": "Review project changes",
+  "engineeringSuggestionTaskContext": "Datum, grade and standard",
+  "engineeringSuggestionMonitoringType": "Legacy monitoring type",
+  "engineeringSuggestionSign": "Sign convention",
+  "engineeringSuggestionThresholds": "Thresholds",
+  "engineeringSuggestionReportPeriod": "Report period",
+  "engineeringSuggestionReadFailed": "Could not load project suggestions. Retry to review them.",
+  "engineeringSuggestionApplyFailed": "The change was not confirmed. Retry or check the current project.",
+  "engineeringSuggestionStale": "The project or its evidence changed. Request a fresh suggestion before applying it.",
+  "engineeringSuggestionRevision": "Based on project revision {{revision}}",
+  "engineeringSuggestionBefore": "Before",
+  "engineeringSuggestionAfter": "After",
+  "engineeringSuggestionImpact": "Confirmation increments the project revision and requires old computation plans to be reviewed again. This does not transform imported coordinates, rewrite observations or recalculate historical results. Subsequent operations use the new settings. History is retained; reverting requires another confirmed edit.",
+  "engineeringSuggestionApply": "Confirm changes",
+  "engineeringSuggestionReject": "Reject suggestion",
+  "engineeringSuggestionStatus": {
+    "pending": "Awaiting confirmation",
+    "applied": "Applied",
+    "rejected": "Rejected",
+    "stale": "Outdated"
+  }
 }

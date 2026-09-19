@@ -419,7 +419,7 @@ export async function createKunServeRuntime(
     ...imageGenProviders.providers,
     ...pptMasterProviders.providers,
     ...designProviders.providers,
-    ...buildRailwiseToolProviders(engineeringService, surveyService)
+    ...buildRailwiseToolProviders(engineeringService, surveyService, () => engineeringAi)
   ]
   const childRegistry = new CapabilityRegistry(baseToolProviders)
   const childToolHost = new LocalToolHost({ registry: childRegistry, readTracker: true })
@@ -567,6 +567,7 @@ export async function createKunServeRuntime(
   })
   engineeringAi = new EngineeringAiOrchestrator({
     context: engineeringContext,
+    engineering: engineeringService,
     repository: engineeringAiRepository,
     threadStore,
     turns: turnService,

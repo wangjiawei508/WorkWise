@@ -223,3 +223,25 @@ Tool risks MUST be derived from the deterministic implementation, not supplied b
 #### Scenario: An old plan has an understated risk
 - **WHEN** an old plan labels a mutating tool read-only
 - **THEN** approval, start, resume and the execution allowlist reject it without rewriting the stored record
+
+### Requirement: Reviewed arguments at the execution boundary
+Every new Typed Plan MUST show exact literal arguments, explicit predecessor result bindings, Runtime-defined expected outputs and reversibility. Missing or ambiguous inputs MUST produce a non-executable draft. Execution through the existing tool host MUST enforce the approved arguments, project scope, dependency order and per-step idempotency. Result bindings MUST persist across Runtime restart without storing raw observations. Replanning MUST preserve the original operations and selected inputs.
+
+#### Scenario: A model changes an approved selection
+- **WHEN** a tool call changes the selected network, revision or output inputs, adds an argument, or skips a dependency
+- **THEN** the Runtime rejects it before invoking the deterministic service
+
+#### Scenario: Reading the result of a preceding adjustment
+- **WHEN** a plan reads a newly completed adjustment
+- **THEN** the read is bound to that exact adjustment run rather than whichever run is currently latest
+
+### Requirement: Confirmed project suggestions
+AI project changes MUST be durable unexecuted suggestions showing the authoritative previous values, proposed replacement values and impact. The model MUST NOT receive UI confirmation credentials. Applying a suggestion MUST require an authenticated explicit decision against unchanged project context. Rejecting a suggestion MUST leave project data unchanged. Confirmed edits use the existing revisioned project service and do not recalculate historical results or transform observations.
+
+#### Scenario: A manual edit races a proposed change
+- **WHEN** project context changes before the user confirms the suggestion
+- **THEN** confirmation fails as stale and preserves the newer project values
+
+#### Scenario: Confirmation is repeated
+- **WHEN** a confirmed suggestion is submitted again
+- **THEN** its recorded applied result is returned without another project revision or computation

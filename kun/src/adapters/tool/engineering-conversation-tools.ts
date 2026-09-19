@@ -1,4 +1,4 @@
-import { EngineeringEvidenceSelectionV1 } from '../../contracts/engineering-ai.js'
+import { EngineeringEvidenceSelectionV1, EngineeringPlanParametersV1, EngineeringPlanParameterBindingV1, EngineeringProjectSuggestionRequestV1 } from '../../contracts/engineering-ai.js'
 import { z } from 'zod'
 import type { ThreadStore } from '../../ports/thread-store.js'
 import type { EngineeringAiOrchestrator } from '../../engineering/engineering-ai-orchestrator.js'
@@ -11,7 +11,7 @@ const operationNames = Object.keys(operationRisks) as [keyof typeof operationRis
 const selectionSchema = EngineeringEvidenceSelectionV1
 const draftSchema = z.object({
   goal: z.string().trim().min(1).max(4_000),
-  steps: z.array(z.object({ tool: z.enum(operationNames), title: z.string().min(1).max(200) }).strict()).min(1).max(32)
+  steps: z.array(z.object({ tool: z.enum(operationNames), title: z.string().min(1).max(200), parameters: EngineeringPlanParametersV1.optional(), parameterBindings: z.array(EngineeringPlanParameterBindingV1).max(32).optional() }).strict()).min(1).max(32)
 }).strict()
 
 export function buildEngineeringConversationTools(
@@ -37,16 +37,8 @@ export function buildEngineeringConversationTools(
       LocalToolHost.defineTool({
         name: 'survey_request_plan',
         shouldAdvertise: (context) => context.allowedToolNames?.includes('survey_request_plan') === true,
-        description: 'Propose a typed Survey execution plan ONLY when the user requests computation, data analysis or deliverable generation, not ordinary questions. Include only the requested operations, in dependency order. This saves an unexecuted draft; the UI requires explicit human approval. Never request or return approval tokens.',
-        inputSchema: {
-          type: 'object', properties: {
-            goal: { type: 'string', maxLength: 4_000 },
-            steps: { type: 'array', minItems: 1, maxItems: 32, items: {
-              type: 'object', properties: { tool: { type: 'string', enum: operationNames }, title: { type: 'string', maxLength: 200 } },
-              required: ['tool', 'title'], additionalProperties: false
-            } }
-          }, required: ['goal', 'steps'], additionalProperties: false
-        },
+        description: 'Propose a typed Survey execution plan ONLY for requested computation, analysis or deliverables. Include concrete parameters from survey_read_context. Steps get IDs step-1, step-2, etc. Later parameters may bind to an earlier step output, e.g. expectedRevision from step-1 network.revision, or adjustmentIds from step-2 run.id with asArray:true. Include only requested operations, in dependency order. Runtime fixes risk, expected outputs and reversibility. Missing or ambiguous parameters block approval. This saves an unexecuted draft; human approval is required. Never request or return approval tokens.',
+        inputSchema: z.toJSONSchema(draftSchema),
         policy: 'auto',
         execute: async (args, context) => {
           const draft = draftSchema.parse(args)
@@ -55,12 +47,21 @@ export function buildEngineeringConversationTools(
             threadId: context.threadId, projectId, goal: draft.goal,
             steps: draft.steps.map((step, index) => ({
               id: `step-${index + 1}`, title: step.title, tool: step.tool, risk: operationRisks[step.tool],
+              parameters: step.parameters, parameterBindings: step.parameterBindings,
               dependsOn: index ? [`step-${index}`] : [], inputHash: 'server-resolved', approval: 'pending'
             })),
             idempotencyKey: `survey-conversation-plan:${context.turnId}`
           }, { conversationTurnId: context.turnId })
           return { output: { plan, executed: false, approvalRequired: true } }
         }
+      }),
+      LocalToolHost.defineTool({
+        name: 'survey_propose_project_change',
+        shouldAdvertise: context => context.allowedToolNames?.includes('survey_propose_project_change') === true,
+        description: 'Propose requested project metadata or parameter changes for explicit human confirmation. Show the reason. Does not apply changes, calculate results or transform coordinates. Nested objects replace their corresponding project settings; include fields that must be retained. Existing observations and results remain unchanged. Never request confirmation tokens.',
+        inputSchema: z.toJSONSchema(EngineeringProjectSuggestionRequestV1),
+        policy: 'auto',
+        execute: async (args, context) => ({ output: { suggestion: await getOrchestrator().proposeProjectChange(context.threadId, context.turnId, args), applied: false, confirmationRequired: true } })
       })
     ]
   }

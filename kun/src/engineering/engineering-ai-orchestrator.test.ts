@@ -14,6 +14,7 @@ describe('Engineering AI orchestration', () => {
     const root = await mkdtemp(join(tmpdir(), 'workwise-engineering-ai-'))
     const engineering = new EngineeringService({ rootDir: join(root, 'runtime') })
     const project = engineering.createProject({ name: 'AI project', workspace: root, expectedRevision: 0, idempotencyKey: 'ai-project-001' })
+    await engineering.importDataset({ projectId: project.id, expectedRevision: project.revision, idempotencyKey: 'ai-initial-dataset', name: 'data.csv', dataBase64: Buffer.from('point,time,value\nA,2026-01-01,1').toString('base64') })
     const context = new EngineeringContextService(engineering)
     const repository = new EngineeringAiRepository({ rootDir: join(root, 'runtime') })
     const turns = {

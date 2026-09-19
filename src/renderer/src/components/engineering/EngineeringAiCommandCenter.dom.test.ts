@@ -8,6 +8,8 @@ import { useChatStore } from '../../store/chat-store'
 import { EngineeringAiCommandCenter } from './EngineeringAiCommandCenter'
 import { useEngineeringConversationDrafts } from './engineering-conversation-drafts'
 
+vi.mock('./EngineeringProjectSuggestions', () => ({ EngineeringProjectSuggestions: () => null }))
+
 vi.mock('../chat/MessageTimeline', () => ({ MessageTimeline: () => createElement('div', { 'data-testid': 'message-timeline' }) }))
 vi.mock('./EngineeringComposer', () => ({ EngineeringComposer: () => createElement('textarea', { 'aria-label': 'Survey composer' }) }))
 
@@ -22,6 +24,7 @@ const stalePlan = {
 }
 const refreshedPlan = {
   ...stalePlan, id: 'plan-current', contextHash: 'context-current', revision: 1, status: 'awaiting_approval',
+  steps: stalePlan.steps.map(step => ({ ...step, parameters: { networkId: 'net-1', expectedRevision: 2 }, parameterBindings: [], expectedOutputs: ['adjustment-run'], reversibility: 'append-only' })),
   approval: { token: 'approval-token-current', stepIds: ['adjust'], expiresAt: '2026-09-09T00:00:00.000Z' }
 }
 
@@ -81,6 +84,27 @@ afterEach(async () => {
 })
 
 describe('Engineering AI session recovery states', () => {
+  it('displays reviewed parameters, bindings, outputs and reversibility before enabling execution', async () => {
+    const plan = { ...refreshedPlan, steps: refreshedPlan.steps.map(step => ({ ...step, parameterBindings: [{ parameter: 'expectedRevision', stepId: 'validate', output: 'network.revision' }] })) }
+    runtimeRequest.mockImplementation(async path => response(200, path.startsWith('/v1/engineering/ai/plans?') ? { plan, approval: plan.approval } : { cards: [] }))
+    await render(); await settle()
+    expect(container.textContent).toContain('net-1')
+    expect(container.textContent).toContain('expectedRevision ← validate.network.revision')
+    expect(container.textContent).toContain('control_network')
+    expect(container.querySelector('[data-testid="engineering-plan-step-review"]')?.textContent).toContain('Expected outputs')
+    const start = [...container.querySelectorAll('button')].find(button => button.textContent?.includes(i18n.t('engineeringApproveAndStart')))
+    expect(start?.disabled).toBe(true)
+    await act(async () => container.querySelector<HTMLInputElement>('input[type="checkbox"]')?.click())
+    expect(start?.disabled).toBe(false)
+  })
+
+  it('keeps legacy review information readable without an execute button', async () => {
+    runtimeRequest.mockImplementation(async path => response(200, path.startsWith('/v1/engineering/ai/plans?') ? { plan: { ...stalePlan, status: 'approved' } } : { cards: [] }))
+    await render(); await settle()
+    expect(container.textContent).toContain(stalePlan.goal)
+    expect([...container.querySelectorAll('button')].some(button => button.textContent?.includes(i18n.t('engineeringApproveAndStart')))).toBe(false)
+  })
+
   it('shows loading, error, and partial states and retries both resources without clearing the draft', async () => {
     const initialPlan = deferred<RuntimeResponse>()
     const initialEvidence = deferred<RuntimeResponse>()
@@ -129,7 +153,7 @@ describe('Engineering AI session recovery states', () => {
       if (path.startsWith('/v1/engineering/ai/evidence/')) return Promise.resolve(response(200, { cards: [] }))
       if (path === '/v1/engineering/ai/plans' && method === 'POST') {
         const request = JSON.parse(body ?? '{}') as Record<string, unknown>
-        expect(request).toMatchObject({ threadId: 'thread-a', projectId: project.id, goal: stalePlan.goal })
+        expect(request).toMatchObject({ threadId: 'thread-a', projectId: project.id, goal: stalePlan.goal, replanOf: stalePlan.id })
         expect(request.contextHash).toBeUndefined()
         expect(request.idempotencyKey).toMatch(/^engineering-replan-plan-stale-/)
         return Promise.resolve(response(201, { plan: refreshedPlan, approval: refreshedPlan.approval }))

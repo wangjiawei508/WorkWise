@@ -69,3 +69,12 @@ The user-provided consolidated plan supersedes the earlier D-04 platform naming 
 - [ ] P1 professional credibility: versioned standards and GB/T 24356-2023 quality chain, residual-to-record navigation, replay/signatures, advanced adjustment methods and second-batch format admission.
 - [ ] P2 after P0 acceptance: GeoCOM, coordinate/engineering expansion, DXF/point clouds/3D, outward MCP, audited binary converters, Survey/Write/Design/Flow collaboration.
 - [ ] Record measured production metrics (traceable projects, first-result time, import success, 30-minute leveling workflow, reproducibility, provenance and one-click evidence questions).
+
+## Review and execution boundary follow-through
+
+- [x] Show concrete parameters, predecessor bindings, expected outputs and reversibility in Typed Plan review; retain incomplete and legacy plans as non-executable drafts.
+- [x] Enforce approved arguments, project ownership, dependency success and idempotency in the actual RailWise tool executor, with both Survey and monitoring export integration tests.
+- [x] Preserve selected operations during replanning and bind result reads to the exact approved predecessor adjustment.
+- [x] Add durable project modification suggestions with before/after cards, UI-only confirmation credentials, reject/apply decisions, stale-context protection and mutation-free model proposal tests.
+
+These code and automated-test items do not close task 39: a successful real-model session and exact packaged GUI acceptance of these new controls remain required.

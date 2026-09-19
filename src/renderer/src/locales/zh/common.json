@@ -2919,5 +2919,49 @@
   "surveyClearEvidence": "移除引用",
   "engineeringManifestCountShort": "{{count}} 份审查清单",
   "engineeringSurveyAnalysisPending": "执行确定性平差并检查闭合差、残差和精度。",
-  "engineeringSurveyReviewRequired": "核对来源与计算结果中的诊断"
+  "engineeringSurveyReviewRequired": "核对来源与计算结果中的诊断",
+  "engineeringPlanTool": "工具",
+  "engineeringPlanParameters": "确认参数与前序结果绑定",
+  "engineeringPlanOutputs": "预期产物",
+  "engineeringPlanReversibility": "可逆性",
+  "engineeringPlanDetailsMissing": "参数或审查信息不完整。请在对话中确认输入并重新生成计划后再执行。",
+  "engineeringPlanReversal": {
+    "read-only": "仅读取现有证据，不修改已保存状态。",
+    "revisioned-write": "生成新的校核修订，原始文件不变；不支持自动撤销。",
+    "append-only": "新增计算记录或候选文件，历史证据保留；不支持自动撤销。"
+  },
+  "engineeringPlanOutput": {
+    "network-validation": "网络校核修订",
+    "dataset-validation": "数据集校核修订",
+    "deterministic-analysis": "确定性分析记录",
+    "adjustment-run": "平差运行",
+    "deterministic-adjustment-evidence": "残差、闭合差与精度",
+    "existing-adjustment-evidence": "已有平差证据",
+    "chart-svg": "SVG 图表",
+    "candidate-docx": "候选 DOCX",
+    "candidate-pdf": "候选 PDF",
+    "evidence-xlsx": "XLSX 证据表",
+    "citation-placeholder": "引用来源占位（并非已核验条款）"
+  },
+  "engineeringSuggestionTitle": "项目修改待确认",
+  "engineeringSuggestionTaskContext": "基准、等级与规范",
+  "engineeringSuggestionMonitoringType": "历史监测类型",
+  "engineeringSuggestionSign": "正负号约定",
+  "engineeringSuggestionThresholds": "阈值",
+  "engineeringSuggestionReportPeriod": "报告时段",
+  "engineeringSuggestionReadFailed": "修改建议读取失败，重试后继续审查。",
+  "engineeringSuggestionApplyFailed": "修改未确认成功，请重试或检查当前项目。",
+  "engineeringSuggestionStale": "项目或证据已经变化，此建议不能应用。请重新提出建议。",
+  "engineeringSuggestionRevision": "基于项目修订 {{revision}}",
+  "engineeringSuggestionBefore": "修改前",
+  "engineeringSuggestionAfter": "修改后",
+  "engineeringSuggestionImpact": "确认后递增项目修订，旧计算计划需重新审查。此修改不会转换已导入坐标、改写原始观测或重新计算历史成果；新设置在后续操作中使用。历史记录保留；撤销需再次修改并确认。",
+  "engineeringSuggestionApply": "确认修改",
+  "engineeringSuggestionReject": "不采用",
+  "engineeringSuggestionStatus": {
+    "pending": "待确认",
+    "applied": "已应用",
+    "rejected": "未采用",
+    "stale": "已过期"
+  }
 }
