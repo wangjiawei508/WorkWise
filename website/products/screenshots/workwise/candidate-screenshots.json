@@ -1,0 +1,22 @@
+{
+  "sourceHead": "613e99012a0b004d19e36f626950da0e6745614c",
+  "kind": "installed-candidate-screenshots",
+  "locale": "zh-CN",
+  "theme": "light",
+  "data": "synthetic repository fixture golden-plane-control-e2e.in2; not a real project",
+  "released": false,
+  "screenshots": [
+    {
+      "path": "04-survey-candidate-zh-light.jpg",
+      "sha256": "23e6f70436c6dd1b868d0b8ff729dc51fdaf1b95b289f7fb2c2e98b774c17d77"
+    },
+    {
+      "path": "05-survey-candidate-delivery.jpg",
+      "sha256": "16e5b54139b4d77a4ae3285ca1ddedba75753c3af3ef5a70f359fb907708672c"
+    },
+    {
+      "path": "06-candidate-model-settings.jpg",
+      "sha256": "93c8c5746eb9b5f334e5c62f5d3661f42ac6ce3c4d89aeff05bc1a230dd8a2a2"
+    }
+  ]
+}

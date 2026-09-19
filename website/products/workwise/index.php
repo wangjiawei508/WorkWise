@@ -5,8 +5,8 @@ $workwiseManifest = rw_workwise_manifest();
 $workwiseDocs = rw_workwise_docs();
 $currentPage = 'products';
 $bodyClass = 'page-product page-product-workwise';
-$pageTitle = 'WorkWise 0.5.0 · 工程测量与 AI 工作台';
-$pageDesc = 'WorkWise 0.5.0 新增工程测量工作台，并提供统一插件市场、DeepSeek Harness 结构化附件处理与清晰可读的桌面工作区。';
+$pageTitle = 'RAILWISE AI · Survey 工程测量内业';
+$pageDesc = 'RAILWISE Survey 将原始测量资料处理为可审查、可追溯的成果：导入预检、建网平差、精度分析与待审查成果包。新版候选正在验收，正式下载仍为 WorkWise 0.5.0。';
 $pageKeywords = 'WorkWise,WorkWise 0.5.0,工程测量工作台,DeepSeek V4.1-Flash,deepseek-flash,统一插件市场,Codex 插件,DeepSeek Harness,结构化视觉,应用内更新,Skills,MCP,AI 工作台';
 $pageHeroVisualKey = 'product-workwise';
 $pageOgImage = 'https://www.railwise.cn/images/heroes/desktop/product-workwise.jpg';
@@ -26,53 +26,39 @@ $workwiseDownloads = array_map(static function (array $item): array {
   ];
 }, is_array($workwiseManifest['platforms'] ?? null) ? $workwiseManifest['platforms'] : []);
 $workwiseShots = [
-  ['src' => '/products/screenshots/workwise/01-workbench-dark.png', 'title' => 'Code / Survey 工作台', 'desc' => '新版工作台把工程测量入口与代码任务放在同一侧栏。'],
-  ['src' => '/products/screenshots/workwise/02-workbench-light.png', 'title' => '中文浅色工作台', 'desc' => '实色高对比界面，适合长时间扫描项目与会话。'],
-  ['src' => '/products/screenshots/workwise/03-settings-v41.png', 'title' => 'Settings 与模型配置', 'desc' => '统一管理语言、主题、Provider 和默认模型。'],
+  ['src' => '/products/screenshots/workwise/04-survey-candidate-zh-light.jpg', 'title' => '工程测量内业 · 中文浅色', 'desc' => '候选包实拍，使用合成演示数据；展示工程任务、当前阶段与持续 AI 会话。'],
+  ['src' => '/products/screenshots/workwise/05-survey-candidate-delivery.jpg', 'title' => '候选成果与审查', 'desc' => 'DOCX、PDF、XLSX 与文件哈希集中展示，草稿与已审查成果明确区分。'],
+  ['src' => '/products/screenshots/workwise/06-candidate-model-settings.jpg', 'title' => '模型设置', 'desc' => 'DeepSeek V4.1-Flash 使用 deepseek-flash；服务地址与凭据由用户配置。'],
 ];
 $workwiseWriteShots = $workwiseShots;
 $workwiseCapabilities = [
-  ['title' => 'DeepSeek V4.1-Flash 原生默认', 'desc' => '0.5.0 默认模型为官方 API ID `deepseek-flash`，支持文本、视觉、工具调用、JSON 与 Responses API；1M 上下文，最高 384K 输出。`deepseek-v4-pro` 仍可显式选择。', 'icon' => 'fas fa-bolt', 'tone' => 'workwise-code'],
-  ['title' => 'DeepSeek Harness 附件视觉证据', 'desc' => 'WorkWise Runtime 按模型能力发送结构化 text/image 部分；文本模型使用本机回环分析器生成 OCR、布局、语义和视觉摘要，失败时明确终止，不把图片退回为模型提示中的 Base64 文本。', 'icon' => 'fas fa-eye', 'tone' => 'workwise-write'],
-  ['title' => '统一插件市场', 'desc' => '把 Skill、MCP 和 CLI 放进同一目录，按推荐、已安装、可更新、需配置、分类和来源筛选，并集中查看版本、许可证、权限、认证与健康状态。', 'icon' => 'fas fa-boxes-stacked', 'tone' => 'workwise-plugin'],
-  ['title' => 'Codex 与 MCPB 兼容', 'desc' => '支持 WorkWise .wwx、Codex .codex-plugin、标准 .mcpb、Codex marketplace 和 MCP Registry；仅依赖 Codex App Connector 的能力会明确标注。', 'icon' => 'fas fa-puzzle-piece', 'tone' => 'workwise-skills'],
-  ['title' => '可验证安装与回滚', 'desc' => '安装前检查来源、许可证、权限、哈希、路径和依赖，使用 staging 原子切换；权限扩张必须重新审查，并保留单版本回滚。', 'icon' => 'fas fa-shield-halved', 'tone' => 'workwise-update'],
-  ['title' => '克制的原生玻璃界面', 'desc' => '玻璃效果仅用于启动窗口、标题栏和临时浮层；侧边栏、编辑器与文档区域保持实色、高对比和清晰可读。', 'icon' => 'fas fa-layer-group', 'tone' => 'workwise-session'],
-  ['title' => '工程测量工作台', 'desc' => '项目数据、格式诊断、闭合差、控制网平差与 PDF/XLSX 成果集中处理，保留原始观测、单位及来源。COSA IN1/IN2 用作输入，OU1/OU2 用于只读成果比较；RW5 等来源按诊断归档，GNSS 原始数据需后处理。', 'icon' => 'fas fa-compass', 'tone' => 'workwise-local'],
-  ['title' => 'Code 工作台', 'desc' => '围绕本地仓库理解、修改、测试与发布，提供 Repo Map、定义引用与诊断信息。', 'icon' => 'fas fa-code', 'tone' => 'workwise-code'],
-  ['title' => 'Write 写作工作台', 'desc' => '从结构化写作到 DOCX、PDF 等交付，导出产物经过格式校验。', 'icon' => 'fas fa-pen-nib', 'tone' => 'workwise-write'],
-  ['title' => 'Design 设计工作台', 'desc' => '多页画板、文档专属 Agent 会话和选中元素定向修改；支持可编辑 PPTX 原生导入，并为复杂页面保留整页视觉参考。', 'icon' => 'fas fa-object-group', 'tone' => 'workwise-update'],
-  ['title' => 'PPT 生产与交付', 'desc' => '内置经审计的 PPT Master 4.3.0，从项目确认、Python 环境、生成、交付验证到 PPTX 导出形成完整链路。', 'icon' => 'fas fa-file-powerpoint', 'tone' => 'workwise-write'],
-  ['title' => 'Flow Preview 工作台', 'desc' => '类型化节点、持久化执行、运行历史、发布校验和失败恢复，Preview 能力可视化编排复杂任务。', 'icon' => 'fas fa-diagram-project', 'tone' => 'workwise-update'],
-  ['title' => '通用附件与本地检索', 'desc' => '支持 PDF、DOCX、XLSX、PPTX、TXT、Markdown、CSV 及 PNG/JPEG/WebP，长文档按需读取并保留页码、工作表或幻灯片来源。', 'icon' => 'fas fa-paperclip', 'tone' => 'workwise-write'],
-  ['title' => '应用内更新', 'desc' => '接入 railwise.cn 更新源，下载、保存工作内容、建立检查点后再重启更新。', 'icon' => 'fas fa-arrows-rotate', 'tone' => 'workwise-session'],
-  ['title' => '可靠任务执行', 'desc' => '任务、节点、检查点与租约可恢复；完成需满足最终响应和必要产物校验。', 'icon' => 'fas fa-list-check', 'tone' => 'workwise-session'],
-  ['title' => '多智能体协作', 'desc' => 'DeepSeek V4.1-Flash 进入统一的 WorkWise Agent Runtime，通用、探索、审查、研究 Agent 可拆分子任务并保留状态与预算边界。', 'icon' => 'fas fa-people-arrows', 'tone' => 'workwise-skills'],
-  ['title' => 'MCP V2 与安全凭据', 'desc' => '统一管理 MCP、OAuth PKCE 与凭据引用；令牌进入系统安全存储，不写入插件目录、普通 JSON、日志或命令参数。', 'icon' => 'fas fa-plug', 'tone' => 'workwise-plugin'],
-  ['title' => '本地工作区与 Git', 'desc' => '四级信任、非破坏性 Git 检查点与预览回滚，方便长期项目稳步推进。', 'icon' => 'fas fa-laptop-code', 'tone' => 'workwise-local'],
+  ['title' => '导入与预检', 'desc' => '先检查内容签名、记录结构、单位与来源。需要转换器、GNSS 后处理或仅可归档的资料会给出明确处置，不能直接开始平差。', 'icon' => 'fas fa-file-import', 'tone' => 'workwise-local'],
+  ['title' => '建网与确定性平差', 'desc' => '选择工程任务，确认控制点和基准。P0 验收聚焦 GSI 水准观测与 COSA IN2 控制网，数值由本地 Runtime 生成。', 'icon' => 'fas fa-compass', 'tone' => 'workwise-code'],
+  ['title' => '分析与精度', 'desc' => '集中查看闭合差、残差、点位精度、观测数与冗余度。异常记录保留来源定位，供工程人员复核。', 'icon' => 'fas fa-chart-line', 'tone' => 'workwise-session'],
+  ['title' => '成果与审查', 'desc' => '生成 DOCX、PDF 和 XLSX，记录文件哈希与运行来源。当前清单为待审查草稿；复核、批准和数字签名流程仍在建设。', 'icon' => 'fas fa-file-export', 'tone' => 'workwise-write'],
+  ['title' => '持续 AI 协作', 'desc' => 'DeepSeek V4.1-Flash（deepseek-flash）协助理解、解释与规划。计算或导出计划需确认；模型不可用时可继续手动确定性操作。', 'icon' => 'fas fa-comments', 'tone' => 'workwise-skills'],
+  ['title' => '平台辅助工具', 'desc' => '编程与内业是主入口；写作、设计、Flow、插件及定时任务提供辅助。Survey 与这些工具的深度专业联动属于后续计划。', 'icon' => 'fas fa-layer-group', 'tone' => 'workwise-plugin'],
 ];
 $workwiseStatus = [
-  ['label' => '正式可用', 'title' => '核心链路已可交付', 'text' => implode('、', $workwiseManifest['capabilityStatus']['stable'] ?? []) . '。', 'icon' => 'fas fa-circle-check'],
-  ['label' => '预览能力', 'title' => '持续扩展智能体能力', 'text' => implode('、', $workwiseManifest['capabilityStatus']['preview'] ?? []) . '。', 'icon' => 'fas fa-flask'],
-  ['label' => '发展方向', 'title' => '上游 Harness 兼容评估与能力扩展', 'text' => implode('、', $workwiseManifest['capabilityStatus']['roadmap'] ?? []) . '。', 'icon' => 'fas fa-route'],
+  ['label' => '正式下载', 'title' => 'WorkWise 0.5.0', 'text' => '下方下载沿用已发布版本；本页新命名与四阶段界面为候选预览。', 'icon' => 'fas fa-download'],
+  ['label' => '候选验收', 'title' => 'RAILWISE Survey 核心内业链', 'text' => '真实 GSI 与 IN2 的导入、平差、成果生成已在本机候选中走通；专业复核、公证及真实升级往返尚待完成。', 'icon' => 'fas fa-flask'],
+  ['label' => '后续计划', 'title' => '专业可信度与生态扩展', 'text' => '规范规则、质量评定、高级平差、外业采集与点云仍在计划中，不作为当前已交付能力宣传。', 'icon' => 'fas fa-route'],
 ];
 $workwiseAdvantages = [
-  ['title' => '从聊天到可靠任务', 'desc' => '任务在中断后可恢复；只有最终响应、必要节点和产物都校验通过才算完成。', 'icon' => 'fas fa-list-check'],
-  ['title' => '插件安装先审查再执行', 'desc' => '来源、版本、许可证、权限、脚本、网络域和完整性摘要集中展示，第三方更新默认只通知。', 'icon' => 'fas fa-shield-halved'],
-  ['title' => '在线目录也能离线追溯', 'desc' => 'Git 与 HTTPS 目录记录 ETag、commit SHA 和可信快照；离线时仍可查看上次同步结果与来源。', 'icon' => 'fas fa-cloud-arrow-down'],
-  ['title' => 'PPT 往返编辑更可靠', 'desc' => '可编辑 PPTX 原生导入保留文字、形状、图片和连线；复杂页面可使用整页参考图并按页重新导入。', 'icon' => 'fas fa-object-group'],
-  ['title' => '桌面工作区更可控', 'desc' => '四级工作区信任、凭据引用和非破坏性 Git 检查点，让复杂任务更容易回看与恢复。', 'icon' => 'fas fa-laptop-code'],
-  ['title' => '写作与经验可以积累', 'desc' => 'Word 模板、AI Word 与经审计的专业 Skills，让写作、排版和方法复用进入同一套工作流。', 'icon' => 'fas fa-file-export'],
-  ['title' => '附件先在本地处理', 'desc' => '文档和图片在本地解析，长文档按需检索；图片视觉证据只作为不可信参考，回答可以回到页码、工作表或幻灯片来源。', 'icon' => 'fas fa-paperclip'],
-  ['title' => '更新过程可控', 'desc' => '首次点击只下载；再次点击才重启更新，应用会先保存编辑内容、列出活动任务并建立检查点。', 'icon' => 'fas fa-arrows-rotate'],
+  ['title' => '一个任务贯穿四个阶段', 'desc' => '原始文件、网络、运行与成果沿用同一任务上下文，减少在分散页面中寻找当前工作。', 'icon' => 'fas fa-compass'],
+  ['title' => '问题与下一步一起呈现', 'desc' => '缺少控制点、单位不明或解析失败时保留具体诊断；修正输入并重新校核后才能计算。', 'icon' => 'fas fa-list-check'],
+  ['title' => '数字来自可核对的运行', 'desc' => '来源 SHA-256、解析器身份、原始记录锚点与算法版本跟随结果，便于复核计算依据。', 'icon' => 'fas fa-file-circle-check'],
+  ['title' => '候选成果明确标注', 'desc' => '文件生成、待审查清单和正式批准是不同状态。当前候选不会把预览自动认定为可交付成果。', 'icon' => 'fas fa-clipboard-check'],
 ];
 $workwiseExportFeatures = [
-  ['title' => 'Word 模板系统', 'desc' => '内置学术论文、行政公文、商务报告和技术文档模板，可调整中西文字体、行距与缩进。', 'icon' => 'fas fa-file-word'],
-  ['title' => '文档交付校验', 'desc' => 'DOCX、XLSX、PPTX、PDF 等成果在交付前进行格式校验，避免伪装文件混入成果。', 'icon' => 'fas fa-file-export'],
-  ['title' => '设计与演示联动', 'desc' => 'Design 画板可导入和导出 PPTX，也可输出 PNG、SVG，或保存到 Write 工作区继续编排报告。', 'icon' => 'fas fa-object-group'],
-  ['title' => '已审计专业 Skills', 'desc' => '专业能力包经过来源、路径、体积和交付边界检查，降低安装与复用风险。', 'icon' => 'fas fa-shield-halved'],
+  ['title' => '报告与证据表', 'desc' => 'DOCX、PDF 与 XLSX 来自同一确定性成果来源，包含运行和输入引用。', 'icon' => 'fas fa-file-word'],
+  ['title' => '文件完整性', 'desc' => '每份输出记录 SHA-256，可核对磁盘文件是否与清单一致。', 'icon' => 'fas fa-fingerprint'],
+  ['title' => '历史记录保留', 'desc' => '每次待审查清单独立保存，保留历史版本与人工处置记录。', 'icon' => 'fas fa-clock-rotate-left'],
+  ['title' => '人工审查边界', 'desc' => '预览和草稿不代表审核批准。数字签名及完整质量评定链属于后续专业能力。', 'icon' => 'fas fa-user-check'],
 ];
 $workwiseUseCases = [
+  ['title' => '控制网与水准网内业', 'desc' => '导入原始观测，检查控制点、单位和几何条件，完成平差与精度复核。', 'icon' => 'fas fa-compass'],
+  ['title' => '工程成果复核', 'desc' => '把残差、闭合差、点位精度与原始记录对应起来，形成待审查证据包。', 'icon' => 'fas fa-file-check'],
   ['title' => '长文档写作', 'desc' => '从 Markdown 到 Word / PDF，减少反复搬运。', 'icon' => 'fas fa-file-export'],
   ['title' => '桌面端 AI 工作区', 'desc' => '用图形化界面管理会话、模板、Skills 和项目资料。', 'icon' => 'fas fa-desktop'],
   ['title' => '项目资料整理', 'desc' => '把资料、会话和成果放进同一个工作区。', 'icon' => 'fas fa-folder-tree'],
@@ -113,8 +99,8 @@ $pageJsonLd = [
 ];
 $rwConversionDock = [
   'eyebrow' => 'WORKWISE DEMO',
-  'title' => '预约 WorkWise 场景演示',
-  'description' => '带上真实文档、项目目录或插件场景，我们按你的工作流演示 Code / Write / Skills / 插件市场。',
+  'title' => '预约 RAILWISE AI 场景演示',
+  'description' => '围绕工程测量内业、代码协作或文档编排，演示从资料处理到可复核成果的工作流程。',
   'subject' => 'WorkWise 产品演示',
   'product' => 'workwise',
   'source' => 'product',
@@ -133,14 +119,15 @@ require_once __DIR__ . '/../../includes/header.php';
       <i class="fas fa-chevron-right"></i>
       <a href="/products">产品矩阵</a>
       <i class="fas fa-chevron-right"></i>
-      <span>WorkWise</span>
+      <span>RAILWISE AI</span>
     </div>
     <div class="pd-hero-grid">
       <div class="pd-hero-text">
-        <div class="pd-eyebrow"><span class="dot"></span> DeepSeek V4.1-Flash 原生默认支持 <span class="pd-product-badge brand-workwise">WorkWise</span></div>
-        <h1 class="pd-title">WorkWise · 让 AI 进入真实工作流</h1>
-        <p class="pd-subtitle">V4.1-Flash 默认模型 · Survey 工程测量工作台</p>
-        <p class="pd-desc">WorkWise 0.5.0 新增工程测量工作台：集中管理测量项目与原始数据，完成格式诊断、闭合差与平差复核，导出可追溯成果。工程数值由确定性计算服务生成，AI 协助解释与编排；继续提供 Code、Write、Design 和统一插件市场。</p>
+        <div class="pd-eyebrow"><span class="dot"></span> DeepSeek V4.1-Flash 原生默认支持 <span class="pd-product-badge brand-workwise">RAILWISE AI</span></div>
+        <h1 class="pd-title">RAILWISE Survey · 从原始测量资料到可追溯成果</h1>
+        <p class="pd-subtitle">RAILWISE AI 平台 · 工程测量内业</p>
+        <p class="pd-desc">面向内业计算员，在同一工程任务中完成导入与预检、建网与平差、分析与精度、成果与审查。AI 持续协助理解问题、解释证据和规划步骤；坐标、高程、闭合差与精度由确定性计算服务生成。</p>
+        <p class="pd-desc"><strong>新版候选预览：</strong>本页四阶段界面正在安装包验收，尚未作为正式版本发布。下方下载仍对应已发布的 WorkWise 0.5.0；候选成果需人工审查，不等于已批准交付。</p>
         <div class="pd-cta-row">
           <a href="#download" class="pd-btn primary" <?php echo rw_tracking_attrs('conversion_click', ['location' => 'product_hero', 'label' => 'WorkWise 站内下载', 'product' => 'workwise', 'source' => 'product', 'destination' => 'local_mirror']); ?>>站内下载 <i class="fas fa-download"></i></a>
           <a href="https://kb.railwise.cn/products/workwise/" class="pd-btn ghost" <?php echo rw_tracking_attrs('conversion_click', ['location' => 'product_hero', 'label' => 'WorkWise 知识库', 'product' => 'workwise', 'source' => 'product', 'destination' => 'knowledge_base']); ?>>知识库文档 <i class="fas fa-book-open"></i></a>
@@ -156,7 +143,7 @@ require_once __DIR__ . '/../../includes/header.php';
           <span>MCP</span>
           <span>WWX / Codex / MCPB</span>
           <span>克制的玻璃界面</span>
-          <span>DOCX / PPTX / PDF</span>
+          <span>DOCX / PDF / XLSX</span>
           <span>Flow Preview</span>
           <span>V4.1-Flash · 默认模型</span>
           <span>deepseek-flash</span>
@@ -170,9 +157,9 @@ require_once __DIR__ . '/../../includes/header.php';
         <div class="pd-screenshot featured">
           <div class="pd-browser-bar">
             <span></span><span></span><span></span>
-            <div class="pd-url">WorkWise · Code / Survey 工作台</div>
+            <div class="pd-url">RAILWISE Survey · 中文浅色候选界面 · 演示数据</div>
           </div>
-          <img src="<?php echo htmlspecialchars(optimizeImage('/products/screenshots/workwise/02-workbench-light.png')); ?>" alt="WorkWise 中文浅色工作台" fetchpriority="high" decoding="async">
+          <img src="<?php echo htmlspecialchars(optimizeImage('/products/screenshots/workwise/04-survey-candidate-zh-light.jpg')); ?>" alt="RAILWISE Survey 中文浅色候选界面，使用合成演示数据" fetchpriority="high" decoding="async">
         </div>
       </div>
     </div>
@@ -183,7 +170,7 @@ require_once __DIR__ . '/../../includes/header.php';
   <div class="container mx-auto px-6 max-w-7xl">
     <div class="pd-section-head">
       <div class="pd-eyebrow dark">DEEPSEEK V4.1-FLASH NATIVE</div>
-      <h2>默认就是 V4.1-Flash，工程工作流开箱可用</h2>
+      <h2>DeepSeek V4.1-Flash，协助理解与规划</h2>
       <p class="pd-section-sub">官方模型 ID `deepseek-flash` 贯穿 Agent、Write、Survey 和附件视觉路径；支持思考、工具调用、结构化输出与 1M 上下文。</p>
     </div>
     <div class="pd-caps-grid">
@@ -203,7 +190,7 @@ require_once __DIR__ . '/../../includes/header.php';
           <span class="pd-cap-ico workwise-skills"><i class="fas fa-diagram-project"></i></span>
           <div>
             <span class="pd-eyebrow dark">1M CONTEXT · UP TO 384K OUTPUT</span>
-            <h3>不是简单转发接口</h3>
+            <h3>长上下文与结构化工具调用</h3>
             <p><?php echo htmlspecialchars($workwiseVersion); ?> 按 DeepSeek V4.1-Flash 的 100 万 token 上下文与最高 384K 输出配置运行时，支持思考模式、工具调用、长对话延续、上下文压缩、缓存统计、JSON 与 Responses API。</p>
             <a href="https://api-docs.deepseek.com/quick_start/pricing" target="_blank" rel="noopener" class="cli-inline-link">查看 DeepSeek 官方模型说明 <i class="fas fa-arrow-up-right-from-square"></i></a>
           </div>
@@ -227,14 +214,14 @@ require_once __DIR__ . '/../../includes/header.php';
 <section class="pd-section">
   <div class="container mx-auto px-6 max-w-7xl">
     <div class="pd-section-head">
-      <div class="pd-eyebrow dark">WHY WORKWISE</div>
-      <h2>WorkWise 的差异化优势</h2>
-      <p class="pd-section-sub">它不是单纯的聊天窗口，而是把 Desktop 的本地工作区、代码、写作、设计、Skills 管理和成果交付能力合并到真实产品里。</p>
+      <div class="pd-eyebrow dark">SURVEY WORKFLOW</div>
+      <h2>围绕工程测量生产链组织工作</h2>
+      <p class="pd-section-sub">每一步都有明确输入、处理状态与证据。遇到缺少控制点、单位不明或需要后处理的资料，先补足条件再计算。</p>
     </div>
     <div class="ww-advantage-layout">
       <div class="ww-advantage-visual">
-        <div class="ww-visual-tag">WorkWise Workflow</div>
-        <img src="<?php echo htmlspecialchars(optimizeImage('/products/screenshots/workwise/02-workbench-light.png')); ?>" alt="WorkWise 中文浅色工作台" loading="lazy" decoding="async">
+        <div class="ww-visual-tag">RAILWISE Survey · 候选预览</div>
+        <img src="<?php echo htmlspecialchars(optimizeImage('/products/screenshots/workwise/04-survey-candidate-zh-light.jpg')); ?>" alt="RAILWISE Survey 中文浅色候选界面，使用合成演示数据" loading="lazy" decoding="async">
         <div class="ww-visual-points">
           <span><i class="fas fa-layer-group"></i> Skills</span>
           <span><i class="fas fa-file-word"></i> DOCX</span>
@@ -262,7 +249,7 @@ require_once __DIR__ . '/../../includes/header.php';
     <div class="pd-section-head">
       <div class="pd-eyebrow">CORE CAPABILITIES</div>
       <h2>核心能力</h2>
-      <p class="pd-section-sub">围绕 Code、Write、Design、可靠任务、Skills 和插件市场，覆盖从处理问题到交付成果的完整链路。</p>
+      <p class="pd-section-sub">主入口为“编程 / 内业”。写作、设计、Flow、插件与定时任务作为侧边工具，围绕当前工作提供辅助。</p>
     </div>
     <div class="pd-caps-grid">
       <?php foreach ($workwiseCapabilities as $item): ?>
@@ -361,7 +348,7 @@ require_once __DIR__ . '/../../includes/header.php';
     <div class="pd-section-head">
       <div class="pd-eyebrow dark">DOCUMENTATION</div>
       <h2>从下载到交付的使用文档</h2>
-      <p class="pd-section-sub">详细教程由 RailWise 知识库维护；DeepSeek Harness 接入边界同时提供可核对的仓库说明，版本、下载与产品页保持同步。</p>
+      <p class="pd-section-sub">详细教程由 RailWise 知识库维护；DeepSeek Harness 接入边界同时提供可核对的仓库说明，正式版本说明与候选预览分别标注。</p>
     </div>
     <div class="ww-doc-grid">
       <?php foreach ($workwiseDocs as $key => $doc): ?>
@@ -378,15 +365,15 @@ require_once __DIR__ . '/../../includes/header.php';
 <section class="pd-section dark">
   <div class="container mx-auto px-6 max-w-7xl">
     <div class="pd-section-head">
-      <div class="pd-eyebrow">WRITE & EXPORT</div>
-      <h2>写作与导出</h2>
-      <p class="pd-section-sub">这里不是简单截图展示，而是 WorkWise 当前很实用的交付能力。</p>
+      <div class="pd-eyebrow">DELIVERABLES & REVIEW</div>
+      <h2>成果文件与审查证据</h2>
+      <p class="pd-section-sub">工程成果进入待审查清单；通用写作与设计工具继续提供文档和演示材料编排。</p>
     </div>
     <div class="ww-write-layout">
       <div class="ww-write-copy">
-        <span class="ww-write-kicker">AI WORD SKILLS</span>
-        <h3>从 Markdown、画板到 Word / PPTX / PDF，把内容真正交付出去</h3>
-        <p>WorkWise 的交付能力重点不是“能聊天”，而是把 Word 模板、专业 Skills、长文档编辑、Design 画板与 DOCX / PPTX / PDF 成果放进同一条链路里。</p>
+        <span class="ww-write-kicker">DETERMINISTIC RESULTS</span>
+        <h3>把计算结果整理成可复核的 DOCX / PDF / XLSX</h3>
+        <p>Survey 输出的数值来自确定性运行。成果文件附有 SHA-256，运行记录保留输入与算法身份。人工复核、批准和数字签名属于独立环节，生成文件不会自动改变审查状态。</p>
         <div class="ww-export-grid">
           <?php foreach ($workwiseExportFeatures as $item): ?>
           <div class="ww-export-card">
@@ -401,16 +388,16 @@ require_once __DIR__ . '/../../includes/header.php';
         <div class="pd-screenshot featured">
           <div class="pd-browser-bar">
             <span></span><span></span><span></span>
-            <div class="pd-url">Write / Design · Verified Export</div>
+            <div class="pd-url">Survey · 待审查成果</div>
           </div>
-          <img src="<?php echo htmlspecialchars(optimizeImage('/products/screenshots/workwise/03-settings-v41.png')); ?>" alt="WorkWise 设置与模型配置" loading="lazy" decoding="async">
+          <img src="<?php echo htmlspecialchars(optimizeImage('/products/screenshots/workwise/05-survey-candidate-delivery.jpg')); ?>" alt="Survey 候选成果预览与文件哈希" loading="lazy" decoding="async">
         </div>
         <div class="ww-export-flow">
-          <span>Markdown</span>
+          <span>确定性计算</span>
           <i class="fas fa-arrow-right"></i>
-          <span>Word Templates / Design</span>
+          <span>成果预览</span>
           <i class="fas fa-arrow-right"></i>
-          <span>DOCX / PPTX / PDF</span>
+          <span>DOCX / PDF / XLSX</span>
         </div>
       </div>
     </div>

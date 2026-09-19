@@ -64,7 +64,7 @@ The user-provided consolidated plan supersedes the earlier D-04 platform naming 
 - [ ] Verify ordinary questions, modification confirmation cards, typed execution approvals, evidence-to-record navigation and model-offline manual operation.
 - [ ] Centralize RAILWISE AI / RAILWISE Survey display naming, migrate menus/settings/startup/about/candidate display and brand assets; retain technical identifiers and record the migration matrix.
 - [ ] Complete Survey English/Chinese locale validation, theme/window/accessibility acceptance in the exact packaged candidate.
-- [ ] Complete current-head desktop and Runtime tests, lint, typecheck, build and strict specification validation with separate command evidence.
+- [x] Complete current-head desktop and Runtime tests, lint, typecheck, build and strict specification validation with separate command evidence.
 - [ ] Complete candidate signing/notarization, isolated install, two P0 format GUI delivery runs, restart and real private updater round trip; obtain human UI/professional confirmation.
 - [ ] P1 after P0 acceptance: versioned standards and GB/T 24356-2023 quality chain, residual-to-record navigation, replay/signatures, advanced adjustment methods and second-batch format admission.
 - [ ] P2 after P0 acceptance: GeoCOM, coordinate/engineering expansion, DXF/point clouds/3D, outward MCP, audited binary converters, Survey/Write/Design/Flow collaboration.
