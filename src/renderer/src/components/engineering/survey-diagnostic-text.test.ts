@@ -3,6 +3,16 @@ import { surveyDiagnosticText, surveyLegacyDiagnosticText, surveyRuntimeErrorTex
 import { lexLeicaGsi } from '../../../../../kun/src/engineering/survey-leica-gsi-lexer'
 
 describe('Survey diagnostic presentation compatibility', () => {
+  it('translates the rejected-source envelope through nested eligibility without rewriting IDs', () => {
+    const message = '无法通过内容签名安全识别测量文件；不会回退为通用 CSV'
+    const envelope = `archive-only: unknown_format — ${message}`
+    expect(surveyLegacyDiagnosticText(envelope, 'en')).toBe('archive-only: unknown_format — The source format cannot be safely identified from its content signature; generic CSV fallback is disabled.')
+    expect(surveyLegacyDiagnosticText(`源文件处置为 archive-only，不得进入平差：${envelope}`, 'en')).not.toMatch(/\p{Script=Han}/u)
+    expect(surveyLegacyDiagnosticText(envelope, 'zh')).toBe(envelope)
+    const unknown = 'archive-only: custom_code — 原始用户文本'
+    expect(surveyLegacyDiagnosticText(unknown, 'en')).toBe(unknown)
+    expect(surveyLegacyDiagnosticText(`COSA .in1 已知点 ${envelope} 重复。`, 'en')).toBe(`COSA .in1 known point ${envelope} is duplicated.`)
+  })
   it('renders actual rejected GSI records in English without changing their audit anchors', () => {
     for (const source of ['', '中文', 'AA0001+00000001', '110001+1234', '110001+00000001;210001+00000002', '510001+1234']) {
       const result = lexLeicaGsi(source)

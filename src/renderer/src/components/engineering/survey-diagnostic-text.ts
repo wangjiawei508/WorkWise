@@ -53,6 +53,10 @@ const nestedDiagnosticParameters: Record<string, readonly number[]> = {
 function translatedServiceTemplate(text: string, depth = 0): string | undefined {
   if (depth > 3 || text.length > 16384) return undefined
   if (Object.prototype.hasOwnProperty.call(legacyActions, text)) return legacyActions[text]
+  // dispositionReason wraps a system diagnostic in a stable disposition/code
+  // envelope. Its message is translatable; opaque identifiers are not.
+  const disposition = /^(archive-only|converter-required|gnss-processing-required|adjustment-ready): ([a-z][a-z0-9_]*) — ([\s\S]+)$/.exec(text)
+  if (disposition) return `${disposition[1]}: ${disposition[2]} — ${translatedServiceTemplate(disposition[3]!, depth + 1) ?? disposition[3]}`
   for (const { source, literals, parameters, english } of serviceTemplates) {
     if (!text.startsWith(literals[0]!)) continue
     let cursor = literals[0]!.length

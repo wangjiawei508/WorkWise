@@ -88,5 +88,6 @@
   "Leica GSI 数值语义校验失败：{0}": "Leica GSI numeric semantic validation failed: {0}",
   "核对原始 word 的 WI、单位码和数值；不得按数据宽度猜测精度或手工补写观测。": "Check the original word's WI, unit code and value; do not infer precision from data width or invent observations.",
   "GSI 记录没有 WI11 点号，已保留但未生成观测": "A GSI record has no WI11 point identifier; it was retained without generating an observation.",
-  "GSI 文件未产生可识别的方向、距离、天顶距或高差观测": "The GSI file produced no recognizable direction, distance, zenith-angle or height-difference observations."
+  "GSI 文件未产生可识别的方向、距离、天顶距或高差观测": "The GSI file produced no recognizable direction, distance, zenith-angle or height-difference observations.",
+  "无法通过内容签名安全识别测量文件；不会回退为通用 CSV": "The source format cannot be safely identified from its content signature; generic CSV fallback is disabled."
 }

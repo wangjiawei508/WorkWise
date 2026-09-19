@@ -1,4 +1,5 @@
 import type { SurveyXyErrorEllipseV1 } from '../contracts/survey.js'
+import { SURVEY_COVARIANCE_SYMMETRY_TOLERANCE } from './survey-adjustment-core.js'
 
 /** Extract explicitly indexed XY cofactors from the solver, never from a
  * legacy point.covariance whose shape and variance scale are unspecified. */
@@ -14,8 +15,12 @@ export function surveyErrorEllipse(
   }
   const [qxx, qxy, qyx, qyy] = values as [number, number, number, number]
   const magnitude = Math.max(Math.abs(qxx), Math.abs(qxy), Math.abs(qyx), Math.abs(qyy))
-  const tolerance = 64 * Number.EPSILON * magnitude
-  if (qxx < 0 || qyy < 0 || Math.abs(qxy - qyx) > tolerance) throw new Error('XY cofactor is not symmetric positive semidefinite')
+  // A dense inverse accumulates rounding across all unknowns; its XY block
+  // cannot be judged as though it came from a two-operation calculation.
+  // Use the canonical covariance symmetry policy, normalized to also work
+  // with very small cofactors. Average only after this bounded check passes.
+  const asymmetry = magnitude ? Math.abs(qxy / magnitude - qyx / magnitude) : 0
+  if (qxx < 0 || qyy < 0 || asymmetry > SURVEY_COVARIANCE_SYMMETRY_TOLERANCE) throw new Error('XY cofactor is not symmetric positive semidefinite')
   const offDiagonal = qxy / 2 + qyx / 2
   // Normalize first to avoid overflow/underflow in eigenvalue calculations.
   const a = magnitude ? qxx / magnitude : 0

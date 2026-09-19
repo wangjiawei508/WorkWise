@@ -1,8 +1,27 @@
 import { describe, expect, it } from 'vitest'
 import { surveyErrorEllipse } from './survey-error-ellipse.js'
+import { surveyMatrix } from './survey-adjustment-core.js'
 import { AdjustmentPointResultV1, SurveyXyErrorEllipseV1 } from '../contracts/survey.js'
 
 describe('XY standard error ellipse', () => {
+  it('accepts solver rounding using the canonical covariance symmetry policy', () => {
+    // The Hilbert matrix is symmetric positive definite. Its exact inverse
+    // has bottom-right block [[4410000,-1746360],[-1746360,698544]].
+    // Pivoted elimination introduces about 3e-13 relative asymmetry here.
+    const matrix = Array.from({ length: 6 }, (_, row) => Array.from({ length: 6 }, (_, column) => 1 / (row + column + 1)))
+    const inverse = surveyMatrix.invert(matrix).inverse!
+    const original = JSON.stringify(inverse)
+    const actual = surveyErrorEllipse(inverse, 4, 5, 1, false)
+    const expected = surveyErrorEllipse([[4410000, -1746360], [-1746360, 698544]], 0, 1, 1, false)
+    expect(actual.semiMajor / expected.semiMajor).toBeCloseTo(1, 8)
+    expect(actual.semiMinor / expected.semiMinor).toBeCloseTo(1, 8)
+    expect(actual.orientationRad).toBeCloseTo(expected.orientationRad!, 8)
+    expect(actual.covarianceXY[1]).toBe(actual.covarianceXY[2])
+    expect(JSON.stringify(inverse)).toBe(original)
+    // This policy does not turn a materially asymmetric matrix into evidence.
+    expect(() => surveyErrorEllipse([[1, 0.25], [0.2500000001, 1]], 0, 1, 1, false)).toThrow()
+    expect(() => surveyErrorEllipse([[1e-200, 0.25e-200], [0.2500000001e-200, 1e-200]], 0, 1, 1, false)).toThrow()
+  })
   it('matches a diagonal analytic covariance and applies variance exactly once', () => {
     const result = surveyErrorEllipse([[4e-6, 0], [0, 1e-6]], 0, 1, 9, true)
     expect(result.semiMajor).toBeCloseTo(0.006, 14)

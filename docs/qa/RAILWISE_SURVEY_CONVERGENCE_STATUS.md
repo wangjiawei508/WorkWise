@@ -170,3 +170,9 @@
 椭圆实现不是自由网、拟稳、方差分量、Baarda/t、抗差或增量平差的完成证明。新源码还需精确安装包 GUI 与专业确认。新增测试首次暴露的类型可空检查和文案断言已修正，最终全量结果另行记录。
 
 椭圆最终检查：桌面 2495 通过/2 跳过（311 文件），Runtime 1606 通过/3 跳过（140 文件）；双端类型检查、构建、OpenSpec strict 11/11 通过；lint 仅既有 Workbench Hook warning。追加旧算法分支与成果一致性断言后 P0 端到端补测通过。真实算法 6 副本重放记录见 [algorithm6-replay.json](./evidence/railwise-convergence-6c3f5f691a32/algorithm6-replay.json)。
+
+## f404608 真实候选失败与浮点对称修复
+
+[f404608 记录](./evidence/railwise-convergence-f404608d8e0d/README.md)：签名通过，公证缺失；GSI 包内 Runtime 通过，但 IN2 被新增椭圆过严的浮点对称阈值阻断。候选验收记为失败。源码修复将椭圆对称校核统一到既有协方差规则，保留非正定/明显不对称拒绝和原数值/hash边界。解析 Hilbert 逆回归旧代码失败、新代码通过；真实 IN2 修正版编译服务成果与独立参考通过，尚待新精确候选。
+
+修正最终检查：桌面 2496 通过/2 跳过，Runtime 1607 通过/3 跳过；双端类型、构建、严格 OpenSpec 11/11 通过，lint 保持 0 error/1 条既有 warning。算法 6 数据库副本严格重放仍通过，结果 SHA-256 未变。英文 GUI 暴露的 unknown-format 及 disposition/code 嵌套中文已增加受限显示适配和 opaque ID 回归；新包待复验。COSA .NET 独立原型没有接入生产界面，其临时译文未计入完成项。
