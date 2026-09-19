@@ -201,3 +201,14 @@ The workspace MUST expose four production stages and keep its AI conversation mo
 #### Scenario: Draft output exists
 - **WHEN** a report preview or a draft manifest contains files
 - **THEN** the summary calls it candidate output and retains its actual review status
+
+### Requirement: Exact evidence questions
+A question prepared from preflight, observations, residuals, closure, precision or delivery MUST retain its selected evidence reference across page navigation. The read-only conversation tool MUST resolve exact project-scoped observations, raw-record anchors, points and delivery records beyond summary row limits. Supplied network revisions and source hashes MUST be checked. Recorded output metadata MUST NOT be represented as a fresh file-integrity verification.
+
+#### Scenario: Ask about a later observation
+- **WHEN** a user selects observation 31 and changes the active page before sending
+- **THEN** the selected reference survives, and the tool returns that observation and its corresponding residual and original record rather than the first 20 rows
+
+#### Scenario: Evidence becomes stale or mismatched
+- **WHEN** selected revision/hash, observation/anchor or project/delivery identifiers disagree
+- **THEN** the read fails explicitly without substituting another record or executing a calculation

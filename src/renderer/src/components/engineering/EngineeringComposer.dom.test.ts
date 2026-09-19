@@ -6,7 +6,7 @@ import type { ComponentProps } from 'react'
 import type { FloatingComposer } from '../chat/FloatingComposer'
 import { EngineeringComposer } from './EngineeringComposer'
 import { useChatStore } from '../../store/chat-store'
-import { useEngineeringConversationDrafts } from './engineering-conversation-drafts'
+import { prepareEngineeringQuestion, useEngineeringConversationDrafts } from './engineering-conversation-drafts'
 
 let composer: ComponentProps<typeof FloatingComposer>
 vi.mock('../chat/FloatingComposer', () => ({ FloatingComposer: (props: ComponentProps<typeof FloatingComposer>) => { composer = props; return createElement('textarea', { value: props.input, onChange: (event: { target: { value: string } }) => props.setInput(event.target.value) }) } }))
@@ -68,6 +68,29 @@ describe('Survey composer continuity', () => {
     expect(sendMessage).toHaveBeenCalledWith(expect.stringContaining('"adjustmentId":"adjustment-1"'), 'agent', expect.objectContaining({ displayText: 'Explain this result' }))
     expect(sendMessage).toHaveBeenCalledWith(expect.stringContaining('"sourceRecordId":"record-19"'), 'agent', expect.any(Object))
     expect(sendMessage).toHaveBeenCalledWith(expect.stringContaining('"networkRevision":3'), 'agent', expect.any(Object))
+  })
+
+  it('pins a selected record across page navigation and clears it only after successful send', async () => {
+    const scope = JSON.stringify([workspaceRoot, 'project-a'])
+    prepareEngineeringQuestion(workspaceRoot, 'project-a', 'Explain the selected record', { section: 'preflight', networkId: 'old-network', networkRevision: 2, sourceRecordId: 'record-19', sourceSha256: 'old-hash' })
+    useEngineeringConversationDrafts.getState().update(scope, draft => ({ ...draft, viewContext: { section: 'result', networkId: 'new-network', networkRevision: 8 } }))
+    await render()
+    sendMessage.mockResolvedValueOnce(false)
+    await act(async () => composer.onSend())
+    expect(useEngineeringConversationDrafts.getState().drafts[scope]?.evidenceContext?.sourceRecordId).toBe('record-19')
+    await act(async () => composer.onSend())
+    expect(sendMessage).toHaveBeenLastCalledWith(expect.stringContaining('"networkId":"old-network"'), 'agent', expect.objectContaining({ displayText: 'Explain the selected record' }))
+    expect(useEngineeringConversationDrafts.getState().drafts[scope]?.evidenceContext).toBeUndefined()
+  })
+
+  it('shows and removes the selected reference without deleting the question', async () => {
+    const scope = JSON.stringify([workspaceRoot, 'project-a'])
+    prepareEngineeringQuestion(workspaceRoot, 'project-a', 'Explain this observation', { section: 'observations', observationId: 'obs-31' })
+    await render()
+    expect(container.textContent).toContain('obs-31')
+    await act(async () => container.querySelector<HTMLButtonElement>('button')!.click())
+    expect(useEngineeringConversationDrafts.getState().drafts[scope]).toMatchObject({ input: 'Explain this observation', evidenceContext: undefined, viewContext: undefined })
+    expect(container.textContent).not.toContain('obs-31')
   })
 
   it('routes professional files to preflight without parsing them as documents or losing the question', async () => {

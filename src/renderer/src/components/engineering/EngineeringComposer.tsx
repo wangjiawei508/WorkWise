@@ -95,16 +95,27 @@ export function EngineeringComposer({ workspaceRoot, projectId, ready, threadId,
     }
     if (!draft.input.trim() && !draft.attachments.length) return
     const text = draft.input.trim() || t('engineeringAttachmentOnlyPrompt')
-    const prompt = draft.viewContext ? `${text}\n\nCurrent Survey view (reference IDs only, not execution approval): ${JSON.stringify(draft.viewContext)}` : text
+    const context = draft.evidenceContext ?? draft.viewContext
+    const prompt = context ? `${text}\n\nSelected Survey evidence (reference IDs only, not execution approval; resolve current records before answering): ${JSON.stringify(context)}` : text
     const sent = await sendMessage(prompt, 'agent', {
       displayText: text,
       attachments: draft.attachments, attachmentIds: draft.attachments.map((item) => item.id),
       reasoningEffort: composerReasoningEffortRequestValue(effort)
     })
-    if (sent) update(scope, (value) => ({ ...value, input: value.input === draft.input ? '' : value.input, attachments: value.attachments.filter((item) => !draft.attachments.some((sentItem) => sentItem.id === item.id)), error: null }))
+    if (sent) update(scope, (value) => ({ ...value, input: value.input === draft.input ? '' : value.input, evidenceContext: value.evidenceContext === draft.evidenceContext ? undefined : value.evidenceContext, attachments: value.attachments.filter((item) => !draft.attachments.some((sentItem) => sentItem.id === item.id)), error: null }))
   }
 
-  return <FloatingComposer
+  const selected = draft.evidenceContext
+  const evidenceLabel = selected?.observationId ?? selected?.pointId ?? selected?.diagnosticCode
+    ?? selected?.outputPath?.split(/[\\/]/).pop() ?? selected?.manifestId
+    ?? (selected?.metric === 'closure' ? t('surveyClosureReview') : selected?.metric === 'precision' ? t('surveyMaxPointError') : selected?.sourceRecordId)
+
+  return <div className="min-w-0 w-full">
+    {selected ? <div role="status" className="mb-1 flex items-center gap-2 px-2 text-[11px] text-ds-muted">
+      <span className="min-w-0 flex-1 truncate" title={evidenceLabel}>{t('surveySelectedEvidence', { label: evidenceLabel ?? selected.section })}</span>
+      <button type="button" aria-label={t('surveyClearEvidence')} className="shrink-0 text-accent" onClick={() => update(scope, value => ({ ...value, viewContext: value.viewContext === value.evidenceContext ? undefined : value.viewContext, evidenceContext: undefined }))}>{t('surveyClearEvidence')}</button>
+    </div> : null}
+    <FloatingComposer
     variant="compact" forceToolbarRow workspaceRootOverride={workspaceRoot}
     input={draft.input} setInput={(input) => update(scope, (value) => ({ ...value, input }))}
     mode="agent" setMode={() => undefined} busy={Boolean(threadId) && busy}
@@ -124,5 +135,5 @@ export function EngineeringComposer({ workspaceRoot, projectId, ready, threadId,
     }}
     onRetryAttachment={(id) => void retryAttachment(id)}
     onSend={() => void send()} onInterrupt={(options) => { if (isCurrentThread()) void interrupt(options) }}
-  />
+  /></div>
 }

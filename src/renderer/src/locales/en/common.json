@@ -2912,5 +2912,9 @@
   "surveyKnownPointsHint": "One point per line: ID,height[,X,Y], in metres. Enter before choosing files. Explicit mappings are preserved with the import; conflicts block import and never replace source coordinates.",
   "surveyKnownPointsInvalid": "Invalid or duplicate control point on line {{row}}. Use ID,height or ID,height,X,Y with finite numbers.",
   "engineeringReviewSurveyInputs": "{{adjustments}} eligible adjustment(s) · {{deformations}} deformation result(s)",
-  "engineeringReviewSurveyAnalysis": "Completed deterministic Survey results with current source admission."
+  "engineeringReviewSurveyAnalysis": "Completed deterministic Survey results with current source admission.",
+  "surveyAskEvidence": "Ask Survey AI about {{label}}",
+  "surveyExplainEvidence": "Explain {{label}}, its source evidence, and anything requiring review.",
+  "surveySelectedEvidence": "Reference: {{label}}",
+  "surveyClearEvidence": "Remove reference"
 }

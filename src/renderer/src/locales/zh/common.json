@@ -2912,5 +2912,9 @@
   "surveyKnownPointsHint": "每行：点号,高程[,X,Y]，数值单位为米。请在选择文件前填写，输入将随原文件导入并保留映射证据；冲突数据会阻断，不自动替换原记录。",
   "surveyKnownPointsInvalid": "已知点第 {{row}} 行无效或点号重复。应为点号,高程，或点号,高程,X,Y；数值必须有限。",
   "engineeringReviewSurveyInputs": "{{adjustments}} 项准入通过的平差 · {{deformations}} 项变形结果",
-  "engineeringReviewSurveyAnalysis": "确定性 Survey 计算已完成，当前来源准入通过。"
+  "engineeringReviewSurveyAnalysis": "确定性 Survey 计算已完成，当前来源准入通过。",
+  "surveyAskEvidence": "询问 {{label}} 的测量 AI",
+  "surveyExplainEvidence": "请解释 {{label}} 的结果、原始依据及需要复核的问题。",
+  "surveySelectedEvidence": "引用：{{label}}",
+  "surveyClearEvidence": "移除引用"
 }

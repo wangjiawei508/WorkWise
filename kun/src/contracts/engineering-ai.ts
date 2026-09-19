@@ -76,6 +76,22 @@ export const EngineeringContextSnapshotV1 = z.object({
 export type EngineeringContextSnapshotV1 = z.infer<typeof EngineeringContextSnapshotV1>
 
 export const EngineeringPlanRiskV1 = z.enum(['read', 'write', 'export', 'threshold', 'archive'])
+/** Exact, read-only evidence selectors. Project ownership is resolved from the thread. */
+export const EngineeringEvidenceSelectionV1 = z.object({
+  networkId: z.string().min(1).max(200).optional(),
+  networkRevision: z.number().int().positive().optional(),
+  sourceSha256: z.string().min(1).max(100).optional(),
+  adjustmentId: z.string().min(1).max(200).optional(),
+  observationId: z.string().min(1).max(200).optional(),
+  sourceRecordId: z.string().min(1).max(200).optional(),
+  pointId: z.string().min(1).max(200).optional(),
+  diagnosticIndex: z.number().int().nonnegative().optional(),
+  manifestId: z.string().min(1).max(200).optional(),
+  runId: z.string().min(1).max(200).optional(),
+  outputSha256: z.string().min(1).max(100).optional()
+}).strict()
+export type EngineeringEvidenceSelectionV1 = z.infer<typeof EngineeringEvidenceSelectionV1>
+
 export const EngineeringPlanStepV1 = z.object({
   id: z.string().min(1).max(80),
   title: z.string().min(1).max(200),

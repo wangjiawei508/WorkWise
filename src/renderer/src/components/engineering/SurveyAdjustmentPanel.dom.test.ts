@@ -333,6 +333,34 @@ describe('SurveyAdjustmentPanel persisted state restoration', () => {
     expect(useEngineeringConversationDrafts.getState().drafts[scope]?.input).toBe('Keep my question')
   })
 
+  it('prepares preflight, observation, closure and precision questions with exact source references', async () => {
+    const focus = vi.fn()
+    const scope = JSON.stringify(['/survey', 'project-restored-001'])
+    const renderSection = async (preferredSection: 'network' | 'observations' | 'result'): Promise<void> => {
+      await act(async () => root.render(createElement(SurveyAdjustmentPanel, {
+        project: { id: 'project-restored-001', revision: 1, workspace: '/survey' }, runtimeReady: true, preferredSection, onOpenAi: focus
+      })))
+      await settle()
+    }
+    await renderSection('network')
+    runtimeRequest.mockClear()
+    await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="询问 mapping_required #2 的测量 AI"]')!.click())
+    expect(useEngineeringConversationDrafts.getState().drafts[scope]?.evidenceContext).toMatchObject({ networkId: network.id, sourceSha256: network.sourceFile.sha256, diagnosticCode: 'mapping_required', diagnosticIndex: 1, section: 'preflight', parserVersion: network.sourceFile.parserVersion })
+    await renderSection('observations')
+    await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="询问观测 obs-1 的测量 AI"]')!.click())
+    expect(useEngineeringConversationDrafts.getState().drafts[scope]?.evidenceContext?.observationId).toBe('obs-1')
+    await renderSection('result')
+    for (const metric of ['closure', 'precision']) {
+      const label = i18n.t(metric === 'closure' ? 'surveyClosureReview' : 'surveyMaxPointError')
+      const aria = i18n.t('surveyAskEvidence', { label })
+      const ask = [...container.querySelectorAll<HTMLButtonElement>('button')].find(item => item.getAttribute('aria-label') === aria)!
+      await act(async () => ask.click())
+      expect(useEngineeringConversationDrafts.getState().drafts[scope]?.evidenceContext).toMatchObject({ metric, adjustmentId: adjustment.run.id, networkRevision: network.revision, algorithmVersion: adjustment.result.algorithmVersion })
+    }
+    expect(focus).toHaveBeenCalledTimes(4)
+    expect(runtimeRequest.mock.calls.filter(([, method]) => method !== 'GET')).toHaveLength(0)
+  })
+
   it('keeps saved evidence readable but locks all computation entries after Runtime disconnects', async () => {
     await act(async () => root.render(createElement(SurveyAdjustmentPanel, {
       project: { id: 'project-restored-001', revision: 1 }, runtimeReady: false, preferredSection: 'network'

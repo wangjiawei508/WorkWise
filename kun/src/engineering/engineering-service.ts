@@ -648,6 +648,16 @@ export class EngineeringService {
     })
   }
   getRun(id: string): StoredRun | null { const row = this.db.prepare('SELECT data_json FROM engineering_runs WHERE id = ?').get(id) as { data_json: string } | undefined; return row ? JSON.parse(row.data_json) as StoredRun : null }
+  /** Historical descriptors only: this read does not reissue or approve artifacts. */
+  getPreviewEvidence(projectId: string, runId: string): { run: StoredRun; files: DeliverableManifestV1['outputs'] } | null {
+    const run = this.getRun(runId)
+    if (!run || run.projectId !== projectId) return null
+    const row = this.db.prepare('SELECT result_json FROM engineering_delivery_idempotency WHERE key = ? AND operation = ?').get(run.idempotencyKey, 'report-preview') as { result_json: string } | undefined
+    if (!row) return null
+    const stored = JSON.parse(row.result_json) as { run?: StoredRun; files?: unknown }
+    if (stored.run?.id !== run.id || stored.run.projectId !== projectId) throw new Error('preview evidence does not match its project/run')
+    return { run, files: DeliverableManifestV1.shape.outputs.parse(stored.files) }
+  }
   cancelRun(id: string, input?: unknown): StoredRun { const mutation = input ? RunMutationRequest.parse(input) : undefined; const replay = mutation ? this.replay(mutation.idempotencyKey) : null; if (replay) return replay as StoredRun; const run = this.getRun(id); if (!run) throw new Error('run not found'); if (mutation && mutation.expectedRevision !== 0 && mutation.expectedRevision !== run.revision) throw new EngineeringRevisionConflictError(`run revision conflict: expected ${mutation.expectedRevision}, actual ${run.revision}`); const next = { ...run, status: 'cancelled' as const, revision: run.revision + 1, updatedAt: this.nowIso() }; this.saveRun(next); if (mutation) this.remember(mutation.idempotencyKey, next); return next }
   resumeRun(id: string, input?: unknown): StoredRun { const mutation = input ? RunMutationRequest.parse(input) : undefined; const replay = mutation ? this.replay(mutation.idempotencyKey) : null; if (replay) return replay as StoredRun; const run = this.getRun(id); if (!run) throw new Error('run not found'); if (mutation && mutation.expectedRevision !== 0 && mutation.expectedRevision !== run.revision) throw new EngineeringRevisionConflictError(`run revision conflict: expected ${mutation.expectedRevision}, actual ${run.revision}`); if (run.status === 'completed') return run; const next = { ...run, status: 'queued' as const, revision: run.revision + 1, updatedAt: this.nowIso(), error: undefined }; this.saveRun(next); if (mutation) this.remember(mutation.idempotencyKey, next); return next }
   private saveRun(run: StoredRun): void { this.db.prepare('UPDATE engineering_runs SET data_json = ?, updated_at = ? WHERE id = ?').run(JSON.stringify(run), run.updatedAt, run.id) }

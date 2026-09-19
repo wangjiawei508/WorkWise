@@ -4,6 +4,7 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { EngineeringWorkspaceView } from './EngineeringWorkspaceView'
 import i18n from '../../i18n'
+import { useEngineeringConversationDrafts } from './engineering-conversation-drafts'
 
 const { request, ensureThread } = vi.hoisted(() => ({ request: vi.fn(), ensureThread: vi.fn() }))
 vi.mock('../../agent/runtime-client', () => ({ rendererRuntimeClient: { runtimeRequest: request } }))
@@ -17,6 +18,7 @@ const adjustment = { run: { id: 'adjustment', networkId: 'net', status: 'complet
 let adjustments: unknown[]
 let datasets: unknown[]
 let analyses: unknown[]
+let manifests: unknown[]
 let container: HTMLDivElement
 let root: Root
 const file = { path: 'new-preview/report.pdf', mediaType: 'application/pdf', sha256: 'a'.repeat(64), sizeBytes: 100 }
@@ -39,12 +41,13 @@ beforeEach(async () => {
   Object.defineProperty(window, 'localStorage', { configurable: true, value: { getItem: (key: string) => storage.get(key) ?? null, setItem: (key: string, value: string) => storage.set(key, value), removeItem: (key: string) => storage.delete(key) } })
 
   await i18n.changeLanguage('en')
-  adjustments = [adjustment]; datasets = []; analyses = []
+  adjustments = [adjustment]; datasets = []; analyses = []; manifests = []
+  useEngineeringConversationDrafts.setState({ drafts: {} })
   request.mockReset()
   request.mockImplementation(async (path: string) => {
     let body: unknown
     if (path === '/v1/engineering/projects') body = { projects: [project] }
-    else if (path.endsWith('/overview')) body = { project, datasets, analyses, runs: [], manifests: [] }
+    else if (path.endsWith('/overview')) body = { project, datasets, analyses, runs: [], manifests }
     else if (path.includes('/survey/networks?')) body = { networks: [network] }
     else if (path.includes('/adjustments?')) body = { adjustments }
     else if (path.endsWith('/reports/preview')) body = { run: { id: 'preview' }, files: [file], charts: [], citations: [] }
@@ -69,6 +72,39 @@ describe('Survey delivery without a monitoring dataset', () => {
     expect(container.textContent).toContain('Completed deterministic Survey results')
     expect(button('Generate review list').disabled).toBe(false)
     expect(container.textContent).not.toContain('Run trend and threshold analysis first')
+  })
+
+  it('keeps draft evidence readable and prevents new outputs while offline', async () => {
+    await renderDelivery()
+    await act(async () => button('Generate preview').click())
+    await act(async () => root.render(createElement(EngineeringWorkspaceView, { workspaceRoot: '/test', runtimeReady: false })))
+    request.mockClear()
+    expect(container.textContent).toContain(file.path)
+    expect(button('Generate preview').disabled).toBe(true)
+    await act(async () => button('Generate preview').click())
+    await act(async () => button('Review and archive').click())
+    expect(button('Generate review list').disabled).toBe(true)
+    await act(async () => button('Generate review list').click())
+    expect(request).not.toHaveBeenCalled()
+  })
+
+  it('asks about an exact output or historical manifest without assigning the active network to it', async () => {
+    manifests = [{ id: 'historical-manifest', runId: 'historical-run', reviewStatus: 'draft', outputs: [file], citations: [], validation: { valid: true, errors: [], warnings: [] } }]
+    await renderDelivery()
+    await act(async () => button('Deliverables').click())
+    await act(async () => button('Generate preview').click())
+    request.mockClear()
+    await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="Ask Survey AI about new-preview/report.pdf"]')!.click())
+    const scope = JSON.stringify(['/test', 'job'])
+    expect(useEngineeringConversationDrafts.getState().drafts[scope]?.evidenceContext).toMatchObject({ projectId: 'job', projectRevision: 2, runId: 'preview', outputSha256: file.sha256 })
+    expect(useEngineeringConversationDrafts.getState().drafts[scope]?.evidenceContext?.manifestId).toBeUndefined()
+    await act(async () => button('Review and archive').click())
+    await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="Ask Survey AI about historical-manifest"]')!.click())
+    expect(useEngineeringConversationDrafts.getState().drafts[scope]?.evidenceContext).toMatchObject({ manifestId: 'historical-manifest', runId: 'historical-run', reviewStatus: 'draft' })
+    expect(useEngineeringConversationDrafts.getState().drafts[scope]?.evidenceContext?.networkId).toBeUndefined()
+    expect(request).not.toHaveBeenCalled()
+    await act(async () => button('Delivery overview').click())
+    expect(container.textContent).not.toContain('Archived')
   })
 
   it('restores the last stage after leaving and remounting the task', async () => {
