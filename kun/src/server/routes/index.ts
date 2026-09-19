@@ -1,4 +1,5 @@
 import { Router } from '../router.js'
+import { getStatisticalDiagnostics } from './survey-statistics.js'
 import { healthJsonResponse } from './health.js'
 import {
   buildWorkspaceStatusResponse,
@@ -143,6 +144,7 @@ export function buildRouter(runtime: ServerRuntime): Router {
   router.add('POST', '/v1/engineering/adjustments', async (request) => authorize(request, runtime) ? engineeringRoutes.createAdjustment(runtime.surveyService, request) : ERRORS.unauthorized())
   router.add('GET', '/v1/engineering/adjustments', async (request) => authorize(request, runtime) ? engineeringRoutes.listAdjustments(runtime.surveyService, new URL(request.url).searchParams.get('projectId') ?? undefined) : ERRORS.unauthorized())
   router.add('GET', '/v1/engineering/adjustments/:id', async (request, ctx) => authorize(request, runtime) ? engineeringRoutes.getAdjustment(runtime.surveyService, ctx.params.id) : ERRORS.unauthorized())
+  router.add('GET', '/v1/engineering/projects/:projectId/adjustments/:id/statistical-diagnostics', async (request, ctx) => authorize(request, runtime) ? getStatisticalDiagnostics(runtime.surveyService, ctx.params.projectId, ctx.params.id, new URL(request.url).searchParams.get('download') === '1') : ERRORS.unauthorized())
   router.add('POST', '/v1/engineering/adjustments/:id/cancel', async (request, ctx) => authorize(request, runtime) ? engineeringRoutes.cancelAdjustment(runtime.surveyService, ctx.params.id, request) : ERRORS.unauthorized())
   router.add('POST', '/v1/engineering/adjustments/:id/resume', async (request, ctx) => authorize(request, runtime) ? engineeringRoutes.resumeAdjustment(runtime.surveyService, ctx.params.id, request) : ERRORS.unauthorized())
   router.add('POST', '/v1/engineering/adjustments/:id/preview', async (request, ctx) => authorize(request, runtime) ? engineeringRoutes.previewAdjustment(runtime.surveyService, ctx.params.id) : ERRORS.unauthorized())

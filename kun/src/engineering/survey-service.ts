@@ -36,6 +36,8 @@ import { isGnssSurveyFormat, SurveyFormatRegistry, type SurveySourceEnvelope } f
 import type { CosaIn1Mapping } from './survey-cosa-in1.js'
 import { levelingNetworkClosures } from './survey-leveling-closure.js'
 import { surveyErrorEllipse } from './survey-error-ellipse.js'
+import { SurveyStatisticalDiagnosticsV1 } from '../contracts/survey-statistics.js'
+import { diagnoseDeletedResiduals } from './survey-statistical-diagnostics.js'
 import {
   rawAnchorDigest,
   recordRawSource,
@@ -1415,9 +1417,7 @@ function gnssStrategyFindings(network: SurveyNetworkV1, nowIso: () => string): S
   return mergeFindings(findings)
 }
 
-function buildLevelingResult(network: SurveyNetworkV1, run: AdjustmentRunV1, nowIso: () => string): AdjustmentResultV1 {
-  const baseFindings = mergeFindings(network.findings.filter((item) => item.status === 'open'), levelingStrategyFindings(network, nowIso))
-  if (baseFindings.some((item) => item.severity === 'blocking')) return invalidAdjustmentResult(network, run, baseFindings, nowIso)
+function levelingEquations(network: SurveyNetworkV1) {
   const points = pointMap(network); const unknown = network.unknownPoints.filter((point) => !point.known)
   const unknownIds = unknown.map((point) => point.id); const index = new Map(unknownIds.map((id, i) => [id, i]))
   const rows: Array<{ coefficients: number[]; misclosure: number; weight: number; observation: SurveyObservationV1 }> = []
@@ -1435,6 +1435,13 @@ function buildLevelingResult(network: SurveyNetworkV1, run: AdjustmentRunV1, now
       : 1 / normalizeLengthUncertainty(observation.sigma, observation.sigmaUnit ?? observation.unit) ** 2
     rows.push({ coefficients, misclosure: normalizeObservationValue(observation) - (toApprox - fromApprox), weight, observation })
   }
+  return { points, unknownIds, index, rows }
+}
+
+function buildLevelingResult(network: SurveyNetworkV1, run: AdjustmentRunV1, nowIso: () => string): AdjustmentResultV1 {
+  const baseFindings = mergeFindings(network.findings.filter((item) => item.status === 'open'), levelingStrategyFindings(network, nowIso))
+  if (baseFindings.some((item) => item.severity === 'blocking')) return invalidAdjustmentResult(network, run, baseFindings, nowIso)
+  const { points, unknownIds, index, rows } = levelingEquations(network)
   const solved = weightedLeastSquares(rows)
   if (!solved) return invalidAdjustmentResult(network, run, baseFindings.concat(finding(network.id, 'rank_deficient', 'blocking', '水准网法方程秩亏或网形不连通', '补充已知点或观测，检查点号和网形')), nowIso)
   const pointResults: AdjustmentResultV1['points'] = [...network.knownPoints, ...network.unknownPoints].map((point) => {
@@ -3224,6 +3231,66 @@ export class SurveyService {
   /** Project-scoped strict lookup for delivery providers; never probe another project's evidence. */
   getAdjustmentForProjectNewUse(projectId: string, id: string): SurveyAdjustmentRead | null {
     return this.getAdjustmentForNewUseScoped(id, projectId)
+  }
+
+  /** Recomputable diagnostic supplement. Never mutates historical results,
+   * their hashes, or the existing outlier/quality classification. */
+  getAdjustmentStatisticalDiagnostics(projectId: string, id: string): SurveyStatisticalDiagnosticsV1 | null {
+    const stored = this.getAdjustmentForProjectNewUse(projectId, id)
+    if (!stored?.result) return null
+    const network = this.getNetwork(stored.run.networkId)
+    if (!network?.sourceFile) throw new Error('statistical diagnostic source evidence is unavailable')
+    const binding = {
+      schemaVersion: 1, diagnosticsVersion: 'leveling-deleted-t-1',
+      projectId, networkId: network.id, runId: stored.run.id, resultId: stored.result.id,
+      inputHash: stored.run.inputHash, algorithmVersion: stored.run.algorithmVersion,
+      sourceSha256: network.sourceFile.sha256, calculationHash: adjustmentCalculationHash(stored.result),
+      decision: 'not-evaluated'
+    } as const
+    const unavailable = (reason: Extract<SurveyStatisticalDiagnosticsV1, { status: 'unavailable' }>['reason'], detailCode?: string) =>
+      SurveyStatisticalDiagnosticsV1.parse({ ...binding, status: 'unavailable', reason, ...(detailCode ? { detailCode } : {}) })
+    if (network.networkType !== 'leveling' && network.networkType !== 'height-control') return unavailable('unsupported-network-type')
+    const { rows } = levelingEquations(network)
+    if (rows.length > 256) return unavailable('dimension-limit')
+    if (rows.some(row => row.observation.covariance !== undefined)) return unavailable('correlated-observations')
+    const declaredSigmas = rows.filter(row => row.observation.sigma !== undefined).length
+    if (declaredSigmas !== 0 && declaredSigmas !== rows.length) return unavailable('inconsistent-weight-basis')
+    const solved = weightedLeastSquares(rows)
+    if (!solved) return unavailable('unresolved-residual-model')
+    if (solved.dof <= 1) return unavailable('insufficient-redundancy')
+    const design = rows.map(row => row.coefficients)
+    const propagated = surveyMatrix.multiply(surveyMatrix.multiply(design, solved.covariance), surveyMatrix.transpose(design))
+    const cofactor = propagated.map((row, i) => row.map((value, j) => (i === j ? 1 / rows[i]!.weight : 0) - value))
+    try {
+      const diagnostic = diagnoseDeletedResiduals({
+        model: 'linear-independent-observations', residuals: solved.residuals,
+        observationWeights: rows.map(row => row.weight), residualCofactor: cofactor,
+        weightedResidualSum: solved.residuals.reduce((sum, value, i) => sum + value * rows[i]!.weight * value, 0),
+        degreesOfFreedom: solved.dof
+      })
+      return SurveyStatisticalDiagnosticsV1.parse({
+        ...binding, status: 'available', statistic: diagnostic.statistic, model: diagnostic.model,
+        varianceBasis: 'deleted-observation-posterior',
+        weightBasis: declaredSigmas ? 'inverse-declared-sigma-squared' : 'inverse-route-length-with-unit-default',
+        assumptions: ['fixed-linear-model', 'independent-gaussian-errors', 'weights-proportional-to-inverse-variance', 'fixed-known-datum'],
+        assumptionsVerified: false, residualUnit: 'm', statisticUnit: 'dimensionless',
+        fullModelDegreesOfFreedom: diagnostic.fullModelDegreesOfFreedom, degreesOfFreedom: diagnostic.degreesOfFreedom,
+        observations: diagnostic.observations.map((observation, i) => ({
+          observationId: rows[i]!.observation.id, sourceRow: rows[i]!.observation.sourceRow,
+          sourceRecordId: rows[i]!.observation.sourceRecordId,
+          residual: observation.residual, observationWeight: rows[i]!.weight,
+          residualCofactor: observation.residualCofactor, redundancy: observation.redundancy,
+          leverage: observation.leverage, deletedWeightedResidualSum: observation.deletedWeightedResidualSum,
+          deletedVarianceFactor: observation.deletedVarianceFactor,
+          externallyStudentizedResidual: observation.externallyStudentizedResidual
+        }))
+      })
+    } catch (error) {
+      const code = error instanceof Error ? error.message : ''
+      if (!code.startsWith('statistical_diagnostics_')) throw error
+      return unavailable(code.includes('deleted_variance') || code.includes('invalid_weighted_residual_sum')
+        ? 'zero-or-unresolved-deleted-variance' : 'unresolved-residual-model', code)
+    }
   }
   listAdjustments(projectId?: string): SurveyAdjustmentSummary[] {
     const rows = projectId
