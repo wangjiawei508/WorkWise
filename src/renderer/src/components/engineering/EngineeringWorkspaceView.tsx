@@ -32,7 +32,7 @@ import { rendererRuntimeClient } from '../../agent/runtime-client'
 import { useChatStore } from '../../store/chat-store'
 import { EngineeringAiCommandCenter } from './EngineeringAiCommandCenter'
 import { SurveyAdjustmentPanel } from './SurveyAdjustmentPanel'
-import { selectSurveyClosureKey, surveyReadiness } from './survey-summary'
+import { selectSurveyClosureKey, surveyReadiness, surveyMeasurementNumber } from './survey-summary'
 import { engineeringTaskTypes, engineeringTaskLabel, surveyNetworkTypeLabel } from './engineering-task-types'
 import { EngineeringSkillsPanel } from './EngineeringSkillsPanel'
 import {
@@ -758,8 +758,8 @@ export function EngineeringWorkspaceView({ workspaceRoot, runtimeReady, leftSide
       <div className="bg-ds-card px-3 py-2"><span className="block text-ds-faint">{t('engineeringSummaryPoints')}</span><strong className="mt-0.5 block truncate tabular-nums text-ds-ink">{surveyPointCount?.toLocaleString(locale) ?? '—'}</strong></div>
       <div className="bg-ds-card px-3 py-2"><span className="block text-ds-faint">{t('engineeringSummaryStations')}</span><strong className="mt-0.5 block truncate tabular-nums text-ds-ink">{surveyStationCount?.toLocaleString(locale) ?? '—'}</strong></div>
       <div className="bg-ds-card px-3 py-2"><span className="block text-ds-faint">{t('engineeringSummaryObservations')}</span><strong className="mt-0.5 block truncate tabular-nums text-ds-ink">{(surveyObservationCount ?? activeDataset?.observationCount)?.toLocaleString(locale) ?? '—'}</strong></div>
-      <div className="bg-ds-card px-3 py-2"><span className="block text-ds-faint">{t('engineeringSummaryClosure')}</span><strong className="mt-0.5 block truncate tabular-nums text-ds-ink">{surveyClosureValue === undefined ? '—' : `${formatNumber(surveyClosureValue, locale)}${surveyClosureUnit ? ` ${surveyClosureUnit}` : ''}`}</strong></div>
-      <div className="bg-ds-card px-3 py-2"><span className="block text-ds-faint">{t('engineeringSummaryPrecision')}</span><strong className="mt-0.5 block truncate tabular-nums text-ds-ink">{surveyPrecision ? `${surveyPrecision.passed ? '✓' : '×'} ${formatNumber(surveyPrecision.maxPointStdDev, locale)} m` : activeAnalysis ? t('engineeringSummaryComputed') : '—'}</strong></div>
+      <div className="bg-ds-card px-3 py-2"><span className="block text-ds-faint">{t('engineeringSummaryClosure')}</span><strong className="mt-0.5 block truncate tabular-nums text-ds-ink">{surveyClosureValue === undefined ? '—' : `${surveyMeasurementNumber(surveyClosureValue, locale)}${surveyClosureUnit ? ` ${surveyClosureUnit}` : ''}`}</strong></div>
+      <div className="bg-ds-card px-3 py-2"><span className="block text-ds-faint">{t('engineeringSummaryPrecision')}</span><strong className="mt-0.5 block truncate tabular-nums text-ds-ink">{surveyPrecision ? `${surveyMeasurementNumber(surveyPrecision.maxPointStdDev, locale)} m` : activeAnalysis ? t('engineeringSummaryComputed') : '—'}</strong></div>
       <div className="bg-ds-card px-3 py-2"><span className="block text-ds-faint">{t('engineeringSummaryDeliverable')}</span><strong className="mt-0.5 block truncate text-ds-ink">{manifestOutputs.length ? t('engineeringSummaryCandidate') : '—'}</strong></div>
       <div className="bg-ds-card px-3 py-2"><span className="block text-ds-faint">{t('engineeringSummaryNetwork')}</span><strong className="mt-0.5 block truncate text-ds-ink">{surveyNetworkTypeLabel(activeSurveyNetwork?.networkType ?? overview.project.taskContext?.networkType, t)}</strong></div>
       <div className="bg-ds-card px-3 py-2"><span className="block text-ds-faint">{t('engineeringSummaryReview')}</span><strong className="mt-0.5 block truncate text-ds-ink">{latestManifest ? statusLabel(latestManifest.reviewStatus, t) : '—'}</strong></div>

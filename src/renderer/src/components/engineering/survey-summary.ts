@@ -54,3 +54,11 @@ export function surveyStatusLabel(value: string | undefined, t: (key: string) =>
   }
   return value ? labels[value] ? t(labels[value]) : value : '—'
 }
+
+/** Never round a small nonzero engineering result down to an apparent exact zero. */
+export function surveyMeasurementNumber(value: number | undefined, locale: string): string {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return '—'
+  return value.toLocaleString(locale, value !== 0 && Math.abs(value) < 0.0001
+    ? { notation: 'scientific', maximumSignificantDigits: 5 }
+    : { maximumFractionDigits: 4 })
+}

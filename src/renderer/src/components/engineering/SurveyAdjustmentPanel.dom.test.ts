@@ -3,6 +3,7 @@
 import { act, createElement } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { useEngineeringConversationDrafts } from './engineering-conversation-drafts'
 import { SurveyAdjustmentPanel } from './SurveyAdjustmentPanel'
 import i18n from '../../i18n'
 
@@ -309,6 +310,74 @@ afterEach(async () => {
 })
 
 describe('SurveyAdjustmentPanel persisted state restoration', () => {
+  it('prepares a residual question with exact revision and source identity without executing a model or calculation', async () => {
+    const focus = vi.fn()
+    const scope = JSON.stringify(['/acceptance', 'project-restored-001'])
+    useEngineeringConversationDrafts.setState({ drafts: {} })
+    await act(async () => root.render(createElement(SurveyAdjustmentPanel, {
+      project: { id: 'project-restored-001', revision: 1, workspace: '/acceptance' },
+      runtimeReady: true, preferredSection: 'result', onOpenAi: focus
+    })))
+    await settle()
+    runtimeRequest.mockClear()
+    const ask = container.querySelector<HTMLButtonElement>('[aria-label="询问观测 obs-1 的测量 AI"]')!
+    await act(async () => ask.click())
+    expect(focus).toHaveBeenCalledOnce()
+    expect(runtimeRequest).not.toHaveBeenCalled()
+    expect(useEngineeringConversationDrafts.getState().drafts[scope]).toMatchObject({
+      input: '请解释观测 obs-1 的结果、原始依据及需要复核的问题。',
+      viewContext: { networkId: network.id, networkRevision: network.revision, sourceSha256: network.sourceFile.sha256, adjustmentId: adjustment.run.id, algorithmVersion: adjustment.result.algorithmVersion, section: 'result', observationId: 'obs-1', sourceRecordId: 'record-1' }
+    })
+    useEngineeringConversationDrafts.getState().update(scope, (draft) => ({ ...draft, input: 'Keep my question' }))
+    await act(async () => ask.click())
+    expect(useEngineeringConversationDrafts.getState().drafts[scope]?.input).toBe('Keep my question')
+  })
+
+  it('keeps saved evidence readable but locks all computation entries after Runtime disconnects', async () => {
+    await act(async () => root.render(createElement(SurveyAdjustmentPanel, {
+      project: { id: 'project-restored-001', revision: 1 }, runtimeReady: false, preferredSection: 'network'
+    })))
+    await settle()
+    runtimeRequest.mockClear()
+    for (const label of ['质量校核', '运行平差', '导入结构化网络']) {
+      const button = [...container.querySelectorAll<HTMLButtonElement>('button')].find((item) => item.textContent === label)
+      expect(button, label).toBeDefined()
+      expect(button?.disabled, label).toBe(true)
+      await act(async () => button?.click())
+    }
+    expect(container.textContent).toContain(network.sourceFile.name)
+    const observations = [...container.querySelectorAll<HTMLButtonElement>('button')].find((item) => item.textContent?.startsWith('观测表'))!
+    await act(async () => observations.click())
+    const revalidate = [...container.querySelectorAll<HTMLButtonElement>('button')].find((item) => item.textContent === '重新校核')!
+    expect(revalidate.disabled).toBe(true)
+    await act(async () => revalidate.click())
+    expect(runtimeRequest).not.toHaveBeenCalled()
+  })
+
+  it('does not equate residual checks with compliance to an unspecified project tolerance', async () => {
+    expect(container.textContent).toContain('计算校核通过')
+    expect(container.textContent).toContain('项目限差需另行复核')
+    expect(container.textContent).not.toContain('满足项目精度')
+    await act(async () => i18n.changeLanguage('en'))
+    expect(container.textContent).toContain('project tolerance requires separate review')
+    expect(container.textContent).not.toContain('Within project precision')
+  })
+
+  it('uses a keyboard accessible localized file button without exposing the system file-input label', async () => {
+    await act(async () => i18n.changeLanguage('en'))
+    await act(async () => root.render(createElement(SurveyAdjustmentPanel, {
+      project: { id: 'project-restored-001', revision: 1 }, runtimeReady: true, preferredSection: 'network'
+    })))
+    const picker = container.querySelector<HTMLButtonElement>('button[aria-label="Choose survey files"]')!
+    const input = container.querySelector<HTMLInputElement>('input[type="file"]')!
+    expect(picker.disabled).toBe(false)
+    expect(input.hidden).toBe(true)
+    expect(input.tabIndex).toBe(-1)
+    const open = vi.spyOn(input, 'click').mockImplementation(() => {})
+    await act(async () => picker.click())
+    expect(open).toHaveBeenCalledOnce()
+  })
+
   it('admits a valid one-off adjustment to delivery without inventing an observation epoch', async () => {
     const oneOff = { ...adjustment, observationEpoch: undefined }
     runtimeRequest.mockImplementation(async (path: string, method?: string) => {
@@ -429,7 +498,7 @@ describe('SurveyAdjustmentPanel persisted state restoration', () => {
   it('advertises P0 COSA and South chooser extensions, while showing only implemented execution semantics', async () => {
     const networkTab = [...container.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent?.includes('网形与基准'))
     await act(async () => networkTab?.click())
-    const input = container.querySelector<HTMLInputElement>('[aria-label="选择专业测量文件"]')
+    const input = container.querySelector<HTMLInputElement>('input[aria-label="选择专业测量文件"]')
     expect(input?.accept).toContain('.in1')
     expect(input?.accept).toContain('.in2')
     expect(input?.accept).toContain('.net')
@@ -519,7 +588,7 @@ describe('SurveyAdjustmentPanel persisted state restoration', () => {
     expect(container.textContent).toContain('行 1')
     expect(container.textContent).not.toContain('{"id":"obs-1","value":0.2}')
 
-    const input = container.querySelector<HTMLInputElement>('[aria-label="选择专业测量文件"]')
+    const input = container.querySelector<HTMLInputElement>('input[aria-label="选择专业测量文件"]')
     expect(input?.accept).toContain('.gsi')
     expect(input?.accept).toContain('.suc')
     expect(input?.accept).toContain('.t02')

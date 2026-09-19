@@ -1,7 +1,7 @@
 import type { ReactElement } from 'react'
 import workwiseLogo from '../../../../asset/img/workwise.svg'
 
-/** Compact WorkWise activity mark used in the conversation timeline. */
+/** Compact RAILWISE AI activity mark used in the conversation timeline. */
 export function AnimatedWorkLogo({
   active = false,
   className = '',

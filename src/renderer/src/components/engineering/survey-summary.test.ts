@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { selectSurveyClosureKey, surveyReadiness } from './survey-summary'
+import { selectSurveyClosureKey, surveyReadiness, surveyMeasurementNumber } from './survey-summary'
 
 describe('survey summary closure metric selection', () => {
   it('uses height closure for leveling even when another field is serialized first', () => {
@@ -33,5 +33,19 @@ describe('survey summary review boundaries', () => {
       expect(surveyReadiness({ ...ready, disposition, hasOutputs: true })).toBe(disposition)
     }
     expect(surveyReadiness({ ...ready, blocked: true, hasOutputs: true, manifestValid: true, reviewStatus: 'approved' })).toBe('blocked')
+  })
+})
+
+
+describe('survey measurement precision in the compact summary', () => {
+  it('preserves tiny positive and negative results instead of presenting exact zero', () => {
+    for (const locale of ['zh-CN', 'en-US']) {
+      expect(surveyMeasurementNumber(1.35922e-7, locale)).toBe('1.3592E-7')
+      expect(surveyMeasurementNumber(-1.37267e-7, locale)).toBe('-1.3727E-7')
+      expect(surveyMeasurementNumber(0, locale)).toBe('0')
+      expect(surveyMeasurementNumber(0.00666981, locale)).toBe('0.0067')
+      expect(surveyMeasurementNumber(Number.NaN, locale)).toBe('—')
+      expect(surveyMeasurementNumber(undefined, locale)).toBe('—')
+    }
   })
 })

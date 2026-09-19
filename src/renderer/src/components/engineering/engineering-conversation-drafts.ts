@@ -6,7 +6,7 @@ export type EngineeringConversationDraft = {
   attachments: AttachmentReference[]
   uploading: boolean
   error: string | null
-  viewContext?: { networkId: string; adjustmentId?: string; section: string }
+  viewContext?: { networkId: string; networkRevision?: number; sourceSha256?: string; adjustmentId?: string; algorithmVersion?: string; section: string; observationId?: string; sourceRecordId?: string }
 }
 export const EMPTY_ENGINEERING_DRAFT: EngineeringConversationDraft = { input: '', attachments: [], uploading: false, error: null }
 

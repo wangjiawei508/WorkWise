@@ -62,10 +62,12 @@ describe('Survey composer continuity', () => {
 
   it('carries selected result IDs into a follow-up while keeping the visible message concise', async () => {
     const scope = JSON.stringify([workspaceRoot, 'project-a'])
-    useEngineeringConversationDrafts.getState().update(scope, (draft) => ({ ...draft, input: 'Explain this result', viewContext: { networkId: 'network-1', adjustmentId: 'adjustment-1', section: 'result' } }))
+    useEngineeringConversationDrafts.getState().update(scope, (draft) => ({ ...draft, input: 'Explain this result', viewContext: { networkId: 'network-1', adjustmentId: 'adjustment-1', networkRevision: 3, sourceSha256: 'source-hash', sourceRecordId: 'record-19', observationId: 'obs-19', section: 'result' } }))
     await render()
     await act(async () => composer.onSend())
     expect(sendMessage).toHaveBeenCalledWith(expect.stringContaining('"adjustmentId":"adjustment-1"'), 'agent', expect.objectContaining({ displayText: 'Explain this result' }))
+    expect(sendMessage).toHaveBeenCalledWith(expect.stringContaining('"sourceRecordId":"record-19"'), 'agent', expect.any(Object))
+    expect(sendMessage).toHaveBeenCalledWith(expect.stringContaining('"networkRevision":3'), 'agent', expect.any(Object))
   })
 
   it('routes professional files to preflight without parsing them as documents or losing the question', async () => {
