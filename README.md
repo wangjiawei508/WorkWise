@@ -45,15 +45,25 @@ WorkWise 不是在通用聊天客户端上额外增加一个 DeepSeek 选项，�
 0.5.0 将工程测量从通用对话入口升级为可追溯的专业工作台：
 
 - 接收水准、全站仪、GNSS 及表格来源，按格式显示解析或归档状态，并保留原始文件、单位和来源证据。COSA IN1/IN2、Leica GSI 水准数据需通过单位、基准及拓扑校验后进入计算。
-- 自动识别测量格式与列映射，导入前显示诊断；原始观测、单位换算、闭合差、平差改正数和派生成果分别留存，可回溯复核。
-- 内置水准闭合差、控制网平差和 COSA 数据复核链；IN1/IN2 用于输入，OU1/OU2 用于只读成果比较，支持修正台账、初始值、限差与成果导出。
+- 通过内容识别测量格式并显示预检诊断；需要列映射时必须显式确认，不能以猜测代替。原始观测、单位换算、闭合差、平差改正数和派生成果分别留存，可回溯复核。
+- 内置水准闭合差、控制网平差和 COSA 数据复核链；IN1/IN2 用于输入，OU1/OU2 当前保留供归档审查，不能宣传为已验收的产品内自动成果比较，支持修正台账、初始值、限差与成果导出。
 - RW5 等部分来源当前用于解析检查或归档；GNSS 原始观测和 RTKLIB 相关来源仍需后处理，不能直接作为基线平差输入。具体边界见下方格式矩阵。
 - 测量入口使用 Compass 图标；进入工作台后可选择文件、查看测点摘要、运行数值复核，并生成 PDF/表格成果。
 - AI 只负责解释、诊断和编排，计算结果来自确定性的工程服务；正式成果仍应由具备相应资质的人员审核。
 
 详细说明见[工程测量工作台概览](./docs/ENGINEERING_SURVEY_WORKBENCH_OVERVIEW.zh-CN.md)和[测量格式验收矩阵](./docs/qa/WORKWISE_0.5.0_SURVEY_FORMAT_ACCEPTANCE_MATRIX.md)。
 
-## 一眼看懂
+## 候选界面预览
+
+以下为已安装候选 `613e99012a0b` 的中文浅色实拍，使用可再分发的合成数据；不代表正式 0.5.0 安装包已替换。真实 GSI、IN2 已走通导入至待审查清单，完整公证、升级链与用户专业验收仍未完成。
+
+![RAILWISE Survey 中文浅色候选界面](./website/products/screenshots/workwise/04-survey-candidate-zh-light.jpg)
+
+![RAILWISE Survey 候选成果与文件哈希](./website/products/screenshots/workwise/05-survey-candidate-delivery.jpg)
+
+完整完成项、剩余任务与证据见[执行台账](./docs/qa/RAILWISE_SURVEY_CONVERGENCE_STATUS.md)。
+
+## 其他工作工具（历史演示）
 
 | Code 工作台 | Write 写作工作台 |
 | --- | --- |

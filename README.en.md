@@ -28,11 +28,21 @@ GitHub Releases remains the public release log and manual installer source. Sign
 WorkWise 0.5.0 turns engineering survey work from a general chat entry point into a traceable specialist workspace:
 
 - Import leveling, total station, GNSS, Leica GSI, RW5, RTKLIB, and common tabular data while preserving the original files, units, and source evidence.
-- Diagnose formats and column mappings before import, then retain raw observations, unit conversions, closure checks, adjustment corrections, and derived results as separate reviewable records.
-- Run deterministic leveling closure, control-network adjustment, and COSA IN1/IN2/OU1/OU2 delivery workflows with correction ledgers, initial values, tolerances, and PDF/table exports.
+- Identify formats by content and show preflight diagnostics. Required column mappings need explicit confirmation. Retain raw observations, unit conversions, closure checks, adjustment corrections, and derived results as separate reviewable records.
+- Run deterministic leveling and control-network adjustment with source evidence and report/table exports. COSA IN1/IN2 are input paths; OU1/OU2 currently remain archive-review sources, not an accepted automatic comparison feature.
 - Use the Compass entry to select files, inspect point summaries, run numeric checks, and generate deliverables. AI explains, diagnoses, and orchestrates; engineering calculations remain deterministic and require qualified human review.
 
 See the [engineering survey workbench overview](./docs/ENGINEERING_SURVEY_WORKBENCH_OVERVIEW.zh-CN.md) and [survey format acceptance matrix](./docs/qa/WORKWISE_0.5.0_SURVEY_FORMAT_ACCEPTANCE_MATRIX.md) for scope and evidence.
+
+## Candidate UI preview
+
+These Chinese light-theme screenshots were captured from installed candidate `613e99012a0b` using redistributable synthetic data. They do not replace the released 0.5.0 installers. Real GSI and IN2 GUI delivery runs passed; notarization, a real private updater round trip and human professional acceptance remain incomplete.
+
+![RAILWISE Survey candidate with synthetic data](./website/products/screenshots/workwise/04-survey-candidate-zh-light.jpg)
+
+![Candidate deliverables and file hashes](./website/products/screenshots/workwise/05-survey-candidate-delivery.jpg)
+
+See the [complete task/evidence ledger](./docs/qa/RAILWISE_SURVEY_CONVERGENCE_STATUS.md) for remaining work.
 
 ## Why WorkWise
 
