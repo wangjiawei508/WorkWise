@@ -94,4 +94,4 @@ These code and automated-test items do not close task 39: a successful real-mode
 ## Packaged sidebar creation regression
 
 - [x] Replace persistent create-request effect replay with one event-driven creation and an in-flight guard; verify duplicate, selection/locale/reconnect and failure/retry cases against the old failure.
-- [ ] Recheck sidebar creation in a fresh signed candidate, including stable project counts after navigation and restart; 69e9728 remains a failed candidate.
+- [x] Recheck sidebar creation in a fresh signed candidate, including stable project counts after navigation and restart; 69e9728 remains a failed candidate.

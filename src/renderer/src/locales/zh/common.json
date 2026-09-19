@@ -410,6 +410,7 @@
   "engineeringRunId": "运行 {{id}}",
   "engineeringPreviewEmpty": "运行预览后将在此列出报告、证据包、图表及其文件哈希。",
   "engineeringLatestRun": "最近运行",
+  "engineeringCitationType": "引用类型",
   "engineeringCitations": "来源引用",
   "engineeringCitationsDescription": "加入规范、知识库或附件来源。它们将进入报告、XLSX 索引和最终 manifest。",
   "engineeringStandardClause": "规范条文",

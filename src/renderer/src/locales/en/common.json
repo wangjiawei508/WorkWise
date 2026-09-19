@@ -410,6 +410,7 @@
   "engineeringRunId": "Run {{id}}",
   "engineeringPreviewEmpty": "Run a preview to list reports, evidence, charts, and file hashes here.",
   "engineeringLatestRun": "Latest run",
+  "engineeringCitationType": "Citation type",
   "engineeringCitations": "Citations",
   "engineeringCitationsDescription": "Add standards, knowledge-base, or attachment sources. They are included in the report, XLSX index, and final manifest.",
   "engineeringStandardClause": "Standard clause",

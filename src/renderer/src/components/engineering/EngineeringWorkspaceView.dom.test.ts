@@ -60,6 +60,29 @@ beforeEach(async () => {
 afterEach(async () => { await act(async () => root.unmount()); container.remove() })
 
 describe('Survey delivery without a monitoring dataset', () => {
+  it('exposes named data selection buttons and switches the reviewed dataset without mutating it', async () => {
+    datasets = ['first.csv', 'second.csv'].map((name, index) => ({
+      id: `dataset-${index}`, sourceFileName: name, sourceFileHash: 'b'.repeat(64),
+      fieldMapping: { point: `point-column-${index}` }, unknownColumns: [], rowCount: 1,
+      columnCount: 1, observationCount: 1, timeRange: {}, status: 'imported',
+      revision: 1, findings: [], updatedAt: project.updatedAt
+    }))
+    await renderDelivery()
+    const select = container.querySelector<HTMLSelectElement>('#engineering-view-select')!
+    await act(async () => { select.value = 'import'; select.dispatchEvent(new Event('change', { bubbles: true })) })
+    await act(async () => button('Data assets').click())
+    const second = button('second.csv')
+    expect(second.tabIndex).toBe(0)
+    second.focus()
+    expect(document.activeElement).toBe(second)
+    request.mockClear()
+    await act(async () => second.click())
+    expect(second.getAttribute('aria-pressed')).toBe('true')
+    expect(button('first.csv').getAttribute('aria-pressed')).toBe('false')
+    expect(container.textContent).toContain('point-column-1')
+    expect(request.mock.calls.filter(([, method]) => method && method !== 'GET')).toHaveLength(0)
+  })
+
   it('consumes one sidebar create action once across selection, locale and reconnect changes', async () => {
     const projects = [project]
     let creates = 0
