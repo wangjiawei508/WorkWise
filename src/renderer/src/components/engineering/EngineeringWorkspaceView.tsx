@@ -1,3 +1,5 @@
+import { SurveyQualityWorkspace } from './SurveyQualityWorkspace'
+import './engineering-review.css'
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
@@ -895,7 +897,7 @@ export function EngineeringWorkspaceView({ workspaceRoot, runtimeReady, leftSide
                 action={<button type="button" onClick={() => void finalizeDeliverables()} disabled={!runtimeReady || busy || finalizationBlocked} className="inline-flex h-8 items-center gap-1.5 rounded-md bg-blue-700 px-3 text-[12px] font-semibold text-white hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-50"><FileCheck2 className="h-3.5 w-3.5" />{t('engineeringGenerateReviewManifest')}</button>}
               />
               <div className="p-5">
-                <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_340px]">
+                <div className="engineering-review-layout">
                   <div>
                     <div className="overflow-hidden border border-ds-border-muted">
                       <div className="border-b border-ds-border-muted bg-ds-subtle px-3 py-2.5 text-[12px] font-semibold text-ds-muted">{t('engineeringReviewChecklist')}</div>
@@ -912,7 +914,7 @@ export function EngineeringWorkspaceView({ workspaceRoot, runtimeReady, leftSide
                         <p className="text-[13px] font-semibold text-ds-ink">{t('engineeringReviewManifestTitle')}</p>
                         <p className="mt-1 text-[11px] text-ds-faint">{t('engineeringReviewManifestHint')}</p>
                       </div>
-                      {overview.manifests.length ? <div className="divide-y divide-ds-border-muted">{overview.manifests.map((manifest) => <div key={manifest.id} className="px-3 py-3"><div className="flex items-start gap-2"><FileCheck2 className="mt-0.5 h-4 w-4 shrink-0 text-blue-600 dark:text-blue-300" /><div className="min-w-0"><p className="truncate font-mono text-[11px] font-medium text-ds-ink">{manifest.id}</p><button type="button" aria-label={t('surveyAskEvidence', { label: manifest.id })} onClick={() => askAboutDelivery(manifest.id, { section: 'review', manifestId: manifest.id, runId: manifest.runId, reviewStatus: manifest.reviewStatus })} className="mt-1 text-[11px] text-accent">{t('surveyAskAgent')}</button><p className="mt-1 text-[11px] text-ds-muted">{t('engineeringReviewOutputs', { count: manifest.outputs.length })} · {statusLabel(manifest.reviewStatus, t)} · {formatDate(manifest.finalizedAt, locale)}</p><EngineeringManifestVerification projectId={overview.project.id} manifestId={manifest.id} runtimeReady={runtimeReady} request={runtimeRequest} />{manifest.validation.warnings.length ? <p className="mt-1 text-[10.5px] text-amber-700 dark:text-amber-300">{t('engineeringReviewNotes', { count: manifest.validation.warnings.length })}</p> : null}</div></div></div>)}</div> : <p className="px-3 py-8 text-center text-[12px] text-ds-muted">{t('engineeringReviewNone')}</p>}
+                      {overview.manifests.length ? <div className="divide-y divide-ds-border-muted">{overview.manifests.map((manifest) => <div key={manifest.id} className="px-3 py-3"><div className="flex items-start gap-2"><FileCheck2 className="mt-0.5 h-4 w-4 shrink-0 text-blue-600 dark:text-blue-300" /><div className="min-w-0"><p className="truncate font-mono text-[11px] font-medium text-ds-ink">{manifest.id}</p><button type="button" aria-label={t('surveyAskEvidence', { label: manifest.id })} onClick={() => askAboutDelivery(manifest.id, { section: 'review', manifestId: manifest.id, runId: manifest.runId, reviewStatus: manifest.reviewStatus })} className="mt-1 text-[11px] text-accent">{t('surveyAskAgent')}</button><p className="mt-1 text-[11px] text-ds-muted">{t('engineeringReviewOutputs', { count: manifest.outputs.length })} · {statusLabel(manifest.reviewStatus, t)} · {formatDate(manifest.finalizedAt, locale)}</p><EngineeringManifestVerification projectId={overview.project.id} manifestId={manifest.id} reviewStatus={manifest.reviewStatus} contextRevision={overview.project.revision} runtimeReady={runtimeReady} request={runtimeRequest} /><SurveyQualityWorkspace binding={{ projectId: overview.project.id, projectRevision: overview.project.revision, manifestId: manifest.id, outputs: manifest.outputs }} runtimeReady={runtimeReady} />{manifest.validation.warnings.length ? <p className="mt-1 text-[10.5px] text-amber-700 dark:text-amber-300">{t('engineeringReviewNotes', { count: manifest.validation.warnings.length })}</p> : null}</div></div></div>)}</div> : <p className="px-3 py-8 text-center text-[12px] text-ds-muted">{t('engineeringReviewNone')}</p>}
                     </div>
                   </div>
                   <aside className="border border-ds-border-muted bg-ds-card">
@@ -935,7 +937,8 @@ export function EngineeringWorkspaceView({ workspaceRoot, runtimeReady, leftSide
 }
 
 function ReviewRow({ ok, label, detail }: { ok: boolean; label: string; detail: string }): ReactElement {
-  return <div className="flex gap-3 px-3 py-3"><span className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full ${ok ? 'bg-green-100 text-green-700 dark:bg-green-500/15 dark:text-green-300' : 'bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300'}`}>{ok ? <CheckCircle2 className="h-3.5 w-3.5" /> : <XCircle className="h-3.5 w-3.5" />}</span><div className="min-w-0"><p className="text-[12px] font-medium text-ds-ink">{label}</p><p className="mt-1 text-[11px] leading-4 text-ds-muted">{detail}</p></div></div>
+  const { t } = useTranslation('common')
+  return <div className="flex gap-3 px-3 py-3"><span className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full ${ok ? 'bg-green-100 text-green-700 dark:bg-green-500/15 dark:text-green-300' : 'bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300'}`}>{ok ? <CheckCircle2 className="h-3.5 w-3.5" /> : <XCircle className="h-3.5 w-3.5" />}</span><div className="min-w-0"><p className="text-[12px] font-medium text-ds-ink">{label}<span className="sr-only"> · {t(ok ? 'engineeringReviewConditionMet' : 'engineeringReviewConditionUnmet')}</span></p><p className="mt-1 break-words text-[11px] leading-4 text-ds-muted">{detail}</p></div></div>
 }
 
 export default EngineeringWorkspaceView

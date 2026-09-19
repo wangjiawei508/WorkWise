@@ -12,6 +12,14 @@ type Props = {
 }
 const number = (value: number): string => Number(value.toPrecision(10)).toString()
 const buttonClass = 'min-h-9 border border-ds-border px-3 py-2 text-left text-[11px] hover:bg-ds-hover disabled:opacity-50'
+function canFocus(element: HTMLElement | null): element is HTMLElement {
+  if (!element?.isConnected || element.closest('[hidden], [inert], [aria-hidden="true"]')) return false
+  for (let node: HTMLElement | null = element; node; node = node.parentElement) {
+    const style = window.getComputedStyle(node)
+    if (style.display === 'none' || style.visibility === 'hidden' || style.visibility === 'collapse') return false
+  }
+  return true
+}
 const errorLabels: Record<string, string> = {
   stale: 'surveyFreeStale', 'invalid-response': 'surveyFreeInvalid', unavailable: 'surveyFreeUnavailable',
   'source-ineligible': 'surveyFreeSourceIneligible', 'unsupported-network': 'surveyFreeUnsupportedNetwork',
@@ -31,19 +39,36 @@ export function SurveyFreeLevelingTrial({ binding, contextRevision, runtimeReady
   const attempt = useRef<string | null>(null)
   const [acknowledged, setAcknowledged] = useState(false)
   const [busy, setBusy] = useState(false)
+  const [focusCompletion, setFocusCompletion] = useState(0)
   const [error, setError] = useState('')
   const [trial, setTrial] = useState<{ scope: string; value: SurveyFreeLevelingTrialV1 } | null>(null)
   const [history, setHistory] = useState<{ scope: string; offset: number; value: SurveyFreeLevelingTrialListV1 } | null>(null)
   const [sourceId, setSourceId] = useState<string | null>(null)
   const sourcePanel = useRef<HTMLDivElement>(null)
+  const sourceTrigger = useRef<{ scope: string; button: HTMLButtonElement } | null>(null)
+  const historyButton = useRef<HTMLButtonElement>(null)
+  const focusAnchor = useRef<HTMLHeadingElement>(null)
+  const pendingHistoryFocus = useRef<{ scope: string; operation: number } | null>(null)
   useEffect(() => {
     generation.current += 1
     inFlight.current = false
     attempt.current = null
+    sourceTrigger.current = null
+    pendingHistoryFocus.current = null
     setAcknowledged(false); setBusy(false); setError(''); setTrial(null); setHistory(null); setSourceId(null)
     return () => { generation.current += 1 }
   }, [scope])
-  useEffect(() => { if (sourceId) sourcePanel.current?.focus() }, [sourceId])
+  useEffect(() => {
+    if (sourceId && activeScope.current === scope && sourceTrigger.current?.scope === scope && canFocus(sourcePanel.current)) sourcePanel.current.focus()
+  }, [sourceId, scope])
+  useEffect(() => {
+    const pending = pendingHistoryFocus.current
+    if (busy || !pending) return
+    pendingHistoryFocus.current = null
+    // Restore only if the user has not moved elsewhere while the request ran.
+    if (pending.scope === scope && activeScope.current === scope && pending.operation === generation.current
+      && document.activeElement === focusAnchor.current && canFocus(historyButton.current) && !historyButton.current.disabled) historyButton.current.focus()
+  }, [busy, scope, focusCompletion])
   const ready = !!binding && runtimeReady && eligible
   const current = ready && trial?.scope === scope ? trial.value : null
   const page = ready && history?.scope === scope ? history.value : null
@@ -53,6 +78,12 @@ export function SurveyFreeLevelingTrial({ binding, contextRevision, runtimeReady
     inFlight.current = true
     const operation = ++generation.current
     const stillCurrent = (): boolean => activeScope.current === scope && generation.current === operation
+    if (action !== 'create' && canFocus(focusAnchor.current)) {
+      // Paging and restore remove the clicked history button. Keep focus on a
+      // persistent heading until the history control is enabled again.
+      pendingHistoryFocus.current = { scope, operation }
+      focusAnchor.current.focus()
+    }
     setBusy(true); setError(''); setTrial(null); setHistory(null); setSourceId(null)
     try {
       if (action === 'list') {
@@ -70,12 +101,12 @@ export function SurveyFreeLevelingTrial({ binding, contextRevision, runtimeReady
     } catch (cause) {
       if (stillCurrent()) setError(cause instanceof FreeLevelingRequestError ? cause.reason : 'request-failed')
     } finally {
-      if (stillCurrent()) { inFlight.current = false; setBusy(false) }
+      if (stillCurrent()) { inFlight.current = false; setBusy(false); if (action !== 'create') setFocusCompletion(operation) }
     }
   }
 
   return <section className="min-w-0 space-y-4 p-4 text-[11px] text-ds-ink" aria-label={t('surveyFreeTitle')}>
-    <h4 className="text-[13px] font-semibold">{t('surveyFreeTitle')}</h4>
+    <h4 ref={focusAnchor} tabIndex={-1} className="text-[13px] font-semibold">{t('surveyFreeTitle')}</h4>
     <div className="space-y-2 border border-amber-300 bg-amber-50 p-3 leading-5 text-amber-950 dark:border-amber-500/40 dark:bg-amber-950 dark:text-amber-100">
       <p className="font-semibold">{t('surveyFreeBoundary')}</p>
       <p>{t('surveyFreeDatum')}</p>
@@ -87,7 +118,7 @@ export function SurveyFreeLevelingTrial({ binding, contextRevision, runtimeReady
     </label>
     <div className="flex flex-wrap gap-2">
       <button type="button" className={buttonClass} disabled={!ready || !acknowledged || busy} onClick={() => void run('create')}>{t('surveyFreeRun')}</button>
-      <button type="button" className={buttonClass} disabled={!ready || busy} onClick={() => void run('list')}>{t('surveyFreeHistory')}</button>
+      <button ref={historyButton} type="button" className={buttonClass} disabled={!ready || busy} onClick={() => void run('list')}>{t('surveyFreeHistory')}</button>
     </div>
     {!ready ? <p role="status">{!runtimeReady ? t('surveyFreeOffline') : t('surveyFreeUnavailable')}</p> : null}
     {busy ? <p role="status">{t('surveyFreeLoading')}</p> : null}
@@ -117,9 +148,14 @@ export function SurveyFreeLevelingTrial({ binding, contextRevision, runtimeReady
       </div>
       <div role="region" aria-label={t('surveyFreeObservationTable')} tabIndex={0} className="min-w-0 overflow-auto border border-ds-border-muted">
         <table className="w-full min-w-[720px] text-left"><caption className="p-2 text-left font-semibold">{t('surveyFreeObservationTable')}</caption><thead className="bg-ds-subtle"><tr>{['surveyObservationId', 'surveyPointPair', 'surveyFreeObserved', 'surveyFreeAdjusted', 'surveyFreeResidual', 'surveyFreeWeight', 'surveyFreeSource'].map(key => <th key={key} scope="col" className="p-2">{t(key)}</th>)}</tr></thead>
-          <tbody>{current.output.observations.map(observation => <tr key={observation.id} className="border-t border-ds-border-muted"><th scope="row" className="break-all p-2">{observation.id}</th><td className="break-all p-2">{observation.from} → {observation.to}</td><td className="p-2 font-mono">{number(observation.heightDifference)}</td><td className="p-2 font-mono">{number(observation.adjustedHeightDifference)}</td><td className="p-2 font-mono">{number(observation.residual)}</td><td className="p-2 font-mono">{number(observation.weight)}{current.defaultWeightObservationIds.includes(observation.id) ? <span className="block font-sans">{t('surveyFreeUnitWeight')}</span> : null}</td><td className="p-2"><button type="button" className={buttonClass} onClick={() => setSourceId(observation.sourceAnchor)}>{t('surveyFreeLocate', { id: observation.id })}</button></td></tr>)}</tbody></table>
+          <tbody>{current.output.observations.map(observation => <tr key={observation.id} className="border-t border-ds-border-muted"><th scope="row" className="break-all p-2">{observation.id}</th><td className="break-all p-2">{observation.from} → {observation.to}</td><td className="p-2 font-mono">{number(observation.heightDifference)}</td><td className="p-2 font-mono">{number(observation.adjustedHeightDifference)}</td><td className="p-2 font-mono">{number(observation.residual)}</td><td className="p-2 font-mono">{number(observation.weight)}{current.defaultWeightObservationIds.includes(observation.id) ? <span className="block font-sans">{t('surveyFreeUnitWeight')}</span> : null}</td><td className="p-2"><button type="button" className={buttonClass} onClick={event => { sourceTrigger.current = { scope, button: event.currentTarget }; setSourceId(observation.sourceAnchor) }}>{t('surveyFreeLocate', { id: observation.id })}</button></td></tr>)}</tbody></table>
       </div>
-      {sourceId ? <div ref={sourcePanel} tabIndex={-1}>{renderSourceRecord(sourceId, () => setSourceId(null))}</div> : null}
+      {sourceId ? <div ref={sourcePanel} tabIndex={-1}>{renderSourceRecord(sourceId, () => {
+        if (activeScope.current !== scope) return
+        const trigger = sourceTrigger.current
+        setSourceId(null)
+        if (trigger?.scope === scope && canFocus(trigger.button) && !trigger.button.disabled) trigger.button.focus()
+      })}</div> : null}
       <details className="min-w-0"><summary className="cursor-pointer">{t('surveyFreeProvenance')}</summary><dl className="mt-2 space-y-2">
         {[[t('surveyFreeRecord'), current.id], [t('surveyFreeCreatedAt'), current.createdAt], [t('surveyFreeNetworkRevision'), current.networkRevision], [t('surveyFreeAlgorithm'), current.algorithmVersion], ['inputHash', current.inputHash], ['sourceSha256', current.sourceSha256], ['sourceAdmissionHash', current.sourceAdmissionHash], ['requestHash', current.requestHash], ['outputHash', current.outputHash], ['recordHash', current.recordHash]].map(([label, value]) => <div key={label}><dt className="text-ds-muted">{label}</dt><dd className="break-all font-mono">{value}</dd></div>)}
       </dl></details>

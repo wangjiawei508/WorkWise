@@ -90,6 +90,7 @@ import { buildEngineeringConversationTools } from '../adapters/tool/engineering-
 import { EngineeringAiRepository } from '../engineering/engineering-ai-repository.js'
 import { buildRailwiseToolProviders } from '../adapters/tool/railwise-tool-provider.js'
 import { SurveyService } from '../engineering/survey-service.js'
+import { SurveyQualityWorkspaceService } from '../engineering/survey-quality-workspace.js'
 
 export type KunServeRuntimeOptions = {
   host: string
@@ -358,6 +359,12 @@ export async function createKunServeRuntime(
     nowIso
   })
   const engineeringContext = new EngineeringContextService(engineeringService, nowIso, surveyService)
+  const surveyQualityWorkspaceService = new SurveyQualityWorkspaceService({
+    rootDir: join(options.dataDir, 'engineering'),
+    nowIso,
+    getProject: (projectId) => engineeringService.getProject(projectId),
+    getManifest: (projectId, manifestId) => engineeringService.getManifestForProject(projectId, manifestId)
+  })
   const visionEvidenceRuntime = createVisionEvidenceService(options.visionEvidence)
   const visionEvidence = visionEvidenceRuntime.service
   const attachmentCleanupTimer = attachmentStore
@@ -605,6 +612,7 @@ export async function createKunServeRuntime(
     engineeringContext,
     engineeringAi,
     surveyService,
+    surveyQualityWorkspaceService,
     runTurn(threadId, turnId) {
       return loop.runTurn(threadId, turnId)
     },
@@ -674,6 +682,7 @@ export async function createKunServeRuntime(
           await surveyService.flush()
           await engineeringService.flush()
           surveyService.close()
+          surveyQualityWorkspaceService.close()
           engineeringService.close()
         } finally {
           await stores.shutdown?.()

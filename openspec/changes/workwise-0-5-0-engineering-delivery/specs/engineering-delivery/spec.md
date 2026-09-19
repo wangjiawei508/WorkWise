@@ -292,3 +292,24 @@ Read-only metric aggregation MUST distinguish candidate and production cohorts, 
 
 - **WHEN** a later check reports a failure for that manifest
 - **THEN** the audit retains both attempts and the aggregate does not use the older success to claim current recorded coverage
+
+
+### Requirement: Frozen technical quality evidence workspace
+The Runtime MUST freeze bounded project-scoped plans and actual deliverable output bytes in an additive quality store. Required checks MUST be immutable for a plan, and the server MUST derive technical evidence check outcomes itself. Authenticated clients MUST NOT set trusted actors, passing outcomes, stage approval or the verification-time required-check list. Mutations MUST require payload-bound idempotency and an expected record head. Reads MUST reject mismatched identities, broken bindings and altered retained bytes.
+
+The workspace MUST preserve existing draft manifests and review status. Local chain integrity and evidence-presence checks MUST NOT claim independent custody, professional signature verification, source/numerical recomputation or normative quality acceptance. Without independent custody and authenticated review, final acceptance MUST remain unassessed.
+
+#### Scenario: A client tries to omit a required check
+- **WHEN** a verification request attempts to supply a smaller required-check list or a claimed passing outcome
+- **THEN** the request is rejected and the frozen plan remains unchanged
+
+#### Scenario: A retained artifact is changed
+- **WHEN** stored output bytes or their project, plan or manifest binding differ from the frozen evidence
+- **THEN** reads or verification reject the mismatch without rewriting the historical evidence or approving the deliverable
+
+### Requirement: Source-bound sampling calculations
+Any GB/T 24356 sampling calculation MUST use a completely verified version of the applicable source table and explicit inspection scope, unit-product population and batch boundaries. Full-inspection scopes MUST NOT be silently reduced to samples. Reproducible sampled selections MUST retain their algorithm and random-source provenance and MUST NOT claim quality approval.
+
+#### Scenario: Final indoor inspection
+- **WHEN** a sampling request identifies final indoor inspection
+- **THEN** every unit product remains in the inspection selection regardless of the smaller Table 1 sample size

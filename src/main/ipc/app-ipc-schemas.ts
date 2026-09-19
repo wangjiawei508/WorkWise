@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { SurveyFreeLevelingTrialRequestV1 } from '../../shared/survey-free-leveling'
+import { SurveyQualityPlanCreateV1, SurveyQualityEvidenceCreateV1, SurveyQualityRecordCreateV1, SurveyQualityCheckAppendV1 } from '../../shared/survey-quality-workspace'
 import {
   RUNTIME_ENGINEERING_FREE_LEVELING_TRIALS_TEMPLATE,
   RUNTIME_ENGINEERING_FREE_LEVELING_TRIAL_TEMPLATE,
@@ -178,7 +179,7 @@ function compileEndpoint(
   // substituting the approved identifier placeholders with `[^/]+`. The
   // template fragments are URL-encoded by the path helpers, so they
   // contain only characters that are safe to escape directly.
-  const pattern = template.replace(/[.+*?^$()|[\]\\]/g, '\\$&').replace(/\{(?:id|turn|manifestId|adjustmentId|networkId|trialId)\}/g, '[^/]+')
+  const pattern = template.replace(/[.+*?^$()|[\]\\]/g, '\\$&').replace(/\{(?:id|turn|manifestId|adjustmentId|networkId|trialId|planId|recordId)\}/g, '[^/]+')
   const regex = new RegExp(`^${pattern}$`)
   return {
     match: (path: string) => regex.test(path),
@@ -199,7 +200,18 @@ function hasAllowedQuery(url: URL, endpoint: EndpointTemplate): boolean {
   return true
 }
 
+const QUALITY_ENDPOINTS = [
+  { suffix: 'quality-plans', methods: ['GET', 'POST'], schema: SurveyQualityPlanCreateV1, paginated: true },
+  { suffix: 'quality-plans/{planId}', methods: ['GET'], paginated: false },
+  { suffix: 'quality-evidence', methods: ['POST'], schema: SurveyQualityEvidenceCreateV1, paginated: false },
+  { suffix: 'quality-records', methods: ['GET', 'POST'], schema: SurveyQualityRecordCreateV1, paginated: true },
+  { suffix: 'quality-records/{recordId}', methods: ['GET'], paginated: false },
+  { suffix: 'quality-records/{recordId}/checks', methods: ['POST'], schema: SurveyQualityCheckAppendV1, paginated: false },
+  { suffix: 'quality-records/{recordId}/verify', methods: ['POST'], schema: z.object({}).strict(), paginated: false }
+].map(entry => ({ ...entry, endpoint: compileEndpoint(`/v1/engineering/projects/{id}/${entry.suffix}`, entry.methods, entry.paginated ? ['limit', 'offset'] : []) }))
+
 const ENDPOINTS: readonly EndpointTemplate[] = [
+  ...QUALITY_ENDPOINTS.map(entry => entry.endpoint),
   compileEndpoint(RUNTIME_HEALTH_TEMPLATE, ['GET']),
   compileEndpoint(RUNTIME_INFO_TEMPLATE, ['GET']),
   compileEndpoint(RUNTIME_TOOLS_TEMPLATE, ['GET']),
@@ -326,6 +338,19 @@ export const runtimeRequestPayloadSchema = z
     try { url = new URL(payload.path, 'http://localhost') } catch {
       context.addIssue({ code: 'custom', message: 'invalid runtime request URL' })
       return
+    }
+    const quality = QUALITY_ENDPOINTS.find(entry => entry.endpoint.match(url.pathname))
+    if (quality) {
+      const method = payload.method ?? 'GET'
+      let valid = method === 'GET' && payload.body === undefined
+      for (const [key, value] of url.searchParams) {
+        if (key === 'limit' && (!/^[1-9]\d*$/.test(value) || Number(value) > 50)) valid = false
+        if (key === 'offset' && (!/^(0|[1-9]\d*)$/.test(value) || Number(value) > 10_000)) valid = false
+      }
+      if (method === 'POST' && !url.search && quality.schema) {
+        try { valid = quality.schema.safeParse(JSON.parse(payload.body ?? '')).success } catch { valid = false }
+      }
+      if (!valid) context.addIssue({ code: 'custom', message: 'invalid quality workspace request' })
     }
     if (compileEndpoint(RUNTIME_ENGINEERING_FREE_LEVELING_TRIALS_TEMPLATE, ['GET', 'POST']).match(url.pathname)) {
       const method = payload.method ?? 'GET'

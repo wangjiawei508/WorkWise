@@ -6,6 +6,8 @@ import { EngineeringWorkspaceView } from './EngineeringWorkspaceView'
 import i18n from '../../i18n'
 import { dispatchEngineeringProjectCreate, dispatchEngineeringProjectOpen } from './engineering-project-navigation'
 import { useEngineeringConversationDrafts } from './engineering-conversation-drafts'
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 
 const { request, ensureThread } = vi.hoisted(() => ({ request: vi.fn(), ensureThread: vi.fn() }))
 vi.mock('../../agent/runtime-client', () => ({ rendererRuntimeClient: { runtimeRequest: request } }))
@@ -60,6 +62,38 @@ beforeEach(async () => {
 afterEach(async () => { await act(async () => root.unmount()); container.remove() })
 
 describe('Survey delivery without a monitoring dataset', () => {
+  it('provides a separate retention entry for each historical manifest without starting mutations', async () => {
+    manifests = ['manifest-one', 'manifest-two'].map(id => ({ id, runId: `run-${id}`, reviewStatus: 'draft', outputs: [{ ...file, path: `${id}/report.pdf` }], citations: [], validation: { valid: true, errors: [], warnings: [] } }))
+    await renderDelivery(); await act(async () => button('Review and archive').click())
+    request.mockClear()
+    const entries = [...container.querySelectorAll('details')].filter(details => details.querySelector(':scope > summary')?.textContent === 'Quality evidence retention workspace')
+    expect(entries).toHaveLength(2)
+    await act(async () => { entries[1]!.open = true; entries[1]!.dispatchEvent(new Event('toggle')) })
+    expect(entries[1]!.textContent).toContain('Manifest manifest-two · Project revision 2')
+    expect(entries[1]!.textContent).toContain('manifest-two/report.pdf')
+    expect(entries[1]!.textContent).not.toContain('manifest-one/report.pdf')
+    expect(entries[1]!.querySelector('input')?.checked).toBe(false)
+    expect(request).not.toHaveBeenCalled()
+  })
+
+  it('announces each review condition and sizes the review columns against the data pane', async () => {
+    await renderDelivery()
+    await act(async () => button('Review and archive').click())
+    const layout = container.querySelector('.engineering-review-layout')!
+    expect(layout).not.toBeNull()
+    const statuses = Array.from(layout.querySelectorAll('.sr-only')).map(element => element.textContent)
+    expect(statuses).toHaveLength(5)
+    expect(statuses).toContain(' · Condition met')
+    expect(statuses).toContain(' · Condition not met')
+    await act(async () => { await i18n.changeLanguage('zh') })
+    expect(layout.textContent).toContain('条件已满足')
+    expect(layout.textContent).toContain('条件未满足')
+    const reviewStyles = readFileSync(resolve(process.cwd(), 'src/renderer/src/components/engineering/engineering-review.css'), 'utf8')
+    expect(reviewStyles).toMatch(/\.engineering-review-layout\s*\{[^}]*grid-template-columns:\s*minmax\(0, 1fr\);/)
+    expect(reviewStyles).toContain('@container survey-data (min-width: 900px)')
+    expect(reviewStyles).not.toContain('@media')
+  })
+
   it('shows saved project datum without a network, but never promotes unsaved form edits', async () => {
     let savedProject = { ...project, taskContext: { coordinateSystem: '', verticalDatum: '' } }
     request.mockImplementation(async (path: string, method = 'GET', payload?: string) => {

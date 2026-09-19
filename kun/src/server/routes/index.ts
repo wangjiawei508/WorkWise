@@ -1,6 +1,7 @@
 import { Router } from '../router.js'
 import { getStatisticalDiagnostics } from './survey-statistics.js'
 import * as freeLevelingRoutes from './survey-free-leveling.js'
+import { registerSurveyQualityWorkspaceRoutes } from './survey-quality-workspace.js'
 import { healthJsonResponse } from './health.js'
 import {
   buildWorkspaceStatusResponse,
@@ -97,6 +98,10 @@ import * as engineeringAiRoutes from './engineering-ai.js'
  */
 export function buildRouter(runtime: ServerRuntime): Router {
   const router = new Router()
+  registerSurveyQualityWorkspaceRoutes(router, {
+    getService: () => runtime.surveyQualityWorkspaceService,
+    authorize: (request) => authorize(request, runtime)
+  })
   router.add('GET', '/health', () => healthJsonResponse())
   router.add('GET', '/v1/runtime/info', async (request) => {
     if (!authorize(request, runtime)) return ERRORS.unauthorized()

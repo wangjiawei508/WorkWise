@@ -34,7 +34,8 @@ const fixture = {
 const summary = Object.fromEntries(Object.entries(fixture).filter(([key]) => key !== 'output' && key !== 'originalPointRoles'))
 const response = (body: unknown) => ({ ok: true, status: 200, body: JSON.stringify(body) })
 const runtimeRequest = vi.fn()
-const sourceRenderer = vi.fn((id: string) => createElement('p', null, `source-anchor:${id}`))
+const sourceRenderer = vi.fn((id: string, dismiss: () => void) => createElement('div', null,
+  createElement('p', null, `source-anchor:${id}`), createElement('button', { type: 'button', onClick: dismiss }, 'Close source')))
 const defaults = { binding, contextRevision: 1, runtimeReady: true, eligible: true, renderSourceRecord: sourceRenderer }
 let host: HTMLDivElement
 let root: Root
@@ -90,6 +91,66 @@ describe('free leveling desktop trial', () => {
     expect(runtimeRequest).toHaveBeenLastCalledWith('/v1/engineering/projects/project-trial/networks/network-trial/free-leveling-trials/trial-1', 'GET')
     expect(host.querySelectorAll('table')).toHaveLength(2)
     expect((host.querySelector('input') as HTMLInputElement).checked).toBe(false)
+  })
+
+  it('returns keyboard focus to the exact source locator after closing its record', async () => {
+    await render(); await acknowledge(); await click(button('Run trial'))
+    const locator = button('Locate obs-2')
+    locator.focus(); await click(locator)
+    expect(document.activeElement?.textContent).toContain('source-anchor:raw-2')
+    const close = button('Close source'); close.focus(); await click(close)
+    expect(document.activeElement).toBe(locator)
+    expect(host.textContent).not.toContain('source-anchor:raw-2')
+  })
+
+  it('keeps keyboard focus on a persistent control after pagination, restore and failure', async () => {
+    runtimeRequest.mockResolvedValueOnce(response({ trials: [summary], nextOffset: 20 }))
+    await render()
+    const history = button('Read trial history'); history.focus(); await click(history)
+    expect(document.activeElement).toBe(history)
+    runtimeRequest.mockResolvedValueOnce(response({ trials: [summary], nextOffset: null }))
+    const next = button('Next page'); next.focus(); await click(next)
+    expect(document.activeElement).toBe(history)
+    const restore = button('Validate and restore'); restore.focus(); await click(restore)
+    expect(document.activeElement).toBe(history)
+    expect(host.querySelectorAll('table')).toHaveLength(2)
+    for (let index = 0; index < 2; index++) {
+      runtimeRequest.mockRejectedValueOnce(new Error('failed'))
+      await click(history)
+      expect(document.activeElement).toBe(history)
+    }
+  })
+
+  it.each(['moved-focus', 'hidden', 'scope-change'] as const)('never steals focus after a history request when %s', async scenario => {
+    let complete!: (value: unknown) => void
+    runtimeRequest.mockImplementationOnce(() => new Promise(resolve => { complete = resolve }))
+    await render()
+    const history = button('Read trial history'); history.focus(); await click(history)
+    expect(document.activeElement).toBe(host.querySelector('h4'))
+    const outside = document.createElement('button'); document.body.append(outside)
+    if (scenario === 'moved-focus') outside.focus()
+    if (scenario === 'hidden') host.hidden = true
+    if (scenario === 'scope-change') { await render({ binding: { ...binding, projectId: 'other' } }); outside.focus() }
+    const expectedFocus = document.activeElement
+    await act(async () => complete(response({ trials: [summary], nextOffset: null })))
+    expect(document.activeElement).toBe(expectedFocus)
+    expect(document.activeElement).not.toBe(history)
+    outside.remove()
+  })
+
+  it('ignores an obsolete source dismissal after the scope changes and does not focus hidden controls', async () => {
+    await render(); await acknowledge(); await click(button('Run trial'))
+    await click(button('Locate obs-1'))
+    const dismiss = sourceRenderer.mock.calls.at(-1)![1]
+    await render({ binding: { ...binding, projectId: 'other' } })
+    const outside = document.createElement('button'); document.body.append(outside); outside.focus()
+    await act(async () => dismiss())
+    expect(document.activeElement).toBe(outside)
+    await render(); await acknowledge(); await click(button('Run trial')); await click(button('Locate obs-1'))
+    host.style.display = 'none'; outside.focus()
+    await act(async () => sourceRenderer.mock.calls.at(-1)![1]())
+    expect(document.activeElement).toBe(outside)
+    outside.remove()
   })
 
   it('clears all output on retry, localizes specific failures, and hides raw server text', async () => {

@@ -317,6 +317,35 @@ describe('app-ipc-schemas', () => {
     }).path).toBe('/v1/threads/thr_1/agent')
   })
 
+  it('allows scoped quality evidence requests but rejects forged outcomes, mutable plans and unbounded reads', () => {
+    const base = '/v1/engineering/projects/project_1'
+    const plan = { manifestId: 'manifest_1', expectedProjectRevision: 2, idempotencyKey: 'freeze-plan-1', requiredEvidence: [{ id: 'report', title: 'Retain report bytes', memberId: 'output-1' }] }
+    const requests = [
+      { path: `${base}/quality-plans`, method: 'POST', body: JSON.stringify(plan) },
+      { path: `${base}/quality-plans?limit=50&offset=10000`, method: 'GET' },
+      { path: `${base}/quality-plans/plan_1`, method: 'GET' },
+      { path: `${base}/quality-evidence`, method: 'POST', body: JSON.stringify({ artifactId: 'artifact_1', memberId: 'member_1', idempotencyKey: 'retain-evidence-1' }) },
+      { path: `${base}/quality-records`, method: 'POST', body: JSON.stringify({ planId: 'plan_1', idempotencyKey: 'create-record-1' }) },
+      { path: `${base}/quality-records?limit=1&offset=0`, method: 'GET' },
+      { path: `${base}/quality-records/record_1`, method: 'GET' },
+      { path: `${base}/quality-records/record_1/checks`, method: 'POST', body: JSON.stringify({ expectedHeadHash: '0'.repeat(64), idempotencyKey: 'check-record-1', checkId: 'artifact-bytes' }) },
+      { path: `${base}/quality-records/record_1/verify`, method: 'POST', body: '{}' }
+    ]
+    for (const request of requests) expect(runtimeRequestPayloadSchema.safeParse(request).success, request.path).toBe(true)
+    for (const request of [
+      { path: `${base}/quality-plans`, method: 'PATCH', body: JSON.stringify(plan) },
+      { path: `${base}/quality-plans`, method: 'POST', body: JSON.stringify({ ...plan, actor: { kind: 'human', id: 'signed' } }) },
+      { path: `${base}/quality-records/record_1/verify`, method: 'POST', body: '{"requiredCheckIds":[]}' },
+      { path: `${base}/quality-records/record_1/checks`, method: 'POST', body: JSON.stringify({ expectedHeadHash: '0'.repeat(64), idempotencyKey: 'check-record-1', checkId: 'artifact-bytes', outcome: 'passed' }) },
+      { path: `${base}/quality-records/record_1`, method: 'GET', body: '{}' },
+      { path: `${base}/quality-records/record_1?limit=1`, method: 'GET' },
+      { path: `${base}/quality-plans?offset=0`, method: 'POST', body: JSON.stringify(plan) },
+      ...['limit=0', 'limit=51', 'limit=1.5', 'offset=-1', 'offset=10001', 'offset=NaN', 'limit=1&limit=2', 'projectId=other'].map(query => ({ path: `${base}/quality-plans?${query}`, method: 'GET' })),
+      { path: '/v1/engineering/quality-plans', method: 'POST', body: JSON.stringify(plan) }
+    ]) expect(runtimeRequestPayloadSchema.safeParse(request).success, request.path).toBe(false)
+    expect(runtimeRequestPayloadSchema.safeParse({ path: '/v1/threads?limit=100&offset=100001', method: 'GET' }).success).toBe(true)
+  })
+
   it('accepts the WorkWise Runtime thread review endpoint', () => {
     expect(runtimeRequestPayloadSchema.parse({
       path: '/v1/threads/thr_1/review',

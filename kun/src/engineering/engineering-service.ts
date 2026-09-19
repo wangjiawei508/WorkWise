@@ -275,6 +275,14 @@ export class EngineeringService {
     const row = this.db.prepare('SELECT data_json FROM engineering_projects WHERE id = ?').get(id) as { data_json: string } | undefined
     return row ? this.readProject(row.data_json) : null
   }
+  /** Project-scoped metadata only; callers must separately verify retained bytes. */
+  getManifestForProject(projectId: string, manifestId: string): DeliverableManifestV1 | null {
+    const row = this.db.prepare('SELECT data_json FROM engineering_manifests WHERE id = ? AND project_id = ?').get(manifestId, projectId) as { data_json: string } | undefined
+    if (!row) return null
+    const manifest = DeliverableManifestV1.parse(JSON.parse(row.data_json))
+    if (manifest.id !== manifestId || manifest.projectId !== projectId) throw new Error('deliverable manifest identity mismatch')
+    return manifest
+  }
   updateProject(id: string, input: unknown): RailwiseProjectV1 {
     const req = EngineeringProjectUpdateRequest.parse(input)
     const replay = this.replay(req.idempotencyKey)
