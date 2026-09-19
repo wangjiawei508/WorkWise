@@ -12,6 +12,8 @@
 
 最终整合树验证：桌面 **2,630 通过 / 2 跳过**，Runtime **1,991 通过 / 3 跳过**，双端类型检查、构建、strict OpenSpec **11/11** 通过；lint **0 error / 1 既有 warning**。详见[本轮整合检查](./evidence/railwise-advanced-workspace-acceptance/integration-checks.json)。已准备三份合成/公开算例与独立 Python Fraction 核算工具，开发 SQLite 三例通过；这不冒充真实安装包或生产验收。前一纯核提交 5a49e14 的两次 Quality 检查 [35473880524](https://github.com/wangjiawei508/WorkWise/actions/runs/35473880524)、[35473878397](https://github.com/wangjiawei508/WorkWise/actions/runs/35473878397)均成功，不覆盖本轮新源码。
 
+远端首轮 7d8e92b Quality 在最大 VCE HTTP 压力用例超时：共享 Linux 运行约 18 秒，超过该用例 15 秒预算；其余 1,990 项通过，Electron smoke 和 Windows 专项通过。现仅将这一最大规模正确性用例预算调整为 60 秒，保留原维度/55 轮真实计算和全部响应断言，本机 9 项 HTTP 回归通过。生产实现未改，新一轮远端验证待完成；7d8e92b 私有包继续按其精确源码留证。
+
 抽样工作区的总体冻结、服务认证、原字节保全、首轮规则、严格重放、HTTP/IPC、双语 GUI 和分页已实现。材料归集、评分、阶段完成及签认仍未实现，不能称为完整 GB/T 质检链。抽样首轮 DOM 检查因未等待异步哈希完成而失败，修正测试后通过；全量捕获的既有短随机 ID 碰撞已改为新建项使用 UUID，既有数据不迁移。可重建实际服务 fixture 与六项篡改负例脚本已归档，未用模拟复算代替实机数据库复算。
 
 前一[ba38649 质量保全候选](./evidence/railwise-convergence-ba3864917e12/README.md)保留为历史证据。README/官网三张中文浅色营销图仍来自该包的合成数据实拍，官网本地稿尚未部署。其发现的历史成果副标题问题已在 a3072e2 完成实机复验。

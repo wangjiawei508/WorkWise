@@ -135,7 +135,9 @@ describe('authenticated advanced trials HTTP', () => {
     if(record.kind==='generalized-w') expect(record.result.modelStatus).toBe('resolved')
     else expect(record.result.iterations.length).toBeGreaterThan(1)
     console.info(`advanced-trial-size ${kind}: ${Buffer.byteLength(raw)} bytes; ${record.kind === 'vce' ? record.result.iterations.length : 0} iterations`)
-  }, 15_000)
+  // CI runs the full suite concurrently on shared Linux CPUs. This is a
+  // size/replay correctness probe, not a 15-second performance guarantee.
+  }, 60_000)
   it('returns 429 with a retry header when replay work is exhausted', async () => {
     const f = await fixture()
     const created = C.SurveyAdvancedTrialSummaryV1.parse(await (await f.send('', 'POST', advancedTrialTestRequest('vce'))).json())
