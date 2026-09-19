@@ -2966,5 +2966,12 @@
   },
   "engineeringDatePlaceholder": "年-月-日（YYYY-MM-DD）",
   "engineeringDateFormat": "按 YYYY-MM-DD 输入日期，例如 2026-09-19。",
-  "engineeringReportPeriodInvalid": "请输入 YYYY-MM-DD 格式的有效日期，结束日期不能早于开始日期。"
+  "engineeringReportPeriodInvalid": "请输入 YYYY-MM-DD 格式的有效日期，结束日期不能早于开始日期。",
+  "surveyErrorEllipse": "XY 标准误差椭圆",
+  "surveyErrorEllipseAxes": "长半轴 {{major}} m · 短半轴 {{minor}} m",
+  "surveyErrorEllipseOrientation": "轴向：{{angle}}",
+  "surveyErrorEllipseNoOrientation": "无唯一轴向（等方或零椭圆）",
+  "surveyErrorEllipsePosterior": "后验方差",
+  "surveyErrorEllipsePrior": "先验方差",
+  "surveyErrorEllipseHint": "半轴采用单位马氏半径，不代表置信百分比。轴向从 +X 转向 +Y，按 180° 周期表示。XY 为解算坐标平面，GNSS 的 XY 不等同于当地东/北。固定点和旧成果不补造椭圆。"
 }

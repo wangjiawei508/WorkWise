@@ -245,3 +245,14 @@ AI project changes MUST be durable unexecuted suggestions showing the authoritat
 #### Scenario: Confirmation is repeated
 - **WHEN** a confirmed suggestion is submitted again
 - **THEN** its recorded applied result is returned without another project revision or computation
+
+### Requirement: Explicit XY standard error ellipses
+New algorithm-7 plane-control, traverse, triangulation, CPIII and GNSS results MUST derive point ellipses from explicitly indexed solver XY cofactors scaled by the variance factor exactly once. Ellipses MUST record metre semi-axes, row-major m² covariance, prior/posterior variance basis, and orientation from positive X toward positive Y modulo π. They MUST use unit Mahalanobis radius and MUST NOT claim a confidence percentage. GNSS solution XY MUST NOT be described as local east/north. Isotropic and zero ellipses MUST have no claimed unique orientation. Fixed points and legacy results MUST NOT acquire invented uncertainty.
+
+#### Scenario: Review and export an ellipse
+- **WHEN** a supported adjustment produces XY precision
+- **THEN** the point view, DOCX/PDF narrative, XLSX evidence and immutable manifest retain the same ellipse values and interpretation
+
+#### Scenario: Reuse an algorithm-6 result
+- **WHEN** an earlier algorithm-6 result passes source and immutable-evidence checks
+- **THEN** fresh computation uses the retained ellipse-free algorithm-6 result shape and checks the existing exact computation hash without rewriting its stored result or weakening verification

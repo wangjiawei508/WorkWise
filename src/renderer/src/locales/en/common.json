@@ -2966,5 +2966,12 @@
   },
   "engineeringDatePlaceholder": "YYYY-MM-DD",
   "engineeringDateFormat": "Calendar date in YYYY-MM-DD format (for example, 2026-09-19).",
-  "engineeringReportPeriodInvalid": "Enter valid dates as YYYY-MM-DD. The end date must not precede the start date."
+  "engineeringReportPeriodInvalid": "Enter valid dates as YYYY-MM-DD. The end date must not precede the start date.",
+  "surveyErrorEllipse": "XY standard error ellipse",
+  "surveyErrorEllipseAxes": "a = {{major}} m · b = {{minor}} m",
+  "surveyErrorEllipseOrientation": "Orientation: {{angle}}",
+  "surveyErrorEllipseNoOrientation": "Undefined (isotropic or zero)",
+  "surveyErrorEllipsePosterior": "Posterior variance",
+  "surveyErrorEllipsePrior": "Prior variance",
+  "surveyErrorEllipseHint": "Semi-axes use unit Mahalanobis radius, not a confidence percentage. Orientation is from +X toward +Y, modulo 180°. XY refers to the solved coordinate plane; GNSS XY is not local east/north. Fixed points and legacy results show no ellipse."
 }

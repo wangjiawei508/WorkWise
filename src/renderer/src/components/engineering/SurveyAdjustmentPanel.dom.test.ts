@@ -198,7 +198,7 @@ const adjustment = {
     precision: { maxPointStdDev: 0.0005, passed: true },
     qualityFindings: [],
     covariance: [[0.00000025]],
-    points: [{ id: 'P-01', height: 100.2001, correctionHeight: 0.0001, standardError: 0.0005 }],
+    points: [{ id: 'P-01', height: 100.2001, correctionHeight: 0.0001, standardError: 0.0005 }, { id: 'XY-test', x: 1, y: 2, xyErrorEllipse: { semiMajor: 0.006, semiMinor: 0.003, orientationRad: Math.PI / 6, varianceBasis: 'a-posteriori' } }],
     observations: [
       { observationId: 'obs-1', residual: 0.0001, unit: 'm', standardizedResidual: 0.2, standardizedResidualUnit: 'sigma', sourceRecordId: 'record-1' },
       { observationId: 'obs-without-source', residual: 0.0002, unit: 'm', standardizedResidual: 0.4, standardizedResidualUnit: 'sigma' }
@@ -583,6 +583,19 @@ describe('SurveyAdjustmentPanel persisted state restoration', () => {
     expect(container.textContent).toContain('点位成果与复核摘要')
     expect(container.textContent).toContain('Leica GSI-8')
     expect(container.textContent).toContain('可进入校核与平差')
+  })
+
+  it('shows Runtime ellipse axes and conventions in both languages without inventing legacy precision', async () => {
+    expect(container.textContent).toContain('长半轴 0.006 m · 短半轴 0.003 m')
+    expect(container.textContent).toContain('轴向：30°')
+    expect(container.textContent).toContain('不代表置信百分比')
+    const legacyRow = [...container.querySelectorAll('tr')].find(row => row.textContent?.startsWith('P-01'))
+    expect(legacyRow?.lastElementChild?.textContent).toBe('—')
+    await act(async () => { await i18n.changeLanguage('en') })
+    expect(container.textContent).toContain('a = 0.006 m · b = 0.003 m')
+    expect(container.textContent).toContain('Orientation: 30°')
+    expect(container.textContent).toContain('GNSS XY is not local east/north')
+    expect(container.textContent).toContain('Posterior variance')
   })
 
   it('shows professional source preflight, diagnostics, hashes, filters, and raw anchors', async () => {

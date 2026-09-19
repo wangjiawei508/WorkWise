@@ -6,6 +6,7 @@ import { describe, expect, it, onTestFinished } from 'vitest'
 import type { CosaIn1Mapping } from './survey-cosa-in1.js'
 import { EngineeringService } from './engineering-service.js'
 import { SurveyService } from './survey-service.js'
+import type { AdjustmentRunV1, AdjustmentResultV1, SurveyNetworkV1 } from '../contracts/survey.js'
 import { readReportPdf } from '../../tests/helpers/report-pdf.js'
 
 const fixtures = new URL('./fixtures/survey-formats/', import.meta.url)
@@ -133,6 +134,14 @@ describe('P0 professional survey delivery', () => {
     expect(planeAdjustment.result).toMatchObject({ strategyId: 'plane-control', validation: 'valid', linearUnit: 'm', angularUnit: 'rad' })
     expect(planeAdjustment.result.closure).not.toEqual({})
     expect(planeAdjustment.result.precision.passed).toBe(true)
+    // Exercise the retained v6 dispatch in the current host as well as the
+    // separately recorded replay of an actual v6 packaged-app database.
+    const legacyRun = { ...planeAdjustment.run, algorithmVersion: 'workwise-survey-adjustment-6' }
+    const legacyResult = (survey as unknown as { calculateAdjustmentResult(network: SurveyNetworkV1, run: AdjustmentRunV1): AdjustmentResultV1 })
+      .calculateAdjustmentResult(checkedPlane, legacyRun)
+    expect(legacyResult.algorithmVersion).toBe('workwise-survey-adjustment-6')
+    expect(legacyResult.points).toEqual(planeAdjustment.result.points.map(({ xyErrorEllipse: _ellipse, ...point }) => point))
+    expect(legacyResult.observations).toEqual(planeAdjustment.result.observations)
 
     const adjustmentIds = [levelAdjustment.run.id, planeAdjustment.run.id]
     const previewRequest = {
@@ -192,6 +201,16 @@ describe('P0 professional survey delivery', () => {
     expect(workbookXml).toContain('survey_sources')
     expect(workbookXml).toContain('survey_closures')
     expect(workbookXml).toContain('survey_parameters')
+    expect(workbookXml).toContain('survey_error_ellipses')
+    const ellipse = planeAdjustment.result.points.find(point => point.id === 'S1')!.xyErrorEllipse!
+    expect(ellipse).toBeDefined()
+    expect(documentXml).toContain(`长半轴=${ellipse.semiMajor} m`)
+    expect(documentXml).toContain('单位马氏半径，非置信百分比')
+    expect(pdf.text).toContain('survey-xy-error-ellipse-1')
+    expect(worksheetXml).toContain('Cxx_m2')
+    expect(worksheetXml).toContain(String(ellipse.semiMajor))
+    expect(worksheetXml).toContain('unit-mahalanobis-radius')
+    expect(JSON.parse(persistedManifest).adjustments.find((a: { strategyId: string }) => a.strategyId === 'plane-control').points.find((p: { id: string }) => p.id === 'S1').xyErrorEllipse).toEqual(ellipse)
     expect(workbookXml).not.toContain('normalized_data')
     expect(workbookXml).not.toContain('analysis_results')
     expect(documentXml).not.toContain('监测类型')

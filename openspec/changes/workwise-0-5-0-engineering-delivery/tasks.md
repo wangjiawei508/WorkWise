@@ -78,3 +78,9 @@ The user-provided consolidated plan supersedes the earlier D-04 platform naming 
 - [x] Add durable project modification suggestions with before/after cards, UI-only confirmation credentials, reject/apply decisions, stale-context protection and mutation-free model proposal tests.
 
 These code and automated-test items do not close task 39: a successful real-model session and exact packaged GUI acceptance of these new controls remain required.
+
+## P1 XY error ellipse increment
+
+- [x] Add explicit solver-indexed XY covariance, standard ellipse axes/orientation/variance basis for plane, traverse, triangulation, CPIII and GNSS; preserve ellipse-free algorithm-6 replay without rewriting old results.
+- [x] Carry ellipse values and interpretation through bilingual point views, DOCX/PDF/XLSX and manifests; validate analytic rotated/diagonal/degenerate cases, real service covariance, export and legacy replay.
+- [ ] Verify the new ellipse and parser diagnostic increment in its exact signed candidate and obtain professional interpretation/UI acceptance; this does not close the broader advanced-adjustment task.

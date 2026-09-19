@@ -35,6 +35,7 @@ import { compareAdjustedEpochs, DEFORMATION_ALGORITHM_VERSION } from './survey-d
 import { isGnssSurveyFormat, SurveyFormatRegistry, type SurveySourceEnvelope } from './survey-format-registry.js'
 import type { CosaIn1Mapping } from './survey-cosa-in1.js'
 import { levelingNetworkClosures } from './survey-leveling-closure.js'
+import { surveyErrorEllipse } from './survey-error-ellipse.js'
 import {
   rawAnchorDigest,
   recordRawSource,
@@ -238,7 +239,14 @@ export type RecordTrustedSurveyDerivedObservationValueCorrection = Readonly<{
   expectedCorrectionHeadHash: string
 }>
 
-const ALGORITHM_VERSION = 'workwise-survey-adjustment-6'
+const ALGORITHM_VERSION = 'workwise-survey-adjustment-7'
+const LEGACY_ELLIPSE_FREE_ALGORITHM = 'workwise-survey-adjustment-6'
+
+function pointErrorEllipse(run: AdjustmentRunV1, solved: { covariance: Matrix; varianceFactor: number; varianceFactorEstimated: boolean }, x: number, y: number) {
+  return run.algorithmVersion === LEGACY_ELLIPSE_FREE_ALGORITHM ? {} : {
+    xyErrorEllipse: surveyErrorEllipse(solved.covariance, x, y, solved.varianceFactor, solved.varianceFactorEstimated)
+  }
+}
 const MAX_POINTS = 10_000
 const MAX_OBSERVATIONS = 100_000
 const MAX_UNKNOWN_PARAMETERS = 20_000
@@ -1429,7 +1437,7 @@ function buildLevelingResult(network: SurveyNetworkV1, run: AdjustmentRunV1, now
   }
   const solved = weightedLeastSquares(rows)
   if (!solved) return invalidAdjustmentResult(network, run, baseFindings.concat(finding(network.id, 'rank_deficient', 'blocking', '水准网法方程秩亏或网形不连通', '补充已知点或观测，检查点号和网形')), nowIso)
-  const pointResults = [...network.knownPoints, ...network.unknownPoints].map((point) => {
+  const pointResults: AdjustmentResultV1['points'] = [...network.knownPoints, ...network.unknownPoints].map((point) => {
     const i = index.get(point.id); const correction = i === undefined ? 0 : solved.corrections[i]!
     const q = i === undefined ? undefined : solved.covariance[i]?.[i]
     return { id: point.id, ...(point.height === undefined ? {} : { height: point.height }), ...(i === undefined ? {} : { correctionHeight: correction, height: (point.height ?? 0) + correction, standardError: Math.sqrt(Math.max(0, (q ?? 0) * solved.varianceFactor)), covariance: solved.covariance[i] }) }
@@ -1490,7 +1498,7 @@ function buildGnssResult(network: SurveyNetworkV1, run: AdjustmentRunV1, nowIso:
   }
   const solved = weightedLeastSquares(rows)
   if (!solved) return invalidAdjustmentResult(network, run, baseFindings.concat(finding(network.id, 'rank_deficient', 'blocking', 'GNSS 基线法方程秩亏或基准不完整', '补充独立基线或检查固定点约束', undefined, nowIso)), nowIso)
-  const pointResults = [...network.knownPoints, ...network.unknownPoints].map((point) => {
+  const pointResults: AdjustmentResultV1['points'] = [...network.knownPoints, ...network.unknownPoints].map((point) => {
     const ix = index.get(`${point.id}:x`); const iy = index.get(`${point.id}:y`); const ih = index.get(`${point.id}:h`)
     if (ix === undefined || iy === undefined || ih === undefined) return { id: point.id, x: point.x, y: point.y, height: point.height }
     const correctionX = solved.corrections[ix]!
@@ -1499,7 +1507,7 @@ function buildGnssResult(network: SurveyNetworkV1, run: AdjustmentRunV1, nowIso:
     const parameterIndices = [ix, iy, ih]
     const covariance = parameterIndices.flatMap((row) => parameterIndices.map((column) => (solved.covariance[row]?.[column] ?? 0) * solved.varianceFactor))
     const variance = parameterIndices.reduce((sum, parameterIndex) => sum + (solved.covariance[parameterIndex]?.[parameterIndex] ?? 0) * solved.varianceFactor, 0)
-    return { id: point.id, x: (point.x ?? 0) + correctionX, y: (point.y ?? 0) + correctionY, height: (point.height ?? 0) + correctionHeight, correctionX, correctionY, correctionHeight, standardError: Math.sqrt(Math.max(0, variance)), covariance }
+    return { id: point.id, x: (point.x ?? 0) + correctionX, y: (point.y ?? 0) + correctionY, height: (point.height ?? 0) + correctionHeight, correctionX, correctionY, correctionHeight, standardError: Math.sqrt(Math.max(0, variance)), covariance, ...pointErrorEllipse(run, solved, ix, iy) }
   })
   const observationResults = blocks.flatMap((block) => {
     const physicalResiduals = block.design.map((coefficients, component) => coefficients.reduce((sum, coefficient, parameterIndex) => sum + coefficient * solved.corrections[parameterIndex]!, 0) - block.misclosures[component]!)
@@ -1656,14 +1664,14 @@ function buildPlaneControlResult(network: SurveyNetworkV1, run: AdjustmentRunV1,
   const solved = iterativeWeightedLeastSquares(initialParameters, buildEquations, { maxIterations: 15, convergence: 1e-7, objective })
   if (!solved) return invalidAdjustmentResult(network, run, mergeFindings(baseFindings, [finding(network.id, 'rank_deficient', 'blocking', '平面控制网法方程秩亏或观测几何不足', '增加独立方向、测站角或距离观测，并检查固定控制点', undefined, nowIso)]), nowIso)
   const adjusted = coordinates(solved.parameters)
-  const pointResults = [...network.knownPoints, ...network.unknownPoints].map((point) => {
+  const pointResults: AdjustmentResultV1['points'] = [...network.knownPoints, ...network.unknownPoints].map((point) => {
     const coordinate = adjusted.get(point.id)!
     const index = coordinateIndexes.get(point.id)
     if (!index) return { id: point.id, x: coordinate.x, y: coordinate.y }
     const qx = solved.covariance[index.x]?.[index.x] ?? 0
     const qy = solved.covariance[index.y]?.[index.y] ?? 0
     const original = points.get(point.id)!
-    return { id: point.id, x: coordinate.x, y: coordinate.y, correctionX: coordinate.x - original.x!, correctionY: coordinate.y - original.y!, standardError: Math.sqrt(Math.max(0, (qx + qy) * solved.varianceFactor)), covariance: [...(solved.covariance[index.x] ?? []), ...(solved.covariance[index.y] ?? [])] }
+    return { id: point.id, x: coordinate.x, y: coordinate.y, correctionX: coordinate.x - original.x!, correctionY: coordinate.y - original.y!, standardError: Math.sqrt(Math.max(0, (qx + qy) * solved.varianceFactor)), covariance: [...(solved.covariance[index.x] ?? []), ...(solved.covariance[index.y] ?? [])], ...pointErrorEllipse(run, solved, index.x, index.y) }
   })
   const equations = buildEquations(solved.parameters)
   const observationResults = observations.map((observation, index) => {
@@ -1743,12 +1751,12 @@ function buildTraverseResult(network: SurveyNetworkV1, run: AdjustmentRunV1, now
   if (!solved) return invalidAdjustmentResult(network, run, [finding(network.id, 'rank_deficient', 'blocking', '导线法方程秩亏，边长与方向/角度不足以确定全部坐标', '增加独立方向、角度或边长观测并检查固定端点', undefined, nowIso)], nowIso)
 
   const adjustedCoordinates = coordinates(solved.parameters)
-  const pointResults = [...network.knownPoints, ...network.unknownPoints].map((point) => {
+  const pointResults: AdjustmentResultV1['points'] = [...network.knownPoints, ...network.unknownPoints].map((point) => {
     const adjusted = adjustedCoordinates.get(point.id)
     const index = unknownIds.indexOf(point.id)
     if (!adjusted || index < 0) return { id: point.id, x: point.x, y: point.y }
     const qx = solved.covariance[index * 2]?.[index * 2] ?? 0; const qy = solved.covariance[index * 2 + 1]?.[index * 2 + 1] ?? 0
-    return { id: point.id, x: adjusted.x, y: adjusted.y, correctionX: adjusted.x - (point.x ?? 0), correctionY: adjusted.y - (point.y ?? 0), standardError: Math.sqrt(Math.max(0, (qx + qy) * solved.varianceFactor)), covariance: [...(solved.covariance[index * 2] ?? []), ...(solved.covariance[index * 2 + 1] ?? [])] }
+    return { id: point.id, x: adjusted.x, y: adjusted.y, correctionX: adjusted.x - (point.x ?? 0), correctionY: adjusted.y - (point.y ?? 0), standardError: Math.sqrt(Math.max(0, (qx + qy) * solved.varianceFactor)), covariance: [...(solved.covariance[index * 2] ?? []), ...(solved.covariance[index * 2 + 1] ?? [])], ...pointErrorEllipse(run, solved, index * 2, index * 2 + 1) }
   })
   const equations = buildEquations(solved.parameters)
   const observationResults = usedObservations.map((observation, index) => {
@@ -1816,13 +1824,13 @@ function buildTriangulationResult(network: SurveyNetworkV1, run: AdjustmentRunV1
   const solved = iterativeWeightedLeastSquares(initialParameters, buildEquations, { maxIterations: 15, convergence: 1e-7 })
   if (!solved) return invalidAdjustmentResult(network, run, mergeFindings(baseFindings, [finding(network.id, 'rank_deficient', 'blocking', '三角网角度方程秩亏或交会几何不足', '增加独立测站角并检查已知基线、点号和近似坐标', undefined, nowIso)]), nowIso)
   const adjusted = coordinates(solved.parameters)
-  const pointResults = [...network.knownPoints, ...network.unknownPoints].map((point) => {
+  const pointResults: AdjustmentResultV1['points'] = [...network.knownPoints, ...network.unknownPoints].map((point) => {
     const coordinate = adjusted.get(point.id)!
     const index = unknownIds.indexOf(point.id)
     if (index < 0) return { id: point.id, x: coordinate.x, y: coordinate.y }
     const qx = solved.covariance[index * 2]?.[index * 2] ?? 0
     const qy = solved.covariance[index * 2 + 1]?.[index * 2 + 1] ?? 0
-    return { id: point.id, x: coordinate.x, y: coordinate.y, correctionX: coordinate.x - point.x!, correctionY: coordinate.y - point.y!, standardError: Math.sqrt(Math.max(0, (qx + qy) * solved.varianceFactor)), covariance: [...(solved.covariance[index * 2] ?? []), ...(solved.covariance[index * 2 + 1] ?? [])] }
+    return { id: point.id, x: coordinate.x, y: coordinate.y, correctionX: coordinate.x - point.x!, correctionY: coordinate.y - point.y!, standardError: Math.sqrt(Math.max(0, (qx + qy) * solved.varianceFactor)), covariance: [...(solved.covariance[index * 2] ?? []), ...(solved.covariance[index * 2 + 1] ?? [])], ...pointErrorEllipse(run, solved, index * 2, index * 2 + 1) }
   })
   const equations = buildEquations(solved.parameters)
   const observationResults = observations.map((observation, index) => {
@@ -1905,14 +1913,14 @@ function buildCpiiiResult(network: SurveyNetworkV1, run: AdjustmentRunV1, nowIso
   })
   const solved = iterativeWeightedLeastSquares(initialParameters, buildEquations, { maxIterations: 20, convergence: 1e-7 })
   if (!solved) return invalidAdjustmentResult(network, run, mergeFindings(baseFindings, [finding(network.id, 'rank_deficient', 'blocking', 'CPIII 自由测站法方程秩亏或目标几何不足', '增加分布合理的固定目标方向/距离，检查测站近似坐标', undefined, nowIso)]), nowIso)
-  const pointResults = [...network.knownPoints, ...network.unknownPoints].map((point) => {
+  const pointResults: AdjustmentResultV1['points'] = [...network.knownPoints, ...network.unknownPoints].map((point) => {
     const index = stationIndexes.get(point.id)
     if (!index) return { id: point.id, x: point.x, y: point.y, height: point.height }
     const state = stationState(point.id, solved.parameters)
     const qx = solved.covariance[index.x]?.[index.x] ?? 0
     const qy = solved.covariance[index.y]?.[index.y] ?? 0
     const covarianceRows = [index.x, index.y, ...(index.height === undefined ? [] : [index.height])].flatMap((row) => solved.covariance[row] ?? [])
-    return { id: point.id, x: state.x, y: state.y, ...(index.height === undefined ? {} : { height: state.height, correctionHeight: state.height! - point.height! }), correctionX: state.x - point.x!, correctionY: state.y - point.y!, standardError: Math.sqrt(Math.max(0, (qx + qy) * solved.varianceFactor)), covariance: covarianceRows }
+    return { id: point.id, x: state.x, y: state.y, ...(index.height === undefined ? {} : { height: state.height, correctionHeight: state.height! - point.height! }), correctionX: state.x - point.x!, correctionY: state.y - point.y!, standardError: Math.sqrt(Math.max(0, (qx + qy) * solved.varianceFactor)), covariance: covarianceRows, ...pointErrorEllipse(run, solved, index.x, index.y) }
   })
   const equations = buildEquations(solved.parameters)
   const observationResults = observations.map((observation, index) => {
@@ -3045,7 +3053,7 @@ export class SurveyService {
     } else {
       result = invalidAdjustmentResult(solverNetwork, run, [finding(solverNetwork.id, 'invalid_observation', 'blocking', `暂不支持网型 ${solverNetwork.networkType} 的确定性平差`, '选择受支持的测量网型或补充适配策略', undefined, this.nowIso)], this.nowIso)
     }
-    return retainResidualSourceAnchors(solverNetwork, AdjustmentResultV1.parse({ ...result, strategyId: solverNetwork.networkType }))
+    return retainResidualSourceAnchors(solverNetwork, AdjustmentResultV1.parse({ ...result, algorithmVersion: run.algorithmVersion, strategyId: solverNetwork.networkType }))
   }
 
   createAdjustment(input: unknown): { run: AdjustmentRunV1; result: AdjustmentResultV1 } {
@@ -3175,8 +3183,8 @@ export class SurveyService {
       || stored.result.networkId !== network.id
       || stored.run.inputHash !== inputHash
       || stored.result.inputHash !== inputHash
-      || stored.run.algorithmVersion !== ALGORITHM_VERSION
-      || stored.result.algorithmVersion !== ALGORITHM_VERSION
+      || ![ALGORITHM_VERSION, LEGACY_ELLIPSE_FREE_ALGORITHM].includes(stored.run.algorithmVersion)
+      || stored.result.algorithmVersion !== stored.run.algorithmVersion
       || stored.run.status !== 'completed'
       || stored.result.validation !== 'valid') {
       throw new Error(`adjustment ${id} no longer matches its current deterministic execution`)
