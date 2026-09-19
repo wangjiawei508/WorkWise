@@ -4,13 +4,9 @@ import type { ThreadStore } from '../../ports/thread-store.js'
 import type { EngineeringAiOrchestrator } from '../../engineering/engineering-ai-orchestrator.js'
 import type { CapabilityToolProvider } from './capability-registry.js'
 import { LocalToolHost } from './local-tool-host.js'
+import { engineeringPlanToolRisks } from '../../engineering/engineering-plan-tools.js'
 
-const operationRisks = {
-  survey_network_validate: 'read', survey_adjustment_read: 'read',
-  survey_calculator: 'write', control_network: 'write', cpiii_adjustment: 'write', coord_transform: 'write',
-  monitoring_data_first_check: 'read', deformation_rate: 'read',
-  chart_generator: 'export', report_export: 'export', excel_export: 'export'
-} as const
+const operationRisks = engineeringPlanToolRisks
 const operationNames = Object.keys(operationRisks) as [keyof typeof operationRisks, ...Array<keyof typeof operationRisks>]
 const selectionSchema = EngineeringEvidenceSelectionV1
 const draftSchema = z.object({

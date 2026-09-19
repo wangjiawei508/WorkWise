@@ -273,7 +273,7 @@
   "engineeringThresholdHint": "One item per line. Match by monitoring item first; use `default` for unmatched items. Missing thresholds appear as needs confirmation.",
   "engineeringDeliveryStatusUpdated": "Project revision {{revision}} · Updated {{date}}",
   "engineeringGateIncompleteShort": "Quality, analysis, or deliverable gates are still incomplete.",
-  "engineeringGateCompleteShort": "All gates are satisfied; human approval can begin.",
+  "engineeringGateCompleteShort": "A candidate review list can be generated. Professional review, approval and signing remain pending.",
   "engineeringCurrentDatasetShort": "Current dataset",
   "engineeringBlockingShort": "Blocking items",
   "engineeringManualWarningsShort": "Manual warnings",
@@ -2916,5 +2916,8 @@
   "surveyAskEvidence": "Ask Survey AI about {{label}}",
   "surveyExplainEvidence": "Explain {{label}}, its source evidence, and anything requiring review.",
   "surveySelectedEvidence": "Reference: {{label}}",
-  "surveyClearEvidence": "Remove reference"
+  "surveyClearEvidence": "Remove reference",
+  "engineeringManifestCountShort": "{{count}} review list(s)",
+  "engineeringSurveyAnalysisPending": "Run deterministic adjustment and inspect closure, residuals and precision.",
+  "engineeringSurveyReviewRequired": "Inspect source and result findings"
 }

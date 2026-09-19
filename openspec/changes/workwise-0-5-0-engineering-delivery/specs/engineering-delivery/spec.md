@@ -212,3 +212,14 @@ A question prepared from preflight, observations, residuals, closure, precision 
 #### Scenario: Evidence becomes stale or mismatched
 - **WHEN** selected revision/hash, observation/anchor or project/delivery identifiers disagree
 - **THEN** the read fails explicitly without substituting another record or executing a calculation
+
+### Requirement: Runtime-owned plan effects
+Tool risks MUST be derived from the deterministic implementation, not supplied by a model or API caller. Network validation, dataset checks and persisted analysis MUST be treated as writes. Legacy plans with understated risks MUST remain readable but require replanning before approval, start or resume.
+
+#### Scenario: A caller labels export as read-only
+- **WHEN** a draft labels report export or a persistent calculation as read-only
+- **THEN** the saved plan shows the Runtime-defined export or write risk and resets approval to pending
+
+#### Scenario: An old plan has an understated risk
+- **WHEN** an old plan labels a mutating tool read-only
+- **THEN** approval, start, resume and the execution allowlist reject it without rewriting the stored record

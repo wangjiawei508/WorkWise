@@ -273,7 +273,7 @@
   "engineeringThresholdHint": "每行一项。优先按监测项匹配；`default` 用于未单独配置的监测项。缺少阈值会在分析中显示“待确认”。",
   "engineeringDeliveryStatusUpdated": "项目修订 {{revision}} · 更新于 {{date}}",
   "engineeringGateIncompleteShort": "尚有质量、分析或成果门禁未完成。",
-  "engineeringGateCompleteShort": "全部门禁已满足，可进入人工审批。",
+  "engineeringGateCompleteShort": "可生成候选审查清单；专业复核、批准及签名尚待完成。",
   "engineeringCurrentDatasetShort": "当前数据集",
   "engineeringBlockingShort": "阻断项",
   "engineeringManualWarningsShort": "人工警告",
@@ -2916,5 +2916,8 @@
   "surveyAskEvidence": "询问 {{label}} 的测量 AI",
   "surveyExplainEvidence": "请解释 {{label}} 的结果、原始依据及需要复核的问题。",
   "surveySelectedEvidence": "引用：{{label}}",
-  "surveyClearEvidence": "移除引用"
+  "surveyClearEvidence": "移除引用",
+  "engineeringManifestCountShort": "{{count}} 份审查清单",
+  "engineeringSurveyAnalysisPending": "执行确定性平差并检查闭合差、残差和精度。",
+  "engineeringSurveyReviewRequired": "核对来源与计算结果中的诊断"
 }

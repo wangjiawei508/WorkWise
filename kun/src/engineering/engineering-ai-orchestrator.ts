@@ -16,6 +16,7 @@ import type { TurnService } from '../services/turn-service.js'
 import type { TaskController } from '../services/task-controller.js'
 import type { RuntimeEventRecorder } from '../services/runtime-event-recorder.js'
 import type { EngineeringAiRepository } from './engineering-ai-repository.js'
+import { engineeringPlanToolRisk } from './engineering-plan-tools.js'
 
 export const EngineeringPlanDraftRequest = z.object({
   threadId: z.string().min(1),
@@ -81,15 +82,15 @@ function defaultSteps(contextHash: string, goal = ''): EngineeringPlanStep[] {
   if (/(平差|水准|导线|控制网|三角网|CPIII|GNSS|坐标转换|测量)/i.test(goal)) {
     const adjustmentTool = surveyAdjustmentTool(goal)
     return [
-      { id: 'inspect-survey-network', title: '校核测量网络与基准', tool: 'survey_network_validate', risk: 'read', dependsOn: [], inputHash: contextHash, approval: 'pending' },
+      { id: 'inspect-survey-network', title: '校核测量网络与基准', tool: 'survey_network_validate', risk: 'write', dependsOn: [], inputHash: contextHash, approval: 'pending' },
       { id: 'adjust-survey-network', title: '执行确定性测量平差', tool: adjustmentTool, risk: 'write', dependsOn: ['inspect-survey-network'], inputHash: contextHash, approval: 'pending' },
       { id: 'review-survey-quality', title: '读取闭合差、残差与精度', tool: 'survey_adjustment_read', risk: 'read', dependsOn: ['adjust-survey-network'], inputHash: contextHash, approval: 'pending' },
       { id: 'prepare-survey-report', title: '准备测量成果与证据包', tool: 'report_export', risk: 'export', dependsOn: ['review-survey-quality'], inputHash: contextHash, approval: 'pending' }
     ]
   }
   return [
-    { id: 'inspect-data', title: '校核工程数据', tool: 'monitoring_data_first_check', risk: 'read', dependsOn: [], inputHash: contextHash, approval: 'pending' },
-    { id: 'analyse-trend', title: '计算趋势与阈值', tool: 'deformation_rate', risk: 'read', dependsOn: ['inspect-data'], inputHash: contextHash, approval: 'pending' },
+    { id: 'inspect-data', title: '校核工程数据', tool: 'monitoring_data_first_check', risk: 'write', dependsOn: [], inputHash: contextHash, approval: 'pending' },
+    { id: 'analyse-trend', title: '计算趋势与阈值', tool: 'deformation_rate', risk: 'write', dependsOn: ['inspect-data'], inputHash: contextHash, approval: 'pending' },
     { id: 'build-chart', title: '生成趋势图', tool: 'chart_generator', risk: 'export', dependsOn: ['analyse-trend'], inputHash: contextHash, approval: 'pending' },
     { id: 'prepare-report', title: '准备报告与证据包', tool: 'report_export', risk: 'export', dependsOn: ['build-chart'], inputHash: contextHash, approval: 'pending' }
   ]
@@ -100,7 +101,7 @@ function validateSteps(steps: EngineeringPlanStep[]): void {
   for (const step of steps) {
     if (ids.has(step.id)) throw new EngineeringAiError('engineering_plan_invalid', `duplicate plan step: ${step.id}`)
     ids.add(step.id)
-    if (!['monitoring_data_first_check', 'deformation_rate', 'chart_generator', 'report_export', 'excel_export', 'standard_query', 'tool_norm_cite', 'survey_network_validate', 'survey_adjustment_read', 'survey_calculator', 'control_network', 'cpiii_adjustment', 'coord_transform', 'distance_calculator', 'angle_convert', 'railwise.survey_network_validate', 'railwise.survey_adjustment_read', 'railwise.survey_calculator', 'railwise.control_network', 'railwise.cpiii_adjustment', 'railwise.coord_transform', 'railwise.distance_calculator', 'railwise.angle_convert'].includes(step.tool)) {
+    if (!engineeringPlanToolRisk(step.tool)) {
       throw new EngineeringAiError('engineering_plan_invalid', `tool is not allowlisted: ${step.tool}`)
     }
   }
@@ -178,7 +179,7 @@ export class EngineeringAiOrchestrator {
     }
     const context = this.deps.context.snapshot(input.projectId)
     if (input.contextHash && input.contextHash !== context.contextHash) throw new EngineeringAiError('engineering_context_stale', 'engineering context has changed; refresh and replan')
-    const steps = (input.steps ?? defaultSteps(context.contextHash, input.goal)).map((step) => ({ ...step, inputHash: context.contextHash, approval: 'pending' as const }))
+    const steps = (input.steps ?? defaultSteps(context.contextHash, input.goal)).map((step) => ({ ...step, risk: engineeringPlanToolRisk(step.tool) ?? step.risk, inputHash: context.contextHash, approval: 'pending' as const }))
     validateSteps(steps)
     const now = this.deps.nowIso?.() ?? new Date().toISOString()
     const plan = EngineeringRunPlanV1.parse({ schemaVersion: 1, id: `eplan_${randomUUID()}`, threadId: input.threadId, projectId: input.projectId, contextHash: context.contextHash, revision: 1, goal: input.goal, steps, status: 'awaiting_approval', createdAt: now, updatedAt: now })
@@ -193,7 +194,7 @@ export class EngineeringAiOrchestrator {
   async conversationPolicy(threadId: string, projectId: string, turnId: string): Promise<{ instruction: string; allowedToolNames: string[] }> {
     await this.mustScopedThread(threadId, projectId)
     const plan = this.deps.repository.planForTurn(threadId, turnId)
-    const executable = plan && plan.projectId === projectId && plan.status === 'started' && plan.steps.every((step) => step.approval === 'approved')
+    const executable = plan && plan.projectId === projectId && plan.status === 'started' && plan.steps.every((step) => step.approval === 'approved' && step.risk === engineeringPlanToolRisk(step.tool))
     return {
       instruction: [
         'You are Survey AI, the engineering surveying assistant in WorkWise. Reply in the language of the user.',
@@ -245,6 +246,7 @@ export class EngineeringAiOrchestrator {
     if (replay) return replay as EngineeringRunPlan
     const plan = this.mustPlan(planId)
     if (input.expectedRevision !== plan.revision || input.contextHash !== plan.contextHash) throw new EngineeringAiError('engineering_approval_stale', 'approval does not match the current plan revision or context')
+    this.assertCurrentToolRisks(plan)
     const approval = input.token ? this.deps.repository.getApproval(input.token) : null
     if (!approval || approval.planId !== plan.id || approval.planRevision !== plan.revision || approval.contextHash !== plan.contextHash || Date.parse(approval.expiresAt) <= Date.now() || input.stepIds.some((id) => !approval.stepIds.includes(id))) throw new EngineeringAiError('engineering_approval_invalid', 'approval token is missing, expired, or already scoped to another plan')
     const now = this.deps.nowIso?.() ?? new Date().toISOString()
@@ -260,6 +262,7 @@ export class EngineeringAiOrchestrator {
     const plan = this.mustPlan(planId)
     if (input.expectedRevision !== plan.revision || input.contextHash !== plan.contextHash) throw new EngineeringAiError('engineering_plan_stale', 'plan is stale; refresh context and replan')
     if (plan.status !== 'approved' || plan.steps.some((step) => step.approval !== 'approved')) throw new EngineeringAiError('engineering_approval_required', 'all plan steps require approval before execution')
+    this.assertCurrentToolRisks(plan)
     await this.mustScopedThread(plan.threadId, plan.projectId)
     const context = this.deps.context.snapshot(plan.projectId)
     if (context.contextHash !== plan.contextHash) {
@@ -298,6 +301,7 @@ export class EngineeringAiOrchestrator {
     if (replay) return replay as { plan: EngineeringRunPlan; turn: StartTurnResponse }
     const plan = this.mustPlan(planId)
     if (input.expectedRevision !== plan.revision || input.contextHash !== plan.contextHash) throw new EngineeringAiError('engineering_plan_stale', 'plan is stale; refresh context and replan')
+    this.assertCurrentToolRisks(plan)
     const task = this.deps.tasks?.activeTask(plan.threadId)
     if (!task) throw new EngineeringAiError('engineering_task_missing', 'no resumable TaskRun is associated with this plan')
     const prepared = this.deps.tasks?.prepareResume(task.id, task.revision, input.model)
@@ -344,6 +348,12 @@ export class EngineeringAiOrchestrator {
       assistantText: planTranscript(plan),
       idempotencyKey: `engineering-plan-transcript:${plan.id}`
     })
+  }
+
+  private assertCurrentToolRisks(plan: EngineeringRunPlan): void {
+    if (plan.steps.some((step) => engineeringPlanToolRisk(step.tool) !== step.risk)) {
+      throw new EngineeringAiError('engineering_plan_stale', 'tool effects changed; create a new plan and review its risks before approval or execution')
+    }
   }
 
   private mustPlan(id: string): EngineeringRunPlan {

@@ -49,6 +49,42 @@ describe('Engineering AI orchestration', () => {
     engineering.close()
   })
 
+  it('assigns tool effects on the server and requires fresh review for legacy understated risks', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'engineering-plan-risk-'))
+    const engineering = new EngineeringService({ rootDir: root })
+    const project = engineering.createProject({ name: 'risk review', workspace: root, expectedRevision: 0, idempotencyKey: 'risk-project-001' })
+    const repository = new EngineeringAiRepository({ rootDir: root })
+    const turns = { recordCompletedTurn: vi.fn(), startTurn: vi.fn() }
+    const orchestrator = new EngineeringAiOrchestrator({
+      context: new EngineeringContextService(engineering), repository,
+      threadStore: { get: async () => ({ domain: 'engineering', projectId: project.id, turns: [] }) } as never,
+      turns: turns as never, runTurn: vi.fn()
+    })
+    try {
+      const tools = ['survey_network_validate', 'monitoring_data_first_check', 'deformation_rate', 'report_export', 'railwise.report_export', 'survey_adjustment_read']
+      const created = await orchestrator.createPlan({
+        threadId: 'risk-thread', projectId: project.id, goal: 'Review actual effects', idempotencyKey: 'risk-plan-001',
+        steps: tools.map((tool, index) => ({ id: `step-${index}`, title: tool, tool, risk: 'read', dependsOn: [], inputHash: 'untrusted', approval: 'approved' }))
+      })
+      expect(created.plan.steps.map(step => step.risk)).toEqual(['write', 'write', 'write', 'export', 'export', 'read'])
+      expect(created.plan.steps.every(step => step.approval === 'pending')).toBe(true)
+      const old = { ...created.plan, steps: created.plan.steps.map(step => ({ ...step, risk: 'read' as const })) }
+      repository.savePlan(old)
+      expect(() => orchestrator.approvePlan(old.id, {
+        expectedRevision: old.revision, contextHash: old.contextHash, stepIds: created.approval.stepIds,
+        token: created.approval.token, idempotencyKey: 'risk-approve-old'
+      })).toThrow(/tool effects changed/)
+      const approvedOld = { ...old, status: 'approved' as const, steps: old.steps.map(step => ({ ...step, approval: 'approved' as const })) }
+      repository.savePlan(approvedOld)
+      await expect(orchestrator.startPlan(old.id, { expectedRevision: old.revision, contextHash: old.contextHash, idempotencyKey: 'risk-start-old' })).rejects.toThrow(/tool effects changed/)
+      await expect(orchestrator.resumePlan(old.id, { expectedRevision: old.revision, contextHash: old.contextHash, idempotencyKey: 'risk-resume-old' })).rejects.toThrow(/tool effects changed/)
+      repository.savePlan({ ...approvedOld, status: 'started', executionTurnId: 'old-turn' })
+      expect((await orchestrator.conversationPolicy('risk-thread', project.id, 'old-turn')).allowedToolNames).not.toContain('report_export')
+      expect(turns.startTurn).not.toHaveBeenCalled()
+      expect(repository.getPlan(old.id)?.steps[0]?.risk).toBe('read')
+    } finally { repository.close(); engineering.close() }
+  })
+
   it('does not expose raw observation rows in the context snapshot', async () => {
     const root = await mkdtemp(join(tmpdir(), 'workwise-engineering-context-'))
     const engineering = new EngineeringService({ rootDir: join(root, 'runtime') })

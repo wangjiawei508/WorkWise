@@ -104,7 +104,17 @@ describe('Survey delivery without a monitoring dataset', () => {
     expect(useEngineeringConversationDrafts.getState().drafts[scope]?.evidenceContext?.networkId).toBeUndefined()
     expect(request).not.toHaveBeenCalled()
     await act(async () => button('Delivery overview').click())
-    expect(container.textContent).not.toContain('Archived')
+    expect(container.textContent).not.toMatch(/archived/i)
+    expect(container.textContent).toContain('1 review list(s)')
+    expect(container.textContent).toContain('Professional review, approval and signing remain pending')
+    expect(container.textContent).not.toContain('All gates are satisfied')
+    expect(container.textContent).toContain('survey.in2')
+    expect(container.textContent).not.toContain('Time-series data')
+    expect(container.textContent).not.toContain('Trend and threshold analysis')
+    const adjustmentStage = [...container.querySelectorAll<HTMLButtonElement>('button')].find(item => item.textContent?.startsWith('2Network and adjustment'))!
+    expect(adjustmentStage).toBeDefined()
+    await act(async () => adjustmentStage.click())
+    expect(container.querySelector<HTMLSelectElement>('#engineering-view-select')!.value).toBe('adjustment')
   })
 
   it('restores the last stage after leaving and remounting the task', async () => {
@@ -128,6 +138,12 @@ describe('Survey delivery without a monitoring dataset', () => {
     expect(button('Generate preview').disabled).toBe(true)
     await act(async () => button('Review and archive').click())
     expect(button('Generate review list').disabled).toBe(true)
+    await act(async () => button('Delivery overview').click())
+    expect(container.textContent).not.toContain('Completed deterministic Survey results')
+    expect(container.textContent).not.toContain('All gates are satisfied')
+    if (value.sourceEligibility?.eligible === false || value.run.status === 'failed' || value.result.validation === 'invalid') {
+      expect(container.querySelector('[data-testid="engineering-summary-strip"]')?.textContent).toContain('Blocked')
+    }
   })
 
   it('still requires monitoring analysis when a dataset is included alongside Survey results', async () => {
