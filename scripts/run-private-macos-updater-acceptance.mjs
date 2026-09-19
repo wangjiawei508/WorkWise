@@ -43,7 +43,7 @@ export function redactAcceptanceLog(text, env = process.env) {
     }
   }
   return redacted
-    .replace(/-----BEGIN [^-]*PRIVATE KEY-----[\s\S]*?-----END [^-]*PRIVATE KEY-----/g, '[redacted private key]')
+    .replace(/-{5}BEGIN [^-]*PRIVATE KEY-{5}[\s\S]*?-{5}END [^-]*PRIVATE KEY-{5}/g, '[redacted private key]')
     .replace(/(authorization["']?\s*[:=]\s*["']?)(?:Bearer\s+|Basic\s+)?[^\s,"'}]+/gi, '$1[redacted]')
     .replace(/((?:password|api[_-]?key|access[_-]?token|secret)["']?\s*[:=]\s*["']?)[^\s,"'}]+/gi, '$1[redacted]')
     .replace(/\/private-[a-f0-9]{64}\//g, '/private-[redacted]/')

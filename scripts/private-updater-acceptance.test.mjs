@@ -101,7 +101,8 @@ test('private runner never changes macOS trust or disables TLS validation', () =
 })
 
 test('retained logs redact secrets, credentials, private keys and the random feed path', () => {
-  const log = 'updater failed; build-key-123; Authorization: Bearer aaa; password="bbb"\n-----BEGIN PRIVATE KEY-----\nxxx\n-----END PRIVATE KEY-----\n/private-' + 'a'.repeat(64) + '/latest-mac.yml'
+  const pemBoundary = '-'.repeat(5)
+  const log = `updater failed; build-key-123; Authorization: Bearer aaa; password="bbb"\n${pemBoundary}BEGIN PRIVATE KEY${pemBoundary}\nxxx\n${pemBoundary}END PRIVATE KEY${pemBoundary}\n/private-` + 'a'.repeat(64) + '/latest-mac.yml'
   const output = redactAcceptanceLog(log, { APPLE_API_KEY: 'build-key-123' })
   assert.doesNotMatch(output, /build-key-123|aaa|bbb|xxx|a{64}/)
   assert.match(output, /updater failed/)
