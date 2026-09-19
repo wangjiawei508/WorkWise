@@ -963,7 +963,7 @@
   .survey-workbench-nav { display: flex; flex-wrap: wrap; border-right: 0; }
   .survey-workbench-nav > p { display: none; }
   .survey-workbench-nav > button { width: auto; }
-  .survey-workbench-aside { border-left: 0; }
+  .survey-workbench-aside { grid-column: 1 / -1; border-left: 0; }
   .survey-workbench-main table { min-width: 560px; }
 }
 .engineering-command-strip {

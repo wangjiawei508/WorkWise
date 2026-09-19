@@ -40,3 +40,17 @@ export function surveyReadiness(input: {
   if (input.networkValidated || input.datasetValidated) return 'adjustment-ready'
   return input.hasSource ? 'needs-confirmation' : 'not-started'
 }
+
+/** Translate only the legacy missing-datum sentinel; never rewrite user datum names. */
+export function surveyDatumLabel(value: string | undefined, t: (key: string) => string): string {
+  return !value || value === '待确认' ? t('surveyPendingConfirmation') : value
+}
+
+export function surveyStatusLabel(value: string | undefined, t: (key: string) => string): string {
+  const labels: Record<string, string> = {
+    imported: 'engineeringStatusImported', validated: 'surveyValidated', blocked: 'engineeringStatusBlocked',
+    completed: 'engineeringStatusCompleted', running: 'engineeringStatusRunning',
+    failed: 'engineeringStatusFailed', cancelled: 'engineeringStatusCancelled', queued: 'engineeringStatusQueued'
+  }
+  return value ? labels[value] ? t(labels[value]) : value : '—'
+}
