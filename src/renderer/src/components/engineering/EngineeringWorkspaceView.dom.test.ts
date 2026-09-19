@@ -4,7 +4,7 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { EngineeringWorkspaceView } from './EngineeringWorkspaceView'
 import i18n from '../../i18n'
-import { dispatchEngineeringProjectOpen } from './engineering-project-navigation'
+import { dispatchEngineeringProjectCreate, dispatchEngineeringProjectOpen } from './engineering-project-navigation'
 import { useEngineeringConversationDrafts } from './engineering-conversation-drafts'
 
 const { request, ensureThread } = vi.hoisted(() => ({ request: vi.fn(), ensureThread: vi.fn() }))
@@ -60,6 +60,76 @@ beforeEach(async () => {
 afterEach(async () => { await act(async () => root.unmount()); container.remove() })
 
 describe('Survey delivery without a monitoring dataset', () => {
+  it('consumes one sidebar create action once across selection, locale and reconnect changes', async () => {
+    const projects = [project]
+    let creates = 0
+    request.mockImplementation(async (path: string, method = 'GET') => {
+      let body: unknown
+      if (path === '/v1/engineering/projects' && method === 'POST') {
+        creates += 1
+        // Bound the broken effect loop so the pre-fix regression terminates.
+        if (creates > 2) throw new Error('unexpected repeated creation')
+        const created = { ...project, id: `created-${creates}` }
+        projects.push(created)
+        body = { project: created }
+      } else if (path === '/v1/engineering/projects') body = { projects }
+      else if (path.endsWith('/overview')) body = { project: projects.find(p => path.includes(`/${p.id}/`)), datasets: [], analyses: [], runs: [], manifests: [] }
+      else if (path.includes('/survey/networks?')) body = { networks: [] }
+      else body = { adjustments: [] }
+      return { ok: true, status: 200, body: JSON.stringify(body) }
+    })
+    await renderDelivery()
+    await act(async () => dispatchEngineeringProjectCreate())
+    await settle()
+    expect(creates).toBe(1)
+    await act(async () => dispatchEngineeringProjectOpen(project.id))
+    await act(async () => i18n.changeLanguage('zh'))
+    await act(async () => root.render(createElement(EngineeringWorkspaceView, { workspaceRoot: '/test', runtimeReady: false })))
+    await act(async () => dispatchEngineeringProjectCreate())
+    await act(async () => root.render(createElement(EngineeringWorkspaceView, { workspaceRoot: '/test', runtimeReady: true })))
+    await settle()
+    expect(creates).toBe(1)
+    await act(async () => dispatchEngineeringProjectCreate())
+    await settle()
+    expect(creates).toBe(2)
+  })
+
+  it('coalesces duplicate create actions while the original request is in flight', async () => {
+    await renderDelivery()
+    const original = request.getMockImplementation()!
+    let finish!: (value: unknown) => void
+    const pending = new Promise(resolve => { finish = resolve })
+    request.mockImplementation((path: string, method?: string, body?: string) =>
+      path === '/v1/engineering/projects' && method === 'POST' ? pending : original(path, method, body))
+    await act(async () => { dispatchEngineeringProjectCreate(); dispatchEngineeringProjectCreate() })
+    await settle()
+    await act(async () => dispatchEngineeringProjectCreate())
+    expect(request.mock.calls.filter(([path, method]) => path === '/v1/engineering/projects' && method === 'POST')).toHaveLength(1)
+    await act(async () => finish({ ok: true, status: 200, body: JSON.stringify({ project }) }))
+  })
+
+  it('releases a failed creation for explicit retry without retrying on its own', async () => {
+    await renderDelivery()
+    const original = request.getMockImplementation()!
+    let creates = 0
+    request.mockImplementation((path: string, method?: string, body?: string) => {
+      if (path === '/v1/engineering/projects' && method === 'POST') {
+        creates += 1
+        return Promise.resolve(creates === 1
+          ? { ok: false, status: 503, body: 'creation unavailable' }
+          : { ok: true, status: 200, body: JSON.stringify({ project }) })
+      }
+      return original(path, method, body)
+    })
+    await act(async () => dispatchEngineeringProjectCreate())
+    await settle()
+    expect(creates).toBe(1)
+    expect(container.textContent).toContain('creation unavailable')
+    await act(async () => dispatchEngineeringProjectCreate())
+    await settle()
+    expect(creates).toBe(2)
+  })
+
   it('preserves the summary, selected result and preview when reopening the current project thread', async () => {
     await renderDelivery()
     await act(async () => button('Generate preview').click())

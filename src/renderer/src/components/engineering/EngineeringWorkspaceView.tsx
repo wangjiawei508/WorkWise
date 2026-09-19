@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useMemo, useState, type ReactElement } from 'react'
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
   Activity,
@@ -348,7 +348,7 @@ export function EngineeringWorkspaceView({ workspaceRoot, runtimeReady, leftSide
   const [chart, setChart] = useState<Chart | null>(null)
   const [busy, setBusy] = useState(false)
   const [notice, setNotice] = useState<Notice | null>(null)
-  const [createRequestToken, setCreateRequestToken] = useState(0)
+  const creatingProject = useRef(false)
   const [selectedSurveyNetworkRevision, setSelectedSurveyNetworkRevision] = useState<number | undefined>()
   const handleSurveyNetworkSelected = useCallback((id: string | null, revision?: number): void => {
     setSelectedSurveyNetworkRevision(revision)
@@ -528,7 +528,8 @@ export function EngineeringWorkspaceView({ workspaceRoot, runtimeReady, leftSide
   }
 
   const createProject = useCallback(async (): Promise<void> => {
-    if (!runtimeReady) return
+    if (!runtimeReady || busy || creatingProject.current) return
+    creatingProject.current = true
     setBusy(true)
     try {
       const result = await runtimeRequest<{ project: Project }>('/v1/engineering/projects', 'POST', {
@@ -550,19 +551,16 @@ export function EngineeringWorkspaceView({ workspaceRoot, runtimeReady, leftSide
       setNotice({ tone: 'success', message: t('engineeringNoticeJobCreated') })
     } catch (error) {
       setNotice({ tone: 'error', message: error instanceof Error ? error.message : String(error) })
-    } finally { setBusy(false) }
-  }, [runtimeReady, selectProject, t, workspaceRoot])
+    } finally { creatingProject.current = false; setBusy(false) }
+  }, [runtimeReady, busy, selectProject, t, workspaceRoot])
 
   useEffect(() => {
-    const requestCreateProject = (): void => setCreateRequestToken(Date.now())
+    // Creation is an event, not persistent state replayed when the selected
+    // project, language or Runtime readiness changes.
+    const requestCreateProject = (): void => { void createProject() }
     window.addEventListener('workwise:engineering-create-project', requestCreateProject)
     return () => window.removeEventListener('workwise:engineering-create-project', requestCreateProject)
-  }, [])
-
-  useEffect(() => {
-    if (!createRequestToken) return
-    void createProject()
-  }, [createProject, createRequestToken])
+  }, [createProject])
 
   const saveProject = async (): Promise<void> => {
     if (!runtimeReady || !overview || !projectDraft) return

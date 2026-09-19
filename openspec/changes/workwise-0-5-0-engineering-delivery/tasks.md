@@ -90,3 +90,8 @@ These code and automated-test items do not close task 39: a successful real-mode
 - [x] Add a project-scoped read-only check for persisted manifests, output hashes/sizes, current input bindings, exact Survey recomputation and source provenance; retain original review status.
 - [x] Expose authenticated Runtime route and desktop IPC plus bilingual review controls; reject cross-project, tampered and stale evidence; clear stale UI results on retries/offline transitions.
 - [ ] Verify the new control in its exact signed packaged candidate. This does not complete digital signing, professional review or standards compliance.
+
+## Packaged sidebar creation regression
+
+- [x] Replace persistent create-request effect replay with one event-driven creation and an in-flight guard; verify duplicate, selection/locale/reconnect and failure/retry cases against the old failure.
+- [ ] Recheck sidebar creation in a fresh signed candidate, including stable project counts after navigation and restart; 69e9728 remains a failed candidate.
