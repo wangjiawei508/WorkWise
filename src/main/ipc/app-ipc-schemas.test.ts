@@ -216,6 +216,8 @@ describe('app-ipc-schemas', () => {
       { path: '/v1/engineering/ai/watch-drafts', method: 'POST' },
       { path: '/v1/engineering/ai/plans', method: 'POST' },
       { path: '/v1/engineering/ai/plans?threadId=thread_1&projectId=project_1', method: 'GET' },
+      { path: '/v1/engineering/ai/project-suggestions?threadId=thread_1&projectId=project_1', method: 'GET' },
+      { path: '/v1/engineering/ai/project-suggestions/suggestion_1/decision', method: 'POST' },
       { path: '/v1/engineering/ai/plans/plan_1', method: 'GET' },
       { path: '/v1/engineering/ai/plans/plan_1/validate', method: 'POST' },
       { path: '/v1/engineering/ai/plans/plan_1/approve', method: 'POST' },

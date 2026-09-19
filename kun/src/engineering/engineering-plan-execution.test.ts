@@ -1,4 +1,4 @@
-import { mkdtemp } from 'node:fs/promises'
+import { mkdtemp, readFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -95,6 +95,18 @@ describe('Reviewed Survey plan execution', () => {
     await expect(orchestrator.authorizeToolCall('thread', 'other-turn', 'survey_network_validate', { networkId, expectedRevision: 1 })).rejects.toThrow(/no executable/)
     expect(survey.getNetwork(networkId)?.revision).toBe(1)
     expect(survey.listAdjustments(projectId)).toHaveLength(0)
+  })
+
+  it('chooses the default adjustment tool from the selected network instead of goal keywords', async () => {
+    projectId = engineering.createProject({ name: 'Plane control test', workspace: root, expectedRevision: 0, idempotencyKey: 'plane-default-project' }).id
+    const bytes = await readFile(new URL('./fixtures/survey-formats/cosa-in2/golden-plane-control-e2e.in2', import.meta.url))
+    const network = await survey.importNetwork({ projectId, expectedRevision: 1, idempotencyKey: 'plane-default-network', networkType: 'plane-control', name: 'synthetic.in2', dataBase64: bytes.toString('base64') })
+    for (const goal of ['控制网平差', 'Adjust the survey network']) {
+      const created = await orchestrator.createPlan({ threadId: 'thread', projectId, goal, idempotencyKey: `survey-default-${goal}` })
+      expect(created.plan.steps[1]?.tool).toBe('control_network')
+      expect(created.plan.steps[1]?.parameters?.networkId).toBe(network.id)
+      expect(created.plan.status).toBe('awaiting_approval')
+    }
   })
 
   it('executes namespaced monitoring tools with validation revisions and bound analysis outputs', async () => {

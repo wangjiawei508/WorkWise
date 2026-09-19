@@ -103,6 +103,7 @@ describe('Engineering AI session recovery states', () => {
     await render(); await settle()
     expect(container.textContent).toContain(stalePlan.goal)
     expect([...container.querySelectorAll('button')].some(button => button.textContent?.includes(i18n.t('engineeringApproveAndStart')))).toBe(false)
+    expect(container.querySelector('[data-testid="engineering-replan"]')).not.toBeNull()
   })
 
   it('shows loading, error, and partial states and retries both resources without clearing the draft', async () => {

@@ -1,4 +1,4 @@
-import type { EngineeringEvidenceSelectionV1 } from '../contracts/engineering-ai.js'
+import type { EngineeringEvidenceSelectionV1, EngineeringContextSnapshotV1 } from '../contracts/engineering-ai.js'
 import { createHash, randomBytes, randomUUID } from 'node:crypto'
 import { z } from 'zod'
 import type { ThreadStore } from '../ports/thread-store.js'
@@ -83,9 +83,13 @@ function surveyAdjustmentTool(goal: string): string {
   return 'survey_calculator'
 }
 
-function defaultSteps(contextHash: string, goal = ''): EngineeringPlanStep[] {
-  if (/(平差|水准|导线|控制网|三角网|CPIII|GNSS|坐标转换|测量)/i.test(goal)) {
-    const adjustmentTool = surveyAdjustmentTool(goal)
+function defaultSteps(contextHash: string, goal: string, context: EngineeringContextSnapshotV1): EngineeringPlanStep[] {
+  if (/(平差|水准|导线|控制网|三角网|CPIII|GNSS|坐标转换|测量|adjust|survey|leveling|traverse|control network)/i.test(goal) || (context.surveyNetworks.length > 0 && context.datasets.length === 0)) {
+    const networkType = context.surveyNetworks.length === 1 ? context.surveyNetworks[0]!.networkType : undefined
+    const adjustmentTool = networkType === 'coordinate-transform' ? 'coord_transform'
+      : networkType?.startsWith('cpiii-') ? 'cpiii_adjustment'
+        : networkType && ['traverse', 'plane-control', 'triangulation', 'gnss'].includes(networkType) ? 'control_network'
+          : networkType && ['leveling', 'height-control'].includes(networkType) ? 'survey_calculator' : surveyAdjustmentTool(goal)
     return [
       { id: 'inspect-survey-network', title: '校核测量网络与基准', tool: 'survey_network_validate', risk: 'write', dependsOn: [], inputHash: contextHash, approval: 'pending' },
       { id: 'adjust-survey-network', title: '执行确定性测量平差', tool: adjustmentTool, risk: 'write', dependsOn: ['inspect-survey-network'], inputHash: contextHash, approval: 'pending' },
@@ -258,7 +262,7 @@ export class EngineeringAiOrchestrator {
         return { ...step, parameters }
       })
     }
-    const rawSteps = (selectedSteps ?? defaultSteps(context.contextHash, input.goal)).map((step) => ({ ...step, risk: engineeringPlanToolRisk(step.tool) ?? step.risk, inputHash: context.contextHash, approval: 'pending' as const }))
+    const rawSteps = (selectedSteps ?? defaultSteps(context.contextHash, input.goal, context)).map((step) => ({ ...step, risk: engineeringPlanToolRisk(step.tool) ?? step.risk, inputHash: context.contextHash, approval: 'pending' as const }))
     validateSteps(rawSteps)
     const steps = compilePlanSteps(rawSteps, context)
     validateSteps(steps)

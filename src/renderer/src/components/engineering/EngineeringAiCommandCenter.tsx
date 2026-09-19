@@ -4,6 +4,7 @@ import { useShallow } from 'zustand/react/shallow'
 import { AlertTriangle, Bot, ChevronDown, ClipboardList, Compass, FileCheck2, Loader2, MessageSquareText, Play, Plus, RefreshCw, Upload } from 'lucide-react'
 import type { TaskRunStatus, TaskRunV1 } from '@shared/agent-workbench'
 import appI18n from '../../i18n'
+import { surveyLegacyDiagnosticText, surveyRuntimeErrorText } from './survey-diagnostic-text'
 import { rendererRuntimeClient } from '../../agent/runtime-client'
 import { useChatStore } from '../../store/chat-store'
 import { MessageTimeline } from '../chat/MessageTimeline'
@@ -60,7 +61,7 @@ export function projectAiPlanSteps(plan: AiPlan, taskStatus?: TaskRunStatus, t?:
 }
 
 export function EngineeringAiCommandCenter({ workspaceRoot, runtimeReady, project, compact = false, onCreateProject, onImportData, onSurveyFiles, onOpenTab, onRefresh }: Props): ReactElement {
-  const { t } = useTranslation('common')
+  const { t, i18n } = useTranslation('common')
   const { activeThreadId, threads, blocks, liveReasoning, liveAssistant, busy, runtimeConnection, error, lastSeq, refreshThreads, selectThread, probeRuntime, openSettings, composerModel } = useChatStore(useShallow((state) => ({
     activeThreadId: state.activeThreadId, threads: state.threads, blocks: state.blocks,
     liveReasoning: state.liveReasoning, liveAssistant: state.liveAssistant, busy: state.busy,
@@ -163,7 +164,7 @@ export function EngineeringAiCommandCenter({ workspaceRoot, runtimeReady, projec
     } catch (cause) { setNotice(cause instanceof Error ? cause.message : String(cause)) } finally { setPlanBusy(false) }
   }
   const replanStalePlan = async (): Promise<void> => {
-    if (!scopedPlan || !['stale', 'needs_attention'].includes(scopedPlan.status) || !connected || !engineeringThreadActive || !timelineThreadId || busy || planBusy) return
+    if (!scopedPlan || (!['stale', 'needs_attention'].includes(scopedPlan.status) && scopedPlan.steps.every(step => step.parameters && step.parameterBindings && step.expectedOutputs?.length && step.reversibility)) || !connected || !engineeringThreadActive || !timelineThreadId || busy || planBusy) return
     setPlanBusy(true); setNotice(null)
     try {
       const response = await rendererRuntimeClient.runtimeRequest('/v1/engineering/ai/plans', 'POST', JSON.stringify({
@@ -209,7 +210,7 @@ export function EngineeringAiCommandCenter({ workspaceRoot, runtimeReady, projec
       <button type="button" className={iconButton} title={t('engineeringRefreshContext')} aria-label={t('engineeringRefreshContext')} onClick={onRefresh}><RefreshCw className="h-4 w-4" /></button>
     </header>
     {!connected || notice || error ? <div role="status" className="shrink-0 border-b border-ds-border-muted px-3 py-2 text-[12px] text-amber-700 dark:text-amber-300">
-      <p className="flex items-start gap-2 break-words"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />{notice || error || t('engineeringRuntimeNotConnected')}</p>
+      <p className="flex items-start gap-2 break-words"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />{surveyRuntimeErrorText(notice || error || t('engineeringRuntimeNotConnected'), i18n.language)}</p>
       <div className="mt-1 flex flex-wrap gap-3"><button type="button" onClick={retryRuntime}>{t('engineeringRuntimeRetry')}</button><button type="button" onClick={() => openSettings('agents')}>{t('engineeringCheckConfig')}</button></div>
     </div> : null}
     {connected && projectId && timelineThreadId && sessionReadStatus !== 'ready' ? <div
@@ -238,7 +239,7 @@ export function EngineeringAiCommandCenter({ workspaceRoot, runtimeReady, projec
         {scopedPlan.steps.map((step) => <div key={step.id} className="border-b border-ds-border-muted pb-2 text-[12px]" data-testid="engineering-plan-step-review">
           <label className="flex items-start gap-2">
             {needsApproval && step.risk !== 'read' ? <input type="checkbox" checked={approvedSteps.includes(step.id)} onChange={(event) => setApprovedSteps((current) => event.target.checked ? [...current, step.id] : current.filter((id) => id !== step.id))} className="mt-0.5" /> : null}
-            <span className="min-w-0 break-words">{step.title}<span className="ml-2 text-[11px] text-ds-muted">{step.risk === 'read' ? t('engineeringRiskRead') : t('engineeringRiskApproval')}</span></span>
+            <span className="min-w-0 break-words">{surveyLegacyDiagnosticText(step.title, i18n.language)}<span className="ml-2 text-[11px] text-ds-muted">{step.risk === 'read' ? t('engineeringRiskRead') : t('engineeringRiskApproval')}</span></span>
           </label>
           <dl className="mt-2 space-y-1 break-words text-[11px]">
             <div><dt className="inline text-ds-muted">{t('engineeringPlanTool')}: </dt><dd className="inline font-mono">{step.tool}</dd></div>
@@ -251,10 +252,10 @@ export function EngineeringAiCommandCenter({ workspaceRoot, runtimeReady, projec
         <p className="break-all font-mono text-[10px] text-ds-faint">{scopedPlan.id} · {scopedPlan.contextHash.slice(0, 22)}</p>
         {taskRun?.stalledReason || taskRun?.waitingReason ? <p className="break-words text-[11px] text-amber-700 dark:text-amber-300">{taskRun.stalledReason || taskRun.waitingReason}</p> : null}
         {planReviewComplete && (needsApproval || scopedPlan.status === 'approved') ? <button type="button" onClick={() => void approveAndStartPlan()} disabled={planBusy || busy || !connected || !engineeringThreadActive || (needsApproval && !riskConfirmed)} className="inline-flex h-8 items-center gap-2 rounded-md bg-accent px-3 text-[12px] font-medium text-white disabled:opacity-50">{planBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />}{t('engineeringApproveAndStart')}</button> : null}
-        {['stale', 'needs_attention'].includes(scopedPlan.status) ? <button type="button" data-testid="engineering-replan" onClick={() => void replanStalePlan()} disabled={planBusy || busy || !connected || !engineeringThreadActive} className="inline-flex h-8 items-center gap-2 rounded-md bg-accent px-3 text-[12px] font-medium text-white disabled:opacity-50">{planBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}{planBusy ? t('engineeringReplanning') : t('engineeringReplan')}</button> : null}
+        {!planReviewComplete || ['stale', 'needs_attention'].includes(scopedPlan.status) ? <button type="button" data-testid="engineering-replan" onClick={() => void replanStalePlan()} disabled={planBusy || busy || !connected || !engineeringThreadActive} className="inline-flex h-8 items-center gap-2 rounded-md bg-accent px-3 text-[12px] font-medium text-white disabled:opacity-50">{planBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}{planBusy ? t('engineeringReplanning') : t('engineeringReplan')}</button> : null}
       </div> : null}
     </section> : null}
-    {evidenceCards.length && !compact ? <details className="max-h-[20%] shrink-0 overflow-y-auto border-t border-ds-border-muted px-3 py-2 text-[11px]"><summary className="cursor-pointer text-ds-muted"><FileCheck2 className="mr-1 inline h-3.5 w-3.5" />{t('engineeringEvidenceReturn')} ({evidenceCards.length})</summary>{evidenceCards.map((card) => <div key={card.id} className="mt-2 break-words"><p className="font-medium">{card.title}</p><p className="text-ds-muted">{card.summary}</p></div>)}</details> : null}
+    {evidenceCards.length && !compact ? <details className="max-h-[20%] shrink-0 overflow-y-auto border-t border-ds-border-muted px-3 py-2 text-[11px]"><summary className="cursor-pointer text-ds-muted"><FileCheck2 className="mr-1 inline h-3.5 w-3.5" />{t('engineeringEvidenceReturn')} ({evidenceCards.length})</summary>{evidenceCards.map((card) => <div key={card.id} className="mt-2 break-words"><p className="font-medium">{surveyLegacyDiagnosticText(card.title, i18n.language)}</p><p className="text-ds-muted">{surveyLegacyDiagnosticText(card.summary, i18n.language)}</p></div>)}</details> : null}
     <div className="flex shrink-0 justify-center px-3 pb-3 pt-2"><EngineeringComposer workspaceRoot={workspaceRoot} projectId={projectId} ready={connected} threadId={timelineThreadId} onSurveyFiles={onSurveyFiles} /></div>
   </section>
 }

@@ -56,5 +56,17 @@
   "单位 {0} 与项目单位 {1} 不一致": "Unit {0} differs from project unit {1}.",
   "统一单位后重新校核": "Unify units, then validate again.",
   "时间顺序异常": "Timestamps are out of order.",
-  "按时间升序整理": "Sort timestamps in ascending order."
+  "按时间升序整理": "Sort timestamps in ascending order.",
+  "校核测量网络与基准": "Validate the survey network and datum",
+  "执行确定性测量平差": "Run deterministic survey adjustment",
+  "读取闭合差、残差与精度": "Read closure, residuals and precision",
+  "准备测量成果与证据包": "Prepare survey outputs and evidence",
+  "校核工程数据": "Validate engineering data",
+  "计算趋势与阈值": "Calculate trends and thresholds",
+  "生成趋势图": "Generate the trend chart",
+  "准备报告与证据包": "Prepare the report and evidence",
+  "分析覆盖范围": "Analysis coverage",
+  "{0} 条观测 · {1}": "{0} observations · {1}",
+  "{0} 条趋势与阈值分析结果": "{0} trend and threshold analysis results",
+  "本次运行覆盖 {0} 个监测项/测点组合": "This run covers {0} monitoring item/point combinations"
 }
