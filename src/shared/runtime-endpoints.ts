@@ -232,3 +232,5 @@ export function isRuntimeThreadMode(value: unknown): value is RuntimeThreadMode 
 export function normalizeThreadMode(value: unknown): RuntimeThreadMode {
   return value === 'plan' ? 'plan' : 'agent'
 }
+
+export const RUNTIME_ENGINEERING_MANIFEST_VERIFY_TEMPLATE = '/v1/engineering/projects/{id}/manifests/{manifestId}/verify'

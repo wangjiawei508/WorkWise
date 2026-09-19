@@ -84,3 +84,9 @@ These code and automated-test items do not close task 39: a successful real-mode
 - [x] Add explicit solver-indexed XY covariance, standard ellipse axes/orientation/variance basis for plane, traverse, triangulation, CPIII and GNSS; preserve ellipse-free algorithm-6 replay without rewriting old results.
 - [x] Carry ellipse values and interpretation through bilingual point views, DOCX/PDF/XLSX and manifests; validate analytic rotated/diagonal/degenerate cases, real service covariance, export and legacy replay.
 - [ ] Verify the new ellipse and parser diagnostic increment in its exact signed candidate and obtain professional interpretation/UI acceptance; this does not close the broader advanced-adjustment task.
+
+## P1 deliverable verification increment
+
+- [x] Add a project-scoped read-only check for persisted manifests, output hashes/sizes, current input bindings, exact Survey recomputation and source provenance; retain original review status.
+- [x] Expose authenticated Runtime route and desktop IPC plus bilingual review controls; reject cross-project, tampered and stale evidence; clear stale UI results on retries/offline transitions.
+- [ ] Verify the new control in its exact signed packaged candidate. This does not complete digital signing, professional review or standards compliance.

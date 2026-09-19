@@ -1,7 +1,8 @@
-import { mkdtemp, readFile, stat } from 'node:fs/promises'
+import { mkdtemp, readFile, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import JSZip from 'jszip'
+import Database from 'better-sqlite3'
 import { describe, expect, it, onTestFinished } from 'vitest'
 import type { CosaIn1Mapping } from './survey-cosa-in1.js'
 import { EngineeringService } from './engineering-service.js'
@@ -27,7 +28,7 @@ describe('P0 professional survey delivery', () => {
         return stored?.run.projectId === projectId && stored.result ? [stored.result] : []
       }),
       getAdjustmentEvidence: (projectId, ids) => ids.flatMap((id) => {
-        const stored = survey.getAdjustment(id)
+        const stored = survey.getAdjustmentForProjectNewUse(projectId, id)
         return stored?.run.projectId === projectId && stored.result
           ? [{
               run: {
@@ -233,8 +234,38 @@ describe('P0 professional survey delivery', () => {
     await expect(engineering.previewReport({ ...previewRequest, adjustmentIds: [], idempotencyKey: 'p0-empty-report' })).rejects.toThrow(/selected survey results/)
     await expect(engineering.previewReport({ ...previewRequest, analysisId: 'unrelated-analysis', idempotencyKey: 'p0-orphan-analysis' })).rejects.toThrow(/analysisId requires datasetId/)
     await expect(engineering.previewReport({ ...previewRequest, expectedRevision: project.revision + 1, idempotencyKey: 'p0-stale-project' })).rejects.toThrow(/project revision conflict/)
+    const verification = engineering.verifyDeliverable(project.id, manifest.id)
+    expect(verification).toMatchObject({ valid: true, reviewStatus: 'draft' })
+    expect(verification.checks).toHaveLength(5)
+    expect(verification.checks.every(item => item.status === 'passed')).toBe(true)
+    expect(() => engineering.verifyDeliverable('other-project', manifest.id)).toThrow(/not found in project/)
+    const sealedOutput = join(workspace, manifest.outputs[0]!.path)
+    const original = await readFile(sealedOutput)
+    await writeFile(sealedOutput, 'tampered')
+    expect(engineering.verifyDeliverable(project.id, manifest.id)).toMatchObject({ valid: false, checks: expect.arrayContaining([{ id: 'outputs', status: 'failed', detail: expect.stringContaining('recorded hash') }]) })
+    await writeFile(sealedOutput, original)
+    await writeFile(manifestPath, persistedManifest + '\n')
+    expect(engineering.verifyDeliverable(project.id, manifest.id)).toMatchObject({ valid: false, checks: expect.arrayContaining([{ id: 'manifest', status: 'failed', detail: expect.stringContaining('durable manifest') }]) })
+    await writeFile(manifestPath, persistedManifest)
+    expect(engineering.verifyDeliverable(project.id, manifest.id).valid).toBe(true)
+    expect(await readFile(manifestPath, 'utf8')).toBe(persistedManifest)
+    const db = new Database(join(root, 'runtime', 'survey.sqlite3'))
+    try {
+      const adjustmentId = manifest.adjustments[0]!.runId
+      const before = db.prepare('SELECT data_json FROM survey_adjustments WHERE id = ?').get(adjustmentId) as { data_json: string }
+      const altered = JSON.parse(before.data_json)
+      altered.result.unitWeightStdDev += 0.123
+      db.prepare('UPDATE survey_adjustments SET data_json = ? WHERE id = ?').run(JSON.stringify(altered), adjustmentId)
+      const rejected = engineering.verifyDeliverable(project.id, manifest.id)
+      expect(rejected.valid).toBe(false)
+      expect(rejected.checks.find(item => item.id === 'surveyReplay')?.status).toBe('failed')
+      db.prepare('UPDATE survey_adjustments SET data_json = ? WHERE id = ?').run(before.data_json, adjustmentId)
+    } finally { db.close() }
+    expect(engineering.verifyDeliverable(project.id, manifest.id).valid).toBe(true)
+
     engineering.updateProject(project.id, { name: 'Changed project', expectedRevision: project.revision, idempotencyKey: 'p0-change-project' })
     await expect(engineering.previewReport({ ...previewRequest, expectedRevision: 0 })).rejects.toThrow()
     await expect(engineering.finalize({ ...finalizeRequest, expectedRevision: 0 })).rejects.toThrow()
+    expect(engineering.verifyDeliverable(project.id, manifest.id)).toMatchObject({ valid: false, checks: expect.arrayContaining([{ id: 'inputs', status: 'failed', detail: expect.any(String) }]) })
   })
 })

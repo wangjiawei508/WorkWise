@@ -256,3 +256,14 @@ New algorithm-7 plane-control, traverse, triangulation, CPIII and GNSS results M
 #### Scenario: Reuse an algorithm-6 result
 - **WHEN** an earlier algorithm-6 result passes source and immutable-evidence checks
 - **THEN** fresh computation uses the retained ellipse-free algorithm-6 result shape and checks the existing exact computation hash without rewriting its stored result or weakening verification
+
+### Requirement: Read-only deliverable reverification
+A project-scoped user action MUST re-read the published manifest and output bytes, check current project/dataset/run bindings, and use the strict Survey reader to recompute supported recorded adjustments and check immutable evidence. It MUST report independent check outcomes and the check time without changing the original manifest or review status. Monitoring calculations are not represented as freshly recomputed by this action.
+
+#### Scenario: An output is changed after export
+- **WHEN** output bytes or the manifest file differ from their durable evidence
+- **THEN** reverification fails, preserves historical records, and does not approve or regenerate a delivery
+
+#### Scenario: A result arrives after going offline
+- **WHEN** the UI loses Runtime readiness while reverification is pending
+- **THEN** it disables the action and ignores the late response instead of displaying a stale pass

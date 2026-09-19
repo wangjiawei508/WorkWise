@@ -60,6 +60,10 @@ export async function finalizeDeliverable(service: EngineeringService | undefine
   const body = await readJsonBody(request); if (!body.ok) return body.response
   try { return jsonResponse({ manifest: await service.finalize(body.value) }, 201) } catch (error) { return mapError(error) }
 }
+export async function verifyDeliverable(service: EngineeringService | undefined, projectId: string, manifestId: string): Promise<JsonResponse> {
+  if (!service) return ERRORS.unavailable('engineering workbench is unavailable')
+  try { return jsonResponse({ verification: service.verifyDeliverable(projectId, manifestId) }) } catch (error) { return mapError(error) }
+}
 export async function getRun(service: EngineeringService | undefined, id: string): Promise<JsonResponse> {
   if (!service) return ERRORS.unavailable('engineering workbench is unavailable')
   const run = service.getRun(id); return run ? jsonResponse({ run }) : ERRORS.notFound(`run not found: ${id}`)

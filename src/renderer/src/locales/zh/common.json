@@ -2973,5 +2973,17 @@
   "surveyErrorEllipseNoOrientation": "无唯一轴向（等方或零椭圆）",
   "surveyErrorEllipsePosterior": "后验方差",
   "surveyErrorEllipsePrior": "先验方差",
-  "surveyErrorEllipseHint": "半轴采用单位马氏半径，不代表置信百分比。轴向从 +X 转向 +Y，按 180° 周期表示。XY 为解算坐标平面，GNSS 的 XY 不等同于当地东/北。固定点和旧成果不补造椭圆。"
+  "surveyErrorEllipseHint": "半轴采用单位马氏半径，不代表置信百分比。轴向从 +X 转向 +Y，按 180° 周期表示。XY 为解算坐标平面，GNSS 的 XY 不等同于当地东/北。固定点和旧成果不补造椭圆。",
+  "engineeringVerifyDelivery": "重新验证成果",
+  "engineeringVerifying": "正在验证…",
+  "engineeringVerifyManifest": "清单文件与持久记录",
+  "engineeringVerifyOutputs": "输出文件哈希与大小",
+  "engineeringVerifyInputs": "运行与当前输入绑定",
+  "engineeringVerifySurveyReplay": "测量结果严格重算",
+  "engineeringVerifySources": "测量原始来源与准入",
+  "engineeringVerifyPassed": "通过",
+  "engineeringVerifyFailed": "验证失败",
+  "engineeringVerifyNotApplicable": "不适用",
+  "engineeringVerifySucceeded": "本次证据检查通过",
+  "engineeringVerifyBoundary": "这是标注时间的完整性与当前证据检查，不是专业复核、规范符合性或数字签名。监测结果未在此重新计算；原清单及其审查状态保持不变。"
 }

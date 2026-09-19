@@ -10,7 +10,7 @@ import type { SurveySourceEligibility } from './survey-service.js'
 import { makeReportPdf } from './engineering-report-pdf.js'
 import {
   AnalysisRequest, ChartArtifactV1, ChartRequest, DatasetImportRequest, DatasetValidateRequest,
-  DeliverableManifestV1, EngineeringProjectCreateRequest, EngineeringProjectUpdateRequest, AcceptQualityFindingRequest, FieldMappingV1, FinalizeDeliverableRequest,
+  DeliverableManifestV1, DeliverableVerificationV1, EngineeringProjectCreateRequest, EngineeringProjectUpdateRequest, AcceptQualityFindingRequest, FieldMappingV1, FinalizeDeliverableRequest,
   KnowledgeCitationV1, MonitoringAnalysisV1, MonitoringDatasetV1, MonitoringObservationV1,
   QualityFindingV1, RailwiseProjectV1, inferEngineeringTaskType, ReportPreviewRequest, RunMutationRequest, SurveySourceEvidenceV1
 } from '../contracts/engineering.js'
@@ -502,6 +502,58 @@ export class EngineeringService {
         throw error
       }
     })
+  }
+
+  /** Re-read bytes and recompute Survey evidence without changing any stored record. */
+  verifyDeliverable(projectId: string, manifestId: string): DeliverableVerificationV1 {
+    const row = this.db.prepare('SELECT data_json FROM engineering_manifests WHERE id = ? AND project_id = ?').get(manifestId, projectId) as { data_json: string } | undefined
+    if (!row) throw new Error('deliverable manifest not found in project')
+    const manifest = DeliverableManifestV1.parse(JSON.parse(row.data_json))
+    if (manifest.id !== manifestId || manifest.projectId !== projectId) throw new Error('deliverable manifest identity mismatch')
+    const project = this.mustProject(projectId)
+    const checks: DeliverableVerificationV1['checks'] = []
+    const check = (id: DeliverableVerificationV1['checks'][number]['id'], action: () => void): void => {
+      try { action(); checks.push({ id, status: 'passed' }) }
+      catch (error) { checks.push({ id, status: 'failed', detail: error instanceof Error ? error.message : String(error) }) }
+    }
+    check('manifest', () => this.assertPublishedManifestCurrent(project, manifest))
+    check('outputs', () => {
+      if (!manifest.outputs.length) throw new Error('deliverable manifest has no output files')
+      this.assertDeliveryOutputsCurrent(project, manifest.outputs)
+    })
+    check('inputs', () => {
+      const run = this.getRun(manifest.runId)
+      if (!run || run.projectId !== projectId || !run.deliveryInputHash) throw new Error('deliverable run has no bound input snapshot')
+      if (manifest.inputDatasets.length !== (run.datasetId ? 1 : 0)
+        || manifest.inputDatasets[0]?.id !== run.datasetId
+        || manifest.analyses.length !== (run.analysisId ? 1 : 0)
+        || manifest.analyses[0] !== run.analysisId) throw new Error('deliverable input bindings do not match the completed run')
+      const dataset = run.datasetId ? this.mustDataset(run.datasetId) : undefined
+      const analysis = run.analysisId ? this.getAnalysis(run.analysisId) ?? undefined : undefined
+      if (dataset && (dataset.projectId !== projectId || dataset.sourceFileHash !== manifest.inputDatasets[0]?.hash)) throw new Error('deliverable dataset source hash mismatch')
+      this.assertCompletedRunCurrent(run)
+      this.assertDeliveryInputsCurrent(project, dataset, analysis, run.deliveryInputHash)
+    })
+    if (manifest.adjustments.length || manifest.deformations.length) {
+      check('surveyReplay', () => {
+        // Production providers call SurveyService's project-scoped strict reader,
+        // which recomputes with the recorded algorithm and checks its exact hash.
+        const adjustments = this.lookupAdjustments(projectId, manifest.adjustments.map(item => item.id))
+        const deformations = this.lookupDeformations(projectId, manifest.deformations.map(item => item.id))
+        this.assertReplayAdjustmentsMatchLive('deliverable verification', adjustments, manifest.adjustments)
+        this.assertReplayDeformationsMatchLive('deliverable verification', deformations, manifest.deformations)
+        this.assertDeformationEpochEvidence(projectId, deformations)
+      })
+      check('sources', () => {
+        this.assertSurveySourcesAdmissible(projectId, manifest.adjustments, manifest.deformations)
+        const sources = this.lookupSurveySources(projectId, this.requiredSurveyNetworkIds(manifest.adjustments, manifest.deformations))
+        if (canonicalDeliveryJson(sources) !== canonicalDeliveryJson(manifest.surveySources)) throw new Error('deliverable source provenance no longer matches its recorded evidence')
+      })
+    } else {
+      checks.push({ id: 'surveyReplay', status: 'not-applicable' }, { id: 'sources', status: 'not-applicable' })
+    }
+    return DeliverableVerificationV1.parse({ schemaVersion: 1, projectId, manifestId, checkedAt: this.nowIso(),
+      valid: checks.every(item => item.status !== 'failed'), reviewStatus: manifest.reviewStatus, checks })
   }
 
   async finalize(input: unknown): Promise<DeliverableManifestV1> {

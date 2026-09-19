@@ -136,6 +136,17 @@ export const DeliverableManifestV1 = z.object({
 }).strict()
 export type DeliverableManifestV1 = z.infer<typeof DeliverableManifestV1>
 
+/** A point-in-time read-only check; never a human review or signature. */
+export const DeliverableVerificationV1 = z.object({
+  schemaVersion: z.literal(1), projectId: z.string(), manifestId: z.string(), checkedAt: z.string(),
+  valid: z.boolean(), reviewStatus: z.enum(['draft', 'approved', 'archived']),
+  checks: z.array(z.object({
+    id: z.enum(['manifest', 'outputs', 'inputs', 'surveyReplay', 'sources']),
+    status: z.enum(['passed', 'failed', 'not-applicable']), detail: z.string().optional()
+  }).strict())
+}).strict()
+export type DeliverableVerificationV1 = z.infer<typeof DeliverableVerificationV1>
+
 export const EngineeringProjectCreateRequest = RevisionMutationV1.extend({
   name: z.string().min(1).max(200), taskType: EngineeringTaskTypeV1.optional(), taskContext: EngineeringTaskContextV1.optional(), monitoringType: z.string().optional(), unit: z.string().optional(), signConvention: z.string().optional(),
   thresholds: z.record(z.string(), z.number().finite()).optional(), reportPeriod: z.object({ start: z.string().optional(), end: z.string().optional() }).strict().optional(), workspace: z.string().min(1)

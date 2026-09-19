@@ -52,6 +52,7 @@ import {
   RUNTIME_ENGINEERING_CHARTS_TEMPLATE,
   RUNTIME_ENGINEERING_REPORT_PREVIEW_TEMPLATE,
   RUNTIME_ENGINEERING_DELIVERABLES_FINALIZE_TEMPLATE,
+  RUNTIME_ENGINEERING_MANIFEST_VERIFY_TEMPLATE,
   RUNTIME_ENGINEERING_RUN_TEMPLATE,
   RUNTIME_ENGINEERING_RUN_CANCEL_TEMPLATE,
   RUNTIME_ENGINEERING_RUN_RESUME_TEMPLATE,
@@ -170,10 +171,10 @@ function compileEndpoint(
   allowedQueryParams?: readonly string[]
 ): EndpointTemplate {
   // Build a regex from the template by escaping the literal parts and
-  // substituting the `{id}` / `{turn}` placeholders with `[^/]+`. The
+  // substituting the `{id}` / `{turn}` / `{manifestId}` placeholders with `[^/]+`. The
   // template fragments are URL-encoded by the path helpers, so they
   // contain only characters that are safe to escape directly.
-  const pattern = template.replace(/[.+*?^$()|[\]\\]/g, '\\$&').replace(/\{(?:id|turn)\}/g, '[^/]+')
+  const pattern = template.replace(/[.+*?^$()|[\]\\]/g, '\\$&').replace(/\{(?:id|turn|manifestId)\}/g, '[^/]+')
   const regex = new RegExp(`^${pattern}$`)
   return {
     match: (path: string) => regex.test(path),
@@ -233,6 +234,7 @@ const ENDPOINTS: readonly EndpointTemplate[] = [
   compileEndpoint(RUNTIME_ENGINEERING_CHARTS_TEMPLATE, ['POST']),
   compileEndpoint(RUNTIME_ENGINEERING_REPORT_PREVIEW_TEMPLATE, ['POST']),
   compileEndpoint(RUNTIME_ENGINEERING_DELIVERABLES_FINALIZE_TEMPLATE, ['POST']),
+  compileEndpoint(RUNTIME_ENGINEERING_MANIFEST_VERIFY_TEMPLATE, ['POST']),
   compileEndpoint(RUNTIME_ENGINEERING_RUN_TEMPLATE, ['GET']),
   compileEndpoint(RUNTIME_ENGINEERING_RUN_CANCEL_TEMPLATE, ['POST']),
   compileEndpoint(RUNTIME_ENGINEERING_RUN_RESUME_TEMPLATE, ['POST']),

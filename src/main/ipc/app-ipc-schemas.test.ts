@@ -208,6 +208,7 @@ describe('app-ipc-schemas', () => {
       { path: '/v1/engineering/charts', method: 'POST' },
       { path: '/v1/engineering/reports/preview', method: 'POST' },
       { path: '/v1/engineering/deliverables/finalize', method: 'POST' },
+      { path: '/v1/engineering/projects/project_1/manifests/manifest_1/verify', method: 'POST' },
       { path: '/v1/engineering/runs/run_1', method: 'GET' },
       { path: '/v1/engineering/runs/run_1/cancel', method: 'POST' },
       { path: '/v1/engineering/runs/run_1/resume', method: 'POST' },

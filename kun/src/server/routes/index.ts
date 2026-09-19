@@ -114,6 +114,7 @@ export function buildRouter(runtime: ServerRuntime): Router {
   router.add('POST', '/v1/engineering/analyses', async (request) => authorize(request, runtime) ? engineeringRoutes.createAnalysis(runtime.engineeringService, request) : ERRORS.unauthorized())
   router.add('POST', '/v1/engineering/charts', async (request) => authorize(request, runtime) ? engineeringRoutes.createChart(runtime.engineeringService, request) : ERRORS.unauthorized())
   router.add('POST', '/v1/engineering/reports/preview', async (request) => authorize(request, runtime) ? engineeringRoutes.previewReport(runtime.engineeringService, request) : ERRORS.unauthorized())
+  router.add('POST', '/v1/engineering/projects/:id/manifests/:manifestId/verify', async (request, ctx) => authorize(request, runtime) ? engineeringRoutes.verifyDeliverable(runtime.engineeringService, ctx.params.id, ctx.params.manifestId) : ERRORS.unauthorized())
   router.add('POST', '/v1/engineering/deliverables/finalize', async (request) => authorize(request, runtime) ? engineeringRoutes.finalizeDeliverable(runtime.engineeringService, request) : ERRORS.unauthorized())
   router.add('GET', '/v1/engineering/runs/:id', async (request, ctx) => authorize(request, runtime) ? engineeringRoutes.getRun(runtime.engineeringService, ctx.params.id) : ERRORS.unauthorized())
   router.add('POST', '/v1/engineering/runs/:id/cancel', async (request, ctx) => authorize(request, runtime) ? engineeringRoutes.cancelRun(runtime.engineeringService, ctx.params.id, request) : ERRORS.unauthorized())

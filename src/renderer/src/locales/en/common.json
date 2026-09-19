@@ -2973,5 +2973,17 @@
   "surveyErrorEllipseNoOrientation": "Undefined (isotropic or zero)",
   "surveyErrorEllipsePosterior": "Posterior variance",
   "surveyErrorEllipsePrior": "Prior variance",
-  "surveyErrorEllipseHint": "Semi-axes use unit Mahalanobis radius, not a confidence percentage. Orientation is from +X toward +Y, modulo 180°. XY refers to the solved coordinate plane; GNSS XY is not local east/north. Fixed points and legacy results show no ellipse."
+  "surveyErrorEllipseHint": "Semi-axes use unit Mahalanobis radius, not a confidence percentage. Orientation is from +X toward +Y, modulo 180°. XY refers to the solved coordinate plane; GNSS XY is not local east/north. Fixed points and legacy results show no ellipse.",
+  "engineeringVerifyDelivery": "Verify deliverable again",
+  "engineeringVerifying": "Verifying…",
+  "engineeringVerifyManifest": "Manifest file and stored record",
+  "engineeringVerifyOutputs": "Output file hashes and sizes",
+  "engineeringVerifyInputs": "Run and current input bindings",
+  "engineeringVerifySurveyReplay": "Exact Survey recomputation",
+  "engineeringVerifySources": "Survey source integrity and admission",
+  "engineeringVerifyPassed": "Passed",
+  "engineeringVerifyFailed": "Verification failed",
+  "engineeringVerifyNotApplicable": "Not applicable",
+  "engineeringVerifySucceeded": "Evidence checks passed at this time",
+  "engineeringVerifyBoundary": "This is an integrity and current-evidence check at the displayed time, not professional review, standards compliance or a digital signature. Monitoring results are not recomputed here. The original manifest and review status are preserved."
 }
