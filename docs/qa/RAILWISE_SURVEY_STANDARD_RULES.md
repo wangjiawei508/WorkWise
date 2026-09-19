@@ -1,6 +1,6 @@
 # Survey 规范规则与质检记录内核
 
-此增量提供可接入 Runtime 的版本化规则注册和质检事件链。它没有内置 GB/T 24356-2023 或其他真实规范的阈值、抽样数、评分表，也没有实现该标准的符合性判定。现有[官方来源记录](evidence/railwise-research-20260919/standards-source.json)只核实标准元数据与在线预览入口；全文、条款核对和专业签认仍缺证。
+此增量提供可接入 Runtime 的版本化规则注册和质检事件链。它没有内置 GB/T 24356-2023 或其他真实规范的阈值、抽样数、评分表，也没有实现该标准的符合性判定。09-19 的[官方来源记录](evidence/railwise-research-20260919/standards-source.json)仅覆盖元数据；09-20 已取得[官方全文并核对列明条款](evidence/railwise-standards-20260920/README.md)，包括检查顺序、抽样、评分和工程控制分类。扫描页来源仍需与规则合同衔接，完整映射、独立专业签认及生产流程未完成；研究记录没有自动进入受信规则集合。
 
 ## 规则执行条件
 
@@ -90,6 +90,12 @@ const coverage = evaluateSurveyFinalArtifactCoverage(reloadedEvents, {
 输出明确标记 `assessmentBasis: 'recorded-events-only'`，`standardConformity` 和 `humanSignatureVerification` 仍为 `not-evaluated`。`covered` 表示给定检查计划在事件记录中的覆盖，不表示已批准交付。调用方仍须核实最终成果及检查证据的真实字节、检查语义、计划完整性与人员身份；内核不会把任意填写的 `passed`、摘要或同链现算的检查点提升为独立证明。该函数尚未接入持久化、GUI 或交付流程。
 
 ## 验证
+
+新增 `scanned-pdf` 来源分支，以 PDF 字节 SHA-256、1-based PDF 页、可选印刷页、固定渲染器/版本/DPI、RGB8 全页与可选区域像素摘要、UTF-8 转录及复核证据绑定扫描条款。旧 `full-text` 字节摘录、`official-metadata` 与已保存规则摘要兼容，混用两种摘录形式拒绝。记录 actor 的 human/agent 字段仅为声明，不认证身份。
+
+规则仍需独立保存的精确规则摘要和全文信任，不能仅由网页地址或同次输入自授信任。受信 `renderPdfPage` 必须从已核实 PDF 字节实际重渲染；内核核对全页及逐行裁剪区域，不接受无关图片代替来源。没有渲染器或复核证据时返回未评估。扫描专属上限为 PDF 64 MiB、复核证据 1 MiB、全页 1600 万像素/4800 万 RGB 字节；渲染器必须在分配前执行尺寸预算。本增量尚未接生产渲染服务、规则登记、数据库或 GUI。
+
+[真实官方 PDF 渲染合同验证](./evidence/railwise-standards-20260920/renderer-contract.md)已使用 GB/T 24356-2023 第 4.2.1 条所在 PDF 第 6 页，经 Poppler 26.05.0 在 72 DPI 实际重渲染并核对完整 RGB、区域、转录及复核证据。缺少独立全文/规则摘要、换页、换转录、改区域及超预算请求均拒绝。试验只注册 `TEST-ONLY-SOURCE-BINDING` 非规范标记，reviewer 为 agent，不把测试信任集合作为真实人工审核。扫描/质检定向 59 项通过，最终 Runtime 全量 1741 通过 / 3 跳过。
 
 ```sh
 cd kun

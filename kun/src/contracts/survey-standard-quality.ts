@@ -9,19 +9,65 @@ export const SurveyStandardRuleRefV1 = z.object({
 }).strict()
 export type SurveyStandardRuleRefV1 = z.infer<typeof SurveyStandardRuleRefV1>
 
+const sourceFields = {
+  url: z.url().refine(value => new URL(value).protocol === 'https:', 'HTTPS source required'),
+  retrievedAt: timestamp
+}
+const recordedActor = z.object({ id: identity, kind: z.enum(['human', 'agent', 'system']) }).strict()
+const pixelDimension = z.number().int().positive().max(32768)
+
+export const SURVEY_SCANNED_PDF_LIMITS = Object.freeze({
+  maxPdfBytes: 64 * 1024 * 1024,
+  maxReviewBytes: 1024 * 1024,
+  maxPagePixels: 16_000_000,
+  maxRgbBytes: 48_000_000
+})
+
+export const SurveyScannedPdfEvidenceV1 = z.object({
+  pdfPage: z.number().int().positive(),
+  printedPage: identity.optional(),
+  rendering: z.object({ renderer: identity, version: identity, dpi: z.number().int().positive().max(1200) }).strict(),
+  // RGB8 row-major pixels, top-left origin, after PDF page rotation; no encoded-image metadata.
+  pageImage: z.object({ sha256: digest, widthPixels: pixelDimension, heightPixels: pixelDimension }).strict(),
+  region: z.object({ x: z.number().int().nonnegative(), y: z.number().int().nonnegative(),
+    width: pixelDimension, height: pixelDimension, sha256: digest }).strict().optional(),
+  transcription: z.object({
+    text: z.string().min(1).max(65536).refine(value => value.trim().length > 0, 'Empty transcription'),
+    sha256: digest, method: z.enum(['manual', 'ocr', 'agent']), recordedAt: timestamp, recordedBy: recordedActor
+  }).strict(),
+  // These are recorded claims, not authenticated identities or professional signatures.
+  review: z.object({ outcome: z.enum(['confirmed', 'needs-correction']), reviewedAt: timestamp,
+    reviewedBy: recordedActor, transcriptionSha256: digest, evidenceSha256: digest }).strict().optional()
+}).strict().superRefine((scan, ctx) => {
+  if (scan.pageImage.widthPixels * scan.pageImage.heightPixels > SURVEY_SCANNED_PDF_LIMITS.maxPagePixels) {
+    ctx.addIssue({ code: 'custom', path: ['pageImage'], message: 'Rendered page exceeds pixel budget' })
+  }
+  if (scan.region && (scan.region.x > scan.pageImage.widthPixels - scan.region.width
+    || scan.region.y > scan.pageImage.heightPixels - scan.region.height)) {
+    ctx.addIssue({ code: 'custom', path: ['region'], message: 'Region outside rendered page' })
+  }
+  if (scan.review && Date.parse(scan.review.reviewedAt) < Date.parse(scan.transcription.recordedAt)) {
+    ctx.addIssue({ code: 'custom', path: ['review', 'reviewedAt'], message: 'Review predates transcription' })
+  }
+})
+export type SurveyScannedPdfEvidenceV1 = z.infer<typeof SurveyScannedPdfEvidenceV1>
+
+export const SurveyStandardSourceV1 = z.discriminatedUnion('kind', [
+  z.object({ ...sourceFields, kind: z.enum(['official-metadata', 'full-text']), sha256: digest.optional(),
+    excerpt: z.object({ byteOffset: z.number().int().nonnegative(), byteLength: z.number().int().positive(), sha256: digest
+    }).strict().optional(), scan: z.never().optional()
+  }).strict(),
+  z.object({ ...sourceFields, kind: z.literal('scanned-pdf'), sha256: digest,
+    scan: SurveyScannedPdfEvidenceV1, excerpt: z.never().optional()
+  }).strict()
+])
+export type SurveyStandardSourceV1 = z.infer<typeof SurveyStandardSourceV1>
+
 /** Descriptive registration is permitted without licensing or acquiring full text. */
 export const SurveyStandardRuleV1 = SurveyStandardRuleRefV1.extend({
   schemaVersion: z.literal(1),
   locator: z.object({ clause: identity, table: identity.optional() }).strict().optional(),
-  source: z.object({
-    url: z.url().refine(value => new URL(value).protocol === 'https:', 'HTTPS source required'),
-    retrievedAt: timestamp,
-    kind: z.enum(['official-metadata', 'full-text']),
-    sha256: digest.optional(),
-    excerpt: z.object({
-      byteOffset: z.number().int().nonnegative(), byteLength: z.number().int().positive(), sha256: digest
-    }).strict().optional()
-  }).strict(),
+  source: SurveyStandardSourceV1,
   scope: z.object({
     taskTypes: z.array(identity).min(1), grades: z.array(identity).min(1), jurisdictions: z.array(identity).min(1)
   }).strict(),

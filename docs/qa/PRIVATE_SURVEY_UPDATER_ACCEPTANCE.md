@@ -34,4 +34,12 @@ gh workflow run release.yml --repo wangjiawei508/WorkWise \
 - Actions `35453380333`：签名要求读取失败，原因是 `codesign -d -r-` 把 designated requirement 写入 stdout，而早期脚本仅检查 stderr。已修复并增加真实 macOS 只读 codesign 回归测试。
 - Actions `35455576450`：签名、公证完成后，原生验收步骤超过 32 分钟无输出，取消日志显示遗留 `security` 进程；缺少细粒度日志，无法断言具体子命令。旧同步调用无超时且只在 finally 写报告。现移除交互式信任配置，使用受限证书固定验证，补充超时、持续报告和前置传输预检。此记录是失败证据，不是已通过原生往返的声明。
 
+## 已完成的真实往返
+
+- [Actions 35459471768](https://github.com/wangjiawei508/WorkWise/actions/runs/35459471768) 已成功完成，源码为 `e1708d7ccce7e134c502c3b82bc16e3efcd3290b`；私有 macOS arm64 基线 `0.0.0` 升至候选 `0.5.0`。签名公证完成后，原生验收步骤耗时 90 秒。
+- `private-updater.json` 和 `native-updater.json` 均为 `passed`。六阶段完整，目标重启及数据保留终态时间为 `2026-09-19T18:11:48.900Z`。真实 HTTPS 服务收到 1 次清单、1 次 ZIP 请求，发送 `300155476` 字节；日志记录 Squirrel.Mac 实际请求并安装目标 ZIP。
+- 目标 ZIP SHA256：`77b1c5e073d1e5c91861caf9fd6613d641f6c52d755b238388ef2784c383bf5a`。目标构建与安装后 ASAR SHA256 均为 `fcaa65bb42d526bffe33a860886e83f3863e8b7c44cfc18fca698d41c5bb6a18`。
+- 已复核签名、公证票据、Gatekeeper（assessments enabled）、完整源码 HEAD、隔离数据哨兵以及无浏览器下载。`productionTouched`、`publicFeedUploaded`、`systemTrustModified` 均为 `false`，清理步骤完成。
+- 原始附件：`private-updater-arm64-e1708d7ccce7e134c502c3b82bc16e3efcd3290b`；精确目标包附件：`private-updater-target-arm64-e1708d7ccce7e134c502c3b82bc16e3efcd3290b`。此结论仅适用于该完整 HEAD 的私有候选往返，不能代替精确安装包的 GUI 验收及用户确认。
+
 本轮新增流程的专用测试验证 HTTPS 传输、证书指纹/有效期、地址与端口限制、正常模式隔离、命令超时及报告保留、日志脱敏、隔离目录、版本/身份、精确 feed 和工作流互斥；真实往返结果以单独运行记录为准。本流程不证明历史正式用户数据迁移、专业测量结果符合性、用户本人 UI 确认，或 Intel/Windows 平台验收。目标包重新安装后的 GUI 验收仍需按精确源码与包摘要记录。

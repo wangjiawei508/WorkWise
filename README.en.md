@@ -40,7 +40,7 @@ See the [engineering survey workbench overview](./docs/ENGINEERING_SURVEY_WORKBE
 
 ## Candidate UI preview
 
-These Chinese light-theme screenshots show installed candidate `94f1550` with repository synthetic data. Each image's commit and hash are recorded in the [screenshot manifest](./website/products/screenshots/workwise/candidate-screenshots.json). They do not replace the released 0.5.0 installers. Later candidate `8b80b92` has completed signing/notarization, both real GSI/IN2 GUI delivery workflows, six output-file integrity checks and restart reverification. A real private updater round trip, professional review of reference-data differences and personal acceptance remain incomplete. The ledger below separates each source increment from its package evidence.
+These Chinese light-theme screenshots show installed candidate `94f1550` with repository synthetic data. Each image's commit and hash are recorded in the [screenshot manifest](./website/products/screenshots/workwise/candidate-screenshots.json). They do not replace the released 0.5.0 installers. Later candidate `e1708d7` has completed signing/notarization, both real GSI/IN2 GUI delivery workflows, six output-file integrity checks and restart reverification. Its new leveling diagnostics were read, located back to source records and saved as JSON. The [real private updater round trip passed](./docs/qa/evidence/railwise-convergence-e1708d7ccce7/README.md); professional review of reference-data differences and personal acceptance remain incomplete. The ledger below separates each source increment from its package evidence.
 
 ![RAILWISE Survey candidate with synthetic data](./website/products/screenshots/workwise/04-survey-candidate-zh-light.jpg)
 
