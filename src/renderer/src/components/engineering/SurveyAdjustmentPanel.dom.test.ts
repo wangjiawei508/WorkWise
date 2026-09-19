@@ -309,6 +309,57 @@ afterEach(async () => {
 })
 
 describe('SurveyAdjustmentPanel persisted state restoration', () => {
+  it('admits a valid one-off adjustment to delivery without inventing an observation epoch', async () => {
+    const oneOff = { ...adjustment, observationEpoch: undefined }
+    runtimeRequest.mockImplementation(async (path: string, method?: string) => {
+      if (path.includes('/survey/networks?')) return runtimeResponse({ networks: [network] })
+      if (path.includes('/adjustments?')) return runtimeResponse({ adjustments: [oneOff] })
+      if (path === '/v1/engineering/adjustments' && method === 'POST') return runtimeResponse(oneOff)
+      throw new Error(path)
+    })
+    const delivered = vi.fn()
+    await act(async () => root.render(createElement(SurveyAdjustmentPanel, {
+      key: 'one-off', project: { id: 'one-off', revision: 1 }, runtimeReady: true,
+      preferredSection: 'network', onAdjustmentComplete: delivered
+    })))
+    await settle()
+    const run = [...container.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent === '运行平差')!
+    expect(run.disabled).toBe(false)
+    await act(async () => run.click())
+    await settle()
+    expect(delivered).toHaveBeenCalledWith(oneOff.run.id)
+    expect(container.textContent).not.toContain('历史平差结果不可用于新计算')
+    const epoch = [...container.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent?.startsWith('期次变形'))!
+    expect(epoch.textContent).toContain('0')
+  })
+
+  it('opens each requested production section while preserving the current network', async () => {
+    for (const section of ['network', 'points', 'result'] as const) {
+      await act(async () => root.render(createElement(SurveyAdjustmentPanel, {
+        project: { id: 'project-restored-001', revision: 1 }, runtimeReady: true, preferredSection: section
+      })))
+      await settle()
+      const selected = container.querySelector<HTMLSelectElement>('#survey-existing-network')
+      expect(selected?.value).toBe(network.id)
+      const labels = { network: '网形与基准', points: '点位与坐标', result: '平差结果' }
+      expect(container.querySelector('nav button[aria-current="page"]')?.textContent).toContain(labels[section])
+    }
+  })
+
+  it('requires quality validation before enabling adjustment even when source admission succeeds', async () => {
+    runtimeRequest.mockImplementation(async (path: string) => path.includes('/survey/networks?')
+      ? runtimeResponse({ networks: [{ ...network, qualityStatus: 'imported' }] })
+      : runtimeResponse({ adjustments: [] }))
+    await act(async () => root.render(createElement(SurveyAdjustmentPanel, {
+      key: 'unvalidated', project: { id: 'unvalidated', revision: 1 }, runtimeReady: true
+    })))
+    await settle()
+    const run = [...container.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent === '运行平差')!
+    const validate = [...container.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent === '质量校核')!
+    expect(run.disabled).toBe(true)
+    expect(validate.disabled).toBe(false)
+  })
+
   it('requires separate mappings for each IN1 attachment and imports the batch only after confirmation', async () => {
     const files = [new File(['K1,10\nK2,11\nK1,P1,0.5,0.1\nP1,K2,0.5,0.1'], 'first.in1'), new File(['second file'], 'second.in1'), new File(['plane file'], 'plane.in2')]
     const removePending = vi.fn()

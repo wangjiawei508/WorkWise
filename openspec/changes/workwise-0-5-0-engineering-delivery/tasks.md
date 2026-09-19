@@ -59,7 +59,7 @@
 
 The user-provided consolidated plan supersedes the earlier D-04 platform naming and AI-only first-screen design. Historical checkmarks above describe the earlier scope, not completion of this baseline.
 
-- [ ] Complete six typed engineering jobs, non-destructive legacy mapping, editable task context (datum, grade, standard version/clause), and migration integration tests.
+- [x] Complete six typed engineering jobs, non-destructive legacy mapping, editable task context (datum, grade, standard version/clause), and migration integration tests.
 - [ ] Complete four production stages, persistent AI conversation, stage tools, localized summary and readiness-driven actions; never label preview files reviewed.
 - [ ] Verify ordinary questions, modification confirmation cards, typed execution approvals, evidence-to-record navigation and model-offline manual operation.
 - [ ] Centralize RAILWISE AI / RAILWISE Survey display naming, migrate menus/settings/startup/about/candidate display and brand assets; retain technical identifiers and record the migration matrix.

@@ -20,7 +20,7 @@ void i18n.use(initReactI18next).init({
   },
   lng: 'en',
   fallbackLng: 'en',
-  interpolation: { escapeValue: false },
+  interpolation: { escapeValue: false, defaultVariables: { productName: brand.platform, runtimeName: brand.runtime } },
   defaultNS: 'common',
   ns: ['common', 'settings']
 })

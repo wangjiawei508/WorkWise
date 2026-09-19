@@ -59,9 +59,9 @@ describe('ConnectPhoneView', () => {
       })
     )
 
-    expect(html).toContain('Use your phone to connect WorkWise')
+    expect(html).toContain('Use your phone to connect RAILWISE AI')
     expect(html).toContain('Generate authorization QR')
-    expect(html).not.toContain('WorkWise Runtime usage')
+    expect(html).not.toContain('RAILWISE AI Runtime usage')
   })
 
   it('resolves every common connection label instead of exposing translation keys', async () => {

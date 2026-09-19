@@ -5,3 +5,12 @@ export function engineeringTaskLabel(type: string | undefined, translate: (key: 
     ? translate(`engineeringTaskTypes.${type}`)
     : type || '—'
 }
+
+export function surveyNetworkTypeLabel(type: string | undefined, translate: (key: string) => string): string {
+  const keys: Record<string, string> = {
+    leveling: 'surveyLeveling', traverse: 'surveyTraverse', 'plane-control': 'surveyPlaneControl',
+    triangulation: 'surveyTriangulation', 'cpiii-free-station': 'surveyCpiiiStation',
+    'cpiii-resection': 'surveyCpiiiResection', gnss: 'surveyGnssBaseline', 'coordinate-transform': 'surveyCoordinateTransform'
+  }
+  return type ? (keys[type] ? translate(keys[type]) : type) : '—'
+}

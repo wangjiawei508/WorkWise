@@ -1,6 +1,6 @@
 <div align="center">
   <img src="./src/asset/img/workwise.png" width="112" alt="WorkWise 图标" />
-  <h1>WorkWise</h1>
+  <h1>RAILWISE AI</h1>
   <p><strong>让 AI 进入真实工作流。</strong></p>
   <p>本地优先的桌面 AI 工作台，把代码、写作、设计、技能与交付放在一个应用里。</p>
   <p><strong>DeepSeek V4.1-Flash 原生默认支持</strong> · 默认模型 <code>deepseek-flash</code> · Survey 工程测量工作台</p>
@@ -17,6 +17,11 @@
 </div>
 
 ---
+
+> 命名迁移与四阶段 Survey 界面正在隔离候选包中验收；公开 0.5.0 安装包和更新渠道未变更。底层 WorkWise 标识保留兼容。
+
+RAILWISE AI 平台上的 Survey 工作台，面向可审查、可追溯的工程测量内业。
+
 
 WorkWise 面向需要长期上下文、反复修改和正式交付的工作。它不只是一个聊天窗口：项目文件、会话、文档、方法和扩展能力围绕同一个本地工作区组织，让 AI 真正参与从理解任务到交付成果的完整过程。
 
