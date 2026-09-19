@@ -36,7 +36,7 @@ See the [engineering survey workbench overview](./docs/ENGINEERING_SURVEY_WORKBE
 
 ## Candidate UI preview
 
-These Chinese light-theme screenshots were captured from installed candidate `613e99012a0b` using redistributable synthetic data. They do not replace the released 0.5.0 installers. Real GSI and IN2 GUI delivery runs passed; notarization, a real private updater round trip and human professional acceptance remain incomplete.
+These Chinese light-theme screenshots were captured from installed candidate `b8df9790e37f` using redistributable synthetic data. They do not replace the released 0.5.0 installers. This package passed the synthetic IN2 GUI delivery flow and real GSI/IN2 Runtime checks; dual real-format GUI evidence belongs to historical candidate `613e99012a0b`. Notarization, a real private updater round trip and human professional acceptance remain incomplete.
 
 ![RAILWISE Survey candidate with synthetic data](./website/products/screenshots/workwise/04-survey-candidate-zh-light.jpg)
 

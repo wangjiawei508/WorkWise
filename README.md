@@ -55,7 +55,7 @@ WorkWise 不是在通用聊天客户端上额外增加一个 DeepSeek 选项，�
 
 ## 候选界面预览
 
-以下为已安装候选 `613e99012a0b` 的中文浅色实拍，使用可再分发的合成数据；不代表正式 0.5.0 安装包已替换。真实 GSI、IN2 已走通导入至待审查清单，完整公证、升级链与用户专业验收仍未完成。
+以下为已安装候选 `b8df9790e37f` 的中文浅色实拍，使用可再分发的合成数据；不代表正式 0.5.0 安装包已替换。本包通过合成 IN2 的 GUI 成果链与真实 GSI、IN2 的 Runtime 校验；双真实 GUI 证据来自历史候选 `613e99012a0b`。完整公证、升级链与用户专业验收仍未完成。
 
 ![RAILWISE Survey 中文浅色候选界面](./website/products/screenshots/workwise/04-survey-candidate-zh-light.jpg)
 

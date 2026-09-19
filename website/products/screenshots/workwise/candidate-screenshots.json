@@ -1,5 +1,5 @@
 {
-  "sourceHead": "613e99012a0b004d19e36f626950da0e6745614c",
+  "sourceHead": "b8df9790e37fc6dc42dac0dec30a4a69799b681b",
   "kind": "installed-candidate-screenshots",
   "locale": "zh-CN",
   "theme": "light",
@@ -8,11 +8,11 @@
   "screenshots": [
     {
       "path": "04-survey-candidate-zh-light.jpg",
-      "sha256": "23e6f70436c6dd1b868d0b8ff729dc51fdaf1b95b289f7fb2c2e98b774c17d77"
+      "sha256": "637a59f8c3f44dde359749728938d78e063874f4e20103749d0297a2a5297249"
     },
     {
       "path": "05-survey-candidate-delivery.jpg",
-      "sha256": "16e5b54139b4d77a4ae3285ca1ddedba75753c3af3ef5a70f359fb907708672c"
+      "sha256": "72e9f5e8ec30deefe52b7512850bb3c8f486c6a2fd6e6b7209fe6bc20e15f6c3"
     },
     {
       "path": "06-candidate-model-settings.jpg",
