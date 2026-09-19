@@ -62,6 +62,21 @@ beforeEach(async () => {
 afterEach(async () => { await act(async () => root.unmount()); container.remove() })
 
 describe('Survey delivery without a monitoring dataset', () => {
+  it('opens declared advanced models without a manifest, dataset or formal adjustment and without inferring input', async () => {
+    adjustments = []; manifests = []; datasets = []; analyses = []
+    await renderDelivery()
+    const select = container.querySelector<HTMLSelectElement>('#engineering-view-select')!
+    await act(async () => { select.value = 'adjustment'; select.dispatchEvent(new Event('change', { bubbles: true })) })
+    request.mockClear()
+    await act(async () => button('Advanced model trials').click())
+    expect(container.querySelector('section[aria-label="Advanced model trials"]')).not.toBeNull()
+    expect(container.textContent).toContain('Project job · Revision 2')
+    const method = [...container.querySelectorAll('label')].find(label => label.querySelector('span')?.textContent === 'Trial method')!.querySelector('select')!
+    expect(method.value).toBe('')
+    expect(button('Confirm and save trial').disabled).toBe(true)
+    expect(request).not.toHaveBeenCalled()
+  })
+
   it('provides a separate retention entry for each historical manifest without starting mutations', async () => {
     manifests = ['manifest-one', 'manifest-two'].map(id => ({ id, runId: `run-${id}`, reviewStatus: 'draft', outputs: [{ ...file, path: `${id}/report.pdf` }], citations: [], validation: { valid: true, errors: [], warnings: [] } }))
     await renderDelivery(); await act(async () => button('Review and archive').click())

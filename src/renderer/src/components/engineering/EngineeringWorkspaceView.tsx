@@ -1,4 +1,5 @@
 import { SurveyQualitySamplingWorkspace } from './SurveyQualitySamplingWorkspace'
+import { SurveyAdvancedModelWorkspace } from './SurveyAdvancedModelWorkspace'
 import { SurveyQualityWorkspace } from './SurveyQualityWorkspace'
 import './engineering-review.css'
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react'
@@ -146,7 +147,7 @@ type SurveyAdjustmentSummary = {
   }
   sourceEligibility?: { eligible: boolean }
 }
-type TabId = 'ai-command' | 'dashboard' | 'project' | 'data' | 'quality' | 'source' | 'survey' | 'precision' | 'analysis' | 'deliverables' | 'review' | 'skills'
+type TabId = 'ai-command' | 'dashboard' | 'project' | 'data' | 'quality' | 'source' | 'survey' | 'advanced-models' | 'precision' | 'analysis' | 'deliverables' | 'review' | 'skills'
 type Notice = { tone: 'success' | 'warning' | 'error' | 'info'; message: string }
 type ProjectDraft = Pick<Project, 'name' | 'taskContext' | 'taskType' | 'monitoringType' | 'unit' | 'signConvention' | 'reportPeriod'> & { thresholdsText: string }
 
@@ -160,6 +161,7 @@ const TABS: ReadonlyArray<TabDefinition> = [
   { id: 'source', labelKey: 'engineeringTabSource', shortLabelKey: 'engineeringTabSource', icon: Upload, group: 'compute' },
   { id: 'precision', labelKey: 'engineeringTabPrecision', shortLabelKey: 'engineeringTabPrecision', icon: LineChart, group: 'compute' },
   { id: 'survey', labelKey: 'engineeringTabSurvey', shortLabelKey: 'engineeringTabSurveyShort', icon: Calculator, group: 'compute' },
+  { id: 'advanced-models', labelKey: 'advancedTitle', shortLabelKey: 'advancedTitle', icon: Calculator, group: 'compute' },
   { id: 'analysis', labelKey: 'engineeringTabAnalysis', shortLabelKey: 'engineeringTabAnalysisShort', icon: LineChart, group: 'compute' },
   { id: 'deliverables', labelKey: 'engineeringTabDeliverables', shortLabelKey: 'engineeringTabDeliverablesShort', icon: FileOutput, group: 'delivery' },
   { id: 'review', labelKey: 'engineeringTabReview', shortLabelKey: 'engineeringTabReviewShort', icon: ClipboardCheck, group: 'delivery' },
@@ -171,7 +173,7 @@ const TABS: ReadonlyArray<TabDefinition> = [
 type StageDefinition = { id: 'import' | 'adjustment' | 'analysis' | 'delivery'; labelKey: string; icon: typeof FolderKanban; tabs: readonly TabId[] }
 const STAGES: ReadonlyArray<StageDefinition> = [
   { id: 'import', labelKey: 'engineeringStageImport', icon: Upload, tabs: ['source', 'project', 'data', 'quality'] },
-  { id: 'adjustment', labelKey: 'engineeringStageAdjustment', icon: Calculator, tabs: ['survey'] },
+  { id: 'adjustment', labelKey: 'engineeringStageAdjustment', icon: Calculator, tabs: ['survey', 'advanced-models'] },
   { id: 'analysis', labelKey: 'engineeringStageAnalysis', icon: LineChart, tabs: ['precision', 'analysis'] },
   { id: 'delivery', labelKey: 'engineeringStageDelivery', icon: FileOutput, tabs: ['deliverables', 'review', 'dashboard', 'skills'] }
 ]
@@ -866,6 +868,7 @@ export function EngineeringWorkspaceView({ workspaceRoot, runtimeReady, leftSide
               {!activeDataset ? <EmptyState title={t('engineeringSelectOrImportDataset')} detail={t('engineeringQualityEmptyDetail')} /> : <div className="p-5"><div className="grid grid-cols-2 gap-2 lg:grid-cols-4"><Metric label={t('engineeringFindingBlocking')} value={blockingFindings.length} detail={t('engineeringMustFixSource')} tone={blockingFindings.length ? 'danger' : 'success'} /><Metric label={t('engineeringFindingWarning')} value={warningFindings.length} detail={t('engineeringNeedsHumanConfirmation')} tone={warningFindings.length ? 'warning' : 'success'} /><Metric label={t('engineeringFindingAccepted')} value={acceptedWarnings} detail={t('engineeringIncludedInReview')} tone={acceptedWarnings ? 'warning' : 'neutral'} /><Metric label={t('engineeringDatasetStatus')} value={statusLabel(activeDataset.status, t)} detail={t('engineeringObservationCount', { count: activeDataset.observationCount })} /></div><div className="mt-5 overflow-hidden border border-ds-border-muted"><div className="overflow-x-auto"><table className="min-w-full text-left text-[12px]"><thead className="bg-ds-subtle text-ds-muted"><tr><th className="w-24 px-3 py-2.5 font-semibold">{t('engineeringFindingLevel')}</th><th className="px-3 py-2.5 font-semibold">{t('engineeringFindingProblem')}</th><th className="w-24 px-3 py-2.5 font-semibold">{t('engineeringSourceRow')}</th><th className="w-28 px-3 py-2.5 font-semibold">{t('engineeringDisposition')}</th></tr></thead><tbody className="divide-y divide-ds-border-muted">{activeDataset.findings.length ? activeDataset.findings.map((finding) => <tr key={finding.id} className={finding.status === 'open' && finding.severity === 'blocking' ? 'bg-red-50/60 dark:bg-red-500/5' : ''}><td className="px-3 py-3"><span className={`rounded border px-1.5 py-0.5 text-[10.5px] font-medium ${findingTone[finding.severity]}`}>{finding.severity === 'blocking' ? t('engineeringFindingBlocking') : finding.severity === 'warning' ? t('engineeringFindingWarning') : t('engineeringFindingInfo')}</span></td><td className="min-w-[310px] px-3 py-3"><p className="text-ds-ink">{surveyDiagnosticText(finding, locale)}</p><p className="mt-1 text-[11px] leading-4 text-ds-muted">{surveyDiagnosticText(finding, locale, 'action')}</p></td><td className="px-3 py-3 tabular-nums text-ds-muted">{finding.row ? t('engineeringRowNumber', { row: finding.row }) : '—'}</td><td className="px-3 py-3">{finding.status === 'accepted' ? <span className="inline-flex items-center gap-1 text-[11px] text-green-700 dark:text-green-300"><CheckCircle2 className="h-3.5 w-3.5" />{t('engineeringFindingAccepted')}</span> : finding.severity === 'warning' ? <button type="button" disabled={!runtimeReady || busy} onClick={() => void acceptWarning(finding)} className="rounded border border-amber-300 px-2 py-1 text-[11px] font-medium text-amber-800 hover:bg-amber-50 disabled:opacity-50 dark:border-amber-500/40 dark:text-amber-200">{t('engineeringFindingAcceptWarning')}</button> : finding.severity === 'blocking' ? <span className="text-[11px] leading-4 text-red-700 dark:text-red-300">{t('engineeringFixSourceShort').split('\n').map((line) => <Fragment key={line}>{line}<br /></Fragment>)}</span> : <span className="text-[11px] text-ds-faint">{t('engineeringNoActionShort')}</span>}</td></tr>) : <tr><td colSpan={4} className="px-3 py-10 text-center text-ds-muted">{t('engineeringNoIssuesShort')}</td></tr>}</tbody></table></div></div></div>}
             </section> : null}
 
+            {tab === 'advanced-models' ? <SurveyAdvancedModelWorkspace binding={{ projectId: overview.project.id, projectRevision: overview.project.revision, workspaceRoot }} runtimeReady={runtimeReady} /> : null}
             {(tab === 'source' || tab === 'survey' || tab === 'precision') ? <section>
               <SurveyAdjustmentPanel key={surveyFileScope} project={overview.project} runtimeReady={runtimeReady}
                 preferredSection={tab === 'source' ? 'network' : tab === 'precision' ? 'result' : 'points'}

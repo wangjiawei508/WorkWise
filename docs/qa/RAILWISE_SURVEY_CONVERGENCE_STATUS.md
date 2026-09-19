@@ -6,9 +6,11 @@
 
 最新精确候选：[a3072e2 总体冻结与首轮抽样](./evidence/railwise-convergence-a3072e25ebc3/README.md)。签名/公证、真实私有 updater、同 ASAR 本机安装已核对；GUI 已验证 1,001 单位总体、过程全数与验收随机 80 项、同阶段拒绝重抽、分页、篡改拒绝、好坏历史分离、完整退出重启后的同 ID/同样本，以及三格式历史成果副标题。独立 Python 直接复算本包数据库的 1 总体 / 2 运行一致。中文浅色和英文深色常规/窄窗、中文最大化和有限键盘流程已检查；精确 960×640 高度尚未确认，整体验收仍为 partial。没有获得用户本人或专业确认，没有公开发布。
 
-后续源码已整合两个独立高级数值增量：[已知先验完整协方差的广义 w](RAILWISE_SURVEY_GENERALIZED_W.md)与[独立互斥分组 VCE 受限试算](./evidence/railwise-vce-trial/README.md)。均仅为版本化合同、纯核和可重放独立数值证据，尚未接入持久化、HTTP、桌面或精确候选包；不替换正式权或删除观测。广义 w 的次正规协方差、VCE 的非零能量下溢与零投影组伪可辨识缺陷已由独立复核发现并修复。136 项广义 w 重放、1,356 个单组 / 160 个多组首步 / 32 个高精度迭代及 14,956 个不可辨识 VCE 变体在整合树重放无不符；数值边界停止和已发现反例保留，不把 unavailable 当数学无解或规范不合格。
+后续源码已把[已知先验完整协方差的广义 w](RAILWISE_SURVEY_GENERALIZED_W.md)与[独立互斥分组 VCE 受限试算](./evidence/railwise-vce-trial/README.md)接入[项目范围的高级模型试算工作区](RAILWISE_SURVEY_ADVANCED_TRIALS_BACKEND.md)：保留 HTTP/声明原始 UTF-8、依据原文、项目修订与执行环境；独立 append-only SQLite 保存、认证 HTTP/IPC、严格重算、坏历史隔离、双语结果与原生 JSON 导出已实现。显式实验模型不从正式相对权推断已知绝对 C，不更改正式权或删除观测。不可检测、非正分量及未收敛保留为原结果。**这一增量尚不在 a3072e2 包中，新精确签名包和 GUI 验收待执行。**
 
-整合树验证：桌面 **2,606 通过 / 2 跳过**，Runtime **1,939 通过 / 3 跳过**，双端类型检查、构建、strict OpenSpec **11/11** 通过；lint **0 error / 1 既有 warning**。这些后续源码检查不属于 a3072e2 安装包。详见[整合检查](./evidence/railwise-advanced-kernels-integration/checks.json)。
+[独立工作区审查](./evidence/railwise-advanced-workspace-review/README.md)25 项通过，覆盖重签摘要后的结果篡改、坏历史、跨项目、无 Buffer、64×64 残差协方差与 100 轮耗尽。审查发现的坏 SQL ID 遮蔽历史、重复 JSON 键、环境错误分类和 VCE 停止策略绑定均已修复。最大页重算计费修正为合法十项页面可在额度内完成，不把限流标成记录损坏。新增 17 个实际解析拒绝分支补齐英文提示，保留原始中文审计资料和点号等用户文本。
+
+最终整合树验证：桌面 **2,630 通过 / 2 跳过**，Runtime **1,991 通过 / 3 跳过**，双端类型检查、构建、strict OpenSpec **11/11** 通过；lint **0 error / 1 既有 warning**。详见[本轮整合检查](./evidence/railwise-advanced-workspace-acceptance/integration-checks.json)。已准备三份合成/公开算例与独立 Python Fraction 核算工具，开发 SQLite 三例通过；这不冒充真实安装包或生产验收。前一纯核提交 5a49e14 的两次 Quality 检查 [35473880524](https://github.com/wangjiawei508/WorkWise/actions/runs/35473880524)、[35473878397](https://github.com/wangjiawei508/WorkWise/actions/runs/35473878397)均成功，不覆盖本轮新源码。
 
 抽样工作区的总体冻结、服务认证、原字节保全、首轮规则、严格重放、HTTP/IPC、双语 GUI 和分页已实现。材料归集、评分、阶段完成及签认仍未实现，不能称为完整 GB/T 质检链。抽样首轮 DOM 检查因未等待异步哈希完成而失败，修正测试后通过；全量捕获的既有短随机 ID 碰撞已改为新建项使用 UUID，既有数据不迁移。可重建实际服务 fixture 与六项篡改负例脚本已归档，未用模拟复算代替实机数据库复算。
 

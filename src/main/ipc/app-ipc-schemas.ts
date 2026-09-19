@@ -1,4 +1,5 @@
 import { SurveySamplingPopulationCreateV1, SurveySamplingRunCreateV1, SurveySamplingVerifyRequestV1, SURVEY_SAMPLING_WORKSPACE_LIMITS } from '../../shared/survey-quality-sampling-workspace'
+import { SurveyAdvancedTrialCreateV1, SurveyAdvancedTrialReverifyRequestV1, SURVEY_ADVANCED_TRIAL_LIMITS, SurveyGeneralizedWRequestV1, SurveyVceTrialInputV1, parseAdvancedTrialJson } from '../../shared/survey-advanced-trials'
 import { z } from 'zod'
 import { SurveyFreeLevelingTrialRequestV1 } from '../../shared/survey-free-leveling'
 import { SurveyQualityPlanCreateV1, SurveyQualityEvidenceCreateV1, SurveyQualityRecordCreateV1, SurveyQualityCheckAppendV1 } from '../../shared/survey-quality-workspace'
@@ -222,6 +223,10 @@ const SAMPLING_ENDPOINTS = [
 ].map(entry => ({ ...entry, endpoint: compileEndpoint(`/v1/engineering/projects/{id}/${entry.suffix}`, entry.methods, entry.paginated ? ['limit', 'offset'] : []) }))
 
 const ENDPOINTS: readonly EndpointTemplate[] = [
+  compileEndpoint('/v1/engineering/projects/{id}/advanced-trials', ['GET', 'POST'], ['limit', 'offset']),
+  compileEndpoint('/v1/engineering/projects/{id}/advanced-trials/{trialId}', ['GET'], []),
+  compileEndpoint('/v1/engineering/projects/{id}/advanced-trials/{trialId}/reverify', ['POST'], []),
+  compileEndpoint('/v1/engineering/projects/{id}/advanced-trials/{trialId}/export', ['GET'], []),
   ...QUALITY_ENDPOINTS.map(entry => entry.endpoint),
   ...SAMPLING_ENDPOINTS.map(entry => entry.endpoint),
   compileEndpoint(RUNTIME_HEALTH_TEMPLATE, ['GET']),
@@ -350,6 +355,25 @@ export const runtimeRequestPayloadSchema = z
     try { url = new URL(payload.path, 'http://localhost') } catch {
       context.addIssue({ code: 'custom', message: 'invalid runtime request URL' })
       return
+    }
+    const advanced = /^\/v1\/engineering\/projects\/[^/]+\/advanced-trials(?:\/[^/]+(?:\/(reverify|export))?)?$/.exec(url.pathname)
+    if (advanced) {
+      const method = payload.method ?? 'GET'
+      let valid = method === 'GET' && payload.body === undefined
+      for (const [key, value] of url.searchParams) {
+        if (key === 'limit' && (!/^[1-9]\d*$/.test(value) || Number(value) > SURVEY_ADVANCED_TRIAL_LIMITS.pageSize)) valid = false
+        if (key === 'offset' && (!/^(0|[1-9]\d*)$/.test(value) || Number(value) > SURVEY_ADVANCED_TRIAL_LIMITS.trialsPerProject)) valid = false
+      }
+      if (method === 'POST' && !url.search && payload.body !== undefined && Buffer.byteLength(payload.body, 'utf8') <= SURVEY_ADVANCED_TRIAL_LIMITS.requestBytes) {
+        try {
+          if (advanced[1] === 'reverify') valid = SurveyAdvancedTrialReverifyRequestV1.safeParse(parseAdvancedTrialJson(payload.body)).success
+          else if (url.pathname.endsWith('/advanced-trials')) {
+            const body = SurveyAdvancedTrialCreateV1.safeParse(parseAdvancedTrialJson(payload.body))
+            valid = body.success && (body.data.kind === 'generalized-w' ? SurveyGeneralizedWRequestV1 : SurveyVceTrialInputV1).safeParse(parseAdvancedTrialJson(body.data.declarationJson)).success
+          }
+        } catch { valid = false }
+      }
+      if (!valid) context.addIssue({ code: 'custom', message: 'invalid advanced model trial request' })
     }
     const sampling = SAMPLING_ENDPOINTS.find(entry => entry.endpoint.match(url.pathname))
     if (sampling) {

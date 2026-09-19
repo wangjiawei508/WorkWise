@@ -36,6 +36,8 @@ WorkWise 0.5.0 turns engineering survey work from a general chat entry point int
 - Run deterministic leveling and control-network adjustment with source evidence and report/table exports. COSA IN1/IN2 are input paths; OU1/OU2 currently remain archive-review sources, not an accepted automatic comparison feature.
 - Use the Compass entry to select files, inspect point summaries, run numeric checks, and generate deliverables. AI explains, diagnoses, and orchestrates; engineering calculations remain deterministic and require qualified human review.
 
+The current source also adds a separate generalized-w / VCE model-trial workspace. Explicit model declarations and their basis are retained with immutable inputs and iteration history, and replayed before restoration or JSON export. Undetectable directions, nonpositive variance components and nonconvergence remain visible; trials do not remove observations or replace formal weights. See the [input and record contract](./docs/qa/RAILWISE_SURVEY_ADVANCED_TRIALS_BACKEND.md). Acceptance of the new controls in the exact signed package is tracked separately.
+
 See the [engineering survey workbench overview](./docs/ENGINEERING_SURVEY_WORKBENCH_OVERVIEW.zh-CN.md) and [survey format acceptance matrix](./docs/qa/WORKWISE_0.5.0_SURVEY_FORMAT_ACCEPTANCE_MATRIX.md) for scope and evidence.
 
 ## Candidate UI preview
