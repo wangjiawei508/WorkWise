@@ -11,8 +11,8 @@ import { composerReasoningEffortRequestValue, type ComposerReasoningEffort } fro
 import { EMPTY_ENGINEERING_DRAFT, useEngineeringConversationDrafts } from './engineering-conversation-drafts'
 import { isSurveyInstrumentFile, SURVEY_FILE_ACCEPT } from './survey-file-selection'
 
-export function EngineeringComposer({ workspaceRoot, projectId, ready, threadId, onSurveyFiles }: {
-  workspaceRoot: string; projectId: string; ready: boolean; threadId: string | null; onSurveyFiles: (files: File[]) => void
+export function EngineeringComposer({ workspaceRoot, projectId, ready, threadId, unavailableReason, onSurveyFiles }: {
+  workspaceRoot: string; projectId: string; ready: boolean; threadId: string | null; unavailableReason?: string; onSurveyFiles: (files: File[]) => void
 }): ReactElement {
   const { t } = useTranslation('common')
   const scope = JSON.stringify([workspaceRoot, projectId])
@@ -120,6 +120,7 @@ export function EngineeringComposer({ workspaceRoot, projectId, ready, threadId,
     input={draft.input} setInput={(input) => update(scope, (value) => ({ ...value, input }))}
     mode="agent" setMode={() => undefined} busy={Boolean(threadId) && busy}
     runtimeReady={ready && Boolean(threadId)} hasActiveThread={Boolean(threadId)}
+    unavailableReason={!ready ? unavailableReason : !projectId ? t('engineeringCreateProjectBind') : !threadId ? t('engineeringConversationPreparing') : undefined}
     composerModel={composerModel} composerPickList={composerPickList} composerModelGroups={composerModelGroups}
     composerReasoningEffort={effort} onComposerModelChange={setComposerModel} onComposerReasoningEffortChange={setEffort}
     queuedMessages={threadId ? queuedMessages : []} onRemoveQueuedMessage={removeQueuedMessage}

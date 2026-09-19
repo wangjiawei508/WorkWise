@@ -82,6 +82,7 @@ export function EngineeringAiCommandCenter({ workspaceRoot, runtimeReady, projec
   const [approvedSteps, setApprovedSteps] = useState<string[]>([])
   const projectId = project?.id ?? ''
   const connected = runtimeReady && runtimeConnection === 'ready'
+  const connectionMessage = runtimeReady ? t('engineeringConversationNotReady') : t('engineeringRuntimeNotConnected')
   const activeThread = threads.find((thread) => thread.id === activeThreadId)
   const engineeringThreadActive = Boolean(activeThread && project && activeThread.domain === 'engineering' && activeThread.projectId === project.id && activeThread.workspace === workspaceRoot)
   const timelineBlocks = engineeringThreadActive ? blocks.map(block => block.kind === 'assistant'
@@ -212,7 +213,7 @@ export function EngineeringAiCommandCenter({ workspaceRoot, runtimeReady, projec
       <button type="button" className={iconButton} title={t('engineeringRefreshContext')} aria-label={t('engineeringRefreshContext')} onClick={onRefresh}><RefreshCw className="h-4 w-4" /></button>
     </header>
     {!connected || notice || error ? <div role="status" className="shrink-0 border-b border-ds-border-muted px-3 py-2 text-[12px] text-amber-700 dark:text-amber-300">
-      <p className="flex items-start gap-2 break-words"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />{surveyRuntimeErrorText(notice || error || t('engineeringRuntimeNotConnected'), i18n.language)}</p>
+      <p className="flex items-start gap-2 break-words"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />{surveyRuntimeErrorText(notice || error || connectionMessage, i18n.language)}</p>
       <div className="mt-1 flex flex-wrap gap-3"><button type="button" onClick={retryRuntime}>{t('engineeringRuntimeRetry')}</button><button type="button" onClick={() => openSettings('agents')}>{t('engineeringCheckConfig')}</button></div>
     </div> : null}
     {connected && projectId && timelineThreadId && sessionReadStatus !== 'ready' ? <div
@@ -258,6 +259,6 @@ export function EngineeringAiCommandCenter({ workspaceRoot, runtimeReady, projec
       </div> : null}
     </section> : null}
     {evidenceCards.length && !compact ? <details className="max-h-[20%] shrink-0 overflow-y-auto border-t border-ds-border-muted px-3 py-2 text-[11px]"><summary className="cursor-pointer text-ds-muted"><FileCheck2 className="mr-1 inline h-3.5 w-3.5" />{t('engineeringEvidenceReturn')} ({evidenceCards.length})</summary>{evidenceCards.map((card) => <div key={card.id} className="mt-2 break-words"><p className="font-medium">{surveyLegacyDiagnosticText(card.title, i18n.language)}</p><p className="text-ds-muted">{surveyLegacyDiagnosticText(card.summary, i18n.language)}</p></div>)}</details> : null}
-    <div className="flex shrink-0 justify-center px-3 pb-3 pt-2"><EngineeringComposer workspaceRoot={workspaceRoot} projectId={projectId} ready={connected} threadId={timelineThreadId} onSurveyFiles={onSurveyFiles} /></div>
+    <div className="flex shrink-0 justify-center px-3 pb-3 pt-2"><EngineeringComposer workspaceRoot={workspaceRoot} projectId={projectId} ready={connected} threadId={timelineThreadId} unavailableReason={connectionMessage} onSurveyFiles={onSurveyFiles} /></div>
   </section>
 }

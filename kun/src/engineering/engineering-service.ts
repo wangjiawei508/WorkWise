@@ -14,7 +14,7 @@ import {
   KnowledgeCitationV1, MonitoringAnalysisV1, MonitoringDatasetV1, MonitoringObservationV1,
   QualityFindingV1, RailwiseProjectV1, inferEngineeringTaskType, ReportPreviewRequest, RunMutationRequest, SurveySourceEvidenceV1
 } from '../contracts/engineering.js'
-import { AdjustmentResultV1, DeformationComparisonV1, type AdjustmentRunV1, type SurveyObservationV1, type SurveyPointV1, type SurveySourceFileV1 } from '../contracts/survey.js'
+import { AdjustmentResultV1, DeformationComparisonV1, type AdjustmentRunV1, type SurveyNetworkV1, type SurveyObservationV1, type SurveyPointV1, type SurveySourceFileV1 } from '../contracts/survey.js'
 
 type Row = Record<string, string>
 type StoredDataset = MonitoringDatasetV1 & { observations: MonitoringObservationV1[]; findings: QualityFindingV1[] }
@@ -168,6 +168,47 @@ function deliveryInputSnapshotHash(project: RailwiseProjectV1, dataset?: StoredD
   })).digest('hex')
 }
 
+/** Portable JSON-value digest: length-prefixed UTF-8 strings and IEEE-754
+ * doubles avoid JS/Python decimal formatting differences. Object order is UTF-8
+ * byte order; -0 equals 0, as in the persisted JSON representation. */
+export function verificationSnapshotHash(value: unknown): string {
+  const digest = createHash('sha256')
+  const visit = (item: unknown): void => {
+    if (item === null) { digest.update('n'); return }
+    if (typeof item === 'boolean') { digest.update(item ? 't' : 'f'); return }
+    if (typeof item === 'number') {
+      if (!Number.isFinite(item)) throw new Error('non-finite verification snapshot')
+      const bytes = Buffer.alloc(8); bytes.writeDoubleBE(item === 0 ? 0 : item)
+      digest.update(`d${bytes.toString('hex')}`); return
+    }
+    if (typeof item === 'string') {
+      const bytes = Buffer.from(item, 'utf8')
+      if (bytes.toString('utf8') !== item) throw new Error('invalid Unicode verification snapshot')
+      digest.update(`s${bytes.length}:`); digest.update(bytes); return
+    }
+    if (Array.isArray(item)) {
+      digest.update(`a${item.length}:[`); item.forEach(visit); digest.update(']'); return
+    }
+    if (typeof item === 'object') {
+      const object = item as Record<string, unknown>
+      const keys = Object.keys(object).filter(key => object[key] !== undefined)
+        .sort((a, b) => Buffer.compare(Buffer.from(a), Buffer.from(b)))
+      digest.update(`o${keys.length}:{`); keys.forEach(key => { visit(key); visit(object[key]) }); digest.update('}'); return
+    }
+    throw new Error('unsupported verification snapshot value')
+  }
+  visit(value)
+  return digest.digest('hex')
+}
+
+type VerificationBindings = {
+  algorithm: 'typed-json-sha256-v1'; complete: boolean
+  engineeringRows: Array<{ table: string; id: string; hash: string }>
+  surveyNetworks: Array<{ id: string; hash: string }>
+  surveyResults: Array<{ id: string; runId: string; networkId: string; inputHash: string; algorithmVersion: string; hash: string }>
+  surveyDeformations: Array<{ id: string; hash: string }>
+}
+
 /** Keep analysis freshness checks byte-for-byte aligned with createAnalysis. */
 function analysisInputHash(project: RailwiseProjectV1, dataset: Pick<StoredDataset, 'observations'>): string {
   return createHash('sha256').update(JSON.stringify({ project, observations: dataset.observations })).digest('hex')
@@ -178,7 +219,7 @@ export class EngineeringService {
   private readonly nowIso: () => string
   private readonly idempotencyLocks = new Map<string, Promise<void>>()
   private readonly pendingMetadataWrites = new Set<Promise<void>>()
-  constructor(private readonly options: { rootDir: string; attachmentStore?: AttachmentStore; runtimeVersion?: string; nowIso?: () => string; getAdjustments?: SurveyAdjustmentLookup; getAdjustmentEvidence?: SurveyAdjustmentEvidenceLookup; getDeformations?: SurveyDeformationLookup; getSurveySources?: SurveySourceLookup }) {
+  constructor(private readonly options: { rootDir: string; attachmentStore?: AttachmentStore; runtimeVersion?: string; nowIso?: () => string; getAdjustments?: SurveyAdjustmentLookup; getAdjustmentEvidence?: SurveyAdjustmentEvidenceLookup; getDeformations?: SurveyDeformationLookup; getSurveySources?: SurveySourceLookup; getSurveyNetworkSnapshot?: (projectId: string, networkId: string) => SurveyNetworkV1 | null }) {
     this.nowIso = options.nowIso ?? (() => new Date().toISOString())
     mkdirSync(resolve(options.rootDir), { recursive: true })
     this.db = new Database(resolve(options.rootDir, 'engineering.sqlite3'))
@@ -189,6 +230,19 @@ export class EngineeringService {
       CREATE TABLE IF NOT EXISTS engineering_charts (id TEXT PRIMARY KEY, analysis_id TEXT NOT NULL, data_json TEXT NOT NULL, created_at TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS engineering_runs (id TEXT PRIMARY KEY, project_id TEXT NOT NULL, data_json TEXT NOT NULL, updated_at TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS engineering_manifests (id TEXT PRIMARY KEY, project_id TEXT NOT NULL, data_json TEXT NOT NULL, created_at TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS engineering_verification_attempts (
+        sequence INTEGER PRIMARY KEY AUTOINCREMENT, id TEXT UNIQUE NOT NULL,
+        project_id TEXT NOT NULL, manifest_id TEXT NOT NULL, started_at TEXT NOT NULL,
+        completed_at TEXT NOT NULL, outcome TEXT NOT NULL, record_hash TEXT NOT NULL, data_json TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS engineering_verification_manifest ON engineering_verification_attempts(project_id, manifest_id, sequence);
+      CREATE TRIGGER IF NOT EXISTS engineering_verification_no_update BEFORE UPDATE ON engineering_verification_attempts
+        BEGIN SELECT RAISE(ABORT, 'verification attempts are append-only'); END;
+      CREATE TRIGGER IF NOT EXISTS engineering_verification_no_delete BEFORE DELETE ON engineering_verification_attempts
+        BEGIN SELECT RAISE(ABORT, 'verification attempts are append-only'); END;
+      CREATE TRIGGER IF NOT EXISTS engineering_verification_no_replace BEFORE INSERT ON engineering_verification_attempts
+        WHEN EXISTS (SELECT 1 FROM engineering_verification_attempts WHERE id = NEW.id OR sequence = NEW.sequence)
+        BEGIN SELECT RAISE(ABORT, 'verification attempts are append-only'); END;
       CREATE TABLE IF NOT EXISTS engineering_idempotency (key TEXT PRIMARY KEY, result_json TEXT NOT NULL, created_at TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS engineering_delivery_idempotency (
         key TEXT PRIMARY KEY,
@@ -504,8 +558,81 @@ export class EngineeringService {
     })
   }
 
-  /** Re-read bytes and recompute Survey evidence without changing any stored record. */
+  /** Re-read bytes and recompute evidence. The checked objects are unchanged;
+   * only a separate terminal audit event is appended. A process crash before
+   * that insert is not a recorded attempt and cannot enter metric denominators. */
   verifyDeliverable(projectId: string, manifestId: string): DeliverableVerificationV1 {
+    let failure: unknown
+    let result: DeliverableVerificationV1 | undefined
+    this.db.transaction(() => {
+      const startedAt = this.nowIso()
+      const before = this.verificationBindings(projectId, manifestId)
+      try { result = this.checkDeliverable(projectId, manifestId) }
+      catch (error) { failure = error }
+      const after = this.verificationBindings(projectId, manifestId)
+      const bindingStable = before.complete && after.complete && verificationSnapshotHash(before) === verificationSnapshotHash(after)
+      const completedAt = this.nowIso()
+      const timeValid = Number.isFinite(Date.parse(startedAt)) && Number.isFinite(Date.parse(completedAt)) && Date.parse(completedAt) >= Date.parse(startedAt)
+      const event = {
+        schemaVersion: 1, id: `verification_${randomUUID()}`, projectId, manifestId,
+        startedAt, completedAt, runtimeVersion: this.options.runtimeVersion ?? 'unknown',
+        outcome: failure ? 'error' : result?.valid ? 'passed' : 'failed',
+        bindingStable: bindingStable && timeValid, bindings: before,
+        verification: result ?? null,
+        error: failure ? (failure instanceof Error ? failure.message : String(failure)) : null
+      }
+      const serialized = JSON.stringify(event)
+      try {
+        this.db.prepare('INSERT INTO engineering_verification_attempts (id, project_id, manifest_id, started_at, completed_at, outcome, record_hash, data_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+          .run(event.id, projectId, manifestId, startedAt, completedAt, event.outcome, createHash('sha256').update(serialized).digest('hex'), serialized)
+      } catch {
+        throw new Error('deliverable verification audit could not be saved; no persisted verification evidence is available for this attempt')
+      }
+    }).immediate()
+    if (failure) throw failure
+    return result!
+  }
+
+  private verificationBindings(projectId: string, manifestId: string): VerificationBindings {
+    const binding: VerificationBindings = { algorithm: 'typed-json-sha256-v1', complete: false, engineeringRows: [], surveyNetworks: [], surveyResults: [], surveyDeformations: [] }
+    try {
+      const read = (table: string, id: string, projectScoped = true): Record<string, unknown> => {
+        // All table names and scoping choices are internal constants below.
+        const row = this.db.prepare(`SELECT data_json FROM ${table} WHERE id = ?${projectScoped ? ' AND project_id = ?' : ''}`)
+          .get(...(projectScoped ? [id, projectId] : [id])) as { data_json: string } | undefined
+        if (!row) throw new Error('verification snapshot record unavailable')
+        const value = JSON.parse(row.data_json) as Record<string, unknown>
+        if (value.id !== id || (projectScoped && value.projectId !== projectId)) throw new Error('verification snapshot identity mismatch')
+        binding.engineeringRows.push({ table, id, hash: verificationSnapshotHash(value) })
+        return value
+      }
+      const manifest = DeliverableManifestV1.parse(read('engineering_manifests', manifestId))
+      read('engineering_projects', projectId, false)
+      read('engineering_runs', manifest.runId)
+      for (const item of manifest.inputDatasets) read('engineering_datasets', item.id)
+      for (const id of manifest.analyses) read('engineering_analyses', id)
+      const results = new Map(manifest.adjustments.map(item => [item.id, item]))
+      for (const epoch of manifest.deformations.flatMap(item => item.epochs)) {
+        const matches = this.options.getAdjustmentEvidence?.(projectId, [epoch.adjustmentId])
+        if (matches?.length !== 1 || matches[0]!.run.projectId !== projectId || matches[0]!.result.id !== epoch.resultId) throw new Error('verification epoch snapshot unavailable')
+        results.set(epoch.resultId, matches[0]!.result)
+      }
+      binding.surveyResults = [...results.values()].map(item => ({ id: item.id, runId: item.runId, networkId: item.networkId, inputHash: item.inputHash, algorithmVersion: item.algorithmVersion, hash: verificationSnapshotHash(item) }))
+      binding.surveyDeformations = manifest.deformations.map(item => ({ id: item.id, hash: verificationSnapshotHash(item) }))
+      for (const id of this.requiredSurveyNetworkIds(manifest.adjustments, manifest.deformations)) {
+        const network = this.options.getSurveyNetworkSnapshot?.(projectId, id)
+        if (!network || network.id !== id || network.projectId !== projectId) throw new Error('verification network snapshot unavailable')
+        binding.surveyNetworks.push({ id, hash: verificationSnapshotHash(network) })
+      }
+      binding.complete = true
+    } catch {
+      // Missing providers or malformed objects do not suppress the attempt.
+      // They make the event ineligible for binding-aware metric numerators.
+    }
+    return binding
+  }
+
+  private checkDeliverable(projectId: string, manifestId: string): DeliverableVerificationV1 {
     const row = this.db.prepare('SELECT data_json FROM engineering_manifests WHERE id = ? AND project_id = ?').get(manifestId, projectId) as { data_json: string } | undefined
     if (!row) throw new Error('deliverable manifest not found in project')
     const manifest = DeliverableManifestV1.parse(JSON.parse(row.data_json))

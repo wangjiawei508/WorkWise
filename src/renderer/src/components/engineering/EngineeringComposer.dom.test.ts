@@ -39,6 +39,34 @@ beforeEach(() => {
 afterEach(async () => { await act(async () => root.unmount()); container.remove() })
 
 describe('Survey composer continuity', () => {
+  it('explains missing project and pending thread without claiming Runtime is offline', async () => {
+    await act(async () => root.render(createElement(EngineeringComposer, { workspaceRoot, projectId: '', threadId: null, ready: true, onSurveyFiles })))
+    expect(composer.runtimeReady).toBe(false)
+    expect(composer.unavailableReason).toBeTruthy()
+    const missingProject = composer.unavailableReason
+    await act(async () => root.render(createElement(EngineeringComposer, { workspaceRoot, projectId: 'project-a', threadId: null, ready: true, onSurveyFiles })))
+    expect(composer.runtimeReady).toBe(false)
+    expect(composer.unavailableReason).not.toBe(missingProject)
+    await act(async () => composer.onSend())
+    expect(sendMessage).not.toHaveBeenCalled()
+    await render()
+    expect(composer.runtimeReady).toBe(true)
+    expect(composer.unavailableReason).toBeUndefined()
+  })
+
+  it('retains the conversation failure reason and draft until connection recovers', async () => {
+    await render()
+    await act(async () => composer.setInput('Keep this question'))
+    await act(async () => root.render(createElement(EngineeringComposer, { workspaceRoot, projectId: 'project-a', threadId: 'thread-a', ready: false, unavailableReason: 'AI conversation is not ready', onSurveyFiles })))
+    expect(composer.unavailableReason).toBe('AI conversation is not ready')
+    await act(async () => composer.onSend())
+    expect(sendMessage).not.toHaveBeenCalled()
+    expect(composer.input).toBe('Keep this question')
+    await render()
+    expect(composer.unavailableReason).toBeUndefined()
+    expect(composer.input).toBe('Keep this question')
+  })
+
   it('sends a normal question through the shared chat action and clears only its own draft', async () => {
     await render()
     await act(async () => composer.setInput('Explain the residuals'))

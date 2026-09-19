@@ -111,6 +111,8 @@ type Props = {
   setMode: (m: 'plan' | 'agent') => void
   busy: boolean
   runtimeReady: boolean
+  /** A domain may be waiting for its conversation even while Runtime is online. */
+  unavailableReason?: string
   hasActiveThread: boolean
   composerModel: string
   composerPickList: string[]
@@ -530,6 +532,7 @@ export function FloatingComposer({
   setMode,
   busy,
   runtimeReady,
+  unavailableReason,
   hasActiveThread,
   composerModel,
   composerPickList,
@@ -696,7 +699,7 @@ export function FloatingComposer({
   const goalPanelRef = useRef<HTMLDivElement | null>(null)
   const goalRuntimeStartedAtRef = useRef<number | null>(null)
   const placeholder = !runtimeReady
-    ? t('runtimeActionNeedsConnection')
+    ? unavailableReason || t('runtimeActionNeedsConnection')
     : !hasActiveThread && !effectiveWorkspaceRoot
       ? t('workspaceRequiredToCreateThread')
       : goalPanelOpen && route !== 'claw'
@@ -713,7 +716,7 @@ export function FloatingComposer({
                 ? t('placeholder')
                 : t('composerStartsThread')
   const footerHint = !runtimeReady
-    ? t('composerOfflineHint')
+    ? unavailableReason || t('composerOfflineHint')
     : !hasActiveThread && !effectiveWorkspaceRoot
       ? t('composerWorkspaceHint')
       : route === 'claw'

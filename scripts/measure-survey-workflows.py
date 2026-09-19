@@ -9,9 +9,12 @@ import argparse
 from contextlib import contextmanager
 from datetime import datetime, timezone
 import json
+import hashlib
+import math
 from pathlib import Path
 import sqlite3
 import statistics
+import struct
 import sys
 
 
@@ -56,6 +59,197 @@ def readonly_database(path):
 
 def unavailable(reason):
     return {'value': None, 'status': 'not-measurable', 'reason': reason}
+
+
+def snapshot_hash(value):
+    """typed-json-sha256-v1, shared with EngineeringService's audit writer."""
+    digest = hashlib.sha256()
+    def put(text):
+        digest.update(text.encode('utf-8'))
+    def visit(item):
+        if item is None:
+            put('n')
+        elif isinstance(item, bool):
+            put('t' if item else 'f')
+        elif isinstance(item, (int, float)):
+            number = float(item)
+            if not math.isfinite(number):
+                raise ValueError('non-finite verification snapshot')
+            put('d' + struct.pack('>d', 0.0 if number == 0 else number).hex())
+        elif isinstance(item, str):
+            encoded = item.encode('utf-8')
+            put('s' + str(len(encoded)) + ':'); digest.update(encoded)
+        elif isinstance(item, list):
+            put('a' + str(len(item)) + ':[')
+            for child in item:
+                visit(child)
+            put(']')
+        elif isinstance(item, dict):
+            keys = sorted(item, key=lambda key: key.encode('utf-8'))
+            put('o' + str(len(keys)) + ':{')
+            for key in keys:
+                visit(key); visit(item[key])
+            put('}')
+        else:
+            raise ValueError('unsupported verification snapshot value')
+    visit(value)
+    return digest.hexdigest()
+
+
+def recorded_verification_metrics(engineering, survey, selected, networks, adjustments, start, end):
+    names = {row[0] for row in engineering.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+    missing = unavailable('No durable verification attempt table; historical checks cannot be inferred.')
+    if 'engineering_verification_attempts' not in names:
+        return {'recordedStrictReverificationCoverage': missing, 'recordedVerificationAttemptSuccessRate': missing}
+    # Use exact serialized-event bytes for the audit digest, and portable typed
+    # JSON digests for current metadata. No filesystem outputs are re-read here.
+    rows = engineering.execute('SELECT sequence,id,project_id,manifest_id,started_at,completed_at,outcome,record_hash,data_json FROM engineering_verification_attempts ORDER BY sequence').fetchall()
+    events = []
+    latest = {}
+    seen_ids = set()
+    try:
+        for sequence, identity, pid, mid, began, ended, outcome, digest, serialized in rows:
+            event = json.loads(serialized)
+            if (hashlib.sha256(serialized.encode('utf-8')).hexdigest() != digest
+                    or identity in seen_ids or not identity
+                    or event.get('schemaVersion') != 1
+                    or any(event.get(key) != value for key, value in [('id', identity), ('projectId', pid), ('manifestId', mid), ('startedAt', began), ('completedAt', ended), ('outcome', outcome)])
+                    or outcome not in ('passed', 'failed', 'error')):
+                raise ValueError('invalid audit identity')
+            seen_ids.add(identity)
+            began_at, ended_at = instant(began), instant(ended)
+            if began_at > ended_at:
+                raise ValueError('backwards audit time')
+            if ended_at < end:
+                latest[(pid, mid)] = event
+            if start <= ended_at < end:
+                events.append(event)
+    except (ValueError, TypeError, KeyError, AttributeError, UnicodeError):
+        invalid = unavailable('Verification audit identity, digest or timestamp integrity failed; no earlier passing event is substituted.')
+        return {'recordedStrictReverificationCoverage': invalid, 'recordedVerificationAttemptSuccessRate': invalid}
+
+    allowed_tables = {'engineering_projects', 'engineering_manifests', 'engineering_runs', 'engineering_datasets', 'engineering_analyses'}
+    cache = {}
+    def identity_checked_records(connection, table, nested=None):
+        cursor = connection.execute('SELECT * FROM ' + table)
+        columns = [item[0] for item in cursor.description]
+        if 'id' not in columns or 'data_json' not in columns:
+            raise ValueError('durable identity columns unavailable')
+        result = []
+        bindings = {'id': 'id', 'project_id': 'projectId', 'revision': 'revision', 'network_id': 'networkId',
+                    'dataset_id': 'datasetId', 'reference_adjustment_id': 'referenceAdjustmentId',
+                    'current_adjustment_id': 'currentAdjustmentId', 'input_hash': 'inputHash',
+                    'created_at': 'createdAt', 'updated_at': 'updatedAt'}
+        for values in cursor:
+            durable = dict(zip(columns, values))
+            data = json.loads(durable['data_json'])
+            identity = data[nested] if nested else data
+            if any(identity.get(key) != durable[column] for column, key in bindings.items() if column in durable):
+                raise ValueError('durable identity mismatch')
+            result.append(data)
+        return indexed(result, nested)
+    def current_row(table, identity):
+        if table not in allowed_tables or table not in names:
+            return None
+        if table not in cache:
+            cache[table] = identity_checked_records(engineering, table)
+        return cache[table].get(identity)
+    deformation_cache = None
+    network_cache = None
+    adjustment_cache = None
+    def still_bound(event):
+        nonlocal deformation_cache, network_cache, adjustment_cache
+        try:
+            binding = event['bindings']
+            verification = event['verification']
+            if (event['outcome'] != 'passed' or event['bindingStable'] is not True or binding['complete'] is not True
+                    or binding['algorithm'] != 'typed-json-sha256-v1' or not verification or verification.get('valid') is not True
+                    or verification.get('projectId') != event['projectId'] or verification.get('manifestId') != event['manifestId']
+                    or verification.get('reviewStatus') != 'draft'):
+                return False
+            checked = instant(verification['checkedAt'])
+            if not instant(event['startedAt']) <= checked <= instant(event['completedAt']):
+                return False
+            manifest = current_row('engineering_manifests', event['manifestId'])
+            if not manifest or manifest.get('projectId') != event['projectId'] or manifest.get('reviewStatus') != 'draft':
+                return False
+            required_rows = {('engineering_manifests', manifest['id']), ('engineering_projects', event['projectId']), ('engineering_runs', manifest['runId'])}
+            required_rows.update(('engineering_datasets', item['id']) for item in manifest['inputDatasets'])
+            required_rows.update(('engineering_analyses', identity) for identity in manifest['analyses'])
+            actual_rows = [(item['table'], item['id']) for item in binding['engineeringRows']]
+            if len(actual_rows) != len(set(actual_rows)) or set(actual_rows) != required_rows:
+                return False
+            for item in binding['engineeringRows']:
+                current = current_row(item['table'], item['id'])
+                if (not current or (item['table'] != 'engineering_projects' and current.get('projectId') != event['projectId'])
+                        or snapshot_hash(current) != item['hash']):
+                    return False
+            required_networks = {item['networkId'] for item in manifest['adjustments']}
+            for item in manifest['deformations']:
+                # Deformation-only evidence must include both epoch networks.
+                required_networks.update(epoch['networkId'] for epoch in item['epochs'])
+            if len(binding['surveyNetworks']) != len(required_networks) or {item['id'] for item in binding['surveyNetworks']} != required_networks:
+                return False
+            if binding['surveyNetworks'] and network_cache is None:
+                network_cache = identity_checked_records(survey, 'survey_networks')
+            for item in binding['surveyNetworks']:
+                current = network_cache.get(item['id'])
+                if not current or current.get('projectId') != event['projectId'] or snapshot_hash(current) != item['hash']:
+                    return False
+            required_results = {item['id'] for item in manifest['adjustments']}
+            required_results.update(epoch['resultId'] for item in manifest['deformations'] for epoch in item['epochs'])
+            if len(binding['surveyResults']) != len(required_results) or {item['id'] for item in binding['surveyResults']} != required_results:
+                return False
+            if binding['surveyResults'] and adjustment_cache is None:
+                adjustment_cache = identity_checked_records(survey, 'survey_adjustments', 'run')
+            for item in binding['surveyResults']:
+                stored = adjustment_cache.get(item['runId'], {})
+                run, result = stored.get('run', {}), stored.get('result', {})
+                if (run.get('projectId') != event['projectId'] or run.get('status') != 'completed' or result.get('validation') != 'valid'
+                        or result.get('runId') != run.get('id') or result.get('id') != item['id']
+                        or any(run.get(key) != item[key] or result.get(key) != item[key] for key in ['networkId', 'inputHash', 'algorithmVersion'])
+                        or snapshot_hash(result) != item['hash']):
+                    return False
+            if len(binding['surveyDeformations']) != len(manifest['deformations']) or {item['id'] for item in binding['surveyDeformations']} != {item['id'] for item in manifest['deformations']}:
+                return False
+            if binding['surveyDeformations']:
+                if deformation_cache is None:
+                    deformation_cache = identity_checked_records(survey, 'survey_deformations')
+                for item in binding['surveyDeformations']:
+                    current = deformation_cache.get(item['id'])
+                    if not current or current.get('projectId') != event['projectId'] or snapshot_hash(current) != item['hash']:
+                        return False
+            required_checks = {'manifest': 'passed', 'outputs': 'passed', 'inputs': 'passed',
+                               'surveyReplay': 'passed' if required_networks else 'not-applicable',
+                               'sources': 'passed' if required_networks else 'not-applicable'}
+            if len(verification['checks']) != len(required_checks) or {item['id']: item['status'] for item in verification['checks']} != required_checks:
+                return False
+            return True
+        except (ValueError, TypeError, KeyError, AttributeError, UnicodeError, sqlite3.Error):
+            return False
+
+    drafts = [manifest for _, manifest in selected if manifest.get('reviewStatus') == 'draft']
+    identities = [(item.get('projectId'), item.get('id')) for item in drafts]
+    valid_denominator = all(isinstance(pid, str) and pid and isinstance(mid, str) and mid for pid, mid in identities) and len(set(identities)) == len(identities)
+    matching = [event for key, event in latest.items() if key in identities and still_bound(event)] if valid_denominator else []
+    passed_attempts = sum(still_bound(event) for event in events)
+    boundary = 'Historical checks only; metadata bindings match this database snapshot. Output/source bytes are not re-read, and this is not current validity, human approval or population completeness.'
+    coverage = {
+        'value': len(matching) / len(drafts) if drafts else None,
+        'numerator': len(matching), 'denominator': len(drafts),
+        'status': 'measured' if drafts else 'no-samples',
+        'definition': 'Distinct draft manifests created in period whose latest recorded terminal check before period end passed with unchanged metadata bindings; subsequent failure supersedes a previous pass.',
+        'checkedAtRange': [min(e['verification']['checkedAt'] for e in matching), max(e['verification']['checkedAt'] for e in matching)] if matching else None,
+        'boundary': boundary
+    } if valid_denominator else unavailable('Draft identities are missing or duplicated; denominator cannot be established.')
+    return {
+        'recordedStrictReverificationCoverage': coverage,
+        'recordedVerificationAttemptSuccessRate': {
+            'value': passed_attempts / len(events) if events else None,
+            'numerator': passed_attempts, 'denominator': len(events), 'status': 'measured' if events else 'no-samples',
+            'definition': 'Recorded terminal attempts completed in period that passed and still match snapshot metadata / all recorded terminal attempts in period, including failures and lookup errors. Crashes or failed audit writes have no event and are not counted.',
+            'outcomes': {key: sum(e['outcome'] == key for e in events) for key in ['passed', 'failed', 'error']},
+            'boundary': boundary}}
 
 
 def measure(engineering, survey, cohort, start, end):
@@ -132,6 +326,7 @@ def measure(engineering, survey, cohort, start, end):
         # Bounded known states only; do not leak arbitrary persisted text.
         status = status if status in ('draft', 'reviewed', 'approved', 'rejected') else 'other'
         statuses[status] = statuses.get(status, 0) + 1
+    verification_metrics = recorded_verification_metrics(engineering, survey, selected, networks, adjustments, start, end)
     return {
         'schemaVersion': 1, 'cohort': cohort,
         'cohortProvenance': 'Caller-declared database cohort; not independently certified. Candidate metrics must not be pooled with production.',
@@ -152,7 +347,8 @@ def measure(engineering, survey, cohort, start, end):
         'firstAttemptImportSuccessRate': unavailable('Persisted networks omit rejected attempts and do not identify first attempts; denominator is unavailable.'),
         'mediumLeveling30MinuteTarget': unavailable('Medium-network size and representative production cohort have not been defined or collected.'),
         'numericalReproducibilityRate': unavailable('Requires explicit strict replay outcomes for every selected run; stored bindings are not replay.'),
-        'strictReverificationCoverage': unavailable('This database does not persist strict verification attempts and their outcomes; neither coverage numerator nor completeness can be established.'),
+        'strictReverificationCoverage': unavailable('Current strict validity requires re-reading output/source bytes and live replay. Recorded point-in-time checks are reported separately.'),
+        **verification_metrics,
         'standardsTraceabilityRate': unavailable('Free-text citations do not prove authoritative version/clause verification.'),
         'unverifiedNumbersInDeliverables': unavailable('Requires complete artifact value provenance checks, not record counts.'),
         'licenseViolations': unavailable('Requires an independent license audit for the measured scope.'),

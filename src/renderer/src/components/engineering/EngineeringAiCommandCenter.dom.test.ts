@@ -84,6 +84,16 @@ afterEach(async () => {
 })
 
 describe('Engineering AI session recovery states', () => {
+  it('distinguishes unavailable AI conversation from the available Survey service', async () => {
+    useChatStore.setState({ runtimeConnection: 'idle' })
+    await render()
+    expect(container.textContent).toContain('Survey processing is available, but the AI conversation is not ready.')
+    expect(container.textContent).not.toContain('Runtime is not connected.')
+    expect(runtimeRequest).not.toHaveBeenCalled()
+    await act(async () => { await i18n.changeLanguage('zh') })
+    expect(container.textContent).toContain('内业计算服务可用，AI 对话尚未就绪')
+  })
+
   it('localizes a recorded model failure in both recovery surfaces without rewriting stored state', async () => {
     const error = '本次模型或工具尝试失败，任务将从检查点继续。'
     useChatStore.setState({ error, blocks: [{ id: 'question', kind: 'user', text: 'Explain precision' }] as never })

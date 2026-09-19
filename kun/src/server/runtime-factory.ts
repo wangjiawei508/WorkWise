@@ -329,6 +329,10 @@ export async function createKunServeRuntime(
       const result = surveyService.getDeformationForProjectNewUse(projectId, id)
       return result ? [result] : []
     }),
+    getSurveyNetworkSnapshot: (projectId, networkId) => {
+      const network = surveyService.getNetwork(networkId)
+      return network?.projectId === projectId ? network : null
+    },
     getSurveySources: (projectId, networkIds) => networkIds.flatMap((id) => {
       const network = surveyService.getNetwork(id)
       return network?.projectId === projectId

@@ -128,4 +128,8 @@ GET /v1/engineering/projects/:projectId/adjustments/:id/statistical-diagnostics?
 
 30 项专属用例覆盖解析网、基准平移/非均匀参考高程、点边重排/反向、米毫米与权尺度、64 点解析闭合环、各类拒绝和六组已保存 GNU Gama 2.29 高精度输出（逐文件校验摘要）；相关矩阵/统计回归共 54 项通过，Runtime 类型检查和 ESLint 通过。四项数值范围新增回归已由第二智能体独立复验。
 
-这个纯函数没有接入 HTTP、GUI、持久成果或旧算法，不构成完整自由网产品功能。拟稳、VCE、完整 Baarda、多重比较、抗差与增量平差仍未完成。原始方法资料、GNU Gama 构建/重放及软件容差见[高级方法证据](./evidence/railwise-advanced-methods-20260920/README.md)，不能将软件数值容差当作工程限差。
+后续集成新增项目/网络范围内的 `free-leveling-trials` 创建、历史分页及详情 HTTP 接口，桌面通过白名单 IPC 接入独立试算页。用户须显式确认释放所有固定约束和权策略；原角色、H0、缺失高程置零及无 sigma/路线长度时的单位权回退逐项记录。所有观测均处理或整次拒绝，不静默忽略不支持观测。
+
+SQLite 独立表保留不可变试算历史，拒绝 UPDATE/DELETE/REPLACE；读取核对来源准入、原始文件、网络修订、输入与输出摘要并重新计算。正式 `adjustment-7`、原始网络和成果状态保持不变。界面支持原始记录定位、历史恢复和双语错误原因，切网/离线后的迟到响应不展示。具体合成三点闭环与验收状态见[集成验收记录](./evidence/railwise-free-trial-integration/README.md)。新界面仍须在本轮最终精确签名包核验。
+
+拟稳、VCE、完整 Baarda、多重比较、抗差与增量平差仍未完成。原始方法资料、GNU Gama 构建/重放及软件容差见[高级方法证据](./evidence/railwise-advanced-methods-20260920/README.md)，不能将软件数值容差当作工程限差。

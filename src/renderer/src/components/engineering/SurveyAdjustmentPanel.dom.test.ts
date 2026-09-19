@@ -310,6 +310,25 @@ afterEach(async () => {
 })
 
 describe('SurveyAdjustmentPanel persisted state restoration', () => {
+  it('opens a separate trial entry with explicit constraints and leaves formal operations untouched', async () => {
+    const trialNav = Array.from(container.querySelectorAll('nav button')).find(item => item.textContent?.includes('自由水准试算')) as HTMLButtonElement
+    expect(trialNav).toBeTruthy()
+    const callsBefore = runtimeRequest.mock.calls.length
+    await act(async () => trialNav.click())
+    expect(runtimeRequest.mock.calls).toHaveLength(callsBefore)
+    const strip = container.querySelector('.survey-instrument-strip')!
+    expect(strip.textContent).toContain('Σ(H − H₀) = 0')
+    expect(strip.textContent).toContain('权模型未验证')
+    expect(strip.textContent).toContain('仅供试算 · 未作合格判定')
+    const panel = container.querySelector('section[aria-label="自由水准试算"]')!
+    expect(panel.textContent).toContain('该约束不建立物理高程基准')
+    const run = Array.from(panel.querySelectorAll('button')).find(item => item.textContent === '运行试算')!
+    expect(run.disabled).toBe(true)
+    const resultNav = Array.from(container.querySelectorAll('nav button')).find(item => item.textContent?.includes('平差成果')) as HTMLButtonElement | undefined
+    if (resultNav) await act(async () => resultNav.click())
+    expect(runtimeRequest.mock.calls).toHaveLength(callsBefore)
+  })
+
   it('connects the leveling precision page to diagnostics using the restored input and source bindings', async () => {
     const inputHash = 'e'.repeat(64)
     const baseRequest = runtimeRequest.getMockImplementation() as (path: string, method: string) => Promise<unknown>

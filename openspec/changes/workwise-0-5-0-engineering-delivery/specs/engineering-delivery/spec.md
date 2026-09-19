@@ -267,3 +267,28 @@ A project-scoped user action MUST re-read the published manifest and output byte
 #### Scenario: A result arrives after going offline
 - **WHEN** the UI loses Runtime readiness while reverification is pending
 - **THEN** it disables the action and ignores the late response instead of displaying a stale pass
+
+### Requirement: Isolated free leveling trials
+The Runtime MUST expose free leveling as an explicitly requested, separately versioned trial over an eligible current leveling network. The request MUST confirm the zero-sum height-correction constraint and weight policy. All original fixed and unknown point roles MUST remain unchanged; the trial MUST record their role and initial-height basis while treating every point as free. Unsupported, correlated, mixed-weight, incomplete, stale or numerically unresolved inputs MUST fail explicitly without filtering observations into a misleading successful subset.
+
+Trial history MUST be immutable, project-scoped and restart-safe, binding the network revision, source admission, source hash, exact numerical input, algorithm and result hash. Repeated idempotent requests MUST return the original record. Reads MUST verify bindings and recomputation, reject tampering and stale evidence, and never promote a trial to a formal adjustment, quality pass or deliverable. The bilingual interface MUST distinguish trial values, weight assumptions and unavailable engineering decisions, allow source-record navigation, and discard late responses after network changes or disconnection.
+
+#### Scenario: Run a free trial on a fixed leveling network
+
+- **WHEN** the user explicitly selects a zero-sum free leveling trial
+- **THEN** the app saves a separate trial with the original point roles, uses all admitted height-difference observations, and leaves formal adjustments and deliverables unchanged
+
+#### Scenario: Restore a trial after restart
+
+- **WHEN** the user opens a persisted trial
+- **THEN** the Runtime checks its exact source, input and result bindings before presenting it, and rejects stale or tampered records without repairing historical data
+
+### Requirement: Durable verification attempts
+Deliverable reverification MUST append an independent audit event for successful and failed attempts without modifying the checked manifest, original files or review status. Events MUST bind the requested project and manifest, checked input and output identities, timestamps and individual check outcomes. Failure to persist an event MUST NOT be reported as recorded evidence. The interface MUST explain that each attempt is recorded separately.
+
+Read-only metric aggregation MUST distinguish candidate and production cohorts, deduplicate manifests, respect UTC reporting periods, and exclude mismatched or subsequently failed evidence. Recorded success describes evidence at its check time; aggregating an audit snapshot MUST NOT claim fresh file verification, professional approval or a numerical reproducibility rate for all production work.
+
+#### Scenario: An earlier passed manifest later fails verification
+
+- **WHEN** a later check reports a failure for that manifest
+- **THEN** the audit retains both attempts and the aggregate does not use the older success to claim current recorded coverage

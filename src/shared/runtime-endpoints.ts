@@ -89,6 +89,14 @@ export const RUNTIME_ENGINEERING_ADJUSTMENT_CANCEL_TEMPLATE = '/v1/engineering/a
 export const RUNTIME_ENGINEERING_ADJUSTMENT_RESUME_TEMPLATE = '/v1/engineering/adjustments/{id}/resume'
 export const RUNTIME_ENGINEERING_ADJUSTMENT_PREVIEW_TEMPLATE = '/v1/engineering/adjustments/{id}/preview'
 export const RUNTIME_ENGINEERING_STATISTICAL_DIAGNOSTICS_TEMPLATE = '/v1/engineering/projects/{id}/adjustments/{adjustmentId}/statistical-diagnostics'
+export const RUNTIME_ENGINEERING_FREE_LEVELING_TRIALS_TEMPLATE = '/v1/engineering/projects/{id}/networks/{networkId}/free-leveling-trials'
+export const RUNTIME_ENGINEERING_FREE_LEVELING_TRIAL_TEMPLATE = `${RUNTIME_ENGINEERING_FREE_LEVELING_TRIALS_TEMPLATE}/{trialId}`
+export function runtimeSurveyFreeLevelingTrialsPath(projectId: string, networkId: string): string {
+  return `/v1/engineering/projects/${encodeURIComponent(projectId)}/networks/${encodeURIComponent(networkId)}/free-leveling-trials`
+}
+export function runtimeSurveyFreeLevelingTrialPath(projectId: string, networkId: string, trialId: string): string {
+  return `${runtimeSurveyFreeLevelingTrialsPath(projectId, networkId)}/${encodeURIComponent(trialId)}`
+}
 export function runtimeSurveyStatisticalDiagnosticsPath(projectId: string, adjustmentId: string, download = false): string {
   return `/v1/engineering/projects/${encodeURIComponent(projectId)}/adjustments/${encodeURIComponent(adjustmentId)}/statistical-diagnostics${download ? '?download=1' : ''}`
 }

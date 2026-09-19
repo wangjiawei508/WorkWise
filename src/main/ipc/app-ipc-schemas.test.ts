@@ -287,6 +287,28 @@ describe('app-ipc-schemas', () => {
     ]) expect(runtimeRequestPayloadSchema.safeParse(request).success).toBe(false)
   })
 
+  it('allows only scoped, explicit free leveling trial requests and bounded history reads', () => {
+    const path = '/v1/engineering/projects/project_1/networks/network_1/free-leveling-trials'
+    const body = { expectedRevision: 2, idempotencyKey: 'explicit-trial', constraint: 'sum-height-corrections-zero', acknowledgeDatumRelease: true, weightPolicy: 'source-or-unit-fallback' }
+    for (const request of [
+      { path, method: 'GET' }, { path: `${path}?limit=50&offset=20`, method: 'GET' },
+      { path, method: 'POST', body: JSON.stringify(body) },
+      { path: `${path}/trial_1`, method: 'GET' }, { path: `${path}/trial_1?download=1`, method: 'GET' }
+    ]) expect(runtimeRequestPayloadSchema.safeParse(request).success).toBe(true)
+    for (const request of [
+      { path, method: 'DELETE' }, { path, method: 'POST' },
+      { path, method: 'GET', body: '{}' }, { path: `${path}/trial_1`, method: 'GET', body: '{}' },
+      { path: `${path}/trial_1`, method: 'POST', body: JSON.stringify(body) },
+      { path: `${path}?offset=0`, method: 'POST', body: JSON.stringify(body) },
+      ...['limit=0', 'limit=51', 'limit=1.5', 'offset=-1', 'offset=NaN', 'offset=100001', 'offset=9007199254740992', 'limit=1&limit=2', 'projectId=other', 'download=1'].map(query => ({ path: `${path}?${query}`, method: 'GET' })),
+      { path: `${path}/trial_1?download=2`, method: 'GET' },
+      { path: '/v1/engineering/survey/networks/network_1/free-leveling-trials', method: 'GET' },
+      ...[{ acknowledgeDatumRelease: false }, { constraint: 'fixed' }, { weightPolicy: 'auto' }, { expectedRevision: 0 }, { projectId: 'other' }].map(change => ({ path, method: 'POST', body: JSON.stringify({ ...body, ...change }) }))
+    ]) expect(runtimeRequestPayloadSchema.safeParse(request).success, JSON.stringify(request)).toBe(false)
+    expect(runtimeRequestPayloadSchema.safeParse({ path: `${path}?limit=50&offset=100000`, method: 'GET' }).success).toBe(true)
+    expect(runtimeRequestPayloadSchema.safeParse({ path: '/v1/threads?limit=100&offset=100001', method: 'GET' }).success).toBe(true)
+  })
+
   it('accepts the revision-safe thread Agent selection endpoint', () => {
     expect(runtimeRequestPayloadSchema.parse({
       path: '/v1/threads/thr_1/agent',

@@ -38,6 +38,8 @@ import { levelingNetworkClosures } from './survey-leveling-closure.js'
 import { surveyErrorEllipse } from './survey-error-ellipse.js'
 import { SurveyStatisticalDiagnosticsV1 } from '../contracts/survey-statistics.js'
 import { diagnoseDeletedResiduals } from './survey-statistical-diagnostics.js'
+import { SurveyFreeLevelingTrialRequestV1, SurveyFreeLevelingTrialV1, SurveyFreeLevelingTrialSummaryV1, type SurveyFreeLevelingTrialListV1 } from '../contracts/survey-free-leveling.js'
+import { solveFreeLevelingTrial, FREE_LEVELING_VERSION } from './survey-free-leveling.js'
 import {
   rawAnchorDigest,
   recordRawSource,
@@ -53,6 +55,12 @@ import {
 } from './survey-derived-correction-ledger.js'
 
 type SurveyProjectLookup = (id: string) => { id: string; workspace: string; revision: number } | null
+export class SurveyFreeLevelingServiceError extends Error {
+  constructor(readonly reason: 'source-ineligible' | 'stale' | 'unsupported-network' | 'unsupported-observations' | 'mixed-weights' | 'dimension-limit' | 'idempotency-conflict') {
+    super(`free_leveling_${reason}`)
+    this.name = 'SurveyFreeLevelingServiceError'
+  }
+}
 type StoredAdjustment = { run: AdjustmentRunV1; result?: AdjustmentResultV1 }
 /**
  * An immutable admission record binds the mutable network projection to the
@@ -2201,6 +2209,11 @@ export class SurveyService {
       CREATE INDEX IF NOT EXISTS survey_deformations_project_created_idx ON survey_deformations(project_id, created_at DESC);
       CREATE UNIQUE INDEX IF NOT EXISTS survey_deformations_project_input_idx ON survey_deformations(project_id, input_hash);
       CREATE TABLE IF NOT EXISTS survey_idempotency (key TEXT PRIMARY KEY, result_json TEXT NOT NULL, created_at TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS survey_free_leveling_trials (id TEXT PRIMARY KEY, project_id TEXT NOT NULL, network_id TEXT NOT NULL, idempotency_key TEXT NOT NULL, request_hash TEXT NOT NULL, record_hash TEXT NOT NULL, data_json TEXT NOT NULL, created_at TEXT NOT NULL, UNIQUE(project_id, network_id, idempotency_key));
+      CREATE INDEX IF NOT EXISTS survey_free_leveling_trials_scope_idx ON survey_free_leveling_trials(project_id, network_id, created_at DESC, id DESC);
+      CREATE TRIGGER IF NOT EXISTS survey_free_leveling_trials_no_update BEFORE UPDATE ON survey_free_leveling_trials BEGIN SELECT RAISE(ABORT, 'survey_free_leveling_trials is append-only'); END;
+      CREATE TRIGGER IF NOT EXISTS survey_free_leveling_trials_no_delete BEFORE DELETE ON survey_free_leveling_trials BEGIN SELECT RAISE(ABORT, 'survey_free_leveling_trials is append-only'); END;
+      CREATE TRIGGER IF NOT EXISTS survey_free_leveling_trials_no_replace BEFORE INSERT ON survey_free_leveling_trials WHEN EXISTS (SELECT 1 FROM survey_free_leveling_trials WHERE id = NEW.id OR (project_id = NEW.project_id AND network_id = NEW.network_id AND idempotency_key = NEW.idempotency_key)) BEGIN SELECT RAISE(ABORT, 'survey_free_leveling_trials is append-only'); END;
      CREATE TRIGGER IF NOT EXISTS survey_raw_source_ledger_no_update BEFORE UPDATE ON survey_raw_source_ledger BEGIN SELECT RAISE(ABORT, 'survey_raw_source_ledger is append-only'); END;
      CREATE TRIGGER IF NOT EXISTS survey_raw_source_ledger_no_delete BEFORE DELETE ON survey_raw_source_ledger BEGIN SELECT RAISE(ABORT, 'survey_raw_source_ledger is append-only'); END;
      CREATE TRIGGER IF NOT EXISTS survey_raw_source_ledger_no_replace_id BEFORE INSERT ON survey_raw_source_ledger WHEN EXISTS (SELECT 1 FROM survey_raw_source_ledger WHERE id = NEW.id) BEGIN SELECT RAISE(ABORT, 'survey_raw_source_ledger is append-only'); END;
@@ -3235,6 +3248,105 @@ export class SurveyService {
 
   /** Recomputable diagnostic supplement. Never mutates historical results,
    * their hashes, or the existing outlier/quality classification. */
+  private freeLevelingContext(projectId: string, networkId: string) {
+    const row = this.db.prepare('SELECT project_id, revision, data_json FROM survey_networks WHERE id = ? AND project_id = ?').get(networkId, projectId) as { project_id: string; revision: number; data_json: string } | undefined
+    if (!row) return null
+    const network = SurveyNetworkV1.parse(JSON.parse(row.data_json))
+    if (network.id !== networkId || network.projectId !== projectId || network.revision !== row.revision) throw new SurveyFreeLevelingServiceError('stale')
+    if (!this.sourceEligibility(network).eligible) throw new SurveyFreeLevelingServiceError('source-ineligible')
+    const admission = this.verifySourceAdmission(network)
+    if (!admission.valid || !admission.record || !network.sourceFile) throw new SurveyFreeLevelingServiceError('source-ineligible')
+    return { network, sourceSha256: network.sourceFile.sha256, sourceAdmissionHash: admission.record.thisHash, inputHash: surveySolverInputHash(network) }
+  }
+
+  private calculateFreeLeveling(network: SurveyNetworkV1) {
+    if (network.networkType !== 'leveling' && network.networkType !== 'height-control') throw new SurveyFreeLevelingServiceError('unsupported-network')
+    if (network.knownPoints.length + network.unknownPoints.length > 64 || network.observations.length > 256) throw new SurveyFreeLevelingServiceError('dimension-limit')
+    // sourceEligibility already verifies sourceRecordId uniqueness, existence
+    // and raw byte anchors; no observation is filtered by this trial adapter.
+    if (network.observations.some(o => o.type !== 'height-difference' || !o.from || !o.to || !o.sourceRecordId || o.covariance !== undefined)) throw new SurveyFreeLevelingServiceError('unsupported-observations')
+    const sigmaCount = network.observations.filter(o => o.sigma !== undefined).length
+    if (sigmaCount !== 0 && sigmaCount !== network.observations.length) throw new SurveyFreeLevelingServiceError('mixed-weights')
+    const routeCount = network.observations.filter(o => o.routeLength !== undefined).length
+    if (sigmaCount === 0 && routeCount !== 0 && routeCount !== network.observations.length) throw new SurveyFreeLevelingServiceError('mixed-weights')
+    const weightBasis = sigmaCount ? 'inverse-declared-sigma-squared' as const : 'inverse-route-length-with-unit-default' as const
+    const originalPointRoles = (['knownPoints', 'unknownPoints'] as const).flatMap(collection => network[collection].map(point => ({
+      id: point.id, known: point.known, collection, originalPoint: point,
+      referenceHeightBasis: point.height === undefined ? 'zero-initial-approximation' as const : 'declared-height' as const
+    })))
+    const defaultWeightObservationIds = network.observations.filter(o => o.sigma === undefined && o.routeLength === undefined).map(o => o.id)
+    const output = solveFreeLevelingTrial({
+      model: 'independent-linear-height-differences', unit: 'm', constraint: 'sum-height-corrections-zero',
+      points: originalPointRoles.map(p => ({ id: p.id, referenceHeight: p.originalPoint.height ?? 0 })),
+      observations: network.observations.map(o => ({
+        id: o.id, from: o.from!, to: o.to!, heightDifference: normalizeObservationValue(o),
+        weight: o.sigma === undefined ? 1 / (o.routeLength ?? 1) : 1 / normalizeLengthUncertainty(o.sigma, o.sigmaUnit ?? o.unit) ** 2,
+        weightSource: o.sigma !== undefined ? 'inverse-declared-sigma-squared' : o.routeLength !== undefined ? 'inverse-declared-route-length' : 'explicit-unit-weight-fallback',
+        sourceAnchor: o.sourceRecordId!
+      }))
+    })
+    return { weightBasis, originalPointRoles, defaultWeightObservationIds, output }
+  }
+
+  createFreeLevelingTrial(projectId: string, networkId: string, input: unknown): SurveyFreeLevelingTrialV1 | null {
+    const request = SurveyFreeLevelingTrialRequestV1.parse(input)
+    return this.db.transaction(() => {
+      const context = this.freeLevelingContext(projectId, networkId)
+      if (!context) return null
+      const { network } = context
+      if (request.expectedRevision !== network.revision) throw new SurveyFreeLevelingServiceError('stale')
+      const requestHash = sha256CanonicalSurveyValue({ projectId, networkId, inputHash: context.inputHash, algorithmVersion: FREE_LEVELING_VERSION, ...request })
+      const existing = this.db.prepare('SELECT id, request_hash FROM survey_free_leveling_trials WHERE project_id = ? AND network_id = ? AND idempotency_key = ?').get(projectId, networkId, request.idempotencyKey) as { id: string; request_hash: string } | undefined
+      if (existing) {
+        if (existing.request_hash !== requestHash) throw new SurveyFreeLevelingServiceError('idempotency-conflict')
+        return this.getFreeLevelingTrial(projectId, networkId, existing.id)
+      }
+      const calculated = this.calculateFreeLeveling(network)
+      const payload = {
+        schemaVersion: 1 as const, id: `free_leveling_trial_${randomUUID()}`, projectId, networkId,
+        networkRevision: network.revision, inputHash: context.inputHash, sourceSha256: context.sourceSha256, sourceAdmissionHash: context.sourceAdmissionHash,
+        algorithmVersion: FREE_LEVELING_VERSION, constraint: request.constraint, acknowledgeDatumRelease: request.acknowledgeDatumRelease, weightPolicy: request.weightPolicy,
+        ...calculated, pointCount: calculated.output.points.length, observationCount: calculated.output.observations.length, degreesOfFreedom: calculated.output.degreesOfFreedom,
+        createdAt: this.nowIso(), requestHash, outputHash: sha256CanonicalSurveyValue(calculated)
+      }
+      const record = SurveyFreeLevelingTrialV1.parse({ ...payload, recordHash: sha256CanonicalSurveyValue(payload) })
+      this.db.prepare('INSERT INTO survey_free_leveling_trials(id, project_id, network_id, idempotency_key, request_hash, record_hash, data_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+        .run(record.id, projectId, networkId, request.idempotencyKey, requestHash, record.recordHash, JSON.stringify(record), record.createdAt)
+      return record
+    })()
+  }
+
+  getFreeLevelingTrial(projectId: string, networkId: string, trialId: string): SurveyFreeLevelingTrialV1 | null {
+    const row = this.db.prepare('SELECT * FROM survey_free_leveling_trials WHERE id = ? AND project_id = ? AND network_id = ?').get(trialId, projectId, networkId) as { id: string; project_id: string; network_id: string; idempotency_key: string; request_hash: string; record_hash: string; data_json: string; created_at: string } | undefined
+    if (!row) return null
+    const context = this.freeLevelingContext(projectId, networkId)
+    if (!context) throw new Error('free trial network unavailable')
+    const record = SurveyFreeLevelingTrialV1.parse(JSON.parse(row.data_json))
+    const { recordHash, ...payload } = record
+    if (record.id !== row.id || record.projectId !== projectId || record.networkId !== networkId || record.createdAt !== row.created_at || recordHash !== row.record_hash
+      || recordHash !== sha256CanonicalSurveyValue(payload) || record.requestHash !== row.request_hash
+      || record.networkRevision !== context.network.revision || record.inputHash !== context.inputHash || record.sourceSha256 !== context.sourceSha256 || record.sourceAdmissionHash !== context.sourceAdmissionHash) throw new Error('free trial evidence stale or altered')
+    const requestHash = sha256CanonicalSurveyValue({ projectId, networkId, inputHash: context.inputHash, algorithmVersion: FREE_LEVELING_VERSION,
+      expectedRevision: record.networkRevision, idempotencyKey: row.idempotency_key, constraint: record.constraint, acknowledgeDatumRelease: record.acknowledgeDatumRelease, weightPolicy: record.weightPolicy })
+    const calculated = this.calculateFreeLeveling(context.network)
+    if (requestHash !== record.requestHash || record.outputHash !== sha256CanonicalSurveyValue(calculated)
+      || record.outputHash !== sha256CanonicalSurveyValue({ weightBasis: record.weightBasis, originalPointRoles: record.originalPointRoles, defaultWeightObservationIds: record.defaultWeightObservationIds, output: record.output })
+      || record.pointCount !== record.output.points.length || record.observationCount !== record.output.observations.length || record.degreesOfFreedom !== record.output.degreesOfFreedom) throw new Error('free trial replay mismatch')
+    return record
+  }
+
+  listFreeLevelingTrials(projectId: string, networkId: string, limit = 20, offset = 0): SurveyFreeLevelingTrialListV1 | null {
+    if (!Number.isInteger(limit) || limit < 1 || limit > 50 || !Number.isInteger(offset) || offset < 0 || offset > 100_000) throw new Error('invalid free trial pagination')
+    if (!this.freeLevelingContext(projectId, networkId)) return null
+    const rows = this.db.prepare('SELECT id FROM survey_free_leveling_trials WHERE project_id = ? AND network_id = ? ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?').all(projectId, networkId, limit + 1, offset) as { id: string }[]
+    return { trials: rows.slice(0, limit).map(row => {
+      const record = this.getFreeLevelingTrial(projectId, networkId, row.id)
+      if (!record) throw new Error('free trial disappeared')
+      const { output: _output, originalPointRoles: _roles, ...summary } = record
+      return SurveyFreeLevelingTrialSummaryV1.parse(summary)
+    }), nextOffset: rows.length > limit ? offset + limit : null }
+  }
+
   getAdjustmentStatisticalDiagnostics(projectId: string, id: string): SurveyStatisticalDiagnosticsV1 | null {
     const stored = this.getAdjustmentForProjectNewUse(projectId, id)
     if (!stored?.result) return null

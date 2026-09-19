@@ -1,5 +1,8 @@
 import { z } from 'zod'
+import { SurveyFreeLevelingTrialRequestV1 } from '../../shared/survey-free-leveling'
 import {
+  RUNTIME_ENGINEERING_FREE_LEVELING_TRIALS_TEMPLATE,
+  RUNTIME_ENGINEERING_FREE_LEVELING_TRIAL_TEMPLATE,
   RUNTIME_APPROVAL_TEMPLATE,
   RUNTIME_ATTACHMENT_CONTENT_TEMPLATE,
   RUNTIME_ATTACHMENT_DIAGNOSTICS_TEMPLATE,
@@ -175,7 +178,7 @@ function compileEndpoint(
   // substituting the approved identifier placeholders with `[^/]+`. The
   // template fragments are URL-encoded by the path helpers, so they
   // contain only characters that are safe to escape directly.
-  const pattern = template.replace(/[.+*?^$()|[\]\\]/g, '\\$&').replace(/\{(?:id|turn|manifestId|adjustmentId)\}/g, '[^/]+')
+  const pattern = template.replace(/[.+*?^$()|[\]\\]/g, '\\$&').replace(/\{(?:id|turn|manifestId|adjustmentId|networkId|trialId)\}/g, '[^/]+')
   const regex = new RegExp(`^${pattern}$`)
   return {
     match: (path: string) => regex.test(path),
@@ -266,6 +269,8 @@ const ENDPOINTS: readonly EndpointTemplate[] = [
   compileEndpoint(RUNTIME_ENGINEERING_ADJUSTMENT_RESUME_TEMPLATE, ['POST']),
   compileEndpoint(RUNTIME_ENGINEERING_ADJUSTMENT_PREVIEW_TEMPLATE, ['POST']),
   compileEndpoint(RUNTIME_ENGINEERING_STATISTICAL_DIAGNOSTICS_TEMPLATE, ['GET'], ['download']),
+  compileEndpoint(RUNTIME_ENGINEERING_FREE_LEVELING_TRIALS_TEMPLATE, ['GET', 'POST'], ['limit', 'offset']),
+  compileEndpoint(RUNTIME_ENGINEERING_FREE_LEVELING_TRIAL_TEMPLATE, ['GET'], ['download']),
   compileEndpoint(RUNTIME_ENGINEERING_DEFORMATIONS_TEMPLATE, ['GET', 'POST'], ['projectId']),
   compileEndpoint(RUNTIME_ENGINEERING_DEFORMATION_TEMPLATE, ['GET']),
   compileEndpoint(RUNTIME_MEMORY_TEMPLATE, ['GET', 'POST']),
@@ -317,6 +322,26 @@ export const runtimeRequestPayloadSchema = z
   })
   .strict()
   .superRefine((payload, context) => {
+    let url: URL
+    try { url = new URL(payload.path, 'http://localhost') } catch {
+      context.addIssue({ code: 'custom', message: 'invalid runtime request URL' })
+      return
+    }
+    if (compileEndpoint(RUNTIME_ENGINEERING_FREE_LEVELING_TRIALS_TEMPLATE, ['GET', 'POST']).match(url.pathname)) {
+      const method = payload.method ?? 'GET'
+      let valid = method === 'GET' && payload.body === undefined
+      for (const [key, value] of url.searchParams) {
+        if (key === 'limit' && (!/^[1-9]\d*$/.test(value) || Number(value) > 50)) valid = false
+        if (key === 'offset' && (!/^(0|[1-9]\d*)$/.test(value) || Number(value) > 100_000)) valid = false
+      }
+      if (method === 'POST' && !url.search) {
+        try { valid = SurveyFreeLevelingTrialRequestV1.safeParse(JSON.parse(payload.body ?? '')).success } catch { valid = false }
+      }
+      if (!valid) context.addIssue({ code: 'custom', message: 'invalid free leveling trial request' })
+    }
+    if (compileEndpoint(RUNTIME_ENGINEERING_FREE_LEVELING_TRIAL_TEMPLATE, ['GET']).match(url.pathname) && payload.body !== undefined) {
+      context.addIssue({ code: 'custom', message: 'free leveling trial reads cannot contain a body' })
+    }
     if (payload.body === undefined) return
     let pathname = ''
     try {
