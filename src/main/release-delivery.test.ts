@@ -363,6 +363,7 @@ describe('R2 release delivery gates', () => {
     expect(candidate.permissions).toEqual({ contents: 'read' })
     expect(release.jobs['isolated-survey-candidate'].permissions).toEqual({ contents: 'read' })
     const steps = candidate.jobs.candidate.steps as Array<{ run?: string; uses?: string; with?: Record<string, unknown> }>
+    expect(steps.find(step => step.uses?.startsWith('actions/checkout'))?.with?.['fetch-depth']).toBe(0)
     const commands = steps.map(step => step.run ?? '').join('\n')
     expect(commands).toContain('authorize-workwise-candidate.sh --prepare')
     expect(commands).toContain('--publish never')
