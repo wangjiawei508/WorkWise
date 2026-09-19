@@ -8,7 +8,7 @@ import { dirname, join } from 'node:path'
 import { test } from 'node:test'
 import { parse } from 'yaml'
 import { startPrivateUpdaterFeed } from './private-updater-feed.mjs'
-import { requirePrivateRunner, validateBundleIdentity, validatePrivateUpdateMetadata, withPrivateTlsTrust } from './run-private-macos-updater-acceptance.mjs'
+import { parseDesignatedRequirement, requirePrivateRunner, validateBundleIdentity, validatePrivateUpdateMetadata, withPrivateTlsTrust } from './run-private-macos-updater-acceptance.mjs'
 import { validateCandidateAcceptanceRoot } from './run-native-updater-acceptance.mjs'
 
 test('temporary trust refuses local and self-hosted machines', () => {
@@ -50,6 +50,22 @@ test('packaged feed validation rejects external URLs, comment spoofing and share
     metadata.replace('https://127.0.0.1/', 'https://example-user@127.0.0.1/'),
     metadata.replace('workwise-private-updater-aaaaaaaaaaaa-updater', 'shared-updater')
   ]) assert.throws(() => validatePrivateUpdateMetadata(malformed, head))
+})
+
+test('codesign requirements are read from stdout independently of stderr diagnostics', () => {
+  const requirement = 'designated => identifier "com.example.candidate" and anchor apple generic'
+  assert.equal(parseDesignatedRequirement({ status: 0, stdout: requirement + '\n', stderr: 'Executable=/candidate.app/Contents/MacOS/candidate\n' }), requirement)
+  assert.equal(parseDesignatedRequirement({ status: 0, stdout: '', stderr: requirement }), requirement)
+  assert.throws(() => parseDesignatedRequirement({ status: 1, stdout: requirement, stderr: '' }))
+  assert.throws(() => parseDesignatedRequirement({ status: 0, stdout: 'designated => ', stderr: '' }))
+  assert.throws(() => parseDesignatedRequirement({ status: 0, stdout: requirement, stderr: 'designated => identifier "com.example.other"' }))
+})
+
+test('actual macOS codesign display yields a designated requirement without mutating the executable', { skip: process.platform !== 'darwin' }, () => {
+  const result = spawnSync('/usr/bin/codesign', ['-d', '-r-', '/usr/bin/true'], { encoding: 'utf8' })
+  assert.equal(result.status, 0, result.stderr)
+  assert.match(result.stdout, /^designated => /m)
+  assert.match(parseDesignatedRequirement(result), /^designated => /)
 })
 
 test('TLS trust is user-only, loopback SSL constrained, and cleaned after updater failure', async () => {

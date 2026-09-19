@@ -95,6 +95,18 @@ export function validatePrivateUpdateMetadata(text, head) {
   return metadata
 }
 
+export function parseDesignatedRequirement(result) {
+  // `codesign -d -r-` writes the requirement to stdout; display diagnostics
+  // such as Executable= are on stderr. Accept either stream, but fail closed
+  // on process failure or conflicting requirements.
+  const requirements = new Set(`${result.stdout ?? ''}\n${result.stderr ?? ''}`
+    .split(/\r?\n/).map(line => line.trim()).filter(line => /^designated => \S/.test(line)))
+  if (result.error || result.status !== 0 || requirements.size !== 1) {
+    throw new Error('Candidate signing requirement unavailable or ambiguous.')
+  }
+  return [...requirements][0]
+}
+
 export function verifyBundle(app, head, version) {
   const info = JSON.parse(execute('/usr/bin/plutil', ['-convert', 'json', '-o', '-', join(app, 'Contents/Info.plist')]))
   validateBundleIdentity(info, head, version)
@@ -104,8 +116,7 @@ export function verifyBundle(app, head, version) {
   validatePrivateUpdateMetadata(readFileSync(join(app, 'Contents/Resources/app-update.yml'), 'utf8'), head)
   packagedAsar._internals.verifyPackagedSourceHead(join(app, 'Contents/Resources/app.asar'), head)
   const identity = spawnSync('/usr/bin/codesign', ['-d', '-r-', app], { encoding: 'utf8' })
-  const requirement = identity.stderr?.split('\n').find(line => line.startsWith('designated =>'))
-  if (identity.status !== 0 || !requirement) throw new Error('Candidate signing requirement unavailable.')
+  const requirement = parseDesignatedRequirement(identity)
   return { bundleId: info.CFBundleIdentifier, version, designatedRequirement: requirement }
 }
 
