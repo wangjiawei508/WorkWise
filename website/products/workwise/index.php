@@ -41,7 +41,7 @@ $workwiseCapabilities = [
 ];
 $workwiseStatus = [
   ['label' => '正式下载', 'title' => 'WorkWise 0.5.0', 'text' => '下方下载沿用已发布版本；本页新命名与四阶段界面为候选预览。', 'icon' => 'fas fa-download'],
-  ['label' => '候选验收', 'title' => 'RAILWISE Survey 核心内业链', 'text' => 'e1708d7 候选已完成签名公证、真实 GSI/IN2 界面成果链、统计诊断和重启复验，真实私有升级往返已通过。截图来自 94f1550；后续源码增量、专业复核与用户确认按验收台账分别记录。', 'icon' => 'fas fa-flask'],
+  ['label' => '候选验收', 'title' => 'RAILWISE Survey 核心内业链', 'text' => '本页截图来自 ba38649 已安装候选，均为中文浅色与合成演示数据。该包完成签名公证、真实私有升级、逐项证据留存、篡改拒绝、历史恢复及重启复验；后续功能、专业复核与用户确认按台账分别记录。', 'icon' => 'fas fa-flask'],
   ['label' => '后续计划', 'title' => '专业可信度与生态扩展', 'text' => '规范规则、质量评定、高级平差、外业采集与点云仍在计划中，不作为当前已交付能力宣传。', 'icon' => 'fas fa-route'],
 ];
 $workwiseAdvantages = [

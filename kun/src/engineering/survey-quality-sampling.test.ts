@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto'
 import { describe, expect, it } from 'vitest'
+import { SurveyQualitySamplingPlanV1, SurveyQualitySamplingRequestV1, isSurveySamplingUnicode } from '../contracts/survey-quality-sampling.js'
 import {
   GBT24356_SAMPLE_TABLE, GBT24356_SAMPLING_SOURCE, balancedMinimumBatches,
   createQualitySamplingPlan, qualitySamplingPopulationHash, samplingIndexFromUint32,
@@ -74,9 +75,53 @@ describe('GB/T 24356-2023 table 1 sampling only', () => {
     const plan = createQualitySamplingPlan(request())
     expect(plan.request.populationHash).toBe('e4d9249b0acc89ec6b1b73a24f6f23ead0f4843912a85c792b7dd77785f1535a')
     expect(plan.requestHash).toBe('0ed73999c6a04b70b381d02a1ef66d8737c1c988e461940ea38bd1105dc17f96')
+    // Full plan reassembled independently with Python hashlib/hmac on
+    // 2026-09-20; adding the renderer-safe contract must not change hash bytes.
+    expect(plan.planHash).toBe('095bb4e26f12f6c2274d4ed9cf9c18f35f9facdf3ec6f4d002b852b35a248b57')
     expect(plan.batches[0]!.selectedUnitProductIds).toEqual(['unit-019', 'unit-009', 'unit-030', 'unit-021', 'unit-027'])
     expect(plan.batches[0]!.randomDrawCount).toBe(5)
     expect(plan.batches[0]!.randomTranscriptSha256).toBe('68283403452db55f47c1201b9dd3a21b754a9351f2879c02c1e8ebcd70946807')
+  })
+
+  it('validates Unicode in the shared contract without Buffer and preserves exact identifiers', () => {
+    const saved = globalThis.Buffer
+    const valid = ['测段-甲', '测段-🛤️', 'e\u0301', '\ud800\udc00', 'a\u0000b']
+    const invalid = ['\ud800', '\udc00', '\ud800x', 'x\udfff', '\ud800\ud800\udc00']
+    const original = request()
+    let results: boolean[]
+    try {
+      Object.defineProperty(globalThis, 'Buffer', { value: undefined, configurable: true, writable: true })
+      results = [...valid, ...invalid].map(value => isSurveySamplingUnicode(value)
+        && SurveyQualitySamplingRequestV1.safeParse({ ...original, orderedUnitProductIds: [value] }).success)
+    } finally { Object.defineProperty(globalThis, 'Buffer', { value: saved, configurable: true, writable: true }) }
+    expect(results!).toEqual([...valid.map(() => true), ...invalid.map(() => false)])
+  })
+
+  it('round-trips the complete response contract without changing request or plan serialization', () => {
+    for (const count of [1, 30, 1001, 100_000]) {
+      const plan = createQualitySamplingPlan(request(count))
+      const parsed = SurveyQualitySamplingPlanV1.parse(plan)
+      expect(JSON.stringify(parsed)).toBe(JSON.stringify(plan))
+    }
+    const census = createQualitySamplingPlan({ ...request(1001), stage: 'final-office', inspectionMode: 'census', randomSource: undefined })
+    expect(SurveyQualitySamplingPlanV1.parse(census)).toEqual(census)
+  })
+
+  it('rejects response identity shape, impossible samples, draws and misleading trust declarations', () => {
+    const plan = createQualitySamplingPlan(request())
+    const changes: Array<(value: unknown) => unknown> = [
+      () => ({ ...plan, extra: true }), () => ({ ...plan, algorithmVersion: 'other' }),
+      () => ({ ...plan, source: { ...plan.source, table: '2' } }),
+      () => ({ ...plan, sampleSize: 99 }), () => ({ ...plan, randomSourceVerification: 'not-applicable' }),
+      () => ({ ...plan, previousPlanVerification: 'not-evaluated' }), () => ({ ...plan, standardConformity: 'passed' }),
+      () => ({ ...plan, batches: [{ ...plan.batches[0], batchIndex: 1 }] }),
+      () => ({ ...plan, batches: [{ ...plan.batches[0], unitProductIds: [...plan.request.orderedUnitProductIds].reverse() }] }),
+      () => ({ ...plan, batches: [{ ...plan.batches[0], selectedUnitProductIds: Array(5).fill('unit-001') }] }),
+      () => ({ ...plan, batches: [{ ...plan.batches[0], selectedUnitProductIds: ['outside', ...plan.batches[0]!.selectedUnitProductIds.slice(1)] }] }),
+      () => ({ ...plan, batches: [{ ...plan.batches[0], randomDrawCount: 0 }] }),
+      () => ({ ...plan, batches: [{ ...plan.batches[0], randomTranscriptSha256: null }] })
+    ]
+    for (const change of changes) expect(SurveyQualitySamplingPlanV1.safeParse(change(plan)).success).toBe(false)
   })
 
   it('rejects the biased uint32 tail and never maps it by modulo', () => {

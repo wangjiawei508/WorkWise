@@ -313,3 +313,20 @@ Any GB/T 24356 sampling calculation MUST use a completely verified version of th
 #### Scenario: Final indoor inspection
 - **WHEN** a sampling request identifies final indoor inspection
 - **THEN** every unit product remains in the inspection selection regardless of the smaller Table 1 sample size
+
+### Requirement: Frozen sampling population and replay
+The authenticated Runtime and desktop MUST admit explicit ordered unit-product populations independently of observation or manifest counts. Definitions MUST be retained as exact valid UTF-8 bytes with hashes and declared trust. Requests MUST be bounded to 1 MiB and 10,000 unique units; unit and sample pages MUST contain at most 100 items. Clients MUST NOT supply random seeds, outcomes or trusted professional identities.
+
+The initial workspace MUST permit only one first-round run per population and inspection stage. Process and final-office runs MUST inspect every unit. A random run MUST generate and retain one Runtime-owned seed, preserve the original selection on idempotent retry and remain labelled locally generated without independent witness. Persistent records MUST be additive and immutable. Reads MUST verify project revision, definition bytes, population order, SQL/JSON identity, source, algorithm and recomputed result. Sampling MUST NOT approve existing deliverables or claim population completeness, spatial uniformity or quality acceptance.
+
+#### Scenario: Retry after losing the creation response
+- **WHEN** the same payload and idempotency key are retried after a run was saved
+- **THEN** the original run and sample are returned without generating a new seed, while different payloads or another run for the same population/stage are rejected
+
+#### Scenario: Restore a stored selection
+- **WHEN** the app restarts and the user selects a sampling run
+- **THEN** the Runtime validates and recomputes its original selection before returning summaries and bounded sample pages, and tampered or stale entries are individually unavailable
+
+#### Scenario: Change project while reading samples
+- **WHEN** the project, revision or Runtime readiness changes before a sampling response arrives
+- **THEN** the desktop clears obsolete presentation and ignores the late response

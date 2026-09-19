@@ -30,6 +30,7 @@ import type { EngineeringService } from '../../engineering/engineering-service.j
 import type { EngineeringContextService } from '../../engineering/engineering-context-service.js'
 import type { EngineeringAiOrchestrator } from '../../engineering/engineering-ai-orchestrator.js'
 import type { SurveyService } from '../../engineering/survey-service.js'
+import type { SurveySamplingWorkspaceService } from '../../engineering/survey-sampling-workspace.js'
 import type { SurveyQualityWorkspaceService } from '../../engineering/survey-quality-workspace.js'
 
 export type RuntimeToolDiagnostics = {
@@ -78,6 +79,7 @@ export type ServerRuntime = {
   engineeringAi?: EngineeringAiOrchestrator
   surveyService?: SurveyService
   surveyQualityWorkspaceService?: SurveyQualityWorkspaceService
+  surveySamplingWorkspaceService?: SurveySamplingWorkspaceService
   runTurn(threadId: string, turnId: string): Promise<'completed' | 'failed' | 'aborted'> | void
   cancelChildRuns?(parentThreadId: string, reason?: string): number
   runReview?(input: {

@@ -65,7 +65,7 @@ AI 会话跨阶段保留，计算与导出计划先展示具体参数再确认�
 
 ## 候选界面预览
 
-以下为 `94f1550` 已安装候选包的中文浅色实拍，使用仓库合成数据；每张图片的精确提交与哈希见[截图清单](./website/products/screenshots/workwise/candidate-screenshots.json)。截图不代表正式 0.5.0 安装包已替换。后续 `e1708d7` 已完成签名公证、真实 GSI/IN2 界面成果链、六份文件完整性检查及重启复验；新增水准统计诊断的读取、原记录定位和 JSON 保存也已实测。[真实私有升级往返已通过](./docs/qa/evidence/railwise-convergence-e1708d7ccce7/README.md)，参考数据差异的专业复核和用户确认仍未完成。各源码增量的验收边界见下方台账。
+以下为 `ba38649` 已安装候选包的中文浅色实拍，使用合成三点水准网；每张图片的精确提交与哈希见[截图清单](./website/products/screenshots/workwise/candidate-screenshots.json)。截图不代表正式 0.5.0 安装包已替换。本包已通过签名公证、[真实私有升级往返及质量证据工作区实机检查](./docs/qa/evidence/railwise-convergence-ba3864917e12/README.md)：逐项留存、篡改拒绝、有效历史恢复、重启后的同记录复验及 960×640 窗口均有记录。技术留存不等于质量评分、规范符合性或人工签名；真实模型、专业确认及总计划剩余工作见下方台账。
 
 ![RAILWISE Survey 中文浅色候选界面](./website/products/screenshots/workwise/04-survey-candidate-zh-light.jpg)
 

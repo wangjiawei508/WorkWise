@@ -90,6 +90,7 @@ import { buildEngineeringConversationTools } from '../adapters/tool/engineering-
 import { EngineeringAiRepository } from '../engineering/engineering-ai-repository.js'
 import { buildRailwiseToolProviders } from '../adapters/tool/railwise-tool-provider.js'
 import { SurveyService } from '../engineering/survey-service.js'
+import { SurveySamplingWorkspaceService } from '../engineering/survey-sampling-workspace.js'
 import { SurveyQualityWorkspaceService } from '../engineering/survey-quality-workspace.js'
 
 export type KunServeRuntimeOptions = {
@@ -365,6 +366,11 @@ export async function createKunServeRuntime(
     getProject: (projectId) => engineeringService.getProject(projectId),
     getManifest: (projectId, manifestId) => engineeringService.getManifestForProject(projectId, manifestId)
   })
+  const surveySamplingWorkspaceService = new SurveySamplingWorkspaceService({
+    rootDir: join(options.dataDir, 'engineering'),
+    nowIso,
+    getProject: (projectId) => engineeringService.getProject(projectId)
+  })
   const visionEvidenceRuntime = createVisionEvidenceService(options.visionEvidence)
   const visionEvidence = visionEvidenceRuntime.service
   const attachmentCleanupTimer = attachmentStore
@@ -613,6 +619,7 @@ export async function createKunServeRuntime(
     engineeringAi,
     surveyService,
     surveyQualityWorkspaceService,
+    surveySamplingWorkspaceService,
     runTurn(threadId, turnId) {
       return loop.runTurn(threadId, turnId)
     },
@@ -683,6 +690,7 @@ export async function createKunServeRuntime(
           await engineeringService.flush()
           surveyService.close()
           surveyQualityWorkspaceService.close()
+          surveySamplingWorkspaceService.close()
           engineeringService.close()
         } finally {
           await stores.shutdown?.()

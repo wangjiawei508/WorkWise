@@ -68,6 +68,9 @@ describe('Survey delivery without a monitoring dataset', () => {
     request.mockClear()
     const entries = [...container.querySelectorAll('details')].filter(details => details.querySelector(':scope > summary')?.textContent === 'Quality evidence retention workspace')
     expect(entries).toHaveLength(2)
+    const samplingEntries = [...container.querySelectorAll('details')].filter(details => details.querySelector(':scope > summary')?.textContent === 'Unit product populations and first-round sampling')
+    expect(samplingEntries).toHaveLength(1)
+    expect(entries.every(entry => !entry.contains(samplingEntries[0]!))).toBe(true)
     await act(async () => { entries[1]!.open = true; entries[1]!.dispatchEvent(new Event('toggle')) })
     expect(entries[1]!.textContent).toContain('Manifest manifest-two · Project revision 2')
     expect(entries[1]!.textContent).toContain('manifest-two/report.pdf')
@@ -309,6 +312,33 @@ describe('Survey delivery without a monitoring dataset', () => {
     expect(container.textContent).toContain('Completed deterministic Survey results')
     expect(button('Generate review list').disabled).toBe(false)
     expect(container.textContent).not.toContain('Run trend and threshold analysis first')
+  })
+
+  it('distinguishes restored manifest outputs from a session preview in both languages', async () => {
+    manifests = [{ id: 'historical-manifest', runId: 'historical-run', reviewStatus: 'draft', outputs: [file], citations: [], validation: { valid: true, errors: [], warnings: [] } }]
+    await renderDelivery()
+    await act(async () => button('Deliverables').click())
+    expect(container.textContent).toContain(file.path)
+    expect(container.textContent).toContain('Latest review-pending manifest outputs · historical-manifest')
+    expect(container.textContent).not.toContain('Preview not generated')
+    await act(async () => { await i18n.changeLanguage('zh') })
+    expect(container.textContent).toContain('最近待审查清单输出 · historical-manifest')
+    expect(container.textContent).not.toContain('尚未生成预览')
+    await act(async () => { await i18n.changeLanguage('en') })
+    await act(async () => button('Generate preview').click())
+    expect(container.textContent).toContain('Run preview')
+    expect(container.textContent).not.toContain('Latest review-pending manifest outputs')
+  })
+
+  it.each([
+    { name: 'no manifest', saved: [] },
+    { name: 'empty manifest', saved: [{ id: 'empty-manifest', runId: 'empty-run', reviewStatus: 'draft', outputs: [], citations: [], validation: { valid: true, errors: [], warnings: [] } }] }
+  ])('keeps the ungenerated subtitle when there are no saved outputs: $name', async ({ saved }) => {
+    manifests = saved
+    await renderDelivery()
+    await act(async () => button('Deliverables').click())
+    expect(container.textContent).toContain('Preview not generated')
+    expect(container.textContent).not.toContain('Latest review-pending manifest outputs')
   })
 
   it('keeps draft evidence readable and prevents new outputs while offline', async () => {

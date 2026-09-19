@@ -27,6 +27,43 @@ import {
 } from '../../shared/design-document'
 
 describe('app-ipc-schemas', () => {
+  it('restricts sampling requests to frozen declarations, stage rules and bounded pages', () => {
+    const base = '/v1/engineering/projects/project_1'
+    const population = { idempotencyKey: 'population-create-1', expectedProjectRevision: 1,
+      productType: 'leveling', unitProductType: 'route', definitionStatement: '每条完整水准路线为一个单位成果', orderedUnitProductIds: ['A', 'B'] }
+    const run = { populationId: 'population_1', idempotencyKey: 'run-create-1', stage: 'acceptance', inspectionMode: 'table-1-simple-random' }
+    const accepted = [
+      { path: `${base}/sampling-populations`, method: 'POST', body: JSON.stringify(population) },
+      { path: `${base}/sampling-populations?limit=100&offset=10000` },
+      { path: `${base}/sampling-populations/population_1` },
+      { path: `${base}/sampling-populations/population_1/units?limit=100&offset=0` },
+      { path: `${base}/sampling-runs`, method: 'POST', body: JSON.stringify(run) },
+      { path: `${base}/sampling-runs`, method: 'POST', body: JSON.stringify({ ...run, stage: 'process', inspectionMode: 'census' }) },
+      { path: `${base}/sampling-runs?limit=1&offset=0` },
+      { path: `${base}/sampling-runs/run_1` },
+      { path: `${base}/sampling-runs/run_1/samples?limit=100` },
+      { path: `${base}/sampling-runs/run_1/verify`, method: 'POST', body: '{}' }
+    ]
+    for (const request of accepted) expect(runtimeRequestPayloadSchema.safeParse(request).success, request.path).toBe(true)
+    const rejected = [
+      ...['seed', 'actor', 'planHash', 'decision'].map(field => ({ path: `${base}/sampling-runs`, method: 'POST', body: JSON.stringify({ ...run, [field]: 'caller-controlled' }) })),
+      ...['process', 'final-office'].map(stage => ({ path: `${base}/sampling-runs`, method: 'POST', body: JSON.stringify({ ...run, stage }) })),
+      { path: `${base}/sampling-runs`, method: 'POST', body: JSON.stringify({ ...run, round: 2 }) },
+      { path: `${base}/sampling-populations`, method: 'POST', body: JSON.stringify({ ...population, orderedUnitProductIds: ['A', 'A'] }) },
+      { path: `${base}/sampling-populations`, method: 'POST', body: JSON.stringify({ ...population, definitionStatement: '\ud800' }) },
+      { path: `${base}/sampling-populations`, method: 'POST', body: ' '.repeat(1024 * 1024) + JSON.stringify(population) },
+      { path: `${base}/sampling-runs/run_1`, body: '{}' },
+      { path: `${base}/sampling-runs/run_1?limit=1` },
+      { path: `${base}/sampling-runs/run_1/verify`, method: 'POST', body: '{"decision":"passed"}' },
+      { path: `${base}/sampling-runs/run_1/verify?offset=0`, method: 'POST', body: '{}' },
+      { path: `${base}/sampling-runs?offset=0`, method: 'POST', body: JSON.stringify(run) },
+      { path: `${base}/sampling-runs`, method: 'DELETE' },
+      { path: `${base}/sampling-runs/run_1/units` },
+      ...['limit=0', 'limit=101', 'limit=01', 'offset=-1', 'offset=10001', 'limit=1&limit=2', 'seed=abc'].map(query => ({ path: `${base}/sampling-runs?${query}` }))
+    ]
+    for (const request of rejected) expect(runtimeRequestPayloadSchema.safeParse(request).success, request.path).toBe(false)
+  })
+
   it('accepts only bounded known PDF retry reasons', () => {
     expect(workspacePreviewPayloadSchema.parse({
       workspaceRoot: '/tmp/workspace',

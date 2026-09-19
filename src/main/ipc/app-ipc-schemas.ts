@@ -1,3 +1,4 @@
+import { SurveySamplingPopulationCreateV1, SurveySamplingRunCreateV1, SurveySamplingVerifyRequestV1, SURVEY_SAMPLING_WORKSPACE_LIMITS } from '../../shared/survey-quality-sampling-workspace'
 import { z } from 'zod'
 import { SurveyFreeLevelingTrialRequestV1 } from '../../shared/survey-free-leveling'
 import { SurveyQualityPlanCreateV1, SurveyQualityEvidenceCreateV1, SurveyQualityRecordCreateV1, SurveyQualityCheckAppendV1 } from '../../shared/survey-quality-workspace'
@@ -179,7 +180,7 @@ function compileEndpoint(
   // substituting the approved identifier placeholders with `[^/]+`. The
   // template fragments are URL-encoded by the path helpers, so they
   // contain only characters that are safe to escape directly.
-  const pattern = template.replace(/[.+*?^$()|[\]\\]/g, '\\$&').replace(/\{(?:id|turn|manifestId|adjustmentId|networkId|trialId|planId|recordId)\}/g, '[^/]+')
+  const pattern = template.replace(/[.+*?^$()|[\]\\]/g, '\\$&').replace(/\{(?:id|turn|manifestId|adjustmentId|networkId|trialId|planId|recordId|populationId|runId)\}/g, '[^/]+')
   const regex = new RegExp(`^${pattern}$`)
   return {
     match: (path: string) => regex.test(path),
@@ -210,8 +211,19 @@ const QUALITY_ENDPOINTS = [
   { suffix: 'quality-records/{recordId}/verify', methods: ['POST'], schema: z.object({}).strict(), paginated: false }
 ].map(entry => ({ ...entry, endpoint: compileEndpoint(`/v1/engineering/projects/{id}/${entry.suffix}`, entry.methods, entry.paginated ? ['limit', 'offset'] : []) }))
 
+const SAMPLING_ENDPOINTS = [
+  { suffix: 'sampling-populations', methods: ['GET', 'POST'], schema: SurveySamplingPopulationCreateV1, paginated: true },
+  { suffix: 'sampling-populations/{populationId}', methods: ['GET'], paginated: false },
+  { suffix: 'sampling-populations/{populationId}/units', methods: ['GET'], paginated: true },
+  { suffix: 'sampling-runs', methods: ['GET', 'POST'], schema: SurveySamplingRunCreateV1, paginated: true },
+  { suffix: 'sampling-runs/{runId}', methods: ['GET'], paginated: false },
+  { suffix: 'sampling-runs/{runId}/samples', methods: ['GET'], paginated: true },
+  { suffix: 'sampling-runs/{runId}/verify', methods: ['POST'], schema: SurveySamplingVerifyRequestV1, paginated: false }
+].map(entry => ({ ...entry, endpoint: compileEndpoint(`/v1/engineering/projects/{id}/${entry.suffix}`, entry.methods, entry.paginated ? ['limit', 'offset'] : []) }))
+
 const ENDPOINTS: readonly EndpointTemplate[] = [
   ...QUALITY_ENDPOINTS.map(entry => entry.endpoint),
+  ...SAMPLING_ENDPOINTS.map(entry => entry.endpoint),
   compileEndpoint(RUNTIME_HEALTH_TEMPLATE, ['GET']),
   compileEndpoint(RUNTIME_INFO_TEMPLATE, ['GET']),
   compileEndpoint(RUNTIME_TOOLS_TEMPLATE, ['GET']),
@@ -338,6 +350,20 @@ export const runtimeRequestPayloadSchema = z
     try { url = new URL(payload.path, 'http://localhost') } catch {
       context.addIssue({ code: 'custom', message: 'invalid runtime request URL' })
       return
+    }
+    const sampling = SAMPLING_ENDPOINTS.find(entry => entry.endpoint.match(url.pathname))
+    if (sampling) {
+      const method = payload.method ?? 'GET'
+      let valid = method === 'GET' && payload.body === undefined
+      for (const [key, value] of url.searchParams) {
+        if (key === 'limit' && (!/^[1-9]\d*$/.test(value) || Number(value) > SURVEY_SAMPLING_WORKSPACE_LIMITS.pageSize)) valid = false
+        if (key === 'offset' && (!/^(0|[1-9]\d*)$/.test(value) || Number(value) > SURVEY_SAMPLING_WORKSPACE_LIMITS.unitsPerPopulation)) valid = false
+      }
+      if (method === 'POST' && !url.search && sampling.schema && payload.body !== undefined
+        && Buffer.byteLength(payload.body, 'utf8') <= SURVEY_SAMPLING_WORKSPACE_LIMITS.requestBytes) {
+        try { valid = sampling.schema.safeParse(JSON.parse(payload.body)).success } catch { valid = false }
+      }
+      if (!valid) context.addIssue({ code: 'custom', message: 'invalid sampling workspace request' })
     }
     const quality = QUALITY_ENDPOINTS.find(entry => entry.endpoint.match(url.pathname))
     if (quality) {
