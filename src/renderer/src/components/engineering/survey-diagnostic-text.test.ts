@@ -1,7 +1,30 @@
 import { describe, expect, it } from 'vitest'
 import { surveyDiagnosticText, surveyLegacyDiagnosticText, surveyRuntimeErrorText } from './survey-diagnostic-text'
+import { lexLeicaGsi } from '../../../../../kun/src/engineering/survey-leica-gsi-lexer'
 
 describe('Survey diagnostic presentation compatibility', () => {
+  it('renders actual rejected GSI records in English without changing their audit anchors', () => {
+    for (const source of ['', '中文', 'AA0001+00000001', '110001+1234', '110001+00000001;210001+00000002', '510001+1234']) {
+      const result = lexLeicaGsi(source)
+      expect(result.state).toBe('blocked')
+      const original = JSON.stringify(result)
+      for (const diagnostic of result.diagnostics) {
+        const wrapped = `Leica GSI 物理词法校验失败（${diagnostic.code}）：${diagnostic.message}`
+        expect(surveyLegacyDiagnosticText(wrapped, 'en')).not.toMatch(/\p{Script=Han}/u)
+        expect(surveyLegacyDiagnosticText(diagnostic.suggestedAction, 'en')).not.toMatch(/\p{Script=Han}/u)
+        expect(surveyLegacyDiagnosticText(wrapped, 'zh')).toBe(wrapped)
+      }
+      expect(JSON.stringify(result)).toBe(original)
+    }
+  })
+  it('preserves parser point names, record coordinates and numeric limits', () => {
+    expect(surveyLegacyDiagnosticText('COSA .in1 已知点 桥墩甲 重复。', 'en')).toBe('COSA .in1 known point 桥墩甲 is duplicated.')
+    expect(surveyLegacyDiagnosticText('COSA .in1 已知点 数据字段 重复。', 'en')).toBe('COSA .in1 known point 数据字段 is duplicated.')
+    expect(surveyLegacyDiagnosticText('平面观测 网络没有观测记录 的点 信息字符 缺少 X/Y 坐标', 'en')).toBe('Point 信息字符 in planar observation 网络没有观测记录 has no X/Y coordinates.')
+    expect(surveyLegacyDiagnosticText('COSA .in1 第 73 行必须是 from,to,height-difference(m),distance(km)，且 distance > 0。', 'en')).toBe('COSA .in1 line 73 must contain from,to,height-difference(m),distance(km), with distance > 0.')
+    expect(surveyRuntimeErrorText(JSON.stringify({ error: { code: 'survey_source_invalid', message: '测量源文件超过 8 MiB 上限' } }), 'en')).toBe('survey_source_invalid: The survey source exceeds the limit of 8 MiB.')
+    expect(surveyLegacyDiagnosticText('Leica GSI 第 17 行第 4 个 word 的WI51 第一组件含有不允许的字符 0x3a。', 'en')).toBe('Leica GSI line 17, word 4: WI51 first component contains the disallowed character 0x3a.')
+  })
   it('selects English explanations and recovery without mutating original evidence', () => {
     const diagnostic = Object.freeze({ message: '原始诊断记录', suggestedAction: '原始恢复操作', localized: { en: { message: 'Record 19 has duplicate WI83 fields.', suggestedAction: 'Re-export record 19 with one WI83 final-height field.' } } })
     expect(surveyDiagnosticText(diagnostic, 'en-US')).toBe('Record 19 has duplicate WI83 fields.')

@@ -1,6 +1,7 @@
 import surveyServiceEnglish from '../../locales/en/survey-service.json'
 import engineeringEnglish from '../../locales/en/engineering-diagnostics.json'
-const serviceEnglish = { ...surveyServiceEnglish, ...engineeringEnglish }
+import parserEnglish from '../../locales/en/survey-parser-diagnostics.json'
+const serviceEnglish = { ...surveyServiceEnglish, ...engineeringEnglish, ...parserEnglish }
 
 /** Presentation only: never change persisted audit messages or gate decisions. */
 export type SurveyDiagnosticText = {
@@ -22,17 +23,37 @@ const legacyActions: Record<string, string> = {
 }
 
 const serviceTemplates = Object.entries(serviceEnglish).filter(([source]) => /\{\d+\}/.test(source)).map(([source, english]) => ({
+  source,
   literals: source.split(/\{\d+\}/),
   parameters: [...source.matchAll(/\{(\d+)\}/g)].map(match => Number(match[1])),
   english
 }))
+
+// Only these parameters contain system-generated diagnostics or field labels.
+// All other parameters are opaque evidence (point IDs, file names, units, numbers).
+const nestedDiagnosticParameters: Record<string, readonly number[]> = {
+  '源文件处置为 {0}，不得进入平差：{1}': [1],
+  '观测 {0} 的单位 {1} 没有已确认的 {2}换算定义，不能进入平差。': [2],
+  '原始资料尚未验证：{0}': [0],
+  '原始资料完整性校验失败：{0}': [0],
+  '来源准入证据无效：{0}': [0],
+  '无法回放派生修正：原始资料不满足可平差门禁（{0}）': [0],
+  '历史校核 {0} 的原始资料不再满足可平差门禁：{1}': [1],
+  '历史平差 {0} 的原始资料不再满足可平差门禁：{1}': [1],
+  '变形成果 {0} 的实时平差证据读取失败：{1}': [1],
+  '平差网络 {0} 原始资料完整性校验失败：{1}': [1],
+  'Leica GSI 物理词法校验失败（{0}）：{1}': [1],
+  'Leica GSI 数值语义校验失败：{0}': [0],
+  'Leica GSI 第 {0} 行第 {1} 个 word 的{2}含有不允许的字符 {3}。': [2],
+  '同一 GSI 物理记录含重复的 {0}，不能覆盖前一个值': [0]
+}
 
 // Scan literal boundaries without a backtracking regex over untrusted IDs.
 // Ambiguous or unknown input remains verbatim rather than losing evidence.
 function translatedServiceTemplate(text: string, depth = 0): string | undefined {
   if (depth > 3 || text.length > 16384) return undefined
   if (Object.prototype.hasOwnProperty.call(legacyActions, text)) return legacyActions[text]
-  for (const { literals, parameters, english } of serviceTemplates) {
+  for (const { source, literals, parameters, english } of serviceTemplates) {
     if (!text.startsWith(literals[0]!)) continue
     let cursor = literals[0]!.length
     const values: Record<number, string> = {}
@@ -43,7 +64,10 @@ function translatedServiceTemplate(text: string, depth = 0): string | undefined 
       const end = last ? text.length - suffix.length : suffix ? text.indexOf(suffix, cursor) : cursor
       if (end < cursor || text.slice(end, end + suffix.length) !== suffix) { matched = false; break }
       const value = text.slice(cursor, end)
-      values[parameters[index]!] = translatedServiceTemplate(value, depth + 1) ?? value
+      const parameter = parameters[index]!
+      values[parameter] = nestedDiagnosticParameters[source]?.includes(parameter)
+        ? translatedServiceTemplate(value, depth + 1) ?? value
+        : value
       cursor = end + suffix.length
     }
     if (matched && cursor === text.length) return english.replace(/\{(\d+)\}/g, (_, id: string) => values[Number(id)] ?? '')
