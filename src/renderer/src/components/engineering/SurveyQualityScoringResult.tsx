@@ -1,6 +1,8 @@
 import type { ReactElement } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { QualityExactValue, QualityRuleResultV1, SurveyQualityScoringOutputV1 } from '@shared/survey-quality-scoring'
+import { SurveyStandardBasis } from './SurveyStandardBasis'
+import { scoringStandardBasisContext } from '../../agent/survey-standard-basis-client'
 
 // Never round or coerce exact fractions to Number when displaying a decision.
 const exact = (value: QualityExactValue | null): string => value ? `${value.numerator}/${value.denominator}` : '—'
@@ -31,5 +33,6 @@ export function QualityScoringResult({ result }: { result: SurveyQualityScoringO
         </table>
       </div>
     </details>
+    <SurveyStandardBasis context={scoringStandardBasisContext(result)} />
   </section>
 }

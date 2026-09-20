@@ -3,6 +3,7 @@ import { SurveyQualityScoringCreateV1, SurveyQualityScoringReverifyRequestV1, SU
 import { SurveySamplingPopulationCreateV1, SurveySamplingRunCreateV1, SurveySamplingVerifyRequestV1, SURVEY_SAMPLING_WORKSPACE_LIMITS } from '../../shared/survey-quality-sampling-workspace'
 import { SurveyAdvancedTrialCreateV1, SurveyAdvancedTrialReverifyRequestV1, SURVEY_ADVANCED_TRIAL_LIMITS, SurveyGeneralizedWRequestV1, SurveyVceTrialInputV1, SurveyHuberTrialInputV1, SurveyStatisticalFamilyInputV1, SurveyReferenceDatumInputV1, SurveyStaticIncrementalInputV1, parseAdvancedTrialJson } from '../../shared/survey-advanced-trials'
 import { z } from 'zod'
+import { RUNTIME_STANDARD_BASIS_PATH, STANDARD_BASIS_QUERY_KEYS, SurveyStandardBasisReferenceV1 } from '../../shared/survey-standard-basis'
 import { SurveyFreeLevelingTrialRequestV1 } from '../../shared/survey-free-leveling'
 import { SurveyQualityPlanCreateV1, SurveyQualityEvidenceCreateV1, SurveyQualityRecordCreateV1, SurveyQualityCheckAppendV1 } from '../../shared/survey-quality-workspace'
 import {
@@ -225,6 +226,8 @@ const SAMPLING_ENDPOINTS = [
 ].map(entry => ({ ...entry, endpoint: compileEndpoint(`/v1/engineering/projects/{id}/${entry.suffix}`, entry.methods, entry.paginated ? ['limit', 'offset'] : []) }))
 
 const ENDPOINTS: readonly EndpointTemplate[] = [
+  compileEndpoint(RUNTIME_STANDARD_BASIS_PATH, ['GET'], []),
+  compileEndpoint(`${RUNTIME_STANDARD_BASIS_PATH}/{id}/{recordId}`, ['GET'], STANDARD_BASIS_QUERY_KEYS),
   compileEndpoint('/v1/engineering/projects/{id}/quality-assessment-plans', ['GET', 'POST'], ['limit', 'offset']),
   compileEndpoint('/v1/engineering/projects/{id}/quality-assessment-plans/{recordId}', ['GET'], []),
   compileEndpoint('/v1/engineering/projects/{id}/quality-assessments', ['GET', 'POST'], ['limit', 'offset']),
@@ -367,6 +370,17 @@ export const runtimeRequestPayloadSchema = z
     try { url = new URL(payload.path, 'http://localhost') } catch {
       context.addIssue({ code: 'custom', message: 'invalid runtime request URL' })
       return
+    }
+    if (url.pathname === RUNTIME_STANDARD_BASIS_PATH || url.pathname.startsWith(`${RUNTIME_STANDARD_BASIS_PATH}/`)) {
+      let valid = (payload.method ?? 'GET') === 'GET' && payload.body === undefined && !url.hash
+      if (url.pathname === RUNTIME_STANDARD_BASIS_PATH) valid = valid && !url.search
+      else {
+        const parts = url.pathname.slice(RUNTIME_STANDARD_BASIS_PATH.length + 1).split('/')
+        const query = Object.fromEntries(url.searchParams)
+        valid = valid && parts.length === 2 && [...url.searchParams].length === STANDARD_BASIS_QUERY_KEYS.length
+          && SurveyStandardBasisReferenceV1.safeParse({ ...query, ruleId: parts[0], ruleVersion: parts[1] }).success
+      }
+      if (!valid) context.addIssue({ code: 'custom', message: 'invalid read-only standard basis request' })
     }
     const assessment = /^\/v1\/engineering\/projects\/[^/]+\/(quality-assessment-plans|quality-assessments)(?:\/([^/]+)(?:\/(reverify|export))?)?$/.exec(url.pathname)
     if (assessment) {

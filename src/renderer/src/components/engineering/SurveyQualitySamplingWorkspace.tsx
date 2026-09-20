@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState, type ReactElement } from 'react'
 import { useTranslation } from 'react-i18next'
+import { SurveyStandardBasis } from './SurveyStandardBasis'
+import { samplingStandardBasisContext } from '../../agent/survey-standard-basis-client'
 import {
   SamplingRequestError, validateSamplingInput, freezeSamplingPopulation, listSamplingPopulations,
   readSamplingPopulation, listSamplingRuns, readSamplingRun, drawSamplingRun, readSamplingUnits,
@@ -121,6 +123,7 @@ export function SurveyQualitySamplingWorkspace({ binding, runtimeReady }: { bind
         <p className="leading-5 text-ds-muted">{t(run.randomSource === 'not-applicable' ? 'samplingSourceCensus' : 'samplingSourceRuntime')}</p>
         <div className="space-y-2" aria-label={t('samplingBatches')}><h6 className="font-medium">{t('samplingBatches')}</h6><ol className="space-y-2">{run.batches.map(batch => <li key={batch.batchIndex} className="border border-ds-border-muted p-2"><p>{t('samplingBatch', { index: batch.batchIndex + 1, total: batch.batchSize, selected: batch.sampleSize })}</p><p className="mt-1 leading-5 text-ds-muted">{t(run.inspectionMode === 'census' ? 'samplingBatchCensusMode' : batch.census ? 'samplingBatchCensusSmall' : 'samplingBatchRandom', { count: batch.nominalTableSampleSize })}</p></li>)}</ol></div>
         <p className="leading-5 text-ds-muted">{t('samplingSourceTable')}</p>
+        <SurveyStandardBasis context={samplingStandardBasisContext(run)} runtimeReady={runtimeReady} />
         <p role="status" className="leading-5">{t('samplingVerified')}</p>
         <div className="flex flex-wrap gap-2"><button type="button" className={buttonClass} disabled={!ready} onClick={() => loadSamples(run)}>{t('samplingViewSamples')}</button><button type="button" className={buttonClass} disabled={!ready} onClick={() => void execute(async stillCurrent => ({ population, run: await verifySamplingRun(binding, run, stillCurrent) }))}>{t('samplingReverify')}</button></div>
       </div> : null}
