@@ -11,6 +11,18 @@ on:
         description: Type DEPLOY-WORKWISE-PRODUCT-PAGE-vX.Y.Z
         required: true
         type: string
+      mode:
+        description: Full published-version page or introduction and candidate screenshots only
+        required: true
+        default: full
+        type: choice
+        options:
+          - full
+          - content-only
+      source_sha:
+        description: Exact 40-hex source commit (required for content-only; empty uses main for full)
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -31,10 +43,29 @@ jobs:
       WORKWISE_WEBSITE_SSH_KNOWN_HOSTS: ${{ secrets.WORKWISE_WEBSITE_SSH_KNOWN_HOSTS }}
       WORKWISE_WEBSITE_RELEASE_ROOT: ${{ secrets.WORKWISE_WEBSITE_RELEASE_ROOT }}
     steps:
-      - name: Check out main
+      - name: Validate requested source
+        env:
+          SOURCE_SHA: ${{ inputs.source_sha }}
+          DEPLOY_MODE: ${{ inputs.mode || 'full' }}
+        run: |
+          set -euo pipefail
+          [[ "${DEPLOY_MODE}" == full || "${DEPLOY_MODE}" == content-only ]]
+          if [[ -n "${SOURCE_SHA}" ]]; then [[ "${SOURCE_SHA}" =~ ^[a-f0-9]{40}$ ]]; fi
+          if [[ "${DEPLOY_MODE}" == content-only ]]; then [[ "${SOURCE_SHA}" =~ ^[a-f0-9]{40}$ ]]; fi
+
+      - name: Check out exact source or main
         uses: actions/checkout@v4
         with:
-          ref: main
+          ref: ${{ inputs.source_sha || 'main' }}
+
+      - name: Confirm source identity
+        env:
+          SOURCE_SHA: ${{ inputs.source_sha }}
+        run: |
+          set -euo pipefail
+          actual="$(git rev-parse HEAD)"
+          if [[ -n "${SOURCE_SHA}" ]]; then [[ "${actual}" == "${SOURCE_SHA}" ]]; fi
+          echo "WORKWISE_PRODUCT_SOURCE_SHA=${actual}" >> "${GITHUB_ENV}"
 
       - name: Set up Node.js
         uses: actions/setup-node@v7
@@ -46,6 +77,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           REQUESTED_VERSION: ${{ inputs.version }}
           CONFIRMATION: ${{ inputs.confirmation }}
+          DEPLOY_MODE: ${{ inputs.mode || 'full' }}
         run: |
           set -euo pipefail
           [[ "${REQUESTED_VERSION}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
@@ -56,6 +88,14 @@ jobs:
           release_state="$(gh release view "v${REQUESTED_VERSION}" --json isDraft,isPrerelease --jq '[.isDraft, .isPrerelease] | @tsv')"
           [[ "${release_state}" == $'false\tfalse' ]]
           node scripts/deploy-workwise-product-page.mjs validate --source website --version "${REQUESTED_VERSION}"
+          if [[ "${DEPLOY_MODE}" == content-only ]]; then
+            node scripts/deploy-workwise-product-page.mjs validate --source website --version "${REQUESTED_VERSION}" --mode content-only --source-sha "${WORKWISE_PRODUCT_SOURCE_SHA}"
+          fi
+      - name: Test content transaction and PHP guards
+        if: ${{ inputs.mode == 'content-only' }}
+        env:
+          WORKWISE_CONTENT_PHP_TEST: php
+        run: node --test scripts/workwise-content-deploy.test.mjs
       - name: Verify official Stable version
         env:
           REQUESTED_VERSION: ${{ inputs.version }}
@@ -89,16 +129,19 @@ jobs:
         id: deploy
         env:
           REQUESTED_VERSION: ${{ inputs.version }}
-        run: node scripts/deploy-workwise-product-page.mjs deploy --source website --version "${REQUESTED_VERSION}" --deploy-id "${WORKWISE_PRODUCT_PAGE_DEPLOY_ID}"
+          DEPLOY_MODE: ${{ inputs.mode || 'full' }}
+        run: node scripts/deploy-workwise-product-page.mjs deploy --source website --version "${REQUESTED_VERSION}" --deploy-id "${WORKWISE_PRODUCT_PAGE_DEPLOY_ID}" --mode "${DEPLOY_MODE}" --source-sha "${WORKWISE_PRODUCT_SOURCE_SHA}"
 
       - name: Verify public page and immutable downloads
         env:
           REQUESTED_VERSION: ${{ inputs.version }}
-        run: node scripts/deploy-workwise-product-page.mjs verify-public --source website --version "${REQUESTED_VERSION}"
+          DEPLOY_MODE: ${{ inputs.mode || 'full' }}
+        run: node scripts/deploy-workwise-product-page.mjs verify-public --source website --version "${REQUESTED_VERSION}" --deploy-id "${WORKWISE_PRODUCT_PAGE_DEPLOY_ID}" --mode "${DEPLOY_MODE}" --source-sha "${WORKWISE_PRODUCT_SOURCE_SHA}"
 
       - name: Roll back website after failed public verification
         if: ${{ failure() && steps.deploy.outcome == 'success' }}
         env:
           REQUESTED_VERSION: ${{ inputs.version }}
+          DEPLOY_MODE: ${{ inputs.mode || 'full' }}
         run: |
-          node scripts/deploy-workwise-product-page.mjs rollback --source website --version "${REQUESTED_VERSION}" --deploy-id "${WORKWISE_PRODUCT_PAGE_DEPLOY_ID}"
+          node scripts/deploy-workwise-product-page.mjs rollback --source website --version "${REQUESTED_VERSION}" --deploy-id "${WORKWISE_PRODUCT_PAGE_DEPLOY_ID}" --mode "${DEPLOY_MODE}" --source-sha "${WORKWISE_PRODUCT_SOURCE_SHA}"

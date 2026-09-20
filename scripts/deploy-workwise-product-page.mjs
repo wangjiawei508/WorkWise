@@ -3,6 +3,7 @@
 import { execFileSync } from 'node:child_process'
 import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { basename, resolve } from 'node:path'
+import { runContentCommand } from './workwise-content-deploy.mjs'
 
 const SAFE_TOKEN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/
 const RELEASE_ROOT_SUFFIX = '/downloads/workwise'
@@ -432,8 +433,18 @@ async function verifyPublic(sourceDirectory, version) {
 const { command, flags } = parseArgs(process.argv.slice(2))
 const source = requireFlag(flags, 'source')
 const version = normalizeVersion(requireFlag(flags, 'version'))
+const mode = flags.get('mode') || 'full'
+if (!['full', 'content-only'].includes(mode)) throw new Error(`Invalid mode: ${mode}`)
 
-if (command === 'validate') {
+if (mode === 'content-only') {
+  validateSource(source, version)
+  await runContentCommand({
+    command, source, sourceSha: requireFlag(flags, 'source-sha'),
+    deployId: flags.get('deploy-id'),
+    config: command === 'validate' ? undefined : readSshConfig(),
+    transport: { runRemote, copyToStage }
+  })
+} else if (command === 'validate') {
   validateSource(source, version)
   console.log(`Validated WorkWise website source for ${version}.`)
 } else if (command === 'deploy') {
