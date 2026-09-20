@@ -107,7 +107,7 @@
   "samplingSourceTable": "Basis: GB/T 24356–2023 Table 1. Source transcription was checked by an agent, without professional sign-off. Software uses the minimum batch count, balanced contiguous input order and extra units assigned to earlier batches.",
   "samplingWorkspaceOpen": "Unit product populations and first-round sampling",
   "samplingWorkspaceBoundary": "Local population freezing, first-round selection and replay checks do not establish quality approval or standards conformity. Population completeness is caller-declared, without an external witness; creating new populations can still be used to select favorable samples.",
-  "samplingWorkspaceExcluded": "Sample material collection, quality scoring, stage completion, signatures and export are not implemented here. Selected unit products still require their complete and supplementary materials.",
+  "samplingWorkspaceExcluded": "This workspace only freezes populations, selects first-round samples and checks replay; it does not export sampling records. Declared quality scoring calculates scores, while Declared inspection linkage assessment links retained materials and unit scores within its stated limits. Sample material completeness and actual inspections still require verification. Stage completion and professional sign-off are not implemented.",
   "samplingWorkspaceBinding": "Project {{id}} · Revision {{revision}}",
   "samplingProductType": "Product type",
   "samplingUnitProductType": "Unit product type",

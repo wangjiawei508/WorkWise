@@ -107,7 +107,7 @@
   "samplingSourceTable": "依据：GB/T 24356—2023 表 1；源文转录经智能体核对，非专业签认。分批采用最少批数、按输入顺序均衡连续划分，前批优先分配余数；这是软件约定。",
   "samplingWorkspaceOpen": "单位成果总体与首轮抽样",
   "samplingWorkspaceBoundary": "本地总体冻结、首轮抽样和重放核验，不代表质量批准或规范合格。总体完整性由你声明，尚无外部见证；新建总体仍可能被用于反复挑样。",
-  "samplingWorkspaceExcluded": "本增量尚未实施样本材料归集、质量评分、阶段完成判定、签名或导出。抽中的单位成果仍需完整材料及补充材料。",
+  "samplingWorkspaceExcluded": "本工作区仅冻结总体、执行首轮抽样与重放核验，不提供抽样记录导出。声明评分在“质量评分试算”中计算；已有保全材料与单位评分在“声明检查关联评估”中按限定范围关联。样本材料完整性和真实检查仍需核实，阶段完成判定与专业签认尚未实施。",
   "samplingWorkspaceBinding": "项目 {{id}} · 修订 {{revision}}",
   "samplingProductType": "产品类型",
   "samplingUnitProductType": "单位成果类型",
