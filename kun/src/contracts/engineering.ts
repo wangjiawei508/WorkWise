@@ -3,6 +3,8 @@ import { AdjustmentResultV1, DeformationComparisonV1, SurveySourceFileV1 } from 
 
 export const ENGINEERING_SCHEMA_VERSION = 1 as const
 export const ENGINEERING_MAX_OBSERVATIONS = 500_000
+export const ENGINEERING_TREND_RENDERER_VERSION = 'engineering-trend-2' as const
+export const ENGINEERING_ANALYSIS_ALGORITHM_VERSION = 'workwise-engineering-2' as const
 
 export const EngineeringTaskTypeV1 = z.enum(['control-network', 'leveling-network', 'traverse-network', 'resection', 'deformation', 'gnss'])
 export type EngineeringTaskTypeV1 = z.infer<typeof EngineeringTaskTypeV1>
@@ -104,6 +106,8 @@ export type MonitoringAnalysisV1 = z.infer<typeof MonitoringAnalysisV1>
 
 export const ChartArtifactV1 = z.object({
   schemaVersion: z.literal(ENGINEERING_SCHEMA_VERSION), id: z.string().min(1), analysisId: z.string().min(1), chartType: z.string().min(1),
+  /** Missing on legacy artifacts; their historical bytes remain readable. */
+  rendererVersion: z.string().min(1).optional(),
   inputHash: z.string().min(1), dataRange: z.object({ min: z.number().finite(), max: z.number().finite() }).strict().optional(),
   relativePath: z.string().min(1), sha256: z.string().min(1), validation: z.enum(['pending', 'valid', 'invalid']), createdAt: z.string()
 }).strict()

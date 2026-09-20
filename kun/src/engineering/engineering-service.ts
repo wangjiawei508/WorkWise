@@ -8,9 +8,10 @@ import { atomicWriteFile, drainAtomicWrites } from '../adapters/file/atomic-writ
 import type { AttachmentStore } from '../attachments/attachment-store.js'
 import type { SurveySourceEligibility } from './survey-service.js'
 import { makeReportPdf } from './engineering-report-pdf.js'
+import { monitoringTrendInstant, renderMonitoringTrendChart } from './engineering-trend-chart.js'
 import { EngineeringVerificationAudit, EngineeringVerificationAuditError } from './engineering-verification-audit.js'
 import {
-  AnalysisRequest, ChartArtifactV1, ChartRequest, DatasetImportRequest, DatasetValidateRequest,
+  AnalysisRequest, ChartArtifactV1, ChartRequest, DatasetImportRequest, DatasetValidateRequest, ENGINEERING_TREND_RENDERER_VERSION, ENGINEERING_ANALYSIS_ALGORITHM_VERSION,
   DeliverableManifestV1, DeliverableVerificationV1, EngineeringProjectCreateRequest, EngineeringProjectUpdateRequest, AcceptQualityFindingRequest, FieldMappingV1, FinalizeDeliverableRequest,
   KnowledgeCitationV1, MonitoringAnalysisV1, MonitoringDatasetV1, MonitoringObservationV1,
   QualityFindingV1, RailwiseProjectV1, inferEngineeringTaskType, ReportPreviewRequest, RunMutationRequest, SurveySourceEvidenceV1
@@ -390,26 +391,32 @@ export class EngineeringService {
       }
       return durable
     }
-    const existing = this.db.prepare('SELECT data_json FROM engineering_analyses WHERE dataset_id = ? AND project_id = ? AND json_extract(data_json, \'$.inputHash\') = ? ORDER BY created_at DESC LIMIT 1').get(dataset.id, project.id, inputHash) as { data_json: string } | undefined
-    if (existing) return MonitoringAnalysisV1.parse(JSON.parse(existing.data_json))
+    const existing = this.db.prepare('SELECT data_json FROM engineering_analyses WHERE dataset_id = ? AND project_id = ? AND json_extract(data_json, \'$.inputHash\') = ? AND json_extract(data_json, \'$.algorithmVersion\') = ? ORDER BY created_at DESC LIMIT 1').get(dataset.id, project.id, inputHash, ENGINEERING_ANALYSIS_ALGORITHM_VERSION) as { data_json: string } | undefined
+    if (existing) {
+      const cached = MonitoringAnalysisV1.parse(JSON.parse(existing.data_json))
+      this.remember(req.idempotencyKey, cached)
+      return cached
+    }
+    const instants = new Map(dataset.observations.map(observation => [observation.id, monitoringTrendInstant(observation.timestamp).instant]))
     const grouped = new Map<string, MonitoringObservationV1[]>()
-    for (const observation of dataset.observations) { const key = `${observation.monitoringItem}|${observation.point}`; const list = grouped.get(key) ?? []; list.push(observation); grouped.set(key, list) }
+    for (const observation of dataset.observations) { const key = JSON.stringify([observation.monitoringItem, observation.point]); const list = grouped.get(key) ?? []; list.push(observation); grouped.set(key, list) }
     const results = [...grouped.values()].map((items) => {
-      items.sort((a, b) => a.timestamp.localeCompare(b.timestamp)); const current = items.at(-1); const previous = items.at(-2); const first = items[0]
-      const change = current && first && current !== first ? (current.cumulative ?? current.value) - (first.cumulative ?? first.value) : undefined; const intervalDays = current && previous ? (Date.parse(current.timestamp) - Date.parse(previous.timestamp)) / 86_400_000 : undefined; const rate = current && previous && Number.isFinite(intervalDays) && intervalDays! > 0 ? (current.value - previous.value) / intervalDays! : undefined
+      items.sort((a, b) => instants.get(a.id)! - instants.get(b.id)! || a.id.localeCompare(b.id)); const current = items.at(-1); const previous = items.at(-2); const first = items[0]
+      const change = current && first && current !== first ? (current.cumulative ?? current.value) - (first.cumulative ?? first.value) : undefined; const intervalDays = current && previous ? (instants.get(current.id)! - instants.get(previous.id)!) / 86_400_000 : undefined; const rate = current && previous && Number.isFinite(intervalDays) && intervalDays! > 0 ? (current.value - previous.value) / intervalDays! : undefined
       const trend = change === undefined ? 'unknown' : Math.abs(change) < 1e-9 ? 'stable' : change > 0 ? 'rising' : 'falling'
       const threshold = project.thresholds[current?.monitoringItem ?? ''] ?? project.thresholds.default
       const magnitude = Math.abs(current?.value ?? 0)
       const thresholdStatus = threshold === undefined ? 'unresolved' : magnitude >= threshold ? 'alarm' : magnitude >= threshold * 0.8 ? 'warning' : 'normal'
       return { monitoringItem: current?.monitoringItem ?? items[0].monitoringItem, point: current?.point ?? items[0].point, currentValue: current?.value, previousValue: previous?.value, cumulativeChange: change, changeRate: rate, trend, anomaly: Math.abs(change ?? 0) > (threshold ?? Number.POSITIVE_INFINITY), thresholdStatus }
     })
-    const analysis = MonitoringAnalysisV1.parse({ schemaVersion: 1, id: `analysis_${randomUUID()}`, projectId: project.id, datasetId: dataset.id, inputHash, algorithmVersion: 'workwise-engineering-1', results, createdAt: this.nowIso() })
+    const analysis = MonitoringAnalysisV1.parse({ schemaVersion: 1, id: `analysis_${randomUUID()}`, projectId: project.id, datasetId: dataset.id, inputHash, algorithmVersion: ENGINEERING_ANALYSIS_ALGORITHM_VERSION, results, createdAt: this.nowIso() })
     this.db.prepare('INSERT INTO engineering_analyses(id, project_id, dataset_id, data_json, created_at) VALUES (?, ?, ?, ?, ?)').run(analysis.id, project.id, dataset.id, JSON.stringify(analysis), analysis.createdAt)
     this.remember(req.idempotencyKey, analysis); return analysis
   }
 
   async createChart(input: unknown): Promise<ChartArtifactV1> {
     const req = ChartRequest.parse(input); const analysis = this.getAnalysis(req.analysisId); if (!analysis) throw new Error('analysis not found')
+    if (req.chartType !== 'trend') throw new Error('unsupported monitoring chart type; only trend is implemented')
     return this.withIdempotencyLock(req.idempotencyKey, async () => {
       const project = this.mustProject(analysis.projectId)
       const dataset = this.mustDataset(analysis.datasetId)
@@ -417,7 +424,7 @@ export class EngineeringService {
       const replay = this.replay(req.idempotencyKey)
       if (replay) {
         const replayed = ChartArtifactV1.parse(replay)
-        if (replayed.analysisId !== analysis.id || replayed.inputHash !== analysis.inputHash) {
+        if (replayed.analysisId !== analysis.id || replayed.inputHash !== analysis.inputHash || replayed.chartType !== req.chartType) {
           throw new EngineeringIdempotencyError(replayed, 'chart idempotency key is bound to stale or different analysis input')
         }
         const durable = this.getChart(replayed.id)
@@ -426,11 +433,10 @@ export class EngineeringService {
         }
         return durable
       }
+      const { svg, dataRange } = renderMonitoringTrendChart(dataset.observations, project)
       const runId = `chart_${randomUUID()}`; const outDir = this.outputDir(project, runId); await mkdir(outDir, { recursive: true })
-      const values = analysis.results.map((r) => r.currentValue).filter((v): v is number => typeof v === 'number'); const min = Math.min(...values, 0); const max = Math.max(...values, 0)
-      const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="960" height="360"><rect width="100%" height="100%" fill="#fff"/><polyline fill="none" stroke="#2878d0" stroke-width="3" points="${values.map((v, i) => `${40 + i * (880 / Math.max(1, values.length - 1))},${320 - ((v - min) / Math.max(1e-9, max - min)) * 280}`).join(' ')}"/></svg>`
       const path = join(outDir, `${req.chartType}.svg`); await atomicWriteFile(path, svg); const sha256 = createHash('sha256').update(svg).digest('hex')
-      const chart = ChartArtifactV1.parse({ schemaVersion: 1, id: runId, analysisId: analysis.id, chartType: req.chartType, inputHash: analysis.inputHash, dataRange: { min, max }, relativePath: relative(project.workspace, path), sha256, validation: 'valid', createdAt: this.nowIso() })
+      const chart = ChartArtifactV1.parse({ schemaVersion: 1, id: runId, analysisId: analysis.id, chartType: req.chartType, rendererVersion: ENGINEERING_TREND_RENDERER_VERSION, inputHash: analysis.inputHash, dataRange, relativePath: relative(project.workspace, path), sha256, validation: 'valid', createdAt: this.nowIso() })
       this.db.prepare('INSERT INTO engineering_charts(id, analysis_id, data_json, created_at) VALUES (?, ?, ?, ?)').run(chart.id, chart.analysisId, JSON.stringify(chart), chart.createdAt); this.remember(req.idempotencyKey, chart); return chart
     })
   }
@@ -441,7 +447,18 @@ export class EngineeringService {
       const project = this.mustProject(req.projectId)
       const dataset = req.datasetId ? this.mustDataset(req.datasetId) : undefined
       this.assertDeliveryRevision(project, dataset, req.expectedRevision)
-      const analysis = dataset ? (req.analysisId ? this.getAnalysis(req.analysisId) ?? undefined : this.createAnalysis({ expectedRevision: dataset.revision, idempotencyKey: `preview-analysis-${dataset.id}-${analysisInputHash(project, dataset)}`, projectId: project.id, datasetId: dataset.id })) : undefined
+      const replay = this.replayDelivery<{
+        run: StoredRun
+        files: Array<{ path: string; mediaType: string; sha256: string; sizeBytes: number }>
+        charts: ChartArtifactV1[]
+        citations: KnowledgeCitationV1[]
+        adjustments?: AdjustmentResultV1[]
+        deformations?: DeformationComparisonV1[]
+        surveySources?: SurveySourceEvidenceV1[]
+      }>('report-preview', req)
+      // A bound replay keeps its original analysis; a new automatic request uses the current algorithm.
+      const analysisId = req.analysisId ?? replay?.run.analysisId
+      const analysis = dataset ? (analysisId ? this.getAnalysis(analysisId) ?? undefined : this.createAnalysis({ expectedRevision: dataset.revision, idempotencyKey: `preview-analysis-${ENGINEERING_ANALYSIS_ALGORITHM_VERSION}-${dataset.id}-${analysisInputHash(project, dataset)}`, projectId: project.id, datasetId: dataset.id })) : undefined
       if (dataset) {
         if (!analysis) throw new Error('analysis not found')
         this.assertAnalysisCurrent(project, dataset, analysis)
@@ -452,17 +469,8 @@ export class EngineeringService {
       this.assertDeformationEpochEvidence(project.id, deformations)
       // A preview is a newly generated computational artifact, not merely a
       // read of its historical inputs. Check current source admission before
-      // looking up an idempotent result or allocating an output directory.
+      // returning an idempotent result or allocating an output directory.
       this.assertSurveySourcesAdmissible(project.id, adjustments, deformations)
-      const replay = this.replayDelivery<{
-        run: StoredRun
-        files: Array<{ path: string; mediaType: string; sha256: string; sizeBytes: number }>
-        charts: ChartArtifactV1[]
-        citations: KnowledgeCitationV1[]
-        adjustments?: AdjustmentResultV1[]
-        deformations?: DeformationComparisonV1[]
-        surveySources?: SurveySourceEvidenceV1[]
-      }>('report-preview', req)
       if (replay) {
         if (replay.run.projectId !== project.id || replay.run.datasetId !== dataset?.id || replay.run.analysisId !== analysis?.id) {
           throw new EngineeringIdempotencyError(replay, 'stored preview does not match its bound delivery request')
@@ -505,7 +513,9 @@ export class EngineeringService {
       await mkdir(stagingDir, { recursive: true })
       let published = false
       try {
-        const chart = analysis ? this.latestChart(analysis.id) ?? await this.createChart({ expectedRevision: 0, idempotencyKey: `preview-chart-${analysis.id}`, analysisId: analysis.id, chartType: 'trend' }) : undefined
+        const previousChart = analysis ? this.latestChart(analysis.id) : undefined
+        const chart = analysis ? (previousChart?.rendererVersion === ENGINEERING_TREND_RENDERER_VERSION && previousChart.chartType === 'trend'
+          ? previousChart : await this.createChart({ expectedRevision: 0, idempotencyKey: `preview-chart-${ENGINEERING_TREND_RENDERER_VERSION}-${analysis.id}`, analysisId: analysis.id, chartType: 'trend' })) : undefined
         const outputs: Array<{ path: string; mediaType: string; sha256: string; sizeBytes: number }> = []
         const stageOutput = async (name: string, mediaType: string, contents: string | Uint8Array): Promise<void> => {
           const stagedPath = join(stagingDir, name)
@@ -1290,15 +1300,23 @@ function parseMonitoringNumber(raw: string | undefined): number | undefined {
   return Number.isFinite(value) ? value : undefined
 }
 function normalizeRows(rows: Row[], mapping: FieldMappingV1, project: RailwiseProjectV1, sourceHash: string): { observations: MonitoringObservationV1[]; findings: QualityFindingV1[]; unknownColumns: string[]; columnCount: number; timeRange: { start?: string; end?: string } } {
-  const known = new Set(Object.values(mapping).filter(Boolean)); const columns = [...new Set(rows.flatMap((row) => Object.keys(row)))]; const unknownColumns = columns.filter((key) => !known.has(key) && !key.startsWith('__')); const observations: MonitoringObservationV1[] = []; const findings: QualityFindingV1[] = []; let start: string | undefined; let end: string | undefined; const seen = new Set<string>();
+  const known = new Set(Object.values(mapping).filter(Boolean)); const columns = [...new Set(rows.flatMap((row) => Object.keys(row)))]; const unknownColumns = columns.filter((key) => !known.has(key) && !key.startsWith('__')); const observations: MonitoringObservationV1[] = []; const findings: QualityFindingV1[] = []; let start: string | undefined; let end: string | undefined; let firstInstant = Infinity; let lastInstant = -Infinity; const seen = new Set<string>();
   for (let i = 0; i < rows.length; i += 1) {
     const row = rows[i]; const point = mapping.point ? row[mapping.point] : ''; const item = mapping.monitoringItem ? row[mapping.monitoringItem] : project.monitoringType; const timestamp = mapping.timestamp ? row[mapping.timestamp] : ''; const rawValue = mapping.value ? row[mapping.value] : ''; const value = parseMonitoringNumber(rawValue);
     if (!point || !timestamp) findings.push(finding(`missing-${i}`, 'missing_identifier', 'blocking', i + 2, '缺少测点或时间', '补齐测点编号和时间'));
     if (!rawValue?.trim()) findings.push(finding(`missing-value-${i}`, 'missing_value', 'blocking', i + 2, '缺少观测数值', '补齐数值字段'));
     else if (value === undefined) findings.push(finding(`number-${i}`, 'invalid_number', 'blocking', i + 2, '数值无效', '修正数值字段'));
-    if (timestamp && Number.isNaN(Date.parse(timestamp))) findings.push(finding(`time-invalid-${i}`, 'time_order', 'blocking', i + 2, '时间格式无效', '使用 ISO 8601 或可识别日期'));
-    const key = `${item}|${point}|${timestamp}`; if (seen.has(key)) findings.push(finding(`duplicate-${i}`, 'duplicate_observation', 'warning', i + 2, '存在重复观测', '确认是否保留其中一条')); seen.add(key);
-    if (value !== undefined && point && timestamp) { const obs = MonitoringObservationV1.parse({ schemaVersion: 1, id: `obs_${sourceHash.slice(0, 12)}_${i}`, projectId: project.id, datasetId: 'pending', monitoringItem: item || project.monitoringType, point, timestamp, value, unit: mapping.unit ? row[mapping.unit] : project.unit, cumulative: mapping.cumulative ? parseMonitoringNumber(row[mapping.cumulative]) : undefined, rate: mapping.rate ? parseMonitoringNumber(row[mapping.rate]) : undefined, sourceRow: i + 2, sourceFields: row }); observations.push(obs); start = !start || timestamp < start ? timestamp : start; end = !end || timestamp > end ? timestamp : end }
+    let instant: number | undefined
+    if (timestamp) {
+      try { instant = monitoringTrendInstant(timestamp).instant }
+      catch { findings.push(finding(`time-invalid-${i}`, 'time_order', 'blocking', i + 2, '时间格式无效', '使用 ISO 8601 日期或时间；未标时区按 UTC')) }
+    }
+    const key = JSON.stringify([item, point, instant ?? timestamp]); if (seen.has(key)) findings.push(finding(`duplicate-${i}`, 'duplicate_observation', 'warning', i + 2, '存在重复观测', '确认是否保留其中一条')); seen.add(key);
+    if (value !== undefined && point && timestamp) {
+      const obs = MonitoringObservationV1.parse({ schemaVersion: 1, id: `obs_${sourceHash.slice(0, 12)}_${i}`, projectId: project.id, datasetId: 'pending', monitoringItem: item || project.monitoringType, point, timestamp, value, unit: mapping.unit ? row[mapping.unit] : project.unit, cumulative: mapping.cumulative ? parseMonitoringNumber(row[mapping.cumulative]) : undefined, rate: mapping.rate ? parseMonitoringNumber(row[mapping.rate]) : undefined, sourceRow: i + 2, sourceFields: row }); observations.push(obs)
+      if (instant !== undefined && instant < firstInstant) { start = timestamp; firstInstant = instant }
+      if (instant !== undefined && instant > lastInstant) { end = timestamp; lastInstant = instant }
+    }
   }
   if (rows.length > 500_000) findings.push(finding('row-limit', 'row_limit', 'blocking', 1, '观测记录超过 500,000 条运行上限', '拆分文件或缩小运行范围'))
   if (Object.keys(project.thresholds).length === 0) findings.push(finding('threshold-missing', 'missing_threshold', 'warning', 1, '项目未配置阈值', '在项目设置中补充阈值'))
@@ -1318,16 +1336,25 @@ function finding(id: string, code: QualityFindingV1['code'], severity: QualityFi
 function runQualityChecks(observations: MonitoringObservationV1[], project: RailwiseProjectV1, nowIso: () => string): QualityFindingV1[] {
   const findings: QualityFindingV1[] = []
   const byPoint = new Map<string, MonitoringObservationV1[]>()
+  const instants = new Map<string, number>(), seen = new Set<string>()
   for (const obs of observations) {
-    const key = `${obs.monitoringItem}|${obs.point}`
+    const key = JSON.stringify([obs.monitoringItem, obs.point])
     const list = byPoint.get(key) ?? []
     list.push(obs)
     byPoint.set(key, list)
+    try {
+      const instant = monitoringTrendInstant(obs.timestamp).instant
+      instants.set(obs.id, instant)
+      const identity = JSON.stringify([obs.monitoringItem, obs.point, instant])
+      if (seen.has(identity)) findings.push(finding(`duplicate-${obs.id}`, 'duplicate_observation', 'warning', obs.sourceRow, '存在重复观测', '确认是否保留其中一条', nowIso()))
+      seen.add(identity)
+    } catch { findings.push(finding(`time-invalid-${obs.id}`, 'time_order', 'blocking', obs.sourceRow, '时间格式无效', '使用 ISO 8601 日期或时间；未标时区按 UTC', nowIso())) }
     if (obs.unit && obs.unit !== project.unit) findings.push(finding(`unit-${obs.id}`, 'unit_conflict', 'warning', obs.sourceRow, `单位 ${obs.unit} 与项目单位 ${project.unit} 不一致`, '统一单位后重新校核', nowIso()))
   }
   for (const list of byPoint.values()) {
     for (let i = 1; i < list.length; i += 1) {
-      if (list[i].timestamp < list[i - 1].timestamp) findings.push(finding(`time-${list[i].id}`, 'time_order', 'warning', list[i].sourceRow, '时间顺序异常', '按时间升序整理', nowIso()))
+      const current = instants.get(list[i].id), previous = instants.get(list[i - 1].id)
+      if (current !== undefined && previous !== undefined && current < previous) findings.push(finding(`time-${list[i].id}`, 'time_order', 'warning', list[i].sourceRow, '时间顺序异常', '按时间升序整理', nowIso()))
     }
   }
   if (Object.keys(project.thresholds).length === 0) findings.push(finding('threshold-missing', 'missing_threshold', 'warning', 1, '项目未配置阈值', '在项目设置中补充阈值', nowIso()))
@@ -1440,12 +1467,18 @@ function reportText(project: RailwiseProjectV1, dataset: StoredDataset | undefin
   const thresholdLines = Object.entries(project.thresholds).map(([name, value]) => `${name}: ${value} ${project.unit}`)
   const measurement = (value: number | undefined, unit: string): string => value === undefined ? '-' : `${value} ${unit}`
   const statisticalUnit = (unit: 'dimensionless' | 'sigma'): string => unit === 'dimensionless' ? '无量纲' : 'sigma'
+  const taskLabels = { 'control-network': '控制网', 'leveling-network': '水准网', 'traverse-network': '导线网', resection: '任意设站', deformation: '变形监测', gnss: 'GNSS' }
+  const taskType = project.taskType ?? inferEngineeringTaskType(project.monitoringType)
+  const signLabels: Record<string, string> = { positive: '正值为正向变形', negative: '负值为正向变形', custom: '自定义（以项目约定为准）' }
+  const trendLabels = { rising: '上升', falling: '下降', stable: '稳定', unknown: '待确认' }
+  const thresholdLabels = { normal: '正常', warning: '提示', alarm: '报警', control: '控制', unresolved: '待确认' }
   return [
     `项目：${project.name}`,
     ...(dataset ? [
-    `监测类型：${project.monitoringType}`,
+    '监测分析报告（待审查）',
+    `任务类型：${taskType ? taskLabels[taskType] : project.monitoringType}`,
     `报告周期：${period}`,
-    `单位：${project.unit}；符号约定：${project.signConvention}`,
+    `单位：${project.unit}；符号约定：${signLabels[project.signConvention] ?? project.signConvention}`,
     `数据来源：${dataset.sourceFileName}`,
     `源文件 SHA-256：${dataset.sourceFileHash}`,
     `字段映射：${JSON.stringify(dataset.fieldMapping)}`,
@@ -1459,7 +1492,7 @@ function reportText(project: RailwiseProjectV1, dataset: StoredDataset | undefin
     ...(thresholdLines.length ? thresholdLines : ['待确认']),
     '',
     '分析结果',
-    ...analysis.results.map((r) => `${r.monitoringItem} / ${r.point}: 当前=${r.currentValue ?? '-'} 上期=${r.previousValue ?? '-'} 累计=${r.cumulativeChange ?? '-'} 速率=${r.changeRate ?? '-'} 趋势=${r.trend} 异常=${r.anomaly ? '是' : '否'} 阈值=${r.thresholdStatus}`),
+    ...analysis.results.map((r) => `${r.monitoringItem} / ${r.point}: 当前=${measurement(r.currentValue, project.unit)} 上期=${measurement(r.previousValue, project.unit)} 累计=${measurement(r.cumulativeChange, project.unit)} 速率=${measurement(r.changeRate, `${project.unit}/d`)} 趋势=${trendLabels[r.trend]} 异常=${r.anomaly ? '是' : '否'} 阈值=${thresholdLabels[r.thresholdStatus]}`),
     `分析输入 SHA-256：${analysis.inputHash}`,
     `算法版本：${analysis.algorithmVersion}`,
     ] : []),
@@ -1491,7 +1524,7 @@ function reportText(project: RailwiseProjectV1, dataset: StoredDataset | undefin
     '来源引用',
     ...(citations.length ? citations.map((citation) => `${citation.id}: ${citation.sourceType} ${citation.source}${citation.page ? ` 第 ${citation.page} 页` : ''}${citation.worksheet ? ` 工作表 ${citation.worksheet}` : ''}${citation.row ? ` 第 ${citation.row} 行` : ''}${citation.locator ? ` (${citation.locator})` : ''}`) : ['无']),
     '',
-    '审查记录：本报告由 WorkWise 确定性工程分析生成，最终归档前需人工确认阻断项、警告项和来源引用。'
+    '审查记录：本报告由 RAILWISE AI 确定性工程分析生成；当前为待审查草稿，不代表专业复核、批准或签名。'
   ].join('\n')
 }
 async function fileOutput(path: string, mediaType: string, workspace: string): Promise<{ path: string; mediaType: string; sha256: string; sizeBytes: number }> { const data = await readFile(path); return { path: relative(workspace, path), mediaType, sha256: createHash('sha256').update(data).digest('hex'), sizeBytes: data.byteLength } }
@@ -1505,7 +1538,7 @@ async function makeXlsx(project: RailwiseProjectV1, dataset: StoredDataset | und
     { name: 'quality_findings', rows: [['id', 'severity', 'code', 'row', 'status', 'message', 'suggestion'], ...dataset.findings.map((f) => [f.id, f.severity, f.code, String(f.row ?? ''), f.status, f.message, f.suggestion])] },
     { name: 'analysis_results', rows: [['monitoringItem', 'point', 'currentValue', 'previousValue', 'cumulativeChange', 'changeRate', 'trend', 'anomaly', 'thresholdStatus', 'inputHash'], ...analysis.results.map((r) => [r.monitoringItem, r.point, String(r.currentValue ?? ''), String(r.previousValue ?? ''), String(r.cumulativeChange ?? ''), String(r.changeRate ?? ''), r.trend, String(r.anomaly), r.thresholdStatus, analysis.inputHash])] },
     { name: 'threshold_status', rows: [['monitoringItem', 'point', 'thresholdStatus', 'configuredThreshold', 'unit'], ...analysis.results.map((r) => [r.monitoringItem, r.point, r.thresholdStatus, String(project.thresholds[r.monitoringItem] ?? project.thresholds.default ?? ''), project.unit])] },
-    { name: 'chart_data', rows: [['monitoringItem', 'point', 'currentValue'], ...analysis.results.map((r) => [r.monitoringItem, r.point, String(r.currentValue ?? '')])] },
+    { name: 'chart_data', rows: [['monitoringItem', 'point', 'observationTimestamp', 'observationValue', 'unit', 'timestampUtc', 'timestampBasis', 'observationId', 'sourceRow', 'sourceFileHash'], ...dataset.observations.map(observation => ({ observation, time: monitoringTrendInstant(observation.timestamp) })).sort((a, b) => JSON.stringify([a.observation.monitoringItem, a.observation.unit || project.unit, a.observation.point]).localeCompare(JSON.stringify([b.observation.monitoringItem, b.observation.unit || project.unit, b.observation.point])) || a.time.instant - b.time.instant || a.observation.id.localeCompare(b.observation.id)).map(({ observation: o, time }) => [o.monitoringItem, o.point, o.timestamp, String(o.value), o.unit?.trim() ? o.unit : project.unit, new Date(time.instant).toISOString(), time.assumedUtc ? 'unzoned-as-UTC' : 'explicit-offset-to-UTC', o.id, String(o.sourceRow), dataset.sourceFileHash])] },
     ] : []),
     { name: 'survey_adjustments', rows: [['runId', 'networkId', 'resultId', 'strategyId', 'transformType', 'algorithmVersion', 'observationCount', 'unknownCount', 'redundancy', 'unitWeightStdDev', 'unitWeightStdDevUnit', 'varianceFactor', 'varianceFactorUnit', 'varianceFactorEstimated', 'maxPointStdDev', 'maxPointStdDevUnit', 'validation', 'inputHash'], ...adjustments.map((a) => [a.runId, a.networkId, a.id, a.strategyId ?? '', a.transformType ?? '', a.algorithmVersion, String(a.observationCount), String(a.unknownCount), String(a.redundancy), String(a.unitWeightStdDev), a.unitWeightStdDevUnit, String(a.varianceFactor), a.varianceFactorUnit, String(a.varianceFactorEstimated), String(a.precision.maxPointStdDev), a.linearUnit, a.validation, a.inputHash])] },
     { name: 'survey_sources', rows: [['networkId', 'sourceName', 'sha256', 'vendor', 'format', 'version', 'confidence', 'disposition', 'parserId', 'parserVersion', 'recordCount', 'originalPreserved', 'extension', 'extensionConflict', 'matchedSignatures', 'converterId', 'converterVersion', 'converterLicense', 'converterExecutableHash', 'converterInputHash', 'converterOutputHash', 'converterNetworkAccess', 'converterStatus'], ...surveySources.map(({ networkId, source }) => [networkId, source.name, source.sha256, source.detection.vendor, source.detection.format, source.detection.version ?? '', String(source.detection.confidence), source.disposition, source.parserId, source.parserVersion, String(source.recordCount), String(source.originalPreserved), source.detection.extension ?? '', String(source.detection.extensionConflict), source.detection.matchedSignatures.join(';'), source.converter?.id ?? '', source.converter?.version ?? '', source.converter?.origin === 'workwise-bundled' ? source.converter.license : '', source.converter?.executableHash ?? '', source.converter?.inputHash ?? '', source.converter?.outputHash ?? '', source.converter?.networkAccess ?? '', source.converter?.status ?? ''])] },

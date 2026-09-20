@@ -36,6 +36,7 @@ import {
 import { readBrowserStorageItem, writeBrowserStorageItem } from '../../lib/browser-storage'
 import { surveyDiagnosticText, surveyRuntimeErrorText } from './survey-diagnostic-text'
 import { surveyDatumLabel } from './survey-summary'
+import { ENGINEERING_TREND_RENDERER_VERSION, ENGINEERING_ANALYSIS_ALGORITHM_VERSION } from '@shared/engineering-chart'
 import { rendererRuntimeClient } from '../../agent/runtime-client'
 import { useChatStore } from '../../store/chat-store'
 import { EngineeringAiCommandCenter } from './EngineeringAiCommandCenter'
@@ -482,7 +483,7 @@ export function EngineeringWorkspaceView({ workspaceRoot, runtimeReady, leftSide
       setOverview(next)
       if (!preserveDraft) setProjectDraft(projectToDraft(next.project))
       setSelectedDatasetId((current) => next.datasets.some((dataset) => dataset.id === current) ? current : next.datasets[0]?.id ?? '')
-      setSelectedAnalysisId((current) => next.analyses.some((analysis) => analysis.id === current) ? current : next.analyses[0]?.id ?? '')
+      setSelectedAnalysisId((current) => next.analyses.some((analysis) => analysis.id === current) ? current : next.analyses.find((analysis) => analysis.algorithmVersion === ENGINEERING_ANALYSIS_ALGORITHM_VERSION)?.id ?? '')
     } catch (error) {
       if (token !== overviewRequest.current) return
       setNotice({ tone: 'error', message: error instanceof Error ? error.message : String(error) })
@@ -563,7 +564,7 @@ export function EngineeringWorkspaceView({ workspaceRoot, runtimeReady, leftSide
   )
   const activeAnalysis = useMemo(
     () => overview?.analyses.find((analysis) => analysis.id === selectedAnalysisId && analysis.datasetId === activeDataset?.id)
-      ?? overview?.analyses.find((analysis) => analysis.datasetId === activeDataset?.id)
+      ?? overview?.analyses.find((analysis) => analysis.datasetId === activeDataset?.id && analysis.algorithmVersion === ENGINEERING_ANALYSIS_ALGORITHM_VERSION)
       ?? null,
     [activeDataset?.id, overview?.analyses, selectedAnalysisId]
   )
@@ -765,7 +766,7 @@ export function EngineeringWorkspaceView({ workspaceRoot, runtimeReady, leftSide
     try {
       const result = await runtimeRequest<{ analysis: Analysis }>('/v1/engineering/analyses', 'POST', {
         projectId: overview.project.id, datasetId: activeDataset.id, expectedRevision: activeDataset.revision,
-        idempotencyKey: `engineering-analysis-${activeDataset.id}-${activeDataset.revision}`
+        idempotencyKey: `engineering-analysis-${ENGINEERING_ANALYSIS_ALGORITHM_VERSION}-${activeDataset.id}-${activeDataset.revision}`
       })
       if (operationScope !== requestScope.current) return
       setSelectedAnalysisId(result.analysis.id)
@@ -785,7 +786,7 @@ export function EngineeringWorkspaceView({ workspaceRoot, runtimeReady, leftSide
     setBusy(true)
     try {
       const result = await runtimeRequest<{ chart: Chart }>('/v1/engineering/charts', 'POST', {
-        analysisId: activeAnalysis.id, chartType: 'trend', expectedRevision: 0, idempotencyKey: `engineering-chart-${activeAnalysis.id}`
+        analysisId: activeAnalysis.id, chartType: 'trend', expectedRevision: 0, idempotencyKey: `engineering-chart-${ENGINEERING_TREND_RENDERER_VERSION}-${activeAnalysis.id}`
       })
       if (operationScope !== requestScope.current) return
       setChart(result.chart)
