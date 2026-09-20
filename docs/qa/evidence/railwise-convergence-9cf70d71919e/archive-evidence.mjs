@@ -15,7 +15,7 @@ const patterns = {
   privateKey: /-----BEGIN [A-Z ]*PRIVATE KEY-----/g,
   apiToken: /sk-[A-Za-z0-9_-]{32,}/g,
   credentialUrl: /https?:\/\/[^\s/:]+:[^\s/@]+@/g,
-  unmaskedAuthorization: /\b(?:Bearer|Basic)\s+[A-Za-z0-9+\/_=.-]{30,}/g
+  unmaskedAuthorization: /\b(?:Bearer|Basic)\s+[A-Za-z0-9+/_=.-]{30,}/g
 }
 const scans = []
 function scan(name, bytes) {
