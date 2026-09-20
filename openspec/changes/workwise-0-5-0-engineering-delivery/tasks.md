@@ -9,7 +9,7 @@
 
 - [x] Retain original monitoring source bytes and normalization context for new imports atomically; add a version-selected pure numerical replay with source/input/output prerequisites, explicit unsupported historical states and an independent append-only attempt lifecycle without changing the existing five-check verification contract.
 - [x] Expose authenticated monitoring replay and bounded bilingual desktop evidence with project/manifest/revision/readiness isolation; verify tamper rejection, historical compatibility, interrupted starts, exact arithmetic, negative states and unchanged original records.
-- [ ] Verify this increment in its own signed isolated candidate with new CSV/XLSX imports, historical missing-source records, failure/retry, restart and supported UI states; keep user acceptance and public release approval separate.
+- [x] Verify this increment in its own signed isolated candidate with new CSV/XLSX imports, historical missing-source records, failure/retry, restart and supported UI states; keep user acceptance and public release approval separate. Selected b193fc7 replay scenarios and four locale/theme combinations are recorded in `docs/qa/evidence/railwise-monitoring-replay-package-b193fc7/README.md`; the broader minimum-window/keyboard and human gates remain open.
 
 ## Integrations and UI
 
