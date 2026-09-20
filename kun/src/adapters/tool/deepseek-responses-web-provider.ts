@@ -93,7 +93,7 @@ export function isDeepSeekResponsesWebSearchConfig(input: {
 }): boolean {
   return officialDeepSeekResponsesOrigin(input.baseUrl) != null &&
     Boolean(input.apiKey.trim()) &&
-    /^(?:[^/]+\/)?deepseek-v4-(?:pro|flash)$/i.test(input.model.trim())
+    /^(?:[^/]+\/)?deepseek-(?:flash|v4-(?:pro|flash))$/i.test(input.model.trim())
 }
 
 function deepSeekResponsesUrl(baseUrl: string): string {
