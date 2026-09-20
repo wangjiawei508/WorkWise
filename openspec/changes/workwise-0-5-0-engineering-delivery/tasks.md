@@ -154,5 +154,7 @@ Source validation is recorded in `docs/qa/evidence/railwise-import-converter-fol
 
 ## Public product documentation follow-through
 
-- [ ] Merge reviewed bilingual README, product introduction and Chinese light candidate screenshots independently of application changes; preserve published 0.5.0 download metadata and clearly label the candidate scope.
-- [ ] Render the exact website source with official PHP/templates, inspect desktop/mobile views, deploy the reviewed content and verify public content/image hashes and unchanged downloads; retain failures and rollback evidence.
+- [x] Merge reviewed bilingual README, product introduction and Chinese light candidate screenshots independently of application changes; preserve published 0.5.0 download metadata and clearly label the candidate scope.
+- [x] Render the exact website source with official PHP/templates, inspect desktop/mobile views, deploy the reviewed content and verify public content/image hashes and unchanged downloads; retain failures and rollback evidence.
+
+PR #29 and source `bea9a04` were merged and deployed successfully; exact remote preview, browser observations and immutable-download checks are recorded in `docs/qa/evidence/railwise-website-20260920/README.md`. No new application candidate was publicly released.
