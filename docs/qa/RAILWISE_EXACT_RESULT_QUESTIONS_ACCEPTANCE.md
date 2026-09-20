@@ -10,6 +10,12 @@
 
 候选 GUI 可启动，但当前隔离界面显示 `Connect to the runtime first`；Computer Use 会话刷新随后超时，未能建立受限 relay，也未产生真实 GUI turn、模型调用、截图序列或重启恢复记录。该部分继续保持未完成，不使用脚本、旧包或 headless 结果冒充真实模型证据。
 
+### 2026-09-21 GUI follow-up attempt
+
+候选进程退出后，旧的 GUI seed 数据库和工作区被完整移入 `/private/tmp/railwise-survey-3f0dbf1/failed-gui-seed-20260921-0645/`，没有覆盖；随后用同一候选 Electron、同一 ASAR `0be93bf52ea87fe3b413a97e52674608156a53eceb4050ce504aa221a80bb744` 重新生成 `gui-seed-003`，包内 26 项检查仍全部通过。候选以 `candidate.env` 启动，Runtime 实际监听 `127.0.0.1:62595`，数据目录仍为隔离候选目录。
+
+本次启动截图保存在 `/private/tmp/railwise-exact-questions-package-audit/candidate-current.png`，可见候选原生窗口；启动日志为 `/private/tmp/railwise-survey-3f0dbf1/logs/gui-acceptance-launch.log`，Runtime 日志记录了 `WORKWISE_RUNTIME_READY`。GUI 业务库/合成工作区的只读基线快照已保存为 `/private/tmp/railwise-exact-questions-package-audit/gui-before-002.json`（SHA-256 `1b88fd1f95676b3ff44d9019674981fa4b2f0e1ecebf3be7748964b56bd2a6a8`）。Computer Use 能打开候选并进入工作目录选择器，但路径提交后仍停留在原生选择器，未进入可发送的 Survey 对话；因此没有生成 `expected-selection.json`、`raw-turn-items.json`、GUI after 快照或模型调用记录。该尝试仍是未完成，而不是 GUI 通过。
+
 [历史界面清单](RAILWISE_SURVEY_UI_EVIDENCE_COVERAGE.md)中 `267aade` 基准的 Q10–Q17 缺口保留为历史记录；其当前源码接线状态由下表补充。本次覆盖以完整记录和有明确身份的行、成员、迭代为单位，不声称每个数值单元格、矩阵元素或所有任意字段都有独立按钮。
 
 ## 实现覆盖
