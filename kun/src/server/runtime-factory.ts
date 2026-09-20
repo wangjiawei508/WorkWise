@@ -1,3 +1,4 @@
+import { SurveyQualityScoringWorkspaceService } from '../engineering/survey-quality-scoring-workspace.js'
 import { mkdir } from 'node:fs/promises'
 import { join } from 'node:path'
 import { buildRouter } from './routes/index.js'
@@ -367,6 +368,10 @@ export async function createKunServeRuntime(
     getProject: (projectId) => engineeringService.getProject(projectId),
     getManifest: (projectId, manifestId) => engineeringService.getManifestForProject(projectId, manifestId)
   })
+  const surveyQualityScoringWorkspaceService = new SurveyQualityScoringWorkspaceService({
+    rootDir: join(options.dataDir, 'engineering'), nowIso,
+    getProject: (projectId) => engineeringService.getProject(projectId)
+  })
   const surveyAdvancedTrialsWorkspaceService = new SurveyAdvancedTrialsWorkspaceService({
     rootDir: join(options.dataDir, 'engineering'), nowIso,
     getProject: (projectId) => engineeringService.getProject(projectId)
@@ -624,6 +629,7 @@ export async function createKunServeRuntime(
     engineeringAi,
     surveyService,
     surveyQualityWorkspaceService,
+    surveyQualityScoringWorkspaceService,
     surveyAdvancedTrialsWorkspaceService,
     surveySamplingWorkspaceService,
     runTurn(threadId, turnId) {
@@ -696,6 +702,7 @@ export async function createKunServeRuntime(
           await engineeringService.flush()
           surveyService.close()
           surveyQualityWorkspaceService.close()
+          surveyQualityScoringWorkspaceService.close()
           surveyAdvancedTrialsWorkspaceService.close()
           surveySamplingWorkspaceService.close()
           engineeringService.close()

@@ -38,6 +38,8 @@ WorkWise 0.5.0 turns engineering survey work from a general chat entry point int
 
 The current source also adds a separate generalized-w / VCE / Huber / statistical-family model-trial workspace. Explicit model declarations and their basis are retained with immutable inputs and iteration history, and replayed before restoration or JSON export. Undetectable directions, nonpositive variance components and nonconvergence remain visible; trials do not remove observations or replace formal weights. Huber uses an explicitly declared fixed external scale; statistical families provide normal/t/chi-square tails and full-family Bonferroni correction, retaining missing members in the denominator. See the [input and record contract](./docs/qa/RAILWISE_SURVEY_ADVANCED_TRIALS_BACKEND.md). Acceptance of the new controls in the exact signed package is tracked separately.
 
+Later source adds declared two-epoch reference comparison, static independent-observation append, and declared inspection scoring. Reference trials retain explicit GLS/equal choices and full covariance. Static append records each QR update and checks a separate full batch fit. Scoring retains exact fractions, missing items and vetoes under a bounded, source-checked subset of GB/T 24356-2023. These controls do not certify stable points, change formal weights or approve deliverables. See the [implementation and acceptance ledger](./docs/qa/RAILWISE_SURVEY_CONVERGENCE_STATUS.md).
+
 See the [engineering survey workbench overview](./docs/ENGINEERING_SURVEY_WORKBENCH_OVERVIEW.zh-CN.md) and [survey format acceptance matrix](./docs/qa/WORKWISE_0.5.0_SURVEY_FORMAT_ACCEPTANCE_MATRIX.md) for scope and evidence.
 
 ## Candidate UI preview

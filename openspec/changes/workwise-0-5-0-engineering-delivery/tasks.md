@@ -119,4 +119,11 @@ These code and automated-test items do not close task 39: a successful real-mode
 ## P1 declared inspection scoring
 
 - [x] Implement the source-bound plane/height-control exact-rational scoring kernel for declared accuracy, defects, explicit layered scope, overview, samples and the two batch stages; independently verify strict thresholds, vetoes, missing evidence and unsupported branches without claiming full standard conformity.
-- [ ] Bind declared scoring to immutable project records, authenticated APIs and bilingual quality controls, then verify its exact signed package; evidence authenticity and human approval remain explicit separate responsibilities.
+- [x] Bind declared scoring to immutable project records, authenticated APIs and bilingual quality controls; independently verify exact fractions, scope, replay, corruption rejection, capacity and late project changes.
+- [ ] Verify declared scoring in its exact signed package; evidence authenticity and human approval remain explicit separate responsibilities.
+
+## P1 static independent-observation append
+
+- [x] Add a bounded fixed-model, known-prior-variance Givens append kernel with a declared baseline fingerprint, every row trace and independent full Householder batch comparison; independently replay exact/high-precision models and boundary failures.
+- [x] Bind static append to immutable advanced-trial records, Runtime/IPC and bilingual results with base/append/total counts, prior covariance, full-batch comparison and bounded history; preserve old-kind limits and hashes.
+- [ ] Verify static append in its exact signed package, including stale baseline, full parameter/covariance/row displays, export, restart and supported themes/window sizes.

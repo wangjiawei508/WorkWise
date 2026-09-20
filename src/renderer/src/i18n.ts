@@ -1,3 +1,5 @@
+import enQualityScoring from './locales/en/quality-scoring.json'
+import zhQualityScoring from './locales/zh/quality-scoring.json'
 import brand from '@shared/product-brand.json'
 import i18n from 'i18next'
 import { initReactI18next } from 'react-i18next'
@@ -15,14 +17,14 @@ for (const [locale, common] of [['zh', zhCommon], ['en', enCommon]] as const) {
 
 void i18n.use(initReactI18next).init({
   resources: {
-    en: { common: enCommon, settings: enSettings },
-    zh: { common: zhCommon, settings: zhSettings }
+    en: { common: enCommon, settings: enSettings, qualityScoring: enQualityScoring },
+    zh: { common: zhCommon, settings: zhSettings, qualityScoring: zhQualityScoring }
   },
   lng: 'en',
   fallbackLng: 'en',
   interpolation: { escapeValue: false, defaultVariables: { productName: brand.platform, runtimeName: brand.runtime } },
   defaultNS: 'common',
-  ns: ['common', 'settings']
+  ns: ['common', 'settings', 'qualityScoring']
 })
 
 export default i18n

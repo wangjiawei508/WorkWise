@@ -1,3 +1,4 @@
+export { SurveyStaticIncrementalInputV1, SurveyStaticIncrementalOutputV1 } from '../../kun/src/contracts/survey-static-incremental.js'
 export { SurveyReferenceDatumInputV1, SurveyReferenceDatumOutputV1 } from '../../kun/src/contracts/survey-reference-datum.js'
 // Data-only schemas. Runtime algorithms and node:crypto never enter the renderer.
 export { SurveyGeneralizedWRequestV1, SurveyGeneralizedWResultV1 } from '../../kun/src/contracts/survey-generalized-w.js'

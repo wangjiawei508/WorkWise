@@ -19,7 +19,7 @@ describe('advanced trial strict desktop IPC', () => {
       { path: `${base}/trial-1/reverify`, method: 'POST', body: '{}' }
     ]) expect(runtimeRequestPayloadSchema.safeParse(payload).success).toBe(true)
   })
-  it.each(['huber', 'statistical-family', 'reference-datum'] as const)('validates %s exact declarations and refuses cross-kind or inferred fields', kind => {
+  it.each(['huber', 'statistical-family', 'reference-datum', 'static-incremental'] as const)('validates %s exact declarations and refuses cross-kind or inferred fields', kind => {
     const request = advancedTrialTestRequest(kind)
     const parse = (value: unknown) => runtimeRequestPayloadSchema.safeParse({ path: base, method: 'POST', body: JSON.stringify(value) }).success
     expect(parse(request)).toBe(true)

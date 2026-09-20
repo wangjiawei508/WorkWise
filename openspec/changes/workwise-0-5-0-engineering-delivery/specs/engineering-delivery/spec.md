@@ -388,3 +388,25 @@ The system SHALL provide bounded exact-rational scoring for the declared plane-c
 - **WHEN** complete declared final-inspection batch counts and prior qualification are supplied
 - **THEN** rates are compared as exact integer ratios without preliminary rounding
 - **AND** acceptance batches retain their distinct qualified/failed decision and distinguish overview not performed from pending or missing
+
+### Requirement: Immutable declared inspection scoring workspace
+The system MUST preserve project-scoped scoring declarations as original UTF-8 bytes with immutable records, exact rational scores and explicit scope/veto/missing-evidence traces. Authenticated Runtime, IPC and bilingual controls MUST verify storage bindings and recompute the full result before restore or export. A scoring record MUST NOT imply authenticated evidence, human inspection or approved deliverables.
+
+#### Scenario: A failed sub-element is hidden by a high mean
+- **WHEN** a declared checked sub-element has a score below 60 and other scores are high
+- **THEN** the stored and restored result retains the veto and exact leaf score without presenting the weighted mean as a passing unit score
+
+#### Scenario: A different project becomes active during export
+- **WHEN** verification completes after the active project or revision changes
+- **THEN** the desktop refuses the stale export and clears the previous result
+
+### Requirement: Bounded static independent-observation append
+Static append trials MUST require a fixed full-rank baseline, declared known absolute prior variances, independent zero-mean errors, fixed parameter identities and a matching baseline fingerprint. Each Givens update MUST retain a trace and the final result MUST be checked against a separate full batch fit. Prior covariance MUST NOT be scaled by a posterior diagnostic factor. Only this kind MAY accept 256 total observations, including at most 128 appended rows and 16 parameters; old kinds retain their limits and record hashes.
+
+#### Scenario: Baseline data changes without a new fingerprint
+- **WHEN** an old value, variance, source anchor or revision changes while retaining the previous fingerprint
+- **THEN** the trial refuses an accepted updated fit and does not replace any formal result
+
+#### Scenario: Known prior variance differs from residual scale
+- **WHEN** the residual-based posterior factor differs from one
+- **THEN** the interface and export retain the unscaled known-prior covariance and label the posterior factor as a diagnostic

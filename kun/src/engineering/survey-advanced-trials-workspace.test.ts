@@ -6,7 +6,7 @@ import { createHash } from 'node:crypto'
 import Database from 'better-sqlite3'
 import { SurveyAdvancedTrialsWorkspaceService } from './survey-advanced-trials-workspace.js'
 import * as C from '../contracts/survey-advanced-trials-workspace.js'
-import { advancedTrialTestRequest, maximumNewAdvancedTrialRequest, maximumReferenceDatumRequest } from './survey-advanced-trials-test-helpers.js'
+import { advancedTrialTestRequest, maximumNewAdvancedTrialRequest, maximumReferenceDatumRequest, maximumStaticIncrementalRequest } from './survey-advanced-trials-test-helpers.js'
 import { parseAdvancedTrialJson } from './survey-advanced-trials-json.js'
 
 const cleanup: Array<() => Promise<void>> = []
@@ -49,7 +49,7 @@ function forge(db: Database.Database, id: string, mutate: (row: Record<string, u
 }
 
 describe('project-scoped immutable advanced trials', () => {
-  it.each(['generalized-w', 'vce', 'huber', 'statistical-family', 'reference-datum'] as const)('preserves exact UTF-8 and replays %s across restart with the same id', async kind => {
+  it.each(['generalized-w', 'vce', 'huber', 'statistical-family', 'reference-datum', 'static-incremental'] as const)('preserves exact UTF-8 and replays %s across restart with the same id', async kind => {
     const f = await fixture(), raw = Buffer.concat([Buffer.from(' \n'), f.raw(kind), Buffer.from('\r\n')])
     const summary = f.service.createTrial(f.pid, raw)
     expect(summary).toMatchObject({ kind, requestSha256: sha(raw), modelAssumptions: 'not-verified', formalResultsModified: false })
@@ -325,5 +325,56 @@ describe('declared reference datum integration', () => {
     }, true) } finally { db.close() }
     expect(() => f.service.getTrial(f.pid, first.id)).toThrow('integrity')
     expect(f.service.listTrials(f.pid)).toMatchObject({ trials: [good], unavailable: [{ id: first.id, reason: 'integrity' }] })
+  })
+})
+
+
+describe('static append workspace integration', () => {
+  it('preserves distinct base/appended/total counts and keeps legacy 128-row summary limits', async () => {
+    const f = await fixture(), req = maximumStaticIncrementalRequest()
+    const summary = f.service.createTrial(f.pid, Buffer.from(JSON.stringify(req)))
+    expect(summary).toMatchObject({ kind: 'static-incremental', observationCount: 256, baseObservationCount: 128, appendedObservationCount: 128, parameterCount: 16 })
+    expect(C.SurveyAdvancedTrialSummaryV1.safeParse({ ...summary, observationCount: 255 }).success).toBe(false)
+    expect(C.SurveyAdvancedTrialSummaryV1.safeParse({ ...summary, baseObservationCount: undefined }).success).toBe(false)
+    const old = f.service.createTrial(f.pid, f.raw('huber', 'old-huber-test'))
+    expect(C.SurveyAdvancedTrialSummaryV1.safeParse({ ...old, observationCount: 129 }).success).toBe(false)
+    expect(C.SurveyAdvancedTrialSummaryV1.safeParse({ ...old, baseObservationCount: 2, appendedObservationCount: 1 }).success).toBe(false)
+    const record = f.service.getTrial(f.pid, summary.id)
+    if (record.kind !== 'static-incremental' || record.result.outcome !== 'calculated') throw new Error('Expected static result')
+    expect(record.result.steps).toHaveLength(128)
+    expect(record.result.updatedFit.aprioriParameterCovariance[0]![0]).toBeCloseTo(1 / 16, 14)
+    expect(record.result.formalResultsModified).toBe(false)
+    expect(Buffer.byteLength(JSON.stringify(record))).toBeLessThan(C.SURVEY_ADVANCED_TRIAL_LIMITS.recordBytes)
+  })
+  it('loads 10 maximum 256-row records in one rate window and enforces its bounded work charge', async () => {
+    const f = await fixture()
+    for (let i = 0; i < 10; i++) {
+      f.advance(); f.service.createTrial(f.pid, Buffer.from(JSON.stringify(maximumStaticIncrementalRequest(`maximum-static-${i}`))))
+    }
+    f.advance()
+    const page = f.service.listTrials(f.pid)
+    expect(page.trials).toHaveLength(10); expect(page.unavailable).toEqual([])
+    expect(page.trials.every(t => t.observationCount === 256)).toBe(true)
+    // 1 + 10 * (3 + 16) = 191. Two details at 5 + 16 fit; the third does not.
+    f.service.getTrial(f.pid, page.trials[0]!.id); f.service.getTrial(f.pid, page.trials[1]!.id)
+    expect(() => f.service.getTrial(f.pid, page.trials[2]!.id)).toThrow('rate-limit')
+  })
+  it('stores a stale declared base fingerprint as an explicit unavailable trial', async () => {
+    const f = await fixture(), req = advancedTrialTestRequest('static-incremental')
+    const model = JSON.parse(req.declarationJson); model.base.observations[0].value += 1
+    req.declarationJson = JSON.stringify(model)
+    const summary = f.service.createTrial(f.pid, Buffer.from(JSON.stringify(req)))
+    const record = f.service.getTrial(f.pid, summary.id)
+    expect(record.result).toMatchObject({ outcome: 'unavailable', code: 'base-fingerprint-mismatch', formalResultsModified: false })
+    expect(record.result).not.toHaveProperty('updatedFit')
+  })
+  it('recomputes coherently rehashed static output and rejects alteration of accepted parameters', async () => {
+    const f = await fixture(), summary = f.service.createTrial(f.pid, f.raw('static-incremental')), db = f.db()
+    try { forge(db, summary.id, (_row, record) => {
+      if (record.kind !== 'static-incremental' || record.result.outcome !== 'calculated') throw new Error('Expected static')
+      record.result.updatedFit.parameters[0]! += 1
+      record.resultHash = digest(record.result)
+    }, true) } finally { db.close() }
+    expect(() => f.service.getTrial(f.pid, summary.id)).toThrow('integrity')
   })
 })

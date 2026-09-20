@@ -1,3 +1,4 @@
+import type { SurveyQualityScoringWorkspaceService } from '../../engineering/survey-quality-scoring-workspace.js'
 import type { ThreadService } from '../../services/thread-service.js'
 import type { TurnService } from '../../services/turn-service.js'
 import type { UsageService } from '../../services/usage-service.js'
@@ -80,6 +81,7 @@ export type ServerRuntime = {
   engineeringAi?: EngineeringAiOrchestrator
   surveyService?: SurveyService
   surveyQualityWorkspaceService?: SurveyQualityWorkspaceService
+  surveyQualityScoringWorkspaceService?: SurveyQualityScoringWorkspaceService
   surveyAdvancedTrialsWorkspaceService?: SurveyAdvancedTrialsWorkspaceService
   surveySamplingWorkspaceService?: SurveySamplingWorkspaceService
   runTurn(threadId: string, turnId: string): Promise<'completed' | 'failed' | 'aborted'> | void

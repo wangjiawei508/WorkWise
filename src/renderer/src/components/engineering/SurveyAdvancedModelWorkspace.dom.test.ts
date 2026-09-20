@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { webcrypto } from 'node:crypto'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { advancedTrialTestRequest, maximumNewAdvancedTrialRequest, maximumReferenceDatumRequest } from '../../../../../kun/src/engineering/survey-advanced-trials-test-helpers'
+import { advancedTrialTestRequest, maximumNewAdvancedTrialRequest, maximumReferenceDatumRequest, maximumStaticIncrementalRequest } from '../../../../../kun/src/engineering/survey-advanced-trials-test-helpers'
 import { SurveyAdvancedTrialsWorkspaceService } from '../../../../../kun/src/engineering/survey-advanced-trials-workspace'
 import { SurveyAdvancedModelWorkspace } from './SurveyAdvancedModelWorkspace'
 import { advancedTrialSummary, readAdvancedTrial, validateAdvancedTrialInput, type AdvancedTrialBinding, type AdvancedTrialInput } from '../../agent/survey-advanced-trials-client'
@@ -368,4 +368,66 @@ describe('reference datum desktop workflow', () => {
     expect(host.querySelector('[aria-label="Point mapping, reference weights and displacements"]')!.querySelectorAll('tbody tr')).toHaveLength(32)
     expect(host.querySelector('[aria-label="Two-epoch comparison under declared references"]')!.textContent).not.toMatch(/NaN|Infinity|undefined|advancedReference[A-Z]/)
   })
+})
+
+describe('static append desktop workflow', () => {
+  it('saves the explicit model, displays counts/prior covariance/steps, replays, restores and natively exports exact evidence', async () => {
+    const model = JSON.parse(advancedTrialTestRequest('static-incremental').declarationJson), selected = input('static-incremental', model)
+    await render(); await save(selected)
+    expect(host.textContent).toContain('Existing 3 · Appended 2 · Total observations 5')
+    expect(host.textContent).toContain('not authenticated source files or prior runtime state')
+    expect(host.textContent).toContain('no normality claim')
+    expect(host.querySelector('[aria-label="Updated prior parameter covariance"]')?.querySelectorAll('tbody td')).toHaveLength(1)
+    expect(host.querySelector('[aria-label="Per-observation update state"]')?.querySelectorAll('tbody tr')).toHaveLength(2)
+    expect(host.textContent).toContain('not used to scale prior covariance')
+    await click(button('Reverify and replay')); await loaded()
+    await click(button('Reverify and export JSON')); await vi.waitFor(() => expect(saveWorkspaceFileAs).toHaveBeenCalledTimes(1))
+    const payload = saveWorkspaceFileAs.mock.calls[0]![0], exported = JSON.parse(Buffer.from(payload.dataBase64, 'base64').toString('utf8'))
+    expect(payload.suggestedName).toBe('survey-static-incremental-trial.json')
+    expect(exported).toMatchObject({ kind: 'static-incremental', baseObservationCount: 3, appendedObservationCount: 2, observationCount: 5, declarationJson: selected.declarationJson })
+    expect(exported.result.request.base.observations).toEqual(model.base.observations)
+    await click(button('Trial history')); await vi.waitFor(() => expect(host.textContent).toContain('Strictly verify and restore'))
+    expect(host.textContent).toContain('Existing 3 · Appended 2 · Total observations 5')
+    await click([...host.querySelectorAll('button')].find(item => item.textContent?.includes('Strictly verify and restore'))!); await loaded()
+    await act(async () => { await i18n.changeLanguage('zh') })
+    expect(host.textContent).toContain('静态观测追加结果'); expect(host.textContent).toContain('原有 3 条 · 追加 2 条 · 总观测 5 条')
+    expect(host.textContent).toContain('先验协方差'); expect(host.textContent).toContain('来源、独立性、零均值与先验方差均未验真')
+    expect(host.textContent).not.toContain('advancedStatic')
+  })
+  it('renders an unavailable fingerprint mismatch without an accepted fit and keeps the raw declaration', async () => {
+    const model = JSON.parse(advancedTrialTestRequest('static-incremental').declarationJson)
+    model.base.observations[0].value += 1
+    const selected = input('static-incremental', model)
+    await render(); await save(selected)
+    expect(host.textContent).toContain('Append refused: base fingerprint differs from the declaration.')
+    expect(host.querySelector('[aria-label="Parameter comparison"]')).toBeNull()
+    expect([...host.querySelectorAll('pre')].some(pre => pre.textContent === selected.declarationJson)).toBe(true)
+  })
+  it('rejects missing zero-mean declaration before any Runtime request', async () => {
+    const model = JSON.parse(advancedTrialTestRequest('static-incremental').declarationJson)
+    delete model.base.errorModel
+    await render(); await fill(input('static-incremental', model))
+    expect(button('Confirm and save trial').disabled).toBe(true)
+    expect(runtimeRequest).not.toHaveBeenCalled()
+  })
+  it('does not relabel native export cancellation as success', async () => {
+    saveWorkspaceFileAs.mockResolvedValueOnce({ ok: false, canceled: true })
+    await render(); await save(input('static-incremental', JSON.parse(advancedTrialTestRequest('static-incremental').declarationJson)))
+    await click(button('Reverify and export JSON'))
+    await vi.waitFor(() => expect(host.textContent).toContain('Save As was cancelled'))
+    expect(host.textContent).not.toContain('Saved to')
+  })
+})
+
+
+it('restores all 128 appended rows and 16-by-16 prior covariance matrices at the declared capacity', async () => {
+  const req = maximumStaticIncrementalRequest(), selected = input('static-incremental', JSON.parse(req.declarationJson))
+  stored(selected)
+  await render(); await click(button('Trial history'))
+  await vi.waitFor(() => expect(host.textContent).toContain('Existing 128 · Appended 128 · Total observations 256'))
+  await click([...host.querySelectorAll('button')].find(item => item.textContent?.includes('Strictly verify and restore'))!); await loaded()
+  expect(host.querySelector('[aria-label="Per-observation update state"]')?.querySelectorAll('tbody tr')).toHaveLength(128)
+  expect(host.querySelector('[aria-label="Updated prior parameter covariance"]')?.querySelectorAll('tbody td')).toHaveLength(256)
+  expect(host.querySelector('[aria-label="Existing prior parameter covariance"]')?.querySelectorAll('tbody td')).toHaveLength(256)
+  expect(host.querySelector('[aria-label="Parameter comparison"]')?.querySelectorAll('tbody tr')).toHaveLength(16)
 })

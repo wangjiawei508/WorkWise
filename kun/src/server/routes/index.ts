@@ -1,3 +1,4 @@
+import { registerSurveyQualityScoringWorkspaceRoutes } from './survey-quality-scoring-workspace.js'
 import { Router } from '../router.js'
 import { getStatisticalDiagnostics } from './survey-statistics.js'
 import * as freeLevelingRoutes from './survey-free-leveling.js'
@@ -102,6 +103,10 @@ export function buildRouter(runtime: ServerRuntime): Router {
   const router = new Router()
   registerSurveyQualityWorkspaceRoutes(router, {
     getService: () => runtime.surveyQualityWorkspaceService,
+    authorize: (request) => authorize(request, runtime)
+  })
+  registerSurveyQualityScoringWorkspaceRoutes(router, {
+    getService: () => runtime.surveyQualityScoringWorkspaceService,
     authorize: (request) => authorize(request, runtime)
   })
   registerSurveyAdvancedTrialsWorkspaceRoutes(router, {

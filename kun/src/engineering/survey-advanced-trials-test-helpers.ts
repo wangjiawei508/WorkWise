@@ -1,7 +1,8 @@
+import { hashSurveyStaticIncrementalBaseV1 } from './survey-static-incremental.js'
 import type { SurveyAdvancedTrialKindV1 } from '../contracts/survey-advanced-trials-workspace.js'
 
 export function advancedTrialTestRequest(kind: SurveyAdvancedTrialKindV1, key = 'advanced-test-1') {
-  const declaration = kind === 'reference-datum' ? {
+  const declaration = kind === 'static-incremental' ? staticIncrementalTestModel() : kind === 'reference-datum' ? {
     schemaVersion: 1, model: 'two-epoch-one-dimensional-declared-reference-datum', unit: 'mm', method: 'gls-reference-mean',
     referenceDeclaration: 'caller-selected-reference-set-not-verified-stable', testingStrategy: 'none-datum-comparison-only',
     firstEpoch: { id: 'epoch-1', sourceAnchor: 'synthetic-not-verified', sourceSha256: '0'.repeat(64), covarianceBasis: 'caller-declared-full-coordinate-covariance-not-cofactor',
@@ -68,6 +69,97 @@ export function maximumReferenceDatumRequest(key = 'maximum-reference-trial') {
   model.mapping = ids.map(id => ({ id, firstPointId: id, secondPointId: id }))
   model.referenceIds = ids
   model.dependence = { kind: 'caller-declared-cross-covariance', sourceAnchor: 'synthetic-cross', firstToSecondCovariance: ids.map((_, i) => ids.map((_, j) => i === j ? .5 : 0)) }
+  request.declarationJson = JSON.stringify(model)
+  return request
+}
+
+function staticIncrementalTestModel() {
+  const model = {
+  "schemaVersion": 1,
+  "operation": "append-independent-observations-only",
+  "base": {
+    "schemaVersion": 1,
+    "model": "fixed-datum-full-column-rank-independent-linear-observations",
+    "covarianceBasis": "caller-declared-known-apriori-independent-absolute-variances",
+    "errorModel": "caller-declared-zero-mean-independent-errors-no-normality-claim",
+    "coefficientMeaning": "dimensionless-all-parameters-share-observation-unit",
+    "networkId": "synthetic:equal-weight-location",
+    "revision": 1,
+    "unit": "mm",
+    "parameterIds": [
+      "x0"
+    ],
+    "sourceAnchor": "original-synthetic-fixed-model:equal-weight-location",
+    "sourceSha256": "3333333333333333333333333333333333333333333333333333333333333333",
+    "observations": [
+      {
+        "id": "b0",
+        "value": 0.0,
+        "coefficients": [
+          1.0
+        ],
+        "aprioriVariance": 1.0,
+        "sourceAnchor": "original-synthetic:b0"
+      },
+      {
+        "id": "b1",
+        "value": 2.0,
+        "coefficients": [
+          1.0
+        ],
+        "aprioriVariance": 1.0,
+        "sourceAnchor": "original-synthetic:b1"
+      },
+      {
+        "id": "b2",
+        "value": 4.0,
+        "coefficients": [
+          1.0
+        ],
+        "aprioriVariance": 1.0,
+        "sourceAnchor": "original-synthetic:b2"
+      }
+    ]
+  },
+  "expectedBaseFingerprint": "5ce1012b2d69f7021925d88c7cb55d5d25865cabdd9d606f267484e4b12dd510",
+  "append": {
+    "batchId": "append:equal-weight-location",
+    "nextRevision": 2,
+    "sourceAnchor": "original-synthetic-append:equal-weight-location",
+    "observations": [
+      {
+        "id": "a0",
+        "value": 8.0,
+        "coefficients": [
+          1.0
+        ],
+        "aprioriVariance": 1.0,
+        "sourceAnchor": "original-synthetic:a0"
+      },
+      {
+        "id": "a1",
+        "value": -1.0,
+        "coefficients": [
+          1.0
+        ],
+        "aprioriVariance": 1.0,
+        "sourceAnchor": "original-synthetic:a1"
+      }
+    ]
+  }
+}
+  model.expectedBaseFingerprint = hashSurveyStaticIncrementalBaseV1(model.base)
+  return model
+}
+
+export function maximumStaticIncrementalRequest(key = 'maximum-static-trial') {
+  const request = advancedTrialTestRequest('static-incremental', key)
+  const model = staticIncrementalTestModel()
+  model.base.parameterIds = Array.from({ length: 16 }, (_, i) => `p${i}`)
+  const rows = Array.from({ length: 256 }, (_, i) => ({ id: `o${i}`, value: (i % 16) + (i % 3) * .125,
+    coefficients: Array.from({ length: 16 }, (_, j) => i % 16 === j ? 1 : 0), aprioriVariance: 1, sourceAnchor: 'original-synthetic-max' }))
+  model.base.observations = rows.slice(0, 128); model.append.observations = rows.slice(128)
+  model.expectedBaseFingerprint = hashSurveyStaticIncrementalBaseV1(model.base)
   request.declarationJson = JSON.stringify(model)
   return request
 }

@@ -1,3 +1,5 @@
+import { staticIncrementalExample } from '@shared/survey-static-incremental-example'
+import { SurveyStaticIncrementalResult } from './SurveyStaticIncrementalResult'
 import { useEffect, useMemo, useRef, useState, type ReactElement } from 'react'
 import { useTranslation } from 'react-i18next'
 import { SURVEY_ADVANCED_TRIAL_LIMITS as LIMITS } from '@shared/survey-advanced-trials'
@@ -23,9 +25,10 @@ type View = { record?: AdvancedTrialRecord; history?: AdvancedTrialHistory; expo
 type Operation = { kind: 'save' | 'read'; idempotencyKey?: string; run: (stillCurrent: () => boolean) => Promise<View> }
 type Props = { binding: AdvancedTrialBinding; runtimeReady: boolean }
 
-const methodKeys: Record<AdvancedTrialKind, string> = { 'generalized-w': 'advancedWMethod', vce: 'advancedVceMethod', huber: 'advancedHuberMethod', 'statistical-family': 'advancedStatisticalMethod', 'reference-datum': 'advancedReferenceMethod' }
-const limitKeys: Record<AdvancedTrialKind, string> = { 'generalized-w': 'advancedWLimits', vce: 'advancedVceLimits', huber: 'advancedHuberLimits', 'statistical-family': 'advancedStatisticalLimits', 'reference-datum': 'advancedReferenceLimits' }
+const methodKeys: Record<AdvancedTrialKind, string> = { 'generalized-w': 'advancedWMethod', vce: 'advancedVceMethod', huber: 'advancedHuberMethod', 'statistical-family': 'advancedStatisticalMethod', 'reference-datum': 'advancedReferenceMethod', 'static-incremental': 'advancedStaticMethod' }
+const limitKeys: Record<AdvancedTrialKind, string> = { 'generalized-w': 'advancedWLimits', vce: 'advancedVceLimits', huber: 'advancedHuberLimits', 'statistical-family': 'advancedStatisticalLimits', 'reference-datum': 'advancedReferenceLimits', 'static-incremental': 'advancedStaticLimits' }
 const examples: Record<AdvancedTrialKind, unknown> = {
+  'static-incremental': staticIncrementalExample,
   'reference-datum': {
     schemaVersion: 1, model: 'two-epoch-one-dimensional-declared-reference-datum', unit: 'mm', method: 'gls-reference-mean',
     referenceDeclaration: 'caller-selected-reference-set-not-verified-stable', testingStrategy: 'none-datum-comparison-only',
@@ -169,7 +172,7 @@ function AdvancedTrialSession({ binding, runtimeReady }: Props): ReactElement {
       <div className="flex flex-wrap gap-2"><button type="button" className={buttonClass} disabled={!ready} onClick={() => void execute({ kind: 'read', run: async stillCurrent => ({ record: await reverifyAdvancedTrial(binding, advancedTrialSummary(record), stillCurrent) }) })}>{t('advancedReverify')}</button><button type="button" className={buttonClass} disabled={!ready} onClick={() => exportRecord(record)}>{t('advancedExport')}</button></div>
       {view?.exportStatus ? <p role={view.exportStatus === 'failed' ? 'alert' : 'status'} className="break-all leading-5">{t(view.exportStatus === 'saved' ? 'advancedExportSaved' : view.exportStatus === 'cancelled' ? 'advancedExportCancelled' : 'advancedExportFailed', { path: view.exportPath })}</p> : null}
       <h5 className="font-medium">{t('advancedBasis')}</h5><p className="whitespace-pre-wrap break-words leading-5">{record.modelBasisStatement}</p>
-      {record.kind === 'reference-datum' ? <SurveyReferenceDatumResult result={record.result} /> : record.kind === 'generalized-w' ? <GeneralizedWResult result={record.result} /> : record.kind === 'huber' ? <HuberTrialResult result={record.result} /> : record.kind === 'statistical-family' ? <StatisticalFamilyResult result={record.result} /> : <>
+      {record.kind === 'static-incremental' ? <SurveyStaticIncrementalResult result={record.result} /> : record.kind === 'reference-datum' ? <SurveyReferenceDatumResult result={record.result} /> : record.kind === 'generalized-w' ? <GeneralizedWResult result={record.result} /> : record.kind === 'huber' ? <HuberTrialResult result={record.result} /> : record.kind === 'statistical-family' ? <StatisticalFamilyResult result={record.result} /> : <>
         <div className="min-w-0 space-y-2" aria-label={t('advancedInitialGroups')}><h5 className="font-medium">{t('advancedInitialGroups')}</h5>{record.declaration.groups.map(group => <p key={group.id} className="break-all">{group.id} · {group.initialVariance} {record.declaration.unit}² · {group.sourceAnchor}</p>)}<p>{t('advancedStoppingPolicy', { iterations: record.declaration.maxIterations, tolerance: record.declaration.relativeTolerance })}</p></div>
         <VceTrialResult result={record.result} />
       </>}
@@ -181,7 +184,7 @@ function AdvancedTrialSession({ binding, runtimeReady }: Props): ReactElement {
       <h4 className="font-semibold">{t('advancedHistory')}</h4>
       {!page.trials.length && !page.unavailable.length ? <p>{t('advancedNoHistory')}</p> : null}
       {page.unavailable.map(item => <div role="status" key={item.id} className="break-all rounded border border-amber-300 p-3"><p>{t('advancedUnrestorable')} · {item.id}</p><p>{t(errorKeys[item.reason])}</p></div>)}
-      {page.trials.map(item => <button key={item.id} type="button" className={`${buttonClass} block w-full break-words`} disabled={!ready} onClick={() => restore(item)}><span className="block">{t('advancedRestore')} · {t(methodKeys[item.kind])} · {t(advancedOutcomeKeys[item.outcome])}</span><span className="mt-1 block break-all font-mono text-[11px]">{item.id} · {item.createdAt}</span></button>)}
+      {page.trials.map(item => <button key={item.id} type="button" className={`${buttonClass} block w-full break-words`} disabled={!ready} onClick={() => restore(item)}><span className="block">{t('advancedRestore')} · {t(methodKeys[item.kind])} · {t(advancedOutcomeKeys[item.outcome])}</span><span className="mt-1 block break-all font-mono text-[11px]">{item.id} · {item.createdAt}</span>{item.kind === 'static-incremental' ? <span className="mt-1 block">{t('advancedStaticCounts', { base: item.baseObservationCount, appended: item.appendedObservationCount, total: item.observationCount })}</span> : null}</button>)}
       <div className="flex flex-wrap gap-2"><button type="button" className={buttonClass} disabled={!ready || page.offset === 0} onClick={() => history(Math.max(0, page.offset - LIMITS.pageSize))}>{t('advancedPrevious')}</button><button type="button" className={buttonClass} disabled={!ready || page.nextOffset === null} onClick={() => { if (page.nextOffset !== null) history(page.nextOffset) }}>{t('advancedNext')}</button></div>
     </section> : null}
   </section>

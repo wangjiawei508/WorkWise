@@ -1,5 +1,6 @@
+import { SurveyQualityScoringCreateV1, SurveyQualityScoringReverifyRequestV1, SURVEY_QUALITY_SCORING_WORKSPACE_LIMITS, SurveyQualityScoringInputV1, parseQualityScoringJson } from '../../shared/survey-quality-scoring'
 import { SurveySamplingPopulationCreateV1, SurveySamplingRunCreateV1, SurveySamplingVerifyRequestV1, SURVEY_SAMPLING_WORKSPACE_LIMITS } from '../../shared/survey-quality-sampling-workspace'
-import { SurveyAdvancedTrialCreateV1, SurveyAdvancedTrialReverifyRequestV1, SURVEY_ADVANCED_TRIAL_LIMITS, SurveyGeneralizedWRequestV1, SurveyVceTrialInputV1, SurveyHuberTrialInputV1, SurveyStatisticalFamilyInputV1, SurveyReferenceDatumInputV1, parseAdvancedTrialJson } from '../../shared/survey-advanced-trials'
+import { SurveyAdvancedTrialCreateV1, SurveyAdvancedTrialReverifyRequestV1, SURVEY_ADVANCED_TRIAL_LIMITS, SurveyGeneralizedWRequestV1, SurveyVceTrialInputV1, SurveyHuberTrialInputV1, SurveyStatisticalFamilyInputV1, SurveyReferenceDatumInputV1, SurveyStaticIncrementalInputV1, parseAdvancedTrialJson } from '../../shared/survey-advanced-trials'
 import { z } from 'zod'
 import { SurveyFreeLevelingTrialRequestV1 } from '../../shared/survey-free-leveling'
 import { SurveyQualityPlanCreateV1, SurveyQualityEvidenceCreateV1, SurveyQualityRecordCreateV1, SurveyQualityCheckAppendV1 } from '../../shared/survey-quality-workspace'
@@ -223,6 +224,10 @@ const SAMPLING_ENDPOINTS = [
 ].map(entry => ({ ...entry, endpoint: compileEndpoint(`/v1/engineering/projects/{id}/${entry.suffix}`, entry.methods, entry.paginated ? ['limit', 'offset'] : []) }))
 
 const ENDPOINTS: readonly EndpointTemplate[] = [
+  compileEndpoint('/v1/engineering/projects/{id}/quality-scoring', ['GET', 'POST'], ['limit', 'offset']),
+  compileEndpoint('/v1/engineering/projects/{id}/quality-scoring/{recordId}', ['GET'], []),
+  compileEndpoint('/v1/engineering/projects/{id}/quality-scoring/{recordId}/reverify', ['POST'], []),
+  compileEndpoint('/v1/engineering/projects/{id}/quality-scoring/{recordId}/export', ['GET'], []),
   compileEndpoint('/v1/engineering/projects/{id}/advanced-trials', ['GET', 'POST'], ['limit', 'offset']),
   compileEndpoint('/v1/engineering/projects/{id}/advanced-trials/{trialId}', ['GET'], []),
   compileEndpoint('/v1/engineering/projects/{id}/advanced-trials/{trialId}/reverify', ['POST'], []),
@@ -356,6 +361,26 @@ export const runtimeRequestPayloadSchema = z
       context.addIssue({ code: 'custom', message: 'invalid runtime request URL' })
       return
     }
+    const scoring = /^\/v1\/engineering\/projects\/[^/]+\/quality-scoring(?:\/[^/]+(?:\/(reverify|export))?)?$/.exec(url.pathname)
+    if (scoring) {
+      const method = payload.method ?? 'GET'
+      let valid = method === 'GET' && payload.body === undefined
+      for (const [key, value] of url.searchParams) {
+        if (key === 'limit' && (!/^[1-9]\d*$/.test(value) || Number(value) > SURVEY_QUALITY_SCORING_WORKSPACE_LIMITS.pageSize)) valid = false
+        if (key === 'offset' && (!/^(0|[1-9]\d*)$/.test(value) || Number(value) > SURVEY_QUALITY_SCORING_WORKSPACE_LIMITS.recordsPerProject)) valid = false
+      }
+      if (method === 'POST' && !url.search && payload.body !== undefined && Buffer.byteLength(payload.body, 'utf8') <= SURVEY_QUALITY_SCORING_WORKSPACE_LIMITS.requestBytes) {
+        try {
+          if (scoring[1] === 'reverify') valid = SurveyQualityScoringReverifyRequestV1.safeParse(parseQualityScoringJson(payload.body)).success
+          else if (url.pathname.endsWith('/quality-scoring')) {
+            const body = SurveyQualityScoringCreateV1.safeParse(parseQualityScoringJson(payload.body))
+            const declaration = body.success ? SurveyQualityScoringInputV1.safeParse(parseQualityScoringJson(body.data.declarationJson)) : null
+            valid = body.success && !!declaration?.success && body.data.kind === declaration.data.operation
+          }
+        } catch { valid = false }
+      }
+      if (!valid) context.addIssue({ code: 'custom', message: 'invalid scoring model trial request' })
+    }
     const advanced = /^\/v1\/engineering\/projects\/[^/]+\/advanced-trials(?:\/[^/]+(?:\/(reverify|export))?)?$/.exec(url.pathname)
     if (advanced) {
       const method = payload.method ?? 'GET'
@@ -369,7 +394,7 @@ export const runtimeRequestPayloadSchema = z
           if (advanced[1] === 'reverify') valid = SurveyAdvancedTrialReverifyRequestV1.safeParse(parseAdvancedTrialJson(payload.body)).success
           else if (url.pathname.endsWith('/advanced-trials')) {
             const body = SurveyAdvancedTrialCreateV1.safeParse(parseAdvancedTrialJson(payload.body))
-            valid = body.success && ({ 'generalized-w': SurveyGeneralizedWRequestV1, vce: SurveyVceTrialInputV1, huber: SurveyHuberTrialInputV1, 'statistical-family': SurveyStatisticalFamilyInputV1, 'reference-datum': SurveyReferenceDatumInputV1 })[body.data.kind].safeParse(parseAdvancedTrialJson(body.data.declarationJson)).success
+            valid = body.success && ({ 'generalized-w': SurveyGeneralizedWRequestV1, vce: SurveyVceTrialInputV1, huber: SurveyHuberTrialInputV1, 'statistical-family': SurveyStatisticalFamilyInputV1, 'reference-datum': SurveyReferenceDatumInputV1, 'static-incremental': SurveyStaticIncrementalInputV1 })[body.data.kind].safeParse(parseAdvancedTrialJson(body.data.declarationJson)).success
           }
         } catch { valid = false }
       }

@@ -1,3 +1,5 @@
+import { SurveyStaticIncrementalInputV1 } from '../contracts/survey-static-incremental.js'
+import { appendSurveyStaticLinearObservationsV1 } from './survey-static-incremental.js'
 import { createHash, randomUUID } from 'node:crypto'
 import { SurveyReferenceDatumInputV1 } from '../contracts/survey-reference-datum.js'
 import { compareSurveyReferenceDatumV1 } from './survey-reference-datum.js'
@@ -81,6 +83,12 @@ export class SurveyAdvancedTrialsWorkspaceService {
     this.rates.set(pid, entry)
   }
   private chargeModel(pid: string, model: C.SurveyAdvancedTrialRecordV1['declaration']): void {
+    if ('base' in model) {
+      // Includes base replay, two factorizations and per-append triangular inspection.
+      // Maximum 256 rows / 16 parameters / 128 appended costs 16; a full page costs 191.
+      this.charge(pid, Math.max(1, Math.ceil(((model.base.observations.length + model.append.observations.length) * model.base.parameterIds.length ** 2 + model.append.observations.length * model.base.parameterIds.length ** 3) / 36864)))
+      return
+    }
     if ('mapping' in model) { this.charge(pid, Math.max(1, Math.ceil((2 * model.mapping.length) ** 3 / 16384))); return }
     if ('members' in model) { this.charge(pid, Math.max(1, Math.ceil(model.members.length / 16))); return }
     const n = model.observations.length
@@ -93,6 +101,7 @@ export class SurveyAdvancedTrialsWorkspaceService {
     if (kind === 'generalized-w') return diagnoseGeneralizedW(declaration)
     if (kind === 'vce') return runSurveyVceTrial(declaration)
     if (kind === 'huber') return runSurveyHuberTrial(declaration)
+    if (kind === 'static-incremental') return appendSurveyStaticLinearObservationsV1(declaration)
     if (kind === 'reference-datum') return compareSurveyReferenceDatumV1(declaration)
     return evaluateSurveyStatisticalFamilyV1(declaration)
   }
@@ -109,7 +118,7 @@ export class SurveyAdvancedTrialsWorkspaceService {
     try {
       const request = C.SurveyAdvancedTrialCreateV1.parse(parseAdvancedTrialJson(requestJson))
       const declared = parseAdvancedTrialJson(request.declarationJson)
-      const declaration = ({ 'generalized-w': SurveyGeneralizedWRequestV1, vce: SurveyVceTrialInputV1, huber: SurveyHuberTrialInputV1, 'statistical-family': SurveyStatisticalFamilyInputV1, 'reference-datum': SurveyReferenceDatumInputV1 })[request.kind].parse(declared)
+      const declaration = ({ 'generalized-w': SurveyGeneralizedWRequestV1, vce: SurveyVceTrialInputV1, huber: SurveyHuberTrialInputV1, 'statistical-family': SurveyStatisticalFamilyInputV1, 'reference-datum': SurveyReferenceDatumInputV1, 'static-incremental': SurveyStaticIncrementalInputV1 })[request.kind].parse(declared)
       return { request, declaration, requestJson }
     } catch { return fail('validation') }
   }
@@ -189,7 +198,8 @@ export class SurveyAdvancedTrialsWorkspaceService {
         modelBasisStatement: request.modelBasisStatement, modelBasisSha256: sha(request.modelBasisStatement), modelBasisSizeBytes: Buffer.byteLength(request.modelBasisStatement),
         replayEnvironment, replayEnvironmentHash: digest(replayEnvironment),
         outcome: 'modelStatus' in result ? result.modelStatus : result.outcome,
-        ...('mapping' in declaration ? { observationCount: 0, parameterCount: 0, pointCount: declaration.mapping.length, referenceCount: declaration.referenceIds.length }
+        ...('base' in declaration ? { observationCount: declaration.base.observations.length + declaration.append.observations.length, baseObservationCount: declaration.base.observations.length, appendedObservationCount: declaration.append.observations.length, parameterCount: declaration.base.parameterIds.length }
+          : 'mapping' in declaration ? { observationCount: 0, parameterCount: 0, pointCount: declaration.mapping.length, referenceCount: declaration.referenceIds.length }
           : 'members' in declaration ? { observationCount: 0, parameterCount: 0, familyMemberCount: declaration.members.length }
           : { observationCount: declaration.observations.length, parameterCount: declaration.parameterIds.length }), ...boundaries,
         requestJson, declarationJson: request.declarationJson, projectSnapshot: project, declaration, result }

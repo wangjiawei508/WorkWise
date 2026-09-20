@@ -2,7 +2,7 @@
 
 ## 范围
 
-`generalized-w`、`vce`、`huber`、`statistical-family` 与 `reference-datum` 纯核通过独立 project-scoped 实验记录服务开放，不修改既有纯核，不依赖正式网形、正式相对权或平差结果写入接口。服务只接受用户显式提交的完整模型 JSON 和模型依据原文。广义 w 的绝对先验 C 必须由完整声明提供；不会将正式相对权、后验单位权方差或其他结果暗自转成已知绝对 C。
+`generalized-w`、`vce`、`huber`、`statistical-family` 、`reference-datum` 与 `static-incremental` 纯核通过独立 project-scoped 实验记录服务开放，不修改既有纯核，不依赖正式网形、正式相对权或平差结果写入接口。服务只接受用户显式提交的完整模型 JSON 和模型依据原文。广义 w 的绝对先验 C 必须由完整声明提供；不会将正式相对权、后验单位权方差或其他结果暗自转成已知绝对 C。
 
 每条记录固定为 `trial-only`、`modelAssumptions=not-verified`、`engineeringDecision=not-evaluated`、`formalResultsModified=false`、`declarationTrust=caller-declared-not-authenticated`、`checkpointTrust=local-records-only`。成功保存可以包含纯核明确的非正分量、不可辨识或未收敛结果；保存成功不是计算通过或工程验收。
 
@@ -31,6 +31,12 @@
 `reference-datum` 是 2–32 个一维对应点的完整协方差比较，调用方显式声明两期坐标、双射点号映射、参考集合与独立/跨期协方差关系；可选 GLS 或等权参考定义。摘要独有 `pointCount/referenceCount`，观测数/参数数保持 0，旧四种摘要禁止新增这两个字段。原声明不排序或替换源摘要。
 
 界面保留所选方法、时期与依赖关系、参考点、原坐标差、参考权、位移、平移方差、平移–位移协方差，以及完整坐标差和位移协方差。单位与差分方向明确显示。近半正定结果保留未分辨说明，GLS 奇异只返回不可用，不回退等权。来源摘要仍为声明，物理稳定性、显著性与工程结论未判定。纯核源码不因接入改变。
+
+## 静态独立观测追加
+
+`static-incremental` 只接受固定满列秩、正多余观测基线及固定参数集，显式声明独立零均值误差和已知绝对先验方差。旧基线至多128条，新追加至多128条，总计至多256条/16参数；其他旧类型不放宽其128观测限制。摘要显示基线/追加/总观测数。基线指纹绑定模型和修订，但不认证真实仪器或跨请求现存状态。
+
+逐行 Givens 平方根更新保留固定基线列尺度、旋转、累计残差能量和状态摘要；最终用独立从头 Householder 批处理核对参数、SSE及完整先验协方差。后验方差因子只作诊断，不能乘入已知先验协方差。旧观测编辑/删除、参数/基准改变、相关和动态随机模型不支持。最大合法十项页191工作单位，后续两次detail可用而第三次正确限流；完整记录818,649 bytes的真实容量例见[接入说明](./evidence/railwise-static-workspace/README.md)，不构成生产SLA。
 
 ## 持久化与绑定
 

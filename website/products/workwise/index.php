@@ -42,7 +42,7 @@ $workwiseCapabilities = [
 $workwiseStatus = [
   ['label' => '正式下载', 'title' => 'WorkWise 0.5.0', 'text' => '下方下载沿用已发布版本；本页新命名与四阶段界面为候选预览。', 'icon' => 'fas fa-download'],
   ['label' => '候选验收', 'title' => 'RAILWISE Survey 核心内业链', 'text' => '本页截图来自 ba38649 已安装候选，均为中文浅色与合成演示数据。该包完成签名公证、真实私有升级、逐项证据留存、篡改拒绝、历史恢复及重启复验；后续功能、专业复核与用户确认按台账分别记录。', 'icon' => 'fas fa-flask'],
-  ['label' => '后续计划', 'title' => '专业可信度与生态扩展', 'text' => '规范规则、质量评定、高级平差、外业采集与点云仍在计划中，不作为当前已交付能力宣传。', 'icon' => 'fas fa-route'],
+  ['label' => '后续计划', 'title' => '专业可信度与生态扩展', 'text' => '后续源码已加入限定模型试算与声明检查评分，精确安装包验收单独记录。完整规范评定、人员签认、外业采集和点云仍在计划中。', 'icon' => 'fas fa-route'],
 ];
 $workwiseAdvantages = [
   ['title' => '一个任务贯穿四个阶段', 'desc' => '原始文件、网络、运行与成果沿用同一任务上下文，减少在分散页面中寻找当前工作。', 'icon' => 'fas fa-compass'],
