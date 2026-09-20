@@ -410,3 +410,21 @@ Static append trials MUST require a fixed full-rank baseline, declared known abs
 #### Scenario: Known prior variance differs from residual scale
 - **WHEN** the residual-based posterior factor differs from one
 - **THEN** the interface and export retain the unscaled known-prior covariance and label the posterior factor as a diagnostic
+
+### Requirement: Declared quality linkage assessment
+The system MUST bind an immutable assessment plan to a project-scoped draft deliverable, retained-material record, complete first-round sample and explicit same-unit scoring records. It MUST replay dependencies twice within a bounded work budget and support at most eight complete sampled units without truncation. Coverage and vetoes MUST remain separate. Assessment MUST NOT modify old deliverables, write deliverable-verification audit events, authenticate source materials or confer review, signature or approval authority.
+
+#### Scenario: A failed unit and a missing unit coexist
+- **WHEN** one sampled unit has a replayed nonconforming score and another lacks a complete score
+- **THEN** the assessment reports both the veto and incomplete coverage
+- **AND** neither missing evidence nor the failure is hidden by an aggregate passing result
+
+#### Scenario: Material retention advances after an assessment
+- **WHEN** the retained-material head changes after a saved assessment
+- **THEN** a fresh read of that assessment reports changed sources and the UI clears its previous conclusion
+- **AND** a new assessment may use the unchanged plan with the new source head after full revalidation
+
+#### Scenario: History includes a damaged record
+- **WHEN** an assessment history page includes malformed stored identifiers or corrupt record data
+- **THEN** the damaged entry is isolated without hiding healthy rows
+- **AND** saved summaries are labelled as summaries while detail, replay and export require current dependency verification

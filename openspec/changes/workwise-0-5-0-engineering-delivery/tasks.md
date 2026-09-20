@@ -114,16 +114,24 @@ These code and automated-test items do not close task 39: a successful real-mode
 
 - [x] Add the bounded 1D complete-covariance reference-definition pure kernel with explicit mapping/dependence, GLS/equal method boundaries and independent exact/high-precision/negative fixtures; do not infer stable points.
 - [x] Bind the reference trial to immutable project evidence, authenticated Runtime/IPC and bilingual results with complete covariance, preserved numerical qualification and no method fallback; independently verify replay, scope, native-export payload and maximum history bounds.
-- [ ] Verify the reference workspace in its exact signed package; no existing trial acceptance covers this new interface.
+- [x] Verify the reference workspace in its exact signed package. The 6ff82c8 installed GUI covered GLS, singular refusal, explicit equal weighting and original-ID restart replay; three actual stored records passed independent arithmetic checks. Overall human acceptance remains separate.
 
 ## P1 declared inspection scoring
 
 - [x] Implement the source-bound plane/height-control exact-rational scoring kernel for declared accuracy, defects, explicit layered scope, overview, samples and the two batch stages; independently verify strict thresholds, vetoes, missing evidence and unsupported branches without claiming full standard conformity.
 - [x] Bind declared scoring to immutable project records, authenticated APIs and bilingual quality controls; independently verify exact fractions, scope, replay, corruption rejection, capacity and late project changes.
-- [ ] Verify declared scoring in its exact signed package; evidence authenticity and human approval remain explicit separate responsibilities.
+- [x] Verify declared scoring in its exact signed package. The 6ff82c8 installed GUI covered four declared outcomes, restart, single-byte corruption rejection, healthy history and restoration, with independent read-only verification; evidence authenticity and human approval remain explicit separate responsibilities.
 
 ## P1 static independent-observation append
 
 - [x] Add a bounded fixed-model, known-prior-variance Givens append kernel with a declared baseline fingerprint, every row trace and independent full Householder batch comparison; independently replay exact/high-precision models and boundary failures.
 - [x] Bind static append to immutable advanced-trial records, Runtime/IPC and bilingual results with base/append/total counts, prior covariance, full-batch comparison and bounded history; preserve old-kind limits and hashes.
 - [ ] Verify static append in its exact signed package, including stale baseline, full parameter/covariance/row displays, export, restart and supported themes/window sizes.
+
+The 6ff82c8 package already passed normal/stale/maximum GUI cases, maximum native export, original-ID restart and independent checks of all 128 maximum-case prefixes. Complete visual coverage of the large parameter/covariance surfaces remains open.
+
+## P1 declared quality linkage assessment
+
+- [x] Bind a draft deliverable, retained-material head, complete first-round sample and explicit per-unit scoring records in a separate immutable assessment service; preserve coverage and vetoes as separate results, replay dependencies twice, enforce bounded source reads and leave deliverable review status unchanged.
+- [x] Expose authenticated Runtime/IPC, a role-validated client and bilingual review UI; independently verify source changes, corruption isolation, strict score replay, late response cancellation and clearing stale conclusions.
+- [ ] Verify the linkage assessment in its exact signed package, including full and incomplete coverage, changed sources, native export, restart and themes/window sizes. This does not complete professional review, signing or production approval.

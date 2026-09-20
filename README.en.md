@@ -40,6 +40,8 @@ The current source also adds a separate generalized-w / VCE / Huber / statistica
 
 Later source adds declared two-epoch reference comparison, static independent-observation append, and declared inspection scoring. Reference trials retain explicit GLS/equal choices and full covariance. Static append records each QR update and checks a separate full batch fit. Scoring retains exact fractions, missing items and vetoes under a bounded, source-checked subset of GB/T 24356-2023. These controls do not certify stable points, change formal weights or approve deliverables. See the [implementation and acceptance ledger](./docs/qa/RAILWISE_SURVEY_CONVERGENCE_STATUS.md).
 
+Declared quality linkage assessment now connects a draft deliverable, retained materials, a complete first-round sample and explicit per-unit scoring records. Coverage, missing evidence and vetoes remain separate, and failed source revalidation clears the previous conclusion. The scope is at most eight complete sampled units; it does not authenticate materials, implement rectification/resampling, sign or approve deliverables. See the [integration and independent review](./docs/qa/evidence/railwise-quality-assessment/README.md). Packaged acceptance for this increment is tracked separately.
+
 See the [engineering survey workbench overview](./docs/ENGINEERING_SURVEY_WORKBENCH_OVERVIEW.zh-CN.md) and [survey format acceptance matrix](./docs/qa/WORKWISE_0.5.0_SURVEY_FORMAT_ACCEPTANCE_MATRIX.md) for scope and evidence.
 
 ## Candidate UI preview
