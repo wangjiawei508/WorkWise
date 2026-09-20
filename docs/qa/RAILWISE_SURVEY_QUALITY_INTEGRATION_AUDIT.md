@@ -1,5 +1,13 @@
 # Survey 质检链 Runtime 接入审计
 
+## 当前实现索引（2026-09-20）
+
+下文是 `4f859c081b33e6f0f9b8d16f9c046466ccb90e75` 的历史审计，原结论与建议保持原样，不应把“尚无质检专用 Runtime 服务、持久化”当作当前源码状态。截至 `43689493ab586c8d65bae729cfd291f3c813f679`，已接入[材料保全/质量记录和首轮抽样工作区](RAILWISE_SURVEY_QUALITY_WORKSPACE.md)、[限定声明评分](evidence/railwise-quality-scoring-workspace/README.md)、[首轮关联评估](evidence/railwise-convergence-281dc8767250/README.md)及[规范依据目录](evidence/railwise-standard-basis-20260920/README.md)。这些增量具有独立的持久化、认证 Runtime/IPC 与桌面入口，历史包已有各自限定验收记录。
+
+仍未完成的范围包括受信规则/项目适用性、真实材料与缺陷分类核验、整改后重抽、完整阶段职责及授权、独立签名认证和批准交付门禁，见[总计划未完成清单](RAILWISE_SURVEY_REMAINING_WORK.md)。当前最终候选状态为 `in_progress`；本索引不将历史包证据改写为最终包通过，也不将声明评分、字节保全或智能体预审视作专业签认。
+
+## 原始审计快照
+
 审计对象：`4f859c081b33e6f0f9b8d16f9c046466ccb90e75`。日期：2026-09-20。角色：独立模拟技术审核智能体，`actor.kind=agent`；不是测绘质量检验人员签字、项目验收或规范符合性证明。本次只读代码及已取得的资料，没有改动候选、生产规则集合或仓库。
 
 结论：现有实现可以复用“规范来源绑定、精确版本谓词、事件链完整性、最终成果记录覆盖”四块内核，但尚无质检专用 Runtime 服务、持久化、认证签认和交付批准门禁。不能把 `coverageStatus=covered` 映射成 `reviewStatus=approved`。最小可交付增量应先完成冻结计划、证据保存、追加记录和独立覆盖复验；规范评分与真实签认是后续具有明确前提的层次。

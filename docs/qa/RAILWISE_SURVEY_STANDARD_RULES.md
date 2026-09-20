@@ -1,5 +1,13 @@
 # Survey 规范规则与质检记录内核
 
+## 当前实现索引（2026-09-20）
+
+本页下文保留内核增量及各轮研究的历史说明。其中“没有内置抽样/评分”“尚未接入数据库、HTTP 或 UI”限定于相应内核/当时增量，不再代表整个产品现状。截至源码 `43689493ab586c8d65bae729cfd291f3c813f679`，已有[证据保全与首轮抽样工作区](RAILWISE_SURVEY_QUALITY_WORKSPACE.md)、[限定声明评分](evidence/railwise-quality-scoring-workspace/README.md)、[首轮材料与评分关联评估](evidence/railwise-convergence-281dc8767250/README.md)和[精确规范依据目录](evidence/railwise-standard-basis-20260920/README.md)，包含各自的 Runtime、持久化和桌面接线。
+
+这些能力仍不等于受信规则完整执行、实际缺陷认证、整改后重抽、完整组织阶段、真实数字签名或批准交付。完整缺口见[总计划未完成清单](RAILWISE_SURVEY_REMAINING_WORK.md)。当前最终候选状态为 `in_progress`；源码、历史包与待验最终包的证据分别记录，不用此索引关闭包验收或人审。
+
+## 历史内核增量说明
+
 此增量提供可接入 Runtime 的版本化规则注册和质检事件链。它没有内置 GB/T 24356-2023 或其他真实规范的阈值、抽样数、评分表，也没有实现该标准的符合性判定。09-19 的[官方来源记录](evidence/railwise-research-20260919/standards-source.json)仅覆盖元数据；09-20 已取得[官方全文并核对列明条款](evidence/railwise-standards-20260920/README.md)，包括检查顺序、抽样、评分和工程控制分类。扫描页来源仍需与规则合同衔接，完整映射、独立专业签认及生产流程未完成；研究记录没有自动进入受信规则集合。
 
 ## 规则执行条件
