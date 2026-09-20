@@ -1,49 +1,78 @@
-# WorkWise 软件介绍
+# RAILWISE AI 与 RAILWISE Survey
 
-> 让 AI 进入真实工作流。
+> 工程测量内业与编程协作。
 
-WorkWise 是一款本地优先的桌面 AI 工作台。它把项目文件、会话、文档写作、结构化设计、可复用技能和外部工具组织在一个应用中，帮助个人与团队完成需要持续上下文、反复迭代和正式交付的工作。
+RAILWISE AI 是本地优先的桌面工作平台。候选界面以“编程 / 内业”为主入口；RAILWISE Survey 面向工程测量内业，将原始测量资料处理为可复核的计算结果和可追溯的候选成果。写作、设计、Flow、插件与定时任务继续提供辅助工具。
+
+**已发布与候选分开说明：**公开版本仍为 [WorkWise 0.5.0](https://github.com/wangjiawei508/WorkWise/releases/tag/v0.5.0)，提供工程测量工作台、统一插件市场、Codex 插件兼容及结构化附件处理。新的命名、四阶段 Survey 界面和后续专业功能仍在隔离候选包中验收，不因本文更新而替换正式安装包或更新渠道。下载 0.5.0 后按该版本已有入口操作，不要求出现候选中的新菜单。
 
 [产品主页](https://www.railwise.cn/products/workwise/) · [使用指南](./USER_GUIDE.zh-CN.md) · [版本与下载](https://github.com/wangjiawei508/WorkWise/releases) · [问题反馈](https://github.com/wangjiawei508/WorkWise/issues)
 
 ## 产品定位
 
-普通 AI 对话擅长回答一次性问题，但真实工作通常还包含资料目录、多个文件、修改历史、审批边界、团队规范和最终交付格式。WorkWise 的目标是把这些要素放回同一个工作现场，让 AI 在可查看、可中断、可复核的边界内持续协作。
+工程任务不仅包含一次问答，还需要原始资料、坐标与高程基准、计算历史、质量证据和交付文件。RAILWISE Survey 把这些内容保留在同一工程上下文中；AI 负责解释、诊断和编排，数值计算由确定性 Runtime 执行。
 
 它适合以下用户：
 
+- 处理控制网、水准、任意设站、变形监测及成果复核的工程测量人员。
 - 需要 AI 理解和修改本地项目的开发者与技术团队。
 - 需要编写方案、报告、标书、汇报材料和知识文档的专业人员。
 - 希望把个人方法、团队规范和行业模板沉淀为可复用 Skills 的组织。
 - 需要在本地工作区内连接模型、工具和公开知识来源的高级用户。
 
-## DeepSeek V4 与 DeepSeek Harness 支持
+## Survey 四阶段工作流
 
-WorkWise 不是在通用聊天客户端上额外增加一个 DeepSeek 选项，而是从项目起点就围绕 DeepSeek 的模型能力和真实工作场景构建。DeepSeek 是当前开箱即用的默认模型底座；同时 WorkWise 保持开放，允许用户在首次配置后按需添加其他兼容模型服务。
+**原始文件 → 内容识别与预检 → 建网和基准确认 → 确定性平差 → 精度与异常复核 → 成果包 → 人工审查。**
 
-### 0.4.2 当前支持
+| 阶段 | 当前候选的工作内容 |
+| --- | --- |
+| 导入与预检 | 保留源文件、SHA-256、解析器身份、单位、原始记录锚点和文件处置原因；需要映射时显式确认 |
+| 建网与平差 | 确认任务网型、已知控制点、坐标系统与高程基准；冲突输入拒绝，质量校核通过后执行确定性计算 |
+| 分析与精度 | 查看闭合差、观测残差、点位精度和 XY 标准误差椭圆，从结果返回原始记录 |
+| 成果与审查 | 生成 DOCX、PDF、XLSX 与关联清单，重新读取来源/输出并严格复算受支持的 Survey 结果 |
 
-- 内置 `deepseek-v4-pro` 与 `deepseek-v4-flash` 模型配置，可直接连接 DeepSeek 官方 API，也可按组织要求配置兼容服务。
-- 首次启动的模型配置只提供 DeepSeek API Key 和可选服务地址；默认主 Agent 使用 `deepseek-v4-pro`，Write 行内补全默认使用 `deepseek-v4-flash`。一次配置即可供对话、写作和手机连接共用，没有 API Key 时仍可先使用本地写作和导出。
-- 按 DeepSeek V4 的 100 万 token 上下文建立运行时配置，并支持思考模式、工具调用、长对话历史延续、上下文压缩和缓存用量统计。DeepSeek 官方公布的模型能力与接口范围见 [DeepSeek V4 发布说明](https://api-docs.deepseek.com/news/news260424) 和 [模型与计费说明](https://api-docs.deepseek.com/quick_start/pricing)。
-- 接入 DeepSeek Harness 的 WorkWise 运行时适配：图片附件按模型能力选择结构化 `text/image` 消息部分，文本模型则可通过本机回环视觉证据分析器生成结构化的 OCR、布局、语义和视觉摘要，再作为不可信证据提供给模型。分析器不可用或失败时明确终止本回合，不把图片退化成 Base64 文本；分析器自己的本机 HTTP 输入使用 `dataBase64` 传递图片字节，不等同于模型提示内容。
-- 0.4.2 支持 JPEG、PNG、GIF 和 WebP 图片导入及真实内容签名识别。图片回合使用 `auto` 时，仅在当前配置使用 DeepSeek 官方地址，或当前 Provider 显式配置或实际发现 `deepseek-v4-flash-vision-exp` 时，为本回合选择该模型；失败时不清空尚未发送的文字和附件。
-- WorkWise 的兼容适配器已测试 Chat Completions、Responses 和 Anthropic Messages 三种结构化图片块。这里陈述的是 WorkWise 的序列化兼容范围，不表示 DeepSeek 官方 API 或任一第三方 Provider 默认提供全部三种协议。
-- 本版本使用的是 WorkWise Runtime 自有的 DeepSeek 兼容适配、附件合约和 `VisionEvidencePort` 实现，没有把上游 DeepSeek Harness 仓库作为独立依赖或源码副本打包进客户端；未实现的上游能力不作为 WorkWise 0.4.2 能力宣传。
-- WorkWise 负责模型接入与工作流编排；API Key、模型可用性、调用额度和费用仍由用户选择的模型服务及其账户决定。
+模型不可用时仍可手动使用候选中的导入、校核、平差及成果操作。AI 会话跨阶段保留；普通咨询直接回答，修改工程、计算或导出前展示具体计划与参数。填写规范名称、测量等级或条款只是保存项目上下文，不代表已经完成相应规范检查。
 
-实现边界和数据流见 [DeepSeek Harness 接入说明](./DEEPSEEK_HARNESS.zh-CN.md)。
+COSA IN1/IN2 和 Leica GSI 水准数据需通过相应单位、基准及拓扑门禁。OU1/OU2 保留用于归档审查，尚不能宣传为已验收的产品内自动成果比较。RW5 等部分格式只支持解析检查或归档；GNSS 接收机原始观测和 RTKLIB 相关资料需先后处理，不能直接替代具备基准与协方差的基线成果。识别扩展名或厂商不等于可平差，详见[当前格式范围与验收证据](https://github.com/wangjiawei508/WorkWise/blob/e7de9df7c664a4924ea1668e69f821efd0a9bab1/docs/qa/WORKWISE_0.5.0_SURVEY_FORMAT_ACCEPTANCE_MATRIX.md)。
 
-### 2026 年 8 月模型状态
+XY 标准误差椭圆半轴采用单位马氏半径，不代表 95% 等置信区间；GNSS 解算的 XY 也不自动等于当地东/北方向。没有适用的项目限值和专业复核，计算结果不能自动宣布满足工程规范。
 
-- DeepSeek V4 Pro API 的正式模型标识仍为 `deepseek-v4-pro`，WorkWise 0.4.2 继续使用该稳定标识；服务端模型更新不要求重新安装 WorkWise。模型服务的具体能力和接口范围以 [DeepSeek 官方文档](https://api-docs.deepseek.com/updates) 为准。
-- “DeepSeek Harness”是上游项目名称；WorkWise 文档只陈述本版本实际接入的运行时适配和附件路径，不把上游正在更新或尚未接入的功能写成已交付能力。
+### 高级试算与质量记录
 
-### 后续优化方向
+候选已接入自由水准、广义 w、独立分组 VCE、固定外部尺度 Huber、预声明统计家族、指定参考集合的两历元比较，以及静态独立观测追加。工作区保存输入原文、模型依据、计算记录和不可变历史，读取或导出前严格重算。不可检测、负方差、未收敛和缺失成员保留原状态，不自动删除观测、更换正式权或认定稳定点。这些是有明确模型和范围的试算，不是完整自动异常识别、自动拟稳或动态滤波。
 
-后续会根据上游 DeepSeek Harness 和模型服务的实际变化，逐项评估多协议续接、推理档位、长工具链、文档附件检索与 Flow 场景。只有完成 WorkWise 自己的代码、测试和真实服务验收后，才会列入稳定能力。
+质量工作区提供材料保全、总体冻结与完整首轮抽样、GB/T 24356-2023 限定声明检查评分，以及最多 8 个完整样本单位的关联评估。评估绑定待审成果、保全记录、抽样与同单位评分，分别显示缺项和否决；来源变化后旧评估不可继续使用。它不证明原始资料真实、错漏分类正确、人员独立或已完成签字，也不替代整改重抽和完整规范符合性判定。
 
-## 主要工作方式
+当前成果保持待审草稿。文件生成、完整性复验、质量记录覆盖和人工批准分别记录；哈希与重放不是数字签名。具体实现和每个候选的验收边界见[执行台账](https://github.com/wangjiawei508/WorkWise/blob/e7de9df7c664a4924ea1668e69f821efd0a9bab1/docs/qa/RAILWISE_SURVEY_CONVERGENCE_STATUS.md)。
+
+### 当前截图与验收范围
+
+以下为 `281dc87` 已安装候选的中文浅色实拍，使用合成平面控制网（4 点、1 测站、5 观测），依次展示平差结果、成果中心与模型设置。原图来源与哈希见[截图清单](https://github.com/wangjiawei508/WorkWise/blob/e7de9df7c664a4924ea1668e69f821efd0a9bab1/website/products/screenshots/workwise/candidate-screenshots.json)。
+
+![RAILWISE Survey 候选平差结果](../website/products/screenshots/workwise/04-survey-candidate-zh-light.jpg)
+
+![RAILWISE Survey 候选成果中心](../website/products/screenshots/workwise/05-survey-candidate-delivery.jpg)
+
+![RAILWISE AI 候选模型设置](../website/products/screenshots/workwise/06-candidate-model-settings.jpg)
+
+该包已完成签名、公证、真实私有 updater 往返及本机同包安装。限定实机检查覆盖质量关联的完整、缺失与否决案例、原生导出、重启恢复和来源变化复验。完整界面覆盖、精确包内 AI 流程、用户本人确认与专业复核尚未闭合，整体验收仍为部分完成。见[281dc87 精确包记录](https://github.com/wangjiawei508/WorkWise/blob/e7de9df7c664a4924ea1668e69f821efd0a9bab1/docs/qa/evidence/railwise-convergence-281dc8767250/README.md)；后续源码修复不自动算入本包。
+
+## DeepSeek V4.1 与 AI 协作
+
+默认模型为官方 ID `deepseek-flash`（DeepSeek V4.1-Flash）。已有显式模型选择保持不变，`deepseek-v4-pro` 与旧 Flash 配置保留兼容。截图对应候选已含新默认值；后续自动选模与失败回退修复属于更新源码，不能由截图证明已经验收。
+
+2026-09-20，经编译后的产品适配器使用 DeepSeek 官方服务完成了真实对话、JSON 精确输出、声明函数名与参数返回及合成图片识别检查。函数检查没有执行工具，视觉检查使用合成图形；这组网络检查不替代安装包内的完整咨询、证据追问、修改建议、审批、工具执行和视觉流程验收。
+
+V4.1 官方 Responses API 忽略内置 `web_search`；两次搜索请求虽返回 HTTP 200，但无搜索调用和有效引用，不能计为搜索成功。当前源码已撤回该内置搜索资格。搜索需另行配置浏览器或 MCP 等工具，无可用工具时应明确报告不可用。见[真实服务检查与搜索能力纠正](https://github.com/wangjiawei508/WorkWise/blob/e7de9df7c664a4924ea1668e69f821efd0a9bab1/docs/qa/evidence/railwise-v41-live-20260920/README.md)。
+
+- 首次配置提供 DeepSeek API Key 和可选服务地址；模型配置供对话、写作和其他 Agent 共用。API Key、可用模型、额度与计费由服务商及账户决定。
+- 模型目录配置 100 万 token 上下文与最高 384K 输出，并接入思考模式、工具调用、上下文压缩、缓存统计、JSON 和 Responses 路径。实际能力和限制以服务端为准。
+- JPEG、PNG、GIF 和 WebP 图片按模型能力使用结构化 `text/image` 消息；文本模型可使用本机回环视觉证据分析器。失败明确报告，不把图片 Base64 当作模型提示正文。
+- DeepSeek Harness 接入指应用自己的 Runtime 适配、附件合同和视觉证据路径，不代表打包了上游项目全部源码或能力。其他 Provider 的协议兼容测试也不证明 DeepSeek 官方支持全部协议。
+
+[官方模型文档](https://api-docs.deepseek.com/updates) · [Runtime 接入边界](./DEEPSEEK_HARNESS.zh-CN.md)
+
+## 其他工作工具
 
 ### 1. Code 工作台
 
@@ -69,7 +98,7 @@ Write 面向文档型工作，提供 Markdown 编辑、实时预览、选区助�
 
 ### 3. Design 设计工作台
 
-Design 是与 Code、Write 并列的独立工作区，面向报告配图、流程图、信息图和演示文稿页面。它提供多页结构化画板、图片资源、组合、图层、属性、撤销/重做、文档专属 Agent 会话和可见的选中元素修改目标；文档保存在当前工作区，修改使用 revision 和幂等键防止旧操作覆盖新内容。
+Design 提供独立工作区，面向报告配图、流程图、信息图和演示文稿页面。它提供多页结构化画板、图片资源、组合、图层、属性、撤销/重做、文档专属 Agent 会话和可见的选中元素修改目标；文档保存在当前工作区，修改使用 revision 和幂等键防止旧操作覆盖新内容。候选中的侧边工具入口不改变“编程 / 内业”主入口。
 
 当前画板可直接导出 PNG、SVG 和经过结构验证的 PPTX，也可把页面保存到 Write 工作区并插入 Markdown。PPTX 导入默认采用“可读优先”的整页视觉参考，避免文字错位、遮挡和版式丢失；可选择该参考并让 AI 添加标注或重做元素，但原始文字、图表和动画不会被伪装成逐元素可编辑对象。
 
@@ -84,6 +113,10 @@ MCP 用于连接外部工具和数据源；命令行工具由 WorkWise 安装到
 ### 6. 知识检索
 
 Write 可将本地资料检索与 RailWise 官方知识库结合。远程查询只发送压缩后的关键词，异常或离线时回退到公开静态知识内容和本地缓存。涉及标准、阈值、频率和正式结论时，仍需由专业人员复核。
+
+### 7. Flow Preview
+
+Flow 连接触发器、Agent、知识检索、HTTP、条件、循环、审批和文档输出等类型化节点，提供配置、Mock/单节点测试、发布校验、运行历史和失败恢复。未配置模型、账号或 CLI 的节点显示缺失能力，依赖未满足的流程不能发布。Flow 仍标记为 Preview；通用工具入口不代表 Survey 与写作、设计、Flow 的专业成果联动已经完成。
 
 ## 产品原则
 
@@ -114,7 +147,8 @@ AI 生成内容可能存在事实、计算、引用和排版错误。涉及工�
 ## 更新、语言与帮助
 
 - 中文和英文界面由同一语言设置驱动，包括 macOS 原生菜单、Windows 应用菜单和托盘菜单。
-- WorkWise 默认从官方 GitHub Releases 检查更新；发现新版本时显示提醒。
+- WorkWise 0.5.0 从 `railwise.cn` 官方 Stable 更新源检查更新；GitHub Releases 保留公开发布记录和手动安装包。
+- 发现更新后先在后台下载，完成后显示“重启并更新”；重启前保存编辑内容并检查运行中的任务，再由平台更新程序替换和重新启动应用。
 - 用户可在“帮助 → 检查更新”或“设置 → 通用 → 软件更新”主动检查。
 - 帮助菜单提供产品主页、个人主页、软件介绍、GitHub 项目、版本下载和日志目录。
 
@@ -129,6 +163,12 @@ AI 生成内容可能存在事实、计算、引用和排版错误。涉及工�
 当前不提供 Linux 桌面客户端、便携版或激活码。模型 API Key、可用模型、额度和计费由用户选择的服务商及账户权限决定。
 
 MarkItDown 已包含在三种客户端中，不要求用户安装 Python。MinerU 属于可选组件，安装前会检查平台、内存和磁盘空间；普通用户无需安装即可使用基础 PDF/Office 解析和预览。
+
+## 兼容与后续范围
+
+用户可见名称先行迁移，WorkWise 仓库、安装包名、bundle ID、更新源、`~/.workwise` 数据和历史配置读取保留。既有项目、会话、插件、Skill、MCP 及凭据引用不会因改名而删除，见[迁移矩阵](https://github.com/wangjiawei508/WorkWise/blob/e7de9df7c664a4924ea1668e69f821efd0a9bab1/docs/railwise-ai-migration-matrix.md)。
+
+版本化规范规则的完整接入、质检整改与阶段流程、真实签认和正式批准、更多高级模型以及第二批格式仍按各自条件推进。GeoCOM 真实仪器采集、点云/三维、DXF、对外 MCP 和跨工具深度协作属于后续扩展；外业、点云和长尾格式范围受 P0 与候选包验收门禁约束。当前定位是工程测量内业，不能宣传为完整外业采集或放样系统。
 
 ## 数据与隐私提示
 
