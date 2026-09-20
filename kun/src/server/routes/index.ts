@@ -1,3 +1,4 @@
+import { registerSurveyQualityAssessmentRoutes } from './survey-quality-assessment.js'
 import { registerSurveyQualityScoringWorkspaceRoutes } from './survey-quality-scoring-workspace.js'
 import { Router } from '../router.js'
 import { getStatisticalDiagnostics } from './survey-statistics.js'
@@ -101,6 +102,7 @@ import * as engineeringAiRoutes from './engineering-ai.js'
  */
 export function buildRouter(runtime: ServerRuntime): Router {
   const router = new Router()
+  registerSurveyQualityAssessmentRoutes(router, { getService: () => runtime.surveyQualityAssessmentService, authorize: request => authorize(request, runtime) })
   registerSurveyQualityWorkspaceRoutes(router, {
     getService: () => runtime.surveyQualityWorkspaceService,
     authorize: (request) => authorize(request, runtime)

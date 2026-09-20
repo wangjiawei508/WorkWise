@@ -354,9 +354,17 @@ export class SurveyQualityWorkspaceService {
     // reuse their write transaction through better-sqlite3's savepoint support.
     return this.db.transaction(() => this.readRecord(pid, recordId))()
   }
-  private readRecord(pid: string, recordId: string): SurveyQualityWorkspaceRecordReadV1 {
+  getAssessmentSnapshot(pid: string, planId: string, recordId: string) {
+    return this.db.transaction(() => {
+      const cache = new Map<string, SurveyQualityArtifactV1>()
+      const plan = this.readPlan(pid, planId, cache)
+      const record = this.readRecord(pid, recordId, cache)
+      if (record.record.planId !== planId) return fail('invalid-reference')
+      return { ...plan, ...record }
+    })()
+  }
+  private readRecord(pid: string, recordId: string, cache = new Map<string, SurveyQualityArtifactV1>()): SurveyQualityWorkspaceRecordReadV1 {
     this.project(pid)
-    const cache = new Map<string, SurveyQualityArtifactV1>()
     const record = SurveyQualityRecordV1.parse(this.read('record', pid, recordId)), { plan } = this.readPlan(pid, record.planId, cache)
     if (record.planHash !== digest(plan) || record.artifactId !== plan.artifactId || record.artifactHash !== plan.artifactHash) return fail('integrity')
     const events = this.events(pid, record, plan, cache).map(item => item.event)

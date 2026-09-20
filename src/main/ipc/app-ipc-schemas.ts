@@ -1,3 +1,4 @@
+import { SurveyQualityAssessmentPlanCreateV1, SurveyQualityAssessmentCreateV1, SurveyQualityAssessmentReverifyV1, QUALITY_ASSESSMENT_LIMITS, parseAssessmentJson } from '../../shared/survey-quality-assessment'
 import { SurveyQualityScoringCreateV1, SurveyQualityScoringReverifyRequestV1, SURVEY_QUALITY_SCORING_WORKSPACE_LIMITS, SurveyQualityScoringInputV1, parseQualityScoringJson } from '../../shared/survey-quality-scoring'
 import { SurveySamplingPopulationCreateV1, SurveySamplingRunCreateV1, SurveySamplingVerifyRequestV1, SURVEY_SAMPLING_WORKSPACE_LIMITS } from '../../shared/survey-quality-sampling-workspace'
 import { SurveyAdvancedTrialCreateV1, SurveyAdvancedTrialReverifyRequestV1, SURVEY_ADVANCED_TRIAL_LIMITS, SurveyGeneralizedWRequestV1, SurveyVceTrialInputV1, SurveyHuberTrialInputV1, SurveyStatisticalFamilyInputV1, SurveyReferenceDatumInputV1, SurveyStaticIncrementalInputV1, parseAdvancedTrialJson } from '../../shared/survey-advanced-trials'
@@ -224,6 +225,12 @@ const SAMPLING_ENDPOINTS = [
 ].map(entry => ({ ...entry, endpoint: compileEndpoint(`/v1/engineering/projects/{id}/${entry.suffix}`, entry.methods, entry.paginated ? ['limit', 'offset'] : []) }))
 
 const ENDPOINTS: readonly EndpointTemplate[] = [
+  compileEndpoint('/v1/engineering/projects/{id}/quality-assessment-plans', ['GET', 'POST'], ['limit', 'offset']),
+  compileEndpoint('/v1/engineering/projects/{id}/quality-assessment-plans/{recordId}', ['GET'], []),
+  compileEndpoint('/v1/engineering/projects/{id}/quality-assessments', ['GET', 'POST'], ['limit', 'offset']),
+  compileEndpoint('/v1/engineering/projects/{id}/quality-assessments/{recordId}', ['GET'], []),
+  compileEndpoint('/v1/engineering/projects/{id}/quality-assessments/{recordId}/reverify', ['POST'], []),
+  compileEndpoint('/v1/engineering/projects/{id}/quality-assessments/{recordId}/export', ['GET'], []),
   compileEndpoint('/v1/engineering/projects/{id}/quality-scoring', ['GET', 'POST'], ['limit', 'offset']),
   compileEndpoint('/v1/engineering/projects/{id}/quality-scoring/{recordId}', ['GET'], []),
   compileEndpoint('/v1/engineering/projects/{id}/quality-scoring/{recordId}/reverify', ['POST'], []),
@@ -360,6 +367,23 @@ export const runtimeRequestPayloadSchema = z
     try { url = new URL(payload.path, 'http://localhost') } catch {
       context.addIssue({ code: 'custom', message: 'invalid runtime request URL' })
       return
+    }
+    const assessment = /^\/v1\/engineering\/projects\/[^/]+\/(quality-assessment-plans|quality-assessments)(?:\/([^/]+)(?:\/(reverify|export))?)?$/.exec(url.pathname)
+    if (assessment) {
+      const method = payload.method ?? 'GET'
+      let valid = method === 'GET' && payload.body === undefined
+      for (const [key, value] of url.searchParams) {
+        if (assessment[2] || !['limit','offset'].includes(key) || url.searchParams.getAll(key).length !== 1 || !/^(0|[1-9]\d*)$/.test(value)
+          || !Number.isSafeInteger(Number(value)) || (key === 'limit' ? Number(value) < 1 || Number(value) > 10 : Number(value) > 128)) valid = false
+      }
+      if (method === 'POST' && !url.search && payload.body !== undefined && Buffer.byteLength(payload.body, 'utf8') <= QUALITY_ASSESSMENT_LIMITS.requestBytes) {
+        try {
+          const data = parseAssessmentJson(payload.body)
+          if (assessment[3] === 'reverify' && assessment[1] === 'quality-assessments') valid = SurveyQualityAssessmentReverifyV1.safeParse(data).success
+          else if (!assessment[2]) valid = (assessment[1] === 'quality-assessment-plans' ? SurveyQualityAssessmentPlanCreateV1 : SurveyQualityAssessmentCreateV1).safeParse(data).success
+        } catch { valid = false }
+      }
+      if (!valid) context.addIssue({ code: 'custom', message: 'invalid declared linkage request' })
     }
     const scoring = /^\/v1\/engineering\/projects\/[^/]+\/quality-scoring(?:\/[^/]+(?:\/(reverify|export))?)?$/.exec(url.pathname)
     if (scoring) {

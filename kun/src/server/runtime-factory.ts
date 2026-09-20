@@ -1,3 +1,4 @@
+import { SurveyQualityAssessmentService } from '../engineering/survey-quality-assessment.js'
 import { SurveyQualityScoringWorkspaceService } from '../engineering/survey-quality-scoring-workspace.js'
 import { mkdir } from 'node:fs/promises'
 import { join } from 'node:path'
@@ -381,6 +382,18 @@ export async function createKunServeRuntime(
     nowIso,
     getProject: (projectId) => engineeringService.getProject(projectId)
   })
+  const surveyQualityAssessmentService = new SurveyQualityAssessmentService({
+    rootDir: join(options.dataDir, 'engineering'), nowIso,
+    sources: Object.freeze({
+      getProject: (pid: string) => engineeringService.getProject(pid),
+      getManifest: (pid: string, id: string) => engineeringService.getManifestForProject(pid, id),
+      retentionSnapshot: (pid: string, plan: string, record: string) => surveyQualityWorkspaceService.getAssessmentSnapshot(pid, plan, record),
+      getPopulation: (pid: string, id: string) => surveySamplingWorkspaceService.getPopulation(pid, id),
+      getRun: (pid: string, id: string) => surveySamplingWorkspaceService.getRun(pid, id),
+      listSamples: (pid: string, id: string, limit: number, offset: number) => surveySamplingWorkspaceService.listSamples(pid, id, limit, offset),
+      getScore: (pid: string, id: string) => surveyQualityScoringWorkspaceService.getRecord(pid, id)
+    })
+  })
   const visionEvidenceRuntime = createVisionEvidenceService(options.visionEvidence)
   const visionEvidence = visionEvidenceRuntime.service
   const attachmentCleanupTimer = attachmentStore
@@ -628,6 +641,7 @@ export async function createKunServeRuntime(
     engineeringContext,
     engineeringAi,
     surveyService,
+    surveyQualityAssessmentService,
     surveyQualityWorkspaceService,
     surveyQualityScoringWorkspaceService,
     surveyAdvancedTrialsWorkspaceService,
@@ -701,6 +715,7 @@ export async function createKunServeRuntime(
           await surveyService.flush()
           await engineeringService.flush()
           surveyService.close()
+          surveyQualityAssessmentService.close()
           surveyQualityWorkspaceService.close()
           surveyQualityScoringWorkspaceService.close()
           surveyAdvancedTrialsWorkspaceService.close()

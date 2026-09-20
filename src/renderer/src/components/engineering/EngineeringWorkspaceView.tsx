@@ -1,3 +1,4 @@
+import { SurveyQualityAssessmentWorkspace } from './SurveyQualityAssessmentWorkspace'
 import { SurveyQualityScoringWorkspace } from './SurveyQualityScoringWorkspace'
 import { SurveyQualitySamplingWorkspace } from './SurveyQualitySamplingWorkspace'
 import { SurveyAdvancedModelWorkspace } from './SurveyAdvancedModelWorkspace'
@@ -904,6 +905,7 @@ export function EngineeringWorkspaceView({ workspaceRoot, runtimeReady, leftSide
               />
               <div className="p-5">
                 <SurveyQualitySamplingWorkspace binding={{ projectId: overview.project.id, projectRevision: overview.project.revision, workspaceRoot }} runtimeReady={runtimeReady} />
+                <SurveyQualityAssessmentWorkspace binding={{ projectId: overview.project.id, projectRevision: overview.project.revision, workspaceRoot }} runtimeReady={runtimeReady} manifests={overview.manifests} />
                 <div className="engineering-review-layout">
                   <div>
                     <div className="overflow-hidden border border-ds-border-muted">
