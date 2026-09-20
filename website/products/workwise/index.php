@@ -171,7 +171,7 @@ require_once __DIR__ . '/../../includes/header.php';
     <div class="pd-section-head">
       <div class="pd-eyebrow dark">DEEPSEEK V4.1-FLASH NATIVE</div>
       <h2>DeepSeek V4.1-Flash，协助理解与规划</h2>
-      <p class="pd-section-sub">默认模型 ID <code>deepseek-flash</code> 贯穿 Agent、Write 和 Survey。运行时已适配思考、工具调用和结构化附件；真实网络回合尚未验收。后续 <code>auto</code> 路由修复不在本页 281dc87 截图对应包内。</p>
+      <p class="pd-section-sub">默认模型 ID <code>deepseek-flash</code> 用于 Agent、Write 和 Survey。官方服务的对话、JSON 输出、函数调用声明与图片识别已通过适配器实测；完整安装包 AI 操作流程仍在验收。后续自动选模修复不在本页截图对应候选包内。</p>
     </div>
     <div class="pd-caps-grid">
       <article class="pd-cap">
@@ -191,7 +191,7 @@ require_once __DIR__ . '/../../includes/header.php';
           <div>
             <span class="pd-eyebrow dark">1M CONTEXT · UP TO 384K OUTPUT</span>
             <h3>长上下文与结构化工具调用</h3>
-            <p>模型目录按 100 万 token 上下文与最高 384K 输出配置，并提供思考模式、工具调用、上下文压缩、缓存统计、JSON 与 Responses API 适配。本地协议测试不等于真实模型服务验收。</p>
+            <p>模型目录按 100 万 token 上下文与最高 384K 输出配置，并提供思考模式、工具调用、上下文压缩、缓存统计与 JSON 适配。当前官方 Responses 接口会忽略内置网页搜索，产品不将其列为 V4.1 可用能力；联网工具需另行配置。</p>
             <a href="https://api-docs.deepseek.com/quick_start/pricing" target="_blank" rel="noopener" class="cli-inline-link">查看 DeepSeek 官方模型说明 <i class="fas fa-arrow-up-right-from-square"></i></a>
           </div>
         </div>
