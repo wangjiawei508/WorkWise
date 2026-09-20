@@ -39,13 +39,15 @@ AI 会话跨阶段保留，计算与导出计划先展示具体参数再确认�
 
 后续源码已接入两历元指定参考比较、静态独立观测追加和声明检查评分。参考比较显式选择 GLS 或等权并传播完整协方差；静态追加保留逐行 QR 记录并与完整批处理解对照；评分按已核实的 GB/T 24356-2023 限定规则保存精确分数、缺项和否决原因。这些结果不自动认定稳定点、修改正式权或批准成果，详见[执行与验收台账](./docs/qa/RAILWISE_SURVEY_CONVERGENCE_STATUS.md)。
 
-声明质量关联评估现已接入源码：将待审成果、材料保全、完整首轮抽样与逐单位评分绑定，分别显示资料覆盖、缺项和否决；复验发现来源变化时清除旧结论。当前限于最多 8 个完整样本单位，不替代资料鉴真、整改重抽、专业签字或批准。详见[接入与独立复核记录](./docs/qa/evidence/railwise-quality-assessment/README.md)，此增量的安装包验收单独进行。
+声明质量关联评估将待审成果、材料保全、完整首轮抽样与逐单位评分绑定，分别显示资料覆盖、缺项和否决；来源变化时清除旧结论。`281dc87` 已安装候选完成两单位合成案例的完整、缺失和否决并存检查，以及导出、重启恢复和来源变化复验。当前最多支持 8 个完整样本单位，不替代资料鉴真、整改重抽、专业签字或批准。详见[本包实机记录](./docs/qa/evidence/railwise-convergence-281dc8767250/README.md)与[实现范围](./docs/qa/evidence/railwise-quality-assessment/README.md)。
 
 **[0.5.0 正式版](https://github.com/wangjiawei508/WorkWise/releases/tag/v0.5.0)**新增工程测量工作台，将项目数据、格式诊断、闭合差与平差复核、成果导出组织在同一工作区；继续提供统一插件市场、Codex 插件兼容和结构化附件处理。旧版本用户可通过应用内检查更新升级。
 
 ## DeepSeek 原生默认支持
 
 当前桌面和 Runtime 默认使用 DeepSeek V4.1-Flash，正式模型 ID 为 `deepseek-flash`。已经保存的显式模型选择保持不变。
+
+`281dc87` 候选已包含该默认模型；后续 `auto` 路由修复属于更新源码，不在本页截图对应包内。真实模型回答和官方搜索的网络验收尚未完成。
 
 - **安装后直接配置 DeepSeek**：首次启动的模型配置只提供 DeepSeek API Key 和可选服务地址，不需要先理解或切换服务商；完成一次配置后，对话、写作和手机连接即可共用。没有 API Key 时仍可先使用本地写作和导出。
 - **统一默认模型**：0.5.0 的主 Agent、Write、定时任务和其他 Agent 默认使用官方模型 ID `deepseek-flash`（DeepSeek V4.1-Flash）；`deepseek-v4-pro` 仍可显式选择，旧 Flash ID 仅为迁移兼容保留。
@@ -71,7 +73,7 @@ AI 会话跨阶段保留，计算与导出计划先展示具体参数再确认�
 
 ## 候选界面预览
 
-以下为 `ba38649` 已安装候选包的中文浅色实拍，使用合成三点水准网；每张图片的精确提交与哈希见[截图清单](./website/products/screenshots/workwise/candidate-screenshots.json)。截图不代表正式 0.5.0 安装包已替换。本包已通过签名公证、[真实私有升级往返及质量证据工作区实机检查](./docs/qa/evidence/railwise-convergence-ba3864917e12/README.md)：逐项留存、篡改拒绝、有效历史恢复、重启后的同记录复验及 960×640 窗口均有记录。技术留存不等于质量评分、规范符合性或人工签名；真实模型、专业确认及总计划剩余工作见下方台账。
+以下为 `281dc87` 已安装候选包的中文浅色实拍，展示合成平面控制网（4 点、1 测站、5 观测）的平差结果、成果中心与模型设置。原图和包身份见[截图清单](./website/products/screenshots/workwise/candidate-screenshots.json)。本包已通过签名公证和真实私有升级往返，并完成[声明质量关联的限定实机检查](./docs/qa/evidence/railwise-convergence-281dc8767250/README.md)。整体验收仍为部分完成：真实模型、完整界面覆盖、专业复核和用户本人确认仍有待完成；正式 0.5.0 安装包未被替换。
 
 ![RAILWISE Survey 中文浅色候选界面](./website/products/screenshots/workwise/04-survey-candidate-zh-light.jpg)
 

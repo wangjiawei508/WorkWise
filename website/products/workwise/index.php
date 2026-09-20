@@ -26,8 +26,8 @@ $workwiseDownloads = array_map(static function (array $item): array {
   ];
 }, is_array($workwiseManifest['platforms'] ?? null) ? $workwiseManifest['platforms'] : []);
 $workwiseShots = [
-  ['src' => '/products/screenshots/workwise/04-survey-candidate-zh-light.jpg', 'title' => '工程测量内业 · 中文浅色', 'desc' => '候选包实拍，使用合成演示数据；展示工程任务、当前阶段与持续 AI 会话。'],
-  ['src' => '/products/screenshots/workwise/05-survey-candidate-delivery.jpg', 'title' => '候选成果与审查', 'desc' => 'DOCX、PDF、XLSX 与文件哈希集中展示，草稿与已审查成果明确区分。'],
+  ['src' => '/products/screenshots/workwise/04-survey-candidate-zh-light.jpg', 'title' => '工程测量内业 · 中文浅色', 'desc' => '281dc87 候选包实拍：4 点、1 测站、5 观测的合成控制网，查看平差结果、残差与精度。'],
+  ['src' => '/products/screenshots/workwise/05-survey-candidate-delivery.jpg', 'title' => '成果中心', 'desc' => '同一合成控制网的 DOCX、PDF、XLSX 与文件哈希，保留运行来源和待审查状态。'],
   ['src' => '/products/screenshots/workwise/06-candidate-model-settings.jpg', 'title' => '模型设置', 'desc' => 'DeepSeek V4.1-Flash 使用 deepseek-flash；服务地址与凭据由用户配置。'],
 ];
 $workwiseWriteShots = $workwiseShots;
@@ -35,14 +35,14 @@ $workwiseCapabilities = [
   ['title' => '导入与预检', 'desc' => '先检查内容签名、记录结构、单位与来源。需要转换器、GNSS 后处理或仅可归档的资料会给出明确处置，不能直接开始平差。', 'icon' => 'fas fa-file-import', 'tone' => 'workwise-local'],
   ['title' => '建网与确定性平差', 'desc' => '选择工程任务，确认控制点和基准。P0 验收聚焦 GSI 水准观测与 COSA IN2 控制网，数值由本地 Runtime 生成。', 'icon' => 'fas fa-compass', 'tone' => 'workwise-code'],
   ['title' => '分析与精度', 'desc' => '集中查看闭合差、残差、点位精度、观测数与冗余度。异常记录保留来源定位，供工程人员复核。', 'icon' => 'fas fa-chart-line', 'tone' => 'workwise-session'],
-  ['title' => '成果与审查', 'desc' => '生成 DOCX、PDF 和 XLSX，记录文件哈希与运行来源。当前清单为待审查草稿；复核、批准和数字签名流程仍在建设。', 'icon' => 'fas fa-file-export', 'tone' => 'workwise-write'],
+  ['title' => '成果与审查', 'desc' => '生成 DOCX、PDF 和 XLSX，将材料保全、首轮抽样与单位评分关联，分别查看资料缺项和已声明不合格结果。成果保持待审查，交由工程人员复核。', 'icon' => 'fas fa-file-export', 'tone' => 'workwise-write'],
   ['title' => '持续 AI 协作', 'desc' => 'DeepSeek V4.1-Flash（deepseek-flash）协助理解、解释与规划。计算或导出计划需确认；模型不可用时可继续手动确定性操作。', 'icon' => 'fas fa-comments', 'tone' => 'workwise-skills'],
   ['title' => '平台辅助工具', 'desc' => '编程与内业是主入口；写作、设计、Flow、插件及定时任务提供辅助。Survey 与这些工具的深度专业联动属于后续计划。', 'icon' => 'fas fa-layer-group', 'tone' => 'workwise-plugin'],
 ];
 $workwiseStatus = [
   ['label' => '正式下载', 'title' => 'WorkWise 0.5.0', 'text' => '下方下载沿用已发布版本；本页新命名与四阶段界面为候选预览。', 'icon' => 'fas fa-download'],
-  ['label' => '候选验收', 'title' => 'RAILWISE Survey 核心内业链', 'text' => '本页截图来自 ba38649 已安装候选，均为中文浅色与合成演示数据。该包完成签名公证、真实私有升级、逐项证据留存、篡改拒绝、历史恢复及重启复验；后续功能、专业复核与用户确认按台账分别记录。', 'icon' => 'fas fa-flask'],
-  ['label' => '后续计划', 'title' => '专业可信度与生态扩展', 'text' => '后续源码已加入限定模型试算、声明检查评分及材料—抽样—评分关联评估，精确安装包验收单独记录。完整规范评定、人员签认、外业采集和点云仍在计划中。', 'icon' => 'fas fa-route'],
+  ['label' => '候选验收', 'title' => '材料、抽样与评分关联', 'text' => '本页为 281dc87 已安装候选的中文浅色实拍。两单位合成案例已检查完整、缺失和否决并存结果，以及导出、重启恢复和来源变化；整体验收仍为部分完成。', 'icon' => 'fas fa-flask'],
+  ['label' => '后续计划', 'title' => '专业可信度与生态扩展', 'text' => '完整界面覆盖、真实模型回合、专业复核与用户确认继续推进。完整规范评定、人员签认、外业采集和点云仍在计划中。', 'icon' => 'fas fa-route'],
 ];
 $workwiseAdvantages = [
   ['title' => '一个任务贯穿四个阶段', 'desc' => '原始文件、网络、运行与成果沿用同一任务上下文，减少在分散页面中寻找当前工作。', 'icon' => 'fas fa-compass'],
@@ -171,7 +171,7 @@ require_once __DIR__ . '/../../includes/header.php';
     <div class="pd-section-head">
       <div class="pd-eyebrow dark">DEEPSEEK V4.1-FLASH NATIVE</div>
       <h2>DeepSeek V4.1-Flash，协助理解与规划</h2>
-      <p class="pd-section-sub">默认模型 ID <code>deepseek-flash</code> 贯穿 Agent、Write 和 Survey。运行时已适配思考、工具调用和结构化附件；实际服务能力与额度以账户和服务端为准。</p>
+      <p class="pd-section-sub">默认模型 ID <code>deepseek-flash</code> 贯穿 Agent、Write 和 Survey。运行时已适配思考、工具调用和结构化附件；真实网络回合尚未验收。后续 <code>auto</code> 路由修复不在本页 281dc87 截图对应包内。</p>
     </div>
     <div class="pd-caps-grid">
       <article class="pd-cap">
@@ -276,6 +276,7 @@ require_once __DIR__ . '/../../includes/header.php';
         </div>
       <?php endforeach; ?>
     </div>
+    <p><a href="https://github.com/wangjiawei508/WorkWise/blob/codex/railwise-survey-convergence/docs/qa/evidence/railwise-convergence-281dc8767250/README.md" target="_blank" rel="noopener" class="cli-inline-link">查看候选实机验收记录 <i class="fas fa-arrow-up-right-from-square"></i></a></p>
   </div>
 </section>
 
