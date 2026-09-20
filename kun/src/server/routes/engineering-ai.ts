@@ -24,7 +24,11 @@ const EngineeringWatchDraftRequest = z.object({
 function unavailable(): JsonResponse { return ERRORS.unavailable('engineering AI is unavailable') }
 
 function mapError(error: unknown): JsonResponse {
+  if ((error as { code?: unknown })?.code === 'model_provider_unavailable') {
+    return jsonResponse({ code: 'model_provider_unavailable', message: (error as Error).message }, 400)
+  }
   if (error instanceof EngineeringAiError) {
+    if (error.code === 'engineering_plan_stale') return jsonResponse({ code: error.code, message: error.message }, 409)
     if (error.code === 'not_found') return ERRORS.notFound(error.message)
     if (error.code.includes('stale') || error.code.includes('conflict')) return ERRORS.conflict(error.message)
     return ERRORS.validation(error.message)

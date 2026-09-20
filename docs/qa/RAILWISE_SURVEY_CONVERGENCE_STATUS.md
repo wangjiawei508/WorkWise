@@ -4,7 +4,17 @@
 
 代码实现、自动化通过、安装包验收和用户确认分别记录。总计划尚未完成，旧 OpenSpec 勾选数不代表本计划完成率。
 
-## 最新精确包：be0d7ac 部分验收
+## 最新精确包：fbb88ea 审批与生命周期部分验收
+
+2026-09-20 新增 [fbb88ea 签名候选](./evidence/railwise-convergence-fbb88ea71557/README.md)，版本仍为 `0.5.0`。云端真实私有 updater、签名/公证、目标重启及数据哨兵保留通过，本机安装同一 ZIP/ASAR。云端 Gatekeeper 启用，本机原状态 disabled，不能混同。包内独立合成服务探针验证复验 started/finished、错误终态、旧表兼容及非审计字节不变。
+
+原生中文浅色 GUI 已完成合成 IN2 导入、改名确认后 revision 2→3、第二项旧修订建议拒绝、旧计划审批拒绝和按新上下文重建四步骤。重新规划重置全部风险勾选；计划 fixture 来自限定包内辅助脚本，不声称模型生成。旧计划拒绝暴露一条英文错误文案，正在后续源码修复。复制保留原工作区绑定的 be0 抽样/评分记录，在这些 GUI 操作之后只读比较仍未变化。
+
+本包后续已完成真实 typed 模型执行：官方 DeepSeek 经受限 relay 的五次对话均 HTTP200，模型依次调用校核、平差、只读结果和报告导出。独立审计核对批准参数、前序绑定、确定性结果和 DOCX/PDF/XLSX 实际文件；正常退出重启后同一记录与8条消息恢复。Task/turn completed，原始 plan 为 started，未生成正式 manifest。凭据未写候选，relay/token/端口已清理。见上述精确证据目录，不外推专业验收或生产 KPI。
+
+provider/model 身份、Survey 推理档会话内保留、恢复任务一致性、过期错误翻译、表格工具翻译和 AI 终态刷新已在后续源码修复。最终源码桌面全量 2780 通过/2 跳过，Runtime 2795 通过/22 跳过；类型、构建、严格 OpenSpec 及 lint 通过，lint 仅1条既有 Hook warning。Runtime 首轮因并行修正前的测试期望读入而有1失败，失败日志与完整重跑均保留。这些源码修改不在 fbb 包内，须新签名包验收；全量状态/主题/尺寸及用户/专业确认仍未完成，17 个聚合门禁继续保留。
+
+## 历史精确包：be0d7ac 部分验收
 
 2026-09-20 的最新精确候选为 [`be0d7ac47550d4d178674f63ce4406ee7c614e66`](./evidence/railwise-convergence-be0d7ac47550/README.md)，版本 `0.5.0`，状态仍为 **partial-not-release-approval**。私有原生 updater 的同源 `0.0.0 -> 0.5.0` 下载、安装、目标重启和数据哨兵保留通过；本机安装同 ZIP/ASAR，签名与公证检查通过。云端 Gatekeeper 启用，本机为 assessments disabled，分别留证。没有公开发布或推广 feed。
 

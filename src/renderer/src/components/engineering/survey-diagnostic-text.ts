@@ -93,6 +93,9 @@ export function surveyLegacyDiagnosticText(text: string, language: string): stri
 
 /** Decode the existing Runtime error envelope without hiding its stable code. */
 export function surveyRuntimeErrorText(text: string, language: string): string {
+  if (text.includes('model_provider_unavailable')) return language.toLowerCase().startsWith('en')
+    ? 'The selected model provider is unavailable. Restore it in Settings or select a provider and model before sending again.'
+    : '所选模型提供商已不可用。请在设置中恢复该提供商，或重新选择提供商与模型后发送。'
   let message = text
   try {
     const body = JSON.parse(text) as { error?: string | { code?: string; message?: string }; message?: string }

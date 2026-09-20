@@ -344,6 +344,7 @@ export function EngineeringWorkspaceView({ workspaceRoot, runtimeReady, leftSide
   const invalidateProjectList = useCallback((): void => { projectsRequest.current++ }, [])
   const [surveyNetworks, setSurveyNetworks] = useState<SurveyNetworkSummary[]>([])
   const [surveyAdjustments, setSurveyAdjustments] = useState<SurveyAdjustmentSummary[]>([])
+  const [surveyRefreshToken, setSurveyRefreshToken] = useState(0)
   const [selectedSurveyNetworkId, setSelectedSurveyNetworkId] = useState('')
   const [selectedDatasetId, setSelectedDatasetId] = useState('')
   const [selectedAnalysisId, setSelectedAnalysisId] = useState('')
@@ -472,14 +473,14 @@ export function EngineeringWorkspaceView({ workspaceRoot, runtimeReady, leftSide
     setNotice(null)
   }, [workspaceRoot])
 
-  const loadOverview = useCallback(async (projectId: string): Promise<void> => {
+  const loadOverview = useCallback(async (projectId: string, preserveDraft = false): Promise<void> => {
     if (!runtimeReady || !projectId || requestScope.current.workspaceRoot !== workspaceRoot || !requestScope.current.runtimeReady || requestScope.current.projectId !== projectId) return
     const token = ++overviewRequest.current
     try {
       const next = await runtimeRequest<Overview>(`/v1/engineering/projects/${projectId}/overview`)
       if (token !== overviewRequest.current || next.project.id !== projectId || next.project.workspace !== workspaceRoot) return
       setOverview(next)
-      setProjectDraft(projectToDraft(next.project))
+      if (!preserveDraft) setProjectDraft(projectToDraft(next.project))
       setSelectedDatasetId((current) => next.datasets.some((dataset) => dataset.id === current) ? current : next.datasets[0]?.id ?? '')
       setSelectedAnalysisId((current) => next.analyses.some((analysis) => analysis.id === current) ? current : next.analyses[0]?.id ?? '')
     } catch (error) {
@@ -612,15 +613,16 @@ export function EngineeringWorkspaceView({ workspaceRoot, runtimeReady, leftSide
   const surveyHasBlockingAdmission = latestSurveyAdjustment?.sourceEligibility?.eligible === false
     || latestSurveyAdjustment?.result?.validation === 'invalid' || latestSurveyAdjustment?.run.status === 'failed'
 
-  const refreshCurrent = async (): Promise<void> => {
+  const refreshCurrent = async (preserveDraft = false): Promise<void> => {
     const operationScope = requestScope.current
     if (selectedProjectId) {
-      await Promise.all([loadProjects(), loadOverview(selectedProjectId), loadSurveySummary(selectedProjectId)])
+      await Promise.all([loadProjects(), loadOverview(selectedProjectId, preserveDraft), loadSurveySummary(selectedProjectId)])
     }
     else await loadProjects()
     if (operationScope !== requestScope.current) return
+    setSurveyRefreshToken((value) => value + 1)
     window.dispatchEvent(new CustomEvent('workwise:engineering-projects-changed'))
-    setNotice({ tone: 'info', message: t('engineeringNoticeRefreshed') })
+    if (!preserveDraft) setNotice({ tone: 'info', message: t('engineeringNoticeRefreshed') })
   }
 
   const createProject = useCallback(async (): Promise<void> => {
@@ -936,6 +938,7 @@ export function EngineeringWorkspaceView({ workspaceRoot, runtimeReady, leftSide
           onSurveyFiles={(files) => { setPendingSurveyFiles((current) => ({ ...current, [surveyFileScope]: [...(current[surveyFileScope] ?? []), ...files] })); setTab('survey') }}
           onOpenTab={(nextTab) => setTab(nextTab)}
           onRefresh={() => void refreshCurrent()}
+          onExecutionSettled={() => void refreshCurrent(true)}
           navigationContext={navigationContext}
           onNavigateEvidence={openEvidence}
         />
@@ -1001,6 +1004,7 @@ export function EngineeringWorkspaceView({ workspaceRoot, runtimeReady, leftSide
             {tab === 'advanced-models' ? <SurveyAdvancedModelWorkspace binding={{ projectId: overview.project.id, projectRevision: overview.project.revision, workspaceRoot }} runtimeReady={runtimeReady} /> : null}
             {(tab === 'source' || tab === 'survey' || tab === 'precision') ? <section>
               <SurveyAdjustmentPanel key={surveyFileScope} project={overview.project} runtimeReady={runtimeReady}
+                refreshToken={surveyRefreshToken}
                 navigationTarget={evidenceNavigation?.kind === 'survey' ? evidenceNavigation : null}
                 preferredSection={tab === 'source' ? 'network' : tab === 'precision' ? 'result' : 'points'}
                 onNetworkSelected={handleSurveyNetworkSelected}

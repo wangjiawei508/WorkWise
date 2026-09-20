@@ -12,6 +12,7 @@ import { buildRailwiseToolProviders } from '../adapters/tool/railwise-tool-provi
 import { LocalToolHost } from '../adapters/tool/local-tool-host.js'
 import type { EngineeringRunPlanV1 } from '../contracts/engineering-ai.js'
 import { resolvedStepParameters } from './engineering-plan-execution.js'
+import type { StartTurnRequest } from '../contracts/turns.js'
 
 describe('Reviewed Survey plan execution', () => {
   let engineering: EngineeringService
@@ -50,13 +51,30 @@ describe('Reviewed Survey plan execution', () => {
   })
   afterEach(() => { repository.close(); survey.close(); engineering.close() })
 
-  async function startedPlan(): Promise<EngineeringRunPlanV1> {
+  async function startedPlan(selection: Pick<StartTurnRequest, 'model' | 'providerId' | 'reasoningEffort'> = {}): Promise<EngineeringRunPlanV1> {
     const created = await orchestrator.createPlan({ threadId: 'thread', projectId, goal: '水准网平差和成果', idempotencyKey: 'parameters-plan' })
     expect(created.plan.status).toBe('awaiting_approval')
     expect(created.plan.steps[0]).toMatchObject({ parameters: { networkId, expectedRevision: 1 }, expectedOutputs: ['network-validation'], reversibility: 'revisioned-write' })
     const approved = orchestrator.approvePlan(created.plan.id, { expectedRevision: 1, contextHash: created.plan.contextHash, stepIds: created.approval.stepIds, token: created.approval.token, idempotencyKey: 'parameters-approval' })
-    return (await orchestrator.startPlan(approved.id, { expectedRevision: approved.revision, contextHash: approved.contextHash, idempotencyKey: 'parameters-start' })).plan
+    return (await orchestrator.startPlan(approved.id, { expectedRevision: approved.revision, contextHash: approved.contextHash, idempotencyKey: 'parameters-start', ...selection })).plan
   }
+
+  it('propagates provider/model/effort on typed start and inherits saved selection on resume', async () => {
+    const selection = { model: 'shared-model', providerId: 'provider-b', reasoningEffort: 'off' as const }
+    const task = { id: 'task', threadId: 'thread', revision: 1, ...selection }
+    const tasks = { activeTask: vi.fn(() => task), prepareResume: vi.fn(() => task) }
+    orchestrator = new EngineeringAiOrchestrator({ context: new EngineeringContextService(engineering, undefined, survey), repository,
+      threadStore: { get: async () => ({ domain: 'engineering', projectId, workspace: root, turns: [] }) } as never,
+      turns: turns as never, tasks: tasks as never, runTurn: vi.fn() })
+    const plan = await startedPlan(selection)
+    expect(turns.startTurn).toHaveBeenLastCalledWith(expect.objectContaining({ engineeringExecution: true, request: expect.objectContaining(selection) }))
+    const resumed = await orchestrator.resumePlan(plan.id, { expectedRevision: plan.revision, contextHash: plan.contextHash, idempotencyKey: 'provider-resume' })
+    expect(turns.startTurn).toHaveBeenLastCalledWith(expect.objectContaining({ engineeringExecution: true, request: expect.objectContaining(selection) }))
+    expect(tasks.prepareResume).toHaveBeenCalledWith('task', 1, undefined)
+    const calls = turns.startTurn.mock.calls.length
+    expect(await orchestrator.resumePlan(plan.id, { expectedRevision: plan.revision, contextHash: plan.contextHash, idempotencyKey: 'provider-resume' })).toEqual(resumed)
+    expect(turns.startTurn).toHaveBeenCalledTimes(calls)
+  })
 
   it('runs the actual deterministic tool chain with approved literals and persisted predecessor handles', async () => {
     const plan = await startedPlan()

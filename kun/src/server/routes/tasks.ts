@@ -63,6 +63,7 @@ export async function resumeTask(runtime: ServerRuntime, taskId: string, request
     const checkpoint = runtime.taskRepository.latestCheckpoint(taskId)
     const response = await runtime.turnService.startTurn({
       threadId: prepared.threadId,
+      continuationTaskId: prepared.id,
       request: {
         prompt: [
           'Continue the persisted task from its last verified checkpoint.',
@@ -72,6 +73,8 @@ export async function resumeTask(runtime: ServerRuntime, taskId: string, request
         ].filter(Boolean).join('\n'),
         displayText: '继续未完成任务',
         model: parsed.data.model ?? prepared.model,
+        providerId: prepared.providerId,
+        reasoningEffort: prepared.reasoningEffort,
         mode: 'agent'
       }
     })
@@ -101,6 +104,8 @@ export async function retryTask(runtime: ServerRuntime, taskId: string, request:
         prompt: `Retry the failed persisted task and satisfy its original acceptance contract.\nGoal: ${previous.goal}`,
         displayText: '重试未完成任务',
         model: parsed.data.model ?? previous.model,
+        providerId: previous.providerId,
+        reasoningEffort: previous.reasoningEffort,
         mode: 'agent'
       }
     })
@@ -148,6 +153,7 @@ export async function cancelTask(runtime: ServerRuntime, taskId: string, request
 function taskError(error: unknown): JsonResponse {
   const code = error && typeof error === 'object' && 'code' in error ? String(error.code) : ''
   const message = error instanceof Error ? error.message : String(error)
+  if (code === 'model_provider_unavailable') return jsonResponse({ code, message }, 400)
   if (code === 'not_found') return ERRORS.notFound(message)
   if (code === 'stale_request' || code === 'invalid_state' || code === 'turn_in_progress') return ERRORS.conflict(message)
   if (code === 'resource_limit') return ERRORS.resourceLimit(message)

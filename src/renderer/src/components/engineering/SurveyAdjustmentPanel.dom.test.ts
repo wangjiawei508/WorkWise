@@ -311,6 +311,46 @@ afterEach(async () => {
 })
 
 describe('SurveyAdjustmentPanel persisted state restoration', () => {
+  it('refreshes external results while preserving the manually selected network and input draft', async () => {
+    const selector = container.querySelector<HTMLSelectElement>('#survey-existing-network')!
+    await act(async () => { selector.value = archiveOnlyNetwork.id; selector.dispatchEvent(new Event('change', { bubbles: true })) })
+    const draft = container.querySelector<HTMLTextAreaElement>(`textarea[aria-label="${i18n.t('surveyKnownPointsInput')}"]`)!
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(draft, 'BM-DRAFT,123.456')
+      draft.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+    const renderRefresh = async (refreshToken: number): Promise<void> => {
+      await act(async () => root.render(createElement(SurveyAdjustmentPanel, { project: { id: 'project-restored-001', revision: 1 }, runtimeReady: true, refreshToken })))
+      await settle()
+    }
+    runtimeRequest.mockImplementation(async path => runtimeResponse(path.includes('/survey/networks?')
+      ? { networks: [network, { ...archiveOnlyNetwork, revision: 3, sourceFile: { ...archiveOnlyNetwork.sourceFile, name: 'updated-selected.dat' } }] }
+      : { adjustments: [] }))
+    await renderRefresh(1)
+    expect(selector.value).toBe(archiveOnlyNetwork.id)
+    expect(container.textContent).toContain('updated-selected.dat')
+    expect(container.querySelector<HTMLTextAreaElement>(`textarea[aria-label="${i18n.t('surveyKnownPointsInput')}"]`)?.value).toBe('BM-DRAFT,123.456')
+    expect(container.querySelector('[data-evidence-key="survey-selection"]')).toBeNull()
+    expect(runtimeRequest.mock.calls.every(([, method]) => !method || method === 'GET')).toBe(true)
+    const preserved = container.textContent
+    runtimeRequest.mockRejectedValue(new Error('read unavailable'))
+    await renderRefresh(2)
+    expect(selector.value).toBe(archiveOnlyNetwork.id)
+    expect(container.textContent).toContain('updated-selected.dat')
+    expect(container.textContent).toContain('read unavailable')
+    expect(preserved).toContain('updated-selected.dat')
+  })
+
+  it('reads a completed external adjustment without requiring a selection or remount', async () => {
+    runtimeRequest.mockImplementation(async path => runtimeResponse(path.includes('/survey/networks?')
+      ? { networks: [{ ...network, revision: 3 }] }
+      : { adjustments: [{ ...adjustment, result: { ...adjustment.result, algorithmVersion: 'external-adjustment-v2' } }] }))
+    await act(async () => root.render(createElement(SurveyAdjustmentPanel, { project: { id: 'project-restored-001', revision: 1 }, runtimeReady: true, refreshToken: 1 })))
+    await settle()
+    expect(container.textContent).toContain('external-adjustment-v2')
+    expect(container.querySelector<HTMLSelectElement>('#survey-existing-network')?.value).toBe(network.id)
+  })
+
   const navigationTarget: SurveyEvidenceNavigationTarget = { kind: 'survey', workspaceRoot: '/survey', projectId: 'project-restored-001', projectRevision: 1, networkId: network.id, networkRevision: network.revision, sourceSha256: network.sourceFile.sha256, adjustmentId: adjustment.run.id, section: 'result', observationId: 'obs-1', sourceRecordId: 'record-1' }
   async function navigate(target: SurveyEvidenceNavigationTarget) {
     await act(async () => root.render(createElement(SurveyAdjustmentPanel, { project: { id: 'project-restored-001', revision: 1, workspace: '/survey' }, runtimeReady: true, navigationTarget: target })))

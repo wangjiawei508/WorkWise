@@ -71,15 +71,21 @@ export class TaskController {
     turnId: string
     request: StartTurnRequest
     engineeringExecution?: boolean
+    continuationTaskId?: string
   }): TaskRun {
     const active = this.repository.findActiveByThread(input.thread.id)
     const now = this.nowIso()
     const consultation = input.thread.domain === 'engineering' && !input.engineeringExecution
-    if (active && !consultation && shouldContinueActiveTask(input.request.prompt)) {
+    if (input.continuationTaskId && active?.id !== input.continuationTaskId) {
+      throw Object.assign(new Error('the task to resume is no longer active for this thread'), { code: 'invalid_state' })
+    }
+    if (active && (input.continuationTaskId || (!consultation && shouldContinueActiveTask(input.request.prompt)))) {
       return this.repository.update(active.id, active.revision, (current) => ({
         ...current,
         activeTurnId: input.turnId,
         model: input.request.model ?? current.model,
+        providerId: input.request.providerId ?? current.providerId,
+        reasoningEffort: input.request.reasoningEffort ?? current.reasoningEffort,
         updatedAt: now
       }), {
         key: `turn-attached:${input.turnId}`,
@@ -109,6 +115,8 @@ export class TaskController {
       acceptance,
       agentId: input.thread.agentId,
       model: selectedModel,
+      providerId: input.request.providerId,
+      reasoningEffort: input.request.reasoningEffort,
       budget: {
         maxAttempts: profile?.budget.maxAttempts ?? DEFAULT_MAX_ATTEMPTS,
         maxDurationMs: profile?.budget.maxDurationMs ?? DEFAULT_MAX_DURATION_MS,
@@ -136,6 +144,14 @@ export class TaskController {
       }
     })
     return created
+  }
+
+  continuationSelection(thread: ThreadRecord, request: StartTurnRequest, engineeringExecution?: boolean, continuationTaskId?: string): Pick<StartTurnRequest, 'model' | 'providerId' | 'reasoningEffort'> {
+    if (!continuationTaskId && thread.domain === 'engineering' && !engineeringExecution) return {}
+    if (!continuationTaskId && !shouldContinueActiveTask(request.prompt)) return {}
+    const task = this.repository.findActiveByThread(thread.id)
+    if (continuationTaskId && task?.id !== continuationTaskId) throw Object.assign(new Error('the task to resume is no longer active for this thread'), { code: 'invalid_state' })
+    return task ? { model: task.model, providerId: task.providerId, reasoningEffort: task.reasoningEffort } : {}
   }
 
   activeTask(threadId: string): TaskRun | null {

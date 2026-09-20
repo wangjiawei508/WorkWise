@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import type { AttachmentReference } from '../../agent/types'
+import type { ComposerReasoningEffort } from '../chat/FloatingComposerModelPicker'
 
 export type EngineeringEvidenceReference = {
   projectId?: string
@@ -33,6 +34,7 @@ export type EngineeringConversationDraft = {
   attachments: AttachmentReference[]
   uploading: boolean
   error: string | null
+  reasoningEffort?: ComposerReasoningEffort
   viewContext?: EngineeringEvidenceReference
   /** Explicitly selected evidence survives navigation until the question is sent. */
   evidenceContext?: EngineeringEvidenceReference

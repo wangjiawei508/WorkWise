@@ -18,13 +18,15 @@ export function EngineeringComposer({ workspaceRoot, projectId, ready, threadId,
   const scope = JSON.stringify([workspaceRoot, projectId])
   const draft = useEngineeringConversationDrafts((state) => state.drafts[scope] ?? EMPTY_ENGINEERING_DRAFT)
   const update = useEngineeringConversationDrafts((state) => state.update)
-  const { busy, queuedMessages, composerModel, composerPickList, composerModelGroups, setComposerModel, sendMessage, interrupt, removeQueuedMessage } = useChatStore(useShallow((state) => ({
+  const { busy, queuedMessages, composerModel, composerProviderId, composerPickList, composerModelGroups, setComposerModel, sendMessage, interrupt, removeQueuedMessage } = useChatStore(useShallow((state) => ({
     busy: state.busy, queuedMessages: state.queuedMessages,
     composerModel: state.composerModel, composerPickList: state.composerPickList, composerModelGroups: state.composerModelGroups,
+    composerProviderId: state.composerProviderId,
     setComposerModel: state.setComposerModel, sendMessage: state.sendMessage, interrupt: state.interrupt, removeQueuedMessage: state.removeQueuedMessage
   })))
   const [runtimeInfo, setRuntimeInfo] = useState<CoreRuntimeInfoJson | null>(null)
-  const [effort, setEffort] = useState<ComposerReasoningEffort>('max')
+  const effort = draft.reasoningEffort ?? 'max'
+  const setEffort = (reasoningEffort: ComposerReasoningEffort): void => update(scope, value => ({ ...value, reasoningEffort }))
   const isCurrentThread = (): boolean => {
     const state = useChatStore.getState()
     const thread = state.threads.find((item) => item.id === threadId)
@@ -122,6 +124,7 @@ export function EngineeringComposer({ workspaceRoot, projectId, ready, threadId,
     runtimeReady={ready && Boolean(threadId)} hasActiveThread={Boolean(threadId)}
     unavailableReason={!ready ? unavailableReason : !projectId ? t('engineeringCreateProjectBind') : !threadId ? t('engineeringConversationPreparing') : undefined}
     composerModel={composerModel} composerPickList={composerPickList} composerModelGroups={composerModelGroups}
+    composerProviderId={composerProviderId}
     composerReasoningEffort={effort} onComposerModelChange={setComposerModel} onComposerReasoningEffortChange={setEffort}
     queuedMessages={threadId ? queuedMessages : []} onRemoveQueuedMessage={removeQueuedMessage}
     attachments={draft.attachments} attachmentUploadEnabled={runtimeInfo?.capabilities.attachments.available === true}

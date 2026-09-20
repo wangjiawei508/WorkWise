@@ -115,10 +115,11 @@ type Props = {
   unavailableReason?: string
   hasActiveThread: boolean
   composerModel: string
+  composerProviderId?: string
   composerPickList: string[]
   composerModelGroups?: ModelProviderModelGroup[]
   composerReasoningEffort?: string
-  onComposerModelChange: (modelId: string) => void
+  onComposerModelChange: (modelId: string, providerId?: string) => void
   onComposerReasoningEffortChange?: (effort: ComposerReasoningEffort) => void
   agentProfiles?: Array<{
     id: string
@@ -535,6 +536,7 @@ export function FloatingComposer({
   unavailableReason,
   hasActiveThread,
   composerModel,
+  composerProviderId,
   composerPickList,
   composerModelGroups = EMPTY_MODEL_GROUPS,
   composerReasoningEffort,
@@ -2163,6 +2165,7 @@ export function FloatingComposer({
                   compact={compact}
                   mode={modelPickerMode}
                   composerModel={composerModel}
+                  composerProviderId={composerProviderId}
                   composerPickList={composerPickList}
                   composerModelGroups={composerModelGroups}
                   composerReasoningEffort={composerReasoningEffort}

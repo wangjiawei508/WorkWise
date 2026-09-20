@@ -28,6 +28,7 @@ export async function resolveAutoModelRoute(input: {
   modelClient: ModelClient
   threadId: string
   turnId: string
+  providerId?: string
   latestRequest: string
   recentContext: string
   selectedModelMode: string
@@ -46,6 +47,7 @@ export async function resolveAutoModelRoute(input: {
     const request: ModelRequest = {
       threadId: input.threadId,
       turnId: `${input.turnId}_auto_router`,
+      providerId: input.providerId,
       model: AUTO_MODEL_ROUTER_MODEL,
       systemPrompt: AUTO_MODEL_ROUTER_SYSTEM_PROMPT,
       prefix: [],

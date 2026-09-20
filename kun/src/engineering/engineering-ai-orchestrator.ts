@@ -4,6 +4,7 @@ import { z } from 'zod'
 import type { ThreadStore } from '../ports/thread-store.js'
 import type { EngineeringService } from './engineering-service.js'
 import type { StartTurnResponse } from '../contracts/turns.js'
+import { TurnReasoningEffortSchema } from '../contracts/turns.js'
 import type { EngineeringContextService } from './engineering-context-service.js'
 import {
   EngineeringApprovalV1,
@@ -46,6 +47,8 @@ export const EngineeringPlanStartRequest = z.object({
   expectedRevision: z.number().int().positive(),
   contextHash: z.string().min(1),
   model: z.string().trim().min(1).max(256).optional(),
+  providerId: z.string().trim().min(1).max(200).optional(),
+  reasoningEffort: TurnReasoningEffortSchema.optional(),
   idempotencyKey: z.string().min(8).max(200)
 }).strict()
 export type EngineeringPlanStartRequest = z.infer<typeof EngineeringPlanStartRequest>
@@ -68,6 +71,8 @@ export const EngineeringPlanResumeRequest = z.object({
   expectedRevision: z.number().int().positive(),
   contextHash: z.string().min(1),
   model: z.string().trim().min(1).max(256).optional(),
+  providerId: z.string().trim().min(1).max(200).optional(),
+  reasoningEffort: TurnReasoningEffortSchema.optional(),
   idempotencyKey: z.string().min(8).max(200)
 }).strict()
 export type EngineeringPlanResumeRequest = z.infer<typeof EngineeringPlanResumeRequest>
@@ -385,7 +390,7 @@ export class EngineeringAiOrchestrator {
       this.emit(stale, 'stale')
       throw new EngineeringAiError('engineering_plan_stale', 'engineering context changed after approval; refresh context and replan')
     }
-    const turn = await this.deps.turns.startTurn({ threadId: plan.threadId, engineeringExecution: true, request: { prompt: `Execute this approved Engineering Run Plan through the allowlisted tools. Use only IDs present in the bounded context. Do not change numeric results or units. unitWeightStdDev and varianceFactor are dimensionless; standardizedResidual is measured in sigma multiples. report_export must receive the adjustmentIds produced or listed by the context.\nPlan:\n${JSON.stringify(plan)}\nBounded context (no raw observations):\n${JSON.stringify(context)}`, displayText: plan.goal, model: input.model, mode: 'agent' } })
+    const turn = await this.deps.turns.startTurn({ threadId: plan.threadId, engineeringExecution: true, request: { prompt: `Execute this approved Engineering Run Plan through the allowlisted tools. Use only IDs present in the bounded context. Do not change numeric results or units. unitWeightStdDev and varianceFactor are dimensionless; standardizedResidual is measured in sigma multiples. report_export must receive the adjustmentIds produced or listed by the context.\nPlan:\n${JSON.stringify(plan)}\nBounded context (no raw observations):\n${JSON.stringify(context)}`, displayText: plan.goal, model: input.model, providerId: input.providerId, reasoningEffort: input.reasoningEffort, mode: 'agent' } })
     const task = this.deps.tasks?.activeTask(plan.threadId)
     const now = this.deps.nowIso?.() ?? new Date().toISOString()
     const started = EngineeringRunPlanV1.parse({ ...plan, revision: plan.revision + 1, status: 'started', executionTurnId: turn.turnId, ...(task ? { taskId: task.id } : {}), updatedAt: now })
@@ -421,7 +426,7 @@ export class EngineeringAiOrchestrator {
     if (!task) throw new EngineeringAiError('engineering_task_missing', 'no resumable TaskRun is associated with this plan')
     const prepared = this.deps.tasks?.prepareResume(task.id, task.revision, input.model)
     if (!prepared) throw new EngineeringAiError('engineering_task_missing', 'no resumable TaskRun is associated with this plan')
-    const turn = await this.deps.turns.startTurn({ threadId: prepared.threadId, engineeringExecution: true, request: { prompt: `Continue the approved Engineering Run Plan from its latest checkpoint:\n${JSON.stringify(plan)}`, displayText: '继续工程 AI 计划', model: input.model ?? prepared.model, mode: 'agent' } })
+    const turn = await this.deps.turns.startTurn({ threadId: prepared.threadId, continuationTaskId: prepared.id, engineeringExecution: true, request: { prompt: `Continue the approved Engineering Run Plan from its latest checkpoint:\n${JSON.stringify(plan)}`, displayText: '继续工程 AI 计划', model: input.model ?? prepared.model, providerId: input.providerId ?? prepared.providerId, reasoningEffort: input.reasoningEffort ?? prepared.reasoningEffort, mode: 'agent' } })
     const now = this.deps.nowIso?.() ?? new Date().toISOString()
     const resumed = EngineeringRunPlanV1.parse({ ...plan, status: 'started', executionTurnId: turn.turnId, revision: plan.revision + 1, updatedAt: now })
     const result = { plan: resumed, turn }

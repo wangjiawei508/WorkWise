@@ -1081,6 +1081,7 @@ function createWindow(options: { suppressInitialShow?: boolean } = {}): void {
  * structurally while still surviving future field additions.
  */
 function managedRuntimeConfigChanged(prev: AppSettingsV1, next: AppSettingsV1): boolean {
+  if (!stableSettingsValueEqual(prev.provider, next.provider)) return true
   const a = resolveManagedRuntimeSettings(prev)
   const b = resolveManagedRuntimeSettings(next)
   const keys = new Set([...Object.keys(a), ...Object.keys(b)] as Array<keyof typeof a>)

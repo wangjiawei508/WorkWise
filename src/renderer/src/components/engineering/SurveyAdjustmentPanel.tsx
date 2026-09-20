@@ -260,7 +260,7 @@ function Stat({ label, value, detail, tone = 'neutral' }: { label: string; value
   return <div className="border border-ds-border-muted bg-ds-main px-3 py-2.5"><p className="text-[10px] text-ds-faint">{label}</p><p className={`mt-0.5 tabular-nums text-[17px] font-semibold ${color}`}>{value}</p><p className="mt-0.5 truncate text-[10px] text-ds-faint">{detail}</p></div>
 }
 
-export function SurveyAdjustmentPanel({ project, runtimeReady, onAdjustmentComplete, onDeformationComplete, onOpenAi, onNetworkSelected, pendingFiles = [], onRemovePendingFile, preferredSection, navigationTarget }: { preferredSection?: SurveySection; project: Project; runtimeReady: boolean; onAdjustmentComplete?: (id: string) => void; onDeformationComplete?: (id: string) => void; onOpenAi?: () => void; onNetworkSelected?: (id: string | null, revision?: number) => void; pendingFiles?: File[]; onRemovePendingFile?: (file: File) => void; navigationTarget?: SurveyEvidenceNavigationTarget | null }): ReactElement {
+export function SurveyAdjustmentPanel({ project, runtimeReady, refreshToken = 0, onAdjustmentComplete, onDeformationComplete, onOpenAi, onNetworkSelected, pendingFiles = [], onRemovePendingFile, preferredSection, navigationTarget }: { preferredSection?: SurveySection; project: Project; runtimeReady: boolean; refreshToken?: number; onAdjustmentComplete?: (id: string) => void; onDeformationComplete?: (id: string) => void; onOpenAi?: () => void; onNetworkSelected?: (id: string | null, revision?: number) => void; pendingFiles?: File[]; onRemovePendingFile?: (file: File) => void; navigationTarget?: SurveyEvidenceNavigationTarget | null }): ReactElement {
   const { t } = useTranslation('common')
   const [networkType, setNetworkType] = useState(({ 'control-network': 'plane-control', 'traverse-network': 'traverse', resection: 'cpiii-resection', gnss: 'gnss' } as Record<string, string>)[project.taskType ?? ''] ?? 'leveling')
   const [transformType, setTransformType] = useState('similarity-2d')
@@ -294,7 +294,11 @@ export function SurveyAdjustmentPanel({ project, runtimeReady, onAdjustmentCompl
   const appliedNavigation = useRef<SurveyEvidenceNavigationTarget | null>(null)
   const [navigationDataReady, setNavigationDataReady] = useState(false)
   const [navigationLoadedTarget, setNavigationLoadedTarget] = useState<SurveyEvidenceNavigationTarget | null | undefined>()
-  const navigationLoadBusy = Boolean(navigationTarget && busy)
+  const loadedScope = useRef('')
+  const appliedRefreshToken = useRef(refreshToken)
+  const selectedNetworkRef = useRef(network?.id)
+  selectedNetworkRef.current = network?.id
+  const navigationLoadBusy = Boolean(busy && (navigationTarget || appliedRefreshToken.current !== refreshToken))
   const [locatedEvidence, setLocatedEvidence] = useState<SurveyEvidenceNavigationTarget | null>(null)
   const [navigationUnavailable, setNavigationUnavailable] = useState(false)
 
@@ -396,12 +400,14 @@ export function SurveyAdjustmentPanel({ project, runtimeReady, onAdjustmentCompl
 
   useEffect(() => {
     let cancelled = false
+    const scope = JSON.stringify([project.workspace, project.id])
+    const preserveView = loadedScope.current === scope
     setNavigationDataReady(false)
     setNavigationLoadedTarget(undefined)
     setLocatedEvidence(null)
     setNavigationUnavailable(false)
     if (!runtimeReady || !project.id || navigationLoadBusy) return
-    if (!navigationTarget) {
+    if (!navigationTarget && !preserveView) {
       setMappingBatch(null)
       setCosaFileGroupInspection(null)
     }
@@ -415,10 +421,10 @@ export function SurveyAdjustmentPanel({ project, runtimeReady, onAdjustmentCompl
       const eligible = adjustmentResult.adjustments
         .filter(isComparableEpoch)
         .sort((left, right) => Date.parse(left.observationEpoch!) - Date.parse(right.observationEpoch!))
-      setReferenceAdjustmentId(eligible[0]?.run.id ?? '')
-      setCurrentAdjustmentId(eligible.at(-1)?.run.id ?? '')
-      if (!navigationTarget) {
-        const restoredNetwork = networkResult.networks[0] ?? null
+      setReferenceAdjustmentId(current => preserveView && eligible.some(item => item.run.id === current) ? current : eligible[0]?.run.id ?? '')
+      setCurrentAdjustmentId(current => preserveView && eligible.some(item => item.run.id === current) ? current : eligible.at(-1)?.run.id ?? '')
+      if (!navigationTarget || (preserveView && appliedNavigation.current === navigationTarget)) {
+        const restoredNetwork = (preserveView ? networkResult.networks.find(item => item.id === selectedNetworkRef.current) : undefined) ?? networkResult.networks[0] ?? null
         const restoredAdjustment = restoredNetwork
           ? adjustmentResult.adjustments.find((item) => item.run.networkId === restoredNetwork.id) ?? null
           : null
@@ -428,13 +434,15 @@ export function SurveyAdjustmentPanel({ project, runtimeReady, onAdjustmentCompl
           setNetworkType(restoredNetwork.networkType)
           if (restoredNetwork.transformType) setTransformType(restoredNetwork.transformType)
         }
-        setSection(preferredSectionRef.current ?? (restoredAdjustment ? 'result' : 'network'))
+        if (!preserveView) setSection(preferredSectionRef.current ?? (restoredAdjustment ? 'result' : 'network'))
       }
+      loadedScope.current = scope
+      appliedRefreshToken.current = refreshToken
       setNavigationLoadedTarget(navigationTarget)
       setNavigationDataReady(true)
     }).catch((error) => { if (!cancelled) { setMessage(error instanceof Error ? error.message : String(error)); setNavigationUnavailable(Boolean(navigationTarget)) } })
     return () => { cancelled = true }
-  }, [project.id, runtimeReady, navigationTarget, navigationLoadBusy])
+  }, [project.id, project.workspace, runtimeReady, navigationTarget, navigationLoadBusy, refreshToken])
 
   useEffect(() => {
     if (!navigationTarget) { setLocatedEvidence(null); setNavigationUnavailable(false); return }

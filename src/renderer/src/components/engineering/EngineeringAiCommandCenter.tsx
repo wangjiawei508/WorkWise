@@ -1,14 +1,16 @@
-import { useCallback, useEffect, useState, type ReactElement } from 'react'
+import { useCallback, useEffect, useRef, useState, type ReactElement } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useShallow } from 'zustand/react/shallow'
 import { AlertTriangle, Bot, ChevronDown, ClipboardList, Compass, FileCheck2, Loader2, LocateFixed, MessageSquareText, Play, Plus, RefreshCw, Upload } from 'lucide-react'
 import type { TaskRunStatus, TaskRunV1 } from '@shared/agent-workbench'
 import appI18n from '../../i18n'
+import { formatRuntimeError } from '../../lib/format-runtime-error'
 import { surveyLegacyDiagnosticText, surveyRuntimeErrorText } from './survey-diagnostic-text'
 import { rendererRuntimeClient } from '../../agent/runtime-client'
 import { useChatStore } from '../../store/chat-store'
 import { MessageTimeline } from '../chat/MessageTimeline'
 import { EngineeringComposer } from './EngineeringComposer'
+import { composerReasoningEffortRequestValue } from '../chat/FloatingComposerModelPicker'
 import { EngineeringProjectSuggestions } from './EngineeringProjectSuggestions'
 import { engineeringPlanTranscriptText } from './engineering-plan-transcript'
 import { useEngineeringConversationDrafts } from './engineering-conversation-drafts'
@@ -19,7 +21,7 @@ type Dataset = { sourceFileName: string; observationCount: number; status: strin
 type Analysis = { results: Array<{ thresholdStatus: string; anomaly: boolean }>; algorithmVersion: string }
 type EvidenceCard = { id: string; kind: string; title: string; summary: string; sourceHash?: string; locator?: string }
 type AiPlan = {
-  id: string; projectId: string; contextHash: string; revision: number; goal: string; status: string; taskId?: string
+  id: string; projectId: string; contextHash: string; revision: number; goal: string; status: string; taskId?: string; executionTurnId?: string
   steps: Array<{ id: string; title: string; tool: string; risk: string; approval: string; parameters?: Record<string, unknown>; parameterBindings?: Array<{ parameter: string; stepId: string; output: string; asArray?: boolean }>; expectedOutputs?: string[]; reversibility?: string }>
   approval?: { token: string; stepIds: string[]; expiresAt: string }
 }
@@ -31,6 +33,7 @@ type Props = {
   onSurveyFiles: (files: File[]) => void
   onOpenTab: (tab: 'project' | 'data' | 'quality' | 'survey' | 'analysis' | 'deliverables' | 'review' | 'skills') => void
   onRefresh: () => void
+  onExecutionSettled?: () => void
   navigationContext?: EngineeringNavigationContext | null
   onNavigateEvidence?: (target: EngineeringEvidenceNavigationTarget) => void
 }
@@ -41,7 +44,7 @@ type SessionResourceState = { status: 'idle' | 'loading' | 'ready' | 'empty' | '
 const IDLE_RESOURCE_STATE: SessionResourceState = { status: 'idle' }
 
 function readRuntimeMessage(body: string, fallback: string): string {
-  try { return (JSON.parse(body) as { message?: string }).message || fallback } catch { return body.trim() || fallback }
+  return body.trim() || fallback
 }
 function phaseLabel(status: string, t: Translate): string {
   const keys: Record<string, string> = {
@@ -64,7 +67,7 @@ export function projectAiPlanSteps(plan: AiPlan, taskStatus?: TaskRunStatus, t?:
   }))
 }
 
-export function EngineeringAiCommandCenter({ workspaceRoot, runtimeReady, project, compact = false, onCreateProject, onImportData, onSurveyFiles, onOpenTab, onRefresh, navigationContext, onNavigateEvidence }: Props): ReactElement {
+export function EngineeringAiCommandCenter({ workspaceRoot, runtimeReady, project, compact = false, onCreateProject, onImportData, onSurveyFiles, onOpenTab, onRefresh, onExecutionSettled, navigationContext, onNavigateEvidence }: Props): ReactElement {
   const { t, i18n } = useTranslation('common')
   const { activeThreadId, threads, blocks, liveReasoning, liveAssistant, busy, runtimeConnection, error, lastSeq, refreshThreads, selectThread, probeRuntime, openSettings, composerModel } = useChatStore(useShallow((state) => ({
     activeThreadId: state.activeThreadId, threads: state.threads, blocks: state.blocks,
@@ -76,6 +79,7 @@ export function EngineeringAiCommandCenter({ workspaceRoot, runtimeReady, projec
   const [notice, setNotice] = useState<string | null>(null)
   const [evidenceCards, setEvidenceCards] = useState<EvidenceCard[]>([])
   const [aiPlan, setAiPlan] = useState<AiPlan | null>(null)
+  const [planThreadId, setPlanThreadId] = useState<string | null>(null)
   const [taskRun, setTaskRun] = useState<TaskRunV1 | null>(null)
   const [planReadState, setPlanReadState] = useState<SessionResourceState>(IDLE_RESOURCE_STATE)
   const [evidenceReadState, setEvidenceReadState] = useState<SessionResourceState>(IDLE_RESOURCE_STATE)
@@ -85,6 +89,7 @@ export function EngineeringAiCommandCenter({ workspaceRoot, runtimeReady, projec
   const [approvedSteps, setApprovedSteps] = useState<string[]>([])
   const projectId = project?.id ?? ''
   const selectedEvidence = useEngineeringConversationDrafts(state => state.drafts[JSON.stringify([workspaceRoot, projectId])]?.evidenceContext)
+  const reasoningEffort = useEngineeringConversationDrafts(state => state.drafts[JSON.stringify([workspaceRoot, projectId])]?.reasoningEffort ?? 'max')
   const selectedTarget = navigationContext && selectedEvidence ? surveyNavigationTarget(navigationContext, selectedEvidence) : null
   const navigationButton = (target: EngineeringEvidenceNavigationTarget | null): ReactElement => <button type="button" disabled={!target || !onNavigateEvidence} title={t(target ? 'engineeringOpenEvidence' : 'engineeringEvidenceUnavailable')} onClick={() => { if (target) onNavigateEvidence?.(target) }} className="mt-1 inline-flex min-h-8 items-center gap-1.5 text-[11px] text-accent disabled:text-ds-muted disabled:opacity-60"><LocateFixed className="h-3.5 w-3.5" />{t('engineeringOpenEvidence')}</button>
   const connected = runtimeReady && runtimeConnection === 'ready'
@@ -94,12 +99,22 @@ export function EngineeringAiCommandCenter({ workspaceRoot, runtimeReady, projec
   const timelineBlocks = engineeringThreadActive ? blocks.map(block => block.kind === 'assistant'
     ? { ...block, text: engineeringPlanTranscriptText(block.text, i18n.language) } : block) : []
   const timelineThreadId = engineeringThreadActive ? activeThreadId : null
+  const refreshRef = useRef(onExecutionSettled ?? onRefresh)
+  refreshRef.current = onExecutionSettled ?? onRefresh
+  const refreshedExecutions = useRef(new Set<string>())
+  const notifyExecutionSettled = useCallback((plan: AiPlan, status: string): void => {
+    if (!timelineThreadId || plan.projectId !== projectId || !['completed', 'failed', 'cancelled'].includes(status)) return
+    const key = JSON.stringify([workspaceRoot, projectId, timelineThreadId, plan.id, plan.executionTurnId ?? plan.taskId, status])
+    if (refreshedExecutions.current.has(key)) return
+    refreshedExecutions.current.add(key)
+    refreshRef.current()
+  }, [workspaceRoot, projectId, timelineThreadId])
   const timelineHasActivity = timelineBlocks.length > 0 || (engineeringThreadActive && (busy || Boolean(liveReasoning || liveAssistant)))
-  const scopedPlan = aiPlan?.projectId === projectId ? aiPlan : null
+  const scopedPlan = aiPlan?.projectId === projectId && planThreadId === timelineThreadId ? aiPlan : null
   const setGoal = (input: string): void => useEngineeringConversationDrafts.getState().update(JSON.stringify([workspaceRoot, projectId]), (draft) => ({ ...draft, input }))
 
   useEffect(() => {
-    setNotice(null); setAiPlan(null); setTaskRun(null); setEvidenceCards([])
+    setNotice(null); setAiPlan(null); setPlanThreadId(null); setTaskRun(null); setEvidenceCards([])
     setPlanReadState(IDLE_RESOURCE_STATE); setEvidenceReadState(IDLE_RESOURCE_STATE)
   }, [projectId, activeThreadId])
   useEffect(() => { setApprovedSteps([]) }, [scopedPlan?.id, scopedPlan?.revision])
@@ -114,12 +129,15 @@ export function EngineeringAiCommandCenter({ workspaceRoot, runtimeReady, projec
       if (response.status === 404) { setAiPlan(null); setPlanReadState({ status: 'empty' }); return }
       if (!response.ok) throw new Error(readRuntimeMessage(response.body, t('engineeringPlanReadFailed')))
       try {
-        const parsed = JSON.parse(response.body) as { plan: AiPlan; approval?: AiPlan['approval'] }
+        const parsed = JSON.parse(response.body) as { plan: AiPlan | null; approval?: AiPlan['approval'] }
+        if (!parsed.plan) { setAiPlan(null); setPlanReadState({ status: 'empty' }); return }
         setAiPlan({ ...parsed.plan, approval: parsed.approval })
+        setPlanThreadId(timelineThreadId)
         setPlanReadState({ status: 'ready' })
+        notifyExecutionSettled(parsed.plan, parsed.plan.status)
       } catch { throw new Error(t('engineeringNoticePlanUnreadable')) }
     }).catch((cause) => {
-      if (!cancelled) setPlanReadState({ status: 'error', error: cause instanceof Error ? cause.message : t('engineeringPlanReadFailed') })
+      if (!cancelled) setPlanReadState({ status: 'error', error: formatRuntimeError(cause, t('engineeringPlanReadFailed')) })
     })
     void rendererRuntimeClient.runtimeRequest(`/v1/engineering/ai/evidence/${encodeURIComponent(projectId)}`).then((response) => {
       if (cancelled) return
@@ -130,10 +148,10 @@ export function EngineeringAiCommandCenter({ workspaceRoot, runtimeReady, projec
         setEvidenceReadState({ status: cards.length ? 'ready' : 'empty' })
       } catch { throw new Error(t('engineeringEvidenceReadFailed')) }
     }).catch((cause) => {
-      if (!cancelled) setEvidenceReadState({ status: 'error', error: cause instanceof Error ? cause.message : t('engineeringEvidenceReadFailed') })
+      if (!cancelled) setEvidenceReadState({ status: 'error', error: formatRuntimeError(cause, t('engineeringEvidenceReadFailed')) })
     })
     return () => { cancelled = true }
-  }, [busy, connected, lastSeq, projectId, sessionReadRevision, timelineThreadId, t])
+  }, [busy, connected, lastSeq, projectId, sessionReadRevision, timelineThreadId, t, notifyExecutionSettled])
 
   useEffect(() => {
     let cancelled = false
@@ -145,16 +163,18 @@ export function EngineeringAiCommandCenter({ workspaceRoot, runtimeReady, projec
         const next = await window.workwise.getTaskRun(taskId)
         if (cancelled) return
         setTaskRun(next)
+        if (next?.id === taskId) notifyExecutionSettled(scopedPlan, next.status)
         if (next && ['queued', 'running', 'retrying'].includes(next.status)) timer = setTimeout(() => void poll(), 1_000)
       } catch { if (!cancelled) setTaskRun(null) }
     }
     void poll()
     return () => { cancelled = true; clearTimeout(timer) }
-  }, [connected, scopedPlan?.taskId, scopedPlan?.revision, busy])
+  }, [connected, scopedPlan, busy, notifyExecutionSettled])
 
   const approveAndStartPlan = async (): Promise<void> => {
     if (!scopedPlan || !scopedPlan.steps.every(step => step.parameters && step.parameterBindings && step.expectedOutputs?.length && step.reversibility) || !connected || !engineeringThreadActive || busy || planBusy) return
     setPlanBusy(true); setNotice(null)
+    const selection = { model: useChatStore.getState().composerModel || undefined, providerId: useChatStore.getState().composerProviderId, reasoningEffort: composerReasoningEffortRequestValue(reasoningEffort) }
     try {
       let approved = scopedPlan
       if (scopedPlan.status === 'awaiting_approval') {
@@ -164,13 +184,13 @@ export function EngineeringAiCommandCenter({ workspaceRoot, runtimeReady, projec
         approved = JSON.parse(response.body) as AiPlan
         setAiPlan(approved)
       }
-      const response = await rendererRuntimeClient.runtimeRequest(`/v1/engineering/ai/plans/${encodeURIComponent(approved.id)}/start`, 'POST', JSON.stringify({ expectedRevision: approved.revision, contextHash: approved.contextHash, model: composerModel || undefined, idempotencyKey: `engineering-start-${crypto.randomUUID()}` }))
+      const response = await rendererRuntimeClient.runtimeRequest(`/v1/engineering/ai/plans/${encodeURIComponent(approved.id)}/start`, 'POST', JSON.stringify({ expectedRevision: approved.revision, contextHash: approved.contextHash, ...selection, idempotencyKey: `engineering-start-${crypto.randomUUID()}` }))
       if (!response.ok) throw new Error(readRuntimeMessage(response.body, t('engineeringNoticeStartFailed')))
       setAiPlan((JSON.parse(response.body) as { plan: AiPlan }).plan)
       await refreshThreads()
       if (useChatStore.getState().activeThreadId === timelineThreadId && timelineThreadId) await selectThread(timelineThreadId)
       onRefresh()
-    } catch (cause) { setNotice(cause instanceof Error ? cause.message : String(cause)) } finally { setPlanBusy(false) }
+    } catch (cause) { setNotice(formatRuntimeError(cause, t('engineeringNoticeStartFailed'))) } finally { setPlanBusy(false) }
   }
   const replanStalePlan = async (): Promise<void> => {
     if (!scopedPlan || (!['stale', 'needs_attention'].includes(scopedPlan.status) && scopedPlan.steps.every(step => step.parameters && step.parameterBindings && step.expectedOutputs?.length && step.reversibility)) || !connected || !engineeringThreadActive || !timelineThreadId || busy || planBusy) return
@@ -191,7 +211,7 @@ export function EngineeringAiCommandCenter({ workspaceRoot, runtimeReady, projec
       await refreshThreads()
       if (useChatStore.getState().activeThreadId === timelineThreadId) await selectThread(timelineThreadId)
       onRefresh()
-    } catch (cause) { setNotice(cause instanceof Error ? cause.message : t('engineeringNoticeReplanFailed')) } finally { setPlanBusy(false) }
+    } catch (cause) { setNotice(formatRuntimeError(cause, t('engineeringNoticeReplanFailed'))) } finally { setPlanBusy(false) }
   }
   const retryRuntime = useCallback((): void => { void probeRuntime('user') }, [probeRuntime])
   const retrySessionRead = useCallback((): void => { setSessionReadRevision((revision) => revision + 1) }, [])

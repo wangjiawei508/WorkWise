@@ -31,6 +31,7 @@ beforeEach(() => {
   Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true })
   Object.assign(window, { workwise: { getPathForFile: (file: File) => `/source/${file.name}`, importChatAttachment, cancelChatAttachmentImport: vi.fn() } })
   useEngineeringConversationDrafts.setState({ drafts: {} })
+  useChatStore.setState({ composerModel: 'shared-model', composerProviderId: 'provider-a' })
   select('project-a', 'thread-a')
   container = document.createElement('div')
   document.body.append(container)
@@ -75,17 +76,54 @@ describe('Survey composer continuity', () => {
     expect(composer.input).toBe('')
   })
 
-  it('restores project drafts after switching and after panel remount', async () => {
+  it('sends explicit off for Low and retains the selected effort after successful send', async () => {
     await render()
-    await act(async () => composer.setInput('Project A question'))
+    await act(async () => {
+      composer.setInput('Explain without extended reasoning')
+      composer.onComposerReasoningEffortChange?.('low')
+    })
+    await act(async () => composer.onSend())
+    expect(sendMessage).toHaveBeenCalledWith('Explain without extended reasoning', 'agent', expect.objectContaining({ reasoningEffort: 'off' }))
+    expect(composer.input).toBe('')
+    expect(composer.composerReasoningEffort).toBe('low')
+  })
+
+  it('passes provider identity to the shared picker even when model names match', async () => {
+    await render()
+    expect(composer.composerModel).toBe('shared-model')
+    expect(composer.composerProviderId).toBe('provider-a')
+    await act(async () => useChatStore.setState({ composerProviderId: 'provider-b' }))
+    expect(composer.composerModel).toBe('shared-model')
+    expect(composer.composerProviderId).toBe('provider-b')
+  })
+
+  it('restores project drafts and independent efforts after switching and after settings remount', async () => {
+    await render()
+    expect(composer.composerReasoningEffort).toBe('max')
+    await act(async () => {
+      composer.setInput('Project A question')
+      composer.onComposerReasoningEffortChange?.('low')
+    })
     await act(async () => select('project-b', 'thread-b'))
     await render('project-b', 'thread-b')
     expect(composer.input).toBe('')
-    await act(async () => composer.setInput('Project B question'))
-    await act(async () => root.render(null))
+    expect(composer.composerReasoningEffort).toBe('max')
+    await act(async () => {
+      composer.setInput('Project B question')
+      composer.onComposerReasoningEffortChange?.('high')
+    })
+    await act(async () => {
+      root.render(null)
+      useChatStore.setState({ route: 'settings' })
+    })
     await act(async () => select('project-a', 'thread-a'))
     await render()
     expect(composer.input).toBe('Project A question')
+    expect(composer.composerReasoningEffort).toBe('low')
+    await act(async () => select('project-b', 'thread-b'))
+    await render('project-b', 'thread-b')
+    expect(composer.input).toBe('Project B question')
+    expect(composer.composerReasoningEffort).toBe('high')
   })
 
   it('carries selected result IDs into a follow-up while keeping the visible message concise', async () => {

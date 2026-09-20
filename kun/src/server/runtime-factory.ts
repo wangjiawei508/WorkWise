@@ -12,6 +12,7 @@ import { InMemoryEventBus } from '../adapters/in-memory-event-bus.js'
 import { FileSessionStore, FileThreadStore } from '../adapters/file/index.js'
 import { HybridSessionStore, HybridThreadStore } from '../adapters/hybrid/index.js'
 import { DeepseekCompatModelClient } from '../adapters/model/deepseek-compat-model-client.js'
+import { ProviderRoutingModelClient, unavailableModelProvider, type ModelProviderRoutes } from '../adapters/model/provider-routing-model-client.js'
 import { CapabilityRegistry } from '../adapters/tool/capability-registry.js'
 import { buildGoalLocalTools } from '../adapters/tool/goal-tools.js'
 import { buildTodoLocalTools } from '../adapters/tool/todo-tools.js'
@@ -106,6 +107,8 @@ export type KunServeRuntimeOptions = {
   baseUrl: string
   endpointFormat?: ModelEndpointFormat
   model: string
+  modelProviders?: ModelProviderRoutes
+  defaultModelProviderId?: string
   approvalPolicy: ApprovalPolicy
   sandboxMode: SandboxMode
   tokenEconomyMode: boolean
@@ -132,6 +135,8 @@ export type KunServeHandle = NodeHttpServerHandle & {
 export async function createKunServeRuntime(
   options: KunServeRuntimeOptions
 ): Promise<ServerRuntime> {
+  // Provider credentials are parsed at startup and must not reach tool subprocesses.
+  delete process.env.WORKWISE_MODEL_PROVIDERS_SECRET
   await mkdir(options.dataDir, { recursive: true })
   const eventBus = new InMemoryEventBus()
   const stores = await createPersistentStores({
@@ -256,18 +261,26 @@ export async function createKunServeRuntime(
     ids,
     nowIso,
     tasks: taskController,
+    resolveModelSelection: (request, thread) => {
+      const providerId = request.providerId ?? options.defaultModelProviderId
+      if (!providerId) return { model: request.model }
+      const provider = options.modelProviders?.find(route => route.id === providerId)
+      if (!provider) throw unavailableModelProvider(providerId)
+      return { providerId, model: request.model ?? (thread.agentProfile?.model || thread.model || provider.model) }
+    },
     approvalGate,
     userInputGate,
     workspaceReferences: workspaceReferenceService
   })
   const uiActionService = new UiActionService({ sessionStore, turns: turnService })
   await seedUsageCarryover({ threadStore, sessionStore, usageService })
-  const modelClient = new DeepseekCompatModelClient({
+  const defaultModelClient = new DeepseekCompatModelClient({
     baseUrl: options.baseUrl,
     apiKey: options.apiKey,
     endpointFormat: options.endpointFormat ?? DEFAULT_MODEL_ENDPOINT_FORMAT,
     model: options.model
   })
+  const modelClient = new ProviderRoutingModelClient(defaultModelClient, options.modelProviders ?? [])
   const modelProfiles = modelContextProfilesFromConfig({
     contextCompaction: options.contextCompaction,
     models: options.models
@@ -470,6 +483,10 @@ export async function createKunServeRuntime(
         events,
         nowIso,
         executor: createChildAgentExecutor({
+          parentSelection: async (threadId, turnId) => {
+            const parent = (await threadStore.get(threadId))?.turns.find(turn => turn.id === turnId)
+            return { model: parent?.model, providerId: parent?.providerId, reasoningEffort: parent?.reasoningEffort }
+          },
           model: modelClient,
           toolHost: childToolHost,
           prefix,
@@ -784,6 +801,8 @@ async function resumeRecoveredTasks(input: {
           ].filter(Boolean).join('\n'),
           displayText: '正在自动恢复未完成任务',
           model: recovered.model,
+          providerId: recovered.providerId,
+          reasoningEffort: recovered.reasoningEffort,
           mode: 'agent'
         }
       })

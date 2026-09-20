@@ -1,6 +1,6 @@
 # Survey 模型与审批后续检查
 
-本记录为 2026-09-20 的只读调查与最小后续范围，不表示这些问题已修复。未改应用源码、正式用户模型配置、凭据或发布状态。当前候选构建沿用已验证源码；下述修复应独立实施并重新验证。
+本记录包含 2026-09-20 的调查及后续源码修复。第 1 至 5 节保留首次调查背景；第 6 节是当前实现与验证状态。源码修复属于 fbb88ea 之后的独立批次，不能归入 fbb88ea 签名包验收；未改正式用户模型配置、凭据、公开版本或发布状态。
 
 ## 1. 同名模型丢失 provider 身份
 
@@ -46,3 +46,28 @@
 本次只读递归键集合检查：中英文 common 各 3,392 键、settings 各 704、quality-assessment 各 92、quality-scoring 各 153、standard-basis 各 28，均无缺键。现有 `survey-fixture-locale.test.ts` 检查实际解析 fixture 诊断；键数和 fixture 覆盖不能证明所有运行异常与旧记录全量翻译。
 
 最小候选矩阵复用上述同一工程：中浅/英深下查看修改建议、过期计划、审批参数、原始记录导航、模型不可用和复验失败。系统文案应翻译，项目名、来源记录及用户数据保留原样。`surveyLegacyDiagnosticText` 对未知旧文案保留原文是当前兼容行为，不能为消除中文而覆盖证据。此调查未发现新的确定缺键问题；本轮不扩大为全部 P1/P2 页面重写。
+
+## 6. 后续实现与迁移矩阵
+
+已补齐 provider/model 身份从菜单、偏好、普通发送、排队、IPC、Turn/Task 到实际模型请求的传递。同名模型只在各自提供商组内去重。新增请求将默认提供商固化到 Turn/Task；缺省 model 仍沿用 agent profile、thread、提供商默认模型的原有优先级。内部 Flow 没有用户选择时沿用配置默认；Auto 分类、压缩、Review、委派子任务和 UI action 续行继承原请求身份。移除提供商后明确返回 `model_provider_unavailable`，中英文提示提供设置恢复入口。模型配置变更通过既有 Runtime 重启链路刷新，启动环境中的提供商凭据 JSON 在 Runtime 初始化时移除，不向工具子进程传播。
+
+普通续行继承 Task 的选择；明确恢复通过内部 `continuationTaskId` 绑定既有 Task，避免依赖自然语言是否匹配“继续”正则而取消原任务。此字段不接受外部 HTTP 请求任意指定。Typed start/resume 传递 provider/model/reasoningEffort；审批开始时捕获同一选择快照，等待审批响应期间切换菜单不改变本次执行。
+
+Survey 推理档现在保存在现有工程草稿 store，以 workspace/project 隔离，设置页卸载、重新挂载和发送后均保留。原地 Low 已生效而设置返回重置 Ultra 的包内观察见 `/private/tmp/railwise-survey-be0d7ac/evidence/model-settings-followthrough/01-low-immediate.txt`、`02-after-settings-return.txt`。本批实现保持草稿原有会话级存储边界：完整退出应用后默认 Ultra，不将临时附件/草稿写入磁盘。模型/provider 偏好独立持久保存。
+
+| 旧项目 | 新状态与原因 | 数据保留 | 用户操作 |
+| --- | --- | --- | --- |
+| `workwise.composerModel` 字符串 | 继续兼容；新选择同时保存版本化 `{model, providerId}`，避免同名混淆 | 原 key 保留，不重写正式 provider 配置 | 旧偏好沿用明确配置的默认提供商；需要其他端点时选择对应组 |
+| 既有 Turn/Task 无 providerId | 可继续读取；旧历史保持既有缺省路由语义，新执行固化提供商 | 不批量重写历史记录、插件、MCP、Skill 或凭据引用 | 无强制迁移 |
+| 已保存的 provider 被移除 | 保留选择并明确失败，防止静默切换 | 选择与旧任务不删除 | 在设置恢复原 provider，或显式重新选择后发送 |
+| Write/SDD 助手模型字符串 | 添加独立版本化身份偏好及发送字段 | 原助手 model key 保留 | 选择提供商组后使用该端点 |
+| Claw 渠道 model-only 配置 | 保留既有渠道合同；显示普通模型列表，不展示无法保存的跨提供商选择 | 不迁移、不删除渠道配置，使用配置默认提供商 | 跨提供商渠道选择不属于本批新增能力 |
+| Survey 局部推理档 | 移入现有工程草稿，按 workspace/project 隔离 | 保持原草稿会话级生命周期；空值仍为 Ultra | 设置页往返无需重选；重启后按需重选 |
+
+自动验证：
+
+- `kun/tests/model-provider-routing.test.ts` 使用两个真实本地 HTTP 监听器、无 API key，验证同名模型落点、默认身份、持久重启读取、旧 thread model 优先级、Auto 分类、子任务、Flow、缺失提供商拒绝及普通 resume/retry 的 Turn/Task 一致性。计价用独立拦截响应验证按本次请求模型计价，不把 provider 首模型当作全部请求的价格。
+- `kun/src/engineering/engineering-plan-execution.test.ts` 验证 typed start/resume 的 provider/model/effort 及幂等恢复。`review.test.ts`、`ui-action-service.test.ts` 验证私有 Review 与来源消息续行身份。
+- 真实 picker DOM 测试验证两个同名菜单与选中标记，存储测试保留旧 key。Survey DOM 覆盖 Low 设置往返、项目隔离、普通发送 `off`、审批 await 期间选择变化；IPC 与队列测试检查序列化和排队身份保留。
+
+这些结果是自动化与合成本地端点验证，不代表厂商真实模型评测、生产数据验收或专业人员签认。新批次仍需独立打包并在安装包中完成中浅/英深、窗口尺寸与同名提供商选择/设置往返实测；公开发布需遵守仓库 release gate。

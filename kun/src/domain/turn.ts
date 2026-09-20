@@ -17,6 +17,7 @@ export function createTurnRecord(input: {
   threadId: string
   prompt: string
   model?: string
+  providerId?: string
   reasoningEffort?: TurnReasoningEffort
   attachmentIds?: string[]
   workspaceReferences?: WorkspaceReference[]
@@ -44,6 +45,7 @@ export function createTurnRecord(input: {
     activeSkillIds: [],
     injectedMemoryIds: [],
     ...(model ? { model } : {}),
+    ...(input.providerId ? { providerId: input.providerId } : {}),
     ...(reasoningEffort ? { reasoningEffort } : {}),
     ...(input.guiPlan ? { guiPlan: input.guiPlan } : {}),
     ...(input.guiDesign ? { guiDesign: input.guiDesign } : {}),

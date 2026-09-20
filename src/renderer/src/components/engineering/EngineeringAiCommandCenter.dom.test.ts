@@ -70,7 +70,7 @@ beforeEach(async () => {
   useChatStore.setState({
     route: 'engineering', workspaceRoot, runtimeConnection: 'ready', activeThreadId: 'thread-a',
     threads: [{ id: 'thread-a', domain: 'engineering', projectId: project.id, workspace: workspaceRoot }] as never,
-    blocks: [], liveReasoning: '', liveAssistant: '', busy: false, error: null, lastSeq: 0, composerModel: 'test-model',
+    blocks: [], liveReasoning: '', liveAssistant: '', busy: false, error: null, lastSeq: 0, composerModel: 'test-model', composerProviderId: 'provider-a',
     refreshThreads, selectThread, probeRuntime: vi.fn(async () => undefined), openSettings: vi.fn()
   })
   useEngineeringConversationDrafts.setState({ drafts: {} })
@@ -85,6 +85,60 @@ afterEach(async () => {
 })
 
 describe('Engineering AI session recovery states', () => {
+  it.each(['completed', 'failed', 'cancelled'])('refreshes authoritative project data once when execution becomes %s', async status => {
+    const plan = { ...refreshedPlan, status: 'started', taskId: 'task-1', executionTurnId: 'execution-1' }
+    const getTaskRun = vi.fn().mockResolvedValueOnce({ id: 'task-1', status: 'running' }).mockResolvedValue({ id: 'task-1', status })
+    Object.assign(window.workwise, { getTaskRun })
+    runtimeRequest.mockImplementation(async path => response(200, path.startsWith('/v1/engineering/ai/plans?') ? { plan } : { cards: [] }))
+    await render(); await settle()
+    expect(onRefresh).not.toHaveBeenCalled()
+    await act(async () => useChatStore.setState({ busy: true }))
+    await settle()
+    expect(onRefresh).toHaveBeenCalledOnce()
+    plan.status = status
+    await act(async () => useChatStore.setState({ busy: false, lastSeq: 1 }))
+    await settle()
+    await act(async () => useChatStore.setState({ lastSeq: 2 }))
+    await settle()
+    expect(onRefresh).toHaveBeenCalledOnce()
+    expect(runtimeRequest.mock.calls.every(([, method]) => !method || method === 'GET')).toBe(true)
+  })
+
+  it.each(['other-project', project.id])('ignores a late completed task after switching conversation to %s', async nextProjectId => {
+    const pendingTask = deferred<never>()
+    Object.assign(window.workwise, { getTaskRun: vi.fn(() => pendingTask.promise) })
+    const plan = { ...refreshedPlan, status: 'started', taskId: 'old-task', executionTurnId: 'old-execution' }
+    runtimeRequest.mockImplementation(async path => response(200, path.startsWith('/v1/engineering/ai/plans?') ? { plan: path.includes('other-thread') ? null : plan } : { cards: [] }))
+    await render(); await settle()
+    await act(async () => {
+      useChatStore.setState({ activeThreadId: 'other-thread', threads: [{ id: 'other-thread', domain: 'engineering', projectId: nextProjectId, workspace: workspaceRoot }] as never })
+      root.render(createElement(EngineeringAiCommandCenter, { workspaceRoot, runtimeReady: true, project: { ...project, id: nextProjectId }, dataset: null, analysis: null, onCreateProject: vi.fn(), onImportData: vi.fn(), onSurveyFiles: vi.fn(), onOpenTab: vi.fn(), onRefresh }))
+    })
+    await settle()
+    await act(async () => pendingTask.resolve({ id: 'old-task', status: 'completed' } as never))
+    await settle()
+    expect(onRefresh).not.toHaveBeenCalled()
+  })
+
+  it.each(['en', 'zh'])('localizes stale plan rejection without exposing service content in %s', async language => {
+    await i18n.changeLanguage(language)
+    runtimeRequest.mockImplementation(async (path, method) => {
+      if (path.startsWith('/v1/engineering/ai/plans?')) return response(200, { plan: refreshedPlan, approval: refreshedPlan.approval })
+      if (path.startsWith('/v1/engineering/ai/evidence/')) return response(200, { cards: [] })
+      if (path.endsWith('/approve') && method === 'POST') return response(200, { ...refreshedPlan, status: 'approved', revision: 2 })
+      if (path.endsWith('/start') && method === 'POST') return response(409, { code: 'engineering_plan_stale', message: 'PRIVATE backend details' })
+      throw new Error('unexpected request')
+    })
+    await render(); await settle()
+    await act(async () => container.querySelector<HTMLInputElement>('input[type="checkbox"]')!.click())
+    const start = [...container.querySelectorAll('button')].find(button => button.textContent?.includes(i18n.t('engineeringApproveAndStart')))!
+    await act(async () => start.click())
+    await settle()
+    expect(container.textContent).toContain(i18n.t('runtimeEngineeringPlanStale'))
+    expect(container.textContent).not.toContain('PRIVATE')
+    expect(container.textContent).not.toContain('engineering_plan_stale')
+    expect(onRefresh).not.toHaveBeenCalled()
+  })
   it('offers exact navigation in compact mode without losing the ninth card or changing the conversation', async () => {
     const sha = 'a'.repeat(64)
     const navigationContext: EngineeringNavigationContext = { workspaceRoot, project, networks: [{ id: 'net-1', revision: 2, sourceFile: { sha256: sha } }], adjustments: [], datasets: [{ id: 'dataset', revision: 1, sourceFileHash: sha, findings: [] }], analyses: [], manifests: [] }
@@ -150,6 +204,45 @@ describe('Engineering AI session recovery states', () => {
     expect(container.querySelector('[data-testid="engineering-replan"]')).not.toBeNull()
   })
 
+  it.each([
+    { effort: 'low', requestEffort: 'off' },
+    { effort: 'high', requestEffort: 'high' }
+  ] as const)('captures the model/provider/$effort selection before approval and retains it while the picker changes', async ({ effort, requestEffort }) => {
+    const approval = deferred<RuntimeResponse>()
+    const approvedPlan = { ...refreshedPlan, status: 'approved', revision: 2 }
+    const scope = JSON.stringify([workspaceRoot, project.id])
+    useEngineeringConversationDrafts.getState().update(scope, draft => ({ ...draft, reasoningEffort: effort }))
+    runtimeRequest.mockImplementation(async (path, method) => {
+      if (path.startsWith('/v1/engineering/ai/plans?')) return response(200, { plan: refreshedPlan, approval: refreshedPlan.approval })
+      if (path.startsWith('/v1/engineering/ai/evidence/')) return response(200, { cards: [] })
+      if (path.endsWith('/approve') && method === 'POST') return approval.promise
+      if (path.endsWith('/start') && method === 'POST') return response(200, { plan: { ...approvedPlan, status: 'started', revision: 3 } })
+      throw new Error(`unexpected request: ${method ?? 'GET'} ${path}`)
+    })
+    await render(); await settle()
+    await act(async () => container.querySelector<HTMLInputElement>('input[type="checkbox"]')!.click())
+    const start = [...container.querySelectorAll('button')].find(button => button.textContent?.includes(i18n.t('engineeringApproveAndStart')))!
+    expect(start.disabled).toBe(false)
+    await act(async () => start.click())
+    expect(runtimeRequest.mock.calls.filter(([path]) => path.endsWith('/approve'))).toHaveLength(1)
+    expect(runtimeRequest.mock.calls.filter(([path]) => path.endsWith('/start'))).toHaveLength(0)
+    await act(async () => {
+      useChatStore.setState({ composerModel: 'other-model', composerProviderId: 'provider-b' })
+      useEngineeringConversationDrafts.getState().update(scope, draft => ({ ...draft, reasoningEffort: 'max' }))
+    })
+    await act(async () => approval.resolve(response(200, approvedPlan)))
+    await settle()
+    const starts = runtimeRequest.mock.calls.filter(([path]) => path.endsWith('/start'))
+    expect(starts).toHaveLength(1)
+    expect(JSON.parse(starts[0]![2]!)).toMatchObject({
+      expectedRevision: 2, contextHash: refreshedPlan.contextHash,
+      model: 'test-model', providerId: 'provider-a', reasoningEffort: requestEffort
+    })
+    expect(useChatStore.getState()).toMatchObject({ composerModel: 'other-model', composerProviderId: 'provider-b' })
+    expect(useEngineeringConversationDrafts.getState().drafts[scope]?.reasoningEffort).toBe('max')
+    expect(onRefresh).toHaveBeenCalledOnce()
+  })
+
   it('shows loading, error, and partial states and retries both resources without clearing the draft', async () => {
     const initialPlan = deferred<RuntimeResponse>()
     const initialEvidence = deferred<RuntimeResponse>()
@@ -174,12 +267,14 @@ describe('Engineering AI session recovery states', () => {
     })
     await settle()
     expect(container.querySelector('[data-testid="engineering-session-read-state"]')?.getAttribute('data-state')).toBe('error')
-    expect(container.textContent).toContain('Plan store unavailable')
+    expect(container.textContent).toContain(i18n.t('engineeringPlanReadFailed'))
+    expect(container.textContent).not.toContain('Plan store unavailable')
 
     await act(async () => container.querySelector<HTMLButtonElement>('[data-testid="engineering-session-retry"]')?.click())
     await settle()
     expect(container.querySelector('[data-testid="engineering-session-read-state"]')?.getAttribute('data-state')).toBe('partial')
-    expect(container.textContent).toContain('Evidence index unavailable')
+    expect(container.textContent).toContain(i18n.t('engineeringEvidenceReadFailed'))
+    expect(container.textContent).not.toContain('Evidence index unavailable')
 
     await act(async () => container.querySelector<HTMLButtonElement>('[data-testid="engineering-session-retry"]')?.click())
     await settle()

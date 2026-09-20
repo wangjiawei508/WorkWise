@@ -13,8 +13,8 @@ import type { EngineeringEvidenceNavigationTarget } from './engineering-evidence
 const { request, ensureThread, navigationFixture } = vi.hoisted(() => ({ request: vi.fn(), ensureThread: vi.fn(), navigationFixture: { target: null as unknown } }))
 vi.mock('../../agent/runtime-client', () => ({ rendererRuntimeClient: { runtimeRequest: request } }))
 vi.mock('../../store/chat-store', () => ({ useChatStore: (select: (s: unknown) => unknown) => select({ ensureEngineeringThread: ensureThread }) }))
-vi.mock('./EngineeringAiCommandCenter', () => ({ EngineeringAiCommandCenter: ({ onRefresh, onNavigateEvidence }: { onRefresh: () => void; onNavigateEvidence: (target: EngineeringEvidenceNavigationTarget) => void }) => createElement('div', {}, createElement('button', { onClick: onRefresh }, 'Refresh confirmed project'), createElement('button', { onClick: () => onNavigateEvidence(navigationFixture.target as EngineeringEvidenceNavigationTarget) }, 'Locate exact test evidence')) }))
-vi.mock('./SurveyAdjustmentPanel', () => ({ SurveyAdjustmentPanel: () => null }))
+vi.mock('./EngineeringAiCommandCenter', () => ({ EngineeringAiCommandCenter: ({ onRefresh, onExecutionSettled, onNavigateEvidence }: { onRefresh: () => void; onExecutionSettled: () => void; onNavigateEvidence: (target: EngineeringEvidenceNavigationTarget) => void }) => createElement('div', {}, createElement('button', { onClick: onRefresh }, 'Refresh confirmed project'), createElement('button', { onClick: onExecutionSettled }, 'Execution settled'), createElement('button', { onClick: () => onNavigateEvidence(navigationFixture.target as EngineeringEvidenceNavigationTarget) }, 'Locate exact test evidence')) }))
+vi.mock('./SurveyAdjustmentPanel', () => ({ SurveyAdjustmentPanel: ({ refreshToken }: { refreshToken: number }) => createElement('span', { 'data-testid': 'survey-refresh-token' }, refreshToken) }))
 vi.mock('./EngineeringSkillsPanel', () => ({ EngineeringSkillsPanel: () => null }))
 const project = { id: 'job', name: 'Test control network', taskType: 'control-network', monitoringType: 'control-network', unit: 'm', signConvention: 'positive', thresholds: {}, reportPeriod: {}, workspace: '/test', revision: 2, updatedAt: '2026-09-19T00:00:00Z' }
 const network = { id: 'net', revision: 2, networkType: 'plane-control', qualityStatus: 'validated', sourceFile: { name: 'survey.in2', disposition: 'adjustment-ready' } }
@@ -74,6 +74,33 @@ beforeEach(async () => {
 afterEach(async () => { await act(async () => root.unmount()); container.remove() })
 
 describe('Survey delivery without a monitoring dataset', () => {
+  it('refreshes overview and the mounted survey panel after AI execution without replacing the project draft', async () => {
+    adjustments = []
+    await act(async () => root.render(createElement(EngineeringWorkspaceView, { workspaceRoot: '/test', runtimeReady: true })))
+    await settle()
+    const stage = container.querySelector<HTMLSelectElement>('#engineering-view-select')!
+    await act(async () => { stage.value = 'adjustment'; stage.dispatchEvent(new Event('change', { bubbles: true })) })
+    expect(container.querySelector('[data-testid="survey-refresh-token"]')?.textContent).toBe('0')
+    adjustments = [{ ...adjustment, result: { validation: 'valid', precision: { maxPointStdDev: 0.002 } } }]
+    request.mockClear()
+    await act(async () => button('Execution settled').click())
+    await settle()
+    expect(container.querySelector('[data-testid="survey-refresh-token"]')?.textContent).toBe('1')
+    expect(container.querySelector('[data-testid="engineering-summary-strip"]')?.textContent).toContain('0.002 m')
+    expect(request.mock.calls.some(([path]) => path.endsWith('/overview'))).toBe(true)
+    expect(request.mock.calls.every(([, method]) => !method || method === 'GET')).toBe(true)
+    await act(async () => { stage.value = 'import'; stage.dispatchEvent(new Event('change', { bubbles: true })) })
+    await act(async () => button('Project setup').click())
+    const field = [...container.querySelectorAll('input')].find(input => input.value === project.name)!
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(field, 'Unsubmitted project draft')
+      field.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+    await act(async () => button('Execution settled').click())
+    await settle()
+    expect(field.value).toBe('Unsubmitted project draft')
+  })
+
   it('opens and focuses the exact dataset finding while keeping the conversation mounted', async () => {
     const sha = 'a'.repeat(64)
     datasets = [{ id: 'data', sourceFileName: 'source.csv', sourceFileHash: sha, fieldMapping: {}, unknownColumns: [], rowCount: 25, columnCount: 2, observationCount: 25, timeRange: {}, status: 'validated', revision: 4, findings: [{ id: 'finding-25', code: 'missing', severity: 'blocking', status: 'open', message: 'Missing record', suggestion: 'Check record', row: 25 }], updatedAt: project.updatedAt }]
