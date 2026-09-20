@@ -148,9 +148,11 @@ Source validation is recorded in `docs/qa/evidence/railwise-import-converter-fol
 
 ## P1 exact standards reference catalog
 
-- [ ] Add an immutable, bounded GB/T 24356-2023 catalog for existing first-round sampling and declared scoring, with exact rule/catalog/algorithm versions, source hash, applicable profiles and verified clause/table/page references; reject unsupported or mismatched references without granting professional trust.
-- [ ] Expose authenticated read-only Runtime and desktop IPC/client access, and bilingual keyboard-accessible source details from existing sampling/scoring results; retain historical bytes and distinguish citation resolution from standards conformity.
+- [x] Add an immutable, bounded GB/T 24356-2023 catalog for existing first-round sampling and declared scoring, with exact rule/catalog/algorithm versions, source hash, applicable profiles and verified clause/table/page references; reject unsupported or mismatched references without granting professional trust.
+- [x] Expose authenticated read-only Runtime and desktop IPC/client access, and bilingual keyboard-accessible source details from existing sampling/scoring results; retain historical bytes and distinguish citation resolution from standards conformity.
 - [ ] Verify exact-reference mapping, mismatch refusal, current/legacy result handling, authorization and stale UI states; record independent review and exact-package UI acceptance separately.
+
+Source-level checks and independent probes passed after correcting the unit-score formula clause; see `docs/qa/evidence/railwise-standard-basis-20260920/README.md`. Exact packaged UI acceptance remains separate and pending.
 
 ## Public product documentation follow-through
 
