@@ -17,7 +17,8 @@ const source: Rule['source'] = {
   byteLength: 27976440, pageCount: 129,
   evidenceDocuments: [
     { path: 'docs/qa/evidence/railwise-standards-20260920/sources.json', sha256: '276fe3d72b577b3b5dddea0cbd2c3c481c228d64aea450a2f22322758d03b687' },
-    { path: 'docs/qa/evidence/railwise-quality-scoring/implementation-contract.md', sha256: '6c9bc89884210cfff2a3623b9f7cb35c5286ae7819f95037f57a7b37f0905541' }
+    { path: 'docs/qa/evidence/railwise-quality-scoring/implementation-contract.md', sha256: '6c9bc89884210cfff2a3623b9f7cb35c5286ae7819f95037f57a7b37f0905541' },
+    { path: 'docs/qa/evidence/railwise-standard-basis-20260920/page-review.json', sha256: '1033fb3134662894da90e1d433eb7b4d7b37003e6a15f2c7e48af753ba9a2cd2' }
   ],
   availability: 'public-url-and-retained-digest-no-runtime-fetch', redistribution: 'full-pdf-not-bundled-license-not-inferred'
 }
@@ -52,13 +53,21 @@ const samplingRules: Rule[] = (['census', 'table-1-simple-random'] as const).map
 }))
 const profiles: Rule['profiles'] = [
   { profileId: 'planar-control-point', profileVersion: QUALITY_PROFILE_VERSION, label: bilingual('平面控制测量（点）', 'Planar control survey (point)'), unitProduct: 'point',
-    locators: [locator(['7.5.1'], [43, 44], [57, 58, 59, 60], '元素权及错漏分类依据；分类仍由调用方声明，未编码完整自动分类表。', 'Element weights and classification basis; defect classification is caller-declared, with no complete automatic classification table.')] },
+    locators: [
+      locator(['7.5.1'], [43], [58], '表43：平面控制测量质量元素、子元素、检查项及权；单位为点。', 'Table 43: planar-control quality elements, subelements, inspection items and weights; unit: point.'),
+      locator(['7.5.1'], [44], [59, 60], '表44及续表：错漏分类；分类仍由调用方声明，未编码完整自动分类表。', 'Table 44 and continuation: defect classes remain caller-declared; no complete automatic classification table.'),
+      locator(['7.5.1'], [], [57], '7.5.1条款引导位于页底；本页上部为表42续表，表43从下一页开始。', 'Clause 7.5.1 introduction is at the foot; Table 42 continues above it, and Table 43 starts on the next page.')
+    ] },
   { profileId: 'height-control-section', profileVersion: QUALITY_PROFILE_VERSION, label: bilingual('高程控制测量（测段）', 'Height control survey (section)'), unitProduct: 'section',
-    locators: [locator(['7.5.2'], [45, 46], [61, 62, 63], '元素权及错漏分类依据；测段不能从观测边数或未知点数自动推断。', 'Element weights and classification basis; sections cannot be inferred from observation-edge or unknown-point counts.')] }
+    locators: [
+      locator(['7.5.2'], [45], [61], '表45：高程控制测量质量元素、子元素、检查项及权；单位为测段，不能从观测边数或未知点数推断。', 'Table 45: height-control quality elements, subelements, inspection items and weights; sections cannot be inferred from edge or unknown-point counts.'),
+      locator(['7.5.2'], [46], [62, 63], '表46及续表：高程控制测量错漏分类；分类仍由调用方声明。', 'Table 46 and continuation: height-control defect classification remains caller-declared.'),
+      locator(['7.5.2'], [], [61], '7.5.2条款引导与表45位于同页。', 'Clause 7.5.2 introduction and Table 45 appear on the same page.')
+    ] }
 ]
 const scoringDefinitions: Array<{ operation: string; title: Rule['title']; summary: Rule['summary']; locators: SurveyStandardBasisLocatorV1[]; exclusions: Rule['exclusions'] }> = [
   { operation: 'accuracy', title: bilingual('声明数学精度评分', 'Declared mathematical accuracy score'), summary: bilingual('只接收声明的中误差幅值和允许值，以式(3)计算并按声明方式聚合。', 'Uses declared error magnitudes and allowed values in formula (3), aggregated as declared.'),
-    locators: [locator(['6.2.1.2', '6.2.4.1.1'], [], [6, 7], 'A类否决、式(3)及多数学精度项聚合；页范围沿用已核查扫描来源。', 'A-class veto, formula (3) and multiple accuracy items; page ranges follow the reviewed scan.')],
+    locators: [locator(['6.2.1.2', '6.2.4.1.1'], [], [6], 'A类否决、完整式(3)及多数学精度项聚合均位于本页。', 'A-class veto, complete formula (3) and multiple accuracy-item aggregation all appear on this page.')],
     exclusions: [bilingual('不从平差残差或检测差值推导中误差；4.3.4恰好20个检测点的分支未解释。', 'No error inference from residuals or inspection differences; exactly 20 inspection points in 4.3.4 remains unresolved.'), bilingual('m大于m0、多精度项中恰有60分的聚合返回不可用；单项60分有效。', 'm greater than m0 or a 60-point item in a multiple-item group is unavailable; a single 60-point item remains valid.')] },
   { operation: 'deduction', title: bilingual('声明子元素错漏扣分', 'Declared subelement deductions'), summary: bilingual('按声明的A/B/C/D计数试算；A类独立否决，保留低于60及负值诊断，不截零。', 'Trials use declared A/B/C/D counts; A-class veto is independent, and below-60 or negative diagnostics are retained without clipping.'),
     locators: [locator(['6.2.1.2', '6.2.4.1.2', '6.2.4.2'], [2], [6, 7], '式(4)、表2和A类否决；最小合同只执行t=1。', 'Formula (4), Table 2 and A-class veto; the minimal contract only executes t=1.')],

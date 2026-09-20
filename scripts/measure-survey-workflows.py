@@ -195,6 +195,78 @@ def snapshot_hash(value):
     return digest.hexdigest()
 
 
+def recorded_verification_lifecycle(engineering, start, end):
+    """Started cohort, including interrupted attempts; never current validity."""
+    names = {row[0] for row in engineering.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+    if not {'engineering_verification_events', 'engineering_verification_attempts'} <= names:
+        return unavailable('No durable verification lifecycle; historical terminal records cannot supply starts.')
+    try:
+        terminals = {}
+        for sequence, identity, pid, mid, began, ended, outcome, digest, serialized in engineering.execute(
+                'SELECT sequence,id,project_id,manifest_id,started_at,completed_at,outcome,record_hash,data_json FROM engineering_verification_attempts ORDER BY sequence'):
+            event = json.loads(serialized)
+            if (not isinstance(identity, str) or not identity or identity in terminals
+                    or type(event.get('schemaVersion')) is not int or event['schemaVersion'] != 1
+                    or hashlib.sha256(serialized.encode('utf-8')).hexdigest() != digest
+                    or any(event.get(key) != value for key, value in [('id', identity), ('projectId', pid), ('manifestId', mid), ('startedAt', began), ('completedAt', ended), ('outcome', outcome)])
+                    or outcome not in ('passed', 'failed', 'error') or instant(began) > instant(ended)):
+                raise ValueError('invalid terminal binding')
+            terminals[identity] = {'event': event, 'hash': digest, 'completed': instant(ended)}
+        attempts = {}
+        previous_sequence = 0
+        for sequence, identity, phase, occurred, digest, serialized in engineering.execute(
+                'SELECT sequence,attempt_id,phase,occurred_at,record_hash,data_json FROM engineering_verification_events ORDER BY sequence'):
+            event = json.loads(serialized)
+            common = {'schemaVersion', 'attemptId', 'phase', 'occurredAt', 'previousHash'}
+            extra = {'started': {'projectId', 'manifestId'}, 'finished': {'terminalId', 'terminalRecordHash', 'outcome'}}
+            if (type(sequence) is not int or sequence <= previous_sequence or not isinstance(identity, str) or not identity
+                    or phase not in extra or set(event) != common | extra[phase]
+                    or type(event.get('schemaVersion')) is not int or event['schemaVersion'] != 1
+                    or hashlib.sha256(serialized.encode('utf-8')).hexdigest() != digest
+                    or any(event.get(key) != value for key, value in [('attemptId', identity), ('phase', phase), ('occurredAt', occurred)])):
+                raise ValueError('invalid lifecycle envelope')
+            previous_sequence = sequence
+            time = instant(occurred)
+            if phase == 'started':
+                if (identity in attempts or event['previousHash'] is not None
+                        or not all(isinstance(event[key], str) for key in ('projectId', 'manifestId'))):
+                    raise ValueError('invalid lifecycle start')
+                attempts[identity] = {'event': event, 'time': time, 'hash': digest, 'finished': None}
+            else:
+                attempt = attempts.get(identity)
+                terminal = terminals.get(identity)
+                if (not attempt or attempt['finished'] is not None or not terminal
+                        or event['previousHash'] != attempt['hash'] or time < attempt['time']
+                        or event['terminalId'] != identity or event['terminalRecordHash'] != terminal['hash']
+                        or event['outcome'] != terminal['event']['outcome']
+                        or terminal['event']['startedAt'] != attempt['event']['occurredAt']
+                        or terminal['event']['completedAt'] != occurred
+                        or any(terminal['event'][key] != attempt['event'][key] for key in ('projectId', 'manifestId'))):
+                    raise ValueError('invalid lifecycle finish')
+                attempt['finished'] = {'time': time, 'outcome': event['outcome']}
+        # New terminal records and finish receipts are one atomic write. An
+        # orphan is corruption, not a legitimate interrupted attempt.
+        if any(identity in terminals and attempt['finished'] is None for identity, attempt in attempts.items()):
+            raise ValueError('terminal without atomic finish')
+        selected = [attempt for attempt in attempts.values() if start <= attempt['time'] < end]
+        finished = [attempt['finished'] for attempt in selected if attempt['finished'] is not None and attempt['finished']['time'] < end]
+        outcomes = {key: sum(item['outcome'] == key for item in finished) for key in ('passed', 'failed', 'error')}
+        return {
+            'status': 'measured' if selected else 'no-samples',
+            'counts': {'startedInPeriod': len(selected), 'finishedByPeriodEnd': len(finished),
+                       'incompleteAtPeriodEnd': len(selected) - len(finished),
+                       'legacyTerminalOnlyCompletedInPeriod': sum(identity not in attempts and start <= terminal['completed'] < end for identity, terminal in terminals.items())},
+            'outcomesByPeriodEnd': outcomes,
+            'recordedTerminalPassRate': {
+                'value': outcomes['passed'] / len(selected) if selected else None,
+                'status': 'measured' if selected else 'no-samples',
+                'numerator': outcomes['passed'], 'denominator': len(selected)},
+            'definition': 'All durable starts in [start,end); only atomically linked terminal outcomes before end finish that cohort. Later outcomes do not cross the cutoff; incomplete attempts remain in the denominator. Legacy terminal-only records are counted separately and never backfilled.',
+            'boundary': 'Point-in-time recorded terminal outcomes, not current metadata/byte validity, human approval or production KPI. Starts lost before durable storage, requests outside this service and pre-upgrade history cannot be enumerated. No source/output files are read; only aggregates are emitted.'}
+    except (ValueError, TypeError, KeyError, AttributeError, UnicodeError, sqlite3.Error):
+        return unavailable('Verification lifecycle failed identity, digest, sequence, timestamp or atomic terminal binding validation.')
+
+
 def recorded_verification_metrics(engineering, survey, selected, networks, adjustments, start, end):
     names = {row[0] for row in engineering.execute("SELECT name FROM sqlite_master WHERE type='table'")}
     missing = unavailable('No durable verification attempt table; historical checks cannot be inferred.')
@@ -445,6 +517,7 @@ def measure(engineering, survey, cohort, start, end):
         'productionRepresentativeness': unavailable('The cohort label is a caller declaration; collection provenance and population coverage are not recorded.'),
         'firstAttemptImportSuccessRate': unavailable('Product-wide first tasks and population coverage are not certified. The recorded first-observed file-key subset is reported separately.'),
         'recordedImportAttempts': recorded_import_metrics(survey, start, end),
+        'recordedVerificationLifecycle': recorded_verification_lifecycle(engineering, start, end),
         'mediumLeveling30MinuteTarget': unavailable('Medium-network size and representative production cohort have not been defined or collected.'),
         'numericalReproducibilityRate': unavailable('Requires explicit strict replay outcomes for every selected run; stored bindings are not replay.'),
         'strictReverificationCoverage': unavailable('Current strict validity requires re-reading output/source bytes and live replay. Recorded point-in-time checks are reported separately.'),

@@ -4,7 +4,8 @@ import { SurveyQualitySamplingWorkspace } from './SurveyQualitySamplingWorkspace
 import { SurveyAdvancedModelWorkspace } from './SurveyAdvancedModelWorkspace'
 import { SurveyQualityWorkspace } from './SurveyQualityWorkspace'
 import './engineering-review.css'
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react'
+import { focusEvidenceElement, navigationTargetIsCurrent, type EngineeringEvidenceNavigationTarget, type EngineeringNavigationContext } from './engineering-evidence-navigation'
+import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactElement } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
   Activity,
@@ -133,6 +134,7 @@ type SurveyNetworkSummary = {
   qualityStatus?: string
   sourceFile?: {
     name: string
+    sha256?: string
     disposition: 'adjustment-ready' | 'gnss-processing-required' | 'converter-required' | 'archive-only'
     detection?: { format?: string }
     summary?: { pointCount?: number; stationCount?: number; observationCount?: number }
@@ -328,7 +330,18 @@ export function EngineeringWorkspaceView({ workspaceRoot, runtimeReady, leftSide
   const ensureEngineeringThread = useChatStore((state) => state.ensureEngineeringThread)
   const [projects, setProjects] = useState<Project[]>([])
   const [selectedProjectId, setSelectedProjectId] = useState(() => activeEngineeringProjectId())
-  const [overview, setOverview] = useState<Overview | null>(null)
+  const [loadedOverview, setOverview] = useState<Overview | null>(null)
+  const overview = loadedOverview?.project.id === selectedProjectId && loadedOverview.project.workspace === workspaceRoot ? loadedOverview : null
+  const requestScope = useRef({ workspaceRoot, runtimeReady, projectId: selectedProjectId })
+  const overviewRequest = useRef(0)
+  const summaryRequest = useRef(0)
+  const projectsRequest = useRef(0)
+  const invalidateProjectReads = useCallback((): void => {
+    requestScope.current = { ...requestScope.current }
+    overviewRequest.current++
+    summaryRequest.current++
+  }, [])
+  const invalidateProjectList = useCallback((): void => { projectsRequest.current++ }, [])
   const [surveyNetworks, setSurveyNetworks] = useState<SurveyNetworkSummary[]>([])
   const [surveyAdjustments, setSurveyAdjustments] = useState<SurveyAdjustmentSummary[]>([])
   const [selectedSurveyNetworkId, setSelectedSurveyNetworkId] = useState('')
@@ -357,6 +370,34 @@ export function EngineeringWorkspaceView({ workspaceRoot, runtimeReady, leftSide
   const [notice, setNotice] = useState<Notice | null>(null)
   const creatingProject = useRef(false)
   const [selectedSurveyNetworkRevision, setSelectedSurveyNetworkRevision] = useState<number | undefined>()
+  const workspaceElement = useRef<HTMLDivElement>(null)
+  const focusedEvidence = useRef<EngineeringEvidenceNavigationTarget | null>(null)
+  const [evidenceNavigation, setEvidenceNavigation] = useState<EngineeringEvidenceNavigationTarget | null>(null)
+  const navigationContext = useMemo<EngineeringNavigationContext | null>(() => overview ? { workspaceRoot, project: overview.project, networks: surveyNetworks, adjustments: surveyAdjustments, datasets: overview.datasets, analyses: overview.analyses, manifests: overview.manifests } : null, [overview, workspaceRoot, surveyNetworks, surveyAdjustments])
+  const openEvidence = (target: EngineeringEvidenceNavigationTarget): void => {
+    if (!navigationContext || !navigationTargetIsCurrent(navigationContext, target)) {
+      setNotice({ tone: 'warning', message: t('engineeringEvidenceUnavailable') })
+      return
+    }
+    setEvidenceNavigation({ ...target })
+    if (target.kind === 'survey') setTab(target.section === 'result' ? 'precision' : 'source')
+    else if (target.kind === 'dataset') { setSelectedDatasetId(target.datasetId); setTab(target.findingId ? 'quality' : 'data') }
+    else if (target.kind === 'analysis') { setSelectedDatasetId(target.datasetId); setSelectedAnalysisId(target.analysisId); setTab('analysis') }
+    else setTab('review')
+  }
+  useEffect(() => {
+    if (!evidenceNavigation || evidenceNavigation.kind === 'survey' || !workspaceElement.current) return
+    if (!navigationContext || !navigationTargetIsCurrent(navigationContext, evidenceNavigation)) {
+      setEvidenceNavigation(null)
+      setNotice({ tone: 'warning', message: t('engineeringEvidenceUnavailable') })
+      return
+    }
+    if (focusedEvidence.current === evidenceNavigation) return
+    const key = evidenceNavigation.kind === 'dataset'
+      ? JSON.stringify([evidenceNavigation.findingId ? 'finding' : 'dataset', evidenceNavigation.findingId ?? evidenceNavigation.datasetId])
+      : evidenceNavigation.kind === 'analysis' ? JSON.stringify(['analysis', evidenceNavigation.analysisId]) : JSON.stringify(['artifact', evidenceNavigation.manifestId, evidenceNavigation.outputPath])
+    if (focusEvidenceElement(workspaceElement.current, key)) focusedEvidence.current = evidenceNavigation
+  }, [evidenceNavigation, navigationContext, tab, t])
   const handleSurveyNetworkSelected = useCallback((id: string | null, revision?: number): void => {
     setSelectedSurveyNetworkRevision(revision)
     setSelectedSurveyNetworkId(id ?? '')
@@ -366,7 +407,17 @@ export function EngineeringWorkspaceView({ workspaceRoot, runtimeReady, leftSide
     // Reopening a thread in the current task must not erase its loaded summary
     // or preview: no project-id change will trigger a reload in that case.
     if (projectId === selectedProjectId) return
+    overviewRequest.current++
+    summaryRequest.current++
+    requestScope.current = { ...requestScope.current, projectId }
     setSelectedProjectId(projectId)
+    setOverview(null)
+    setProjectDraft(null)
+    setSelectedDatasetId('')
+    setSelectedAnalysisId('')
+    setSelectedSurveyNetworkRevision(undefined)
+    setNotice(null)
+    setEvidenceNavigation(null)
     setSurveyAdjustmentIds([])
     setSurveyDeformationIds([])
     setSurveyNetworks([])
@@ -382,7 +433,30 @@ export function EngineeringWorkspaceView({ workspaceRoot, runtimeReady, leftSide
     window.dispatchEvent(new CustomEvent('workwise:engineering-active-project-changed'))
   }, [selectedProjectId])
 
-  useEffect(() => {
+  useLayoutEffect(() => {
+    requestScope.current = { workspaceRoot, runtimeReady, projectId: selectedProjectId }
+    // Invalidate even A -> B -> A requests before passive loads can complete.
+    invalidateProjectReads()
+    creatingProject.current = false
+    setBusy(false)
+    return invalidateProjectReads
+  }, [workspaceRoot, runtimeReady, selectedProjectId, invalidateProjectReads])
+
+  useLayoutEffect(() => {
+    setSurveyNetworks([])
+    setSurveyAdjustments([])
+    setSelectedSurveyNetworkId('')
+    setSelectedSurveyNetworkRevision(undefined)
+    setEvidenceNavigation(null)
+  }, [workspaceRoot, selectedProjectId])
+
+  useLayoutEffect(() => {
+    invalidateProjectList()
+    return invalidateProjectList
+  }, [workspaceRoot, runtimeReady, invalidateProjectList])
+
+  useLayoutEffect(() => {
+    setProjects([])
     setSelectedProjectId(activeEngineeringProjectId())
     setOverview(null)
     setSurveyNetworks([])
@@ -395,47 +469,57 @@ export function EngineeringWorkspaceView({ workspaceRoot, runtimeReady, leftSide
     setSurveyDeformationIds([])
     setPreview(null)
     setChart(null)
+    setNotice(null)
   }, [workspaceRoot])
 
   const loadOverview = useCallback(async (projectId: string): Promise<void> => {
-    if (!runtimeReady || !projectId) return
+    if (!runtimeReady || !projectId || requestScope.current.workspaceRoot !== workspaceRoot || !requestScope.current.runtimeReady || requestScope.current.projectId !== projectId) return
+    const token = ++overviewRequest.current
     try {
       const next = await runtimeRequest<Overview>(`/v1/engineering/projects/${projectId}/overview`)
+      if (token !== overviewRequest.current || next.project.id !== projectId || next.project.workspace !== workspaceRoot) return
       setOverview(next)
       setProjectDraft(projectToDraft(next.project))
       setSelectedDatasetId((current) => next.datasets.some((dataset) => dataset.id === current) ? current : next.datasets[0]?.id ?? '')
       setSelectedAnalysisId((current) => next.analyses.some((analysis) => analysis.id === current) ? current : next.analyses[0]?.id ?? '')
     } catch (error) {
+      if (token !== overviewRequest.current) return
       setNotice({ tone: 'error', message: error instanceof Error ? error.message : String(error) })
     }
-  }, [runtimeReady])
+  }, [runtimeReady, workspaceRoot])
 
   const loadSurveySummary = useCallback(async (projectId: string): Promise<void> => {
-    if (!runtimeReady || !projectId) return
+    if (!runtimeReady || !projectId || requestScope.current.workspaceRoot !== workspaceRoot || !requestScope.current.runtimeReady || requestScope.current.projectId !== projectId) return
+    const token = ++summaryRequest.current
     try {
       const [networkResult, adjustmentResult] = await Promise.all([
         runtimeRequest<{ networks: SurveyNetworkSummary[] }>(`/v1/engineering/survey/networks?projectId=${encodeURIComponent(projectId)}`),
         runtimeRequest<{ adjustments: SurveyAdjustmentSummary[] }>(`/v1/engineering/adjustments?projectId=${encodeURIComponent(projectId)}`)
       ])
+      if (token !== summaryRequest.current) return
       setSurveyNetworks(networkResult.networks ?? [])
       setSurveyAdjustments(adjustmentResult.adjustments ?? [])
       setSelectedSurveyNetworkId((current) => networkResult.networks?.some((network) => network.id === current) ? current : networkResult.networks?.[0]?.id ?? '')
     } catch (error) {
+      if (token !== summaryRequest.current) return
       // Survey is an optional companion to the monitoring chain. Keep the
       // existing overview usable when its read model is unavailable.
       setSurveyNetworks([])
       setSurveyAdjustments([])
     }
-  }, [runtimeReady])
+  }, [runtimeReady, workspaceRoot])
 
   const loadProjects = useCallback(async (): Promise<void> => {
-    if (!runtimeReady) return
+    if (!runtimeReady || !requestScope.current.runtimeReady || requestScope.current.workspaceRoot !== workspaceRoot) return
+    const token = ++projectsRequest.current
     try {
       const result = await runtimeRequest<{ projects: Project[] }>('/v1/engineering/projects')
+      if (token !== projectsRequest.current) return
       const workspaceProjects = result.projects.filter((project) => project.workspace === workspaceRoot)
       setProjects(workspaceProjects)
       setSelectedProjectId((current) => chooseEngineeringProjectId(current, workspaceProjects, activeEngineeringProjectId()))
     } catch (error) {
+      if (token !== projectsRequest.current) return
       setNotice({ tone: 'error', message: error instanceof Error ? error.message : String(error) })
     }
   }, [runtimeReady, workspaceRoot])
@@ -529,10 +613,12 @@ export function EngineeringWorkspaceView({ workspaceRoot, runtimeReady, leftSide
     || latestSurveyAdjustment?.result?.validation === 'invalid' || latestSurveyAdjustment?.run.status === 'failed'
 
   const refreshCurrent = async (): Promise<void> => {
+    const operationScope = requestScope.current
     if (selectedProjectId) {
       await Promise.all([loadProjects(), loadOverview(selectedProjectId), loadSurveySummary(selectedProjectId)])
     }
     else await loadProjects()
+    if (operationScope !== requestScope.current) return
     window.dispatchEvent(new CustomEvent('workwise:engineering-projects-changed'))
     setNotice({ tone: 'info', message: t('engineeringNoticeRefreshed') })
   }
@@ -540,6 +626,7 @@ export function EngineeringWorkspaceView({ workspaceRoot, runtimeReady, leftSide
   const createProject = useCallback(async (): Promise<void> => {
     if (!runtimeReady || busy || creatingProject.current) return
     creatingProject.current = true
+    const operationScope = requestScope.current
     setBusy(true)
     try {
       const result = await runtimeRequest<{ project: Project }>('/v1/engineering/projects', 'POST', {
@@ -548,7 +635,12 @@ export function EngineeringWorkspaceView({ workspaceRoot, runtimeReady, leftSide
         name: t('engineeringDefaultJobName'), taskType: 'control-network', monitoringType: 'control-network', unit: 'm', signConvention: 'positive', workspace: workspaceRoot,
         expectedRevision: 0, idempotencyKey: `engineering-project-${Date.now()}`
       })
+      if (operationScope !== requestScope.current) return
+      if (result.project.workspace !== workspaceRoot) return
+      projectsRequest.current++
       setProjects((current) => [result.project, ...current.filter((project) => project.id !== result.project.id)])
+      creatingProject.current = false
+      setBusy(false)
       selectProject(result.project.id)
       setOverview({ project: result.project, datasets: [], analyses: [], runs: [], manifests: [] })
       setProjectDraft(projectToDraft(result.project))
@@ -560,8 +652,9 @@ export function EngineeringWorkspaceView({ workspaceRoot, runtimeReady, leftSide
       window.dispatchEvent(new CustomEvent('workwise:engineering-projects-changed'))
       setNotice({ tone: 'success', message: t('engineeringNoticeJobCreated') })
     } catch (error) {
+      if (operationScope !== requestScope.current) return
       setNotice({ tone: 'error', message: error instanceof Error ? error.message : String(error) })
-    } finally { creatingProject.current = false; setBusy(false) }
+    } finally { if (operationScope === requestScope.current) { creatingProject.current = false; setBusy(false) } }
   }, [runtimeReady, busy, selectProject, t, workspaceRoot])
 
   useEffect(() => {
@@ -578,6 +671,7 @@ export function EngineeringWorkspaceView({ workspaceRoot, runtimeReady, leftSide
       setNotice({ tone: 'error', message: t('engineeringReportPeriodInvalid') })
       return
     }
+    const operationScope = requestScope.current
     setBusy(true)
     try {
       const project = await runtimeRequest<{ project: Project }>(`/v1/engineering/projects/${overview.project.id}`, 'PATCH', {
@@ -586,32 +680,42 @@ export function EngineeringWorkspaceView({ workspaceRoot, runtimeReady, leftSide
         thresholds: parseThresholds(projectDraft.thresholdsText, t), reportPeriod: projectDraft.reportPeriod,
         expectedRevision: overview.project.revision, idempotencyKey: `engineering-project-save-${overview.project.id}-${overview.project.revision}`
       })
-      setOverview((current) => current ? { ...current, project: project.project } : current)
+      if (operationScope !== requestScope.current) return
+      if (project.project.id !== overview.project.id || project.project.workspace !== workspaceRoot) return
+      overviewRequest.current++
+      projectsRequest.current++
+      setOverview((current) => current?.project.id === project.project.id ? { ...current, project: project.project } : current)
       setProjects((current) => current.map((item) => item.id === project.project.id ? project.project : item))
       setProjectDraft(projectToDraft(project.project))
       window.dispatchEvent(new CustomEvent('workwise:engineering-projects-changed'))
       setNotice({ tone: 'success', message: t('engineeringNoticeProjectSaved') })
     } catch (error) {
+      if (operationScope !== requestScope.current) return
       setNotice({ tone: 'error', message: error instanceof Error ? error.message : String(error) })
-    } finally { setBusy(false) }
+    } finally { if (operationScope === requestScope.current) setBusy(false) }
   }
 
   const importDataset = async (file: File): Promise<void> => {
     if (!runtimeReady || !overview) return
+    const operationScope = requestScope.current
     setBusy(true)
     try {
       const dataBase64 = await fileToBase64(file, t)
+      if (operationScope !== requestScope.current) return
       const result = await runtimeRequest<{ dataset: Dataset }>('/v1/engineering/datasets/import', 'POST', {
         projectId: overview.project.id, name: file.name, dataBase64,
         expectedRevision: overview.project.revision, idempotencyKey: `engineering-import-${overview.project.id}-${file.name}-${file.size}-${file.lastModified}`
       })
+      if (operationScope !== requestScope.current) return
       setSelectedDatasetId(result.dataset.id)
       await loadOverview(overview.project.id)
+      if (operationScope !== requestScope.current) return
       setTab('quality')
       setNotice({ tone: 'success', message: t('engineeringNoticeDatasetImported', { name: file.name, count: result.dataset.observationCount }) })
     } catch (error) {
+      if (operationScope !== requestScope.current) return
       setNotice({ tone: 'error', message: error instanceof Error ? error.message : String(error) })
-    } finally { setBusy(false) }
+    } finally { if (operationScope === requestScope.current) setBusy(false) }
   }
 
   const replaceDataset = (dataset: Dataset): void => {
@@ -620,83 +724,101 @@ export function EngineeringWorkspaceView({ workspaceRoot, runtimeReady, leftSide
 
   const validateDataset = async (): Promise<void> => {
     if (!runtimeReady || !activeDataset) return
+    const operationScope = requestScope.current
     setBusy(true)
     try {
       const result = await runtimeRequest<{ dataset: Dataset }>(`/v1/engineering/datasets/${activeDataset.id}/validate`, 'POST', {
         expectedRevision: activeDataset.revision, idempotencyKey: `engineering-validate-${activeDataset.id}-${activeDataset.revision}`
       })
+      if (operationScope !== requestScope.current) return
       replaceDataset(result.dataset)
       setNotice({ tone: result.dataset.findings.some((finding) => finding.status === 'open' && finding.severity === 'blocking') ? 'warning' : 'success', message: t('engineeringNoticeValidationComplete') })
     } catch (error) {
+      if (operationScope !== requestScope.current) return
       setNotice({ tone: 'error', message: error instanceof Error ? error.message : String(error) })
-    } finally { setBusy(false) }
+    } finally { if (operationScope === requestScope.current) setBusy(false) }
   }
 
   const acceptWarning = async (finding: Finding): Promise<void> => {
     if (!runtimeReady || !activeDataset) return
+    const operationScope = requestScope.current
     setBusy(true)
     try {
       const result = await runtimeRequest<{ dataset: Dataset }>(`/v1/engineering/datasets/${activeDataset.id}/findings/${finding.id}/accept`, 'POST', {
         expectedRevision: activeDataset.revision, idempotencyKey: `engineering-accept-${activeDataset.id}-${finding.id}-${activeDataset.revision}`
       })
+      if (operationScope !== requestScope.current) return
       replaceDataset(result.dataset)
       setNotice({ tone: 'success', message: t('engineeringNoticeWarningAccepted') })
     } catch (error) {
+      if (operationScope !== requestScope.current) return
       setNotice({ tone: 'error', message: error instanceof Error ? error.message : String(error) })
-    } finally { setBusy(false) }
+    } finally { if (operationScope === requestScope.current) setBusy(false) }
   }
 
   const runAnalysis = async (): Promise<void> => {
     if (!runtimeReady || !overview || !activeDataset) return
+    const operationScope = requestScope.current
     setBusy(true)
     try {
       const result = await runtimeRequest<{ analysis: Analysis }>('/v1/engineering/analyses', 'POST', {
         projectId: overview.project.id, datasetId: activeDataset.id, expectedRevision: activeDataset.revision,
         idempotencyKey: `engineering-analysis-${activeDataset.id}-${activeDataset.revision}`
       })
+      if (operationScope !== requestScope.current) return
       setSelectedAnalysisId(result.analysis.id)
       await loadOverview(overview.project.id)
+      if (operationScope !== requestScope.current) return
       setTab('analysis')
       setNotice({ tone: 'success', message: t('engineeringNoticeAnalysisComplete', { count: result.analysis.results.length }) })
     } catch (error) {
+      if (operationScope !== requestScope.current) return
       setNotice({ tone: 'error', message: error instanceof Error ? error.message : String(error) })
-    } finally { setBusy(false) }
+    } finally { if (operationScope === requestScope.current) setBusy(false) }
   }
 
   const createChart = async (): Promise<void> => {
     if (!runtimeReady || !activeAnalysis) return
+    const operationScope = requestScope.current
     setBusy(true)
     try {
       const result = await runtimeRequest<{ chart: Chart }>('/v1/engineering/charts', 'POST', {
         analysisId: activeAnalysis.id, chartType: 'trend', expectedRevision: 0, idempotencyKey: `engineering-chart-${activeAnalysis.id}`
       })
+      if (operationScope !== requestScope.current) return
       setChart(result.chart)
       setNotice({ tone: 'success', message: t('engineeringNoticeChartCreated') })
     } catch (error) {
+      if (operationScope !== requestScope.current) return
       setNotice({ tone: 'error', message: error instanceof Error ? error.message : String(error) })
-    } finally { setBusy(false) }
+    } finally { if (operationScope === requestScope.current) setBusy(false) }
   }
 
   const previewDeliverables = async (): Promise<void> => {
     if (!runtimeReady || !overview || !hasDeliveryInputs) return
+    const operationScope = requestScope.current
     setBusy(true)
     try {
       const result = await runtimeRequest<ReportPreview>('/v1/engineering/reports/preview', 'POST', {
         projectId: overview.project.id, datasetId: activeDataset?.id, analysisId: activeDataset ? activeAnalysis?.id : undefined, adjustmentIds: surveyAdjustmentIds, deformationIds: surveyDeformationIds, citations,
         expectedRevision: activeDataset?.revision ?? overview.project.revision, idempotencyKey: `engineering-preview-${overview.project.id}-${Date.now()}`
       })
+      if (operationScope !== requestScope.current) return
       setPreview(result)
       setChart(result.charts[0] ?? chart)
       await loadOverview(overview.project.id)
+      if (operationScope !== requestScope.current) return
       setTab('deliverables')
       setNotice({ tone: 'success', message: t('engineeringNoticePreviewCreated') })
     } catch (error) {
+      if (operationScope !== requestScope.current) return
       setNotice({ tone: 'error', message: error instanceof Error ? error.message : String(error) })
-    } finally { setBusy(false) }
+    } finally { if (operationScope === requestScope.current) setBusy(false) }
   }
 
   const finalizeDeliverables = async (): Promise<void> => {
     if (!runtimeReady || !overview || !hasDeliveryInputs || (activeDataset && !activeAnalysis)) return
+    const operationScope = requestScope.current
     setBusy(true)
     try {
       const result = await runtimeRequest<{ manifest: Manifest }>('/v1/engineering/deliverables/finalize', 'POST', {
@@ -704,11 +826,14 @@ export function EngineeringWorkspaceView({ workspaceRoot, runtimeReady, leftSide
         acknowledgeWarnings: false, expectedRevision: activeDataset?.revision ?? overview.project.revision,
         idempotencyKey: `engineering-finalize-${overview.project.id}-${Date.now()}`
       })
+      if (operationScope !== requestScope.current) return
       await loadOverview(overview.project.id)
+      if (operationScope !== requestScope.current) return
       setNotice({ tone: 'success', message: t('engineeringNoticeManifestCreated', { id: result.manifest.id }) })
     } catch (error) {
+      if (operationScope !== requestScope.current) return
       setNotice({ tone: 'error', message: error instanceof Error ? error.message : String(error) })
-    } finally { setBusy(false) }
+    } finally { if (operationScope === requestScope.current) setBusy(false) }
   }
 
   const addCitation = (): void => {
@@ -752,7 +877,7 @@ export function EngineeringWorkspaceView({ workspaceRoot, runtimeReady, leftSide
   const surveyOverviewBlocked = surveyHasBlockingAdmission || Boolean(surveySourceDisposition && surveySourceDisposition !== 'adjustment-ready')
   const overviewSource = activeDataset?.sourceFileName ?? activeSurveyNetwork?.sourceFile?.name
 
-  return <div className={`engineering-workspace ds-no-drag flex min-h-0 flex-1 flex-col bg-ds-main text-ds-ink ${tab === 'ai-command' ? 'engineering-agent-route' : 'engineering-classic-route'}`}>
+  return <div ref={workspaceElement} className={`engineering-workspace ds-no-drag flex min-h-0 flex-1 flex-col bg-ds-main text-ds-ink ${tab === 'ai-command' ? 'engineering-agent-route' : 'engineering-classic-route'}`}>
     <header className="flex min-h-12 shrink-0 flex-wrap items-center gap-2 border-b border-ds-border-muted bg-ds-card px-3 py-2" data-testid="engineering-workspace-header">
       {onToggleLeftSidebar ? <button type="button" onClick={onToggleLeftSidebar} title={t(leftSidebarCollapsed ? 'sidebarExpand' : 'sidebarCollapse')} aria-label={t(leftSidebarCollapsed ? 'sidebarExpand' : 'sidebarCollapse')} className="flex h-8 w-8 items-center justify-center rounded-md text-ds-muted hover:bg-ds-hover"><ChevronRight className="h-4 w-4" /></button> : null}
       <div className="mr-auto min-w-0">
@@ -811,6 +936,8 @@ export function EngineeringWorkspaceView({ workspaceRoot, runtimeReady, leftSide
           onSurveyFiles={(files) => { setPendingSurveyFiles((current) => ({ ...current, [surveyFileScope]: [...(current[surveyFileScope] ?? []), ...files] })); setTab('survey') }}
           onOpenTab={(nextTab) => setTab(nextTab)}
           onRefresh={() => void refreshCurrent()}
+          navigationContext={navigationContext}
+          onNavigateEvidence={openEvidence}
         />
       </div>
       {tab !== 'ai-command' ? <div className="engineering-classic-shell grid h-full min-h-0 min-w-0 grid-cols-1 overflow-hidden border border-ds-border-muted bg-ds-card" data-testid="engineering-classic-shell">
@@ -862,18 +989,19 @@ export function EngineeringWorkspaceView({ workspaceRoot, runtimeReady, leftSide
 
             {tab === 'data' ? <section>
               <PanelHeading title={t('engineeringDataPanelTitle')} description={t('engineeringDataPanelDescription')} action={<label className={`inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-md bg-accent px-3 text-[12px] font-semibold text-white ${busy || !runtimeReady ? 'pointer-events-none opacity-50' : ''}`}><Upload className="h-3.5 w-3.5" />{t('engineeringImportMonitoringData')}<input type="file" accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" className="hidden" disabled={!runtimeReady || busy} onChange={(event) => { const file = event.target.files?.[0]; if (file) void importDataset(file); event.target.value = '' }} /></label>} />
-              <div className="p-5">{overview.datasets.length === 0 ? <EmptyState title={t('engineeringNoMonitoringData')} detail={t('engineeringDataEmptyDetail')} /> : <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_300px]"><div className="overflow-hidden border border-ds-border-muted"><div className="overflow-x-auto"><table className="min-w-full text-left text-[12px]"><thead className="bg-ds-subtle text-ds-muted"><tr><th className="px-3 py-2.5 font-semibold">{t('engineeringTabData')}</th><th className="px-3 py-2.5 font-semibold">{t('engineeringSummaryObservations')}</th><th className="px-3 py-2.5 font-semibold">{t('surveyEpoch')}</th><th className="px-3 py-2.5 font-semibold">{t('engineeringDatasetStatus')}</th></tr></thead><tbody className="divide-y divide-ds-border-muted">{overview.datasets.map((dataset) => <tr key={dataset.id} onClick={() => setSelectedDatasetId(dataset.id)} className={`cursor-pointer transition hover:bg-accent/5 ${dataset.id === activeDataset?.id ? 'bg-accent/8' : ''}`}><td className="max-w-[260px] px-3 py-3"><button type="button" onClick={() => setSelectedDatasetId(dataset.id)} aria-pressed={dataset.id === activeDataset?.id} className="max-w-full truncate rounded text-left font-medium text-ds-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent">{dataset.sourceFileName}</button><p className="mt-0.5 truncate font-mono text-[10px] text-ds-faint">{dataset.sourceFileHash.slice(0, 16)}…</p></td><td className="px-3 py-3 tabular-nums text-ds-ink">{dataset.observationCount.toLocaleString(locale)}<span className="ml-1 text-[10px] text-ds-faint">/ {dataset.rowCount}</span></td><td className="px-3 py-3 text-ds-muted">{formatDate(dataset.timeRange.start, locale)}<br />{formatDate(dataset.timeRange.end, locale)}</td><td className="px-3 py-3"><span className="rounded px-1.5 py-0.5 text-[11px] bg-ds-subtle text-ds-muted">{statusLabel(dataset.status, t)}</span></td></tr>)}</tbody></table></div></div><div className="border border-ds-border-muted bg-ds-card">{activeDataset ? <><div className="border-b border-ds-border-muted px-3 py-3"><p className="text-[12px] font-semibold text-ds-ink">{t('engineeringColumnMapping')}</p><p className="mt-1 text-[11px] text-ds-faint">{activeDataset.columnCount} {t('engineeringUnit')} · {activeDataset.unknownColumns.length} {t('engineeringUnknownColumns')}</p></div><dl className="max-h-64 overflow-y-auto divide-y divide-ds-border-muted">{Object.entries(activeDataset.fieldMapping).map(([canonical, source]) => <div key={canonical} className="grid grid-cols-[110px_minmax(0,1fr)] gap-2 px-3 py-2 text-[11px]"><dt className="text-ds-faint">{canonical}</dt><dd className="truncate font-medium text-ds-ink">{source || t('engineeringStatusUnmapped')}</dd></div>)}</dl>{activeDataset.unknownColumns.length ? <div className="border-t border-ds-border-muted px-3 py-3"><p className="text-[11px] font-medium text-ds-muted">{t('engineeringUnknownColumns')}</p><p className="mt-1 break-words text-[11px] leading-4 text-ds-faint">{activeDataset.unknownColumns.join('、')}</p></div> : null}</> : null}</div></div>}</div>
+              <div className="p-5">{overview.datasets.length === 0 ? <EmptyState title={t('engineeringNoMonitoringData')} detail={t('engineeringDataEmptyDetail')} /> : <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_300px]"><div className="overflow-hidden border border-ds-border-muted"><div className="overflow-x-auto"><table className="min-w-full text-left text-[12px]"><thead className="bg-ds-subtle text-ds-muted"><tr><th className="px-3 py-2.5 font-semibold">{t('engineeringTabData')}</th><th className="px-3 py-2.5 font-semibold">{t('engineeringSummaryObservations')}</th><th className="px-3 py-2.5 font-semibold">{t('surveyEpoch')}</th><th className="px-3 py-2.5 font-semibold">{t('engineeringDatasetStatus')}</th></tr></thead><tbody className="divide-y divide-ds-border-muted">{overview.datasets.map((dataset) => <tr key={dataset.id} tabIndex={-1} data-evidence-key={JSON.stringify(['dataset', dataset.id])} onClick={() => setSelectedDatasetId(dataset.id)} className={`cursor-pointer transition hover:bg-accent/5 focus:outline focus:outline-2 focus:outline-accent ${dataset.id === activeDataset?.id ? 'bg-accent/8' : ''}`}><td className="max-w-[260px] px-3 py-3"><button type="button" onClick={() => setSelectedDatasetId(dataset.id)} aria-pressed={dataset.id === activeDataset?.id} className="max-w-full truncate rounded text-left font-medium text-ds-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent">{dataset.sourceFileName}</button><p className="mt-0.5 truncate font-mono text-[10px] text-ds-faint">{dataset.sourceFileHash.slice(0, 16)}…</p></td><td className="px-3 py-3 tabular-nums text-ds-ink">{dataset.observationCount.toLocaleString(locale)}<span className="ml-1 text-[10px] text-ds-faint">/ {dataset.rowCount}</span></td><td className="px-3 py-3 text-ds-muted">{formatDate(dataset.timeRange.start, locale)}<br />{formatDate(dataset.timeRange.end, locale)}</td><td className="px-3 py-3"><span className="rounded px-1.5 py-0.5 text-[11px] bg-ds-subtle text-ds-muted">{statusLabel(dataset.status, t)}</span></td></tr>)}</tbody></table></div></div><div className="border border-ds-border-muted bg-ds-card">{activeDataset ? <><div className="border-b border-ds-border-muted px-3 py-3"><p className="text-[12px] font-semibold text-ds-ink">{t('engineeringColumnMapping')}</p><p className="mt-1 text-[11px] text-ds-faint">{activeDataset.columnCount} {t('engineeringUnit')} · {activeDataset.unknownColumns.length} {t('engineeringUnknownColumns')}</p></div><dl className="max-h-64 overflow-y-auto divide-y divide-ds-border-muted">{Object.entries(activeDataset.fieldMapping).map(([canonical, source]) => <div key={canonical} className="grid grid-cols-[110px_minmax(0,1fr)] gap-2 px-3 py-2 text-[11px]"><dt className="text-ds-faint">{canonical}</dt><dd className="truncate font-medium text-ds-ink">{source || t('engineeringStatusUnmapped')}</dd></div>)}</dl>{activeDataset.unknownColumns.length ? <div className="border-t border-ds-border-muted px-3 py-3"><p className="text-[11px] font-medium text-ds-muted">{t('engineeringUnknownColumns')}</p><p className="mt-1 break-words text-[11px] leading-4 text-ds-faint">{activeDataset.unknownColumns.join('、')}</p></div> : null}</> : null}</div></div>}</div>
             </section> : null}
 
             {tab === 'quality' ? <section>
               <SurveyQualityScoringWorkspace binding={{ projectId: overview.project.id, projectRevision: overview.project.revision, workspaceRoot }} runtimeReady={runtimeReady} />
               <PanelHeading title={t('engineeringQualityPanelTitle')} description={t('engineeringQualityPanelDescription')} action={<button type="button" onClick={() => void validateDataset()} disabled={!runtimeReady || busy || !activeDataset} className="inline-flex h-8 items-center gap-1.5 rounded-md border border-ds-border bg-ds-card px-3 text-[12px] font-medium text-ds-ink hover:bg-ds-hover disabled:opacity-50"><ShieldCheck className="h-3.5 w-3.5" />{t('engineeringRecheck')}</button>} />
-              {!activeDataset ? <EmptyState title={t('engineeringSelectOrImportDataset')} detail={t('engineeringQualityEmptyDetail')} /> : <div className="p-5"><div className="grid grid-cols-2 gap-2 lg:grid-cols-4"><Metric label={t('engineeringFindingBlocking')} value={blockingFindings.length} detail={t('engineeringMustFixSource')} tone={blockingFindings.length ? 'danger' : 'success'} /><Metric label={t('engineeringFindingWarning')} value={warningFindings.length} detail={t('engineeringNeedsHumanConfirmation')} tone={warningFindings.length ? 'warning' : 'success'} /><Metric label={t('engineeringFindingAccepted')} value={acceptedWarnings} detail={t('engineeringIncludedInReview')} tone={acceptedWarnings ? 'warning' : 'neutral'} /><Metric label={t('engineeringDatasetStatus')} value={statusLabel(activeDataset.status, t)} detail={t('engineeringObservationCount', { count: activeDataset.observationCount })} /></div><div className="mt-5 overflow-hidden border border-ds-border-muted"><div className="overflow-x-auto"><table className="min-w-full text-left text-[12px]"><thead className="bg-ds-subtle text-ds-muted"><tr><th className="w-24 px-3 py-2.5 font-semibold">{t('engineeringFindingLevel')}</th><th className="px-3 py-2.5 font-semibold">{t('engineeringFindingProblem')}</th><th className="w-24 px-3 py-2.5 font-semibold">{t('engineeringSourceRow')}</th><th className="w-28 px-3 py-2.5 font-semibold">{t('engineeringDisposition')}</th></tr></thead><tbody className="divide-y divide-ds-border-muted">{activeDataset.findings.length ? activeDataset.findings.map((finding) => <tr key={finding.id} className={finding.status === 'open' && finding.severity === 'blocking' ? 'bg-red-50/60 dark:bg-red-500/5' : ''}><td className="px-3 py-3"><span className={`rounded border px-1.5 py-0.5 text-[10.5px] font-medium ${findingTone[finding.severity]}`}>{finding.severity === 'blocking' ? t('engineeringFindingBlocking') : finding.severity === 'warning' ? t('engineeringFindingWarning') : t('engineeringFindingInfo')}</span></td><td className="min-w-[310px] px-3 py-3"><p className="text-ds-ink">{surveyDiagnosticText(finding, locale)}</p><p className="mt-1 text-[11px] leading-4 text-ds-muted">{surveyDiagnosticText(finding, locale, 'action')}</p></td><td className="px-3 py-3 tabular-nums text-ds-muted">{finding.row ? t('engineeringRowNumber', { row: finding.row }) : '—'}</td><td className="px-3 py-3">{finding.status === 'accepted' ? <span className="inline-flex items-center gap-1 text-[11px] text-green-700 dark:text-green-300"><CheckCircle2 className="h-3.5 w-3.5" />{t('engineeringFindingAccepted')}</span> : finding.severity === 'warning' ? <button type="button" disabled={!runtimeReady || busy} onClick={() => void acceptWarning(finding)} className="rounded border border-amber-300 px-2 py-1 text-[11px] font-medium text-amber-800 hover:bg-amber-50 disabled:opacity-50 dark:border-amber-500/40 dark:text-amber-200">{t('engineeringFindingAcceptWarning')}</button> : finding.severity === 'blocking' ? <span className="text-[11px] leading-4 text-red-700 dark:text-red-300">{t('engineeringFixSourceShort').split('\n').map((line) => <Fragment key={line}>{line}<br /></Fragment>)}</span> : <span className="text-[11px] text-ds-faint">{t('engineeringNoActionShort')}</span>}</td></tr>) : <tr><td colSpan={4} className="px-3 py-10 text-center text-ds-muted">{t('engineeringNoIssuesShort')}</td></tr>}</tbody></table></div></div></div>}
+              {!activeDataset ? <EmptyState title={t('engineeringSelectOrImportDataset')} detail={t('engineeringQualityEmptyDetail')} /> : <div className="p-5"><div className="grid grid-cols-2 gap-2 lg:grid-cols-4"><Metric label={t('engineeringFindingBlocking')} value={blockingFindings.length} detail={t('engineeringMustFixSource')} tone={blockingFindings.length ? 'danger' : 'success'} /><Metric label={t('engineeringFindingWarning')} value={warningFindings.length} detail={t('engineeringNeedsHumanConfirmation')} tone={warningFindings.length ? 'warning' : 'success'} /><Metric label={t('engineeringFindingAccepted')} value={acceptedWarnings} detail={t('engineeringIncludedInReview')} tone={acceptedWarnings ? 'warning' : 'neutral'} /><Metric label={t('engineeringDatasetStatus')} value={statusLabel(activeDataset.status, t)} detail={t('engineeringObservationCount', { count: activeDataset.observationCount })} /></div><div className="mt-5 overflow-hidden border border-ds-border-muted"><div className="overflow-x-auto"><table className="min-w-full text-left text-[12px]"><thead className="bg-ds-subtle text-ds-muted"><tr><th className="w-24 px-3 py-2.5 font-semibold">{t('engineeringFindingLevel')}</th><th className="px-3 py-2.5 font-semibold">{t('engineeringFindingProblem')}</th><th className="w-24 px-3 py-2.5 font-semibold">{t('engineeringSourceRow')}</th><th className="w-28 px-3 py-2.5 font-semibold">{t('engineeringDisposition')}</th></tr></thead><tbody className="divide-y divide-ds-border-muted">{activeDataset.findings.length ? activeDataset.findings.map((finding) => <tr key={finding.id} tabIndex={-1} data-evidence-key={JSON.stringify(['finding', finding.id])} className={`focus:bg-accent/10 focus:outline focus:outline-2 focus:outline-accent ${finding.status === 'open' && finding.severity === 'blocking' ? 'bg-red-50/60 dark:bg-red-500/5' : ''}`}><td className="px-3 py-3"><span className={`rounded border px-1.5 py-0.5 text-[10.5px] font-medium ${findingTone[finding.severity]}`}>{finding.severity === 'blocking' ? t('engineeringFindingBlocking') : finding.severity === 'warning' ? t('engineeringFindingWarning') : t('engineeringFindingInfo')}</span></td><td className="min-w-[310px] px-3 py-3"><p className="text-ds-ink">{surveyDiagnosticText(finding, locale)}</p><p className="mt-1 text-[11px] leading-4 text-ds-muted">{surveyDiagnosticText(finding, locale, 'action')}</p></td><td className="px-3 py-3 tabular-nums text-ds-muted">{finding.row ? t('engineeringRowNumber', { row: finding.row }) : '—'}</td><td className="px-3 py-3">{finding.status === 'accepted' ? <span className="inline-flex items-center gap-1 text-[11px] text-green-700 dark:text-green-300"><CheckCircle2 className="h-3.5 w-3.5" />{t('engineeringFindingAccepted')}</span> : finding.severity === 'warning' ? <button type="button" disabled={!runtimeReady || busy} onClick={() => void acceptWarning(finding)} className="rounded border border-amber-300 px-2 py-1 text-[11px] font-medium text-amber-800 hover:bg-amber-50 disabled:opacity-50 dark:border-amber-500/40 dark:text-amber-200">{t('engineeringFindingAcceptWarning')}</button> : finding.severity === 'blocking' ? <span className="text-[11px] leading-4 text-red-700 dark:text-red-300">{t('engineeringFixSourceShort').split('\n').map((line) => <Fragment key={line}>{line}<br /></Fragment>)}</span> : <span className="text-[11px] text-ds-faint">{t('engineeringNoActionShort')}</span>}</td></tr>) : <tr><td colSpan={4} className="px-3 py-10 text-center text-ds-muted">{t('engineeringNoIssuesShort')}</td></tr>}</tbody></table></div></div></div>}
             </section> : null}
 
             {tab === 'advanced-models' ? <SurveyAdvancedModelWorkspace binding={{ projectId: overview.project.id, projectRevision: overview.project.revision, workspaceRoot }} runtimeReady={runtimeReady} /> : null}
             {(tab === 'source' || tab === 'survey' || tab === 'precision') ? <section>
               <SurveyAdjustmentPanel key={surveyFileScope} project={overview.project} runtimeReady={runtimeReady}
+                navigationTarget={evidenceNavigation?.kind === 'survey' ? evidenceNavigation : null}
                 preferredSection={tab === 'source' ? 'network' : tab === 'precision' ? 'result' : 'points'}
                 onNetworkSelected={handleSurveyNetworkSelected}
                 pendingFiles={pendingSurveyFiles[surveyFileScope] ?? []}
@@ -887,7 +1015,7 @@ export function EngineeringWorkspaceView({ workspaceRoot, runtimeReady, leftSide
               <EngineeringSkillsPanel runtimeReady={runtimeReady} />
             </section> : null}
 
-            {tab === 'analysis' ? <section>
+            {tab === 'analysis' ? <section tabIndex={-1} data-evidence-key={JSON.stringify(['analysis', activeAnalysis?.id])} className="focus:outline focus:outline-2 focus:outline-accent">
               <PanelHeading title={t('engineeringAnalysisPanelTitle')} description={t('engineeringAnalysisPanelDescription')} action={<div className="flex items-center gap-2"><button type="button" onClick={() => void createChart()} disabled={!runtimeReady || busy || !activeAnalysis} className="inline-flex h-8 items-center gap-1.5 rounded-md border border-ds-border bg-ds-card px-2.5 text-[12px] font-medium text-ds-ink hover:bg-ds-hover disabled:opacity-50"><BarChart3 className="h-3.5 w-3.5" />{t('engineeringTrendChart')}</button><button type="button" onClick={() => void runAnalysis()} disabled={!runtimeReady || busy || !activeDataset} className="inline-flex h-8 items-center gap-1.5 rounded-md bg-accent px-3 text-[12px] font-semibold text-white disabled:opacity-50"><Activity className="h-3.5 w-3.5" />{t('engineeringRunAnalysis')}</button></div>} />
               {!activeDataset ? <EmptyState title={t('engineeringNoMonitoringSelected')} detail={t('engineeringAnalysisEmptyDetail')} /> : !activeAnalysis ? <EmptyState title={t('engineeringNoAnalysis')} detail={t('engineeringAnalysisResultDetail')} action={<button type="button" onClick={() => void runAnalysis()} disabled={!runtimeReady || busy} className="inline-flex items-center gap-1.5 rounded-md bg-accent px-3 py-2 text-[12px] font-semibold text-white disabled:opacity-50"><Activity className="h-3.5 w-3.5" />{t('engineeringRunDeterministicAnalysis')}</button>} /> : <div className="p-5"><div className="grid grid-cols-2 gap-2 lg:grid-cols-5"><Metric label={t('engineeringStatusNormal')} value={analysisCounts.normal} detail={t('engineeringBelowWarningThreshold')} tone="success" /><Metric label={t('engineeringStatusWarning')} value={analysisCounts.warning} detail={t('engineeringAttentionRange')} tone={analysisCounts.warning ? 'warning' : 'neutral'} /><Metric label={t('engineeringStatusAlarm')} value={analysisCounts.alarm} detail={t('engineeringAtOrAboveThreshold')} tone={analysisCounts.alarm ? 'danger' : 'neutral'} /><Metric label={t('engineeringStatusControl')} value={analysisCounts.control} detail={t('engineeringControlState')} tone={analysisCounts.control ? 'danger' : 'neutral'} /><Metric label={t('engineeringStatusUnresolved')} value={analysisCounts.unresolved} detail={t('engineeringThresholdMissing')} tone={analysisCounts.unresolved ? 'warning' : 'neutral'} /></div>{chart ? <div className="mt-4 flex items-center gap-2 border border-ds-border-muted bg-ds-card px-3 py-2 text-[12px]"><BarChart3 className="h-4 w-4 text-accent" /><span className="min-w-0 flex-1 truncate text-ds-muted">{t('engineeringChartCreated')} <span className="font-mono text-ds-ink">{chart.relativePath}</span></span><span className="rounded bg-green-100 px-1.5 py-0.5 text-[10.5px] text-green-800 dark:bg-green-500/15 dark:text-green-300">{chart.validation}</span></div> : null}<div className="mt-5 overflow-hidden border border-ds-border-muted"><div className="overflow-x-auto"><table className="min-w-full text-left text-[12px]"><thead className="sticky top-0 bg-ds-subtle text-ds-muted"><tr><th className="px-3 py-2.5 font-semibold">{t('engineeringAnalysisTableItemPoint')}</th><th className="px-3 py-2.5 font-semibold">{t('engineeringCurrentValue')}</th><th className="px-3 py-2.5 font-semibold">{t('engineeringCumulativeChange')}</th><th className="px-3 py-2.5 font-semibold">{t('engineeringChangeRate')}</th><th className="px-3 py-2.5 font-semibold">{t('engineeringTrend')}</th><th className="px-3 py-2.5 font-semibold">{t('engineeringThresholdStatus')}</th></tr></thead><tbody className="divide-y divide-ds-border-muted">{activeAnalysis.results.map((result) => <tr key={`${result.monitoringItem}-${result.point}`} className={result.thresholdStatus === 'alarm' || result.thresholdStatus === 'control' ? 'bg-red-50/60 dark:bg-red-500/5' : result.thresholdStatus === 'warning' ? 'bg-amber-50/50 dark:bg-amber-500/5' : 'hover:bg-accent/5'}><td className="px-3 py-3"><p className="font-medium text-ds-ink">{result.point}</p><p className="mt-0.5 text-[10.5px] text-ds-faint">{result.monitoringItem}</p></td><td className="px-3 py-3 tabular-nums font-medium text-ds-ink">{formatNumber(result.currentValue, locale)} <span className="text-[10.5px] font-normal text-ds-faint">{overview.project.unit}</span></td><td className="px-3 py-3 tabular-nums text-ds-ink">{formatNumber(result.cumulativeChange, locale)}</td><td className="px-3 py-3 tabular-nums text-ds-ink">{formatNumber(result.changeRate, locale)}</td><td className="px-3 py-3"><span className="text-ds-muted">{statusLabel(result.trend, t)}{result.anomaly ? <span className="ml-1.5 text-red-600 dark:text-red-300">{t('engineeringAnomaly')}</span> : null}</span></td><td className="px-3 py-3"><span className={`rounded px-1.5 py-0.5 text-[10.5px] font-medium ${thresholdTone[result.thresholdStatus]}`}>{statusLabel(result.thresholdStatus, t)}</span></td></tr>)}</tbody></table></div></div><p className="mt-3 text-[11px] text-ds-faint">{t('engineeringAlgorithmHash', { algorithm: activeAnalysis.algorithmVersion })} <span className="font-mono">{activeAnalysis.inputHash}</span></p></div>}
             </section> : null}
@@ -923,7 +1051,7 @@ export function EngineeringWorkspaceView({ workspaceRoot, runtimeReady, leftSide
                         <p className="text-[13px] font-semibold text-ds-ink">{t('engineeringReviewManifestTitle')}</p>
                         <p className="mt-1 text-[11px] text-ds-faint">{t('engineeringReviewManifestHint')}</p>
                       </div>
-                      {overview.manifests.length ? <div className="divide-y divide-ds-border-muted">{overview.manifests.map((manifest) => <div key={manifest.id} className="px-3 py-3"><div className="flex items-start gap-2"><FileCheck2 className="mt-0.5 h-4 w-4 shrink-0 text-blue-600 dark:text-blue-300" /><div className="min-w-0"><p className="truncate font-mono text-[11px] font-medium text-ds-ink">{manifest.id}</p><button type="button" aria-label={t('surveyAskEvidence', { label: manifest.id })} onClick={() => askAboutDelivery(manifest.id, { section: 'review', manifestId: manifest.id, runId: manifest.runId, reviewStatus: manifest.reviewStatus })} className="mt-1 text-[11px] text-accent">{t('surveyAskAgent')}</button><p className="mt-1 text-[11px] text-ds-muted">{t('engineeringReviewOutputs', { count: manifest.outputs.length })} · {statusLabel(manifest.reviewStatus, t)} · {formatDate(manifest.finalizedAt, locale)}</p><EngineeringManifestVerification projectId={overview.project.id} manifestId={manifest.id} reviewStatus={manifest.reviewStatus} contextRevision={overview.project.revision} runtimeReady={runtimeReady} request={runtimeRequest} /><SurveyQualityWorkspace binding={{ projectId: overview.project.id, projectRevision: overview.project.revision, manifestId: manifest.id, outputs: manifest.outputs }} runtimeReady={runtimeReady} />{manifest.validation.warnings.length ? <p className="mt-1 text-[10.5px] text-amber-700 dark:text-amber-300">{t('engineeringReviewNotes', { count: manifest.validation.warnings.length })}</p> : null}</div></div></div>)}</div> : <p className="px-3 py-8 text-center text-[12px] text-ds-muted">{t('engineeringReviewNone')}</p>}
+                      {overview.manifests.length ? <div className="divide-y divide-ds-border-muted">{overview.manifests.map((manifest) => <div key={manifest.id} className="px-3 py-3"><div className="flex items-start gap-2"><FileCheck2 className="mt-0.5 h-4 w-4 shrink-0 text-blue-600 dark:text-blue-300" /><div className="min-w-0"><p className="truncate font-mono text-[11px] font-medium text-ds-ink">{manifest.id}</p>{manifest.outputs.map(output => <div key={output.path} tabIndex={-1} data-evidence-key={JSON.stringify(['artifact', manifest.id, output.path])} className="my-1 break-all border-l-2 border-ds-border pl-2 text-[11px] focus:outline focus:outline-2 focus:outline-accent"><p>{output.path}</p><p className="font-mono text-[10px] text-ds-muted">{output.sha256}</p></div>)}<button type="button" aria-label={t('surveyAskEvidence', { label: manifest.id })} onClick={() => askAboutDelivery(manifest.id, { section: 'review', manifestId: manifest.id, runId: manifest.runId, reviewStatus: manifest.reviewStatus })} className="mt-1 text-[11px] text-accent">{t('surveyAskAgent')}</button><p className="mt-1 text-[11px] text-ds-muted">{t('engineeringReviewOutputs', { count: manifest.outputs.length })} · {statusLabel(manifest.reviewStatus, t)} · {formatDate(manifest.finalizedAt, locale)}</p><EngineeringManifestVerification projectId={overview.project.id} manifestId={manifest.id} reviewStatus={manifest.reviewStatus} contextRevision={overview.project.revision} runtimeReady={runtimeReady} request={runtimeRequest} /><SurveyQualityWorkspace binding={{ projectId: overview.project.id, projectRevision: overview.project.revision, manifestId: manifest.id, outputs: manifest.outputs }} runtimeReady={runtimeReady} />{manifest.validation.warnings.length ? <p className="mt-1 text-[10.5px] text-amber-700 dark:text-amber-300">{t('engineeringReviewNotes', { count: manifest.validation.warnings.length })}</p> : null}</div></div></div>)}</div> : <p className="px-3 py-8 text-center text-[12px] text-ds-muted">{t('engineeringReviewNone')}</p>}
                     </div>
                   </div>
                   <aside className="border border-ds-border-muted bg-ds-card">

@@ -24,7 +24,7 @@ const rule = SurveyStandardBasisRuleV1.parse({
   executor: { family: 'declared-scoring', operation: 'accuracy', algorithmVersion: 'gbt24356-declared-exact-quality-scoring-1', inputContract: 'SurveyQualityScoringInputV1', outputContract: 'SurveyQualityScoringOutputV1', implementationPath: 'kun/src/engineering/survey-quality-scoring.ts' },
   source: { kind: 'official-scanned-pdf', sha256: 'a'.repeat(64), officialUrl: 'https://zrzy.guizhou.gov.cn/wzgb/ztzl/lszt/zrzyzljc/202308/P020230829590929227708.pdf', publicationUrl: 'https://zrzy.guizhou.gov.cn/', metadataUrl: 'https://openstd.samr.gov.cn/', byteLength: 27976440, pageCount: 129,
     evidenceDocuments: [{ path: 'docs/test.md', sha256: 'b'.repeat(64) }], availability: 'public-url-and-retained-digest-no-runtime-fetch', redistribution: 'full-pdf-not-bundled-license-not-inferred' },
-  locators: [locator], profiles: [{ profileId: 'planar-control-point', profileVersion: 'gbt24356-2023-control-declared-counts-1', label: localized('平面控制点', 'Planar control point'), unitProduct: 'point', locators: [{ ...locator, clauses: ['7.5.1'], tables: [43, 44], printedPages: [57], pdfPages: [60] }] }],
+  locators: [locator], profiles: [{ profileId: 'planar-control-point', profileVersion: 'gbt24356-2023-control-declared-counts-1', label: localized('平面控制点', 'Planar control point'), unitProduct: 'point', locators: [{ ...locator, clauses: ['7.5.1'], tables: [43], printedPages: [58], pdfPages: [61] }] }],
   implementationChoices: [localized('声明数据试算', 'Declared-data trial')], exclusions: [localized('未核验人员签认', 'Human signatures unverified')],
   reviewIdentity: 'agent-reviewed-not-professional-signoff', standardConformity: 'not-evaluated', humanSignatureVerification: 'not-evaluated', projectApplicability: 'not-evaluated', formalResultsModified: false
 })
@@ -145,6 +145,27 @@ describe('result standard basis client', () => {
 })
 
 describe('accessible bilingual result standard basis', () => {
+  it.each([
+    ['planar-control-point', [61, 62, 63, 60]],
+    ['height-control-section', [64, 65, 66, 64]]
+  ] as const)('opens actual catalog table pages before the clause introduction for %s', async (profile, expected) => {
+    const actual = getSurveyStandardBasisCatalog()
+    const result = scoreSurveyQualityV1(qualityScoringExample('accuracy', profile))
+    const before = JSON.stringify(result)
+    const actualContext = scoringStandardBasisContext(result)!
+    runtimeRequest.mockImplementation(async (path: string) => {
+      if (path === RUNTIME_STANDARD_BASIS_PATH) return response(actual)
+      const url = new URL(path, 'http://localhost')
+      return response(resolveSurveyStandardBasis({ ...Object.fromEntries(url.searchParams), ruleId: 'gbt24356-2023.scoring.accuracy', ruleVersion: '1' }))
+    })
+    await render(actualContext); await toggle()
+    await vi.waitFor(() => expect(host.querySelectorAll('a')).toHaveLength(5))
+    const links = [...host.querySelectorAll<HTMLAnchorElement>('a')]
+    expect(links.map(link => Number(new URL(link.href).hash.slice(6)))).toEqual([9, ...expected])
+    for (const link of links.slice(1)) await act(async () => link.click())
+    expect(openExternal.mock.calls.map(([url]) => Number(new URL(url).hash.slice(6)))).toEqual(expected)
+    expect(JSON.stringify(result)).toBe(before)
+  })
   it('exposes basis from a scoring result without fetching or mutating its decision', async () => {
     const result = scoreSurveyQualityV1(qualityScoringExample('accuracy', 'planar-control-point'))
     const before = JSON.stringify(result)

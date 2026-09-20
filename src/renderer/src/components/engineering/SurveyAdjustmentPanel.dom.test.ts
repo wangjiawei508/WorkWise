@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useEngineeringConversationDrafts } from './engineering-conversation-drafts'
 import { SurveyAdjustmentPanel } from './SurveyAdjustmentPanel'
 import i18n from '../../i18n'
+import type { SurveyEvidenceNavigationTarget } from './engineering-evidence-navigation'
 
 let container: HTMLDivElement
 let root: Root
@@ -310,6 +311,69 @@ afterEach(async () => {
 })
 
 describe('SurveyAdjustmentPanel persisted state restoration', () => {
+  const navigationTarget: SurveyEvidenceNavigationTarget = { kind: 'survey', workspaceRoot: '/survey', projectId: 'project-restored-001', projectRevision: 1, networkId: network.id, networkRevision: network.revision, sourceSha256: network.sourceFile.sha256, adjustmentId: adjustment.run.id, section: 'result', observationId: 'obs-1', sourceRecordId: 'record-1' }
+  async function navigate(target: SurveyEvidenceNavigationTarget) {
+    await act(async () => root.render(createElement(SurveyAdjustmentPanel, { project: { id: 'project-restored-001', revision: 1, workspace: '/survey' }, runtimeReady: true, navigationTarget: target })))
+    await settle()
+  }
+
+  it('locates the exact residual and original record without writing data or changing the draft', async () => {
+    const scope = JSON.stringify(['/survey', 'project-restored-001'])
+    useEngineeringConversationDrafts.getState().update(scope, draft => ({ ...draft, input: 'Keep this question', evidenceContext: { ...navigationTarget } }))
+    runtimeRequest.mockClear()
+    await navigate(navigationTarget)
+    expect(document.activeElement?.getAttribute('data-evidence-key')).toBe(JSON.stringify(['observation', 'obs-1']))
+    expect(container.textContent).toContain('{"id":"obs-1","value":0.2}')
+    expect(useEngineeringConversationDrafts.getState().drafts[scope]?.input).toBe('Keep this question')
+    expect(useEngineeringConversationDrafts.getState().drafts[scope]?.evidenceContext?.sourceRecordId).toBe('record-1')
+    expect(runtimeRequest.mock.calls.every(([, method]) => method === 'GET')).toBe(true)
+  })
+
+  it('re-reads an already mounted network before locating and rejects a revision changed outside the panel', async () => {
+    runtimeRequest.mockImplementation(async path => runtimeResponse(path.includes('/survey/networks?') ? { networks: [{ ...network, revision: network.revision + 1 }] } : { adjustments: [adjustment] }))
+    await navigate(navigationTarget)
+    expect(container.textContent).toContain(i18n.t('engineeringEvidenceUnavailable'))
+    expect(container.querySelector('[data-evidence-key="survey-selection"]')).toBeNull()
+    expect(runtimeRequest.mock.calls.every(([, method]) => method === 'GET')).toBe(true)
+  })
+
+  it('consumes a navigation request once and preserves a later manual network selection', async () => {
+    await navigate(navigationTarget)
+    const selector = container.querySelector<HTMLSelectElement>('#survey-existing-network')!
+    await act(async () => { selector.value = archiveOnlyNetwork.id; selector.dispatchEvent(new Event('change', { bubbles: true })) })
+    await act(async () => { await i18n.changeLanguage('en') })
+    expect(selector.value).toBe(archiveOnlyNetwork.id)
+    expect(container.querySelector('[data-evidence-key="survey-selection"]')).toBeNull()
+    await navigate({ ...navigationTarget })
+    expect(selector.value).toBe(network.id)
+    expect(container.querySelector('[data-evidence-key="survey-selection"]')).not.toBeNull()
+  })
+
+  it.each([
+    { projectId: 'other-project' }, { workspaceRoot: '/other' }, { projectRevision: 9 },
+    { networkRevision: 99 }, { sourceSha256: 'c'.repeat(64) }, { adjustmentId: 'missing-run' },
+    { observationId: 'missing-observation' }, { sourceRecordId: 'missing-record' },
+    { diagnosticIndex: 99 }, { pointId: 'missing-point' }
+  ])('refuses an unavailable or mismatched navigation binding: %j', async patch => {
+    await navigate({ ...navigationTarget, ...patch })
+    expect(container.textContent).toContain(i18n.t('engineeringEvidenceUnavailable'))
+    expect(container.querySelector('[data-evidence-key="survey-selection"]')).toBeNull()
+  })
+
+  it('locates diagnostics and source anchors beyond the first twenty displayed rows', async () => {
+    const many = { ...network, sourceFile: { ...network.sourceFile,
+      diagnostics: Array.from({ length: 31 }, (_, index) => ({ code: `diagnostic-${index}`, severity: 'warning', message: `Exact diagnostic ${index}` })),
+      records: Array.from({ length: 31 }, (_, index) => ({ ...network.sourceFile.records[0]!, id: `record-${index}`, rawOffset: index, rawLength: 1, rawSnippet: `Exact raw record ${index}` }))
+    } }
+    runtimeRequest.mockImplementation(async path => runtimeResponse(path.includes('/survey/networks?') ? { networks: [many] } : { adjustments: [adjustment] }))
+    await act(async () => root.render(createElement(SurveyAdjustmentPanel, { project: { id: 'project-restored-001', revision: 1, workspace: '/survey' }, runtimeReady: false })))
+    await navigate({ ...navigationTarget, section: 'network', adjustmentId: undefined, observationId: undefined, diagnosticIndex: 30, sourceRecordId: 'record-30' })
+    expect(container.textContent).toContain('Exact diagnostic 30')
+    expect(container.textContent).toContain('Exact raw record 30')
+    expect(document.activeElement?.getAttribute('data-evidence-key')).toBe('source-record')
+    expect(runtimeRequest.mock.calls.every(([, method]) => method === 'GET')).toBe(true)
+  })
+
   it('opens a separate trial entry with explicit constraints and leaves formal operations untouched', async () => {
     const trialNav = Array.from(container.querySelectorAll('nav button')).find(item => item.textContent?.includes('自由水准试算')) as HTMLButtonElement
     expect(trialNav).toBeTruthy()
@@ -505,6 +569,43 @@ describe('SurveyAdjustmentPanel persisted state restoration', () => {
     expect(validate.disabled).toBe(false)
   })
 
+  it.each(['archive-only', 'converter-required', 'gnss-processing-required', 'quality-blocked'])('omits the adjustment command for %s', async (state) => {
+    const blocked = state === 'quality-blocked'
+      ? { ...network, qualityStatus: 'blocked', findings: [{ severity: 'blocking', message: 'Declared datum is incomplete.' }] }
+      : { ...archiveOnlyNetwork, sourceFile: { ...archiveOnlyNetwork.sourceFile, disposition: state } }
+    runtimeRequest.mockImplementation(async (path: string) => path.includes('/survey/networks?')
+      ? runtimeResponse({ networks: [blocked] })
+      : runtimeResponse({ adjustments: [] }))
+    await act(async () => root.render(createElement(SurveyAdjustmentPanel, {
+      key: state, project: { id: 'blocked', revision: 1 }, runtimeReady: true
+    })))
+    await settle()
+    expect([...container.querySelectorAll('button')].some((button) => button.textContent === '运行平差')).toBe(false)
+    expect(runtimeRequest.mock.calls.some(([path, method]) => path === '/v1/engineering/adjustments' && method === 'POST')).toBe(false)
+  })
+
+  it('retains the blocked source identity when asking AI to plan missing data', async () => {
+    const focus = vi.fn()
+    await act(async () => root.render(createElement(SurveyAdjustmentPanel, {
+      project: { id: 'project-restored-001', revision: 1, workspace: '/blocked-survey' },
+      runtimeReady: true, preferredSection: 'network', onOpenAi: focus
+    })))
+    await settle()
+    const selector = container.querySelector<HTMLSelectElement>('#survey-existing-network')!
+    await act(async () => {
+      selector.value = archiveOnlyNetwork.id
+      selector.dispatchEvent(new Event('change', { bubbles: true }))
+    })
+    const ask = [...container.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent === i18n.t('surveyPlanMissingData'))!
+    await act(async () => ask.click())
+    expect(focus).toHaveBeenCalledOnce()
+    expect(useEngineeringConversationDrafts.getState().drafts[JSON.stringify(['/blocked-survey', 'project-restored-001'])]?.evidenceContext).toMatchObject({
+      projectId: 'project-restored-001', networkId: archiveOnlyNetwork.id,
+      networkRevision: archiveOnlyNetwork.revision, sourceSha256: archiveOnlyNetwork.sourceFile.sha256,
+      parserId: archiveOnlyNetwork.sourceFile.parserId, section: 'preflight'
+    })
+  })
+
   it('requires separate mappings for each IN1 attachment and imports the batch only after confirmation', async () => {
     const files = [new File(['K1,10\nK2,11\nK1,P1,0.5,0.1\nP1,K2,0.5,0.1'], 'first.in1'), new File(['second file'], 'second.in1'), new File(['plane file'], 'plane.in2')]
     const removePending = vi.fn()
@@ -567,7 +668,7 @@ describe('SurveyAdjustmentPanel persisted state restoration', () => {
     })
     await settle()
     const adjustButton = [...container.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent?.includes('Run adjustment'))
-    expect(adjustButton?.disabled).toBe(true)
+    expect(adjustButton).toBeUndefined()
     expect(container.textContent).toContain('Original retained only')
   })
 
@@ -763,7 +864,7 @@ describe('SurveyAdjustmentPanel persisted state restoration', () => {
     const validateButton = [...container.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent?.includes('质量校核'))
     const adjustButton = [...container.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent?.includes('运行平差'))
     expect(validateButton?.disabled).toBe(true)
-    expect(adjustButton?.disabled).toBe(true)
+    expect(adjustButton).toBeUndefined()
 
     const observationsTab = [...container.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent?.includes('观测表'))
     await act(async () => observationsTab?.click())
@@ -785,7 +886,7 @@ describe('SurveyAdjustmentPanel persisted state restoration', () => {
     const validateButton = [...container.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent?.includes('质量校核'))
     const adjustButton = [...container.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent?.includes('运行平差'))
     expect(validateButton?.disabled).toBe(true)
-    expect(adjustButton?.disabled).toBe(true)
+    expect(adjustButton).toBeUndefined()
   })
 
   it('keeps a source-revoked historical adjustment readable but excludes it from new period calculations', async () => {

@@ -1,4 +1,5 @@
 import { app, BrowserWindow, dialog, ipcMain, nativeImage, shell, type WebContents } from 'electron'
+import brand from '../../shared/product-brand.json'
 import { watch, type FSWatcher } from 'node:fs'
 import { createHash, randomUUID } from 'node:crypto'
 import { basename, dirname, extname, join, resolve } from 'node:path'
@@ -866,8 +867,9 @@ export function registerAppIpcHandlers(options: RegisterAppIpcHandlersOptions): 
     } catch {
       return { ok: false, message: 'The runtime returned an invalid diagnostics response.' }
     }
+    const { locale } = await store.load()
     const options: Electron.SaveDialogOptions = {
-      title: '导出 WorkWise 任务诊断包',
+      title: locale === 'zh' ? `导出 ${brand.platform} 任务诊断包` : `Export ${brand.platform} task diagnostics`,
       defaultPath: `WorkWise-task-diagnostics-${request.taskId}.json`,
       filters: [{ name: 'JSON', extensions: ['json'] }]
     }
@@ -1012,14 +1014,15 @@ export function registerAppIpcHandlers(options: RegisterAppIpcHandlersOptions): 
   ipcMain.handle('plugin:list-installed', async () => pluginManagementService.listInstalled())
   ipcMain.handle('plugin:pick-package', async (_, payload: unknown): Promise<WorkspacePickResult> => {
     const request = parseIpcPayload('plugin:pick-package', pluginPackagePickerPayloadSchema, payload)
+    const { locale } = await store.load()
     const options: Electron.OpenDialogOptions = request.mode === 'file'
       ? {
-          title: 'Import WorkWise plugin package',
-          filters: [{ name: 'Plugin packages', extensions: ['wwx', 'mcpb', 'zip'] }],
+          title: locale === 'zh' ? `导入 ${brand.platform} 插件包` : `Import ${brand.platform} plugin package`,
+          filters: [{ name: locale === 'zh' ? '插件包' : 'Plugin packages', extensions: ['wwx', 'mcpb', 'zip'] }],
           properties: ['openFile', 'dontAddToRecent']
         }
       : {
-          title: 'Import Codex plugin directory',
+          title: locale === 'zh' ? '导入 Codex 插件目录' : 'Import Codex plugin directory',
           properties: ['openDirectory', 'dontAddToRecent']
         }
     const mainWindow = getMainWindow()

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState, type ReactElement } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useShallow } from 'zustand/react/shallow'
-import { AlertTriangle, Bot, ChevronDown, ClipboardList, Compass, FileCheck2, Loader2, MessageSquareText, Play, Plus, RefreshCw, Upload } from 'lucide-react'
+import { AlertTriangle, Bot, ChevronDown, ClipboardList, Compass, FileCheck2, Loader2, LocateFixed, MessageSquareText, Play, Plus, RefreshCw, Upload } from 'lucide-react'
 import type { TaskRunStatus, TaskRunV1 } from '@shared/agent-workbench'
 import appI18n from '../../i18n'
 import { surveyLegacyDiagnosticText, surveyRuntimeErrorText } from './survey-diagnostic-text'
@@ -12,6 +12,7 @@ import { EngineeringComposer } from './EngineeringComposer'
 import { EngineeringProjectSuggestions } from './EngineeringProjectSuggestions'
 import { engineeringPlanTranscriptText } from './engineering-plan-transcript'
 import { useEngineeringConversationDrafts } from './engineering-conversation-drafts'
+import { evidenceCardNavigationTarget, planStepNavigationTarget, surveyNavigationTarget, type EngineeringEvidenceNavigationTarget, type EngineeringNavigationContext } from './engineering-evidence-navigation'
 
 type Project = { id: string; name: string; taskType?: string; monitoringType: string; unit: string; revision: number; reportPeriod: { start?: string; end?: string } }
 type Dataset = { sourceFileName: string; observationCount: number; status: string; findings: Array<{ severity: 'blocking' | 'warning' | 'info'; status: string }> }
@@ -30,6 +31,8 @@ type Props = {
   onSurveyFiles: (files: File[]) => void
   onOpenTab: (tab: 'project' | 'data' | 'quality' | 'survey' | 'analysis' | 'deliverables' | 'review' | 'skills') => void
   onRefresh: () => void
+  navigationContext?: EngineeringNavigationContext | null
+  onNavigateEvidence?: (target: EngineeringEvidenceNavigationTarget) => void
 }
 type Translate = (key: string, options?: Record<string, unknown>) => string
 type PlanStep = { title: string; detail: string; state: 'ready' | 'active' | 'done' | 'blocked'; tool?: string }
@@ -61,7 +64,7 @@ export function projectAiPlanSteps(plan: AiPlan, taskStatus?: TaskRunStatus, t?:
   }))
 }
 
-export function EngineeringAiCommandCenter({ workspaceRoot, runtimeReady, project, compact = false, onCreateProject, onImportData, onSurveyFiles, onOpenTab, onRefresh }: Props): ReactElement {
+export function EngineeringAiCommandCenter({ workspaceRoot, runtimeReady, project, compact = false, onCreateProject, onImportData, onSurveyFiles, onOpenTab, onRefresh, navigationContext, onNavigateEvidence }: Props): ReactElement {
   const { t, i18n } = useTranslation('common')
   const { activeThreadId, threads, blocks, liveReasoning, liveAssistant, busy, runtimeConnection, error, lastSeq, refreshThreads, selectThread, probeRuntime, openSettings, composerModel } = useChatStore(useShallow((state) => ({
     activeThreadId: state.activeThreadId, threads: state.threads, blocks: state.blocks,
@@ -81,6 +84,9 @@ export function EngineeringAiCommandCenter({ workspaceRoot, runtimeReady, projec
   const [showPlan, setShowPlan] = useState(true)
   const [approvedSteps, setApprovedSteps] = useState<string[]>([])
   const projectId = project?.id ?? ''
+  const selectedEvidence = useEngineeringConversationDrafts(state => state.drafts[JSON.stringify([workspaceRoot, projectId])]?.evidenceContext)
+  const selectedTarget = navigationContext && selectedEvidence ? surveyNavigationTarget(navigationContext, selectedEvidence) : null
+  const navigationButton = (target: EngineeringEvidenceNavigationTarget | null): ReactElement => <button type="button" disabled={!target || !onNavigateEvidence} title={t(target ? 'engineeringOpenEvidence' : 'engineeringEvidenceUnavailable')} onClick={() => { if (target) onNavigateEvidence?.(target) }} className="mt-1 inline-flex min-h-8 items-center gap-1.5 text-[11px] text-accent disabled:text-ds-muted disabled:opacity-60"><LocateFixed className="h-3.5 w-3.5" />{t('engineeringOpenEvidence')}</button>
   const connected = runtimeReady && runtimeConnection === 'ready'
   const connectionMessage = runtimeReady ? t('engineeringConversationNotReady') : t('engineeringRuntimeNotConnected')
   const activeThread = threads.find((thread) => thread.id === activeThreadId)
@@ -119,7 +125,7 @@ export function EngineeringAiCommandCenter({ workspaceRoot, runtimeReady, projec
       if (cancelled) return
       if (!response.ok) throw new Error(readRuntimeMessage(response.body, t('engineeringEvidenceReadFailed')))
       try {
-        const cards = ((JSON.parse(response.body) as { cards?: EvidenceCard[] }).cards ?? []).slice(0, 8)
+        const cards = (JSON.parse(response.body) as { cards?: EvidenceCard[] }).cards ?? []
         setEvidenceCards(cards)
         setEvidenceReadState({ status: cards.length ? 'ready' : 'empty' })
       } catch { throw new Error(t('engineeringEvidenceReadFailed')) }
@@ -250,6 +256,7 @@ export function EngineeringAiCommandCenter({ workspaceRoot, runtimeReady, projec
             <div><dt className="inline text-ds-muted">{t('engineeringPlanOutputs')}: </dt><dd className="inline">{step.expectedOutputs?.map(output => t(`engineeringPlanOutput.${output}`, { defaultValue: output })).join(' · ') ?? t('engineeringPlanDetailsMissing')}</dd></div>
             <div><dt className="inline text-ds-muted">{t('engineeringPlanReversibility')}: </dt><dd className="inline">{step.reversibility ? t(`engineeringPlanReversal.${step.reversibility}`, { defaultValue: step.reversibility }) : t('engineeringPlanDetailsMissing')}</dd></div>
           </dl>
+          {navigationButton(navigationContext && scopedPlan.status !== 'stale' ? planStepNavigationTarget(navigationContext, scopedPlan.projectId, step) : null)}
         </div>)}
         {!planReviewComplete || scopedPlan.status === 'needs_attention' ? <p role="status" className="text-[11px] text-amber-700 dark:text-amber-300">{t('engineeringPlanDetailsMissing')}</p> : null}
         <p className="break-all font-mono text-[10px] text-ds-faint">{scopedPlan.id} · {scopedPlan.contextHash.slice(0, 22)}</p>
@@ -258,7 +265,8 @@ export function EngineeringAiCommandCenter({ workspaceRoot, runtimeReady, projec
         {!planReviewComplete || ['stale', 'needs_attention'].includes(scopedPlan.status) ? <button type="button" data-testid="engineering-replan" onClick={() => void replanStalePlan()} disabled={planBusy || busy || !connected || !engineeringThreadActive} className="inline-flex h-8 items-center gap-2 rounded-md bg-accent px-3 text-[12px] font-medium text-white disabled:opacity-50">{planBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}{planBusy ? t('engineeringReplanning') : t('engineeringReplan')}</button> : null}
       </div> : null}
     </section> : null}
-    {evidenceCards.length && !compact ? <details className="max-h-[20%] shrink-0 overflow-y-auto border-t border-ds-border-muted px-3 py-2 text-[11px]"><summary className="cursor-pointer text-ds-muted"><FileCheck2 className="mr-1 inline h-3.5 w-3.5" />{t('engineeringEvidenceReturn')} ({evidenceCards.length})</summary>{evidenceCards.map((card) => <div key={card.id} className="mt-2 break-words"><p className="font-medium">{surveyLegacyDiagnosticText(card.title, i18n.language)}</p><p className="text-ds-muted">{surveyLegacyDiagnosticText(card.summary, i18n.language)}</p></div>)}</details> : null}
+    {selectedEvidence ? <div className="shrink-0 border-t border-ds-border-muted px-3 py-1 text-[11px]"><span>{t('engineeringEvidenceLocated')}</span>{navigationButton(selectedTarget)}</div> : null}
+    {evidenceCards.length ? <details className="max-h-[20%] shrink-0 overflow-y-auto border-t border-ds-border-muted px-3 py-2 text-[11px]"><summary className="cursor-pointer text-ds-muted"><FileCheck2 className="mr-1 inline h-3.5 w-3.5" />{t('engineeringEvidenceReturn')} ({evidenceCards.length})</summary>{evidenceCards.map((card) => <div key={card.id} className="mt-2 break-words"><p className="font-medium">{surveyLegacyDiagnosticText(card.title, i18n.language)}</p><p className="text-ds-muted">{surveyLegacyDiagnosticText(card.summary, i18n.language)}</p>{navigationButton(navigationContext ? evidenceCardNavigationTarget(navigationContext, card) : null)}</div>)}</details> : null}
     <div className="flex shrink-0 justify-center px-3 pb-3 pt-2"><EngineeringComposer workspaceRoot={workspaceRoot} projectId={projectId} ready={connected} threadId={timelineThreadId} unavailableReason={connectionMessage} onSurveyFiles={onSurveyFiles} /></div>
   </section>
 }

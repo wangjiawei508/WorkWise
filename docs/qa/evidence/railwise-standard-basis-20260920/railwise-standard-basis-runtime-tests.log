@@ -3,7 +3,7 @@
 > vitest run --maxWorkers=4
 
 
- RUN  v4.1.8 /Users/wangjiawei/Documents/WorkWise/kun
+ RUN  v4.1.8 <repo>/kun
 
 
  Test Files  179 passed | 2 skipped (181)

@@ -177,7 +177,7 @@ const LABELS: Record<AppSettingsV1['locale'], MenuLabels> = {
     help: {
       title: 'Help',
       center: 'Help Center',
-      productHome: 'WorkWise Homepage',
+      productHome: `${brand.platform} Homepage`,
       authorHome: 'Personal Homepage',
       productIntro: 'Software Introduction',
       github: 'GitHub Project',

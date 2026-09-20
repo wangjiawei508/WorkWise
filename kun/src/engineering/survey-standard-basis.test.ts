@@ -20,7 +20,7 @@ describe('immutable, limited standard basis catalog', () => {
   it('resolves every exact binding without claiming trust or professional acceptance', () => {
     const catalog = SurveyStandardBasisCatalogV1.parse(getSurveyStandardBasisCatalog())
     expect(catalog.rules).toHaveLength(9)
-    expect(catalog.catalogDigest).toBe('8f778390d04d4a7ac358490eee6c13a0068f351ccda8ea644d4fa0ac9d44a271')
+    expect(catalog.catalogDigest).toBe('e2d2c20ff904155d66303bd5dce09f6c54ee89cd770aa415d576695a3b88a43c')
     expect(references()).toHaveLength(16)
     expect(catalog.catalogDigest).toBe(digest(JSON.stringify(catalog.rules.map(entry => entry.ruleDigest))))
     for (const reference of references()) {
@@ -44,20 +44,38 @@ describe('immutable, limited standard basis catalog', () => {
   ])('rejects unsupported or conflicting identity %j', (change, reason) => {
     expect(() => resolveSurveyStandardBasis({ ...references()[0], ...change })).toThrow(reason)
   })
-  it('preserves exact source evidence files, scanned page offsets and reviewed profile tables', () => {
+  it('preserves source evidence and independently observed rule and table pages', () => {
     const catalog = getSurveyStandardBasisCatalog()
+    const review = JSON.parse(readFileSync(fileURLToPath(new URL('../../../docs/qa/evidence/railwise-standard-basis-20260920/page-review.json', import.meta.url)), 'utf8')) as {
+      sourceSha256: string
+      pages: Array<{ pdf: number; printed: number; observed: string; imageSha256: string }>
+      rulePdfPages: Record<string, number[][]>
+      profileLocators: Record<string, Array<{ kind: string; clauses: string[]; tables: number[]; printedPages: number[]; pdfPages: number[] }>>
+    }
     for (const evidence of catalog.rules[0]!.rule.source.evidenceDocuments) {
       const path = fileURLToPath(new URL(`../../../${evidence.path}`, import.meta.url))
       expect(digest(readFileSync(path))).toBe(evidence.sha256)
     }
     for (const { rule } of catalog.rules) {
       expect(rule.source.officialUrl).toContain('/P020230829590929227708.pdf')
+      expect(rule.source.sha256).toBe(review.sourceSha256)
+      expect(rule.locators.map(locator => locator.pdfPages)).toEqual(review.rulePdfPages[rule.ruleId.replace('gbt24356-2023.', '')])
       for (const locator of [...rule.locators, ...rule.profiles.flatMap(profile => profile.locators)]) {
-        expect(locator.pdfPages).toEqual(locator.printedPages.map(page => page + 3))
+        locator.pdfPages.forEach((pdf, index) => {
+          const observed = review.pages.find(page => page.pdf === pdf)!
+          expect(observed.printed).toBe(locator.printedPages[index])
+          expect(observed.imageSha256).toMatch(/^[a-f0-9]{64}$/)
+          expect(observed.observed).toBeTruthy()
+        })
         expect(locator.description.zh).toBeTruthy(); expect(locator.description.en).toBeTruthy()
       }
       if (rule.executor.family === 'declared-scoring') {
-        expect(rule.profiles.map(profile => profile.locators[0]!.tables)).toEqual([[43, 44], [45, 46]])
+        for (const profile of rule.profiles) {
+          expect(profile.locators.map(({ description: _description, ...location }) => location))
+            .toEqual(review.profileLocators[profile.profileId]!.map(({ kind: _kind, ...location }) => location))
+        }
+        expect(rule.profiles.map(profile => profile.locators[0]!.tables)).toEqual([[43], [45]])
+        expect(rule.profiles.map(profile => profile.locators[0]!.pdfPages)).toEqual([[61], [64]])
         expect(rule.profiles.map(profile => profile.profileVersion)).toEqual([QUALITY_PROFILE_VERSION, QUALITY_PROFILE_VERSION])
       }
     }

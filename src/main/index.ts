@@ -719,8 +719,8 @@ async function showTurnCompleteNotification(
     return { ok: true, shown: false, reason: 'unsupported' }
   }
 
-  const title = normalizeNotificationText(payload.title, 'WorkWise Runtime', 80)
-  const body = normalizeNotificationText(payload.body, 'Conversation complete.', 180)
+  const title = normalizeNotificationText(payload.title, `${brand.platform} Runtime`, 80)
+  const body = normalizeNotificationText(payload.body, settings.locale === 'zh' ? '会话已完成。' : 'Conversation complete.', 180)
 
   try {
     const notification = new Notification({
@@ -936,7 +936,9 @@ async function ensureManagedRuntime(settings: AppSettingsV1): Promise<void> {
   if (!runtime.autoStart) {
     throw runtimeJsonError(
       'runtime_offline',
-      'WorkWise Runtime is offline. Enable automatic startup in Settings, or start the bundled runtime manually.'
+      settings.locale === 'zh'
+        ? `${brand.platform} Runtime 未连接。请在设置中启用自动启动，或手动启动内置 Runtime。`
+        : `${brand.platform} Runtime is offline. Enable automatic startup in Settings, or start the bundled runtime manually.`
     )
   }
 

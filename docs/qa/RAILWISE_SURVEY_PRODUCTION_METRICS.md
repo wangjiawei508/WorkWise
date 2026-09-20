@@ -1,6 +1,6 @@
 # Survey 生产指标口径
 
-更新于 2026-09-20。本次新增导入请求的持久事件和只读统计；旧的 `281dc87672509de147357efc3aabbeae0eb4dbcb` 及其他候选证据保持历史口径，不追溯补造事件、不把候选验收换算成生产 KPI。
+更新于 2026-09-20。本次新增复验生命周期的持久事件和开始队列只读统计，保留既有导入审计及终态复验统计；旧的 `281dc87672509de147357efc3aabbeae0eb4dbcb` 及其他候选证据保持历史口径，不追溯补造事件、不把候选验收换算成生产 KPI。
 
 ## 数据与事件来源
 
@@ -15,8 +15,9 @@
 | 平差完成 | `survey_adjustments.data_json.run.completedAt`，`run.status=completed`、`result.validation=valid` | 当前保存的运行与结果；需要网络/项目/输入hash/算法版本绑定。不是人工复核。 |
 | 草稿清单创建 | `engineering_manifests.data_json.createdAt`、`reviewStatus=draft` | 已保存草稿，非签认固化；清单包含成果引用不证明当前字节完好。 |
 | 复验终态 | `engineering_verification_attempts` | `EngineeringService.verifyDeliverable` 在成功、检查失败或捕获异常后保存的终态；序列、身份、时间、原JSON SHA-256及元数据绑定可核对。进程崩溃或审计写入失败没有此事件，不能进入已记录分母。 |
+| 复验生命周期 | `engineering_verification_events` | 复验前独立事务提交 started；finished 与原终态同事务提交，并绑定终态 ID、精确 JSON 摘要和 started 摘要。started 之后中断会保留未完成事件；旧终态不补造 started。 |
 
-指标时间统一为 UTC 半开区间 `[start, end)`；输入时间必须带时区。清单按 `createdAt` 入期，复验尝试按 `completedAt` 入期，导入请求按 started 入期并读取 end 前终态。`--cohort candidate-fixture` 与 `production` 必须分开；`production` 参数只是调用者标签，不认证数据来源，也不会自动过滤候选记录。
+指标时间统一为 UTC 半开区间 `[start, end)`；输入时间必须带时区。清单按 `createdAt` 入期，旧复验尝试统计按 `completedAt` 入期，导入请求及新增复验生命周期按 started 入期并只读取 end 前终态。`--cohort candidate-fixture` 与 `production` 必须分开；`production` 参数只是调用者标签，不认证数据来源，也不会自动过滤候选记录。
 
 ## 现有可计算统计
 
@@ -28,6 +29,7 @@
 | `importToFirstBoundDraftSeconds` | 保留历史中每项目最早合格草稿恰好在期内的项目；每项目一次 | 每份首草稿时间减去它所绑定网络的最早创建时间，取中位数，单位秒，同时报sampleSize与range；包括等待和人工操作 | 先读期前历史，防止重复交付误算首次。空样本为`value:null/status:no-samples`；删除过的历史不可探测。不是“首次有效正式成果”或操作净耗时。 |
 | `recordedStrictReverificationCoverage` | 创建时间入期且当前`reviewStatus=draft`的全部清单，以`(projectId,manifestId)`为唯一键；不只选曾成功或已有正确绑定的清单 | 分子为每个清单截止end前最后一条终态复验通过、完整检查通过且与本次快照元数据仍绑定的数量 | 缺事件或最后失败均不给分；后续失败覆盖旧成功。分母身份缺失/重复则不可测。无清单为no-samples。 |
 | `recordedVerificationAttemptSuccessRate` | `completedAt`入期的所有已记录终态尝试，包括passed/failed/error、未知清单查找错误和对期前清单的复验 | 分子是终态passed且仍通过当前快照元数据绑定检查的尝试数；同清单多次尝试各自计数 | 当前绑定失效的旧passed保留在分母但不进分子；`outcomes.passed`可能大于分子。无事件为no-samples。崩溃/未写入审计不在分母。 |
+| `recordedVerificationLifecycle` | started 入期的全部已记录复验调用，不按清单去重 | `counts` 区分期末已完成/未完成；`outcomesByPeriodEnd` 分列 passed/failed/error；`recordedTerminalPassRate` 为 end 前 recorded passed / 入期 started | 期末未完成保留在分母；end 时刻及之后的完成不提前计分。只表示历史终态，不重新校验当前绑定或文件，不能替代旧严格复验指标。 |
 | `recordedImportAttempts.counts` | started 入期的全部已记录调用 | 成功、拒绝、未完成、已提交、重放、身份无法识别、非文件请求分层计数 | 终态在 end 之后视为期末未完成。未完成不是拒绝；重放是独立调用，但不增加首次键分母。 |
 | `recordedImportAttempts.firstObservedFileRequestCompletionRate` | 保留历史每个项目/幂等键的最早 started，恰好入期、文件模式且不是首次见到的历史重放 | 分子为 end 前请求成功返回的首次调用，分母保留拒绝和未完成；后来的成功不能覆盖首次失败 | 这是可识别文件键子集的首次已记录请求完成率，不是全部首次任务成功率，也不是平差可用率。 |
 
@@ -54,6 +56,18 @@ HTTP 拒绝仅在现有 Runtime 鉴权之后记录：无效 JSON/超限/流读�
 成功终态表示 `SurveyService.importNetwork` 完成，不代表其后 HTTP 响应附加读取、序列化、网络送达或界面渲染已完成。此边界写入统计输出，不能把该指标描述为端到端外业操作成功率。
 
 `successfulRequestSourceDispositions` 单列 `adjustment-ready`、`archive-only`、`converter-required`、`gnss-processing-required` 和 `legacy-unverified`。未知格式归档可以是请求完成，但不能算平差准入通过；即使 `adjustment-ready` 也只是提交时文件处置，不证明当前原始字节、整个网络校核或平差结果有效。
+
+### 复验生命周期
+
+`EngineeringService.verifyDeliverable` 先通过 [`engineering-verification-audit.ts`](../../kun/src/engineering/engineering-verification-audit.ts) 独立提交 started，再执行原有读取、复算和终态写入事务。开始事件只保存随机尝试 ID、项目/清单 ID、时间和摘要，不增加工程名、原文、坐标、路径或任意异常文本。原终态表的字段、结果、异常口径和既有记录保留；被检查对象、输出字节及审查状态不改变。
+
+finished 的 `terminalId` 必须等于本次 attempt ID，`terminalRecordHash` 必须等于原终态精确 JSON 的 SHA-256；开始时间、完成时间、项目、清单、结果状态逐项匹配。finished 与原终态在同一事务内写入，任一写入失败均回滚两者，已独立提交的 started 保留。开始审计写入失败时不执行复验，没有持久开始事件，不能从该库恢复分母。已开始后崩溃、事务失败或时钟回退会保留未完成，统计不把它改写为 failed，也不在重启时补造终态。
+
+新表通过触发器禁止 update/delete/replace。只读脚本验证全表身份、字段集合、JSON 摘要、前序摘要、阶段顺序、带时区时间和终态原子绑定；任一损坏使新增生命周期统计不可测。校验可扫描期外行以发现完整性问题，但统计分子和分母严格按窗口，不把期末之后的成功提前计入。该本地摘要链不构成外部签名或生产来源证明。
+
+`counts.legacyTerminalOnlyCompletedInPeriod` 单列没有 started 的历史终态，按完成时间入期，不进入新增开始队列分母；旧终态统计继续包含这些历史记录。不存在生命周期表为 `not-measurable`；存在表但没有入期 started 为 `no-samples`、比例为 null，即使有历史终态也不填 100%。已有开始却缺结束的调用仍计入分母；出现同 ID 原终态但缺 finished 是原子绑定损坏，不能当作正常中断。
+
+`recordedTerminalPassRate` 不作当前文件或元数据有效性声明：后续文件变化不重写历史终态。当前快照绑定仍由原 `recordedVerificationAttemptSuccessRate` / `recordedStrictReverificationCoverage` 按原口径核对；两类比例的入期时间、分母和语义不同，不应相互替换。所有输出仅为汇总，不输出项目/清单 ID；HTTP 收发、界面完成、服务外请求、升级前缺失历史和独立开始落盘前的故障仍不在该分母内。
 
 ### 其他统计
 
@@ -100,6 +114,6 @@ python3 scripts/measure-survey-workflows.py \
   --start '2026-09-01T00:00:00Z' --end '2026-10-01T00:00:00Z'
 ```
 
-导入审计回归为 [`survey-import-audit.test.ts`](../../kun/src/engineering/survey-import-audit.test.ts)：真实服务/SQLite 的契约和源文件保存失败、归档处置、首次失败后重试、跨项目键、同键并发、侧写失败、三个阶段审计写入故障、事务故障、不可变保护、HTTP 拒绝，以及真实事件到 Python CLI 的只读链路。脚本回归 `python3 scripts/test_measure_survey_workflows.py` 共 26 项，包括首次/重试、未完成、跨期、历史重放、未知身份、归档处置与摘要/时序异常。没有采集或重测真实生产数据库。
+导入审计回归为 [`survey-import-audit.test.ts`](../../kun/src/engineering/survey-import-audit.test.ts)：真实服务/SQLite 的契约和源文件保存失败、归档处置、首次失败后重试、跨项目键、同键并发、侧写失败、三个阶段审计写入故障、事务故障、不可变保护、HTTP 拒绝，以及真实事件到 Python CLI 的只读链路。脚本回归 `python3 scripts/test_measure_survey_workflows.py` 共 37 项，包括首次/重试、未完成、跨期、历史重放、未知身份、归档处置与摘要/时序异常，以及新增复验生命周期的开始分母、截止时间、原子绑定和历史兼容。没有采集或重测真实生产数据库。
 
-复验审计既有回归仍在 [`engineering-verification-audit.test.ts`](../../kun/src/engineering/engineering-verification-audit.test.ts)。历史归档的数值与哈希保持其原始提交和窗口，不因新增事件能力而变成新的验收结论。
+复验审计回归在 [`engineering-verification-audit.test.ts`](../../kun/src/engineering/engineering-verification-audit.test.ts)：保留原严格复验、元数据绑定、旧指标和输入输出不变测试；新增 started/finished/原终态写入故障、时钟回退、截止时间、旧表升级、不可变保护和实际子进程 SIGKILL 后开始事件存续。进程终止测试使用独立审计模块和真实 SQLite；它不是安装包 GUI、真实工程生产样本或人员签认。历史归档的数值与哈希保持其原始提交和窗口，不因新增事件能力而变成新的验收结论。

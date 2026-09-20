@@ -3,7 +3,7 @@
 > vitest run --maxWorkers=4
 
 
- RUN  v4.1.7 /Users/wangjiawei/Documents/WorkWise
+ RUN  v4.1.7 <repo>
 
 (node:49079) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.
 (Use `node --trace-warnings ...` to show where the warning was created)

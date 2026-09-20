@@ -7,6 +7,7 @@ import i18n from '../../i18n'
 import { useChatStore } from '../../store/chat-store'
 import { EngineeringAiCommandCenter } from './EngineeringAiCommandCenter'
 import { useEngineeringConversationDrafts } from './engineering-conversation-drafts'
+import type { EngineeringNavigationContext } from './engineering-evidence-navigation'
 
 vi.mock('./EngineeringProjectSuggestions', () => ({ EngineeringProjectSuggestions: () => null }))
 
@@ -84,6 +85,26 @@ afterEach(async () => {
 })
 
 describe('Engineering AI session recovery states', () => {
+  it('offers exact navigation in compact mode without losing the ninth card or changing the conversation', async () => {
+    const sha = 'a'.repeat(64)
+    const navigationContext: EngineeringNavigationContext = { workspaceRoot, project, networks: [{ id: 'net-1', revision: 2, sourceFile: { sha256: sha } }], adjustments: [], datasets: [{ id: 'dataset', revision: 1, sourceFileHash: sha, findings: [] }], analyses: [], manifests: [] }
+    const cards = Array.from({ length: 9 }, (_, index) => ({ id: index === 8 ? 'dataset' : `unbound-${index}`, kind: 'status', title: `Card ${index}`, summary: 'Evidence', sourceHash: sha }))
+    runtimeRequest.mockImplementation(async path => response(200, path.startsWith('/v1/engineering/ai/plans?') ? { plan: refreshedPlan } : { cards }))
+    const onNavigateEvidence = vi.fn()
+    await act(async () => root.render(createElement(EngineeringAiCommandCenter, { workspaceRoot, runtimeReady: true, project, compact: true, dataset: null, analysis: null, onCreateProject: vi.fn(), onImportData: vi.fn(), onSurveyFiles: vi.fn(), onOpenTab: vi.fn(), onRefresh, navigationContext, onNavigateEvidence })))
+    await settle()
+    expect(container.textContent).toContain('Card 8')
+    const links = [...container.querySelectorAll('button')].filter(button => button.textContent === i18n.t('engineeringOpenEvidence'))
+    expect(links.filter(button => !button.disabled)).toHaveLength(2)
+    expect(links.filter(button => button.disabled)).toHaveLength(8)
+    await act(async () => links.find(button => !button.disabled)!.click())
+    expect(onNavigateEvidence).toHaveBeenLastCalledWith(expect.objectContaining({ kind: 'survey', networkId: 'net-1', networkRevision: 2 }))
+    await act(async () => links.at(-1)!.click())
+    expect(onNavigateEvidence).toHaveBeenLastCalledWith(expect.objectContaining({ kind: 'dataset', datasetId: 'dataset' }))
+    expect(selectThread).not.toHaveBeenCalled()
+    expect(runtimeRequest.mock.calls.every(([, method]) => method === undefined || method === 'GET')).toBe(true)
+  })
+
   it('distinguishes unavailable AI conversation from the available Survey service', async () => {
     useChatStore.setState({ runtimeConnection: 'idle' })
     await render()

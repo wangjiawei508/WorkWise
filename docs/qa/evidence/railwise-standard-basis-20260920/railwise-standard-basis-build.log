@@ -33,7 +33,7 @@ transforming...
 ✓ 3195 modules transformed.
 rendering chunks...
 [plugin vite:reporter] 
-(!) /Users/wangjiawei/Documents/WorkWise/src/shared/survey-quality-sampling-workspace.ts is dynamically imported by /Users/wangjiawei/Documents/WorkWise/src/renderer/src/agent/survey-quality-assessment-client.ts but also statically imported by /Users/wangjiawei/Documents/WorkWise/src/renderer/src/agent/survey-quality-sampling-client.ts, dynamic import will not move module into another chunk.
+(!) <repo>/src/shared/survey-quality-sampling-workspace.ts is dynamically imported by <repo>/src/renderer/src/agent/survey-quality-assessment-client.ts but also statically imported by <repo>/src/renderer/src/agent/survey-quality-sampling-client.ts, dynamic import will not move module into another chunk.
 
 ../../out/renderer/index.html                                         0.60 kB
 ../../out/renderer/assets/workwise-QLn00fmy.png                     187.48 kB

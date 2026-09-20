@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { execFileSync } from 'node:child_process'
+import { execFileSync, spawnSync } from 'node:child_process'
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
@@ -8,6 +8,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { EngineeringService, verificationSnapshotHash } from './engineering-service.js'
 import { SurveyService } from './survey-service.js'
 import { importWorkwiseSurveyNetwork } from './survey-test-helpers.js'
+import { ModuleKind, transpileModule } from 'typescript'
 
 const resources: Array<{ root: string; engineering: EngineeringService; survey: SurveyService }> = []
 afterEach(async () => {
@@ -23,7 +24,8 @@ async function fixture() {
   const runtime = join(root, 'runtime')
   let engineering!: EngineeringService
   let snapshotAvailable = true
-  const nowIso = () => '2026-09-20T01:00:00.000Z'
+  let clock = () => '2026-09-20T01:00:00.000Z'
+  const nowIso = () => clock()
   const survey = new SurveyService({ rootDir: runtime, nowIso, getProject: id => engineering.getProject(id) })
   engineering = new EngineeringService({ rootDir: runtime, nowIso, runtimeVersion: 'test-candidate',
     getAdjustments: (pid, ids) => ids.flatMap(id => {
@@ -62,8 +64,14 @@ async function fixture() {
     try { return (db.prepare('SELECT * FROM engineering_verification_attempts ORDER BY sequence').all() as Array<{ sequence: number; data_json: string; record_hash: string }>).map(row => ({ ...row, event: JSON.parse(row.data_json) })) }
     finally { db.close() }
   }
+  const lifecycle = () => {
+    const db = database()
+    try { return (db.prepare('SELECT * FROM engineering_verification_events ORDER BY sequence').all() as Array<{ data_json: string; record_hash: string }>).map(row => ({ ...row, event: JSON.parse(row.data_json) })) }
+    finally { db.close() }
+  }
   const metrics = () => JSON.parse(execFileSync('python3', [resolve('../scripts/measure-survey-workflows.py'), '--engineering-db', join(runtime, 'engineering.sqlite3'), '--survey-db', join(runtime, 'survey.sqlite3'), '--cohort', 'candidate-fixture', '--start', '2026-09-20T00:00:00Z', '--end', '2026-09-21T00:00:00Z'], { encoding: 'utf8' }))
-  return { root, runtime, engineering, survey, project, network, adjustment, manifest, database, events, metrics, disableSnapshot: () => { snapshotAvailable = false } }
+  return { root, runtime, engineering, survey, project, network, adjustment, manifest, database, events, lifecycle, metrics,
+    setClock: (next: () => string) => { clock = next }, disableSnapshot: () => { snapshotAvailable = false } }
 }
 
 describe('strict verification audit and read-only metrics', () => {
@@ -79,6 +87,10 @@ describe('strict verification audit and read-only metrics', () => {
     let result = f.metrics()
     expect(result.recordedStrictReverificationCoverage).toMatchObject({ value: 1, numerator: 1, denominator: 1 })
     expect(result.recordedVerificationAttemptSuccessRate).toMatchObject({ value: 1, numerator: 1, denominator: 1 })
+    expect(result.recordedVerificationLifecycle).toMatchObject({ counts: { startedInPeriod: 1, finishedByPeriodEnd: 1, incompleteAtPeriodEnd: 0 }, recordedTerminalPassRate: { value: 1, numerator: 1, denominator: 1 } })
+    const [start, finish] = f.lifecycle()
+    expect(start!.event).toMatchObject({ attemptId: record.event.id, phase: 'started', previousHash: null })
+    expect(finish!.event).toMatchObject({ attemptId: record.event.id, phase: 'finished', previousHash: start!.record_hash, terminalId: record.event.id, terminalRecordHash: record.record_hash, outcome: 'passed' })
     expect(result.strictReverificationCoverage.value).toBeNull()
     expect(JSON.stringify(result)).not.toContain('PRIVATE')
     expect(JSON.stringify(result)).not.toContain(f.root)
@@ -165,5 +177,94 @@ describe('strict verification audit and read-only metrics', () => {
     expect(hashes).toEqual(values.map(verificationSnapshotHash))
     expect(() => verificationSnapshotHash('\ud800')).toThrow('Unicode')
     expect(() => verificationSnapshotHash(Infinity)).toThrow('non-finite')
+  })
+
+  it.each(['started', 'finished', 'terminal'])('keeps the correct durable denominator when %s persistence fails', async phase => {
+    const f = await fixture()
+    const before = JSON.stringify(f.manifest)
+    const db = f.database()
+    try {
+      const target = phase === 'terminal' ? 'engineering_verification_attempts' : 'engineering_verification_events'
+      const condition = phase === 'terminal' ? '' : `WHEN NEW.phase = '${phase}'`
+      db.exec(`CREATE TRIGGER fail_verification BEFORE INSERT ON ${target} ${condition} BEGIN SELECT RAISE(ABORT, 'injected private failure'); END`)
+      expect(() => f.engineering.verifyDeliverable(f.project.id, f.manifest.id)).toThrow('audit could not be saved')
+      expect(f.events()).toHaveLength(0)
+      expect(f.lifecycle().map(row => row.event.phase)).toEqual(phase === 'started' ? [] : ['started'])
+      expect(f.metrics().recordedVerificationLifecycle).toMatchObject({ counts: { startedInPeriod: phase === 'started' ? 0 : 1, finishedByPeriodEnd: 0, incompleteAtPeriodEnd: phase === 'started' ? 0 : 1 } })
+      db.exec('DROP TRIGGER fail_verification')
+      expect(f.engineering.verifyDeliverable(f.project.id, f.manifest.id).valid).toBe(true)
+      expect(f.events()).toHaveLength(1)
+      expect(f.metrics().recordedVerificationLifecycle.recordedTerminalPassRate).toMatchObject({ numerator: 1, denominator: phase === 'started' ? 1 : 2 })
+      expect(JSON.stringify(f.manifest)).toBe(before)
+    } finally { db.close() }
+  })
+
+  it('does not count a finish at the exclusive cutoff for its started cohort', async () => {
+    const f = await fixture()
+    let calls = 0
+    f.setClock(() => calls++ === 0 ? '2026-09-20T23:59:59.000Z' : '2026-09-21T00:00:00.000Z')
+    expect(f.engineering.verifyDeliverable(f.project.id, f.manifest.id).valid).toBe(true)
+    expect(f.metrics().recordedVerificationLifecycle).toMatchObject({ counts: { startedInPeriod: 1, finishedByPeriodEnd: 0, incompleteAtPeriodEnd: 1 }, recordedTerminalPassRate: { numerator: 0, denominator: 1 } })
+    expect(f.metrics().recordedVerificationAttemptSuccessRate.denominator).toBe(0)
+  })
+
+  it('rolls back terminal evidence on a backwards clock and preserves the start', async () => {
+    const f = await fixture()
+    let calls = 0
+    f.setClock(() => calls++ === 0 ? '2026-09-20T01:00:00.000Z' : '2026-09-20T00:59:59.000Z')
+    expect(() => f.engineering.verifyDeliverable(f.project.id, f.manifest.id)).toThrow('audit could not be saved')
+    expect(f.events()).toHaveLength(0)
+    expect(f.lifecycle().map(row => row.event.phase)).toEqual(['started'])
+  })
+
+  it('preserves legacy terminal bytes and metrics when opening a database without lifecycle history', async () => {
+    const f = await fixture()
+    f.engineering.verifyDeliverable(f.project.id, f.manifest.id)
+    const original = f.events()
+    const before = f.metrics()
+    const db = f.database()
+    try { db.exec('DROP TABLE engineering_verification_events') } finally { db.close() }
+    const upgraded = new EngineeringService({ rootDir: f.runtime })
+    upgraded.close()
+    expect(f.events()).toEqual(original)
+    expect(f.lifecycle()).toEqual([])
+    const after = f.metrics()
+    expect(after.recordedVerificationAttemptSuccessRate).toEqual(before.recordedVerificationAttemptSuccessRate)
+    expect(after.recordedStrictReverificationCoverage).toEqual(before.recordedStrictReverificationCoverage)
+    expect(after.recordedVerificationLifecycle).toMatchObject({ status: 'no-samples', counts: { startedInPeriod: 0, legacyTerminalOnlyCompletedInPeriod: 1 } })
+  })
+
+  it('protects lifecycle rows from update, delete and both replace forms', async () => {
+    const f = await fixture()
+    f.engineering.verifyDeliverable(f.project.id, f.manifest.id)
+    const db = f.database()
+    try {
+      expect(() => db.exec("UPDATE engineering_verification_events SET phase='finished'")).toThrow('append-only')
+      expect(() => db.exec('DELETE FROM engineering_verification_events')).toThrow('append-only')
+      expect(() => db.exec('INSERT OR REPLACE INTO engineering_verification_events SELECT * FROM engineering_verification_events LIMIT 1')).toThrow('append-only')
+      const row = db.prepare('SELECT * FROM engineering_verification_events LIMIT 1').get() as Record<string, unknown>
+      expect(() => db.prepare('INSERT OR REPLACE INTO engineering_verification_events(sequence,attempt_id,phase,occurred_at,record_hash,data_json) VALUES (?,?,?,?,?,?)')
+        .run(row.sequence, 'different-attempt', row.phase, row.occurred_at, row.record_hash, row.data_json)).toThrow('append-only')
+    } finally { db.close() }
+  })
+
+  it('retains a committed start after an actual process termination', async () => {
+    const f = await fixture()
+    const auditPath = join(f.root, 'compiled-audit.mjs')
+    const source = await readFile(resolve('src/engineering/engineering-verification-audit.ts'), 'utf8')
+    await writeFile(auditPath, transpileModule(source, { compilerOptions: { module: ModuleKind.ESNext, target: 9 } }).outputText)
+    const child = await writeFile(join(f.root, 'crash.mjs'), `
+      import { createRequire } from 'node:module';
+      import { EngineeringVerificationAudit } from './compiled-audit.mjs';
+      const Database = createRequire(${JSON.stringify(resolve('package.json'))})('better-sqlite3');
+      const db = new Database(${JSON.stringify(join(f.runtime, 'engineering.sqlite3'))});
+      const audit = new EngineeringVerificationAudit(db, () => '2026-09-20T01:00:00.000Z');
+      audit.begin('synthetic-project', 'synthetic-manifest');
+      process.kill(process.pid, 'SIGKILL');
+    `).then(() => spawnSync(process.execPath, [join(f.root, 'crash.mjs')], { encoding: 'utf8', timeout: 10000 }))
+    expect(child.signal, child.stderr).toBe('SIGKILL')
+    expect(f.events()).toHaveLength(0)
+    expect(f.lifecycle().map(row => row.event.phase)).toEqual(['started'])
+    expect(f.metrics().recordedVerificationLifecycle).toMatchObject({ counts: { startedInPeriod: 1, incompleteAtPeriodEnd: 1 }, recordedTerminalPassRate: { numerator: 0, denominator: 1 } })
   })
 })

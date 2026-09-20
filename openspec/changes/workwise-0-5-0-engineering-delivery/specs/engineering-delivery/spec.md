@@ -442,3 +442,77 @@ The system SHALL expose a bounded read-only reference catalog for implemented GB
 - **WHEN** the source hash, version, execution algorithm or applicable profile does not match, or the clause is not covered
 - **THEN** the system explicitly refuses the reference
 - **AND** it does not select the latest rule or infer professional approval
+
+### Requirement: Scoped asynchronous workspace state
+The engineering workspace MUST bind displayed overview data to its selected project and workspace. Project-scoped overview and Survey-summary reads MUST be invalidated on project changes; pending project-list and project-scoped reads MUST also be invalidated on workspace or Runtime scope changes and unmount. Late mutation successes, failures, follow-up requests and cleanup MUST NOT change a newer scope's project, form, selection, outputs or busy state. Already loaded draft evidence MAY remain readable while Runtime is disconnected, with mutations disabled.
+
+#### Scenario: An older read finishes after a newer read
+- **WHEN** an earlier request succeeds or fails after a newer request for the same scope has completed
+- **THEN** the earlier response does not overwrite or clear the newer overview or summary
+
+#### Scenario: A save or preview finishes after selecting another project
+- **WHEN** a request started in project A returns after the user selected project B
+- **THEN** project B retains its own overview, form and output files without old errors or cleanup changing its state
+- **AND** a successful save in the current scope invalidates older overview reads that could restore pre-save metadata
+
+#### Scenario: Project creation completes in a previous workspace
+- **WHEN** a create request returns after a workspace or Runtime scope change
+- **THEN** it does not insert, select or display that project in the new scope
+- **AND** the desktop does not claim to have rolled back the already accepted server operation
+
+#### Scenario: An older project list finishes after project creation
+- **WHEN** a project-list read started before a successful creation returns without the newly created project
+- **THEN** its stale response cannot remove the created project or replace its selected overview
+
+### Requirement: Readiness-specific adjustment and recovery actions
+The interface MUST show an adjustment action only for a source with current positive admission and a validated network, with existing Runtime and busy guards retained. A missing-data question MUST retain the selected source and network evidence, preserve existing question text and require the ordinary user send action.
+
+#### Scenario: A preserved source requires conversion
+- **WHEN** source admission is absent or rejected, including archive-only or converter-required sources
+- **THEN** the interface exposes the blocker and recovery information without an adjustment button
+- **AND** preparing a missing-data question does not send a message, perform an import or execute an adjustment
+
+### Requirement: Exact one-shot professional evidence navigation
+Navigation from AI plans, evidence cards and explicitly selected Survey evidence MUST use supported structured identifiers and verified project-scoped bindings. It MUST NOT infer a target from a title, summary, unresolved predecessor output or the latest available run. Project, workspace, revision, source digest and applicable record identities MUST be checked. Navigation MUST preserve the mounted conversation and existing question, focus the exact supported target, and perform no Runtime mutation.
+
+#### Scenario: A plan has an unresolved predecessor result
+- **WHEN** the target's plan parameters still depend on an unexposed predecessor binding or omit the required run identity
+- **THEN** the navigation action is unavailable with a localized reason
+- **AND** the renderer does not substitute the current or latest run
+
+#### Scenario: A Survey network changes outside an already mounted panel
+- **WHEN** a user requests navigation and the fresh project-scoped read differs from the selected network revision or source digest
+- **THEN** the panel refuses the target without labelling another network or record as the located evidence
+
+#### Scenario: A selected record lies beyond the summary limit
+- **WHEN** an exact selected anchor or diagnostic is outside the first twenty displayed summary entries
+- **THEN** the panel resolves the full matching source record or diagnostic and focuses it
+- **AND** a missing, duplicate or inconsistent identity produces an explicit unavailable result
+
+#### Scenario: Manual navigation follows successful evidence location
+- **WHEN** the user locates network A and then manually selects network B
+- **THEN** later refresh, busy-state or language changes do not replay the old target and return to A
+- **AND** a new explicit navigation click may locate A again without remounting the conversation
+
+### Requirement: Durable verification lifecycle denominators
+Deliverable verification MUST independently commit a start event before entering its existing verification transaction. Its finished receipt MUST commit atomically with the original terminal audit record and bind the exact attempt/project/manifest identity, start/end timestamps, outcome and terminal JSON digest. Existing terminal records and review status MUST remain unchanged. Recorded lifecycle aggregation MUST retain interrupted starts and MUST NOT backfill historical starts or claim production completeness.
+
+#### Scenario: The process exits after a durable start
+- **WHEN** verification is interrupted after the independent start commits but before atomic finish
+- **THEN** the start remains as an incomplete attempt without a fabricated terminal outcome
+- **AND** it remains in the started-cohort denominator at the reporting cutoff
+
+#### Scenario: Terminal or finished audit persistence fails
+- **WHEN** either member of the terminal-and-finished transaction cannot be written or their identities disagree
+- **THEN** neither member is committed, the independent start survives, and no recorded success is returned
+- **AND** failure to commit the initial start prevents verification and is not claimed to be recoverable from that database
+
+#### Scenario: Verification completes after the reporting window
+- **WHEN** a start lies in the UTC half-open period but its completion is at or after the end
+- **THEN** the attempt remains incomplete in that period's counts and denominator
+- **AND** the later success is not credited before its cutoff
+
+#### Scenario: Only historical terminal records are available
+- **WHEN** old terminal records have no corresponding durable start
+- **THEN** they remain readable and are counted separately without fabricated lifecycle events
+- **AND** missing lifecycle tables, empty start cohorts and corrupt lifecycle bindings respectively produce not-measurable, no-samples with null rates, and an unavailable lifecycle statistic

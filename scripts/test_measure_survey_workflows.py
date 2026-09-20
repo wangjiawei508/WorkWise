@@ -298,4 +298,128 @@ class ImportMetricsTests(unittest.TestCase):
         self.assertEqual(self.result()['status'], 'not-measurable')
 
 
+class VerificationLifecycleTests(unittest.TestCase):
+    def setUp(self):
+        self.db = sqlite3.connect(':memory:')
+        self.db.execute('CREATE TABLE engineering_verification_events (sequence INTEGER PRIMARY KEY AUTOINCREMENT, attempt_id TEXT, phase TEXT, occurred_at TEXT, record_hash TEXT, data_json TEXT)')
+        self.db.execute('CREATE TABLE engineering_verification_attempts (sequence INTEGER PRIMARY KEY AUTOINCREMENT, id TEXT, project_id TEXT, manifest_id TEXT, started_at TEXT, completed_at TEXT, outcome TEXT, record_hash TEXT, data_json TEXT)')
+        self.starts = {}
+
+    def tearDown(self):
+        self.db.close()
+
+    def result(self, start='2026-09-19T00:00:00Z', end='2026-09-20T00:00:00Z'):
+        return metrics.recorded_verification_lifecycle(self.db, metrics.instant(start), metrics.instant(end))
+
+    def event(self, identity, phase, time, previous=None, **fields):
+        event = {'schemaVersion': 1, 'attemptId': identity, 'phase': phase, 'occurredAt': time, 'previousHash': previous, **fields}
+        text = json.dumps(event)
+        digest = metrics.hashlib.sha256(text.encode()).hexdigest()
+        self.db.execute('INSERT INTO engineering_verification_events(attempt_id,phase,occurred_at,record_hash,data_json) VALUES (?,?,?,?,?)', (identity, phase, time, digest, text))
+        return digest
+
+    def begin(self, identity, time='2026-09-19T01:00:00Z'):
+        digest = self.event(identity, 'started', time, projectId='PRIVATE-project', manifestId='PRIVATE-manifest')
+        self.starts[identity] = (time, digest)
+
+    def terminal(self, identity, outcome='passed', ended='2026-09-19T01:00:01Z', **updates):
+        event = {'schemaVersion': 1, 'id': identity, 'projectId': 'PRIVATE-project', 'manifestId': 'PRIVATE-manifest',
+                 'startedAt': self.starts.get(identity, ('2026-09-19T01:00:00Z',))[0], 'completedAt': ended, 'outcome': outcome, **updates}
+        text = json.dumps(event)
+        digest = metrics.hashlib.sha256(text.encode()).hexdigest()
+        self.db.execute('INSERT INTO engineering_verification_attempts(id,project_id,manifest_id,started_at,completed_at,outcome,record_hash,data_json) VALUES (?,?,?,?,?,?,?,?)',
+                        tuple(event[k] for k in ('id', 'projectId', 'manifestId', 'startedAt', 'completedAt', 'outcome')) + (digest, text))
+        return digest
+
+    def finish(self, identity, outcome='passed', ended='2026-09-19T01:00:01Z', **terminal_updates):
+        digest = self.terminal(identity, outcome, ended, **terminal_updates)
+        self.event(identity, 'finished', ended, self.starts[identity][1], terminalId=identity, terminalRecordHash=digest, outcome=outcome)
+
+    def test_pass_failure_error_and_incomplete_share_started_denominator(self):
+        for identity, outcome in [('a', 'passed'), ('b', 'failed'), ('c', 'error')]:
+            self.begin(identity); self.finish(identity, outcome)
+        self.begin('interrupted')
+        result = self.result()
+        self.assertEqual(result['counts'], {'startedInPeriod': 4, 'finishedByPeriodEnd': 3, 'incompleteAtPeriodEnd': 1, 'legacyTerminalOnlyCompletedInPeriod': 0})
+        self.assertEqual(result['outcomesByPeriodEnd'], {'passed': 1, 'failed': 1, 'error': 1})
+        self.assertEqual(result['recordedTerminalPassRate']['value'], .25)
+        self.assertNotIn('PRIVATE', json.dumps(result))
+
+    def test_end_cutoff_and_prior_starts_do_not_cross_cohort(self):
+        self.begin('prior', '2026-09-18T23:59:59Z'); self.finish('prior')
+        self.begin('cutoff', '2026-09-19T23:59:59Z'); self.finish('cutoff', ended='2026-09-20T08:00:00+08:00')
+        self.begin('next', '2026-09-20T00:00:00Z')
+        result = self.result()
+        self.assertEqual(result['counts']['startedInPeriod'], 1)
+        self.assertEqual(result['counts']['finishedByPeriodEnd'], 0)
+        self.assertEqual(result['counts']['incompleteAtPeriodEnd'], 1)
+        self.assertEqual(result['recordedTerminalPassRate']['numerator'], 0)
+        next_period = self.result('2026-09-20T00:00:00Z', '2026-09-21T00:00:00Z')
+        self.assertEqual(next_period['counts']['startedInPeriod'], 1)
+        self.assertEqual(next_period['counts']['finishedByPeriodEnd'], 0)
+
+    def test_exact_start_and_zero_duration_are_included(self):
+        self.begin('one', '2026-09-19T00:00:00Z'); self.finish('one', ended='2026-09-19T00:00:00Z')
+        self.assertEqual(self.result()['recordedTerminalPassRate']['value'], 1)
+
+    def test_legacy_terminal_is_counted_separately_without_backfill(self):
+        self.terminal('legacy')
+        result = self.result()
+        self.assertEqual(result['status'], 'no-samples')
+        self.assertIsNone(result['recordedTerminalPassRate']['value'])
+        self.assertEqual(result['counts']['legacyTerminalOnlyCompletedInPeriod'], 1)
+        self.assertEqual(result['counts']['startedInPeriod'], 0)
+
+    def test_missing_lifecycle_and_empty_lifecycle_are_distinct(self):
+        self.assertEqual(self.result()['status'], 'no-samples')
+        self.db.execute('DROP TABLE engineering_verification_events')
+        self.assertEqual(self.result()['status'], 'not-measurable')
+
+    def test_terminal_without_atomic_finish_fails_closed(self):
+        self.begin('one'); self.terminal('one')
+        self.assertEqual(self.result()['status'], 'not-measurable')
+
+    def test_finished_without_terminal_fails_closed(self):
+        self.begin('one'); self.finish('one')
+        self.db.execute('DELETE FROM engineering_verification_attempts')
+        self.assertEqual(self.result()['status'], 'not-measurable')
+
+    def test_cross_project_terminal_binding_is_rejected(self):
+        self.begin('one'); self.finish('one', projectId='other')
+        self.assertEqual(self.result()['status'], 'not-measurable')
+
+    def test_lifecycle_and_terminal_digest_corruption_fail_closed(self):
+        self.begin('one'); self.finish('one')
+        for table in ['engineering_verification_events', 'engineering_verification_attempts']:
+            with self.subTest(table=table):
+                self.db.execute('SAVEPOINT corrupt')
+                self.db.execute('UPDATE ' + table + " SET record_hash='invalid'")
+                self.assertEqual(self.result()['status'], 'not-measurable')
+                self.db.execute('ROLLBACK TO corrupt'); self.db.execute('RELEASE corrupt')
+
+    def test_duplicate_and_extra_field_and_chain_corruption_fail_closed(self):
+        self.begin('one'); self.finish('one')
+        for mutation in ['duplicate', 'extra', 'chain']:
+            with self.subTest(mutation=mutation):
+                self.db.execute('SAVEPOINT corrupt')
+                if mutation == 'duplicate':
+                    self.begin('one')
+                else:
+                    event = json.loads(self.db.execute("SELECT data_json FROM engineering_verification_events WHERE phase='finished'").fetchone()[0])
+                    event['unexpected' if mutation == 'extra' else 'previousHash'] = 'wrong'
+                    text = json.dumps(event); digest = metrics.hashlib.sha256(text.encode()).hexdigest()
+                    self.db.execute("UPDATE engineering_verification_events SET data_json=?,record_hash=? WHERE phase='finished'", (text, digest))
+                self.assertEqual(self.result()['status'], 'not-measurable')
+                self.db.execute('ROLLBACK TO corrupt'); self.db.execute('RELEASE corrupt')
+
+    def test_naive_and_backwards_time_are_rejected(self):
+        self.begin('one')
+        for time in ['2026-09-19T00:59:59Z', '2026-09-19T01:00:01']:
+            with self.subTest(time=time):
+                self.db.execute('SAVEPOINT corrupt')
+                self.finish('one', ended=time)
+                self.assertEqual(self.result()['status'], 'not-measurable')
+                self.db.execute('ROLLBACK TO corrupt'); self.db.execute('RELEASE corrupt')
+
+
 if __name__=='__main__':unittest.main()

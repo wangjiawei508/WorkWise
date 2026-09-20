@@ -8,6 +8,7 @@ import { atomicWriteFile, drainAtomicWrites } from '../adapters/file/atomic-writ
 import type { AttachmentStore } from '../attachments/attachment-store.js'
 import type { SurveySourceEligibility } from './survey-service.js'
 import { makeReportPdf } from './engineering-report-pdf.js'
+import { EngineeringVerificationAudit, EngineeringVerificationAuditError } from './engineering-verification-audit.js'
 import {
   AnalysisRequest, ChartArtifactV1, ChartRequest, DatasetImportRequest, DatasetValidateRequest,
   DeliverableManifestV1, DeliverableVerificationV1, EngineeringProjectCreateRequest, EngineeringProjectUpdateRequest, AcceptQualityFindingRequest, FieldMappingV1, FinalizeDeliverableRequest,
@@ -216,6 +217,7 @@ function analysisInputHash(project: RailwiseProjectV1, dataset: Pick<StoredDatas
 
 export class EngineeringService {
   private readonly db: Database.Database
+  private readonly verificationAudit: EngineeringVerificationAudit
   private readonly nowIso: () => string
   private readonly idempotencyLocks = new Map<string, Promise<void>>()
   private readonly pendingMetadataWrites = new Set<Promise<void>>()
@@ -251,6 +253,7 @@ export class EngineeringService {
         result_json TEXT NOT NULL,
         created_at TEXT NOT NULL
       );`)
+    this.verificationAudit = new EngineeringVerificationAudit(this.db, this.nowIso)
   }
   close(): void { this.db.close() }
 
@@ -566,14 +569,14 @@ export class EngineeringService {
     })
   }
 
-  /** Re-read bytes and recompute evidence. The checked objects are unchanged;
-   * only a separate terminal audit event is appended. A process crash before
-   * that insert is not a recorded attempt and cannot enter metric denominators. */
+  /** Re-read bytes and recompute evidence without changing checked objects.
+   * A durable start survives interruption; terminal and finish commit together. */
   verifyDeliverable(projectId: string, manifestId: string): DeliverableVerificationV1 {
+    const attempt = this.verificationAudit.begin(projectId, manifestId)
     let failure: unknown
     let result: DeliverableVerificationV1 | undefined
     this.db.transaction(() => {
-      const startedAt = this.nowIso()
+      const startedAt = attempt.startedAt
       const before = this.verificationBindings(projectId, manifestId)
       try { result = this.checkDeliverable(projectId, manifestId) }
       catch (error) { failure = error }
@@ -582,7 +585,7 @@ export class EngineeringService {
       const completedAt = this.nowIso()
       const timeValid = Number.isFinite(Date.parse(startedAt)) && Number.isFinite(Date.parse(completedAt)) && Date.parse(completedAt) >= Date.parse(startedAt)
       const event = {
-        schemaVersion: 1, id: `verification_${randomUUID()}`, projectId, manifestId,
+        schemaVersion: 1, id: attempt.id, projectId, manifestId,
         startedAt, completedAt, runtimeVersion: this.options.runtimeVersion ?? 'unknown',
         outcome: failure ? 'error' : result?.valid ? 'passed' : 'failed',
         bindingStable: bindingStable && timeValid, bindings: before,
@@ -590,11 +593,13 @@ export class EngineeringService {
         error: failure ? (failure instanceof Error ? failure.message : String(failure)) : null
       }
       const serialized = JSON.stringify(event)
+      const terminalHash = createHash('sha256').update(serialized).digest('hex')
       try {
         this.db.prepare('INSERT INTO engineering_verification_attempts (id, project_id, manifest_id, started_at, completed_at, outcome, record_hash, data_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
-          .run(event.id, projectId, manifestId, startedAt, completedAt, event.outcome, createHash('sha256').update(serialized).digest('hex'), serialized)
+          .run(event.id, projectId, manifestId, startedAt, completedAt, event.outcome, terminalHash, serialized)
+        this.verificationAudit.finish(attempt, completedAt, terminalHash)
       } catch {
-        throw new Error('deliverable verification audit could not be saved; no persisted verification evidence is available for this attempt')
+        throw new EngineeringVerificationAuditError()
       }
     }).immediate()
     if (failure) throw failure
