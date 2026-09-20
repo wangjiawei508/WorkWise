@@ -141,7 +141,7 @@ e1708d7 基线验证：Runtime 全量 1680 通过 / 3 跳过；桌面全量 2534
 
 双真实样本的数值参考比较可作为复现性证据，不能直接外推这些生产指标。
 
-本轮新增的只读指标工具与候选副本报告见 [`railwise-research-20260919`](./evidence/railwise-research-20260919/README.md)。候选副本统计到两个草稿项目的导入至首个草稿中位时间 111.788 秒；其余生产指标因缺少拒绝分母、真实审批、严格重放和生产样本均保持 `not-measurable`。
+截至 `281dc87` 的[生产指标口径](./RAILWISE_SURVEY_PRODUCTION_METRICS.md)已固定现有脚本的事件、UTC时间窗、分母和无效样本处理，并区分记录时点复验与当前严格重放。111.788秒是[d249035历史候选](./evidence/railwise-research-20260919/candidate-metrics.json)的两项目首草稿中位数，不是当前生产耗时；[4f859c0结束快照](./evidence/railwise-convergence-4f859c081b33/metrics-final.json)记录覆盖2/2、尝试通过5/6，同样只属于候选。6ff已有两份实际GUI成果链和四次成功复验，但其P0摘要未被改算为生产KPI；缺少首次拒绝分母、可验证正式批准和代表性生产样本的指标继续为 `not-measurable`。IN2/GSI/OU2的当前范围见[格式验收索引](./WORKWISE_0.5.0_SURVEY_FORMAT_ACCEPTANCE_MATRIX.md)。
 
 ## 验证证据
 

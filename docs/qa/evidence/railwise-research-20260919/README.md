@@ -2,6 +2,8 @@
 
 日期：2026-09-19。这里记录本轮可复核的公开来源、候选样本统计和实现边界，不把模拟预审、候选夹具或在线预览访问当作生产验收。
 
+本文保留2026-09-19历史研究范围及原指标，不作为当前功能状态。后续截至281dc87的事件/分母说明见[生产指标口径](../../RAILWISE_SURVEY_PRODUCTION_METRICS.md)，真实IN2/GSI GUI与OU2比较见[格式验收当前索引](../../WORKWISE_0.5.0_SURVEY_FORMAT_ACCEPTANCE_MATRIX.md)。
+
 ## GB/T 24356-2023
 
 - 官方信息页：[国家标准平台](https://openstd.samr.gov.cn/bzgk/std/newGbInfo?hcno=2874EFAC7523FB293E6AF2E4068CEB02&refer=outter)
