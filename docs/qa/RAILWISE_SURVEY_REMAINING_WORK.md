@@ -2,15 +2,15 @@
 
 原审计日期：2026-09-20；进展更新：2026-09-21。原审计源码：`43689493ab586c8d65bae729cfd291f3c813f679`。依据为用户提供的《RAILWISE AI ｜ Survey 产品收敛与命名迁移总计划》、[OpenSpec 任务](../../openspec/changes/workwise-0-5-0-engineering-delivery/tasks.md)、源码与[执行台账](RAILWISE_SURVEY_CONVERGENCE_STATUS.md)。下表保留原审计任务编号；后续源码进展另列，不追溯改变旧包验收。审查身份为 AI 智能体，不是专业人员签章或用户验收。
 
-最近已验监测候选状态：`partial-not-release-approval`。[4368949监测包](evidence/railwise-monitoring-final-4368949/README.md)已完成签名公证、隔离安装、私有真实updater、CSV/XLSX监测成果链及重启独立审计；该限定验收不覆盖全矩阵与人审。原快照98项中80项勾选、18项未勾选；后续已新增3项监测复算子任务，当前计数以 OpenSpec 和台账为准。复选项计数**不是总计划完成率**，也不是互不重叠的功能缺陷数。
+最近已验监测候选状态：`partial-not-release-approval`。[b193fc7监测复算包](evidence/railwise-monitoring-replay-package-b193fc7/README.md)已完成签名公证、隔离安装、私有真实updater、CSV/XLSX原件复算、历史缺源、失败恢复及重启独立审计；该限定验收不覆盖全矩阵与人审。复选项计数**不是总计划完成率**，也不是互不重叠的功能缺陷数。
 
-2026-09-21 新源码已完成监测原件/映射原子留存、独立严格复算端点、持久开始/结束、双语桌面入口与只读统计；资源边界、全量回归与独立审查通过，新精确包验收待做。OpenSpec现为101项、82项完成、19项未完成；新增源码两项已完成，包验收一项未完成。旧4368949不包含这些修改。详见[复算实现与合同](RAILWISE_MONITORING_REPLAY_ACCEPTANCE.md)。
+2026-09-21 监测复算限定包验收已完成；随后 `353d407` 完成 Q10–Q17 精确成果追问源码、只读工具与桌面接线，Runtime 2929项、桌面2850项通过，新功能自己的包验收及真实模型读回仍待做。OpenSpec现为104项、85项完成、19项未完成。b193fc7不包含后加成果追问，旧4368949不包含监测复算。详见[复算合同](RAILWISE_MONITORING_REPLAY_ACCEPTANCE.md)及[成果追问验收](RAILWISE_EXACT_RESULT_QUESTIONS_ACCEPTANCE.md)。
 
 ## 已取得的资料与边界
 
 - [GB/T 24356-2023 官方全文](evidence/railwise-standards-20260920/README.md)、[限定 TPS1200 GeoCOM 1.10 手册](evidence/railwise-field-interface-20260920/README.md)、[高级方法资料及独立数值基准](evidence/railwise-advanced-methods-20260920/README.md)已取得。剩余问题是适用性、具体设备/生产材料、软件接线及真实签认，不能再笼统写成完全缺少规范和协议资料。
 - [官网及双语 README](evidence/railwise-website-20260920/README.md)已随 PR #29 上线中文浅色候选截图。后续界面改变须对应新包截图，网站上线不等于当前候选公开发布。
-- 核心 P0 已有实现和多份独立包证据；完整 P1/P2、部分结果追问、监测结果严格重算及生产认证链仍有实际软件缺口，不能全部归为等待材料或用户确认。
+- 核心 P0、监测严格复算及Q10–Q17成果追问已有实现，后者仍需自己的包验收；完整 P1/P2与生产认证链仍有实际软件缺口，不能全部归为等待材料或用户确认。
 
 ## 18 个聚合项
 
@@ -41,8 +41,8 @@
 
 1. **规范与质量生产链。** [规范依据服务](../../kun/src/engineering/survey-standard-basis.ts)明确目录没有进入受信谓词集合；[质量工作区](../../kun/src/engineering/survey-quality-workspace.ts)仍输出 `evidence-retention-only`、`humanSignatureVerification=not-evaluated`。已有材料保全、首轮抽样、限定声明评分和关联评估；缺受信规则登记/适用性/撤销、真实缺陷分类及材料核验、完整组织阶段、整改后重新抽样、认证签名/批准和交付门禁。[交付服务](../../kun/src/engineering/engineering-service.ts)仍生成 `reviewStatus: draft`。
 2. **高级方法生产接线。** 已有一维自由水准、固定线性广义 w、独立互斥组 VCE、固定外部尺度 Huber、预声明统计族、一维参考定义、固定模型静态追加和标准椭圆。仍缺一般自由网/拟稳稳定点决策、正式网随机模型到统计家族/权重的审计接线及适用范围内完整专业判读。静态追加不支持旧观测编辑/删除、参数/基准改变、相关/非线性/动态模型；总计划未逐一定义这些扩展，须明确承诺范围，不能把整个高级方法勾完，也不能无限扩大范围。依据：[方法合同](RAILWISE_SURVEY_ALGORITHM_REVIEW.md)。
-3. **监测严格重算的包验收。** 原4368949五项复验没有监测数值重算；后续源码新增独立端点，从留存原件重新解析、核对全部观测并复算完整 v2 results，保留旧五项合同。新源码还须通过自己的精确包验收。缺原件或不支持的历史算法明确未评估，不用重新导入覆盖旧成果；完整专业适用性与生产批准仍不由重算通过代替。见[实现及可执行验收合同](RAILWISE_MONITORING_REPLAY_ACCEPTANCE.md)。
-4. **结果到 AI 的全表面接线。** [Q10–Q17 静态缺口](RAILWISE_SURVEY_UI_EVIDENCE_COVERAGE.md)在审计源码仍存在；高级模型、质量关联、统计诊断、自由水准组件没有专用追问回调。通用打开 AI、定位原记录、导出均不等于携带当前结果证据追问。Q01–Q09 已有接线仍须实际发送和正确读回证据，不能把按钮数量当成功率。
+3. **监测严格重算的剩余范围。** b193fc7 已通过自己的签名包限定验收，原4368949五项复验仍不含此功能。缺原件或不支持的历史算法明确未评估，不用重新导入覆盖旧成果；全状态/键盘矩阵、专业适用性与生产批准不由选定算例通过代替。见[实现及验收合同](RAILWISE_MONITORING_REPLAY_ACCEPTANCE.md)。
+4. **结果到 AI 的包内实际读回。** [Q10–Q17 历史静态缺口](RAILWISE_SURVEY_UI_EVIDENCE_COVERAGE.md)已由 `353d407` 补齐对应源码入口及精确只读工具，记录身份/修订/摘要和行选择绑定已回归；仍缺新签名包中的实际发送、模型工具调用及正确回答证据。Q01–Q09 也须实际读回验证，不能把按钮数量当成功率。
 5. **P2。** [Survey MCP factory](../../kun/src/adapters/mcp/survey-context-server.ts)仅有只读边界和进程内 SDK 协议测试，缺认证桌面宿主、可撤销项目授权持久化、真实传输及第三方互操作。GeoCOM 手册研究没有实现实时传输/命令适配；通用 Flow 和旧监测模板没有完整 Survey 证据接线；sandbox 边界也不等于已提供逐格式验证的具体转换器。范围见[接口审查](RAILWISE_SURVEY_INTERFACE_REVIEW.md)。
 
 ## 必须保持真实的外部证据
