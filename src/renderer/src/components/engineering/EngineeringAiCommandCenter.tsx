@@ -267,6 +267,13 @@ export function EngineeringAiCommandCenter({ workspaceRoot, runtimeReady, projec
   const retrySessionRead = useCallback((): void => { setSessionReadRevision((revision) => revision + 1) }, [])
   const scopedTaskStatus = taskRun?.id === scopedPlan?.taskId ? taskRun?.status : undefined
   const planStatus = scopedPlan ? projectAiPlanStatus(scopedPlan, scopedTaskStatus) : undefined
+  const taskDiagnostic = taskRun?.id === scopedPlan?.taskId && taskRun?.threadId === timelineThreadId
+    ? ['stalled', 'failed', 'cancelled'].includes(taskRun?.status ?? '')
+      ? taskRun?.stalledReason || taskRun?.waitingReason
+      : ['waiting_user', 'waiting_approval'].includes(taskRun?.status ?? '')
+        ? taskRun?.waitingReason || taskRun?.stalledReason
+        : undefined
+    : undefined
   const planSteps = scopedPlan ? projectAiPlanSteps(scopedPlan, scopedTaskStatus, t) : []
   const completedStepCount = planSteps.filter(step => step.state === 'done').length
   const planReviewComplete = scopedPlan?.steps.every(step => step.parameters && step.parameterBindings && step.expectedOutputs?.length && step.reversibility)
@@ -346,7 +353,7 @@ export function EngineeringAiCommandCenter({ workspaceRoot, runtimeReady, projec
         {!planReviewComplete ? <p role="status" className="text-[11px] text-amber-700 dark:text-amber-300">{t('engineeringPlanDetailsMissing')}</p> : null}
         {planStatus === 'needs_attention' && !hasCompleteExecutionEvidence(scopedPlan) ? <p role="status" data-testid="engineering-plan-incomplete-evidence" className="text-[11px] text-amber-700 dark:text-amber-300">{t('engineeringPlanExecutionIncomplete', { completed: completedStepCount, total: scopedPlan.steps.length })}</p> : null}
         <p className="break-all font-mono text-[10px] text-ds-faint">{scopedPlan.id} · {scopedPlan.contextHash.slice(0, 22)}</p>
-        {taskRun?.stalledReason || taskRun?.waitingReason ? <p className="break-words text-[11px] text-amber-700 dark:text-amber-300">{formatRuntimeError(new Error(taskRun.stalledReason || taskRun.waitingReason), t('engineeringStatusNeedsAttention'))}</p> : null}
+        {taskDiagnostic ? <p data-testid="engineering-task-diagnostic" className="break-words text-[11px] text-amber-700 dark:text-amber-300">{formatRuntimeError(new Error(taskDiagnostic), t('engineeringStatusNeedsAttention'))}</p> : null}
         {planReviewComplete && (needsApproval || scopedPlan.status === 'approved') ? <button type="button" onClick={() => void approveAndStartPlan()} disabled={planBusy || busy || !connected || !engineeringThreadActive || (needsApproval && !riskConfirmed)} className="inline-flex h-8 items-center gap-2 rounded-md bg-accent px-3 text-[12px] font-medium text-white disabled:opacity-50">{planBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />}{t('engineeringApproveAndStart')}</button> : null}
         {canResumePlan ? <button type="button" data-testid="engineering-resume" onClick={() => void resumeExecutionPlan()} disabled={planBusy} className="inline-flex h-8 items-center gap-2 rounded-md bg-accent px-3 text-[12px] font-medium text-white disabled:opacity-50">{planBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />}{t('engineeringResumePlan')}</button> : null}
         {canReplan ? <button type="button" data-testid="engineering-replan" onClick={() => void replanStalePlan()} disabled={planBusy || busy || !connected || !engineeringThreadActive} className="inline-flex h-8 items-center gap-2 rounded-md bg-accent px-3 text-[12px] font-medium text-white disabled:opacity-50">{planBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}{planBusy ? t('engineeringReplanning') : t('engineeringReplan')}</button> : null}

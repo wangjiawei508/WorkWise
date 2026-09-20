@@ -249,6 +249,40 @@ describe('Engineering AI session recovery states', () => {
     expect(runtimeRequest.mock.calls.every(([, method]) => !method || method === 'GET')).toBe(true)
   })
 
+  it.each(['en', 'zh'])('hides obsolete diagnostics after verified completion in %s', async language => {
+    await i18n.changeLanguage(language)
+    const steps = ['validate', 'adjust', 'read', 'report'].map(id => ({ ...refreshedPlan.steps[0], id }))
+    const plan = { ...resumablePlan, status: 'completed', steps, execution: { complete: true, completedStepIds: steps.map(step => step.id), pendingStepIds: [] } }
+    Object.assign(window.workwise, { getTaskRun: vi.fn(async () => ({ id: plan.taskId, threadId: 'thread-a', status: 'completed', waitingReason: 'User requested continuation from checkpoint.', stalledReason: 'model_provider_unavailable' })) })
+    runtimeRequest.mockImplementation(async path => response(200, path.startsWith('/v1/engineering/ai/plans?') ? { plan } : { cards: [] }))
+    await render(); await settle()
+    expect([...container.querySelectorAll('[data-step-state]')].map(node => node.getAttribute('data-step-state'))).toEqual(['done', 'done', 'done', 'done'])
+    expect(container.textContent).toContain(i18n.t('engineeringStatusCompleted'))
+    expect(container.textContent).not.toContain(i18n.t('engineeringStatusNeedsAttention'))
+    expect(container.querySelector('[data-testid="engineering-task-diagnostic"]')).toBeNull()
+  })
+
+  it.each(['stalled', 'failed', 'cancelled', 'waiting_user', 'waiting_approval'])('keeps current %s diagnostics, including a plan needing attention', async status => {
+    const plan = { ...resumablePlan, status: 'needs_attention' }
+    Object.assign(window.workwise, { getTaskRun: vi.fn(async () => ({ id: plan.taskId, threadId: 'thread-a', status, stalledReason: 'model_provider_unavailable', waitingReason: 'model_provider_unavailable' })) })
+    runtimeRequest.mockImplementation(async path => response(200, path.startsWith('/v1/engineering/ai/plans?') ? { plan } : { cards: [] }))
+    await render(); await settle()
+    expect(container.querySelector('[data-testid="engineering-task-diagnostic"]')?.textContent).toBe(i18n.t('runtimeModelProviderUnavailable'))
+    expect(container.querySelector('[data-testid="engineering-plan-incomplete-evidence"]')).not.toBeNull()
+  })
+
+  it.each([
+    { id: 'other-task', threadId: 'thread-a', status: 'failed' },
+    { id: resumablePlan.taskId, threadId: 'other-thread', status: 'stalled' },
+    { id: resumablePlan.taskId, threadId: 'thread-a', status: 'running' },
+    { id: resumablePlan.taskId, threadId: 'thread-a', status: 'retrying' }
+  ])('hides diagnostics from an unbound or active task: %o', async task => {
+    Object.assign(window.workwise, { getTaskRun: vi.fn(async () => ({ ...task, stalledReason: 'model_provider_unavailable', waitingReason: 'model_provider_unavailable' })) })
+    runtimeRequest.mockImplementation(async path => response(200, path.startsWith('/v1/engineering/ai/plans?') ? { plan: resumablePlan } : { cards: [] }))
+    await render(); await settle()
+    expect(container.querySelector('[data-testid="engineering-task-diagnostic"]')).toBeNull()
+  })
+
   it.each(['completed', 'failed', 'cancelled', 'stalled', 'waiting_user', 'waiting_approval'])('refreshes authoritative project data once when execution becomes %s', async status => {
     const plan = { ...refreshedPlan, status: 'started', taskId: 'task-1', executionTurnId: 'execution-1' }
     const getTaskRun = vi.fn().mockResolvedValueOnce({ id: 'task-1', status: 'running' }).mockResolvedValue({ id: 'task-1', status })
@@ -271,7 +305,7 @@ describe('Engineering AI session recovery states', () => {
   it('refreshes verified partial results when the execution stalls without replaying any tool', async () => {
     const steps = ['validate', 'adjust', 'report'].map(id => ({ ...refreshedPlan.steps[0], id, title: id }))
     let reads = 0
-    const getTaskRun = vi.fn().mockResolvedValueOnce({ id: 'partial-task', status: 'running' }).mockResolvedValue({ id: 'partial-task', status: 'stalled', stalledReason: 'engineering_plan_steps_incomplete: adjust, report' })
+    const getTaskRun = vi.fn().mockResolvedValueOnce({ id: 'partial-task', threadId: 'thread-a', status: 'running' }).mockResolvedValue({ id: 'partial-task', threadId: 'thread-a', status: 'stalled', stalledReason: 'engineering_plan_steps_incomplete: adjust, report' })
     Object.assign(window.workwise, { getTaskRun })
     runtimeRequest.mockImplementation(async path => {
       if (!path.startsWith('/v1/engineering/ai/plans?')) return response(200, { cards: [] })

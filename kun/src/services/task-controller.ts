@@ -275,6 +275,8 @@ export class TaskController {
     const completed = this.repository.update(task.id, task.revision, (current) => ({
       ...current,
       status: 'completed',
+      waitingReason: undefined,
+      stalledReason: undefined,
       finalResponse,
       artifacts,
       noProgressCount: 0,
