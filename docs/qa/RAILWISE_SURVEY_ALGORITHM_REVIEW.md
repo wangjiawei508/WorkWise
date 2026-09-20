@@ -2,7 +2,18 @@
 
 日期：2026-09-19。这是用户授权的智能体模拟数值方法预审，不是测量规范符合性证明、真实工程专业签章或用户验收。本次新增独立诊断核、闭式参考测试及水准网只读 Runtime 诊断接口，不改写已有 `workwise-survey-adjustment-7` 结果，不接 UI、不改变公开版本。
 
-2026-09-20 后续增量：外部学生化诊断已接桌面精度页，支持严格来源绑定、原记录定位和 JSON 导出；新控件的精确包验收另记于执行台账。本页以下保留原数学审查范围。新增[高级方法来源与评测合同](evidence/railwise-advanced-methods-20260920/README.md)核实 Baarda、VCE、自由网与 Huber 的原始资料、数值反例和独立软件对照要求，未把资料研究计作完整高级算法实现。
+2026-09-20 后续增量：外部学生化诊断已接桌面精度页，支持严格来源绑定、原记录定位和 JSON 导出。下表同步截至 `7d4f454` 的受限实现与已有独立证据；后文公式和原始验证数字仍是各增量产生时的记录，不合并成新的验收计数。[高级方法来源与评测合同](evidence/railwise-advanced-methods-20260920/README.md)已核实 Baarda、VCE、自由网与 Huber 的原始资料、数值反例和独立软件对照要求。
+
+## 当前受限实现与证据索引
+
+| 能力 | 当前实现与独立证据 | 仍未完成的范围 |
+| --- | --- | --- |
+| 广义 w 与 VCE | [广义 w 核](../../kun/src/engineering/survey-generalized-w.ts)、[VCE 核](../../kun/src/engineering/survey-vce-trial.ts)与[不可变试算工作区](RAILWISE_SURVEY_ADVANCED_TRIALS_BACKEND.md)已实现；[7d8e92b 精确包](evidence/railwise-convergence-7d8e92b461b6/README.md)包含三条实际 GUI 记录、独立 Fraction 核算、损坏拒绝、原生导出与原 ID 重启 | 广义 w 仅固定线性、已知绝对协方差模型；VCE 仅独立互斥组。正式网随机模型连接、一般相关组、完整 Baarda 判定及专业解释尚未完成 |
+| 统计检验族与 Huber | [统计族核](../../kun/src/engineering/survey-statistical-family.ts)、[Huber 核](../../kun/src/engineering/survey-huber-trial.ts)及上述工作区已实现；[独立接入审查](evidence/railwise-advanced-two-kernels/independent-review/REVIEW.md)、[a606a86 精确包](evidence/railwise-convergence-a606a86aee14/README.md)记录实际 GUI、独立核算、原生保存、损坏与重启；[6ff82c8](evidence/railwise-convergence-6ff82c8c2746/README.md)补充表格访问和原记录复核 | 统计家族依赖预先完整声明及正确分布/尺度；Huber 仅固定外部尺度、固定线性独立观测模型，不认证唯一性或协方差。没有自动删点、完整抗差生产流程或专业判定 |
+| 两历元参考定义 | [参考核](../../kun/src/engineering/survey-reference-datum.ts)及工作区已实现；[6ff82c8](evidence/railwise-convergence-6ff82c8c2746/README.md)验证 GLS、奇异拒绝、显式等权与独立算术 | 仅一维、显式参考集合、完整声明协方差；不推断物理稳定点，不等于自动拟稳平差或稳定性认证 |
+| 静态独立观测追加 | [静态追加核](../../kun/src/engineering/survey-static-incremental.ts)、[独立复审](evidence/railwise-static-incremental-20260920/survey-static-independent-review/REVIEW.md)及工作区已实现；[6ff82c8](evidence/railwise-convergence-6ff82c8c2746/README.md)包含正常/旧基线/最大模型三例、最大导出、重启及 128 个最大模型追加前缀独立复算 | 仅固定满秩模型、固定参数与已知先验方差的独立新观测。旧观测编辑/删除、参数/基准变化、相关/非线性模型、动态滤波及完整大表视觉覆盖尚未完成 |
+
+以上是真实源码与明确候选的有限证据，不是资料研究或模拟专业人员意见替代工程签认。各候选的语言、主题、窗口、错误态和用户确认缺口以原报告为准；旧包证据不覆盖 `7d4f454` 新包。完整高级平差聚合任务仍未完成。
 
 ## 先修正方法名称与统计量边界
 
@@ -106,7 +117,9 @@ GET /v1/engineering/projects/:projectId/adjustments/:id/statistical-diagnostics?
 
 新增 Runtime/HTTP 测试使用实际导入、持久化平差及严格复验路径，以逐点独立删除后重新估计的加权均值和预测误差校核 t 与删除 SSE；覆盖路线权、零方差、低自由度、混合权、相关声明、超规模、GNSS 拒绝、跨项目、过期输入、原始文件篡改/缺失、鉴权、JSON 下载、错误内容脱敏和历史结果不变。连同原统计核、生产水准/其他策略与原路由回归，本轮 **6 个文件 88 项测试通过**；Runtime 类型检查及目标 ESLint 通过。未运行全量构建或完成候选包 UI 验收。
 
-## 其余高级方法实施与验收合同
+## 完整高级方法的实施与验收合同
+
+下表是生产范围合同，受限已实现子集见本文顶部；不能再把 VCE、Huber 或静态追加一概记为尚无实现，也不能据其试算通过勾选完整方法。
 
 | 方法 | 必须先明确的合同 | 最小独立验收 |
 | --- | --- | --- |
@@ -132,4 +145,4 @@ GET /v1/engineering/projects/:projectId/adjustments/:id/statistical-diagnostics?
 
 SQLite 独立表保留不可变试算历史，拒绝 UPDATE/DELETE/REPLACE；读取核对来源准入、原始文件、网络修订、输入与输出摘要并重新计算。正式 `adjustment-7`、原始网络和成果状态保持不变。界面支持原始记录定位、历史恢复和双语错误原因，切网/离线后的迟到响应不展示。具体合成三点闭环与验收状态见[集成验收记录](./evidence/railwise-free-trial-integration/README.md)。新界面仍须在本轮最终精确签名包核验。
 
-拟稳、VCE、完整 Baarda、多重比较、抗差与增量平差仍未完成。原始方法资料、GNU Gama 构建/重放及软件容差见[高级方法证据](./evidence/railwise-advanced-methods-20260920/README.md)，不能将软件数值容差当作工程限差。
+后续受限 VCE、广义 w、声明统计家族、固定尺度 Huber、两历元参考定义和静态追加已实现并取得顶部所列独立证据。自动拟稳、正式随机模型连接、完整 Baarda/抗差生产流程及一般增量/动态平差仍未完成，真人专业解释与当前精确包验收单独记录。原始方法资料、GNU Gama 构建/重放及软件容差见[高级方法证据](./evidence/railwise-advanced-methods-20260920/README.md)，不能将软件数值容差当作工程限差。
