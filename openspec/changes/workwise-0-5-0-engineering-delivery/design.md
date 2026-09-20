@@ -20,7 +20,7 @@ The seven-page deterministic console stays lazy-loaded as a compatibility panel.
 
 ## Naming and compatibility boundary
 
-D-04 separates product naming from compatibility-sensitive implementation identifiers. User-facing platform references remain `WorkWise`; the fifth workbench is shown as `Survey` or `WorkWise Survey`; and `RAILWISE Survey` is reserved for commercial-distribution surfaces. New default project-thread titles use `Survey AI`, while an existing persisted title remains unchanged and is never rewritten by a display migration.
+The user's 2026-09-19 consolidated plan supersedes the historical D-04 display names. User-facing platform references use `RAILWISE AI`; the professional workbench uses `RAILWISE Survey`, with `工程测量内业` / `Engineering Survey Processing` as its subtitle. Main entries are 编程 / 内业 or Code / Survey. Product naming remains separate from compatibility-sensitive implementation identifiers. New default project-thread titles use `Survey AI`, while an existing persisted title remains unchanged and is never rewritten by a display migration.
 
 The naming update does not rename the package, bundle ID, updater/feed, Runtime API paths, route IDs, persisted storage locations, or the thread `domain: "engineering"` discriminator. This keeps 0.4.x records and the 0.5.0 upgrade chain readable while allowing the visible workbench identity to evolve independently.
 
