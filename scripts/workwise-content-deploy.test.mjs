@@ -196,8 +196,12 @@ test('preview proxy allows only fixed-origin static GETs and serves hash-verifie
   assert.equal((await fetch(`${origin}/css/product-detail.css?v=1`)).status, 200)
   assert.equal(requests[0].url, 'https://www.railwise.cn/css/product-detail.css?v=1')
   assert.equal(requests[0].options.redirect, 'manual')
+  for (const path of ['/uploads/logos/logo_1753684408_688719b8d60b3.png', '/inc/all.min.css', '/webfonts/fa-solid-900.woff2']) {
+    assert.equal((await fetch(`${origin}${path}`)).status, 200)
+    assert.equal(requests.at(-1).url, `https://www.railwise.cn${path}`)
+  }
   assert.equal((await fetch(`${origin}/contact`, { method: 'POST', body: 'x' })).status, 405)
   assert.equal((await fetch(`${origin}/downloads/workwise/file.exe`)).status, 404)
-  for (const url of ['//evil.example/css/x.css', 'https://evil.example/x.css', '/css/../config.php', '/css/%2e%2e/private.css', '/api/delete.css', '/css/run.php']) assert.equal(previewResourceUrl(url), null)
-  assert.equal(requests.length, 1)
+  for (const url of ['//evil.example/css/x.css', 'https://evil.example/x.css', '/css/../config.php', '/css/%2e%2e/private.css', '/api/delete.css', '/css/run.php', '/uploads/customer/report.pdf', '/uploads/logos/config.php', '/inc/config.php', '/inc/other.css', '/webfonts/config.php']) assert.equal(previewResourceUrl(url), null)
+  assert.equal(requests.length, 4)
 })

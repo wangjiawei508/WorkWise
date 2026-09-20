@@ -6,11 +6,12 @@ import { CONTENT_FILES, sha256 } from './workwise-content-deploy.mjs'
 
 const ORIGIN = 'https://www.railwise.cn'
 const RESOURCE_PATH = /^\/(?:css|js|fonts|images|assets)\/[A-Za-z0-9_./-]+\.(?:css|js|woff2?|ttf|otf|png|jpe?g|webp|avif|svg|ico)$/i
+const SITE_HEADER_RESOURCE = /^(?:\/uploads\/logos\/[A-Za-z0-9_-]+\.(?:png|jpe?g|webp|svg)|\/inc\/all\.min\.css|\/webfonts\/fa-[A-Za-z0-9-]+\.(?:woff2|ttf))$/
 
 export function previewResourceUrl(rawUrl) {
   if (!rawUrl.startsWith('/') || rawUrl.startsWith('//') || /%(?:2e|2f|5c)|\\|(?:^|\/)\.\.(?:\/|$)/i.test(rawUrl)) return null
   const url = new URL(rawUrl, ORIGIN)
-  if (url.origin !== ORIGIN || !RESOURCE_PATH.test(url.pathname)) return null
+  if (url.origin !== ORIGIN || (!RESOURCE_PATH.test(url.pathname) && !SITE_HEADER_RESOURCE.test(url.pathname))) return null
   return url
 }
 
