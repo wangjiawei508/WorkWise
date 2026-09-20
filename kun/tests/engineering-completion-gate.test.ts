@@ -15,6 +15,10 @@ import { resolvedStepParameters } from '../src/engineering/engineering-plan-exec
 import type { EngineeringRunPlanV1 } from '../src/contracts/engineering-ai.js'
 
 const cleanup: Array<() => Promise<unknown> | void> = []
+// Resume includes real HTTP, durable writes, a stalled attempt and four tool executions.
+const PERSISTENCE_TEST_TIMEOUT_MS = 15_000
+// Restart adds two bounded 10-second recovery polls plus initialization and tool I/O.
+const RESTART_TEST_TIMEOUT_MS = 30_000
 afterEach(async () => { vi.restoreAllMocks(); while (cleanup.length) await cleanup.pop()!() })
 
 async function fixture(initialMode: 'text' | 'partial' | 'all') {
@@ -138,7 +142,7 @@ describe('Engineering successful-step completion gate', () => {
     expect(f.repository.stepEvidence(f.plan.id, f.plan.steps[0]!.id)).toEqual(receipt)
     expect(f.runtime.surveyService!.listAdjustments(f.project.id)).toHaveLength(1)
     expect(f.runtime.engineeringAi!.getPlan(f.plan.id)?.execution.complete).toBe(true)
-  })
+  }, PERSISTENCE_TEST_TIMEOUT_MS)
 
   it('fails closed for an execution turn without its plan binding, while ordinary consultation still completes', async () => {
     const f = await fixture('text')
@@ -162,7 +166,7 @@ describe('Engineering successful-step completion gate', () => {
     expect(f.repository.stepEvidence(f.plan.id, f.plan.steps[0]!.id)).toEqual(firstReceipt)
     expect(f.runtime.surveyService!.listAdjustments(f.project.id)).toHaveLength(1)
     expect(f.runtime.engineeringAi!.getPlan(f.plan.id)?.execution.complete).toBe(true)
-  })
+  }, RESTART_TEST_TIMEOUT_MS)
 
   it.each([false, true])('rejects generic HTTP resume and retry for engineering execution (legacy binding: %s)', async legacy => {
     const f = await fixture('text')
