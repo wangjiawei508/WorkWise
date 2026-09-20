@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type ReactElement, type ReactNode } from '
 import { useTranslation } from 'react-i18next'
 import type { SurveyFreeLevelingTrialListV1, SurveyFreeLevelingTrialV1 } from '@shared/survey-free-leveling'
 import { createFreeLevelingTrial, listFreeLevelingTrials, readFreeLevelingTrial, FreeLevelingRequestError, type FreeLevelingBinding } from '../../agent/survey-free-leveling-client'
+import { EngineeringEvidenceQuestion, EngineeringSelectedEvidence } from './EngineeringEvidenceQuestion'
 
 type Props = {
   binding: FreeLevelingBinding | null
@@ -133,7 +134,8 @@ export function SurveyFreeLevelingTrial({ binding, contextRevision, runtimeReady
         {page.nextOffset !== null ? <button type="button" className={buttonClass} disabled={busy} onClick={() => void run('list', page.nextOffset!)}>{t('surveyFreeNext')}</button> : null}
       </div>
     </div> : null}
-    {current ? <>
+    {current ? <EngineeringSelectedEvidence reference={{ kind: 'free-leveling', networkId: current.networkId, networkRevision: current.networkRevision, sourceSha256: current.sourceSha256, trialId: current.id, recordHash: current.recordHash }}>
+      <EngineeringEvidenceQuestion label={current.id} />
       <p role="status" className="font-semibold">{t('surveyFreeResultStatus')}</p>
       <dl className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         {[[t('surveyFreeRank'), current.output.rank], [t('surveyFreeDf'), current.output.degreesOfFreedom], [t('surveyFreeDatumDefect'), current.output.datumDefect], [t('surveyFreeVariance'), number(current.output.posteriorVarianceFactorEstimate)]].map(([label, value]) => <div key={label}><dt className="text-ds-muted">{label}</dt><dd className="break-all font-mono">{value}</dd></div>)}
@@ -141,14 +143,14 @@ export function SurveyFreeLevelingTrial({ binding, contextRevision, runtimeReady
       <p>{t(current.weightBasis === 'inverse-declared-sigma-squared' ? 'surveyFreeSigmaWeights' : 'surveyFreeLengthWeights')} {t('surveyFreeDefaultWeights', { ids: current.defaultWeightObservationIds.join(', ') || '—' })}</p>
       <div role="region" aria-label={t('surveyFreePointTable')} tabIndex={0} className="min-w-0 overflow-auto border border-ds-border-muted">
         <table className="w-full min-w-[560px] text-left"><caption className="p-2 text-left font-semibold">{t('surveyFreePointTable')}</caption><thead className="bg-ds-subtle"><tr>{['surveyPoint', 'surveyFreeOriginalRole', 'surveyFreeH0', 'surveyFreeCorrection', 'surveyFreeHeight'].map(key => <th key={key} scope="col" className="p-2">{t(key)}</th>)}</tr></thead>
-          <tbody>{current.output.points.map(point => {
+          <tbody>{current.output.points.map((point, index) => {
             const role = current.originalPointRoles.find(item => item.id === point.id)!
-            return <tr key={point.id} className="border-t border-ds-border-muted"><th scope="row" className="break-all p-2">{point.id}</th><td className="p-2">{t(role.known ? 'surveyFreeWasFixed' : 'surveyFreeWasUnknown')}</td><td className="p-2 font-mono">{number(point.referenceHeight)}{role.referenceHeightBasis === 'zero-initial-approximation' ? <span className="block font-sans">{t('surveyFreeZeroReference')}</span> : null}</td><td className="p-2 font-mono">{number(point.correction)}</td><td className="p-2 font-mono">{number(point.height)}</td></tr>
+            return <tr key={point.id} className="border-t border-ds-border-muted"><th scope="row" className="break-all p-2">{point.id}<EngineeringEvidenceQuestion label={point.id} selector={{ path: ['output', 'points', index], identity: { id: point.id } }} /></th><td className="p-2">{t(role.known ? 'surveyFreeWasFixed' : 'surveyFreeWasUnknown')}</td><td className="p-2 font-mono">{number(point.referenceHeight)}{role.referenceHeightBasis === 'zero-initial-approximation' ? <span className="block font-sans">{t('surveyFreeZeroReference')}</span> : null}</td><td className="p-2 font-mono">{number(point.correction)}</td><td className="p-2 font-mono">{number(point.height)}</td></tr>
           })}</tbody></table>
       </div>
       <div role="region" aria-label={t('surveyFreeObservationTable')} tabIndex={0} className="min-w-0 overflow-auto border border-ds-border-muted">
         <table className="w-full min-w-[720px] text-left"><caption className="p-2 text-left font-semibold">{t('surveyFreeObservationTable')}</caption><thead className="bg-ds-subtle"><tr>{['surveyObservationId', 'surveyPointPair', 'surveyFreeObserved', 'surveyFreeAdjusted', 'surveyFreeResidual', 'surveyFreeWeight', 'surveyFreeSource'].map(key => <th key={key} scope="col" className="p-2">{t(key)}</th>)}</tr></thead>
-          <tbody>{current.output.observations.map(observation => <tr key={observation.id} className="border-t border-ds-border-muted"><th scope="row" className="break-all p-2">{observation.id}</th><td className="break-all p-2">{observation.from} → {observation.to}</td><td className="p-2 font-mono">{number(observation.heightDifference)}</td><td className="p-2 font-mono">{number(observation.adjustedHeightDifference)}</td><td className="p-2 font-mono">{number(observation.residual)}</td><td className="p-2 font-mono">{number(observation.weight)}{current.defaultWeightObservationIds.includes(observation.id) ? <span className="block font-sans">{t('surveyFreeUnitWeight')}</span> : null}</td><td className="p-2"><button type="button" className={buttonClass} onClick={event => { sourceTrigger.current = { scope, button: event.currentTarget }; setSourceId(observation.sourceAnchor) }}>{t('surveyFreeLocate', { id: observation.id })}</button></td></tr>)}</tbody></table>
+          <tbody>{current.output.observations.map((observation, index) => <tr key={observation.id} className="border-t border-ds-border-muted"><th scope="row" className="break-all p-2">{observation.id}<EngineeringEvidenceQuestion label={observation.id} selector={{ path: ['output', 'observations', index], identity: { id: observation.id } }} /></th><td className="break-all p-2">{observation.from} → {observation.to}</td><td className="p-2 font-mono">{number(observation.heightDifference)}</td><td className="p-2 font-mono">{number(observation.adjustedHeightDifference)}</td><td className="p-2 font-mono">{number(observation.residual)}</td><td className="p-2 font-mono">{number(observation.weight)}{current.defaultWeightObservationIds.includes(observation.id) ? <span className="block font-sans">{t('surveyFreeUnitWeight')}</span> : null}</td><td className="p-2"><button type="button" className={buttonClass} onClick={event => { sourceTrigger.current = { scope, button: event.currentTarget }; setSourceId(observation.sourceAnchor) }}>{t('surveyFreeLocate', { id: observation.id })}</button></td></tr>)}</tbody></table>
       </div>
       {sourceId ? <div ref={sourcePanel} tabIndex={-1}>{renderSourceRecord(sourceId, () => {
         if (activeScope.current !== scope) return
@@ -159,6 +161,6 @@ export function SurveyFreeLevelingTrial({ binding, contextRevision, runtimeReady
       <details className="min-w-0"><summary className="cursor-pointer">{t('surveyFreeProvenance')}</summary><dl className="mt-2 space-y-2">
         {[[t('surveyFreeRecord'), current.id], [t('surveyFreeCreatedAt'), current.createdAt], [t('surveyFreeNetworkRevision'), current.networkRevision], [t('surveyFreeAlgorithm'), current.algorithmVersion], ['inputHash', current.inputHash], ['sourceSha256', current.sourceSha256], ['sourceAdmissionHash', current.sourceAdmissionHash], ['requestHash', current.requestHash], ['outputHash', current.outputHash], ['recordHash', current.recordHash]].map(([label, value]) => <div key={label}><dt className="text-ds-muted">{label}</dt><dd className="break-all font-mono">{value}</dd></div>)}
       </dl></details>
-    </> : null}
+    </EngineeringSelectedEvidence> : null}
   </section>
 }

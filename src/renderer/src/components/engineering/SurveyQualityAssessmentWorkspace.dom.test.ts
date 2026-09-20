@@ -9,6 +9,8 @@ import {assessmentFixture} from '../../../../../kun/src/engineering/survey-quali
 import {SurveyQualityAssessmentWorkspace} from './SurveyQualityAssessmentWorkspace'
 import {checkAssessmentRecord,createAssessment,readAssessment,reverifyAssessment,saveAssessmentExport,type AssessmentBinding} from '../../agent/survey-quality-assessment-client'
 import i18n from '../../i18n'
+import {EngineeringEvidenceQuestions} from './EngineeringEvidenceQuestion'
+import {useEngineeringConversationDrafts} from './engineering-conversation-drafts'
 // DOM fixture isolates the PDF renderer; actual three-format generation is covered by Runtime cross-service tests.
 vi.mock('../../../../../kun/src/engineering/engineering-report-pdf',()=>({makeReportPdf:async()=>Buffer.from('Synthetic DOM fixture PDF bytes')}))
 let f:Awaited<ReturnType<typeof assessmentFixture>>,binding:AssessmentBinding,host:HTMLDivElement,root:Root
@@ -38,6 +40,17 @@ function deferred<T>(){let resolve!:(v:T)=>void;const promise=new Promise<T>(r=>
 beforeEach(async()=>{Object.assign(globalThis,{IS_REACT_ACT_ENVIRONMENT:true});Object.defineProperty(crypto,'subtle',{configurable:true,value:webcrypto.subtle});await i18n.changeLanguage('en');f=await assessmentFixture();binding={projectId:f.project.id,projectRevision:1,workspaceRoot:f.project.workspace};runtimeRequest.mockReset().mockImplementation(handle);saveWorkspaceFileAs.mockReset().mockResolvedValue({ok:true,path:'/chosen/assessment.json'});Object.assign(window,{workwise:{runtimeRequest,saveWorkspaceFileAs}});host=document.createElement('div');document.body.append(host);root=createRoot(host)})
 afterEach(async()=>{vi.unstubAllGlobals();await act(async()=>root.unmount());host.remove();await f.close();vi.restoreAllMocks()})
 describe('declared linkage desktop integration',()=>{
+ it('binds a unit question to the restored assessment and disables it during revalidation',async()=>{
+  const record=storedRecord(),focus=vi.fn()
+  useEngineeringConversationDrafts.setState({drafts:{}})
+  await act(async()=>root.render(createElement(EngineeringEvidenceQuestions,{scope:{workspace:binding.workspaceRoot,projectId:binding.projectId,projectRevision:binding.projectRevision,ready:true,focus},children:createElement(SurveyQualityAssessmentWorkspace,{binding,runtimeReady:true,manifests:[f.manifest]})})))
+  await restore('assessments',record.id)
+  const question=()=>host.querySelector(`button[aria-label="${i18n.t('surveyAskEvidence',{ns:'common',label:record.result.unitRows[0]!.unitId})}"]`) as HTMLButtonElement
+  runtimeRequest.mockClear();await click(question());expect(runtimeRequest).not.toHaveBeenCalled();expect(focus).toHaveBeenCalledOnce()
+  expect(useEngineeringConversationDrafts.getState().drafts[JSON.stringify([binding.workspaceRoot,binding.projectId])]?.evidenceContext?.typedEvidence).toEqual({schemaVersion:1,projectId:binding.projectId,projectRevision:binding.projectRevision,kind:'assessment',recordId:record.id,recordHash:record.recordHash,selector:{path:['result','unitRows',0],identity:{unitId:record.result.unitRows[0]!.unitId}}})
+  const wait=deferred<ReturnType<typeof response>>();runtimeRequest.mockImplementationOnce(()=>wait.promise);await click(button('Reverify linkage'));expect(question().disabled).toBe(true);await click(question());expect(focus).toHaveBeenCalledOnce()
+  await act(async()=>wait.resolve(response({record,checkedAt:'2026-09-20T00:00:00Z'})));await settled()
+ })
  it('has complete bilingual controls and state strings',()=>{const source=readFileSync(join(process.cwd(),'src/renderer/src/components/engineering/SurveyQualityAssessmentWorkspace.tsx'),'utf8');for(const [,key]of source.matchAll(/\bt\('([^']+)'/g))for(const lng of ['en','zh'])expect(i18n.exists(key!,{ns:'qualityAssessment',lng}),`${lng}:${key}`).toBe(true)})
  it('freezes an actual complete run with explicit mappings using real source APIs',async()=>{
   await render();await edit('Actual deliverable manifest',f.manifest.id);await click(button('Load retention plans for this deliverable'));await edit('Material retention plan',f.planRequest.retentionPlanId);await settled();await edit('Retention record of this plan',f.planRequest.retentionRecordId);await click(button('Load existing sampling runs'));await edit('Complete first-round sampling run',f.planRequest.samplingRunId);await vi.waitFor(()=>expect(host.textContent).toContain('All 3 selected units'))

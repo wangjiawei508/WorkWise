@@ -112,7 +112,7 @@ describe('Survey continuous conversation capabilities', () => {
       expect(repository.planForTurn('survey-thread', 'execution-turn')?.status).toBe('started')
     })
     await orchestrator.startPlan(plan.id, { expectedRevision: approved.revision, contextHash: approved.contextHash, idempotencyKey: 'start-conversation-plan' })
-    expect((await orchestrator.conversationPolicy('survey-thread', projectId, 'execution-turn')).allowedToolNames).toEqual(['survey_read_context', 'survey_calculator'])
+    expect((await orchestrator.conversationPolicy('survey-thread', projectId, 'execution-turn')).allowedToolNames).toEqual(['survey_read_context', 'survey_read_evidence', 'survey_calculator'])
     expect((await orchestrator.conversationPolicy('survey-thread', projectId, 'next-question')).allowedToolNames).not.toContain('survey_calculator')
     expect(turns.startTurn).toHaveBeenCalledWith(expect.objectContaining({ engineeringExecution: true }))
   })

@@ -13,6 +13,8 @@ import i18n from '../../i18n'
 import { qualityScoringTestDeclaration } from '../../../../../kun/src/engineering/survey-quality-scoring-test-helpers'
 import { qualityScoringExample } from './survey-quality-scoring-examples'
 import { SurveyQualityScoringInputV1 } from '@shared/survey-quality-scoring'
+import { EngineeringEvidenceQuestions } from './EngineeringEvidenceQuestion'
+import { useEngineeringConversationDrafts } from './engineering-conversation-drafts'
 
 const response = (body: unknown) => ({ ok: true, status: 200, body: JSON.stringify(body) })
 const runtimeRequest = vi.fn()
@@ -71,6 +73,19 @@ beforeEach(async () => {
 afterEach(async () => { await act(async () => root.unmount()); host.remove(); service.close(); rmSync(dir, { recursive: true, force: true }); vi.restoreAllMocks(); vi.unstubAllGlobals() })
 
 describe('declared advanced model desktop workflow', () => {
+  it('prepares a node question from the selected saved score with no new calculation', async () => {
+    const selected = stored(input('unit')), focus = vi.fn()
+    useEngineeringConversationDrafts.setState({ drafts: {} })
+    await act(async () => root.render(createElement(EngineeringEvidenceQuestions, { scope: { workspace: binding.workspaceRoot, projectId: binding.projectId, projectRevision: binding.projectRevision, ready: true, focus }, children: createElement(SurveyQualityScoringWorkspace, { binding, runtimeReady: true }) })))
+    await click(button('Scoring record history'))
+    await click([...host.querySelectorAll('button')].find(item => item.textContent?.includes(selected.record.id))!); await loaded()
+    const row = selected.record.result.trace[0]!
+    runtimeRequest.mockClear(); await click(host.querySelector('tbody tr button')!)
+    expect(runtimeRequest).not.toHaveBeenCalled(); expect(saveWorkspaceFileAs).not.toHaveBeenCalled(); expect(focus).toHaveBeenCalledOnce()
+    expect(useEngineeringConversationDrafts.getState().drafts[JSON.stringify([binding.workspaceRoot, binding.projectId])]?.evidenceContext?.typedEvidence).toEqual({ schemaVersion: 1, projectId: binding.projectId, projectRevision: binding.projectRevision, kind: 'scoring', recordId: selected.record.id, recordHash: selected.record.recordHash, selector: { path: ['result', 'trace', 0], identity: { nodeId: row.nodeId, clause: row.clause } } })
+    await click(button('Scoring record history')); expect(host.querySelector('tbody tr button')).toBeNull()
+  })
+
   it('has complete Chinese and English messages for all displayed rules and static controls', () => {
     const components = ['SurveyQualityScoringWorkspace.tsx', 'SurveyQualityScoringResult.tsx'].map(name => readFileSync(join(process.cwd(), 'src/renderer/src/components/engineering', name), 'utf8')).join('\n')
     const rules = ['survey-quality-scoring.ts', 'survey-quality-scoring-rules.ts'].map(name => readFileSync(join(process.cwd(), 'kun/src/engineering', name), 'utf8')).join('\n')

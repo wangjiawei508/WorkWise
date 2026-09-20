@@ -14,6 +14,8 @@ import { qualityScoringExample } from './survey-quality-scoring-examples'
 import { QualityScoringResult } from './SurveyQualityScoringResult'
 import { getSurveyStandardBasisCatalog, resolveSurveyStandardBasis } from '../../../../../kun/src/engineering/survey-standard-basis'
 import i18n from '../../i18n'
+import { EngineeringEvidenceQuestions } from './EngineeringEvidenceQuestion'
+import { useEngineeringConversationDrafts } from './engineering-conversation-drafts'
 
 const hash = (value: unknown): string => createHash('sha256').update(JSON.stringify(value)).digest('hex')
 const localized = (zh: string, en: string) => ({ zh, en })
@@ -145,6 +147,17 @@ describe('result standard basis client', () => {
 })
 
 describe('accessible bilingual result standard basis', () => {
+  it('prepares a precise stored-record clause question without fetching or sending', async () => {
+    const focus = vi.fn(), parent = { kind: 'scoring' as const, recordId: 'selected-score', recordHash: 'c'.repeat(64) }
+    useEngineeringConversationDrafts.setState({ drafts: {} })
+    await act(async () => root.render(createElement(EngineeringEvidenceQuestions, { scope: { workspace: '/test', projectId: 'project', projectRevision: 2, ready: true, focus }, children: createElement(SurveyStandardBasis, { context, parent }) })))
+    await toggle(); await loaded(); runtimeRequest.mockClear()
+    await act(async () => (host.querySelector('button[aria-label*="6.2.4.1.1"]') as HTMLButtonElement).click())
+    expect(runtimeRequest).not.toHaveBeenCalled(); expect(openExternal).not.toHaveBeenCalled(); expect(focus).toHaveBeenCalledOnce()
+    expect(useEngineeringConversationDrafts.getState().drafts[JSON.stringify(['/test', 'project'])]?.evidenceContext?.typedEvidence).toEqual({ schemaVersion: 1, projectId: 'project', projectRevision: 2, kind: 'standard-basis', reference, ruleDigest: entry.ruleDigest, parent, selector: { path: ['entry', 'rule', 'locators', 0], identityPaths: [{ path: ['clauses', 0], equals: locator.clauses[0] }] } })
+    await toggle(false); expect(host.querySelector('button[aria-label*="6.2.4.1.1"]')).toBeNull()
+  })
+
   it.each([
     ['planar-control-point', [61, 62, 63, 60]],
     ['height-control-section', [64, 65, 66, 64]]

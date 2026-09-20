@@ -98,17 +98,22 @@ export function EngineeringComposer({ workspaceRoot, projectId, ready, threadId,
     if (!draft.input.trim() && !draft.attachments.length) return
     const text = draft.input.trim() || t('engineeringAttachmentOnlyPrompt')
     const context = draft.evidenceContext ?? draft.viewContext
-    const prompt = context ? `${text}\n\nSelected Survey evidence (reference IDs only, not execution approval; resolve current records before answering): ${JSON.stringify(context)}` : text
+    const prompt = context?.typedEvidence
+      ? `${text}\n\nSelected Survey evidence (reference only, not execution approval): ${JSON.stringify(context)}\nRead this exact typedEvidence using survey_read_evidence before answering. Do not substitute another record or execute a calculation. If unavailable or stale, report that limitation.`
+      : context ? `${text}\n\nSelected Survey evidence (reference IDs only, not execution approval; resolve current records before answering): ${JSON.stringify(context)}` : text
     const sent = await sendMessage(prompt, 'agent', {
       displayText: text,
       attachments: draft.attachments, attachmentIds: draft.attachments.map((item) => item.id),
       reasoningEffort: composerReasoningEffortRequestValue(effort)
     })
-    if (sent) update(scope, (value) => ({ ...value, input: value.input === draft.input ? '' : value.input, evidenceContext: value.evidenceContext === draft.evidenceContext ? undefined : value.evidenceContext, attachments: value.attachments.filter((item) => !draft.attachments.some((sentItem) => sentItem.id === item.id)), error: null }))
+    if (sent) update(scope, (value) => ({ ...value, input: value.input === draft.input ? '' : value.input, evidenceContext: value.evidenceContext === draft.evidenceContext ? undefined : value.evidenceContext, viewContext: draft.evidenceContext && value.viewContext === draft.evidenceContext ? undefined : value.viewContext, attachments: value.attachments.filter((item) => !draft.attachments.some((sentItem) => sentItem.id === item.id)), error: null }))
   }
 
   const selected = draft.evidenceContext
-  const evidenceLabel = selected?.observationId ?? selected?.pointId ?? selected?.diagnosticCode
+  const typed = selected?.typedEvidence
+  const typedIdentity = typed?.selector?.identity
+  const typedLabel = typedIdentity ? Object.values(typedIdentity).join(' / ') : typed ? Object.entries(typed).find(([key]) => ['trialId', 'recordId', 'comparisonId', 'analysisId', 'datasetId', 'populationId', 'runId', 'planId', 'attemptId', 'manifestId', 'networkId'].includes(key))?.[1] : undefined
+  const evidenceLabel = (typeof typedLabel === 'string' ? typedLabel : undefined) ?? selected?.observationId ?? selected?.pointId ?? selected?.diagnosticCode
     ?? selected?.outputPath?.split(/[\\/]/).pop() ?? selected?.manifestId
     ?? (selected?.metric === 'closure' ? t('surveyClosureReview') : selected?.metric === 'precision' ? t('surveyMaxPointError') : selected?.sourceRecordId)
 

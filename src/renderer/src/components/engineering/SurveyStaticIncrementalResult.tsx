@@ -1,6 +1,7 @@
 import type { ReactElement } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { SurveyStaticIncrementalOutputV1 } from '@shared/survey-advanced-trials'
+import { EngineeringEvidenceQuestion } from './EngineeringEvidenceQuestion'
 
 const cell = 'break-words border-b border-ds-border-muted px-2 py-2 text-left align-top'
 const scroll = 'max-h-96 max-w-full overflow-auto rounded border border-ds-border-muted focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent'
@@ -39,7 +40,7 @@ export function SurveyStaticIncrementalResult({ result }: { result: SurveyStatic
       <h5 className="font-medium">{t('advancedStaticSteps')}</h5>
       <div className={scroll} role="region" tabIndex={0} aria-label={t('advancedStaticSteps')}><table className="w-full text-[11px]">
         <thead><tr>{['advancedStaticObservation', 'advancedStaticTotal', 'advancedStaticResidual', 'advancedStaticResidualNorm', 'advancedStaticState'].map(key => <th className={cell} scope="col" key={key}>{t(key)}</th>)}</tr></thead>
-        <tbody>{result.steps.map(step => <tr key={step.observationId}><th className={cell} scope="row">{step.observationId}</th><td className={cell}>{step.totalObservationCount}</td><td className={cell}>{String(step.transformedResidual)}</td><td className={cell}>{String(step.accumulatedResidualNorm)}</td><td className={`${cell} max-w-72 break-all font-mono`}>{step.stateSha256}<details><summary className="cursor-pointer">{t('advancedStaticRotations')}</summary><p className="break-all">cos: {step.rotationCosines.map(String).join(', ')}</p><p className="break-all">sin: {step.rotationSines.map(String).join(', ')}</p></details></td></tr>)}</tbody>
+        <tbody>{result.steps.map((step, index) => <tr key={step.observationId}><th className={cell} scope="row">{step.observationId}<EngineeringEvidenceQuestion label={step.observationId} selector={{ path: ['result', 'steps', index], identity: { observationId: step.observationId } }} /></th><td className={cell}>{step.totalObservationCount}</td><td className={cell}>{String(step.transformedResidual)}</td><td className={cell}>{String(step.accumulatedResidualNorm)}</td><td className={`${cell} max-w-72 break-all font-mono`}>{step.stateSha256}<details><summary className="cursor-pointer">{t('advancedStaticRotations')}</summary><p className="break-all">cos: {step.rotationCosines.map(String).join(', ')}</p><p className="break-all">sin: {step.rotationSines.map(String).join(', ')}</p></details></td></tr>)}</tbody>
       </table></div>
       <p className="leading-5">{t('advancedStaticComparison', { parameters: String(result.batchCheck.maximumScaledParameterDifference), covariance: String(result.batchCheck.maximumScaledCovarianceDifference), sse: String(result.batchCheck.scaledSseDifference), tolerance: result.batchCheck.relativeTolerance })}</p>
       <p className="leading-5 text-ds-muted">{t('advancedStaticComparisonBoundary')}</p>

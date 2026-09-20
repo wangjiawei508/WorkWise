@@ -4,6 +4,7 @@ import { Calculator } from 'lucide-react'
 import type { MonitoringReplayVerificationV1 } from '@shared/engineering-verification'
 import { InvalidVerificationResponse } from './engineering-verification'
 import { monitoringReplayReasonKeys, parseMonitoringReplay } from './engineering-monitoring-replay'
+import { EngineeringEvidenceQuestion } from './EngineeringEvidenceQuestion'
 
 const statusKeys = {
   passed: 'monitoringReplayPassed', failed: 'monitoringReplayFailed',
@@ -62,6 +63,7 @@ export function EngineeringMonitoringReplay({ projectId, manifestId, reviewStatu
           {t(statusKeys[result.status])} · <time dateTime={result.checkedAt}>{new Date(result.checkedAt).toLocaleString(i18n.language)}</time>
         </p>
         <p>{t(monitoringReplayReasonKeys[result.reasonCode])}</p>
+        <EngineeringEvidenceQuestion label={result.attemptId} reference={{ kind: 'monitoring-replay', manifestId: result.manifestId, attemptId: result.attemptId, checkedAt: result.checkedAt }} />
         {result.analyses.length ? <ul className="space-y-1">{result.analyses.map(item => <li key={item.analysisId} className="break-words">
           <span className="break-all font-mono">{item.analysisId}</span>: {t(statusKeys[item.status])} · {t(monitoringReplayReasonKeys[item.reasonCode])}
         </li>)}</ul> : null}

@@ -8,6 +8,7 @@ import {
   type QualityScoringRecord, type QualityScoringSummary
 } from '../../agent/survey-quality-scoring-client'
 import { QualityScoringResult } from './SurveyQualityScoringResult'
+import { EngineeringEvidenceQuestion, EngineeringSelectedEvidence } from './EngineeringEvidenceQuestion'
 import { qualityScoringExample, type ScoringProfile } from './survey-quality-scoring-examples'
 import { parseQualityScoringJson } from '@shared/survey-quality-scoring'
 import { saveGeneratedWorkspaceFileAs } from '../../lib/generated-file-actions'
@@ -128,18 +129,18 @@ function QualityScoringSession({ binding, runtimeReady }: Props): ReactElement {
     {error ? <p role="alert" className="leading-5 text-amber-900 dark:text-amber-200">{t(errorKeys[error] ?? 'scoringFailed')}</p> : null}
     {ready && retry.current ? <button type="button" className={buttonClass} onClick={() => { if (retry.current) void execute(retry.current) }}>{t('scoringRetry')}</button> : null}
     {pendingSave.current && !busy ? <div className="space-y-2"><p className="leading-5 text-ds-muted">{t('scoringPending')}</p><div className="flex flex-wrap gap-2">{retry.current !== pendingSave.current ? <button type="button" className={buttonClass} disabled={!ready} onClick={() => { if (pendingSave.current) void execute(pendingSave.current) }}>{t('scoringRetrySave')}</button> : null}<button type="button" className={buttonClass} disabled={!ready} onClick={() => resetDraft()}>{t('scoringNewDraft')}</button></div></div> : null}
-    {record ? <div className="min-w-0 space-y-4 border-t border-ds-border-muted pt-4">
-      <h4 className="font-semibold">{t('scoringSavedRecord')}</h4><p className="break-all font-mono text-[11px]">{record.id} · {record.createdAt}</p>
+    {record ? <EngineeringSelectedEvidence reference={{ kind: 'scoring', recordId: record.id, recordHash: record.recordHash }}><div className="min-w-0 space-y-4 border-t border-ds-border-muted pt-4">
+      <h4 className="font-semibold">{t('scoringSavedRecord')}<EngineeringEvidenceQuestion label={t('scoringSavedRecord')} disabled={!ready} /></h4><p className="break-all font-mono text-[11px]">{record.id} · {record.createdAt}</p>
       <p className="font-medium leading-5">{t(record.declaration.productProfileId === 'planar-control-point' ? 'scoringPlanar' : 'scoringHeight')} · {t(`operations.${record.kind}`)} · {record.declaration.standardCode}</p>
       <p className="leading-5 text-ds-muted">{t('scoringVerified')}</p>
       <div className="flex flex-wrap gap-2"><button type="button" className={buttonClass} disabled={!ready} onClick={() => void execute({ kind: 'read', run: async stillCurrent => ({ record: await reverifyQualityScoring(binding, qualityScoringSummary(record), stillCurrent) }) })}>{t('scoringReverify')}</button><button type="button" className={buttonClass} disabled={!ready} onClick={() => exportRecord(record)}>{t('scoringExport')}</button></div>
       {view?.exportStatus ? <p role={view.exportStatus === 'failed' ? 'alert' : 'status'} className="break-all leading-5">{t(view.exportStatus === 'saved' ? 'scoringExportSaved' : view.exportStatus === 'cancelled' ? 'scoringExportCancelled' : 'scoringExportFailed', { path: view.exportPath })}</p> : null}
-      <h5 className="font-medium">{t('scoringBasis')}</h5><p className="whitespace-pre-wrap break-words leading-5">{record.modelBasisStatement}</p>
-      <QualityScoringResult result={record.result} />
+      <h5 className="font-medium">{t('scoringBasis')}<EngineeringEvidenceQuestion label={t('scoringBasis')} selector={{ path: ['modelBasisStatement'] }} disabled={!ready} /></h5><p className="whitespace-pre-wrap break-words leading-5">{record.modelBasisStatement}</p>
+      <QualityScoringResult result={record.result} evidence={{ kind: 'scoring', recordId: record.id, recordHash: record.recordHash }} runtimeReady={ready} />
       <details><summary className="cursor-pointer py-2">{t('scoringOriginalInput')}</summary><p className="mb-2 leading-5 text-ds-muted">{t('scoringNormalizationHint')}</p><pre className={preClass} tabIndex={0}>{record.declarationJson}</pre></details>
       <details><summary className="cursor-pointer py-2">{t('scoringNormalizedInput')}</summary><pre className={preClass} tabIndex={0}>{JSON.stringify(record.declaration, null, 2)}</pre></details>
       <details><summary className="cursor-pointer py-2">{t('scoringEvidence')}</summary><dl className="space-y-2 break-all text-[11px]">{(['algorithmVersion', 'requestSha256', 'declarationSha256', 'modelBasisSha256', 'modelHash', 'resultHash', 'recordHash', 'replayEnvironmentHash'] as const).map(key => <div key={key}><dt>{key}</dt><dd className="font-mono">{record[key]}</dd></div>)}</dl><pre className={`${preClass} mt-3`} tabIndex={0}>{record.requestJson}</pre><pre className={`${preClass} mt-3`} tabIndex={0}>{JSON.stringify(record.result, null, 2)}</pre></details>
-    </div> : null}
+    </div></EngineeringSelectedEvidence> : null}
     {page ? <section className="min-w-0 space-y-3 border-t border-ds-border-muted pt-4" aria-label={t('scoringHistory')}>
       <h4 className="font-semibold">{t('scoringHistory')}</h4>
       {!page.records.length && !page.unavailable.length ? <p>{t('scoringNoHistory')}</p> : null}

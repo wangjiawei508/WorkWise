@@ -5,6 +5,8 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import i18n from '../../i18n'
 import { EngineeringMonitoringReplay } from './EngineeringMonitoringReplay'
 import { parseMonitoringReplay } from './engineering-monitoring-replay'
+import { EngineeringEvidenceQuestions } from './EngineeringEvidenceQuestion'
+import { useEngineeringConversationDrafts } from './engineering-conversation-drafts'
 
 const hash = 'a'.repeat(64)
 const analysis = { analysisId: 'analysis_1', datasetId: 'dataset_1', algorithmVersion: 'workwise-engineering-2', inputHash: hash,
@@ -41,6 +43,17 @@ it('requests only the bound manifest and shows exact replay evidence in both lan
   await act(async () => { await i18n.changeLanguage('zh') })
   expect(host.textContent).toContain('监测数值一致')
   expect(host.textContent).toContain('原分析和成果保持不变')
+})
+
+it('prepares the persisted replay attempt without running another replay', async () => {
+  const focus = vi.fn()
+  useEngineeringConversationDrafts.setState({ drafts: {} })
+  request.mockResolvedValue({ replay: result })
+  await act(async () => root.render(createElement(EngineeringEvidenceQuestions, { scope: { workspace: '/survey', projectId: 'project', projectRevision: 1, ready: true, focus }, children: createElement(EngineeringMonitoringReplay, { projectId: 'project', manifestId: 'manifest', reviewStatus: 'draft', contextRevision: 1, runtimeReady: true, request }) })))
+  await click(); request.mockClear()
+  await act(async () => host.querySelector<HTMLButtonElement>('button[title]')!.click())
+  expect(useEngineeringConversationDrafts.getState().drafts[JSON.stringify(['/survey', 'project'])]!.evidenceContext!.typedEvidence).toEqual({ schemaVersion: 1, projectId: 'project', projectRevision: 1, kind: 'monitoring-replay', manifestId: result.manifestId, attemptId: result.attemptId, checkedAt: result.checkedAt })
+  expect(request).not.toHaveBeenCalled(); expect(focus).toHaveBeenCalledOnce()
 })
 
 it('keeps missing historical sources and unsupported algorithms unassessed, never passed', async () => {

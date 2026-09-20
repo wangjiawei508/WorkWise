@@ -8,6 +8,8 @@ import {
   type QualityBinding, type QualityPlan, type QualityRecord
 } from '../../agent/survey-quality-client'
 import i18n from '../../i18n'
+import { EngineeringEvidenceQuestions } from './EngineeringEvidenceQuestion'
+import { useEngineeringConversationDrafts } from './engineering-conversation-drafts'
 
 const hash = (value: string) => value.repeat(64)
 const createdAt = '2026-09-20T00:00:00.000Z'
@@ -73,6 +75,18 @@ beforeEach(async () => {
 afterEach(async () => { await act(async () => root.unmount()); host.remove(); vi.restoreAllMocks() })
 
 describe('quality retention desktop workspace', () => {
+  it('binds material checks and audit questions to the exact verified record head without writes', async () => {
+    const focus = vi.fn()
+    useEngineeringConversationDrafts.setState({ drafts: {} })
+    await act(async () => root.render(createElement(EngineeringEvidenceQuestions, { scope: { workspace: '/test', projectId: 'project', projectRevision: 2, ready: true, focus }, children: createElement(SurveyQualityWorkspace, { binding, runtimeReady: true }) })))
+    await open(); await freeze(); await createRecord(); await click(button('Record bundle byte check'))
+    const question = host.querySelector('button[aria-label*="event-1"]') as HTMLButtonElement
+    runtimeRequest.mockClear(); await click(question)
+    expect(runtimeRequest).not.toHaveBeenCalled(); expect(focus).toHaveBeenCalledOnce()
+    expect(useEngineeringConversationDrafts.getState().drafts[JSON.stringify(['/test', 'project'])]?.evidenceContext?.typedEvidence).toEqual({ schemaVersion: 1, projectId: 'project', projectRevision: 2, kind: 'retention-record', recordId: storedRecord.record.id, planHash: storedRecord.record.planHash, headHash: storedRecord.verification.headHash, selector: { path: ['events', 0], identity: { id: 'event-1', sequence: 1, thisHash: storedRecord.verification.headHash } } })
+    await click(button('Read plan history')); expect(host.querySelector('button[aria-label*="event-1"]')).toBeNull()
+  })
+
   it('requires explicit freeze and individual checks, binds each material to its member, and never labels retention as approval', async () => {
     await render(); expect(runtimeRequest).not.toHaveBeenCalled()
     await open(); expect(runtimeRequest).not.toHaveBeenCalled()

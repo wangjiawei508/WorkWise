@@ -1,8 +1,10 @@
 import { create } from 'zustand'
 import type { AttachmentReference } from '../../agent/types'
 import type { ComposerReasoningEffort } from '../chat/FloatingComposerModelPicker'
+import type { SurveyEvidenceReferenceV1 } from '@shared/survey-evidence-reference'
 
 export type EngineeringEvidenceReference = {
+  typedEvidence?: SurveyEvidenceReferenceV1
   projectId?: string
   projectRevision?: number
   section: string

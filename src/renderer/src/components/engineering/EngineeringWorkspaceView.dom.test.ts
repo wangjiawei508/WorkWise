@@ -112,9 +112,26 @@ describe('Survey delivery without a monitoring dataset', () => {
     expect(document.activeElement?.getAttribute('data-evidence-key')).toBe(JSON.stringify(['finding', 'finding-25']))
     expect(container.querySelector('[data-testid="engineering-persistent-chat"]')).toBe(chat)
     expect(request).not.toHaveBeenCalled()
+    await act(async () => container.querySelector<HTMLButtonElement>(`[aria-label="${i18n.t('surveyAskEvidence', { label: 'finding-25' })}"]`)!.click())
+    expect(useEngineeringConversationDrafts.getState().drafts[JSON.stringify(['/test', 'job'])]!.evidenceContext!.typedEvidence).toEqual({ schemaVersion: 1, projectId: 'job', projectRevision: 2, kind: 'monitoring-dataset', datasetId: 'data', datasetRevision: 4, sourceFileHash: sha, selector: { path: ['findings', 0], identity: { id: 'finding-25' } } })
+    expect(request).not.toHaveBeenCalled()
     navigationFixture.target = { ...(navigationFixture.target as object), datasetRevision: 3 }
     await act(async () => button('Locate exact test evidence').click())
     expect(container.textContent).toContain(i18n.t('engineeringEvidenceUnavailable'))
+  })
+
+  it('selects the exact monitoring result row without starting a new analysis', async () => {
+    const hash = 'a'.repeat(64), inputHash = 'b'.repeat(64)
+    datasets = [{ id: 'data', sourceFileName: 'source.csv', sourceFileHash: hash, fieldMapping: {}, unknownColumns: [], rowCount: 2, columnCount: 2, observationCount: 2, timeRange: {}, status: 'validated', revision: 4, findings: [], updatedAt: project.updatedAt }]
+    analyses = [{ id: 'analysis', datasetId: 'data', algorithmVersion: 'workwise-engineering-2', inputHash, results: [{ monitoringItem: 'settlement', point: 'P-2', currentValue: 1, cumulativeChange: 1, changeRate: 1, trend: 'stable', anomaly: false, thresholdStatus: 'normal' }] }]
+    await renderDelivery()
+    navigationFixture.target = { kind: 'analysis', workspaceRoot: '/test', projectId: 'job', projectRevision: 2, analysisId: 'analysis', datasetId: 'data', inputHash, algorithmVersion: 'workwise-engineering-2' }
+    await act(async () => button('Locate exact test evidence').click())
+    request.mockClear()
+    const ask = container.querySelector<HTMLButtonElement>(`[aria-label="${i18n.t('surveyAskEvidence', { label: 'settlement / P-2' })}"]`)!
+    expect(ask).not.toBeNull(); await act(async () => ask.click())
+    expect(useEngineeringConversationDrafts.getState().drafts[JSON.stringify(['/test', 'job'])]!.evidenceContext!.typedEvidence).toEqual({ schemaVersion: 1, projectId: 'job', projectRevision: 2, kind: 'monitoring-analysis', analysisId: 'analysis', datasetId: 'data', inputHash, algorithmVersion: 'workwise-engineering-2', selector: { path: ['results', 0], identity: { monitoringItem: 'settlement', point: 'P-2' } } })
+    expect(request).not.toHaveBeenCalled()
   })
 
   it('opens a non-latest manifest output by exact digest and path', async () => {

@@ -1,5 +1,28 @@
 ## ADDED Requirements
 
+### Requirement: Exact recorded evidence questions
+
+The Engineering UI MUST prepare scoped question drafts from the selected recorded evidence across existing Survey, quality and monitoring result surfaces. It MUST preserve an existing question and attachments, retain legacy reference compatibility, and MUST NOT send a model request, execute a calculation or mutate Runtime records merely when preparing the question. The model MUST have a bounded read-only tool that verifies the exact requested record against its project, workspace, revision, version and hashes using the corresponding strict record reader. A selected row MUST be bound by its actual identity or immutable coordinates within the hashed result, not only its current display position. Failed, stale, cross-project, unsupported or oversized evidence MUST be explicit and MUST NOT be replaced with the latest result or silently truncated as complete evidence.
+
+#### Scenario: Ask about a selected historical result
+
+- **WHEN** the user selects a recorded result or row while another result is currently selected elsewhere
+- **THEN** the prepared question binds the clicked record's actual identities and hashes
+- **AND** no unrelated adjustment, epoch, quality record or monitoring point is inherited
+- **AND** existing question text and attachments remain present until explicit sending succeeds
+
+#### Scenario: Read back stale or incorrect evidence
+
+- **WHEN** an explicitly sent reference names the wrong project, revision, hash or selected row identity
+- **THEN** the read-only tool reports the binding failure without returning another record
+- **AND** no calculation, verification attempt, report or approval is created
+
+#### Scenario: Bound a large result
+
+- **WHEN** the requested record or selection exceeds the supported evidence output budget
+- **THEN** the tool reports that a more specific supported selection is required
+- **AND** it does not present a truncated result as a complete record
+
 ### Requirement: AI-first engineering sessions
 
 The Runtime and renderer MUST provide one primary Engineering AI thread per `workspace + project`, using the existing thread persistence, ChatState, SSE, attachment, and message restoration path. Engineering views MUST filter by `domain=engineering` and exact `projectId`; Code, Write, Design, Flow, and IM threads MUST NOT appear in the Engineering list or receive Engineering context.

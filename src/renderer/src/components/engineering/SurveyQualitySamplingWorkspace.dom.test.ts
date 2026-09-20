@@ -10,6 +10,8 @@ import {
 } from '../../agent/survey-quality-sampling-client'
 import { GBT24356_SAMPLING_SOURCE } from '../../../../../kun/src/engineering/survey-quality-sampling'
 import i18n from '../../i18n'
+import { EngineeringEvidenceQuestions } from './EngineeringEvidenceQuestion'
+import { useEngineeringConversationDrafts } from './engineering-conversation-drafts'
 
 const hash = (char: string): string => char.repeat(64)
 const binding: SamplingBinding = { projectId: 'project', projectRevision: 2, workspaceRoot: '/test' }
@@ -102,6 +104,19 @@ beforeEach(async () => {
 afterEach(async () => { await act(async () => root.unmount()); host.remove(); vi.restoreAllMocks() })
 
 describe('quality sampling desktop workspace', () => {
+  it('binds questions to the loaded run and paged sample identity without a runtime request', async () => {
+    const focus = vi.fn()
+    useEngineeringConversationDrafts.setState({ drafts: {} })
+    await act(async () => root.render(createElement(EngineeringEvidenceQuestions, { scope: { workspace: '/test', projectId: 'project', projectRevision: 2, ready: true, focus }, children: createElement(SurveyQualitySamplingWorkspace, { binding, runtimeReady: true }) })))
+    await open(); await freeze(); await choose(); await click(button('Execute first-round selection')); await click(button('Read selected samples')); await click(button('Next page'))
+    const question = host.querySelector('li button[aria-label*="unit-051"]') as HTMLButtonElement
+    expect(question).not.toBeNull(); runtimeRequest.mockClear(); await click(question)
+    expect(runtimeRequest).not.toHaveBeenCalled(); expect(focus).toHaveBeenCalledOnce()
+    expect(useEngineeringConversationDrafts.getState().drafts[JSON.stringify(['/test', 'project'])]?.evidenceContext?.typedEvidence).toEqual({ schemaVersion: 1, projectId: 'project', projectRevision: 2, kind: 'sampling-run', runId: run.id, runHash: run.runHash, planHash: run.planHash, sampleIndex: 50, unitId: units[50] })
+    await click(button('Read sampling history'))
+    expect(host.querySelector('button[aria-label*="unit-051"]')).toBeNull()
+  })
+
   it('requires an explicit population declaration and separate stage/mode confirmation, with no supplied seed or inferred units', async () => {
     await render(); await open(); expect(runtimeRequest).not.toHaveBeenCalled()
     expect(button('Freeze unit product population').disabled).toBe(true)
