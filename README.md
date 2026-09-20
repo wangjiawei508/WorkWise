@@ -47,7 +47,7 @@ AI 会话跨阶段保留，计算与导出计划先展示具体参数再确认�
 
 当前桌面和 Runtime 默认使用 DeepSeek V4.1-Flash，正式模型 ID 为 `deepseek-flash`。已经保存的显式模型选择保持不变。
 
-`281dc87` 候选已包含该默认模型；后续 `auto` 路由修复属于更新源码，不在本页截图对应包内。真实模型回答和官方搜索的网络验收尚未完成。
+`281dc87` 候选已包含该默认模型；后续 `auto` 路由修复属于更新源码，不在本页截图对应包内。官方服务的最小真实文本请求已通过，完整安装包 AI 流程仍待验收。V4.1 的 Responses 接口不支持内置 `web_search`；搜索需要独立浏览器或 MCP 等工具，不能把普通模型回答当成联网结果。详见[真实服务核验](./docs/qa/evidence/railwise-v41-live-20260920/README.md)。
 
 - **安装后直接配置 DeepSeek**：首次启动的模型配置只提供 DeepSeek API Key 和可选服务地址，不需要先理解或切换服务商；完成一次配置后，对话、写作和手机连接即可共用。没有 API Key 时仍可先使用本地写作和导出。
 - **统一默认模型**：0.5.0 的主 Agent、Write、定时任务和其他 Agent 默认使用官方模型 ID `deepseek-flash`（DeepSeek V4.1-Flash）；`deepseek-v4-pro` 仍可显式选择，旧 Flash ID 仅为迁移兼容保留。

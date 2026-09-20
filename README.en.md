@@ -46,6 +46,8 @@ See the [engineering survey workbench overview](./docs/ENGINEERING_SURVEY_WORKBE
 
 ## Candidate UI preview
 
+The default `deepseek-flash` model completed a minimal live request through the product adapter. Full packaged AI workflows still require acceptance. Its Responses endpoint ignores built-in `web_search`; browsing or another configured search tool is required. See the [live service checks and capability correction](./docs/qa/evidence/railwise-v41-live-20260920/README.md).
+
 These Chinese light-theme screenshots of installed candidate `281dc87` show adjustment results, deliverables and model settings for a synthetic plane-control network: four points, one station and five observations. Original image hashes and package identity are in the [screenshot manifest](./website/products/screenshots/workwise/candidate-screenshots.json). This package passed signing/notarization and a real private updater round trip, with [bounded installed quality-linkage checks](./docs/qa/evidence/railwise-convergence-281dc8767250/README.md). Overall acceptance remains partial: live-model responses, complete UI coverage, professional review and personal user confirmation remain outstanding. The released 0.5.0 installers are unchanged.
 
 ![RAILWISE Survey candidate with synthetic data](./website/products/screenshots/workwise/04-survey-candidate-zh-light.jpg)

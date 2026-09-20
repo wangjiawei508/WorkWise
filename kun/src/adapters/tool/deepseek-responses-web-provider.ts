@@ -91,9 +91,11 @@ export function isDeepSeekResponsesWebSearchConfig(input: {
   apiKey: string
   model: string
 }): boolean {
+  // V4.1 accepts Responses but ignores built-in web_search; keep this adapter
+  // restricted to the historical V4 model IDs instead of advertising a no-op.
   return officialDeepSeekResponsesOrigin(input.baseUrl) != null &&
     Boolean(input.apiKey.trim()) &&
-    /^(?:[^/]+\/)?deepseek-(?:flash|v4-(?:pro|flash))$/i.test(input.model.trim())
+    /^(?:[^/]+\/)?deepseek-v4-(?:pro|flash)$/i.test(input.model.trim())
 }
 
 function deepSeekResponsesUrl(baseUrl: string): string {

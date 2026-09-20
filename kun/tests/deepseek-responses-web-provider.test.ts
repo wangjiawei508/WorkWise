@@ -14,7 +14,7 @@ function request() {
 }
 
 describe('DeepSeek Responses web provider', () => {
-  it.each(['deepseek-flash', 'deepseek-v4-flash', 'deepseek-v4-pro'])('uses the official Responses web_search tool with %s and parses URL citations', async model => {
+  it.each(['deepseek-v4-flash', 'deepseek-v4-pro'])('uses the legacy Responses web_search tool with %s and parses URL citations', async model => {
     const fetchImpl = vi.fn(async (_url: string | URL | Request, _init?: RequestInit) => new Response(JSON.stringify({
       id: 'resp_1',
       status: 'completed',
@@ -64,6 +64,8 @@ describe('DeepSeek Responses web provider', () => {
   credentialUrl.password = 'test-only'
 
   it.each([
+    { baseUrl: 'https://api.deepseek.com', apiKey: 'sk-test', model: 'deepseek-flash' },
+    { baseUrl: 'https://api.deepseek.com', apiKey: 'sk-test', model: 'deepseek/deepseek-flash' },
     { baseUrl: 'https://third-party.example/v1', apiKey: 'sk-test', model: 'deepseek-flash' },
     { baseUrl: 'https://api.deepseek.com.attacker.example', apiKey: 'sk-test', model: 'deepseek-flash' },
     { baseUrl: 'http://api.deepseek.com', apiKey: 'sk-test', model: 'deepseek-flash' },

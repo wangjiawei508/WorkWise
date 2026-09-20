@@ -215,7 +215,7 @@ function png(width: number, height: number): Buffer {
 
 
 describe('runtime factory official Responses search wiring', () => {
-  it.each(['deepseek-flash', 'deepseek-v4-flash', 'deepseek-v4-pro'])('registers and executes official search for %s with the unchanged model ID', async model => {
+  it.each(['deepseek-v4-flash', 'deepseek-v4-pro'])('registers and executes legacy official search for %s with the unchanged model ID', async model => {
     const dataDir = await mkdtemp(join(tmpdir(), 'kun-runtime-search-'))
     const fetchImpl = vi.fn(async () => new Response(JSON.stringify({ output: [{ type: 'message', status: 'completed', content: [{
       type: 'output_text', text: 'Synthetic cited search result', annotations: [{ type: 'url_citation', url: 'https://example.com/source', title: 'Source' }]
@@ -246,6 +246,7 @@ describe('runtime factory official Responses search wiring', () => {
     }
   })
   it.each([
+    { baseUrl: 'https://api.deepseek.com', apiKey: 'synthetic-key', model: 'deepseek-flash' },
     { baseUrl: 'https://third-party.example/v1', apiKey: 'synthetic-key', model: 'deepseek-flash' },
     { baseUrl: 'http://api.deepseek.com', apiKey: 'synthetic-key', model: 'deepseek-flash' },
     { baseUrl: 'https://api.deepseek.com', apiKey: ' ', model: 'deepseek-flash' },
@@ -262,6 +263,12 @@ describe('runtime factory official Responses search wiring', () => {
         capabilities: KunCapabilitiesConfig.parse({ web: { enabled: true, searchEnabled: true, fetchEnabled: false } })
       })
       expect((await runtime.toolDiagnostics?.())?.webProviders).toEqual([expect.objectContaining({ searchAvailable: false })])
+      const result = await runtime.toolHost!.execute({ callId: 'unsupported-search', toolName: 'web_search', arguments: { query: 'synthetic query' } }, {
+        threadId: 'search-thread', turnId: 'search-turn', workspace: dataDir, approvalPolicy: 'on-request', sandboxMode: 'workspace-write',
+        abortSignal: new AbortController().signal, awaitApproval: async () => 'allow'
+      })
+      expect(result.item).toMatchObject({ kind: 'tool_result', isError: true })
+      expect(JSON.stringify(result.item)).toContain('provider_unavailable')
       expect(fetchImpl).not.toHaveBeenCalled()
     } finally {
       await runtime?.shutdown?.(); vi.unstubAllGlobals(); await rm(dataDir, { recursive: true, force: true })
