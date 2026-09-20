@@ -10,10 +10,12 @@ import type { SurveySourceEligibility } from './survey-service.js'
 import { makeReportPdf } from './engineering-report-pdf.js'
 import { monitoringTrendInstant, renderMonitoringTrendChart } from './engineering-trend-chart.js'
 import { EngineeringVerificationAudit, EngineeringVerificationAuditError } from './engineering-verification-audit.js'
+import { calculateMonitoringAnalysisV2 } from './monitoring-analysis.js'
+import { MonitoringReplayAudit } from './monitoring-replay-audit.js'
 import {
   AnalysisRequest, ChartArtifactV1, ChartRequest, DatasetImportRequest, DatasetValidateRequest, ENGINEERING_TREND_RENDERER_VERSION, ENGINEERING_ANALYSIS_ALGORITHM_VERSION,
   DeliverableManifestV1, DeliverableVerificationV1, EngineeringProjectCreateRequest, EngineeringProjectUpdateRequest, AcceptQualityFindingRequest, FieldMappingV1, FinalizeDeliverableRequest,
-  KnowledgeCitationV1, MonitoringAnalysisV1, MonitoringDatasetV1, MonitoringObservationV1,
+  KnowledgeCitationV1, MonitoringAnalysisV1, MonitoringDatasetV1, MonitoringObservationV1, MonitoringReplayVerificationV1,
   QualityFindingV1, RailwiseProjectV1, inferEngineeringTaskType, ReportPreviewRequest, RunMutationRequest, SurveySourceEvidenceV1
 } from '../contracts/engineering.js'
 import { AdjustmentResultV1, DeformationComparisonV1, type AdjustmentRunV1, type SurveyNetworkV1, type SurveyObservationV1, type SurveyPointV1, type SurveySourceFileV1 } from '../contracts/survey.js'
@@ -219,6 +221,7 @@ function analysisInputHash(project: RailwiseProjectV1, dataset: Pick<StoredDatas
 export class EngineeringService {
   private readonly db: Database.Database
   private readonly verificationAudit: EngineeringVerificationAudit
+  private readonly monitoringReplayAudit: MonitoringReplayAudit
   private readonly nowIso: () => string
   private readonly idempotencyLocks = new Map<string, Promise<void>>()
   private readonly pendingMetadataWrites = new Set<Promise<void>>()
@@ -255,6 +258,14 @@ export class EngineeringService {
         created_at TEXT NOT NULL
       );`)
     this.verificationAudit = new EngineeringVerificationAudit(this.db, this.nowIso)
+    this.monitoringReplayAudit = new MonitoringReplayAudit(this.db, this.nowIso)
+    this.db.exec(`CREATE TABLE IF NOT EXISTS engineering_monitoring_sources (
+      dataset_id TEXT PRIMARY KEY, project_id TEXT NOT NULL, source_hash TEXT NOT NULL, source_bytes BLOB NOT NULL,
+      context_json TEXT NOT NULL, context_hash TEXT NOT NULL);
+      CREATE TRIGGER IF NOT EXISTS monitoring_sources_no_update BEFORE UPDATE ON engineering_monitoring_sources BEGIN SELECT RAISE(ABORT, 'monitoring source is append-only'); END;
+      CREATE TRIGGER IF NOT EXISTS monitoring_sources_no_delete BEFORE DELETE ON engineering_monitoring_sources BEGIN SELECT RAISE(ABORT, 'monitoring source is append-only'); END;
+      CREATE TRIGGER IF NOT EXISTS monitoring_sources_no_replace BEFORE INSERT ON engineering_monitoring_sources
+      WHEN EXISTS(SELECT 1 FROM engineering_monitoring_sources WHERE dataset_id=NEW.dataset_id) BEGIN SELECT RAISE(ABORT, 'monitoring source is append-only'); END;`)
   }
   close(): void { this.db.close() }
 
@@ -336,6 +347,7 @@ export class EngineeringService {
         const content = await this.options.attachmentStore.resolveContent(req.attachmentId, { workspace: project.workspace })
         bytes = content.data; name = content.name
       } else bytes = Buffer.from(req.dataBase64!, 'base64')
+      if (bytes.length > 32 * 1024 * 1024) throw new Error('monitoring source exceeds 32 MiB limit')
       const sourceFileHash = createHash('sha256').update(bytes).digest('hex')
       const rows = await parseTabular(name, bytes, req.fieldMapping)
       const mapping = FieldMappingV1.parse({ ...inferMapping(rows[0] ?? {}), ...(req.fieldMapping ?? {}) })
@@ -343,7 +355,13 @@ export class EngineeringService {
       const now = this.nowIso(); const id = `dataset_${randomUUID()}`
       const dataset = { schemaVersion: 1 as const, id, projectId: project.id, sourceAttachmentId: req.attachmentId, sourceFileName: name, sourceFileHash, fieldMapping: mapping, unknownColumns: normalized.unknownColumns, rowCount: rows.length, columnCount: normalized.columnCount, observationCount: normalized.observations.length, timeRange: normalized.timeRange, status: 'imported' as const, revision: 1, createdAt: now, updatedAt: now, observations: normalized.observations.map((observation) => ({ ...observation, datasetId: id })), findings: normalized.findings.map((finding) => ({ ...finding, datasetId: id })) }
       const parsed = validateStoredDataset(dataset)
-      this.db.prepare('INSERT INTO engineering_datasets(id, project_id, revision, data_json, updated_at) VALUES (?, ?, ?, ?, ?)').run(id, project.id, 1, JSON.stringify(parsed), now)
+      const sourceContext = JSON.stringify({ datasetId: id, project, requestedMapping: req.fieldMapping ?? null, fieldMapping: mapping, sourceFileName: name, sourceFileHash })
+      if (Buffer.byteLength(sourceContext) > 256 * 1024) throw new Error('monitoring source context exceeds 256 KiB limit')
+      this.db.transaction(() => {
+        this.db.prepare('INSERT INTO engineering_datasets(id, project_id, revision, data_json, updated_at) VALUES (?, ?, ?, ?, ?)').run(id, project.id, 1, JSON.stringify(parsed), now)
+        this.db.prepare('INSERT INTO engineering_monitoring_sources(dataset_id,project_id,source_hash,source_bytes,context_json,context_hash) VALUES(?,?,?,?,?,?)')
+          .run(id, project.id, sourceFileHash, bytes, sourceContext, createHash('sha256').update(sourceContext).digest('hex'))
+      }).immediate()
       await this.persistMetadata(project.workspace, 'datasets', parsed.id, parsed)
       this.remember(req.idempotencyKey, parsed)
       return parsed
@@ -397,18 +415,7 @@ export class EngineeringService {
       this.remember(req.idempotencyKey, cached)
       return cached
     }
-    const instants = new Map(dataset.observations.map(observation => [observation.id, monitoringTrendInstant(observation.timestamp).instant]))
-    const grouped = new Map<string, MonitoringObservationV1[]>()
-    for (const observation of dataset.observations) { const key = JSON.stringify([observation.monitoringItem, observation.point]); const list = grouped.get(key) ?? []; list.push(observation); grouped.set(key, list) }
-    const results = [...grouped.values()].map((items) => {
-      items.sort((a, b) => instants.get(a.id)! - instants.get(b.id)! || a.id.localeCompare(b.id)); const current = items.at(-1); const previous = items.at(-2); const first = items[0]
-      const change = current && first && current !== first ? (current.cumulative ?? current.value) - (first.cumulative ?? first.value) : undefined; const intervalDays = current && previous ? (instants.get(current.id)! - instants.get(previous.id)!) / 86_400_000 : undefined; const rate = current && previous && Number.isFinite(intervalDays) && intervalDays! > 0 ? (current.value - previous.value) / intervalDays! : undefined
-      const trend = change === undefined ? 'unknown' : Math.abs(change) < 1e-9 ? 'stable' : change > 0 ? 'rising' : 'falling'
-      const threshold = project.thresholds[current?.monitoringItem ?? ''] ?? project.thresholds.default
-      const magnitude = Math.abs(current?.value ?? 0)
-      const thresholdStatus = threshold === undefined ? 'unresolved' : magnitude >= threshold ? 'alarm' : magnitude >= threshold * 0.8 ? 'warning' : 'normal'
-      return { monitoringItem: current?.monitoringItem ?? items[0].monitoringItem, point: current?.point ?? items[0].point, currentValue: current?.value, previousValue: previous?.value, cumulativeChange: change, changeRate: rate, trend, anomaly: Math.abs(change ?? 0) > (threshold ?? Number.POSITIVE_INFINITY), thresholdStatus }
-    })
+    const results = calculateMonitoringAnalysisV2(project, dataset.observations)
     const analysis = MonitoringAnalysisV1.parse({ schemaVersion: 1, id: `analysis_${randomUUID()}`, projectId: project.id, datasetId: dataset.id, inputHash, algorithmVersion: ENGINEERING_ANALYSIS_ALGORITHM_VERSION, results, createdAt: this.nowIso() })
     this.db.prepare('INSERT INTO engineering_analyses(id, project_id, dataset_id, data_json, created_at) VALUES (?, ?, ?, ?, ?)').run(analysis.id, project.id, dataset.id, JSON.stringify(analysis), analysis.createdAt)
     this.remember(req.idempotencyKey, analysis); return analysis
@@ -577,6 +584,115 @@ export class EngineeringService {
         throw error
       }
     })
+  }
+
+  /** A separate numerical audit; never writes old verification or analysis records. */
+  async replayMonitoringDeliverable(projectId: string, manifestId: string): Promise<MonitoringReplayVerificationV1> {
+    const attempt = this.monitoringReplayAudit.begin(projectId, manifestId)
+    const execution = { runtimeVersion: this.options.runtimeVersion ?? 'unknown', node: process.versions.node, v8: process.versions.v8,
+      icu: process.versions.icu ?? 'unknown', platform: process.platform, arch: process.arch,
+      timezone: Intl.DateTimeFormat().resolvedOptions().timeZone, locale: Intl.DateTimeFormat().resolvedOptions().locale, timeBasis: 'ISO-unzoned-UTC' as const }
+    const analyses: MonitoringReplayVerificationV1['analyses'] = []
+    let status: MonitoringReplayVerificationV1['status'] = 'failed'
+    let reasonCode: MonitoringReplayVerificationV1['reasonCode'] = 'prerequisite-failed'
+    try {
+      const before = this.monitoringReplayBindings(projectId, manifestId)
+      if (!before.complete || !this.checkDeliverable(projectId, manifestId).valid) throw new Error('prerequisite failed')
+      const manifestRow = this.db.prepare('SELECT data_json FROM engineering_manifests WHERE id=? AND project_id=?').get(manifestId, projectId) as { data_json: string }
+      const manifest = DeliverableManifestV1.parse(JSON.parse(manifestRow.data_json))
+      if (!manifest.analyses.length) { status = 'not-applicable'; reasonCode = 'no-monitoring-analysis' }
+      else {
+        if (manifest.analyses.length !== 1 || manifest.inputDatasets.length !== 1) throw new Error('invalid monitoring bindings')
+        const project = this.mustProject(projectId), analysis = this.getAnalysis(manifest.analyses[0]!)!
+        const dataset = this.mustDataset(manifest.inputDatasets[0]!.id)
+        this.assertAnalysisCurrent(project, dataset, analysis)
+        const digest = (value: unknown): string => createHash('sha256').update(canonicalDeliveryJson(value)).digest('hex')
+        const evidence: MonitoringReplayVerificationV1['analyses'][number] = { analysisId: analysis.id, datasetId: dataset.id,
+          algorithmVersion: analysis.algorithmVersion, inputHash: analysis.inputHash, storedResultsHash: digest(analysis.results), status: 'failed', reasonCode: 'prerequisite-failed' }
+        analyses.push(evidence)
+        const setOutcome = (nextStatus: MonitoringReplayVerificationV1['status'], nextReason: MonitoringReplayVerificationV1['reasonCode']): void => {
+          status = nextStatus; reasonCode = nextReason; evidence.status = nextStatus; evidence.reasonCode = nextReason
+        }
+        if (analysis.algorithmVersion !== ENGINEERING_ANALYSIS_ALGORITHM_VERSION) setOutcome('not-evaluated', 'unsupported-algorithm')
+        else if (dataset.observations.length > 20000) setOutcome('not-evaluated', 'resource-limit')
+        else {
+          const sourceSize = this.db.prepare('SELECT length(source_bytes) AS bytes, length(CAST(context_json AS BLOB)) AS contextBytes FROM engineering_monitoring_sources WHERE dataset_id=? AND project_id=?').get(dataset.id, projectId) as { bytes: number; contextBytes: number } | undefined
+          if (!sourceSize) setOutcome('not-evaluated', 'source-unavailable')
+          else if (sourceSize.bytes > 32 * 1024 * 1024 || sourceSize.contextBytes > 256 * 1024) setOutcome('not-evaluated', 'resource-limit')
+          else {
+            const readSource = (): { dataset_id: string; project_id: string; source_hash: string; source_bytes: Buffer; context_json: string; context_hash: string } => {
+              const size = this.db.prepare('SELECT length(source_bytes) AS bytes, length(CAST(context_json AS BLOB)) AS contextBytes FROM engineering_monitoring_sources WHERE dataset_id=? AND project_id=?').get(dataset.id, projectId) as { bytes: number; contextBytes: number } | undefined
+              if (!size || size.bytes > 32 * 1024 * 1024 || size.contextBytes > 256 * 1024) throw new Error('source size changed')
+              const row = this.db.prepare('SELECT * FROM engineering_monitoring_sources WHERE dataset_id=? AND project_id=?').get(dataset.id, projectId) as { dataset_id: string; project_id: string; source_hash: string; source_bytes: Buffer; context_json: string; context_hash: string } | undefined
+              if (!row || row.dataset_id !== dataset.id || row.project_id !== projectId || row.source_hash !== dataset.sourceFileHash
+                || createHash('sha256').update(row.source_bytes).digest('hex') !== row.source_hash
+                || createHash('sha256').update(row.context_json).digest('hex') !== row.context_hash) throw new Error('source mismatch')
+              return row
+            }
+            try {
+              const source = readSource()
+              const context = JSON.parse(source.context_json) as { datasetId: string; project: unknown; requestedMapping: unknown; fieldMapping: unknown; sourceFileName: string; sourceFileHash: string }
+              const importProject = RailwiseProjectV1.parse(context.project), mapping = FieldMappingV1.parse(context.fieldMapping)
+              const requestedMapping = context.requestedMapping === null ? undefined : FieldMappingV1.parse(context.requestedMapping)
+              if (context.datasetId !== dataset.id || importProject.id !== projectId || context.sourceFileName !== dataset.sourceFileName
+                || context.sourceFileHash !== dataset.sourceFileHash || canonicalDeliveryJson(mapping) !== canonicalDeliveryJson(dataset.fieldMapping)) throw new Error('source context mismatch')
+              evidence.sourceFileHash = source.source_hash; evidence.sourceContextHash = source.context_hash
+              const rows = await parseTabular(context.sourceFileName, source.source_bytes, requestedMapping)
+              const normalized = normalizeRows(rows, mapping, importProject, source.source_hash)
+              const original = normalized.observations.map(observation => ({ ...observation, datasetId: dataset.id }))
+              if (rows.length !== dataset.rowCount || original.length !== dataset.observationCount
+                || canonicalDeliveryJson(original) !== canonicalDeliveryJson(dataset.observations)) throw new Error('source observations mismatch')
+              // Historical analyses did not record collator options. Even ASCII
+              // IDs can sort differently with numeric collation, so do not guess ties.
+              const ties = new Set<string>()
+              let ambiguous = false
+              for (const observation of original) {
+                const key = JSON.stringify([observation.monitoringItem, observation.point, monitoringTrendInstant(observation.timestamp).instant])
+                if (ties.has(key)) ambiguous = true
+                ties.add(key)
+              }
+              if (ambiguous) setOutcome('not-evaluated', 'ambiguous-tie-order')
+              else {
+                try {
+                  const recomputed = MonitoringAnalysisV1.shape.results.parse(calculateMonitoringAnalysisV2(project, original))
+                  evidence.recomputedResultsHash = digest(recomputed)
+                  const matches = canonicalDeliveryJson(recomputed) === canonicalDeliveryJson(analysis.results)
+                  setOutcome(matches ? 'passed' : 'failed', matches ? 'matched' : 'result-mismatch')
+                } catch { setOutcome('failed', 'input-invalid') }
+              }
+              const latestSource = readSource()
+              if (latestSource.context_hash !== source.context_hash || latestSource.source_hash !== source.source_hash) throw new Error('source changed during replay')
+            } catch (error) {
+              if (error instanceof MonitoringSourceResourceLimitError) setOutcome('not-evaluated', 'resource-limit')
+              else setOutcome('failed', 'source-mismatch')
+            }
+          }
+        }
+      }
+      // Parsing can yield; verify all current bindings and actual output bytes again.
+      const after = this.monitoringReplayBindings(projectId, manifestId)
+      if (!after.complete || verificationSnapshotHash(before) !== verificationSnapshotHash(after) || !this.checkDeliverable(projectId, manifestId).valid) throw new Error('prerequisites changed during replay')
+    } catch {
+      status = 'failed'; reasonCode = 'prerequisite-failed'
+      for (const evidence of analyses) { evidence.status = 'failed'; evidence.reasonCode = 'prerequisite-failed' }
+    }
+    const result = MonitoringReplayVerificationV1.parse({ schemaVersion: 1, attemptId: attempt.id, projectId, manifestId,
+      checkedAt: this.nowIso(), status, reasonCode, comparisonVersion: 'monitoring-results-exact-1', execution, analyses })
+    this.monitoringReplayAudit.finish(attempt, result)
+    return result
+  }
+
+  private monitoringReplayBindings(projectId: string, manifestId: string): VerificationBindings & { sqlRows: unknown[] } {
+    const binding = this.verificationBindings(projectId, manifestId)
+    const sqlRows = binding.engineeringRows.map(({ table, id }) => {
+      const row = this.db.prepare(`SELECT * FROM ${table} WHERE id=?`).get(id) as Record<string, unknown>
+      const value = JSON.parse(row.data_json as string) as Record<string, unknown>
+      if (row.id !== value.id || ('project_id' in row && row.project_id !== value.projectId)
+        || ('revision' in row && row.revision !== value.revision)
+        || ('dataset_id' in row && row.dataset_id !== value.datasetId)) throw new Error('monitoring replay SQL identity mismatch')
+      return row
+    })
+    return { ...binding, sqlRows }
   }
 
   /** Re-read bytes and recompute evidence without changing checked objects.
@@ -1402,9 +1518,35 @@ function parseJsonRows(bytes: Buffer): Row[] {
 function parseCsv(bytes: Buffer): Row[] { const text = decodeText(bytes).replace(/^\uFEFF/, ''); const lines = text.split(/\r?\n/).filter((line) => line.trim().length > 0); if (!lines.length) return []; const rows = lines.map(parseCsvLine); const headers = rows[0].map((h) => h.trim()); return rows.slice(1).map((cells) => Object.fromEntries(headers.map((h, i) => [h, cells[i] ?? '']))) }
 function parseCsvLine(line: string): string[] { const out: string[] = []; let current = ''; let quoted = false; for (let i = 0; i < line.length; i += 1) { const c = line[i]; if (c === '"' && line[i + 1] === '"') { current += '"'; i += 1 } else if (c === '"') quoted = !quoted; else if (c === ',' && !quoted) { out.push(current); current = '' } else current += c } out.push(current); return out }
 function decodeText(bytes: Buffer): string { const utf8 = bytes.toString('utf8').replace(/^\uFEFF/, ''); if (!utf8.includes('\uFFFD')) return utf8; try { return new TextDecoder('gb18030').decode(bytes) } catch { return utf8 } }
+class MonitoringSourceResourceLimitError extends Error {
+  constructor() { super('monitoring XLSX exceeds the resource limit (32 MiB expanded, 200:1 compression, 2048 entries, 16384 columns)') }
+}
 async function parseXlsx(bytes: Buffer, requestedMapping?: FieldMappingV1): Promise<Row[]> {
-  const zip = await JSZip.loadAsync(bytes)
-  const sharedText = zip.file('xl/sharedStrings.xml') ? await zip.file('xl/sharedStrings.xml')!.async('text') : ''
+  const zip = await JSZip.loadAsync(bytes, { createFolders: false })
+  if (Object.keys(zip.files).length > 2048) throw new MonitoringSourceResourceLimitError()
+  let expandedBytes = 0
+  const readText = async (entry: JSZip.JSZipObject): Promise<string> => {
+    const chunks: Buffer[] = []
+    // Count actual output from the public stream API, never archive-declared sizes.
+    const stream = entry.nodeStream('nodebuffer') as import('node:stream').Readable
+    await new Promise<void>((resolve, reject) => {
+      stream.on('data', (raw: Buffer) => {
+        expandedBytes += raw.length
+        if (expandedBytes > 32 * 1024 * 1024 || expandedBytes > bytes.length * 200) {
+          // JSZip's legacy adapter must pause via backpressure: destroying it
+          // during a data callback can push the remaining inflate chunk after EOF.
+          stream.pause(); chunks.length = 0
+          reject(new MonitoringSourceResourceLimitError())
+          return
+        }
+        chunks.push(raw)
+      })
+      stream.once('error', reject)
+      stream.once('end', resolve)
+    })
+    return Buffer.concat(chunks).toString('utf8')
+  }
+  const sharedText = zip.file('xl/sharedStrings.xml') ? await readText(zip.file('xl/sharedStrings.xml')!) : ''
   const shared = [...sharedText.matchAll(/<si[^>]*>([\s\S]*?)<\/si>/g)].map((item) =>
     [...item[1].matchAll(/<t[^>]*>([\s\S]*?)<\/t>/g)].map((text) => decodeXml(text[1])).join('')
   )
@@ -1415,14 +1557,17 @@ async function parseXlsx(bytes: Buffer, requestedMapping?: FieldMappingV1): Prom
   for (const sheetName of sheetNames) {
     const sheet = zip.file(sheetName)
     if (!sheet) continue
-    const xml = await sheet.async('text')
+    const xml = await readText(sheet)
     const rows: string[][] = []
     for (const rowMatch of xml.matchAll(/<row[^>]*>([\s\S]*?)<\/row>/g)) {
       const cells: string[] = []
       for (const cell of rowMatch[1].matchAll(/<c\b([^>]*)>([\s\S]*?)<\/c>/g)) {
         const reference = cell[1].match(/\br="([A-Z]+)\d+"/)?.[1]
         if (!reference) continue
-        const col = lettersToIndex(reference); const type = cell[1].match(/\bt="([^"]+)"/)?.[1]; const body = cell[2]
+        if (reference.length > 3) throw new MonitoringSourceResourceLimitError()
+        const col = lettersToIndex(reference)
+        if (col >= 16384) throw new MonitoringSourceResourceLimitError()
+        const type = cell[1].match(/\bt="([^"]+)"/)?.[1]; const body = cell[2]
         const value = decodeXml(body.match(/<v>([\s\S]*?)<\/v>/)?.[1] ?? body.match(/<t[^>]*>([\s\S]*?)<\/t>/)?.[1] ?? '')
         cells[col] = type === 's' ? (shared[Number(value)] ?? value) : value
       }

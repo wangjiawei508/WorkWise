@@ -246,3 +246,4 @@ export function normalizeThreadMode(value: unknown): RuntimeThreadMode {
 }
 
 export const RUNTIME_ENGINEERING_MANIFEST_VERIFY_TEMPLATE = '/v1/engineering/projects/{id}/manifests/{manifestId}/verify'
+export const RUNTIME_ENGINEERING_MONITORING_REPLAY_TEMPLATE = '/v1/engineering/projects/{id}/manifests/{manifestId}/monitoring-replay'

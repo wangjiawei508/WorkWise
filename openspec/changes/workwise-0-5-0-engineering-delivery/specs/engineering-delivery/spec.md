@@ -268,6 +268,31 @@ A project-scoped user action MUST re-read the published manifest and output byte
 - **WHEN** the UI loses Runtime readiness while reverification is pending
 - **THEN** it disables the action and ignores the late response instead of displaying a stale pass
 
+### Requirement: Source-bound monitoring numerical replay
+The Runtime MUST expose an authenticated project-and-manifest-scoped monitoring replay action separately from the existing five-check verification contract. A passing result MUST verify current manifest, output and input bindings, retained original source bytes and normalization context, then recompute the complete recorded monitoring result with its supported recorded algorithm without reading the analysis cache as the answer. New imports MUST atomically retain bounded original bytes and mapping/context evidence without altering historical dataset JSON or backfilling old sources. Replay MUST preserve existing analyses, delivery bytes and review status.
+
+The result MUST distinguish passed, failed, not-evaluated and not-applicable with explicit reason codes, algorithm and comparison versions, source/input/result hashes and execution environment. Unknown algorithms, unavailable historical source evidence or unresolved historical ordering MUST NOT fall back to the current algorithm or count as passed. Numerical reproducibility MUST NOT establish source authenticity, professional approval or production KPI achievement.
+
+#### Scenario: A retained monitoring source and its bound analysis are unchanged
+- **WHEN** the user requests monitoring replay for a supported recorded algorithm
+- **THEN** the Runtime re-verifies the original bytes and normalized observations and compares every result field exactly
+- **AND** it appends verification evidence without updating the checked records or files
+
+#### Scenario: A historical import has no retained original
+- **WHEN** the source bytes or import context required to establish source consistency are absent
+- **THEN** the result is not-evaluated with the missing-evidence reason
+- **AND** historical analyses remain readable without reconstructing an original from normalized rows
+
+#### Scenario: Replay is interrupted or its audit cannot be saved
+- **WHEN** a process stops after its independently committed start, or terminal persistence fails
+- **THEN** the durable start remains incomplete and no saved success is returned
+- **AND** old deliverable verification events and their metrics remain unchanged
+
+#### Scenario: A monitoring replay finishes after changing selection
+- **WHEN** the project, manifest, revision, review status or Runtime readiness changes before the response arrives
+- **THEN** the desktop clears obsolete evidence and ignores late successes and failures
+- **AND** not-evaluated and not-applicable outcomes are never displayed as a numerical pass
+
 ### Requirement: Isolated free leveling trials
 The Runtime MUST expose free leveling as an explicitly requested, separately versioned trial over an eligible current leveling network. The request MUST confirm the zero-sum height-correction constraint and weight policy. All original fixed and unknown point roles MUST remain unchanged; the trial MUST record their role and initial-height basis while treating every point as free. Unsupported, correlated, mixed-weight, incomplete, stale or numerically unresolved inputs MUST fail explicitly without filtering observations into a misleading successful subset.
 

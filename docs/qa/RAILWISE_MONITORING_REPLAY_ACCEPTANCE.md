@@ -1,12 +1,24 @@
 # 监测成果严格重算验收合同与独立算例
 
-日期：2026-09-20。核对源码：`43689493ab586c8d65bae729cfd291f3c813f679`。本文件补齐[剩余任务44/46](RAILWISE_SURVEY_REMAINING_WORK.md)中“监测严格重算”的验收资料，**不表示重算功能已接入产品**。未修改源码、原始数据、历史结果、候选包或发布状态；审查主体为 agent，不是专业签字。当前最终候选验收仍由主任务独立记录。
+原合同日期：2026-09-20；实现进展更新：2026-09-21。原合同核对源码为 `43689493ab586c8d65bae729cfd291f3c813f679`，其候选包没有监测数值复算。本文件保留原有独立算例和历史设计依据；下节记录后续源码增量，不追溯改变旧候选结论。审查主体为 agent，不是专业签字。
+
+## 2026-09-21 源码增量
+
+新增独立 `POST /v1/engineering/projects/:id/manifests/:manifestId/monitoring-replay`，不改变原 `manifest/outputs/inputs/surveyReplay/sources` 五项合同。桌面草稿清单下增加“复算监测成果”，结果带项目、清单、分析、算法、源文件、导入上下文、结果摘要及执行环境；切项目、清单、修订或 Runtime 状态后旧响应失效。
+
+新导入将原始 CSV/XLSX 字节及导入时项目、原请求映射和有效映射与 dataset 一起原子保存到追加表。复算先核实成果绑定及文件，再从原字节重新解析、比较全部规范化观测，最后调用无缓存的 v2 纯计算并逐字段比较完整 results；异步解析后再次检查原件、SQL 行、输入和输出。只追加独立 started/finished 审计，不改写原分析、清单、报告或旧五项复验记录。
+
+支持边界为 `workwise-engineering-2`、不超过20,000条观测、32 MiB原件和256 KiB上下文。v1/未知算法返回未评估；旧记录缺原件返回未评估，不能事后补造原件；无监测分析才不适用。同组同一实际时刻存在多条观测时，因原分析未记录排序环境，本增量统一未评估：即使ASCII观测ID，系统 numeric collation 也会改变 `_10` 与 `_2` 的顺序。资源超限、来源不符、结果不符及前置条件失败分别记录原因。独立统计脚本仅汇总新表的持久开始，未完成保留分母，不改变旧指标或给出真实生产达标结论。
+
+源码测试、独立审查和新精确包验收结果见[执行台账](RAILWISE_SURVEY_CONVERGENCE_STATUS.md)。此处功能说明不等于签名安装包、用户本人或专业验收已通过。以下“建议实现”是原合同历史措辞，以本节现有实现为准。
+
+XLSX解析额外限制2,048个ZIP条目、实际读取的共享字符串/工作表累计32 MiB及相对原文件200:1展开比，并拒绝超出XFD的列号。累计量来自流实际输出，不依赖压缩包声明尺寸。这些约束同时用于新导入与重放；不把未读取的ZIP附件当作已扫描内容。
 
 ## 已核实的起点
 
 [createAnalysis](../../kun/src/engineering/engineering-service.ts) 的 `workwise-engineering-2` 已按实际时刻排序、计算间隔，并与[趋势时间解析](../../kun/src/engineering/engineering-trend-chart.ts)共享无时区按 UTC 的规则；[时区及迁移测试](../../kun/src/engineering/engineering-service.analysis-time.test.ts)已覆盖跨偏移逆序、夏令时和旧记录保留。
 
-同服务的 `verifyDeliverable` 目前核对 manifest、文件、输入快照及 Survey 平差/变形重算；纯监测清单的 `surveyReplay` 为 `not-applicable`，没有独立重新计算 `MonitoringAnalysisV1.results`。[当前复验合同](../../kun/src/contracts/engineering.ts)只列 `manifest/outputs/inputs/surveyReplay/sources`，状态仅 `passed/failed/not-applicable`。下述 `monitoringReplay` 和 `not-evaluated` 是建议新增合同，不能用现有字段冒充已经运行。
+原审计时，同服务的 `verifyDeliverable` 核对 manifest、文件、输入快照及 Survey 平差/变形重算；纯监测清单的 `surveyReplay` 为 `not-applicable`，没有独立重新计算 `MonitoringAnalysisV1.results`。该五项旧合同仍保持原样；新增监测复算使用独立合同和端点，不能把历史五项通过冒充已经运行新功能。
 
 ## 数值字段到来源的映射
 

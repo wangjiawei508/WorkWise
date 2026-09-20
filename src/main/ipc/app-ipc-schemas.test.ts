@@ -246,6 +246,7 @@ describe('app-ipc-schemas', () => {
       { path: '/v1/engineering/reports/preview', method: 'POST' },
       { path: '/v1/engineering/deliverables/finalize', method: 'POST' },
       { path: '/v1/engineering/projects/project_1/manifests/manifest_1/verify', method: 'POST' },
+      { path: '/v1/engineering/projects/project_1/manifests/manifest_1/monitoring-replay', method: 'POST' },
       { path: '/v1/engineering/runs/run_1', method: 'GET' },
       { path: '/v1/engineering/runs/run_1/cancel', method: 'POST' },
       { path: '/v1/engineering/runs/run_1/resume', method: 'POST' },
@@ -309,6 +310,17 @@ describe('app-ipc-schemas', () => {
       path: '/v1/engineering/ai/plans?threadId=thread_1&projectId=project_1&projectId=project_2',
       method: 'GET'
     })).toThrow(/runtime request path is not allowed/)
+  })
+
+  it('restricts monitoring replay to the manifest-scoped POST without query overrides', () => {
+    const path = '/v1/engineering/projects/project_1/manifests/manifest_1/monitoring-replay'
+    expect(runtimeRequestPayloadSchema.safeParse({ path, method: 'POST' }).success).toBe(true)
+    for (const request of [
+      { path, method: 'GET' }, { path, method: 'DELETE' },
+      { path: `${path}?algorithmVersion=workwise-engineering-2`, method: 'POST' },
+      { path: `${path}?projectId=other`, method: 'POST' },
+      { path: '/v1/engineering/manifests/manifest_1/monitoring-replay', method: 'POST' }
+    ]) expect(runtimeRequestPayloadSchema.safeParse(request).success).toBe(false)
   })
 
   it('allows only project-scoped read-only statistical diagnostics and the explicit download flag', () => {

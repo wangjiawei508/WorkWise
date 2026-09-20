@@ -1,8 +1,10 @@
 # RAILWISE AI / Survey 总计划未完成清单
 
-审计日期：2026-09-20。审计源码：`43689493ab586c8d65bae729cfd291f3c813f679`。依据为用户提供的《RAILWISE AI ｜ Survey 产品收敛与命名迁移总计划》、[OpenSpec 任务](../../openspec/changes/workwise-0-5-0-engineering-delivery/tasks.md)、当前源码与[执行台账](RAILWISE_SURVEY_CONVERGENCE_STATUS.md)。审查身份为 AI 智能体，不是专业人员签章或用户验收。此后文档提交不改变上述源码审计边界。
+原审计日期：2026-09-20；进展更新：2026-09-21。原审计源码：`43689493ab586c8d65bae729cfd291f3c813f679`。依据为用户提供的《RAILWISE AI ｜ Survey 产品收敛与命名迁移总计划》、[OpenSpec 任务](../../openspec/changes/workwise-0-5-0-engineering-delivery/tasks.md)、源码与[执行台账](RAILWISE_SURVEY_CONVERGENCE_STATUS.md)。下表保留原审计任务编号；后续源码进展另列，不追溯改变旧包验收。审查身份为 AI 智能体，不是专业人员签章或用户验收。
 
-当前最终候选状态：`partial-not-release-approval`。[4368949最终监测包](evidence/railwise-monitoring-final-4368949/README.md)已完成签名公证、隔离安装、私有真实updater、CSV/XLSX监测成果链及重启独立审计；该限定验收不覆盖全矩阵与人审。98 项中 80 项勾选、18 项未勾选；这是历史增量任务计数，**不是总计划完成率**，也不是18个互不重叠的功能缺陷。
+最近已验监测候选状态：`partial-not-release-approval`。[4368949监测包](evidence/railwise-monitoring-final-4368949/README.md)已完成签名公证、隔离安装、私有真实updater、CSV/XLSX监测成果链及重启独立审计；该限定验收不覆盖全矩阵与人审。原快照98项中80项勾选、18项未勾选；后续已新增3项监测复算子任务，当前计数以 OpenSpec 和台账为准。复选项计数**不是总计划完成率**，也不是互不重叠的功能缺陷数。
+
+2026-09-21 新源码已完成监测原件/映射原子留存、独立严格复算端点、持久开始/结束、双语桌面入口与只读统计；资源边界、全量回归与独立审查通过，新精确包验收待做。OpenSpec现为101项、82项完成、19项未完成；新增源码两项已完成，包验收一项未完成。旧4368949不包含这些修改。详见[复算实现与合同](RAILWISE_MONITORING_REPLAY_ACCEPTANCE.md)。
 
 ## 已取得的资料与边界
 
@@ -39,7 +41,7 @@
 
 1. **规范与质量生产链。** [规范依据服务](../../kun/src/engineering/survey-standard-basis.ts)明确目录没有进入受信谓词集合；[质量工作区](../../kun/src/engineering/survey-quality-workspace.ts)仍输出 `evidence-retention-only`、`humanSignatureVerification=not-evaluated`。已有材料保全、首轮抽样、限定声明评分和关联评估；缺受信规则登记/适用性/撤销、真实缺陷分类及材料核验、完整组织阶段、整改后重新抽样、认证签名/批准和交付门禁。[交付服务](../../kun/src/engineering/engineering-service.ts)仍生成 `reviewStatus: draft`。
 2. **高级方法生产接线。** 已有一维自由水准、固定线性广义 w、独立互斥组 VCE、固定外部尺度 Huber、预声明统计族、一维参考定义、固定模型静态追加和标准椭圆。仍缺一般自由网/拟稳稳定点决策、正式网随机模型到统计家族/权重的审计接线及适用范围内完整专业判读。静态追加不支持旧观测编辑/删除、参数/基准改变、相关/非线性/动态模型；总计划未逐一定义这些扩展，须明确承诺范围，不能把整个高级方法勾完，也不能无限扩大范围。依据：[方法合同](RAILWISE_SURVEY_ALGORITHM_REVIEW.md)。
-3. **监测严格重算。** 新 `workwise-engineering-2` 修正时间排序与图表一致性，并保留旧记录；[verifyDeliverable](../../kun/src/engineering/engineering-service.ts) 的 `inputs` 只检查绑定快照，`surveyReplay` 只重算 Survey adjustment/deformation。纯监测清单仍为 `surveyReplay=not-applicable`，缺按记录算法重算全部监测 results 的独立检查。[可执行验收合同](RAILWISE_MONITORING_REPLAY_ACCEPTANCE.md)已补齐13个独立算例和历史版本决策，但新分析算法回归、合同或包外独立审计均不等于产品重算功能完成。
+3. **监测严格重算的包验收。** 原4368949五项复验没有监测数值重算；后续源码新增独立端点，从留存原件重新解析、核对全部观测并复算完整 v2 results，保留旧五项合同。新源码还须通过自己的精确包验收。缺原件或不支持的历史算法明确未评估，不用重新导入覆盖旧成果；完整专业适用性与生产批准仍不由重算通过代替。见[实现及可执行验收合同](RAILWISE_MONITORING_REPLAY_ACCEPTANCE.md)。
 4. **结果到 AI 的全表面接线。** [Q10–Q17 静态缺口](RAILWISE_SURVEY_UI_EVIDENCE_COVERAGE.md)在审计源码仍存在；高级模型、质量关联、统计诊断、自由水准组件没有专用追问回调。通用打开 AI、定位原记录、导出均不等于携带当前结果证据追问。Q01–Q09 已有接线仍须实际发送和正确读回证据，不能把按钮数量当成功率。
 5. **P2。** [Survey MCP factory](../../kun/src/adapters/mcp/survey-context-server.ts)仅有只读边界和进程内 SDK 协议测试，缺认证桌面宿主、可撤销项目授权持久化、真实传输及第三方互操作。GeoCOM 手册研究没有实现实时传输/命令适配；通用 Flow 和旧监测模板没有完整 Survey 证据接线；sandbox 边界也不等于已提供逐格式验证的具体转换器。范围见[接口审查](RAILWISE_SURVEY_INTERFACE_REVIEW.md)。
 

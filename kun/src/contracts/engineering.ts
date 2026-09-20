@@ -151,6 +151,39 @@ export const DeliverableVerificationV1 = z.object({
 }).strict()
 export type DeliverableVerificationV1 = z.infer<typeof DeliverableVerificationV1>
 
+export const MonitoringReplayStatusV1 = z.enum(['passed', 'failed', 'not-evaluated', 'not-applicable'])
+export const MonitoringReplayReasonV1 = z.enum(['matched', 'no-monitoring-analysis', 'unsupported-algorithm', 'prerequisite-failed', 'input-invalid', 'result-mismatch', 'resource-limit', 'source-unavailable', 'source-mismatch', 'ambiguous-tie-order'])
+const replayHash = z.string().regex(/^[a-f0-9]{64}$/)
+const replayIdentifier = z.string().min(1).max(240)
+const replayEnvironment = z.string().min(1).max(160)
+const replayEvidence = z.object({
+  analysisId: replayIdentifier, datasetId: replayIdentifier, algorithmVersion: replayIdentifier, inputHash: replayHash,
+  storedResultsHash: replayHash, recomputedResultsHash: replayHash.optional(), sourceFileHash: replayHash.optional(), sourceContextHash: replayHash.optional(),
+  status: MonitoringReplayStatusV1, reasonCode: MonitoringReplayReasonV1
+}).strict()
+/** Independent numerical replay; existing five-check verification and historical records stay unchanged. */
+export const MonitoringReplayVerificationV1 = z.object({
+  schemaVersion: z.literal(1), attemptId: replayIdentifier, projectId: replayIdentifier, manifestId: replayIdentifier, checkedAt: z.string().max(40).datetime({ offset: true }),
+  status: MonitoringReplayStatusV1, reasonCode: MonitoringReplayReasonV1, detail: z.string().max(240).optional(),
+  comparisonVersion: z.literal('monitoring-results-exact-1'),
+  execution: z.object({ runtimeVersion: replayEnvironment, node: replayEnvironment, v8: replayEnvironment, icu: replayEnvironment, platform: replayEnvironment, arch: replayEnvironment, timezone: replayEnvironment, locale: replayEnvironment, timeBasis: z.literal('ISO-unzoned-UTC') }).strict(),
+  analyses: z.array(replayEvidence).max(1)
+}).strict().superRefine((value, context) => {
+  const statusForReason = (reason: z.infer<typeof MonitoringReplayReasonV1>): z.infer<typeof MonitoringReplayStatusV1> =>
+    reason === 'matched' ? 'passed' : reason === 'no-monitoring-analysis' ? 'not-applicable' : ['unsupported-algorithm', 'resource-limit', 'source-unavailable', 'ambiguous-tie-order'].includes(reason) ? 'not-evaluated' : 'failed'
+  if (value.status !== statusForReason(value.reasonCode)) context.addIssue({ code: 'custom', message: 'replay status does not match reason' })
+  if (value.status === 'passed' && !value.analyses.length) context.addIssue({ code: 'custom', message: 'passed replay requires analysis evidence' })
+  if (value.status === 'not-applicable' && value.analyses.length) context.addIssue({ code: 'custom', message: 'non-applicable replay cannot include analysis evidence' })
+  for (const item of value.analyses) {
+    if (item.status !== statusForReason(item.reasonCode) || item.status === 'not-applicable'
+      || (item.status === 'passed' && (!item.sourceFileHash || !item.sourceContextHash || !item.recomputedResultsHash || item.storedResultsHash !== item.recomputedResultsHash))
+      || (item.reasonCode === 'result-mismatch' && (!item.recomputedResultsHash || item.storedResultsHash === item.recomputedResultsHash))
+      || (value.status === 'passed' && item.status !== 'passed')
+      || item.status !== value.status || item.reasonCode !== value.reasonCode) context.addIssue({ code: 'custom', message: 'inconsistent replay analysis evidence' })
+  }
+})
+export type MonitoringReplayVerificationV1 = z.infer<typeof MonitoringReplayVerificationV1>
+
 export const EngineeringProjectCreateRequest = RevisionMutationV1.extend({
   name: z.string().min(1).max(200), taskType: EngineeringTaskTypeV1.optional(), taskContext: EngineeringTaskContextV1.optional(), monitoringType: z.string().optional(), unit: z.string().optional(), signConvention: z.string().optional(),
   thresholds: z.record(z.string(), z.number().finite()).optional(), reportPeriod: z.object({ start: z.string().optional(), end: z.string().optional() }).strict().optional(), workspace: z.string().min(1)

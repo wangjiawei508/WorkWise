@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { DeliverableVerificationV1 } from '@shared/engineering-verification'
 import { InvalidVerificationResponse, parseEngineeringVerification, verificationFailureKey } from './engineering-verification'
+import { EngineeringMonitoringReplay } from './EngineeringMonitoringReplay'
 const checkKeys = {
   manifest: 'engineeringVerifyManifest', outputs: 'engineeringVerifyOutputs', inputs: 'engineeringVerifyInputs',
   surveyReplay: 'engineeringVerifySurveyReplay', sources: 'engineeringVerifySources'
@@ -62,5 +63,6 @@ export function EngineeringManifestVerification({ projectId, manifestId, reviewS
         <p className="mt-2 text-ds-muted">{t('engineeringVerifyBoundary')}</p>
       </> : null}
     </div>
+    <EngineeringMonitoringReplay projectId={projectId} manifestId={manifestId} reviewStatus={reviewStatus} contextRevision={contextRevision} runtimeReady={runtimeReady} request={request} />
   </div>
 }
