@@ -20,7 +20,7 @@ describe('immutable, limited standard basis catalog', () => {
   it('resolves every exact binding without claiming trust or professional acceptance', () => {
     const catalog = SurveyStandardBasisCatalogV1.parse(getSurveyStandardBasisCatalog())
     expect(catalog.rules).toHaveLength(9)
-    expect(catalog.catalogDigest).toBe('fdd63562eca13a7fd7ae0f6827b0c249f0c7c3342b96ad57ee4eff73b2bf76c3')
+    expect(catalog.catalogDigest).toBe('8f778390d04d4a7ac358490eee6c13a0068f351ccda8ea644d4fa0ac9d44a271')
     expect(references()).toHaveLength(16)
     expect(catalog.catalogDigest).toBe(digest(JSON.stringify(catalog.rules.map(entry => entry.ruleDigest))))
     for (const reference of references()) {
@@ -86,7 +86,12 @@ describe('immutable, limited standard basis catalog', () => {
     expect(scoringRef.algorithmVersion).toBe(scoring.algorithmVersion)
     expect(scoringRef.sourceSha256).toBe(scoring.source.sha256)
     expect(scoringRef.profileVersion).toBe(scoring.request!.productProfileVersion)
-    resolveSurveyStandardBasis(samplingRef); resolveSurveyStandardBasis(scoringRef)
+    resolveSurveyStandardBasis(samplingRef)
+    const basis = resolveSurveyStandardBasis(scoringRef)
+    expect(basis.entry.rule.locators.flatMap(locator => locator.clauses)).toContain('6.2.4.5')
+    expect(basis.entry.rule.locators.flatMap(locator => locator.pdfPages)).toEqual([9, 10, 11])
+    expect(basis.entry.rule.locators[0]!.description.en).toContain('Formula (6) belongs to 6.2.4.5')
+    expect(scoring.trace.at(-1)!.clause).toBe('6.2.5/formula-6/table-3')
     expect(JSON.stringify({ plan, scoring })).toBe(before)
     expect(plan).not.toHaveProperty('ruleVersion')
     expect(scoring).not.toHaveProperty('ruleVersion')
