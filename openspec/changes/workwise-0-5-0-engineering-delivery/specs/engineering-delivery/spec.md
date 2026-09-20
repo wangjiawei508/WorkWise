@@ -428,3 +428,17 @@ The system MUST bind an immutable assessment plan to a project-scoped draft deli
 - **WHEN** an assessment history page includes malformed stored identifiers or corrupt record data
 - **THEN** the damaged entry is isolated without hiding healthy rows
 - **AND** saved summaries are labelled as summaries while detail, replay and export require current dependency verification
+
+### Requirement: Exact source references for implemented quality rules
+
+The system SHALL expose a bounded read-only reference catalog for implemented GB/T 24356-2023 first-round sampling and declared inspection scoring. Each resolvable reference SHALL identify its exact catalog and rule version, execution algorithm, source digest, applicable profile and verified clause/table/page location. The catalog SHALL retain the distinction between agent source review and authenticated professional approval.
+
+#### Scenario: A saved quality result requests its source reference
+- **WHEN** an authenticated client resolves the exact identity represented by a supported saved sampling or scoring result
+- **THEN** the system returns the matching source and scope without modifying the saved record or its result
+- **AND** the interface distinguishes successful reference resolution from evidence authenticity, standards conformity and human approval
+
+#### Scenario: A requested reference differs from the implemented rule
+- **WHEN** the source hash, version, execution algorithm or applicable profile does not match, or the clause is not covered
+- **THEN** the system explicitly refuses the reference
+- **AND** it does not select the latest rule or infer professional approval

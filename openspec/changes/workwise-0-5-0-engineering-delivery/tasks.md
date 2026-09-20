@@ -145,3 +145,14 @@ The 281dc87 signed package passed actual GUI creation of full/missing/veto-with-
 - [x] Enforce and test COSA NET resource limits and OU1 comparison dimension bounds without admitting historical references as formal input.
 
 Source validation is recorded in `docs/qa/evidence/railwise-import-converter-followthrough/README.md`. These tasks do not close the aggregate production KPI, proprietary-converter acceptance or packaged UI gates.
+
+## P1 exact standards reference catalog
+
+- [ ] Add an immutable, bounded GB/T 24356-2023 catalog for existing first-round sampling and declared scoring, with exact rule/catalog/algorithm versions, source hash, applicable profiles and verified clause/table/page references; reject unsupported or mismatched references without granting professional trust.
+- [ ] Expose authenticated read-only Runtime and desktop IPC/client access, and bilingual keyboard-accessible source details from existing sampling/scoring results; retain historical bytes and distinguish citation resolution from standards conformity.
+- [ ] Verify exact-reference mapping, mismatch refusal, current/legacy result handling, authorization and stale UI states; record independent review and exact-package UI acceptance separately.
+
+## Public product documentation follow-through
+
+- [ ] Merge reviewed bilingual README, product introduction and Chinese light candidate screenshots independently of application changes; preserve published 0.5.0 download metadata and clearly label the candidate scope.
+- [ ] Render the exact website source with official PHP/templates, inspect desktop/mobile views, deploy the reviewed content and verify public content/image hashes and unchanged downloads; retain failures and rollback evidence.

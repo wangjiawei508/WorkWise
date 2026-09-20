@@ -1,5 +1,7 @@
 ## Architecture
 
+The bounded standards-reference increment exposes a read-only catalog for already implemented GB/T 24356-2023 sampling and declared scoring. Resolution binds the catalog/rule version, algorithm identity, source digest and applicable profile to verified clause/table and PDF-page references. Unknown or mismatched identities return unavailable; resolution never substitutes the newest rule, rewrites historical records, authenticates evidence or grants professional approval. The desktop displays the source and review boundary beside existing results through the authenticated Runtime/IPC path.
+
 WorkWise Electron remains the only desktop shell and Kun remains the only Agent Runtime. Engineering is a domain-aware view over the existing thread system, not a second chat database. The renderer selects an Engineering thread by `domain + projectId`; `ChatState` owns its blocks, live deltas, queued messages, approvals, and restoration exactly as it does for Code and Design.
 
 ```text
