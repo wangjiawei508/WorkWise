@@ -2300,6 +2300,8 @@
   "runtimeEngineeringPlanStepsIncomplete": "Some plan steps do not have verified execution receipts. Check the results before continuing.",
   "runtimeEngineeringPlanBindingMissing": "The plan could not be linked to this execution. Check the plan and its approval records.",
   "runtimeEngineeringPlanTypedResumeRequired": "This task is bound to an engineering plan. Continue from that plan or create a new plan and review it before execution.",
+  "engineeringResumePlan": "Continue engineering plan",
+  "engineeringNoticeResumeFailed": "The engineering plan could not be continued. Refresh the plan and check its execution state before trying again.",
   "runtimeAutoStartDisabled": "{{runtimeName}} is offline. Enable automatic startup in Settings.",
   "runtimeUnhealthy": "The local runtime is currently unavailable. Check the port, token, or runtime status.",
   "runtimeAuthRequired": "The local runtime requires a bearer token for thread APIs. Add the runtime token in Settings, or restart the GUI so it can manage the local runtime again.",

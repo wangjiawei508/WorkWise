@@ -466,7 +466,12 @@ export class EngineeringAiOrchestrator {
     const now = this.deps.nowIso?.() ?? new Date().toISOString()
     const started = EngineeringRunPlanV1.parse({ ...plan, revision: plan.revision + 1, status: 'started', executionTurnId: turn.turnId, ...(task ? { taskId: task.id } : {}), updatedAt: now })
     const result = { plan: started, turn }
-    this.deps.repository.saveTransition({ plan: started, idempotencyKey: input.idempotencyKey, result })
+    try {
+      this.deps.repository.saveTransition({ plan: started, idempotencyKey: input.idempotencyKey, result })
+    } catch (error) {
+      await this.finishUnlaunchedTurn(turn, error)
+      throw error
+    }
     this.deps.runTurn(turn.threadId, turn.turnId)
     this.emit(started, 'started', turn.turnId)
     return result
@@ -493,18 +498,49 @@ export class EngineeringAiOrchestrator {
     if (input.expectedRevision !== plan.revision || input.contextHash !== plan.contextHash) throw new EngineeringAiError('engineering_plan_stale', 'plan is stale; refresh context and replan')
     this.assertCurrentToolRisks(plan)
     assertPlanReviewable(plan)
+    const before = await this.deps.threadStore.get(plan.threadId)
+    const previousTurnIds = new Set(before?.turns.map(turn => turn.id))
     const task = this.deps.tasks?.activeTask(plan.threadId)
     if (!task || task.id !== plan.taskId) throw new EngineeringAiError('engineering_task_missing', 'no resumable TaskRun is associated with this plan')
     const prepared = this.deps.tasks?.prepareResume(task.id, task.revision, input.model)
     if (!prepared) throw new EngineeringAiError('engineering_task_missing', 'no resumable TaskRun is associated with this plan')
-    const turn = await this.deps.turns.startTurn({ threadId: prepared.threadId, continuationTaskId: prepared.id, engineeringExecution: true, engineeringPlanId: plan.id, request: { prompt: `Continue the approved Engineering Run Plan from its latest checkpoint:\n${JSON.stringify(plan)}`, displayText: '继续工程 AI 计划', model: input.model ?? prepared.model, providerId: input.providerId ?? prepared.providerId, reasoningEffort: input.reasoningEffort ?? prepared.reasoningEffort, mode: 'agent' } })
+    let turn: StartTurnResponse
+    try {
+      turn = await this.deps.turns.startTurn({ threadId: prepared.threadId, continuationTaskId: prepared.id, engineeringExecution: true, engineeringPlanId: plan.id, request: { prompt: `Continue the approved Engineering Run Plan from its latest checkpoint:\n${JSON.stringify(plan)}`, displayText: '继续工程 AI 计划', model: input.model ?? prepared.model, providerId: input.providerId ?? prepared.providerId, reasoningEffort: input.reasoningEffort ?? prepared.reasoningEffort, mode: 'agent' } })
+    } catch (error) {
+      try {
+        const after = await this.deps.threadStore.get(plan.threadId)
+        const newTurns = after?.turns.filter(item => !previousTurnIds.has(item.id)) ?? []
+        // A failed fan-out may leave a terminal audit turn without attaching it
+        // to the Task. Preserve that turn, and never rewind a running turn or
+        // a Task that has advanced beyond our preparation revision.
+        if (before && after && newTurns.every(item => item.status === 'failed' && item.engineeringPlanId === plan.id)) this.deps.tasks?.restorePreparedResume(task, prepared.revision)
+      } catch { /* Preserve the original start failure if recovery cannot persist. */ }
+      throw error
+    }
     const now = this.deps.nowIso?.() ?? new Date().toISOString()
     const resumed = EngineeringRunPlanV1.parse({ ...plan, status: 'started', executionTurnId: turn.turnId, revision: plan.revision + 1, updatedAt: now })
     const result = { plan: resumed, turn }
-    this.deps.repository.saveTransition({ plan: resumed, idempotencyKey: input.idempotencyKey, result })
+    try {
+      this.deps.repository.saveTransition({ plan: resumed, idempotencyKey: input.idempotencyKey, result })
+    } catch (error) {
+      await this.finishUnlaunchedTurn(turn, error)
+      throw error
+    }
     this.deps.runTurn(turn.threadId, turn.turnId)
     this.emit(resumed, 'resumed', turn.turnId)
     return result
+  }
+
+  private async finishUnlaunchedTurn(turn: StartTurnResponse, error: unknown): Promise<void> {
+    const reason = error instanceof Error ? error.message : String(error)
+    try {
+      const task = this.deps.tasks?.activeTask(turn.threadId)
+      if (task?.activeTurnId === turn.turnId) this.deps.tasks?.cancelTask(task.id, task.revision, reason)
+    } catch { /* A concurrent Task change must not replace the original error. */ }
+    try {
+      await this.deps.turns.finishTurn({ threadId: turn.threadId, turnId: turn.turnId, status: 'failed', error: reason })
+    } catch { /* Preserve the plan write failure if lifecycle cleanup also fails. */ }
   }
 
   private emit(plan: EngineeringRunPlan, action: string, turnId?: string): void {

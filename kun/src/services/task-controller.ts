@@ -360,6 +360,25 @@ export class TaskController {
     })
   }
 
+  restorePreparedResume(previous: TaskRun, preparedRevision: number): TaskRun | null {
+    const current = this.repository.get(previous.id)
+    if (!current || current.revision !== preparedRevision || current.status !== 'retrying' || current.activeTurnId !== previous.activeTurnId) return null
+    const now = this.nowIso()
+    return this.repository.update(previous.id, preparedRevision, (prepared) => ({
+      ...previous,
+      nodes: previous.nodes.map((node) => {
+        const updated = prepared.nodes.find((item) => item.id === node.id)
+        return updated && updated.revision !== node.revision ? { ...node, revision: updated.revision + 1 } : node
+      }),
+      updatedAt: now
+    }), {
+      key: `task-resume-start-failed:${preparedRevision}`,
+      kind: 'task_resume_start_failed',
+      payload: { restoredStatus: previous.status },
+      createdAt: now
+    })
+  }
+
   cancelTask(taskId: string, expectedRevision: number, reason: string): TaskRun {
     const task = this.repository.get(taskId)
     if (!task) throw Object.assign(new Error(`task not found: ${taskId}`), { code: 'not_found' })

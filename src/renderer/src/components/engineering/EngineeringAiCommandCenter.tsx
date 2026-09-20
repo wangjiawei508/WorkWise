@@ -123,12 +123,18 @@ export function EngineeringAiCommandCenter({ workspaceRoot, runtimeReady, projec
   }, [workspaceRoot, projectId, timelineThreadId])
   const timelineHasActivity = timelineBlocks.length > 0 || (engineeringThreadActive && (busy || Boolean(liveReasoning || liveAssistant)))
   const scopedPlan = aiPlan?.projectId === projectId && planThreadId === timelineThreadId ? aiPlan : null
+  const actionScope = JSON.stringify([workspaceRoot, projectId, timelineThreadId])
+  const actionScopeRef = useRef(actionScope)
+  actionScopeRef.current = actionScope
+  const currentPlanRef = useRef(scopedPlan)
+  currentPlanRef.current = scopedPlan
+  const resumeInFlight = useRef<string | null>(null)
   const setGoal = (input: string): void => useEngineeringConversationDrafts.getState().update(JSON.stringify([workspaceRoot, projectId]), (draft) => ({ ...draft, input }))
 
   useEffect(() => {
-    setNotice(null); setAiPlan(null); setPlanThreadId(null); setTaskRun(null); setEvidenceCards([])
+    setNotice(null); setAiPlan(null); setPlanThreadId(null); setTaskRun(null); setEvidenceCards([]); setPlanBusy(false)
     setPlanReadState(IDLE_RESOURCE_STATE); setEvidenceReadState(IDLE_RESOURCE_STATE)
-  }, [projectId, activeThreadId])
+  }, [workspaceRoot, projectId, activeThreadId])
   useEffect(() => { setApprovedSteps([]) }, [scopedPlan?.id, scopedPlan?.revision])
   useEffect(() => {
     let cancelled = false
@@ -204,8 +210,40 @@ export function EngineeringAiCommandCenter({ workspaceRoot, runtimeReady, projec
       onRefresh()
     } catch (cause) { setNotice(formatRuntimeError(cause, t('engineeringNoticeStartFailed'))) } finally { setPlanBusy(false) }
   }
+  const resumeExecutionPlan = async (): Promise<void> => {
+    if (!canResumePlan || !scopedPlan || !timelineThreadId || planBusy || resumeInFlight.current === actionScope) return
+    const capturedScope = actionScope
+    const capturedPlan = scopedPlan
+    const capturedThreadId = timelineThreadId
+    const selection = { model: useChatStore.getState().composerModel || undefined, providerId: useChatStore.getState().composerProviderId, reasoningEffort: composerReasoningEffortRequestValue(reasoningEffort) }
+    const isCurrent = (): boolean => actionScopeRef.current === capturedScope && useChatStore.getState().activeThreadId === capturedThreadId
+      && currentPlanRef.current?.id === capturedPlan.id && currentPlanRef.current?.taskId === capturedPlan.taskId
+    if (!isCurrent()) return
+    resumeInFlight.current = capturedScope
+    setPlanBusy(true); setNotice(null)
+    try {
+      const response = await rendererRuntimeClient.runtimeRequest(`/v1/engineering/ai/plans/${encodeURIComponent(capturedPlan.id)}/resume`, 'POST', JSON.stringify({ expectedRevision: capturedPlan.revision, contextHash: capturedPlan.contextHash, ...selection, idempotencyKey: `engineering-resume-${crypto.randomUUID()}` }))
+      if (!isCurrent() || currentPlanRef.current?.revision !== capturedPlan.revision) return
+      if (!response.ok) throw new Error(readRuntimeMessage(response.body, t('engineeringNoticeResumeFailed')))
+      const resumed = (JSON.parse(response.body) as { plan: AiPlan }).plan
+      if (resumed.id !== capturedPlan.id || resumed.projectId !== capturedPlan.projectId || resumed.taskId !== capturedPlan.taskId || !Number.isSafeInteger(resumed.revision) || resumed.revision <= capturedPlan.revision) throw new Error('engineering resume response binding mismatch')
+      setAiPlan(resumed); setTaskRun(null)
+      await refreshThreads()
+      if (!isCurrent()) return
+      await selectThread(capturedThreadId)
+      if (!isCurrent()) return
+      onRefresh()
+    } catch (cause) {
+      if (isCurrent()) setNotice(formatRuntimeError(cause, t('engineeringNoticeResumeFailed')))
+    } finally {
+      if (resumeInFlight.current === capturedScope) {
+        resumeInFlight.current = null
+        if (actionScopeRef.current === capturedScope) setPlanBusy(false)
+      }
+    }
+  }
   const replanStalePlan = async (): Promise<void> => {
-    if (!scopedPlan || (!['stale', 'needs_attention'].includes(scopedPlan.status) && scopedPlan.steps.every(step => step.parameters && step.parameterBindings && step.expectedOutputs?.length && step.reversibility)) || !connected || !engineeringThreadActive || !timelineThreadId || busy || planBusy) return
+    if (!scopedPlan || !canReplan || !connected || !engineeringThreadActive || !timelineThreadId || busy || planBusy) return
     setPlanBusy(true); setNotice(null)
     try {
       const response = await rendererRuntimeClient.runtimeRequest('/v1/engineering/ai/plans', 'POST', JSON.stringify({
@@ -232,6 +270,14 @@ export function EngineeringAiCommandCenter({ workspaceRoot, runtimeReady, projec
   const planSteps = scopedPlan ? projectAiPlanSteps(scopedPlan, scopedTaskStatus, t) : []
   const completedStepCount = planSteps.filter(step => step.state === 'done').length
   const planReviewComplete = scopedPlan?.steps.every(step => step.parameters && step.parameterBindings && step.expectedOutputs?.length && step.reversibility)
+  const canResumePlan = Boolean(connected && engineeringThreadActive && !busy && scopedPlan && planReviewComplete
+    && ['started', 'running', 'queued'].includes(scopedPlan.status)
+    && taskRun?.id === scopedPlan.taskId && taskRun?.threadId === timelineThreadId
+    && ['stalled', 'waiting_user', 'waiting_approval'].includes(taskRun?.status ?? '')
+    && scopedPlan.execution && !scopedPlan.execution.complete && scopedPlan.execution.pendingStepIds.length > 0
+    && scopedPlan.steps.every(step => step.approval === 'approved'))
+  const canReplan = Boolean(scopedPlan && (!planReviewComplete || ['stale', 'needs_attention'].includes(planStatus ?? scopedPlan.status)
+    || (taskRun?.id === scopedPlan.taskId && taskRun?.threadId === timelineThreadId && ['failed', 'cancelled'].includes(taskRun?.status ?? ''))))
   const needsApproval = scopedPlan?.status === 'awaiting_approval' && planReviewComplete
   const riskConfirmed = scopedPlan?.steps.every((step) => step.risk === 'read' || approvedSteps.includes(step.id))
   const sessionReadErrors = [planReadState.error, evidenceReadState.error].filter((value): value is string => Boolean(value))
@@ -302,7 +348,8 @@ export function EngineeringAiCommandCenter({ workspaceRoot, runtimeReady, projec
         <p className="break-all font-mono text-[10px] text-ds-faint">{scopedPlan.id} · {scopedPlan.contextHash.slice(0, 22)}</p>
         {taskRun?.stalledReason || taskRun?.waitingReason ? <p className="break-words text-[11px] text-amber-700 dark:text-amber-300">{formatRuntimeError(new Error(taskRun.stalledReason || taskRun.waitingReason), t('engineeringStatusNeedsAttention'))}</p> : null}
         {planReviewComplete && (needsApproval || scopedPlan.status === 'approved') ? <button type="button" onClick={() => void approveAndStartPlan()} disabled={planBusy || busy || !connected || !engineeringThreadActive || (needsApproval && !riskConfirmed)} className="inline-flex h-8 items-center gap-2 rounded-md bg-accent px-3 text-[12px] font-medium text-white disabled:opacity-50">{planBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />}{t('engineeringApproveAndStart')}</button> : null}
-        {!planReviewComplete || ['stale', 'needs_attention'].includes(scopedPlan.status) ? <button type="button" data-testid="engineering-replan" onClick={() => void replanStalePlan()} disabled={planBusy || busy || !connected || !engineeringThreadActive} className="inline-flex h-8 items-center gap-2 rounded-md bg-accent px-3 text-[12px] font-medium text-white disabled:opacity-50">{planBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}{planBusy ? t('engineeringReplanning') : t('engineeringReplan')}</button> : null}
+        {canResumePlan ? <button type="button" data-testid="engineering-resume" onClick={() => void resumeExecutionPlan()} disabled={planBusy} className="inline-flex h-8 items-center gap-2 rounded-md bg-accent px-3 text-[12px] font-medium text-white disabled:opacity-50">{planBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />}{t('engineeringResumePlan')}</button> : null}
+        {canReplan ? <button type="button" data-testid="engineering-replan" onClick={() => void replanStalePlan()} disabled={planBusy || busy || !connected || !engineeringThreadActive} className="inline-flex h-8 items-center gap-2 rounded-md bg-accent px-3 text-[12px] font-medium text-white disabled:opacity-50">{planBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}{planBusy ? t('engineeringReplanning') : t('engineeringReplan')}</button> : null}
       </div> : null}
     </section> : null}
     {selectedEvidence ? <div className="shrink-0 border-t border-ds-border-muted px-3 py-1 text-[11px]"><span>{t('engineeringEvidenceLocated')}</span>{navigationButton(selectedTarget)}</div> : null}

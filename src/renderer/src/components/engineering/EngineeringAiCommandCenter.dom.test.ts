@@ -28,6 +28,11 @@ const refreshedPlan = {
   steps: stalePlan.steps.map(step => ({ ...step, parameters: { networkId: 'net-1', expectedRevision: 2 }, parameterBindings: [], expectedOutputs: ['adjustment-run'], reversibility: 'append-only' })),
   approval: { token: 'approval-token-current', stepIds: ['adjust'], expiresAt: '2026-09-09T00:00:00.000Z' }
 }
+const resumablePlan = {
+  ...refreshedPlan, status: 'started', revision: 3, taskId: 'resumable-task', executionTurnId: 'first-execution',
+  steps: ['validate', 'adjust'].map(id => ({ ...refreshedPlan.steps[0], id, title: id, approval: 'approved' })),
+  execution: { complete: false, completedStepIds: ['validate'], pendingStepIds: ['adjust'] }
+}
 
 let container: HTMLDivElement
 let root: Root
@@ -85,6 +90,141 @@ afterEach(async () => {
 })
 
 describe('Engineering AI session recovery states', () => {
+  it('allows explicit typed continuation after zero-tool stalling without inventing completed receipts', async () => {
+    const plan = { ...resumablePlan, execution: { complete: false, completedStepIds: [], pendingStepIds: resumablePlan.steps.map(step => step.id) } }
+    Object.assign(window.workwise, { getTaskRun: vi.fn(async () => ({ id: plan.taskId, threadId: 'thread-a', status: 'stalled' })) })
+    runtimeRequest.mockImplementation(async (path, method) => path.endsWith('/resume') && method === 'POST'
+      ? response(202, { plan: { ...plan, revision: 4, executionTurnId: 'continued-zero-receipt' } })
+      : response(200, path.startsWith('/v1/engineering/ai/plans?') ? { plan } : { cards: [] }))
+    await render(); await settle()
+    expect([...container.querySelectorAll('[data-step-state]')].map(node => node.getAttribute('data-step-state'))).toEqual(['blocked', 'blocked'])
+    const resume = container.querySelector<HTMLButtonElement>('[data-testid="engineering-resume"]')!
+    expect(resume.disabled).toBe(false)
+    await act(async () => resume.click()); await settle()
+    expect(runtimeRequest.mock.calls.filter(([, method]) => method === 'POST')).toHaveLength(1)
+    expect(runtimeRequest.mock.calls.find(([, method]) => method === 'POST')?.[0]).toBe(`/v1/engineering/ai/plans/${plan.id}/resume`)
+    expect(selectThread).toHaveBeenCalledWith('thread-a')
+  })
+
+  it.each(['failed', 'cancelled'])('offers explicit replanning instead of continuing the terminal %s task', async status => {
+    Object.assign(window.workwise, { getTaskRun: vi.fn(async () => ({ id: resumablePlan.taskId, threadId: 'thread-a', status })) })
+    runtimeRequest.mockImplementation(async (path, method, body) => {
+      if (path === '/v1/engineering/ai/plans' && method === 'POST') {
+        expect(JSON.parse(body!)).toMatchObject({ threadId: 'thread-a', projectId: project.id, replanOf: resumablePlan.id, goal: resumablePlan.goal })
+        return response(201, { plan: refreshedPlan, approval: refreshedPlan.approval })
+      }
+      return response(200, path.startsWith('/v1/engineering/ai/plans?') ? { plan: resumablePlan } : { cards: [] })
+    })
+    await render(); await settle()
+    expect(container.querySelector('[data-testid="engineering-resume"]')).toBeNull()
+    await act(async () => container.querySelector<HTMLButtonElement>('[data-testid="engineering-replan"]')!.click()); await settle()
+    const mutations = runtimeRequest.mock.calls.filter(([, method]) => method === 'POST')
+    expect(mutations).toHaveLength(1)
+    expect(mutations[0]?.[0]).toBe('/v1/engineering/ai/plans')
+    expect(container.querySelector<HTMLInputElement>('input[type="checkbox"]')?.checked).toBe(false)
+    const start = [...container.querySelectorAll('button')].find(button => button.textContent?.includes(i18n.t('engineeringApproveAndStart')))
+    expect(start?.disabled).toBe(true)
+  })
+
+  it('does not replace a newer plan revision with a late resume response', async () => {
+    const pending = deferred<RuntimeResponse>()
+    let plan = resumablePlan
+    Object.assign(window.workwise, { getTaskRun: vi.fn(async () => ({ id: plan.taskId, threadId: 'thread-a', status: 'stalled' })) })
+    runtimeRequest.mockImplementation(async (path, method) => path.endsWith('/resume') && method === 'POST' ? pending.promise
+      : response(200, path.startsWith('/v1/engineering/ai/plans?') ? { plan } : { cards: [] }))
+    await render(); await settle()
+    await act(async () => container.querySelector<HTMLButtonElement>('[data-testid="engineering-resume"]')!.click())
+    plan = { ...resumablePlan, revision: 5, goal: 'Newer reviewed plan' }
+    await act(async () => useChatStore.setState({ lastSeq: 1 })); await settle()
+    await act(async () => pending.resolve(response(202, { plan: { ...resumablePlan, revision: 4 } }))); await settle()
+    expect(container.textContent).toContain('Newer reviewed plan')
+    expect(refreshThreads).not.toHaveBeenCalled()
+    expect(selectThread).not.toHaveBeenCalled()
+    expect(container.querySelector<HTMLButtonElement>('[data-testid="engineering-resume"]')?.disabled).toBe(false)
+  })
+
+  it.each(['stalled', 'waiting_user', 'waiting_approval'])('continues a %s approved partial plan through the typed endpoint once with the captured selection', async status => {
+    const pending = deferred<RuntimeResponse>()
+    Object.assign(window.workwise, { getTaskRun: vi.fn(async () => ({ id: resumablePlan.taskId, threadId: 'thread-a', status })) })
+    runtimeRequest.mockImplementation(async (path, method) => {
+      if (path.endsWith('/resume') && method === 'POST') return pending.promise
+      return response(200, path.startsWith('/v1/engineering/ai/plans?') ? { plan: resumablePlan } : { cards: [] })
+    })
+    const scope = JSON.stringify([workspaceRoot, project.id])
+    useEngineeringConversationDrafts.getState().update(scope, draft => ({ ...draft, reasoningEffort: 'low', input: 'Keep my question' }))
+    await render(); await settle()
+    const resume = container.querySelector<HTMLButtonElement>('[data-testid="engineering-resume"]')!
+    expect(resume).not.toBeNull()
+    onRefresh.mockClear()
+    await act(async () => { resume.click(); resume.click() })
+    const calls = runtimeRequest.mock.calls.filter(([, method]) => method === 'POST')
+    expect(calls).toHaveLength(1)
+    expect(calls[0]?.[0]).toBe(`/v1/engineering/ai/plans/${resumablePlan.id}/resume`)
+    expect(JSON.parse(calls[0]![2]!)).toMatchObject({ expectedRevision: 3, contextHash: resumablePlan.contextHash, model: 'test-model', providerId: 'provider-a', reasoningEffort: 'off' })
+    await act(async () => {
+      useChatStore.setState({ composerModel: 'changed-model', composerProviderId: 'provider-b' })
+      useEngineeringConversationDrafts.getState().update(scope, draft => ({ ...draft, reasoningEffort: 'max' }))
+    })
+    await act(async () => pending.resolve(response(202, { plan: { ...resumablePlan, revision: 4, executionTurnId: 'continued-execution' } })))
+    await settle()
+    expect(refreshThreads).toHaveBeenCalledOnce()
+    expect(selectThread).toHaveBeenCalledWith('thread-a')
+    expect(useEngineeringConversationDrafts.getState().drafts[scope]?.input).toBe('Keep my question')
+    expect(runtimeRequest.mock.calls.filter(([, method]) => method === 'POST')).toHaveLength(1)
+  })
+
+  it.each(['completed', 'retrying', 'running', 'failed'])('does not offer typed continuation for a %s task', async status => {
+    Object.assign(window.workwise, { getTaskRun: vi.fn(async () => ({ id: resumablePlan.taskId, threadId: 'thread-a', status })) })
+    runtimeRequest.mockImplementation(async path => response(200, path.startsWith('/v1/engineering/ai/plans?') ? { plan: resumablePlan } : { cards: [] }))
+    await render(); await settle()
+    expect(container.querySelector('[data-testid="engineering-resume"]')).toBeNull()
+    if (status === 'completed') expect(container.querySelector('[data-testid="engineering-replan"]')).not.toBeNull()
+    expect(runtimeRequest.mock.calls.every(([, method]) => !method || method === 'GET')).toBe(true)
+  })
+
+  it.each(['other-task', 'other-thread'])('hides typed continuation when the current task binding differs: %s', async mismatch => {
+    Object.assign(window.workwise, { getTaskRun: vi.fn(async () => ({ id: mismatch === 'other-task' ? mismatch : resumablePlan.taskId, threadId: mismatch === 'other-thread' ? mismatch : 'thread-a', status: 'stalled' })) })
+    runtimeRequest.mockImplementation(async path => response(200, path.startsWith('/v1/engineering/ai/plans?') ? { plan: resumablePlan } : { cards: [] }))
+    await render(); await settle()
+    expect(container.querySelector('[data-testid="engineering-resume"]')).toBeNull()
+  })
+
+  it.each([202, 409])('ignores a late typed resume %s response after switching projects', async status => {
+    const pending = deferred<RuntimeResponse>()
+    Object.assign(window.workwise, { getTaskRun: vi.fn(async () => ({ id: resumablePlan.taskId, threadId: 'thread-a', status: 'stalled' })) })
+    runtimeRequest.mockImplementation(async (path, method) => path.endsWith('/resume') && method === 'POST' ? pending.promise
+      : response(200, path.startsWith('/v1/engineering/ai/plans?') ? { plan: path.includes('other-thread') ? null : resumablePlan } : { cards: [] }))
+    await render(); await settle()
+    await act(async () => container.querySelector<HTMLButtonElement>('[data-testid="engineering-resume"]')!.click())
+    onRefresh.mockClear()
+    await act(async () => {
+      useChatStore.setState({ activeThreadId: 'other-thread', threads: [{ id: 'other-thread', domain: 'engineering', projectId: 'other-project', workspace: workspaceRoot }] as never })
+      root.render(createElement(EngineeringAiCommandCenter, { workspaceRoot, runtimeReady: true, project: { ...project, id: 'other-project' }, dataset: null, analysis: null, onCreateProject: vi.fn(), onImportData: vi.fn(), onSurveyFiles: vi.fn(), onOpenTab: vi.fn(), onRefresh }))
+    })
+    await settle()
+    await act(async () => pending.resolve(response(status, status === 202 ? { plan: { ...resumablePlan, revision: 4 } } : { code: 'engineering_plan_stale', message: 'PRIVATE' })))
+    await settle()
+    expect(refreshThreads).not.toHaveBeenCalled()
+    expect(selectThread).not.toHaveBeenCalled()
+    expect(onRefresh).not.toHaveBeenCalled()
+    expect(container.textContent).not.toContain('PRIVATE')
+    expect(container.textContent).not.toContain(i18n.t('runtimeEngineeringPlanStale'))
+  })
+
+  it.each(['en', 'zh'])('shows a localized typed resume failure without exposing the service message in %s', async language => {
+    await i18n.changeLanguage(language)
+    Object.assign(window.workwise, { getTaskRun: vi.fn(async () => ({ id: resumablePlan.taskId, threadId: 'thread-a', status: 'stalled' })) })
+    runtimeRequest.mockImplementation(async (path, method) => path.endsWith('/resume') && method === 'POST'
+      ? response(500, { code: 'internal_error', message: 'PRIVATE' })
+      : response(200, path.startsWith('/v1/engineering/ai/plans?') ? { plan: resumablePlan } : { cards: [] }))
+    await render(); await settle()
+    await act(async () => container.querySelector<HTMLButtonElement>('[data-testid="engineering-resume"]')!.click())
+    await settle()
+    expect(container.textContent).toContain(i18n.t('engineeringNoticeResumeFailed'))
+    expect(container.textContent).not.toContain('PRIVATE')
+    expect(container.querySelector<HTMLButtonElement>('[data-testid="engineering-resume"]')?.disabled).toBe(false)
+  })
+
   it.each(['en', 'zh'])('shows only verified step receipts as complete and keeps historical false completion visible in %s', async language => {
     await i18n.changeLanguage(language)
     const steps = ['validate', 'adjust', 'read', 'report'].map(id => ({ ...refreshedPlan.steps[0], id, title: id }))
