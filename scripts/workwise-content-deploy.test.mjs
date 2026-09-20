@@ -4,7 +4,7 @@ import { execFileSync, spawnSync } from 'node:child_process'
 import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, existsSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, dirname } from 'node:path'
-import { CONTENT_FILES, PROTECTED_FILES, PHP_RENDER_DOWNLOAD, PHP_COMPARE_DOWNLOAD_SOURCE, PHP_RENDER_PAGE, remoteContentScript, sha256, validateContentSource, verifyPublicContent } from './workwise-content-deploy.mjs'
+import { CONTENT_FILES, PROTECTED_FILES, PHP_RENDER_DOWNLOAD, PHP_COMPARE_DOWNLOAD_SOURCE, PHP_RENDER_PAGE, remoteContentScript, sha256, validateContentSource, validatePreviewScreenshots, verifyPublicContent } from './workwise-content-deploy.mjs'
 import { createPreviewServer, previewResourceUrl } from './preview-workwise-content.mjs'
 
 const sourceSha = 'a'.repeat(40)
@@ -157,6 +157,25 @@ test('public verification rejects stale introduction/download/title/provenance d
     await assert.rejects(verifyPublicContent(f.validated, expected, fetcher(html)), /rendering differs/)
   }
   await assert.rejects(verifyPublicContent(f.validated, expected, fetcher(expected, true)), /Public content hash mismatch/)
+})
+
+test('preview requires all three actual local image sources and rejects placeholder or metadata-only references', () => {
+  const paths = CONTENT_FILES.filter((file) => file.endsWith('.jpg')).map((file) => `/${file}`)
+  const valid = paths.map((path) => `<img src="${path}?v=preview" alt="candidate">`).join('')
+  assert.doesNotThrow(() => validatePreviewScreenshots(valid))
+  assert.doesNotThrow(() => validatePreviewScreenshots(paths.map((path) => `<img\n src='${path}'>`).join('')))
+  const remaining = paths.slice(0, 2).map((path) => `<img src="${path}">`).join('')
+  for (const missing of [
+    '',
+    `<img src="${paths[0]}">`,
+    `<!-- <img src="${paths[2]}"> -->`,
+    `<script>const example = '<img src="${paths[2]}">';</script>`,
+    `<meta content="${paths[2]}"><a href="${paths[2]}">screenshot</a>`,
+    `<img data-src="${paths[2]}" src="/images/placeholder.jpg">`,
+    `<img src="https://www.railwise.cn${paths[2]}">`,
+    `<img src="//www.railwise.cn${paths[2]}">`,
+    `<img src="${paths[2].replace('.jpg', '.webp')}">`
+  ]) assert.throws(() => validatePreviewScreenshots(remaining + missing), /Preview must render a local img src/)
 })
 
 test('preview proxy allows only fixed-origin static GETs and serves hash-verified local images', async (t) => {

@@ -101,6 +101,22 @@ export function productSections(html) {
   return [titles[0][0], ...sections].join('\n')
 }
 
+export function validatePreviewScreenshots(html) {
+  const imagePaths = new Set()
+  const markup = html.replace(/<!--[\s\S]*?-->|<(?:script|style)\b[^>]*>[\s\S]*?<\/(?:script|style)>/gi, '')
+  for (const [tag] of markup.matchAll(/<img\b[^>]*>/gi)) {
+    const source = tag.match(/\ssrc\s*=\s*(["'])(.*?)\1/i)?.[2]
+    if (source?.startsWith('/') && !source.startsWith('//')) {
+      imagePaths.add(new URL(source, 'https://www.railwise.cn').pathname)
+    }
+  }
+  for (const relative of CONTENT_FILES.filter((file) => file.endsWith('.jpg'))) {
+    if (!imagePaths.has(`/${relative}`)) {
+      throw new Error(`Preview must render a local img src for ${relative}; image optimization may have substituted a placeholder or external URL.`)
+    }
+  }
+}
+
 export async function verifyPublicContent(validated, expectedHtml, fetcher = fetch) {
   const page = await fetcher(`https://www.railwise.cn/products/workwise/?content=${validated.sourceSha}&t=${Date.now()}`, { cache: 'no-store', signal: AbortSignal.timeout(30_000) })
   if (!page.ok) throw new Error(`Product page returned HTTP ${page.status}.`)
@@ -267,6 +283,7 @@ export async function runContentCommand({ command, source, sourceSha, deployId, 
   if (command === 'preview') {
     const html = transport.runRemote(config, remoteContentScript('preview', validated), [config.releaseRoot, deployId])
     productSections(html)
+    validatePreviewScreenshots(html)
     const directory = resolve(output)
     mkdirSync(directory, { recursive: true })
     writeFileSync(resolve(directory, 'index.html'), html)
