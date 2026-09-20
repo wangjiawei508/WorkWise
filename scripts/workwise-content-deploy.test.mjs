@@ -4,7 +4,8 @@ import { execFileSync, spawnSync } from 'node:child_process'
 import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, existsSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, dirname } from 'node:path'
-import { CONTENT_FILES, PROTECTED_FILES, PHP_RENDER_DOWNLOAD, PHP_COMPARE_DOWNLOAD_SOURCE, remoteContentScript, sha256, validateContentSource } from './workwise-content-deploy.mjs'
+import { CONTENT_FILES, PROTECTED_FILES, PHP_RENDER_DOWNLOAD, PHP_COMPARE_DOWNLOAD_SOURCE, PHP_RENDER_PAGE, remoteContentScript, sha256, validateContentSource, verifyPublicContent } from './workwise-content-deploy.mjs'
+import { createPreviewServer, previewResourceUrl } from './preview-workwise-content.mjs'
 
 const sourceSha = 'a'.repeat(40)
 const q = (value) => `'${value.replaceAll("'", "'\\''")}'`
@@ -133,4 +134,51 @@ test('real PHP rendering catches upstream variable changes and resolves __DIR__'
   assert.equal(spawnSync(php, ['-r', PHP_COMPARE_DOWNLOAD_SOURCE], { input: JSON.stringify([first, second]) }).status, 0)
   assert.notEqual(spawnSync(php, ['-r', PHP_COMPARE_DOWNLOAD_SOURCE], { input: JSON.stringify([first, second.replace('echo $version', 'echo "changed"')]) }).status, 0)
   assert.notEqual(spawnSync(php, ['-r', PHP_RENDER_DOWNLOAD, '--', '/site/products/workwise'], { input: `${first}${section}` }).status, 0)
+  const full = '<html><title>Preview</title><body>candidate</body></html>'
+  assert.equal(execFileSync(php, ['-r', PHP_RENDER_PAGE, '--', '/site/products/workwise'], { input: full, encoding: 'utf8' }), full)
+  const failure = spawnSync(php, ['-r', PHP_RENDER_PAGE, '--', '/site/products/workwise'], { input: '<?php trigger_error("PRIVATE_CONFIG_CANARY", E_USER_WARNING); ?>', encoding: 'utf8' })
+  assert.notEqual(failure.status, 0)
+  assert.equal(failure.stdout, '')
+  assert.equal(failure.stderr, 'Website preview rendering failed')
+})
+
+test('public verification rejects stale introduction/download/title/provenance despite current screenshots', async (t) => {
+  const f = fixture(t)
+  const images = CONTENT_FILES.filter((p) => p.endsWith('.jpg')).map((p) => `<img src="/${p}">`).join('')
+  const expected = `<html><title>Survey</title><section class="pd-hero">new introduction${images}</section><section class="pd-section" id="download">stable 0.5.0</section></html>`
+  const fetcher = (html, corruptProvenance = false) => async (url) => {
+    const path = new URL(url).pathname.slice(1)
+    if (path === 'products/workwise/') return new Response(html)
+    const file = f.validated.files.find((item) => item.relative === path)
+    return new Response(corruptProvenance && path.endsWith('.json') ? 'old provenance' : file.data)
+  }
+  await verifyPublicContent(f.validated, expected, fetcher(expected))
+  for (const html of [expected.replace('new introduction', 'old introduction'), expected.replace('stable 0.5.0', 'stable 0.4.0'), expected.replace('<title>Survey', '<title>WorkWise')]) {
+    await assert.rejects(verifyPublicContent(f.validated, expected, fetcher(html)), /rendering differs/)
+  }
+  await assert.rejects(verifyPublicContent(f.validated, expected, fetcher(expected, true)), /Public content hash mismatch/)
+})
+
+test('preview proxy allows only fixed-origin static GETs and serves hash-verified local images', async (t) => {
+  const f = fixture(t)
+  const html = '<html>candidate preview</html>'
+  put(join(f.stage, 'index.html'), html)
+  put(join(f.stage, 'render-metadata.json'), JSON.stringify({ htmlSha256: sha256(html), files: f.validated.files }))
+  const requests = []
+  const server = createPreviewServer(f.stage, async (url, options) => {
+    requests.push({ url: String(url), options })
+    return new Response('body{}', { headers: { 'content-type': 'text/css' } })
+  })
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve))
+  t.after(() => new Promise((resolve) => server.close(resolve)))
+  const origin = `http://127.0.0.1:${server.address().port}`
+  assert.equal(await (await fetch(`${origin}/products/workwise/`)).text(), html)
+  assert.equal((await fetch(`${origin}/${CONTENT_FILES[1]}`)).status, 200)
+  assert.equal((await fetch(`${origin}/css/product-detail.css?v=1`)).status, 200)
+  assert.equal(requests[0].url, 'https://www.railwise.cn/css/product-detail.css?v=1')
+  assert.equal(requests[0].options.redirect, 'manual')
+  assert.equal((await fetch(`${origin}/contact`, { method: 'POST', body: 'x' })).status, 405)
+  assert.equal((await fetch(`${origin}/downloads/workwise/file.exe`)).status, 404)
+  for (const url of ['//evil.example/css/x.css', 'https://evil.example/x.css', '/css/../config.php', '/css/%2e%2e/private.css', '/api/delete.css', '/css/run.php']) assert.equal(previewResourceUrl(url), null)
+  assert.equal(requests.length, 1)
 })

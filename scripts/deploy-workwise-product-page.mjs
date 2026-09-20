@@ -441,6 +441,7 @@ if (mode === 'content-only') {
   await runContentCommand({
     command, source, sourceSha: requireFlag(flags, 'source-sha'),
     deployId: flags.get('deploy-id'),
+    output: flags.get('output'),
     config: command === 'validate' ? undefined : readSshConfig(),
     transport: { runRemote, copyToStage }
   })
