@@ -3069,6 +3069,7 @@
   "surveyResultsEmpty": "运行平差后显示闭合差、残差、协方差、方差因子和精度评定。",
   "surveyDeformationTitle": "不可变期次变形比较",
   "surveyRefreshEpochs": "刷新期次",
+  "surveyEpoch": "观测期次",
   "surveyReferenceEpoch": "参考期次",
   "surveyReferenceEpochAria": "参考平差期次",
   "surveyCurrentEpoch": "当前期次",

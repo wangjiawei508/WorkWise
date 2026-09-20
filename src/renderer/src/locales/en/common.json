@@ -3069,6 +3069,7 @@
   "surveyResultsEmpty": "No adjustment results yet.",
   "surveyDeformationTitle": "Epoch deformation comparison",
   "surveyRefreshEpochs": "Refresh epochs",
+  "surveyEpoch": "Observation epoch",
   "surveyReferenceEpoch": "Reference epoch",
   "surveyReferenceEpochAria": "Reference adjustment epoch",
   "surveyCurrentEpoch": "Current epoch",
