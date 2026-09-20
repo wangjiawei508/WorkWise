@@ -1284,16 +1284,21 @@ const ALIASES: Record<keyof zInferMapping, string[]> = {
 }
 type zInferMapping = { project?: string; period?: string; monitoringItem?: string; point?: string; timestamp?: string; value?: string; unit?: string; cumulative?: string; rate?: string; warningThreshold?: string; alarmThreshold?: string; controlThreshold?: string; valid?: string; note?: string }
 function inferMapping(row: Row): FieldMappingV1 { const keys = Object.keys(row); const out: Record<string, string> = {}; for (const [canonical, aliases] of Object.entries(ALIASES)) { const found = keys.find((key) => aliases.some((alias) => key.trim().toLowerCase() === alias.toLowerCase())); if (found) out[canonical] = found } return FieldMappingV1.parse(out) }
+function parseMonitoringNumber(raw: string | undefined): number | undefined {
+  if (raw === undefined || raw.trim() === '') return undefined
+  const value = Number(raw)
+  return Number.isFinite(value) ? value : undefined
+}
 function normalizeRows(rows: Row[], mapping: FieldMappingV1, project: RailwiseProjectV1, sourceHash: string): { observations: MonitoringObservationV1[]; findings: QualityFindingV1[]; unknownColumns: string[]; columnCount: number; timeRange: { start?: string; end?: string } } {
   const known = new Set(Object.values(mapping).filter(Boolean)); const columns = [...new Set(rows.flatMap((row) => Object.keys(row)))]; const unknownColumns = columns.filter((key) => !known.has(key) && !key.startsWith('__')); const observations: MonitoringObservationV1[] = []; const findings: QualityFindingV1[] = []; let start: string | undefined; let end: string | undefined; const seen = new Set<string>();
   for (let i = 0; i < rows.length; i += 1) {
-    const row = rows[i]; const point = mapping.point ? row[mapping.point] : ''; const item = mapping.monitoringItem ? row[mapping.monitoringItem] : project.monitoringType; const timestamp = mapping.timestamp ? row[mapping.timestamp] : ''; const rawValue = mapping.value ? row[mapping.value] : ''; const value = Number(rawValue);
+    const row = rows[i]; const point = mapping.point ? row[mapping.point] : ''; const item = mapping.monitoringItem ? row[mapping.monitoringItem] : project.monitoringType; const timestamp = mapping.timestamp ? row[mapping.timestamp] : ''; const rawValue = mapping.value ? row[mapping.value] : ''; const value = parseMonitoringNumber(rawValue);
     if (!point || !timestamp) findings.push(finding(`missing-${i}`, 'missing_identifier', 'blocking', i + 2, '缺少测点或时间', '补齐测点编号和时间'));
-    if (!rawValue) findings.push(finding(`missing-value-${i}`, 'missing_value', 'blocking', i + 2, '缺少观测数值', '补齐数值字段'));
-    else if (!Number.isFinite(value)) findings.push(finding(`number-${i}`, 'invalid_number', 'blocking', i + 2, '数值无效', '修正数值字段'));
+    if (!rawValue?.trim()) findings.push(finding(`missing-value-${i}`, 'missing_value', 'blocking', i + 2, '缺少观测数值', '补齐数值字段'));
+    else if (value === undefined) findings.push(finding(`number-${i}`, 'invalid_number', 'blocking', i + 2, '数值无效', '修正数值字段'));
     if (timestamp && Number.isNaN(Date.parse(timestamp))) findings.push(finding(`time-invalid-${i}`, 'time_order', 'blocking', i + 2, '时间格式无效', '使用 ISO 8601 或可识别日期'));
     const key = `${item}|${point}|${timestamp}`; if (seen.has(key)) findings.push(finding(`duplicate-${i}`, 'duplicate_observation', 'warning', i + 2, '存在重复观测', '确认是否保留其中一条')); seen.add(key);
-    if (Number.isFinite(value) && point && timestamp) { const obs = MonitoringObservationV1.parse({ schemaVersion: 1, id: `obs_${sourceHash.slice(0, 12)}_${i}`, projectId: project.id, datasetId: 'pending', monitoringItem: item || project.monitoringType, point, timestamp, value, unit: mapping.unit ? row[mapping.unit] : project.unit, cumulative: mapping.cumulative && Number.isFinite(Number(row[mapping.cumulative])) ? Number(row[mapping.cumulative]) : undefined, rate: mapping.rate && Number.isFinite(Number(row[mapping.rate])) ? Number(row[mapping.rate]) : undefined, sourceRow: i + 2, sourceFields: row }); observations.push(obs); start = !start || timestamp < start ? timestamp : start; end = !end || timestamp > end ? timestamp : end }
+    if (value !== undefined && point && timestamp) { const obs = MonitoringObservationV1.parse({ schemaVersion: 1, id: `obs_${sourceHash.slice(0, 12)}_${i}`, projectId: project.id, datasetId: 'pending', monitoringItem: item || project.monitoringType, point, timestamp, value, unit: mapping.unit ? row[mapping.unit] : project.unit, cumulative: mapping.cumulative ? parseMonitoringNumber(row[mapping.cumulative]) : undefined, rate: mapping.rate ? parseMonitoringNumber(row[mapping.rate]) : undefined, sourceRow: i + 2, sourceFields: row }); observations.push(obs); start = !start || timestamp < start ? timestamp : start; end = !end || timestamp > end ? timestamp : end }
   }
   if (rows.length > 500_000) findings.push(finding('row-limit', 'row_limit', 'blocking', 1, '观测记录超过 500,000 条运行上限', '拆分文件或缩小运行范围'))
   if (Object.keys(project.thresholds).length === 0) findings.push(finding('threshold-missing', 'missing_threshold', 'warning', 1, '项目未配置阈值', '在项目设置中补充阈值'))

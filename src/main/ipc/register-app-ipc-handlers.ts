@@ -1545,8 +1545,9 @@ export function registerAppIpcHandlers(options: RegisterAppIpcHandlersOptions): 
       z.object({ defaultPath: defaultPathSchema }).strict(),
       { defaultPath }
     ).defaultPath
+    const { locale } = await store.load()
     const options: Electron.OpenDialogOptions = {
-      title: 'Select working directory',
+      title: locale === 'zh' ? '选择工作目录' : 'Select working directory',
       defaultPath: normalizedDefaultPath,
       properties: ['openDirectory', 'createDirectory', 'dontAddToRecent']
     }
