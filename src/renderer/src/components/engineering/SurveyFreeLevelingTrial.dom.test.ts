@@ -5,6 +5,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { SurveyFreeLevelingTrial } from './SurveyFreeLevelingTrial'
 import { createFreeLevelingTrial, listFreeLevelingTrials, readFreeLevelingTrial, type FreeLevelingBinding } from '../../agent/survey-free-leveling-client'
 import i18n from '../../i18n'
+import { EngineeringEvidenceQuestions } from './EngineeringEvidenceQuestion'
+import { useEngineeringConversationDrafts } from './engineering-conversation-drafts'
 
 const binding: FreeLevelingBinding = { projectId: 'project-trial', networkId: 'network-trial', networkRevision: 2, sourceSha256: 'a'.repeat(64) }
 const fixture = {
@@ -55,6 +57,19 @@ beforeEach(async () => {
 afterEach(async () => { await act(async () => root.unmount()); host.remove(); vi.restoreAllMocks() })
 
 describe('free leveling desktop trial', () => {
+  it('pins the trial point and observation using their stored record hash without inheriting a fixed-datum result', async () => {
+    const focus = vi.fn(), key = JSON.stringify(['/survey', binding.projectId])
+    useEngineeringConversationDrafts.setState({ drafts: {} })
+    await act(async () => root.render(createElement(EngineeringEvidenceQuestions, { scope: { workspace: '/survey', projectId: binding.projectId, projectRevision: 1, ready: true, focus }, children: createElement(SurveyFreeLevelingTrial, defaults) })))
+    await acknowledge(); await click(button('Run trial')); runtimeRequest.mockClear()
+    for (const [tableIndex, collection, id] of [[0, 'points', 'B'], [1, 'observations', 'obs-2']] as const) {
+      await click(host.querySelectorAll('table')[tableIndex]!.querySelector<HTMLButtonElement>('tbody tr:nth-child(2) button[title]')!)
+      expect(useEngineeringConversationDrafts.getState().drafts[key]!.evidenceContext!.typedEvidence).toEqual({ schemaVersion: 1, projectId: binding.projectId, projectRevision: 1, kind: 'free-leveling', networkId: binding.networkId, networkRevision: binding.networkRevision, sourceSha256: binding.sourceSha256, trialId: fixture.id, recordHash: fixture.recordHash, selector: { path: ['output', collection, 1], identity: { id } } })
+      expect(useEngineeringConversationDrafts.getState().drafts[key]!.evidenceContext).not.toHaveProperty('adjustmentId')
+    }
+    expect(runtimeRequest).not.toHaveBeenCalled(); expect(focus).toHaveBeenCalledTimes(2)
+  })
+
   it('requires explicit datum acknowledgement, sends only the strict trial request, and renders both languages with source locators', async () => {
     await render()
     expect(runtimeRequest).not.toHaveBeenCalled(); expect(button('Run trial').disabled).toBe(true)

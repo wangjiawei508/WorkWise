@@ -11,6 +11,12 @@
 - [x] Expose authenticated monitoring replay and bounded bilingual desktop evidence with project/manifest/revision/readiness isolation; verify tamper rejection, historical compatibility, interrupted starts, exact arithmetic, negative states and unchanged original records.
 - [ ] Verify this increment in its own signed isolated candidate with new CSV/XLSX imports, historical missing-source records, failure/retry, restart and supported UI states; keep user acceptance and public release approval separate.
 
+## Exact result questions follow-through
+
+- [x] Add typed project-scoped evidence references and an authenticated read-only model tool that resolves the exact recorded IDs, revisions and hashes across existing Survey, quality and monitoring records; reject stale, ambiguous, cross-project or oversized references without replacing them with latest results or creating new records.
+- [x] Connect the missing Q10-Q17 result-question surfaces to those references, preserving existing drafts and attachments; verify precise record/row binding, scope changes, bilingual accessible controls and no automatic model send or Runtime mutation from preparing a question.
+- [ ] Verify the exact new signed candidate's result-question preparation and explicit-send/read-back flow, including stale/error/recovery cases; preserve historical candidate evidence and keep user/professional acceptance separate.
+
 ## Integrations and UI
 
 - [x] Add namespaced RailWise tool adapters while preserving existing tool IDs and agent-pack source metadata.

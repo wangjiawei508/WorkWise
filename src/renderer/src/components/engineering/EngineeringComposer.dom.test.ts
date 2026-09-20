@@ -40,6 +40,39 @@ beforeEach(() => {
 afterEach(async () => { await act(async () => root.unmount()); container.remove() })
 
 describe('Survey composer continuity', () => {
+  it('waits for explicit Send and requests exact read-only resolution of the selected typed evidence', async () => {
+    const typedEvidence = { schemaVersion: 1 as const, projectId: 'project-a', projectRevision: 3, kind: 'advanced-trial' as const, trialId: 'selected-trial', recordHash: 'a'.repeat(64), selector: { path: ['result', 'states', 1], identity: { iteration: 1 } } }
+    prepareEngineeringQuestion(workspaceRoot, 'project-a', 'Explain this iteration', { projectId: 'project-a', projectRevision: 3, section: 'advanced-trial', typedEvidence })
+    await render()
+    expect(sendMessage).not.toHaveBeenCalled()
+    expect(container.textContent).toContain('1')
+    await act(async () => composer.onSend())
+    expect(sendMessage).toHaveBeenCalledOnce()
+    expect(sendMessage).toHaveBeenCalledWith(expect.stringContaining(JSON.stringify(typedEvidence)), 'agent', expect.objectContaining({ displayText: 'Explain this iteration' }))
+    expect(sendMessage).toHaveBeenCalledWith(expect.stringContaining('survey_read_evidence'), 'agent', expect.any(Object))
+    expect(sendMessage).toHaveBeenCalledWith(expect.stringContaining('Do not substitute another record or execute a calculation'), 'agent', expect.any(Object))
+    expect(useEngineeringConversationDrafts.getState().drafts[JSON.stringify([workspaceRoot, 'project-a'])]!.evidenceContext).toBeUndefined()
+    expect(useEngineeringConversationDrafts.getState().drafts[JSON.stringify([workspaceRoot, 'project-a'])]!.viewContext).toBeUndefined()
+    await act(async () => composer.setInput('A new independent question'))
+    await act(async () => composer.onSend())
+    expect(sendMessage).toHaveBeenLastCalledWith('A new independent question', 'agent', expect.any(Object))
+  })
+
+  it('preserves a new evidence selection and input made while the previous question is sending', async () => {
+    const scope = JSON.stringify([workspaceRoot, 'project-a'])
+    const first = { section: 'advanced-trial', typedEvidence: { schemaVersion: 1 as const, projectId: 'project-a', projectRevision: 1, kind: 'advanced-trial' as const, trialId: 'first', recordHash: 'a'.repeat(64) } }
+    const second = { ...first, typedEvidence: { ...first.typedEvidence, trialId: 'second', recordHash: 'b'.repeat(64) } }
+    let resolve!: (value: boolean) => void
+    sendMessage.mockImplementationOnce(() => new Promise<boolean>(done => { resolve = done }))
+    prepareEngineeringQuestion(workspaceRoot, 'project-a', 'First question', first)
+    await render()
+    let pending: void | Promise<void>
+    await act(async () => { pending = composer.onSend() })
+    await act(async () => { prepareEngineeringQuestion(workspaceRoot, 'project-a', 'Second question', second); composer.setInput('Second question') })
+    await act(async () => { resolve(true); await pending })
+    expect(useEngineeringConversationDrafts.getState().drafts[scope]).toMatchObject({ input: 'Second question', evidenceContext: second, viewContext: second })
+  })
+
   it('explains missing project and pending thread without claiming Runtime is offline', async () => {
     await act(async () => root.render(createElement(EngineeringComposer, { workspaceRoot, projectId: '', threadId: null, ready: true, onSurveyFiles })))
     expect(composer.runtimeReady).toBe(false)

@@ -1,4 +1,5 @@
 import { SurveyQualityAssessmentService } from '../engineering/survey-quality-assessment.js'
+import { SurveyEvidenceReader } from '../engineering/survey-evidence-reader.js'
 import { SurveyQualityScoringWorkspaceService } from '../engineering/survey-quality-scoring-workspace.js'
 import { mkdir } from 'node:fs/promises'
 import { join } from 'node:path'
@@ -577,7 +578,11 @@ export async function createKunServeRuntime(
   let engineeringAi: EngineeringAiOrchestrator
   const toolHost = new LocalToolHost({ registry, readTracker: true })
   let loop: AgentLoop
-  registry.registerProvider(buildEngineeringConversationTools(threadStore, () => engineeringAi))
+  registry.registerProvider(buildEngineeringConversationTools(threadStore, () => engineeringAi, new SurveyEvidenceReader({
+    engineering: engineeringService, survey: surveyService, advanced: surveyAdvancedTrialsWorkspaceService,
+    scoring: surveyQualityScoringWorkspaceService, retention: surveyQualityWorkspaceService,
+    sampling: surveySamplingWorkspaceService, assessment: surveyQualityAssessmentService
+  })))
   loop = new AgentLoop({
     threadStore,
     sessionStore,

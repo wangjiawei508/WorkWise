@@ -485,6 +485,63 @@ describe('SurveyAdjustmentPanel persisted state restoration', () => {
     expect(useEngineeringConversationDrafts.getState().drafts[scope]?.input).toBe('Keep my question')
   })
 
+  it('selects the exact known or unknown point from the original network without carrying the current adjustment', async () => {
+    const focus = vi.fn(), scope = JSON.stringify(['/survey', 'project-restored-001'])
+    useEngineeringConversationDrafts.setState({ drafts: {} })
+    await act(async () => root.render(createElement(SurveyAdjustmentPanel, { project: { id: 'project-restored-001', revision: 1, workspace: '/survey' }, runtimeReady: true, preferredSection: 'points', onOpenAi: focus })))
+    await settle(); runtimeRequest.mockClear()
+    for (const [id, collection] of [['BM-01', 'knownPoints'], ['P-01', 'unknownPoints']]) {
+      const ask = container.querySelector<HTMLButtonElement>(`[aria-label="${i18n.t('surveyAskEvidence', { label: id })}"]`)!
+      expect(ask).not.toBeNull(); await act(async () => ask.click())
+      expect(useEngineeringConversationDrafts.getState().drafts[scope]!.evidenceContext!.typedEvidence).toEqual({ schemaVersion: 1, projectId: 'project-restored-001', projectRevision: 1, kind: 'network', networkId: network.id, networkRevision: network.revision, sourceSha256: network.sourceFile.sha256, selector: { path: [collection, 0], identity: { id } } })
+      expect(useEngineeringConversationDrafts.getState().drafts[scope]!.evidenceContext).not.toHaveProperty('adjustmentId')
+    }
+    expect(runtimeRequest).not.toHaveBeenCalled(); expect(focus).toHaveBeenCalledTimes(2)
+  })
+
+  it('selects deformation points and pairs bound to both epochs, never the currently displayed adjustment', async () => {
+    const focus = vi.fn(), scope = JSON.stringify(['/survey', 'project-restored-001'])
+    const comparison = { id: 'comparison-selected', referenceAdjustmentId: 'epoch-reference', currentAdjustmentId: 'epoch-current', inputHash: 'e'.repeat(64), algorithmVersion: 'survey-deformation-1', durationDays: 1, referenceEpoch: '2026-01-01', currentEpoch: '2026-01-02', points: [{ pointId: 'P-01', significant: false, rates: { spatialPerDay: 0 } }], pairs: [{ id: 'pair-1', kind: 'convergence', firstPointId: 'P-01', secondPointId: 'BM-01' }] }
+    const original = runtimeRequest.getMockImplementation() as (path: string, method?: string) => Promise<ReturnType<typeof runtimeResponse>>
+    runtimeRequest.mockImplementation(async (path: string, method?: string) => path === '/v1/engineering/deformations' ? runtimeResponse({ deformation: comparison }) : original(path, method))
+    useEngineeringConversationDrafts.setState({ drafts: {} })
+    await act(async () => root.render(createElement(SurveyAdjustmentPanel, { project: { id: 'project-restored-001', revision: 1, workspace: '/survey' }, runtimeReady: true, preferredSection: 'deformation', onOpenAi: focus })))
+    await settle()
+    const compare = [...container.querySelectorAll<HTMLButtonElement>('button')].find(item => item.textContent === i18n.t('surveyCompareEpochs'))!
+    expect(compare.disabled).toBe(false); await act(async () => compare.click()); runtimeRequest.mockClear()
+    for (const [label, collection, identity] of [['P-01', 'points', { pointId: 'P-01' }], ['pair-1', 'pairs', { id: 'pair-1' }]] as const) {
+      await act(async () => container.querySelector<HTMLButtonElement>(`[aria-label="${i18n.t('surveyAskEvidence', { label })}"]`)!.click())
+      expect(useEngineeringConversationDrafts.getState().drafts[scope]!.evidenceContext!.typedEvidence).toEqual({ schemaVersion: 1, projectId: 'project-restored-001', projectRevision: 1, kind: 'deformation', comparisonId: comparison.id, referenceAdjustmentId: comparison.referenceAdjustmentId, currentAdjustmentId: comparison.currentAdjustmentId, inputHash: comparison.inputHash, algorithmVersion: comparison.algorithmVersion, selector: { path: [collection, 0], identity } })
+      expect(useEngineeringConversationDrafts.getState().drafts[scope]!.evidenceContext).not.toHaveProperty('adjustmentId')
+    }
+    expect(runtimeRequest).not.toHaveBeenCalled(); expect(focus).toHaveBeenCalledTimes(2)
+    await act(async () => root.render(createElement(SurveyAdjustmentPanel, { project: { id: 'project-restored-001', revision: 2, workspace: '/survey' }, runtimeReady: true, preferredSection: 'deformation', onOpenAi: focus })))
+    expect(container.querySelector(`[aria-label="${i18n.t('surveyAskEvidence', { label: 'pair-1' })}"]`)).toBeNull()
+  })
+
+  it('keeps duplicate point IDs bound to their displayed collection and offset and disables them during project loading', async () => {
+    const focus = vi.fn(), scope = JSON.stringify(['/survey', 'project-restored-001'])
+    const duplicated = { ...network, knownPoints: [{ id: 'DUP', height: 100 }, { id: 'DUP', height: 101 }], unknownPoints: [{ id: 'DUP', height: 102 }] }
+    const original = runtimeRequest.getMockImplementation() as (path: string, method?: string) => Promise<ReturnType<typeof runtimeResponse>>
+    runtimeRequest.mockImplementation(async (path: string, method?: string) => path.startsWith('/v1/engineering/survey/networks?') ? runtimeResponse({ networks: [duplicated] }) : original(path, method))
+    useEngineeringConversationDrafts.setState({ drafts: {} })
+    await act(async () => root.render(createElement(SurveyAdjustmentPanel, { key: 'duplicates', project: { id: 'project-restored-001', revision: 1, workspace: '/survey' }, runtimeReady: true, preferredSection: 'points', onOpenAi: focus })))
+    await settle(); runtimeRequest.mockClear()
+    const questions = [...container.querySelectorAll<HTMLButtonElement>(`[aria-label="${i18n.t('surveyAskEvidence', { label: 'DUP' })}"]`)]
+    expect(questions).toHaveLength(3)
+    for (const [index, path] of [['knownPoints', 0], ['knownPoints', 1], ['unknownPoints', 0]].entries()) {
+      await act(async () => questions[index]!.click())
+      expect(useEngineeringConversationDrafts.getState().drafts[scope]!.evidenceContext!.typedEvidence!.selector).toEqual({ path, identity: { id: 'DUP' } })
+    }
+    runtimeRequest.mockImplementation(() => new Promise(() => {}))
+    await act(async () => root.render(createElement(SurveyAdjustmentPanel, { key: 'duplicates', project: { id: 'project-other', revision: 1, workspace: '/survey' }, runtimeReady: true, preferredSection: 'points', onOpenAi: focus })))
+    for (const ask of container.querySelectorAll<HTMLButtonElement>(`[aria-label="${i18n.t('surveyAskEvidence', { label: 'DUP' })}"]`)) {
+      expect(ask.disabled).toBe(true); await act(async () => ask.click())
+    }
+    expect(useEngineeringConversationDrafts.getState().drafts[JSON.stringify(['/survey', 'project-other'])]).toBeUndefined()
+    expect(focus).toHaveBeenCalledTimes(3)
+  })
+
   it('prepares preflight, observation, closure and precision questions with exact source references', async () => {
     const focus = vi.fn()
     const scope = JSON.stringify(['/survey', 'project-restored-001'])

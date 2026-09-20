@@ -11,6 +11,9 @@ import { SurveyAdvancedTrialsWorkspaceService } from '../../../../../kun/src/eng
 import { SurveyAdvancedModelWorkspace } from './SurveyAdvancedModelWorkspace'
 import { advancedTrialSummary, readAdvancedTrial, validateAdvancedTrialInput, type AdvancedTrialBinding, type AdvancedTrialInput } from '../../agent/survey-advanced-trials-client'
 import i18n from '../../i18n'
+import { EngineeringEvidenceQuestions } from './EngineeringEvidenceQuestion'
+import { useEngineeringConversationDrafts } from './engineering-conversation-drafts'
+import { selectSurveyEvidence } from '../../../../../kun/src/engineering/survey-evidence-reader'
 
 const response = (body: unknown) => ({ ok: true, status: 200, body: JSON.stringify(body) })
 const runtimeRequest = vi.fn()
@@ -82,6 +85,26 @@ beforeEach(async () => {
 afterEach(async () => { await act(async () => root.unmount()); host.remove(); service.close(); rmSync(dir, { recursive: true, force: true }); vi.restoreAllMocks(); vi.unstubAllGlobals() })
 
 describe('declared advanced model desktop workflow', () => {
+  it.each(['generalized-w', 'vce', 'huber', 'statistical-family', 'reference-datum', 'static-incremental'] as const)('prepares exact stored %s evidence and a resolvable selected result without another Runtime call', async kind => {
+    const focus = vi.fn(), key = JSON.stringify([binding.workspaceRoot, binding.projectId])
+    useEngineeringConversationDrafts.setState({ drafts: {} })
+    await act(async () => root.render(createElement(EngineeringEvidenceQuestions, { scope: { workspace: binding.workspaceRoot, projectId: binding.projectId, projectRevision: binding.projectRevision, ready: true, focus }, children: createElement(SurveyAdvancedModelWorkspace, { binding, runtimeReady: true }) })))
+    await save(input(kind, JSON.parse(advancedTrialTestRequest(kind).declarationJson)))
+    const record = service.getTrial(binding.projectId, service.listTrials(binding.projectId).trials[0]!.id)
+    runtimeRequest.mockClear()
+    const questions = [...host.querySelectorAll<HTMLButtonElement>('button[title]')].filter(button => button.getAttribute('aria-label')?.startsWith('Ask Survey AI'))
+    expect(questions.length).toBeGreaterThan(1)
+    await click(questions[0]!)
+    expect(useEngineeringConversationDrafts.getState().drafts[key]!.evidenceContext!.typedEvidence).toEqual({ schemaVersion: 1, projectId: binding.projectId, projectRevision: binding.projectRevision, kind: 'advanced-trial', trialId: record.id, recordHash: record.recordHash })
+    await click(questions.at(-1)!)
+    const evidence = useEngineeringConversationDrafts.getState().drafts[key]!.evidenceContext!.typedEvidence!
+    expect(evidence).toMatchObject({ kind: 'advanced-trial', trialId: record.id, recordHash: record.recordHash })
+    expect(evidence.selector).toBeDefined()
+    expect(selectSurveyEvidence(record, evidence.selector)).toBeDefined()
+    expect(runtimeRequest).not.toHaveBeenCalled(); expect(focus).toHaveBeenCalledTimes(2)
+    expect(useEngineeringConversationDrafts.getState().drafts[key]!.evidenceContext).not.toHaveProperty('adjustmentId')
+  })
+
   it('requires an explicit model and confirmation, preserves raw evidence, and displays null directions plus all covariance cells', async () => {
     await render(); expect(runtimeRequest).not.toHaveBeenCalled(); expect(button('Confirm and save trial').disabled).toBe(true)
     expect(field<HTMLSelectElement>('Trial method').value).toBe('')

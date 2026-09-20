@@ -5,6 +5,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { SurveyStatisticalDiagnostics } from './SurveyStatisticalDiagnostics'
 import { readSurveyStatisticalDiagnostics, type SurveyStatisticalBinding } from '../../agent/survey-statistics-client'
 import i18n from '../../i18n'
+import { EngineeringEvidenceQuestions } from './EngineeringEvidenceQuestion'
+import { useEngineeringConversationDrafts } from './engineering-conversation-drafts'
 
 const binding: SurveyStatisticalBinding = { projectId: 'project-stats', networkId: 'network-stats', runId: 'run-stats',
   resultId: 'result-stats', inputHash: 'a'.repeat(64), algorithmVersion: 'workwise-survey-adjustment-7', sourceSha256: 'b'.repeat(64) }
@@ -46,6 +48,16 @@ beforeEach(async () => {
 afterEach(async () => { await act(async () => root.unmount()); host.remove(); vi.restoreAllMocks() })
 
 describe('desktop leveling statistical diagnostics', () => {
+  it('pins the chosen diagnostic observation with its actual network revision and calculation hash', async () => {
+    const focus = vi.fn()
+    useEngineeringConversationDrafts.setState({ drafts: {} })
+    await act(async () => root.render(createElement(EngineeringEvidenceQuestions, { scope: { workspace: '/survey', projectId: binding.projectId, projectRevision: 1, ready: true, focus }, children: createElement(SurveyStatisticalDiagnostics, { ...defaults, networkRevision: 7 }) })))
+    await click(); runtimeRequest.mockClear()
+    await click(host.querySelector<HTMLButtonElement>('tbody tr:nth-child(2) button[title]')!)
+    expect(useEngineeringConversationDrafts.getState().drafts[JSON.stringify(['/survey', binding.projectId])]!.evidenceContext!.typedEvidence).toEqual({ schemaVersion: 1, projectId: binding.projectId, projectRevision: 1, kind: 'statistics', networkId: binding.networkId, networkRevision: 7, sourceSha256: binding.sourceSha256, adjustmentId: binding.runId, inputHash: binding.inputHash, calculationHash: fixture.calculationHash, diagnosticsVersion: fixture.diagnosticsVersion, selector: { path: ['observations', 1], identity: { observationId: 'obs-2' } } })
+    expect(runtimeRequest).not.toHaveBeenCalled(); expect(focus).toHaveBeenCalledOnce()
+  })
+
   it('uses the exact project-scoped Runtime payload, shows assumptions in both locales and locates original records', async () => {
     await render()
     expect(runtimeRequest).not.toHaveBeenCalled()

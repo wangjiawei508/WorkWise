@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next'
 import type { DeliverableVerificationV1 } from '@shared/engineering-verification'
 import { InvalidVerificationResponse, parseEngineeringVerification, verificationFailureKey } from './engineering-verification'
 import { EngineeringMonitoringReplay } from './EngineeringMonitoringReplay'
+import { EngineeringEvidenceQuestion } from './EngineeringEvidenceQuestion'
 const checkKeys = {
   manifest: 'engineeringVerifyManifest', outputs: 'engineeringVerifyOutputs', inputs: 'engineeringVerifyInputs',
   surveyReplay: 'engineeringVerifySurveyReplay', sources: 'engineeringVerifySources'
@@ -56,8 +57,9 @@ export function EngineeringManifestVerification({ projectId, manifestId, reviewS
       {currentError ? <><p className="text-red-700 dark:text-red-300">{t(currentError.key)}</p>{technicalDetail(currentError.detail)}</> : null}
       {result ? <>
         <p className={result.valid ? 'text-ds-ink' : 'text-red-700 dark:text-red-300'}>{t(result.valid ? 'engineeringVerifySucceeded' : 'engineeringVerifyFailed')} · <time dateTime={result.checkedAt}>{new Date(result.checkedAt).toLocaleString(i18n.language)}</time></p>
-        <ul className="mt-1 space-y-1">{result.checks.map(check => <li key={check.id}>
+        <ul className="mt-1 space-y-1">{result.checks.map((check, index) => <li key={check.id}>
           {t(checkKeys[check.id])}: {t(statusKeys[check.status])}
+          <EngineeringEvidenceQuestion label={t(checkKeys[check.id])} reference={{ kind: 'deliverable-verification', manifestId: result.manifestId, checkedAt: result.checkedAt, selector: { path: ['checks', index], identity: { id: check.id } } }} />
           {check.detail ? <><p className="break-words text-ds-muted">{t(verificationFailureKey(check.detail))}</p>{technicalDetail(check.detail)}</> : null}
         </li>)}</ul>
         <p className="mt-2 text-ds-muted">{t('engineeringVerifyBoundary')}</p>

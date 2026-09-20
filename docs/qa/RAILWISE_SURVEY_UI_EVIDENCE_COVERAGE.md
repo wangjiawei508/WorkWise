@@ -2,6 +2,8 @@
 
 本清单为 R11 软件资料，基准源码为 `267aadeafebeecdbbb3bc012f3844793d060990a`，包含本次 `common:surveyEpoch` 中英文缺失键修复。日期：2026-09-20。下列行号对应基准源码；词典修复不改变组件行号。`7d4f454feecb09028007ae9b436a318db6856201` 候选包不包含该后续文案修复，本清单也没有为任何候选包增加 GUI 验收结论。
 
+2026-09-21 增量说明：`codex/survey-result-questions` 在 `b193fc7` 基线上已完成 Q10–Q17 的 typed 引用、只读读取工具及桌面接线。下面原审计表和静态计数保留为 `267aade` 历史快照；当前实现见“Q10–Q17 增量实现索引”和[精确结果追问源码验收](RAILWISE_EXACT_RESULT_QUESTIONS_ACCEPTANCE.md)。源码和 DOM 测试通过不代表真实模型读回或本增量签名包验收完成，生产指标仍不可由按钮数量推算。
+
 这是源码可追溯的**字段族与界面表面清单**，不统计某个项目的行数，不生成生产百分比，不证明值级来源全覆盖、英文界面无中文残留或一键追问已经实际成功。[生产指标口径](./RAILWISE_SURVEY_PRODUCTION_METRICS.md)中的对应指标仍须保留 `not-measurable`，直到补齐冻结范围与真实操作证据。接口返回结果、前端显示结果、人工签认是不同证据。
 
 ## 范围与复核方法
@@ -53,7 +55,7 @@ node scripts/audit-survey-ui-evidence.mjs
 
 数据链的复核入口：[基础平差服务](../../kun/src/engineering/survey-service.ts#L1468)产生标准平差结果；[高级试算客户端](../../src/renderer/src/agent/survey-advanced-trials-client.ts#L84)核对声明/结果绑定，[高级试算服务](../../kun/src/engineering/survey-advanced-trials-workspace.ts#L100)按 kind 执行并在读取时复算；[质量评分服务](../../kun/src/engineering/survey-quality-scoring-workspace.ts#L138)复算声明结果；[抽样内核](../../kun/src/engineering/survey-quality-sampling.ts#L64)计算抽样。前端读到 R 只说明服务合同来源，本清单没有独立重算每个显示值。
 
-## 证据追问表面清单
+## 证据追问表面清单（历史基准）
 
 以“表面类型 + 证据粒度”记录候选分母。没有按钮的结果表面照常列入，不为提高覆盖率排除；输入/审计资料另标边界。这里的“有专用入口”仅为静态接线证据，全部 GUI 操作结果均为**未测**。
 
@@ -81,6 +83,23 @@ node scripts/audit-survey-ui-evidence.mjs
 共同链路：[askAboutEvidence](../../src/renderer/src/components/engineering/SurveyAdjustmentPanel.tsx#L370) 要求 workspace/network/onOpenAi，附 project/revision、network/revision、source SHA、parser id/version/sourceHash、当前 adjustmentId/algorithmVersion；交付使用 [askAboutDelivery](../../src/renderer/src/components/engineering/EngineeringWorkspaceView.tsx#L853)。[prepareEngineeringQuestion](../../src/renderer/src/components/engineering/engineering-conversation-drafts.ts#L54)只设置工程作用域内的会话草稿与 evidenceContext，不立即发消息；已有非空输入保留。导航仅更新 viewContext，显式 evidenceContext 保留。
 
 [EngineeringComposer.send](../../src/renderer/src/components/engineering/EngineeringComposer.tsx#L91) 优先 evidenceContext，将其 JSON 加到实际提示中，而 displayText 只展示问题正文；成功发送才按对象身份清除所发送的证据与附件，失败保留草稿。上下文只是引用，提示明确要求重新读取当前记录，不是执行批准。静态代码无法证明实际发送、当前线程匹配、服务读回、错误恢复与 AI 正确引用均已完成。
+
+## Q10–Q17 增量实现索引
+
+下表是 2026-09-21 未提交源码增量的实现状态，逐行替补上方历史 Q10–Q17 缺口；不覆盖历史记录。共同入口为 [EngineeringEvidenceQuestion](../../src/renderer/src/components/engineering/EngineeringEvidenceQuestion.tsx)，引用合同为 [SurveyEvidenceReferenceV1](../../kun/src/contracts/survey-evidence-reference.ts)，只读工具为 `survey_read_evidence`。所有引用绑定项目修订号和相应记录身份，点击仅准备草稿，必须显式发送后才能进入工具读取流程。
+
+| ID | 当前源码接线与粒度 | 证据及限制 |
+| --- | --- | --- |
+| Q10 | 来源摘要、拓扑标题选择完整网络；控制点表逐行选择原始 known/unknown 点。 | 网络 ID/revision/source SHA + collection/index/id；重复点号按真实位置选择，不宣称每个拓扑像素或摘要数字均有入口。 |
+| Q11 | 期次比较点行、点对行专用入口。 | comparisonId、两期 adjustmentId、inputHash/algorithmVersion + point/pair selector；项目或修订变更后旧结果隐藏。 |
+| Q12 | 完整诊断及每个观测行。 | 网络绑定、adjustmentId、inputHash/calculationHash/diagnosticsVersion；定位和下载仍是独立动作。 |
+| Q13 | 完整自由水准试算及输出点/观测行。 | trialId/recordHash、网络绑定及 `.output` 选择路径；本增量没有增加独立导出功能。 |
+| Q14 | 六类完整试算记录，以及广义 W 方向、VCE/Huber 迭代、统计族成员、参考基准完整结果、静态追加步骤。 | trialId/recordHash + `.result` 路径/行身份；完整记录入口不表示所有矩阵单元格有独立按钮。 |
+| Q15 | 抽样总体/运行/分页单位及样本；评分字段/trace；保留计划/成员/检查/事件；评定计划/结果/单位/材料。 | 各类 plan/run/record 哈希与实际 selector；分页使用绝对索引，声明真实性和专业复核仍未由工具认证。 |
+| Q16 | 保存的旧复验 check、新监测复算 attempt、规范整体及 rule/profile locator。 | manifest/checkedAt 或 attemptId；规范版本、ruleDigest、来源和关联父记录；规范解析不等于标准符合性。 |
+| Q17 | 数据集整体、质量发现行、分析结果行。 | dataset revision/source hash 或 analysis inputHash/algorithmVersion，配合 finding id 或 monitoringItem/point。 |
+
+验证状态：完整 desktop 2850 项通过、2 跳过，Runtime 2929 项通过、22 跳过；类型检查、构建及 lint 无错误。首次 PDF 共享依赖目录拒绝的 3 项失败与仅放行依赖读取后的完整复验日志都保留在[源码验收证据](evidence/railwise-result-questions-source/README.md)。真实外部模型调用、准确回答引用、本增量独立签名安装包和用户验收均**未完成**。旧 Q01–Q09 的历史包证据也不自动覆盖新引用链。
 
 ## 双语文本的静态分母
 

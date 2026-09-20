@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ReactElement } from 'react'
 import { useTranslation } from 'react-i18next'
 import { SurveyStandardBasis } from './SurveyStandardBasis'
+import { EngineeringEvidenceQuestion } from './EngineeringEvidenceQuestion'
 import { samplingStandardBasisContext } from '../../agent/survey-standard-basis-client'
 import {
   SamplingRequestError, validateSamplingInput, freezeSamplingPopulation, listSamplingPopulations,
@@ -39,6 +40,8 @@ export function SurveyQualitySamplingWorkspace({ binding, runtimeReady }: { bind
   const current = runtimeReady && expanded && view?.scope === scope ? view.value : null
   const population = current?.population, run = current?.run, history = current?.history
   const ready = runtimeReady && expanded && !busy
+  const populationEvidence = population ? { kind: 'sampling-population' as const, populationId: population.id, populationHash: population.populationHash } : undefined
+  const runEvidence = run ? { kind: 'sampling-run' as const, runId: run.id, runHash: run.runHash, planHash: run.planHash } : undefined
   const input = { productType, unitProductType, definitionStatement, orderedUnitProductIds: unitText.split('\n') }
   const valid = validateSamplingInput(binding, input)
   const censusOnly = stage === 'process' || stage === 'final-office'
@@ -73,7 +76,7 @@ export function SurveyQualitySamplingWorkspace({ binding, runtimeReady }: { bind
   }
   const pageView = (page: SamplingPage, kind: 'units' | 'samples'): ReactElement => <div className="space-y-2" aria-label={t(kind === 'units' ? 'samplingUnitsPage' : 'samplingSamplesPage')}>
     <h5 className="font-medium">{t(kind === 'units' ? 'samplingUnitsPage' : 'samplingSamplesPage')}</h5>
-    <ol start={page.offset + 1} className="list-decimal space-y-1 pl-6">{page.ids.map((id, index) => <li key={id} className="break-all font-mono text-[11px]">{id}{page.batchIndices ? <span className="ml-2 font-sans text-ds-muted">{t('samplingSampleBatch', { index: page.batchIndices[index]! + 1 })}</span> : null}</li>)}</ol>
+    <ol start={page.offset + 1} className="list-decimal space-y-1 pl-6">{page.ids.map((id, index) => <li key={id} className="break-all font-mono text-[11px]">{id}{page.batchIndices ? <span className="ml-2 font-sans text-ds-muted">{t('samplingSampleBatch', { index: page.batchIndices[index]! + 1 })}</span> : null}<EngineeringEvidenceQuestion label={id} disabled={!ready} reference={kind === 'units' && populationEvidence ? { ...populationEvidence, unitIndex: page.offset + index, unitId: id } : runEvidence ? { ...runEvidence, sampleIndex: page.offset + index, unitId: id } : undefined} /></li>)}</ol>
     <div className="flex flex-wrap gap-2">{page.offset > 0 ? <button type="button" className={buttonClass} disabled={!ready} onClick={() => kind === 'units' ? population && loadUnits(population, Math.max(0, page.offset - 50)) : run && loadSamples(run, Math.max(0, page.offset - 50))}>{t('samplingPrevious')}</button> : null}{page.nextOffset !== null ? <button type="button" className={buttonClass} disabled={!ready} onClick={() => kind === 'units' ? population && loadUnits(population, page.nextOffset!) : run && loadSamples(run, page.nextOffset!)}>{t('samplingNext')}</button> : null}</div>
   </div>
 
@@ -103,7 +106,7 @@ export function SurveyQualitySamplingWorkspace({ binding, runtimeReady }: { bind
       {busy ? <p role="status">{t('samplingLoading')}</p> : null}
       {error ? <div role="alert"><p>{t(errorKeys[error] ?? 'samplingFailed')}</p>{retry.current ? <button type="button" className={`${buttonClass} mt-2`} disabled={!ready} onClick={() => { if (retry.current) void execute(retry.current) }}>{t('samplingRetry')}</button> : null}</div> : null}
       {population ? <div className="space-y-3 border-t border-ds-border-muted pt-3">
-        <h5 className="font-medium">{t('samplingFrozen')}</h5>
+        <h5 className="font-medium">{t('samplingFrozen')}<EngineeringEvidenceQuestion label={t('samplingFrozen')} reference={populationEvidence} disabled={!ready} /></h5>
         <p className="break-all font-mono text-[11px]">{population.id} · {population.createdAt}</p>
         <p className="break-all">{population.productType} · {population.unitProductType} · {t('samplingCount', { count: population.unitCount })}</p>
         <p className="whitespace-pre-wrap break-words">{population.definitionStatement}</p>
@@ -116,14 +119,14 @@ export function SurveyQualitySamplingWorkspace({ binding, runtimeReady }: { bind
         <button type="button" className={buttonClass} disabled={!ready || !drawValid || !drawAck || !!retry.current} onClick={() => { if (!stage || !mode) return; const key = crypto.randomUUID(); void execute(async () => ({ population, run: await drawSamplingRun(binding, population, stage, mode, key) })) }}>{t('samplingDraw')}</button>
       </div> : null}
       {run ? <div className="space-y-3 border-t border-ds-border-muted pt-3">
-        <h5 className="font-medium">{t('samplingRun')}</h5>
+        <h5 className="font-medium">{t('samplingRun')}<EngineeringEvidenceQuestion label={t('samplingRun')} reference={runEvidence} disabled={!ready} /></h5>
         <p className="break-all font-mono text-[11px]">{run.id} · {run.createdAt}</p>
         <p>{t(stageKeys[run.stage])} · {t(run.inspectionMode === 'census' ? 'samplingCensus' : 'samplingRandom')} · {t('samplingSelectedCount', { count: run.sampleSize })}</p>
         <p className="break-all font-mono text-[11px]">{run.populationId}</p>
         <p className="leading-5 text-ds-muted">{t(run.randomSource === 'not-applicable' ? 'samplingSourceCensus' : 'samplingSourceRuntime')}</p>
-        <div className="space-y-2" aria-label={t('samplingBatches')}><h6 className="font-medium">{t('samplingBatches')}</h6><ol className="space-y-2">{run.batches.map(batch => <li key={batch.batchIndex} className="border border-ds-border-muted p-2"><p>{t('samplingBatch', { index: batch.batchIndex + 1, total: batch.batchSize, selected: batch.sampleSize })}</p><p className="mt-1 leading-5 text-ds-muted">{t(run.inspectionMode === 'census' ? 'samplingBatchCensusMode' : batch.census ? 'samplingBatchCensusSmall' : 'samplingBatchRandom', { count: batch.nominalTableSampleSize })}</p></li>)}</ol></div>
+        <div className="space-y-2" aria-label={t('samplingBatches')}><h6 className="font-medium">{t('samplingBatches')}</h6><ol className="space-y-2">{run.batches.map((batch, index) => <li key={batch.batchIndex} className="border border-ds-border-muted p-2"><p>{t('samplingBatch', { index: batch.batchIndex + 1, total: batch.batchSize, selected: batch.sampleSize })}<EngineeringEvidenceQuestion label={t('samplingBatch', { index: batch.batchIndex + 1, total: batch.batchSize, selected: batch.sampleSize })} reference={runEvidence} selector={{ path: ['batches', index], identity: { batchIndex: batch.batchIndex } }} disabled={!ready} /></p><p className="mt-1 leading-5 text-ds-muted">{t(run.inspectionMode === 'census' ? 'samplingBatchCensusMode' : batch.census ? 'samplingBatchCensusSmall' : 'samplingBatchRandom', { count: batch.nominalTableSampleSize })}</p></li>)}</ol></div>
         <p className="leading-5 text-ds-muted">{t('samplingSourceTable')}</p>
-        <SurveyStandardBasis context={samplingStandardBasisContext(run)} runtimeReady={runtimeReady} />
+        <SurveyStandardBasis context={samplingStandardBasisContext(run)} runtimeReady={ready} parent={runEvidence} />
         <p role="status" className="leading-5">{t('samplingVerified')}</p>
         <div className="flex flex-wrap gap-2"><button type="button" className={buttonClass} disabled={!ready} onClick={() => loadSamples(run)}>{t('samplingViewSamples')}</button><button type="button" className={buttonClass} disabled={!ready} onClick={() => void execute(async stillCurrent => ({ population, run: await verifySamplingRun(binding, run, stillCurrent) }))}>{t('samplingReverify')}</button></div>
       </div> : null}

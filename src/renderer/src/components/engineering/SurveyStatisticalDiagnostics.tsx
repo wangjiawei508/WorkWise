@@ -4,6 +4,7 @@ import { Activity, Download, LocateFixed } from 'lucide-react'
 import type { SurveyStatisticalDiagnosticsV1 } from '@shared/survey-statistics'
 import { readSurveyStatisticalDiagnostics, SurveyStatisticalRequestError, type SurveyStatisticalBinding } from '../../agent/survey-statistics-client'
 import { saveGeneratedWorkspaceFileAs } from '../../lib/generated-file-actions'
+import { EngineeringEvidenceQuestion, EngineeringSelectedEvidence } from './EngineeringEvidenceQuestion'
 
 const unavailableKeys = {
   'unsupported-network-type': 'surveyStatsUnsupported', 'dimension-limit': 'surveyStatsDimensionLimit',
@@ -14,10 +15,11 @@ const unavailableKeys = {
 const errorKeys = { stale: 'surveyStatsStale', unavailable: 'surveyStatsServiceUnavailable',
   'invalid-response': 'surveyStatsInvalidResponse', 'request-failed': 'surveyStatsRequestFailed' } as const
 
-export function SurveyStatisticalDiagnostics({ binding, contextRevision, runtimeReady, eligible, workspace,
+export function SurveyStatisticalDiagnostics({ binding, contextRevision, networkRevision, runtimeReady, eligible, workspace,
   renderSourceRecord }: {
   binding: SurveyStatisticalBinding | null
   contextRevision: string
+  networkRevision?: number
   runtimeReady: boolean
   eligible: boolean
   workspace?: string
@@ -32,7 +34,7 @@ export function SurveyStatisticalDiagnostics({ binding, contextRevision, runtime
   const sourcePanel = useRef<HTMLDivElement>(null)
   const generation = useRef(0)
   const inFlight = useRef(false)
-  const scope = JSON.stringify([binding, contextRevision, runtimeReady, eligible])
+  const scope = JSON.stringify([binding, contextRevision, networkRevision, runtimeReady, eligible])
   const activeScope = useRef(scope)
   activeScope.current = scope
   useEffect(() => {
@@ -93,7 +95,8 @@ export function SurveyStatisticalDiagnostics({ binding, contextRevision, runtime
       {message ? <p>{t(message)}</p> : null}
       {diagnostic?.status === 'unavailable' ? <p>{t(unavailableKeys[diagnostic.reason])}</p> : null}
     </div>
-    {diagnostic ? <>
+    {diagnostic && binding ? <EngineeringSelectedEvidence reference={{ kind: 'statistics', networkId: diagnostic.networkId, networkRevision: networkRevision ?? 0, sourceSha256: diagnostic.sourceSha256, adjustmentId: diagnostic.runId, inputHash: diagnostic.inputHash, calculationHash: diagnostic.calculationHash, diagnosticsVersion: diagnostic.diagnosticsVersion }}>
+      <EngineeringEvidenceQuestion label={t('surveyStatsTitle')} />
       <p className="mt-2 text-amber-800 dark:text-amber-200">{t('surveyStatsNoDecision')}</p>
       {diagnostic.status === 'available' ? <>
         <p className="mt-2 font-medium text-ds-ink">{t('surveyStatsMethod')}</p>
@@ -111,8 +114,8 @@ export function SurveyStatisticalDiagnostics({ binding, contextRevision, runtime
               <th scope="col" className="px-3 py-2">{t('surveyStatsT')}</th><th scope="col" className="px-3 py-2">{t('surveyStatsRedundancy')}</th>
               <th scope="col" className="px-3 py-2">{t('surveyRawRecord')}</th>
             </tr></thead>
-            <tbody className="divide-y divide-ds-border-muted">{diagnostic.observations.map(observation => <tr key={observation.observationId}>
-              <th scope="row" className="max-w-44 break-all px-3 py-2 text-left font-mono font-normal text-ds-ink">{observation.observationId}</th>
+            <tbody className="divide-y divide-ds-border-muted">{diagnostic.observations.map((observation, index) => <tr key={observation.observationId}>
+              <th scope="row" className="max-w-44 break-all px-3 py-2 text-left font-mono font-normal text-ds-ink">{observation.observationId}<EngineeringEvidenceQuestion label={observation.observationId} selector={{ path: ['observations', index], identity: { observationId: observation.observationId } }} /></th>
               <td className="px-3 py-2 tabular-nums text-ds-ink">{number(observation.residual)}</td>
               <td className="px-3 py-2 tabular-nums text-ds-ink">{number(observation.externallyStudentizedResidual)}</td>
               <td className="px-3 py-2 tabular-nums text-ds-ink">{number(observation.redundancy)}</td>
@@ -134,6 +137,6 @@ export function SurveyStatisticalDiagnostics({ binding, contextRevision, runtime
           ['surveyStatsInputHash', diagnostic.inputHash], ['surveyStatsSourceHash', diagnostic.sourceSha256],
           ['surveyStatsCalculationHash', diagnostic.calculationHash]].map(([label, value]) => <div key={label}><dt>{t(label!)}</dt><dd className="mt-0.5 break-all font-mono text-ds-ink">{value}</dd></div>)}</dl>
       </details>
-    </> : null}
+    </EngineeringSelectedEvidence> : null}
   </section>
 }

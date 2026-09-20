@@ -12,6 +12,7 @@ import {
 import { advancedOutcomeKeys, GeneralizedWResult, VceTrialResult, HuberTrialResult, StatisticalFamilyResult } from './SurveyAdvancedModelResult'
 import { SurveyReferenceDatumResult } from './SurveyReferenceDatumResult'
 import { saveGeneratedWorkspaceFileAs } from '../../lib/generated-file-actions'
+import { EngineeringEvidenceQuestion, EngineeringSelectedEvidence } from './EngineeringEvidenceQuestion'
 
 const buttonClass = 'min-h-9 max-w-full rounded border border-ds-border px-3 py-2 text-left text-[12px] hover:bg-ds-hover focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent disabled:opacity-50'
 const inputClass = 'block w-full min-w-0 rounded border border-ds-border bg-ds-card px-3 py-2 text-[12px] text-ds-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent'
@@ -166,7 +167,8 @@ function AdvancedTrialSession({ binding, runtimeReady }: Props): ReactElement {
     {error ? <p role="alert" className="leading-5 text-amber-900 dark:text-amber-200">{t(errorKeys[error] ?? 'advancedFailed')}</p> : null}
     {ready && retry.current ? <button type="button" className={buttonClass} onClick={() => { if (retry.current) void execute(retry.current) }}>{t('advancedRetry')}</button> : null}
     {pendingSave.current && !busy ? <div className="space-y-2"><p className="leading-5 text-ds-muted">{t('advancedPending')}</p><div className="flex flex-wrap gap-2">{retry.current !== pendingSave.current ? <button type="button" className={buttonClass} disabled={!ready} onClick={() => { if (pendingSave.current) void execute(pendingSave.current) }}>{t('advancedRetrySave')}</button> : null}<button type="button" className={buttonClass} disabled={!ready} onClick={() => resetDraft()}>{t('advancedNewDraft')}</button></div></div> : null}
-    {record ? <div className="min-w-0 space-y-4 border-t border-ds-border-muted pt-4">
+    {record ? <EngineeringSelectedEvidence reference={{ kind: 'advanced-trial', trialId: record.id, recordHash: record.recordHash }}><div className="min-w-0 space-y-4 border-t border-ds-border-muted pt-4">
+      <EngineeringEvidenceQuestion label={`${t(methodKeys[record.kind])} · ${record.id}`} />
       <h4 className="font-semibold">{t('advancedSavedRecord')}</h4><p className="break-all font-mono text-[11px]">{record.id} · {record.createdAt}</p>
       <p className="leading-5 text-ds-muted">{t('advancedVerified')}</p>
       <div className="flex flex-wrap gap-2"><button type="button" className={buttonClass} disabled={!ready} onClick={() => void execute({ kind: 'read', run: async stillCurrent => ({ record: await reverifyAdvancedTrial(binding, advancedTrialSummary(record), stillCurrent) }) })}>{t('advancedReverify')}</button><button type="button" className={buttonClass} disabled={!ready} onClick={() => exportRecord(record)}>{t('advancedExport')}</button></div>
@@ -179,7 +181,7 @@ function AdvancedTrialSession({ binding, runtimeReady }: Props): ReactElement {
       <details><summary className="cursor-pointer py-2">{t('advancedOriginalInput')}</summary><p className="mb-2 leading-5 text-ds-muted">{t('advancedNormalizationHint')}</p><pre className={preClass} tabIndex={0}>{record.declarationJson}</pre></details>
       <details><summary className="cursor-pointer py-2">{t('advancedNormalizedInput')}</summary><pre className={preClass} tabIndex={0}>{JSON.stringify(record.declaration, null, 2)}</pre></details>
       <details><summary className="cursor-pointer py-2">{t('advancedEvidence')}</summary><dl className="space-y-2 break-all text-[11px]">{(['algorithmVersion', 'requestSha256', 'declarationSha256', 'modelBasisSha256', 'modelHash', 'resultHash', 'recordHash', 'replayEnvironmentHash'] as const).map(key => <div key={key}><dt>{key}</dt><dd className="font-mono">{record[key]}</dd></div>)}</dl><pre className={`${preClass} mt-3`} tabIndex={0}>{record.requestJson}</pre><pre className={`${preClass} mt-3`} tabIndex={0}>{JSON.stringify(record.result, null, 2)}</pre></details>
-    </div> : null}
+    </div></EngineeringSelectedEvidence> : null}
     {page ? <section className="min-w-0 space-y-3 border-t border-ds-border-muted pt-4" aria-label={t('advancedHistory')}>
       <h4 className="font-semibold">{t('advancedHistory')}</h4>
       {!page.trials.length && !page.unavailable.length ? <p>{t('advancedNoHistory')}</p> : null}

@@ -682,6 +682,64 @@ export class EngineeringService {
     return result
   }
 
+  readMonitoringDatasetEvidence(projectId: string, datasetId: string): StoredDataset | null {
+    const row = this.db.prepare('SELECT id, project_id, revision, data_json FROM engineering_datasets WHERE id = ? AND project_id = ?').get(datasetId, projectId) as { id: string; project_id: string; revision: number; data_json: string } | undefined
+    if (!row) return null
+    const value = validateStoredDataset(JSON.parse(row.data_json))
+    if (value.id !== row.id || value.projectId !== row.project_id || value.revision !== row.revision) throw new Error('monitoring dataset identity mismatch')
+    return value
+  }
+
+  readMonitoringAnalysisEvidence(projectId: string, analysisId: string): MonitoringAnalysisV1 | null {
+    const row = this.db.prepare('SELECT id, project_id, dataset_id, data_json FROM engineering_analyses WHERE id = ? AND project_id = ?').get(analysisId, projectId) as { id: string; project_id: string; dataset_id: string; data_json: string } | undefined
+    if (!row) return null
+    const value = MonitoringAnalysisV1.parse(JSON.parse(row.data_json))
+    if (value.id !== row.id || value.projectId !== row.project_id || value.datasetId !== row.dataset_id) throw new Error('monitoring analysis identity mismatch')
+    const dataset = this.readMonitoringDatasetEvidence(projectId, value.datasetId)
+    if (!dataset) throw new Error('monitoring dataset unavailable')
+    this.assertAnalysisCurrent(this.mustProject(projectId), dataset, value)
+    return value
+  }
+
+  /** Read an existing receipt only; these paths never start a verification. */
+  readDeliverableVerificationEvidence(projectId: string, manifestId: string, checkedAt: string): DeliverableVerificationV1 | null {
+    const rows = this.db.prepare("SELECT id, record_hash, data_json FROM engineering_verification_attempts WHERE project_id = ? AND manifest_id = ? AND json_extract(data_json, '$.verification.checkedAt') = ? LIMIT 2").all(projectId, manifestId, checkedAt) as Array<{ id: string; record_hash: string; data_json: string }>
+    if (!rows.length) return null
+    if (rows.length !== 1) throw new Error('ambiguous verification receipt')
+    const row = rows[0]!
+    if (createHash('sha256').update(row.data_json).digest('hex') !== row.record_hash) throw new Error('verification receipt integrity mismatch')
+    const event = JSON.parse(row.data_json)
+    if (event.id !== row.id || event.projectId !== projectId || event.manifestId !== manifestId) throw new Error('verification receipt identity mismatch')
+    const lifecycle = this.db.prepare('SELECT phase, occurred_at, record_hash, data_json FROM engineering_verification_events WHERE attempt_id = ?').all(row.id) as Array<{ phase: string; occurred_at: string; record_hash: string; data_json: string }>
+    if (lifecycle.length) {
+      const start = lifecycle.find(item => item.phase === 'started'), finish = lifecycle.find(item => item.phase === 'finished')
+      if (lifecycle.length !== 2 || !start || !finish || lifecycle.some(item => createHash('sha256').update(item.data_json).digest('hex') !== item.record_hash)) throw new Error('verification lifecycle integrity mismatch')
+      const began = JSON.parse(start.data_json), ended = JSON.parse(finish.data_json)
+      if (began.attemptId !== row.id || began.phase !== 'started' || began.previousHash !== null || began.projectId !== projectId || began.manifestId !== manifestId
+        || began.occurredAt !== start.occurred_at || began.occurredAt !== event.startedAt || ended.attemptId !== row.id || ended.phase !== 'finished'
+        || ended.occurredAt !== finish.occurred_at || ended.occurredAt !== event.completedAt || ended.previousHash !== start.record_hash
+        || ended.terminalId !== row.id || ended.terminalRecordHash !== row.record_hash || ended.outcome !== event.outcome) throw new Error('verification lifecycle identity mismatch')
+    }
+    const value = DeliverableVerificationV1.parse(event.verification)
+    if (value.projectId !== projectId || value.manifestId !== manifestId || value.checkedAt !== checkedAt) throw new Error('verification receipt scope mismatch')
+    return value
+  }
+
+  readMonitoringReplayEvidence(projectId: string, manifestId: string, attemptId: string, checkedAt: string): MonitoringReplayVerificationV1 | null {
+    const rows = this.db.prepare('SELECT phase, occurred_at, record_hash, data_json FROM engineering_monitoring_replay_events WHERE project_id = ? AND manifest_id = ? AND attempt_id = ?').all(projectId, manifestId, attemptId) as Array<{ phase: string; occurred_at: string; record_hash: string; data_json: string }>
+    const start = rows.find(row => row.phase === 'started'), finish = rows.find(row => row.phase === 'finished')
+    if (!finish) return null
+    if (!start || rows.length !== 2 || rows.some(row => createHash('sha256').update(row.data_json).digest('hex') !== row.record_hash)) throw new Error('monitoring replay receipt integrity mismatch')
+    const began = JSON.parse(start.data_json), event = JSON.parse(finish.data_json)
+    const value = MonitoringReplayVerificationV1.parse(event.result)
+    if (began.id !== attemptId || began.projectId !== projectId || began.manifestId !== manifestId || began.phase !== 'started' || began.startedAt !== start.occurred_at
+      || event.phase !== 'finished' || event.startedAt !== began.startedAt || finish.occurred_at !== checkedAt
+      || event.previousHash !== start.record_hash || event.resultHash !== createHash('sha256').update(JSON.stringify(value)).digest('hex')
+      || event.id !== attemptId || event.projectId !== projectId || event.manifestId !== manifestId
+      || value.attemptId !== attemptId || value.projectId !== projectId || value.manifestId !== manifestId || value.checkedAt !== checkedAt) throw new Error('monitoring replay receipt identity mismatch')
+    return value
+  }
+
   private monitoringReplayBindings(projectId: string, manifestId: string): VerificationBindings & { sqlRows: unknown[] } {
     const binding = this.verificationBindings(projectId, manifestId)
     const sqlRows = binding.engineeringRows.map(({ table, id }) => {

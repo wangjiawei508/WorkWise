@@ -5,6 +5,8 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import i18n from '../../i18n'
 import { EngineeringManifestVerification } from './EngineeringManifestVerification'
 import { parseEngineeringVerification } from './engineering-verification'
+import { EngineeringEvidenceQuestions } from './EngineeringEvidenceQuestion'
+import { useEngineeringConversationDrafts } from './engineering-conversation-drafts'
 
 let host: HTMLDivElement
 let root: Root
@@ -33,6 +35,19 @@ it('checks only the selected manifest and explains the review boundary in both l
   await act(async () => { await i18n.changeLanguage('zh') })
   expect(host.textContent).toContain('测量结果严格重算: 通过')
   expect(host.textContent).toContain('不是专业复核')
+})
+
+it('selects a stored check without starting another verification and clears it after revision changes', async () => {
+  const focus = vi.fn()
+  useEngineeringConversationDrafts.setState({ drafts: {} })
+  const draw = async (revision: number) => { await act(async () => root.render(createElement(EngineeringEvidenceQuestions, { scope: { workspace: '/survey', projectId: 'project', projectRevision: revision, ready: true, focus }, children: createElement(EngineeringManifestVerification, { projectId: 'project', manifestId: 'manifest', reviewStatus: 'draft', contextRevision: revision, runtimeReady: true, request }) }))) }
+  request.mockResolvedValue({ verification: result })
+  await draw(1); await act(async () => host.querySelector('button')!.click())
+  request.mockClear()
+  await act(async () => host.querySelector<HTMLButtonElement>('li button')!.click())
+  expect(useEngineeringConversationDrafts.getState().drafts[JSON.stringify(['/survey', 'project'])]!.evidenceContext!.typedEvidence).toEqual({ schemaVersion: 1, projectId: 'project', projectRevision: 1, kind: 'deliverable-verification', manifestId: 'manifest', checkedAt: result.checkedAt, selector: { path: ['checks', 0], identity: { id: 'manifest' } } })
+  expect(request).not.toHaveBeenCalled(); expect(focus).toHaveBeenCalledOnce()
+  await draw(2); expect(host.querySelector('li button')).toBeNull()
 })
 
 it('rejects mismatched results and clears an older success before retry failure', async () => {

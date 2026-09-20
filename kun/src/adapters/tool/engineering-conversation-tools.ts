@@ -5,6 +5,8 @@ import type { EngineeringAiOrchestrator } from '../../engineering/engineering-ai
 import type { CapabilityToolProvider } from './capability-registry.js'
 import { LocalToolHost } from './local-tool-host.js'
 import { engineeringPlanToolRisks } from '../../engineering/engineering-plan-tools.js'
+import { SurveyEvidenceReferenceV1 } from '../../contracts/survey-evidence-reference.js'
+import type { SurveyEvidenceReader } from '../../engineering/survey-evidence-reader.js'
 
 const operationRisks = engineeringPlanToolRisks
 const operationNames = Object.keys(operationRisks) as [keyof typeof operationRisks, ...Array<keyof typeof operationRisks>]
@@ -16,7 +18,8 @@ const draftSchema = z.object({
 
 export function buildEngineeringConversationTools(
   threadStore: ThreadStore,
-  getOrchestrator: () => EngineeringAiOrchestrator
+  getOrchestrator: () => EngineeringAiOrchestrator,
+  evidenceReader?: SurveyEvidenceReader
 ): CapabilityToolProvider {
   const projectForThread = async (threadId: string): Promise<string> => {
     const thread = await threadStore.get(threadId)
@@ -26,6 +29,18 @@ export function buildEngineeringConversationTools(
   return {
     id: 'engineering-conversation', kind: 'gui', enabled: true, available: true,
     tools: [
+      ...(evidenceReader ? [LocalToolHost.defineTool({
+        name: 'survey_read_evidence',
+        shouldAdvertise: context => context.allowedToolNames?.includes('survey_read_evidence') === true,
+        description: 'Read the exact selected typed Survey evidence reference. Copy its kind, IDs, revisions, hashes and selector. No latest fallback, new calculation, write, verification attempt or approval. Existing strict readers may replay saved calculations for integrity. Nested selectors use exact own JSON fields and array indices; object rows require identity fields. Output-limit returns selector-required, never a partial result. Trial and caller-declared evidence remain unauthenticated; receipt reads are historical, not fresh verification.',
+        inputSchema: z.toJSONSchema(SurveyEvidenceReferenceV1), policy: 'auto',
+        execute: async (args, context) => {
+          const thread = await threadStore.get(context.threadId)
+          if (thread?.domain !== 'engineering' || !thread.projectId) throw new Error('an engineering project thread is required')
+          if (thread.workspace && thread.workspace !== context.workspace) throw new Error('thread workspace does not match the tool workspace')
+          return { output: evidenceReader.read(args, { projectId: thread.projectId, workspace: context.workspace }) }
+        }
+      })] : []),
       LocalToolHost.defineTool({
         name: 'survey_read_context',
         shouldAdvertise: (context) => context.allowedToolNames?.includes('survey_read_context') === true,

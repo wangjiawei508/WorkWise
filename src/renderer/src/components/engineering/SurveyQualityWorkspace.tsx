@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type ReactElement } from 'react'
 import { useTranslation } from 'react-i18next'
+import { EngineeringEvidenceQuestion, EngineeringSelectedEvidence } from './EngineeringEvidenceQuestion'
 import {
   QualityRequestError, freezeQualityPlan, readQualityPlan, listQualityPlans, createQualityRecord,
   listQualityRecords, readQualityRecord, appendQualityBytesCheck, verifyQualityRecord,
@@ -100,38 +101,38 @@ export function SurveyQualityWorkspace({ binding, runtimeReady }: { binding: Qua
       {!runtimeReady ? <p role="status">{t('qualityWorkspaceOffline')}</p> : null}
       {busy ? <p role="status">{t('qualityWorkspaceLoading')}</p> : null}
       {error ? <div role="alert"><p>{t(failureKeys[error] ?? 'qualityWorkspaceFailed')}</p>{retry.current ? <button type="button" className={`${buttonClass} mt-2`} disabled={!ready} onClick={() => { if (retry.current) void execute(retry.current) }}>{t('qualityWorkspaceRetry')}</button> : null}</div> : null}
-      {plan ? <div className="min-w-0 space-y-3 border-t border-ds-border-muted pt-3">
-        <h5 className="font-medium">{t('qualityWorkspaceFrozenPlan')}</h5>
+      {plan ? <EngineeringSelectedEvidence reference={{ kind: 'retention-plan', planId: plan.plan.id, manifestHash: plan.plan.manifestHash, artifactHash: plan.plan.artifactHash }}><div className="min-w-0 space-y-3 border-t border-ds-border-muted pt-3">
+        <h5 className="font-medium">{t('qualityWorkspaceFrozenPlan')}<EngineeringEvidenceQuestion label={t('qualityWorkspaceFrozenPlan')} disabled={!ready} /></h5>
         <p className="break-all font-mono text-[10px]">{plan.plan.id} · {formatDate(plan.plan.createdAt)}</p>
-        <ul className="list-disc space-y-1 pl-5"><li>{t('qualityWorkspaceArtifactBytes')}</li>{plan.plan.requiredEvidence.map(item => <li key={item.id} className="break-words">{item.title}</li>)}</ul>
-        <details><summary className="cursor-pointer">{t('qualityWorkspaceFrozenFiles')}</summary><ul className="mt-2 space-y-2">{plan.artifact.members.map(member => <li key={member.id} className="break-all"><p>{member.path}</p><p className="font-mono text-[10px]">SHA-256 {member.sha256} · {member.sizeBytes} B</p></li>)}</ul><p className="mt-2 break-all font-mono text-[10px]">{t('qualityWorkspaceBundleHash')}: {plan.artifact.bundleHash}</p></details>
+        <ul className="list-disc space-y-1 pl-5"><li>{t('qualityWorkspaceArtifactBytes')}</li>{plan.plan.requiredEvidence.map((item, index) => <li key={item.id} className="break-words">{item.title}<EngineeringEvidenceQuestion label={item.title} selector={{ path: ['plan', 'requiredEvidence', index], identity: { id: item.id, memberId: item.memberId } }} disabled={!ready} /></li>)}</ul>
+        <details><summary className="cursor-pointer">{t('qualityWorkspaceFrozenFiles')}</summary><ul className="mt-2 space-y-2">{plan.artifact.members.map((member, index) => <li key={member.id} className="break-all"><p>{member.path}<EngineeringEvidenceQuestion label={member.path} selector={{ path: ['artifact', 'members', index], identity: { id: member.id, sha256: member.sha256 } }} disabled={!ready} /></p><p className="font-mono text-[10px]">SHA-256 {member.sha256} · {member.sizeBytes} B</p></li>)}</ul><p className="mt-2 break-all font-mono text-[10px]">{t('qualityWorkspaceBundleHash')}: {plan.artifact.bundleHash}</p></details>
         <div className="flex flex-wrap gap-2">
           <button type="button" className={buttonClass} disabled={!ready} onClick={() => { const key = crypto.randomUUID(); void execute(async () => ({ plan, record: await createQualityRecord(binding, plan, key) })) }}>{t('qualityWorkspaceCreateRecord')}</button>
           <button type="button" className={buttonClass} disabled={!ready} onClick={() => loadRecords(plan)}>{t('qualityWorkspaceRecordHistory')}</button>
         </div>
-      </div> : null}
+      </div></EngineeringSelectedEvidence> : null}
       {history ? <div className="space-y-2" aria-label={t(history.kind === 'plans' ? 'qualityWorkspacePlanHistory' : 'qualityWorkspaceRecordHistory')}>
         {history.unavailable.length ? <div role="status"><p>{t('qualityWorkspaceUnavailableHistory')}</p><ul className="mt-1 space-y-2">{history.unavailable.map(item => <li key={item.id} className="break-all">{item.id} · {t(item.reason === 'stale' ? 'qualityWorkspaceHistoryStale' : 'qualityWorkspaceHistoryIntegrity')}</li>)}</ul></div> : null}
         {(history.kind === 'plans' ? history.plans.length : history.records.length) === 0 ? <p>{t('qualityWorkspaceNoHistory')}</p> : null}
         {history.kind === 'plans' ? history.plans.map(item => <button type="button" key={item.plan.id} className={`${buttonClass} block w-full break-all`} disabled={!ready} onClick={() => void execute(async () => ({ plan: await readQualityPlan(binding, item) }))}>{t('qualityWorkspaceRestorePlan')} · {item.plan.id} · {formatDate(item.plan.createdAt)}</button>) : history.records.map(item => <button type="button" key={item.record.id} className={`${buttonClass} block w-full break-all`} disabled={!ready || !plan} onClick={() => { if (plan) void execute(async () => ({ plan, record: await readQualityRecord(binding, plan, item) })) }}>{t('qualityWorkspaceRestoreRecord')} · {item.record.id} · {formatDate(item.record.createdAt)}</button>)}
         <div className="flex flex-wrap gap-2">{history.offset > 0 ? <button type="button" className={buttonClass} disabled={!ready} onClick={() => history.kind === 'plans' ? loadPlans(Math.max(0, history.offset - 20)) : plan && loadRecords(plan, Math.max(0, history.offset - 20))}>{t('qualityWorkspacePrevious')}</button> : null}{history.nextOffset !== null ? <button type="button" className={buttonClass} disabled={!ready} onClick={() => history.kind === 'plans' ? loadPlans(history.nextOffset!) : plan && loadRecords(plan, history.nextOffset!)}>{t('qualityWorkspaceNext')}</button> : null}</div>
       </div> : null}
-      {plan && record ? <div className="min-w-0 space-y-3 border-t border-ds-border-muted pt-3">
-        <h5 className="font-medium">{t('qualityWorkspaceRecord')}</h5>
+      {plan && record ? <EngineeringSelectedEvidence reference={{ kind: 'retention-record', recordId: record.record.id, planHash: record.record.planHash, headHash: record.verification.headHash }}><div className="min-w-0 space-y-3 border-t border-ds-border-muted pt-3">
+        <h5 className="font-medium">{t('qualityWorkspaceRecord')}<EngineeringEvidenceQuestion label={t('qualityWorkspaceRecord')} disabled={!ready} /></h5>
         <p className="break-all font-mono text-[10px]">{record.record.id}</p>
         <p role="status">{t('qualityWorkspaceVerifiedBoundary')}</p>
-        <ul className="space-y-4">{record.verification.checks.map(check => {
+        <ul className="space-y-4">{record.verification.checks.map((check, index) => {
           const requirement = plan.plan.requiredEvidence.find(item => `evidence:${item.id}` === check.checkId)
           const title = requirement?.title ?? t('qualityWorkspaceArtifactBytes')
           const selected = requirement?.memberId
-          return <li key={check.checkId} className="space-y-2 border border-ds-border-muted p-2"><p className="break-words font-medium">{title} · {t(check.status === 'passed' ? 'qualityWorkspaceRecorded' : 'qualityWorkspaceMissing')}</p>
+          return <li key={check.checkId} className="space-y-2 border border-ds-border-muted p-2"><p className="break-words font-medium">{title} · {t(check.status === 'passed' ? 'qualityWorkspaceRecorded' : 'qualityWorkspaceMissing')}<EngineeringEvidenceQuestion label={title} selector={{ path: ['verification', 'checks', index], identity: { checkId: check.checkId } }} disabled={!ready} /></p>
             {requirement ? <p className="break-all text-ds-muted">{t('qualityWorkspaceBoundMember')}: {selected} · {plan.artifact.members.find(member => member.id === selected)?.path}</p> : null}
             <button type="button" className={buttonClass} disabled={!ready} onClick={() => append(check.checkId, requirement ? selected : undefined)}>{t(requirement ? 'qualityWorkspaceRetainCheck' : 'qualityWorkspaceCheckBytes')}</button>
           </li>
         })}</ul>
         <button type="button" className={buttonClass} disabled={!ready} onClick={() => void execute(async () => ({ plan, record: await verifyQualityRecord(binding, plan, record) }))}>{t('qualityWorkspaceReverify')}</button>
-        <details><summary className="cursor-pointer">{t('qualityWorkspaceAudit')}</summary><p className="mt-2 break-all font-mono text-[10px]">{t('qualityWorkspaceHeadHash')}: {record.verification.headHash}</p><p>{t('qualityWorkspaceEventCount', { count: record.events.length })}</p><ol className="mt-2 space-y-2">{record.events.map(event => <li key={event.id} className="break-all font-mono text-[10px]">#{event.sequence} · {event.id} · {formatDate(event.occurredAt)} · {t('qualityWorkspaceSystemActor')}<span className="block">{event.thisHash}</span></li>)}</ol></details>
-      </div> : null}
+        <details><summary className="cursor-pointer">{t('qualityWorkspaceAudit')}</summary><p className="mt-2 break-all font-mono text-[10px]">{t('qualityWorkspaceHeadHash')}: {record.verification.headHash}</p><p>{t('qualityWorkspaceEventCount', { count: record.events.length })}</p><ol className="mt-2 space-y-2">{record.events.map((event, index) => <li key={event.id} className="break-all font-mono text-[10px]">#{event.sequence} · {event.id} · {formatDate(event.occurredAt)} · {t('qualityWorkspaceSystemActor')}<EngineeringEvidenceQuestion label={event.id} selector={{ path: ['events', index], identity: { id: event.id, sequence: event.sequence, thisHash: event.thisHash } }} disabled={!ready} /><span className="block">{event.thisHash}</span></li>)}</ol></details>
+      </div></EngineeringSelectedEvidence> : null}
     </section> : null}
   </details>
 }
