@@ -4,6 +4,8 @@
 
 两次 `deepseek-flash` Chat Completions 请求均返回 HTTP 200、`stop` 和完整预期 `RAILWISE_V41_OK`，分别耗时 412 / 540 ms。不能继续把本机现有服务统称为未配置或认证失败；其他候选的历史 401 仍保留为当时结果。
 
+随后 `capabilities-probe.mjs` 经纠正后的编译适配器另外完成三项真实 HTTP 200：JSON 精确字段匹配（561 ms）、单一声明函数名与参数匹配（463 ms）、结构化 PNG 图片的两蓝圆/一红方计数匹配（748 ms）。函数只验证模型返回的调用结构，没有执行工具，也不构成审批门禁验证。图片由脚本生成，只有合成几何图形；图像 SHA-256 随 `live-v41-capabilities.json` 保存。脚本首跑因多余括号在解析阶段失败，未发送请求，修正后这三项均通过。
+
 两次 Responses 搜索请求均 HTTP 200，但没有可用引用，适配器正确拒绝。第二次诊断显示 `status: completed`，只有 reasoning/message 输出，没有 `web_search_call` 或引用。报告没有保存推理正文。搜索验收失败，不把 HTTP 200 当搜索成功。
 
 当天核读 [DeepSeek 官方 Responses 文档](https://api-docs.deepseek.com/guides/responses_api)：

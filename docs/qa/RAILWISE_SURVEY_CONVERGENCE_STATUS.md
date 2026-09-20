@@ -8,7 +8,7 @@
 
 后续源码已修复 V4.1 自动选模遗漏：分类器、Flash 分支与失败回退使用 `deepseek-flash`，保留显式旧模型选择；实际 AgentLoop、路由和 factory 共 41 项合成回归通过。原生保存框已随当前语言显示中文标题/文件类型，34 项 IPC 回归、主进程类型和 lint 通过。[后续源码验证](./evidence/railwise-post281-integration/README.md)分别记录构建和检查范围。这些修复与抽样边界文案更新不在 281dc87 安装包内。
 
-[真实 V4.1 服务核验](./evidence/railwise-v41-live-20260920/README.md)：本机已有官方凭据的两次最小 Chat Completions 请求成功且回复完整，未改配置或复制到候选。Responses 搜索两次 HTTP 200 但无搜索调用/引用，官方当前文档也明确内置 web_search 被忽略；已纠正错误白名单。该结果证明适配器连通性，不替代精确包内完整 AI 流程。
+[真实 V4.1 服务核验](./evidence/railwise-v41-live-20260920/README.md)：本机已有官方凭据的两次最小 Chat Completions 请求、JSON 输出、声明函数调用和合成图片识别均成功，未改配置或复制到候选。Responses 搜索两次 HTTP 200 但无搜索调用/引用，官方当前文档也明确内置 web_search 被忽略；已纠正错误白名单。该结果证明适配器实际能力，不替代精确包内完整 AI 流程。
 
 历史精确候选：[6ff82c8 参考、评分与静态追加](./evidence/railwise-convergence-6ff82c8c2746/README.md)。签名、公证、真实私有 updater 及同 ZIP/ASAR 本机安装通过；实际 GUI 保存的 9 条高级试算和 4 条评分全部通过独立复算。最大静态模型原生取消/保存、完整导出、重启原 ID、评分单字节损坏拒绝/健康历史隔离/原字节恢复均通过。中文浅色、英文深色及 963×641 像素窄窗已查看，统计表可用键盘横向访问完整临界区间；不将截图尺寸冒称原生窗口尺寸测量。双真实 IN2/GSI 的导入、校核、平差、三格式、draft 清单和重启前后五项复验均通过。[GSI 后续中间来源核查](./evidence/railwise-gsi-provenance-20260920/README.md)补齐 28 站/112 读数和 14 条历史高差的数值对应；原转换器版本、舍入规则与实际日志仍未闭合，不能视为专业签认。
 

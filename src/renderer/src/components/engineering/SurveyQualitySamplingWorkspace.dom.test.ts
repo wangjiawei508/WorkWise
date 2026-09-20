@@ -116,10 +116,16 @@ describe('quality sampling desktop workspace', () => {
     expect(JSON.parse(runtimeRequest.mock.calls.at(-1)![2])).toEqual({ populationId: population.id, stage: 'acceptance', inspectionMode: 'table-1-simple-random', idempotencyKey: expect.any(String) })
     expect(host.textContent).toContain('9 unit products selected')
     expect(host.textContent).toContain('without an external witness')
-    expect(host.textContent).toContain('signatures and export are not implemented')
+    expect(host.textContent).toContain('it does not export sampling records')
+    expect(host.textContent).toContain('Declared quality scoring calculates scores')
+    expect(host.textContent).toContain('Declared inspection linkage assessment links retained materials and unit scores within its stated limits')
+    expect(host.textContent).toContain('Stage completion and professional sign-off are not implemented')
     await act(async () => { await i18n.changeLanguage('zh') })
     expect(host.textContent).toContain('不代表质量批准或规范合格')
-    expect(host.textContent).toContain('尚未实施样本材料归集')
+    expect(host.textContent).toContain('不提供抽样记录导出')
+    expect(host.textContent).toContain('声明评分在“质量评分试算”中计算')
+    expect(host.textContent).toContain('在“声明检查关联评估”中按限定范围关联')
+    expect(host.textContent).toContain('阶段完成判定与专业签认尚未实施')
   })
 
   it.each(['process', 'final-office'])('restricts %s to an explicitly chosen census and resets acknowledgment when stage changes', async stage => {
