@@ -170,6 +170,8 @@ export type SurveyFormatInput = {
   networkType?: SurveyNetworkTypeV1
   /** Explicit low-level mapping; no default or GUI confirmation is inferred. */
   cosaIn1Mapping?: CosaIn1Mapping
+  /** Optional local cancellation; never persisted as source provenance. */
+  signal?: AbortSignal
 }
 
 type Detection = {
@@ -4137,7 +4139,7 @@ export class SurveyFormatRegistry {
       preservedRawFields: retainedRawFields.fields
     })
     if (allowConverter && originalHash === sha256(unpacked.bytes) && resolvedDisposition === 'converter-required' && !unwrapBlocked && !parseBlocked && (!detection.extensionConflict || contentWinsExtensionConflict) && this.converters.has(detection.format)) {
-      const conversion = await this.converters.convert(detection.format, unpacked.name, unpacked.bytes)
+      const conversion = await this.converters.convert(detection.format, unpacked.name, unpacked.bytes, input.signal)
       if (conversion) {
         if (!conversion.ok || !conversion.outputBytes || !conversion.outputName || !conversion.outputFormat) {
           sourceFile = SurveySourceFileCreateV1.parse({
