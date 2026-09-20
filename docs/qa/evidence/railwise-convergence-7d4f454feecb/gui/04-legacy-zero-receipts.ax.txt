@@ -27,15 +27,15 @@ Window: "RAILWISE AI", App: RAILWISE AI Candidate 7d4f454feecb.
 						25 按钮 SYNTHETIC packaged completion probe 控制网 · mm · 9/20
 							26 文本 SYNTHETIC packaged completion probe
 							27 文本 控制网
-							28 文本  · 
+							28 文本  ·
 							29 文本 mm
-							30 文本  · 
+							30 文本  ·
 							31 文本 9/20
 						32 text Survey AI 会话 1
 						33 按钮 New chat SYNTHETIC packaged completion probe · 4 条消息
 							34 文本 New chat
 							35 文本 SYNTHETIC packaged completion probe
-							36 文本  · 
+							36 文本  ·
 							37 文本 4
 							38 文本 条消息
 						39 文本 内业任务、数据集、运行记录和成果清单独立保存，不与编程或设计会话混用。
@@ -70,16 +70,16 @@ Window: "RAILWISE AI", App: RAILWISE AI Candidate 7d4f454feecb.
 							68 text 已生成工程测量 Typed Plan，当前仅供审查，尚未执行。 计划编号：eplan_32a41a1b-906d-4a3d-b04a-6870d2170c09 上下文哈希：sha256-63471880edcc68334e90b78b7f816a48b31529ecfd4816e8e425123473aa6f8e
 							69 内容列表
 								70 container
-									71 AXListMarker 1. 
+									71 AXListMarker 1.
 									72 文本 校核测量网络与基准（survey_network_validate，需单独审批）
 								73 container
-									74 AXListMarker 2. 
+									74 AXListMarker 2.
 									75 文本 执行确定性测量平差（survey_calculator，需单独审批）
 								76 container
-									77 AXListMarker 3. 
+									77 AXListMarker 3.
 									78 文本 读取闭合差、残差与精度（survey_adjustment_read，只读）
 								79 container
-									80 AXListMarker 4. 
+									80 AXListMarker 4.
 									81 文本 准备测量成果与证据包（report_export，需单独审批）
 							82 text 审批并明确启动前，不会创建 TaskRun、调用模型或执行任何工具。 9月20日 15:03
 							83 按钮 复制消息
@@ -97,8 +97,8 @@ Window: "RAILWISE AI", App: RAILWISE AI Candidate 7d4f454feecb.
 							95 文本 缺少执行回执
 							96 定义列表
 								97 container
-									98 container 工具: 
-										99 text 工具 : 
+									98 container 工具:
+										99 text 工具 :
 									100 文本 survey_network_validate
 								101 container 确认参数与前序结果绑定
 									102 文本 确认参数与前序结果绑定
@@ -107,12 +107,12 @@ Window: "RAILWISE AI", App: RAILWISE AI Candidate 7d4f454feecb.
   "expectedRevision": 1
 }
 								104 container
-									105 container 预期产物: 
-										106 text 预期产物 : 
+									105 container 预期产物:
+										106 text 预期产物 :
 									107 文本 网络校核修订
 								108 container
-									109 container 可逆性: 
-										110 text 可逆性 : 
+									109 container 可逆性:
+										110 text 可逆性 :
 									111 文本 生成新的校核修订，原始文件不变；不支持自动撤销。
 							112 按钮 定位证据
 							113 container
@@ -120,8 +120,8 @@ Window: "RAILWISE AI", App: RAILWISE AI Candidate 7d4f454feecb.
 							115 文本 缺少执行回执
 							116 定义列表
 								117 container
-									118 container 工具: 
-										119 text 工具 : 
+									118 container 工具:
+										119 text 工具 :
 									120 文本 survey_calculator
 								121 container 确认参数与前序结果绑定
 									122 文本 确认参数与前序结果绑定
@@ -130,12 +130,12 @@ Window: "RAILWISE AI", App: RAILWISE AI Candidate 7d4f454feecb.
   "networkId": "network_f13ffb62-69cf-47df-9d41-0928ecdd8ee6"
 } expectedRevision  ←  inspect-survey-network . network.revision
 								125 container
-									126 container 预期产物: 
-										127 text 预期产物 : 
+									126 container 预期产物:
+										127 text 预期产物 :
 									128 文本 平差运行 · 残差、闭合差与精度
 								129 container
-									130 container 可逆性: 
-										131 text 可逆性 : 
+									130 container 可逆性:
+										131 text 可逆性 :
 									132 文本 新增计算记录或候选文件，历史证据保留；不支持自动撤销。
 							133 按钮 (disabled) 定位证据, Help: 精确证据绑定缺失、重复或已过期，请刷新证据后再定位。
 							134 container
@@ -143,8 +143,8 @@ Window: "RAILWISE AI", App: RAILWISE AI Candidate 7d4f454feecb.
 							136 文本 缺少执行回执
 							137 定义列表
 								138 container
-									139 container 工具: 
-										140 text 工具 : 
+									139 container 工具:
+										140 text 工具 :
 									141 文本 survey_adjustment_read
 								142 container 确认参数与前序结果绑定
 									143 文本 确认参数与前序结果绑定
@@ -153,12 +153,12 @@ Window: "RAILWISE AI", App: RAILWISE AI Candidate 7d4f454feecb.
   "networkId": "network_f13ffb62-69cf-47df-9d41-0928ecdd8ee6"
 } adjustmentId  ←  adjust-survey-network . run.id
 								146 container
-									147 container 预期产物: 
-										148 text 预期产物 : 
+									147 container 预期产物:
+										148 text 预期产物 :
 									149 文本 已有平差证据
 								150 container
-									151 container 可逆性: 
-										152 text 可逆性 : 
+									151 container 可逆性:
+										152 text 可逆性 :
 									153 文本 仅读取现有证据，不修改已保存状态。
 							154 按钮 (disabled) 定位证据, Help: 精确证据绑定缺失、重复或已过期，请刷新证据后再定位。
 							155 container
@@ -166,8 +166,8 @@ Window: "RAILWISE AI", App: RAILWISE AI Candidate 7d4f454feecb.
 							157 文本 缺少执行回执
 							158 定义列表
 								159 container
-									160 container 工具: 
-										161 text 工具 : 
+									160 container 工具:
+										161 text 工具 :
 									162 文本 report_export
 								163 container 确认参数与前序结果绑定
 									164 文本 确认参数与前序结果绑定
@@ -177,12 +177,12 @@ Window: "RAILWISE AI", App: RAILWISE AI Candidate 7d4f454feecb.
   "expectedRevision": 1
 } adjustmentIds  ←  adjust-survey-network . run.id  []
 								167 container
-									168 container 预期产物: 
-										169 text 预期产物 : 
+									168 container 预期产物:
+										169 text 预期产物 :
 									170 文本 候选 DOCX · 候选 PDF · XLSX 证据表
 								171 container
-									172 container 可逆性: 
-										173 text 可逆性 : 
+									172 container 可逆性:
+										173 text 可逆性 :
 									174 文本 新增计算记录或候选文件，历史证据保留；不支持自动撤销。
 							175 按钮 (disabled) 定位证据, Help: 精确证据绑定缺失、重复或已过期，请刷新证据后再定位。
 							176 文本 执行证据不完整：已核验 0 / 4 步。请核查结果后再决定是否继续。

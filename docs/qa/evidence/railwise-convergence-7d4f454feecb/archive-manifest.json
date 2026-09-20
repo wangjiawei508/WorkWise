@@ -4,13 +4,13 @@
   "files": [
     {
       "file": "README.md",
-      "bytes": 4976,
-      "sha256": "264c47e145b1d0233114fcf57db355e46aa6b2e27d68ec938ded7bbc48ccde30"
+      "bytes": 5013,
+      "sha256": "c1037522a00fb056423e3be9768d97fc954bcbdbc640268b7692251a9b265018"
     },
     {
       "file": "gui/01-restored-completed-zh-light.ax.txt",
-      "bytes": 32959,
-      "sha256": "413427aed93dac0716fbf8cab05ed8e7bdb6e608f6b9bc171e7ac7013bfdf10f"
+      "bytes": 32894,
+      "sha256": "4a051d2aafccc347087b85e9c71830d254fa8457461e6745d94225e0d41f0667"
     },
     {
       "file": "gui/01-restored-completed-zh-light.png",
@@ -24,8 +24,8 @@
     },
     {
       "file": "gui/03-completed-card-bottom.ax.txt",
-      "bytes": 32949,
-      "sha256": "d5e9492eac4b2d65a2c6b9ce9a8a416cf984a973e040ac19ebc3a7300483f2da"
+      "bytes": 32884,
+      "sha256": "44f191640e86a40657ba71b48afbb392eb77078711f25e96c04bc95d15be863c"
     },
     {
       "file": "gui/03-completed-card-bottom.png",
@@ -34,8 +34,8 @@
     },
     {
       "file": "gui/04-legacy-zero-receipts.ax.txt",
-      "bytes": 17462,
-      "sha256": "726a198a4caf5227a6eafb5aab9d646db5660b9435e89a817e65228cc70988a4"
+      "bytes": 17432,
+      "sha256": "849d37b9ea90ada8b5cd7c781769b414f3c94174d03931bfccd49e8247f478f4"
     },
     {
       "file": "gui/04-legacy-zero-receipts.png",
@@ -44,8 +44,8 @@
     },
     {
       "file": "gui/05-csv-analysis.ax.txt",
-      "bytes": 5469,
-      "sha256": "dab6fb7e4867103391317e9f2e5348442d6b93bf077abc0fcc6e83f68795ebfc"
+      "bytes": 5467,
+      "sha256": "70d00f75762bf2e31bf55f67622ad819292d1d3b179dcc369fc85f92f9412c5b"
     },
     {
       "file": "gui/05-csv-analysis.png",
@@ -54,8 +54,8 @@
     },
     {
       "file": "gui/06-csv-manifest.ax.txt",
-      "bytes": 9707,
-      "sha256": "169eaba2ec2339f114e9e987d5ed2a58ace44e3a7fb4fe37140ad2dae080cd24"
+      "bytes": 9704,
+      "sha256": "25eaa37feee44c82ec7933d2984d3737b10a010659b1645dfc5eaba9018f36d4"
     },
     {
       "file": "gui/06-csv-manifest.png",
@@ -64,8 +64,8 @@
     },
     {
       "file": "gui/07-xlsx-analysis-difference.ax.txt",
-      "bytes": 5805,
-      "sha256": "fc2483455e741c9cf4bd2b7cbc9b117477a17bd4845bbb23d3c3867ad9f77b42"
+      "bytes": 5800,
+      "sha256": "af2a583844e36681e054a9c69be088c339de7c49d93ff69331b73d50c0a3bcc1"
     },
     {
       "file": "gui/07-xlsx-analysis-difference.png",

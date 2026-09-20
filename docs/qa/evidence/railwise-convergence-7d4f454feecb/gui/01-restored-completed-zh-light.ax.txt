@@ -27,41 +27,41 @@ Window: "RAILWISE AI", App: RAILWISE AI Candidate 7d4f454feecb.
 						25 按钮 GSI 本机验收 水准网 · m · 9/20
 							26 文本 GSI 本机验收
 							27 文本 水准网
-							28 文本  · 
+							28 文本  ·
 							29 文本 m
-							30 文本  · 
+							30 文本  ·
 							31 文本 9/20
 						32 按钮 IN2 本机验收 控制网 · m · 9/20
 							33 文本 IN2 本机验收
 							34 文本 控制网
-							35 文本  · 
+							35 文本  ·
 							36 文本 m
-							37 文本  · 
+							37 文本  ·
 							38 文本 9/20
 						39 按钮 审批卡验收（合成数据） 控制网 · m · 9/20
 							40 文本 审批卡验收（合成数据）
 							41 文本 控制网
-							42 文本  · 
+							42 文本  ·
 							43 文本 m
-							44 文本  · 
+							44 文本  ·
 							45 文本 9/20
 						46 text Survey AI 会话 3
 						47 按钮 Survey AI · GSI 本机验收 GSI 本机验收 · 0 条消息
 							48 文本 Survey AI · GSI 本机验收
 							49 文本 GSI 本机验收
-							50 文本  · 
+							50 文本  ·
 							51 文本 0
 							52 文本 条消息
 						53 按钮 Survey AI · 新建内业任务 IN2 本机验收 · 0 条消息
 							54 文本 Survey AI · 新建内业任务
 							55 文本 IN2 本机验收
-							56 文本  · 
+							56 文本  ·
 							57 文本 0
 							58 文本 条消息
 						59 按钮 Survey AI · 新建内业任务 审批卡验收（合成数据） · 26 条消息
 							60 文本 Survey AI · 新建内业任务
 							61 文本 审批卡验收（合成数据）
-							62 文本  · 
+							62 文本  ·
 							63 文本 26
 							64 文本 条消息
 						65 文本 内业任务、数据集、运行记录和成果清单独立保存，不与编程或设计会话混用。
@@ -121,16 +121,16 @@ Window: "RAILWISE AI", App: RAILWISE AI Candidate 7d4f454feecb.
 							119 text 已生成工程测量 Typed Plan，当前仅供审查，尚未执行。 计划编号：eplan_86ed3cb7-07c6-46c4-a503-4cae5150ccd3 上下文哈希：sha256-15f2f1f1ff07b764b8a7dfb1872eec829f9531fa9faea20ce9dc5f7e564741a9
 							120 内容列表
 								121 container
-									122 AXListMarker 1. 
+									122 AXListMarker 1.
 									123 文本 校核测量网络与基准（survey_network_validate，需单独审批）
 								124 container
-									125 AXListMarker 2. 
+									125 AXListMarker 2.
 									126 文本 执行确定性测量平差（control_network，需单独审批）
 								127 container
-									128 AXListMarker 3. 
+									128 AXListMarker 3.
 									129 文本 读取闭合差、残差与精度（survey_adjustment_read，只读）
 								130 container
-									131 AXListMarker 4. 
+									131 AXListMarker 4.
 									132 文本 准备测量成果与证据包（report_export，需单独审批）
 							133 text 审批并明确启动前，不会创建 TaskRun、调用模型或执行任何工具。 9月20日 16:48
 							134 按钮 复制消息
@@ -157,7 +157,7 @@ Window: "RAILWISE AI", App: RAILWISE AI Candidate 7d4f454feecb.
 							155 按钮 复制消息
 							156 text Step 1 succeeded: network validation passed and the network revision is now 2. I'll set the network to the latest revision, then run the deterministic adjustment. 9月20日 16:58
 							157 按钮 复制消息
-							158 文本 Step 2 succeeded (adjustment 
+							158 文本 Step 2 succeeded (adjustment
 							159 文本 adjustment_ca8d249d-a21f-4d05-80ef-5e8e05e4a4c2
 							160 text , source-admissible). Next pending step: read the adjustment evidence bound to that run id. 9月20日 16:58
 							161 按钮 复制消息
@@ -166,94 +166,94 @@ Window: "RAILWISE AI", App: RAILWISE AI Candidate 7d4f454feecb.
 							164 text RAILWISE-SYNTHETIC-ACCEPTANCE 控制网平差与成果（合成 GUI 验收样例）— 计划 eplan_86ed3cb7-07c6-46c4-a503-4cae5150ccd3 已全部执行完成，四个步骤均有成功回执。 执行结果
 							165 内容列表
 								166 container
-									167 AXListMarker 1. 
+									167 AXListMarker 1.
 									168 文本 校核测量网络与基准 — 成功
 									169 内容列表
 										170 container
-											171 AXListMarker • 
+											171 AXListMarker •
 											172 文本 网络 network_365a0846-01d7-4768-a31c-47545fe23c34
 										173 container
-											174 AXListMarker • 
+											174 AXListMarker •
 											175 文本 修订号 1 → 2，qualityStatus: imported → validated
 										176 container
-											177 AXListMarker • 
+											177 AXListMarker •
 											178 文本 遗留一条开放告警：cosa-in2 格式目录策略为 adjustment-ready，需基准/拓扑/闭合/精度条件全部满足；本次各条件均通过，未阻断平差。
 								179 container
-									180 AXListMarker 2. 
+									180 AXListMarker 2.
 									181 文本 执行确定性平差 — 成功
 									182 内容列表
 										183 container
-											184 AXListMarker • 
+											184 AXListMarker •
 											185 文本 平差 run: adjustment_ca8d249d-a21f-4d05-80ef-5e8e05e4a4c2（completed）
 										186 container
-											187 AXListMarker • 
+											187 AXListMarker •
 											188 文本 结果 id: adjustment_result_dfcc032f-8dd4-44f7-af91-90723981c4c7
 										189 container
-											190 AXListMarker • 
+											190 AXListMarker •
 											191 文本 方法 weighted-least-squares，约束 fixed-known-points，算法版本 workwise-survey-adjustment-7
 										192 container
-											193 AXListMarker • 
+											193 AXListMarker •
 											194 文本 观测 5、未知数 3、冗余 2、自由度 2；validation: valid
 										195 container
-											196 AXListMarker • 
+											196 AXListMarker •
 											197 文本 闭合差：水平 1.3726709029343796e-7 m；角度 3.111529177070756e-10 rad
 										198 container
-											199 AXListMarker • 
+											199 AXListMarker •
 											200 文本 单位权中误差 unitWeightStdDev = 1.0671165867325277e-4（无量纲）；方差因子 varianceFactor = 1.1387378096796804e-8（无量纲，按后验估计）
 										201 container
-											202 AXListMarker • 
+											202 AXListMarker •
 											203 文本 精度：maxPointStdDev = 1.3592152495710963e-7 m，passed: true
 										204 container
-											205 AXListMarker • 
+											205 AXListMarker •
 											206 文本 解算诊断：迭代 2 次，rank 3，条件数估计 116.49152888654937
 										207 container
-											208 AXListMarker • 
+											208 AXListMarker •
 											209 文本 平差后坐标（m）：A(50, 150)、B(150, 50)、C(120.710678, 120.710678)、S1(49.99999999284098, 49.999999963710295)，S1 改正数 (−1.9446147803137137e-8, 1.95930319080162e-7)
 										210 container
-											211 AXListMarker • 
+											211 AXListMarker •
 											212 文本 最大标准化残差（sigma 倍数）：cosa-in2-10-distance 为 1.3639997445091467e-4 σ，全部观测 outlier: false
 										213 container
-											214 AXListMarker • 
+											214 AXListMarker •
 											215 文本 来源准入：current-admissible，原始来源完整性 verified（ledgerEntryCount 2）
 								216 container
-									217 AXListMarker 3. 
+									217 AXListMarker 3.
 									218 文本 读取闭合差、残差与精度 — 成功
 									219 内容列表
 										220 container
-											221 AXListMarker • 
+											221 AXListMarker •
 											222 文本 读取到上述同一份平差证据，数值与第 2 步一致，未做任何再计算或改动。
 								223 container
-									224 AXListMarker 4. 
+									224 AXListMarker 4.
 									225 文本 准备测量成果与证据包 — 成功
 									226 内容列表
 										227 container
-											228 AXListMarker • 
+											228 AXListMarker •
 											229 文本 导出 run: run_91826eb5-5db0-4088-8696-99cdd4a92406（completed），adjustmentIds = adjustment_ca8d249d-a21f-4d05-80ef-5e8e05e4a4c2
 										230 container
-											231 AXListMarker • 
+											231 AXListMarker •
 											232 文本 report.docx — sha256 eb2882c9fdc159517d2de7894058ce7f8202d2dad940f7a98c674efb1fe1831d，5398 字节
 										233 container
-											234 AXListMarker • 
+											234 AXListMarker •
 											235 文本 report.pdf — sha256 29096adb8e6e3445290ff794a5c27a663adee5c35568341c9034df48fe4fe622，39621 字节
 										236 container
-											237 AXListMarker • 
+											237 AXListMarker •
 											238 文本 evidence.xlsx — sha256 76f154b54803dff254c5e3109ca096a6c6271650a4234ecac615a2dbc5624241，39084 字节
 										239 container
-											240 AXListMarker • 
+											240 AXListMarker •
 											241 文本 交付来源引用原始附件 sha256 4281cc7a10673570756867e8c8665f22f82611839bd34c396a5eba9dbb89d9f0（golden-plane-control-e2e.in2），原始文件已保留。
 							242 文本 完成状态
 							243 内容列表
 								244 container
-									245 AXListMarker • 
+									245 AXListMarker •
 									246 文本 待执行步骤：无。
 								247 container
-									248 AXListMarker • 
+									248 AXListMarker •
 									249 文本 所有 ID 均取自当前有界上下文；未修改任何数值结果或单位。
 								250 container
-									251 AXListMarker • 
+									251 AXListMarker •
 									252 文本 未执行计划外的任何工具调用。
 								253 container
-									254 AXListMarker • 
+									254 AXListMarker •
 									255 文本 说明：上述文件哈希来自导出运行时回执，属于交付产物元数据，本次未对磁盘文件做新的完整性校验。
 							256 text 注意：本线程此前有一个关于「2+3 是多少？仅回答结果」的问题——其答案是  5 ，与本次工程执行无关，特此单独说明。 9月20日 16:58
 							257 按钮 复制消息
@@ -297,8 +297,8 @@ Window: "RAILWISE AI", App: RAILWISE AI Candidate 7d4f454feecb.
 							295 文本 已核验执行回执
 							296 定义列表
 								297 container
-									298 container 工具: 
-										299 text 工具 : 
+									298 container 工具:
+										299 text 工具 :
 									300 文本 survey_network_validate
 								301 container 确认参数与前序结果绑定
 									302 文本 确认参数与前序结果绑定
@@ -307,12 +307,12 @@ Window: "RAILWISE AI", App: RAILWISE AI Candidate 7d4f454feecb.
   "expectedRevision": 1
 }
 								304 container
-									305 container 预期产物: 
-										306 text 预期产物 : 
+									305 container 预期产物:
+										306 text 预期产物 :
 									307 文本 网络校核修订
 								308 container
-									309 container 可逆性: 
-										310 text 可逆性 : 
+									309 container 可逆性:
+										310 text 可逆性 :
 									311 文本 生成新的校核修订，原始文件不变；不支持自动撤销。
 							312 按钮 (disabled) 定位证据, Help: 精确证据绑定缺失、重复或已过期，请刷新证据后再定位。
 							313 container
@@ -320,8 +320,8 @@ Window: "RAILWISE AI", App: RAILWISE AI Candidate 7d4f454feecb.
 							315 文本 已核验执行回执
 							316 定义列表
 								317 container
-									318 container 工具: 
-										319 text 工具 : 
+									318 container 工具:
+										319 text 工具 :
 									320 文本 control_network
 								321 container 确认参数与前序结果绑定
 									322 文本 确认参数与前序结果绑定
@@ -330,12 +330,12 @@ Window: "RAILWISE AI", App: RAILWISE AI Candidate 7d4f454feecb.
   "networkId": "network_365a0846-01d7-4768-a31c-47545fe23c34"
 } expectedRevision  ←  inspect-survey-network . network.revision
 								325 container
-									326 container 预期产物: 
-										327 text 预期产物 : 
+									326 container 预期产物:
+										327 text 预期产物 :
 									328 文本 平差运行 · 残差、闭合差与精度
 								329 container
-									330 container 可逆性: 
-										331 text 可逆性 : 
+									330 container 可逆性:
+										331 text 可逆性 :
 									332 文本 新增计算记录或候选文件，历史证据保留；不支持自动撤销。
 							333 按钮 (disabled) 定位证据, Help: 精确证据绑定缺失、重复或已过期，请刷新证据后再定位。
 							334 container
@@ -343,8 +343,8 @@ Window: "RAILWISE AI", App: RAILWISE AI Candidate 7d4f454feecb.
 							336 文本 已核验执行回执
 							337 定义列表
 								338 container
-									339 container 工具: 
-										340 text 工具 : 
+									339 container 工具:
+										340 text 工具 :
 									341 文本 survey_adjustment_read
 								342 container 确认参数与前序结果绑定
 									343 文本 确认参数与前序结果绑定
@@ -353,12 +353,12 @@ Window: "RAILWISE AI", App: RAILWISE AI Candidate 7d4f454feecb.
   "networkId": "network_365a0846-01d7-4768-a31c-47545fe23c34"
 } adjustmentId  ←  adjust-survey-network . run.id
 								346 container
-									347 container 预期产物: 
-										348 text 预期产物 : 
+									347 container 预期产物:
+										348 text 预期产物 :
 									349 文本 已有平差证据
 								350 container
-									351 container 可逆性: 
-										352 text 可逆性 : 
+									351 container 可逆性:
+										352 text 可逆性 :
 									353 文本 仅读取现有证据，不修改已保存状态。
 							354 按钮 (disabled) 定位证据, Help: 精确证据绑定缺失、重复或已过期，请刷新证据后再定位。
 							355 container
@@ -366,8 +366,8 @@ Window: "RAILWISE AI", App: RAILWISE AI Candidate 7d4f454feecb.
 							357 文本 已核验执行回执
 							358 定义列表
 								359 container
-									360 container 工具: 
-										361 text 工具 : 
+									360 container 工具:
+										361 text 工具 :
 									362 文本 report_export
 								363 container 确认参数与前序结果绑定
 									364 文本 确认参数与前序结果绑定
@@ -377,12 +377,12 @@ Window: "RAILWISE AI", App: RAILWISE AI Candidate 7d4f454feecb.
   "expectedRevision": 2
 } adjustmentIds  ←  adjust-survey-network . run.id  []
 								367 container
-									368 container 预期产物: 
-										369 text 预期产物 : 
+									368 container 预期产物:
+										369 text 预期产物 :
 									370 文本 候选 DOCX · 候选 PDF · XLSX 证据表
 								371 container
-									372 container 可逆性: 
-										373 text 可逆性 : 
+									372 container 可逆性:
+										373 text 可逆性 :
 									374 文本 新增计算记录或候选文件，历史证据保留；不支持自动撤销。
 							375 按钮 (disabled) 定位证据, Help: 精确证据绑定缺失、重复或已过期，请刷新证据后再定位。
 							376 container

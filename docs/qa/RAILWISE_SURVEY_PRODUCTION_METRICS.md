@@ -79,7 +79,7 @@ finished 的 `terminalId` 必须等于本次 attempt ID，`terminalRecordHash` �
 
 ## 生产目标的缺失分母
 
-以下是后续采集要求，不是当前已实现的事件合同。截至本索引均为`not-measurable`，无生产数值。
+以下是生产测量所需条件。截至本索引均为`not-measurable`，无生产数值。2026-09-20 已增加[外部采集合同 V1](./RAILWISE_SURVEY_PRODUCTION_COLLECTION_CONTRACT.md)，提供业务任务/首次开始/授权/签认声明的严格 schema 与只读字节验证，不新增生产埋点或认证服务；[UI 静态清单](./RAILWISE_SURVEY_UI_EVIDENCE_COVERAGE.md)冻结候选表面，不替代值级和 GUI 验收。
 
 | 产品指标/目标 | 必需事件与分母 | 目前缺口 |
 | --- | --- | --- |
