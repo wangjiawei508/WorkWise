@@ -137,3 +137,11 @@ The 6ff82c8 package already passed normal/stale/maximum GUI cases, maximum nativ
 - [ ] Verify the linkage assessment in its exact signed package, including full and incomplete coverage, changed sources, native export, restart and themes/window sizes. This does not complete professional review, signing or production approval.
 
 The 281dc87 signed package passed actual GUI creation of full/missing/veto-with-missing cases, native export cancellation and save, original-ID restart, source-change rejection and same-plan recovery, plus wrong-unit rejection. Independent read-only checks passed for three scores, four assessments, export and unchanged engineering baseline. Chinese light/dark compact and wide layouts, English light/dark wide layouts and limited keyboard focus were observed. Complete language/theme/window coverage, measured native minimum bounds and full accessibility remain open; this aggregate task is not checked off. See `docs/qa/evidence/railwise-convergence-281dc8767250/README.md`.
+
+## Import measurement and converter follow-through
+
+- [x] Record additive import started/committed/finished events, preserve rejected and incomplete attempts, bind commit receipts to the network transaction and report first-observed file-key subsets separately from unavailable production-wide KPIs.
+- [x] Verify converter timeout/cancellation and process-group cleanup with real isolated processes; reject oversized stdout/stderr by bytes and bounded regular-file output, while preserving input and existing converter admission rules.
+- [x] Enforce and test COSA NET resource limits and OU1 comparison dimension bounds without admitting historical references as formal input.
+
+Source validation is recorded in `docs/qa/evidence/railwise-import-converter-followthrough/README.md`. These tasks do not close the aggregate production KPI, proprietary-converter acceptance or packaged UI gates.
