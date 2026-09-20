@@ -385,7 +385,9 @@ function deploy(sourceDirectory, version, deployId) {
     }
   } finally {
     for (const encodedPath of temporaryEncoded) {
-      try { execFileSync('rm', ['-f', encodedPath]) } catch {}
+      try { execFileSync('rm', ['-f', encodedPath]) } catch {
+        // Best-effort cleanup must preserve any original upload failure.
+      }
     }
   }
   process.stdout.write(runRemote(config, DEPLOY_SCRIPT, [config.releaseRoot, version, deployId]))
