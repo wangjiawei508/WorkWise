@@ -3,6 +3,7 @@ import { mkdir } from 'node:fs/promises'
 import { mkdirSync, readFileSync } from 'node:fs'
 import { isAbsolute, join, relative, resolve, sep } from 'node:path'
 import Database from 'better-sqlite3'
+import { SurveyImportAudit, SurveyImportAuditError, type SurveyImportAttempt, type ImportRejection } from './survey-import-audit.js'
 import JSZip from 'jszip'
 import { atomicWriteFile, drainAtomicWrites } from '../adapters/file/atomic-write.js'
 import {
@@ -2181,6 +2182,7 @@ export class SurveyRevisionConflictError extends Error { readonly code = 'survey
 
 export class SurveyService {
   private readonly db: Database.Database
+  private readonly importAudit: SurveyImportAudit
   private readonly nowIso: () => string
   private readonly pendingPersistence = new Set<Promise<void>>()
   private readonly formatRegistry: SurveyFormatRegistry
@@ -2195,6 +2197,7 @@ export class SurveyService {
     // client uses the default recursive_triggers=OFF.
     this.db.pragma('recursive_triggers = ON')
     this.db.pragma('busy_timeout = 5000')
+    this.importAudit = new SurveyImportAudit(this.db, this.nowIso)
    this.db.exec(`CREATE TABLE IF NOT EXISTS survey_projects (id TEXT PRIMARY KEY, project_id TEXT NOT NULL, revision INTEGER NOT NULL, data_json TEXT NOT NULL, updated_at TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS survey_networks (id TEXT PRIMARY KEY, project_id TEXT NOT NULL, revision INTEGER NOT NULL, data_json TEXT NOT NULL, updated_at TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS survey_raw_source_ledger (id TEXT PRIMARY KEY, network_id TEXT NOT NULL, sequence INTEGER NOT NULL, source_sha256 TEXT NOT NULL, data_json TEXT NOT NULL, recorded_at TEXT NOT NULL, UNIQUE(network_id, sequence));
@@ -2852,11 +2855,34 @@ export class SurveyService {
       .run(key, record.networkId, requestHash, record.id, JSON.stringify(record), record.occurredAt)
   }
 
- async importNetwork(input: unknown): Promise<SurveyNetworkV1> {
+  recordRejectedImport(input: unknown, reason: Extract<ImportRejection, 'invalid-json' | 'body-too-large' | 'body-read' | 'structured-http'>): void {
+    const attempt = this.importAudit.begin(input)
+    this.importAudit.finish(attempt, reason)
+  }
+
+  async importNetwork(input: unknown): Promise<SurveyNetworkV1> {
+    const attempt = this.importAudit.begin(input)
+    let network: SurveyNetworkV1
+    try {
+      network = await this.importNetworkTracked(input, attempt)
+    } catch (error) {
+      // A failed audit write leaves explicit incomplete evidence. Never claim
+      // success, or fabricate a terminal receipt after persistence failed.
+      if (!(error instanceof SurveyImportAuditError)) this.importAudit.finish(attempt, attempt.stage)
+      throw error
+    }
+    this.importAudit.finish(attempt, null)
+    return network
+  }
+
+  private async importNetworkTracked(input: unknown, attempt: SurveyImportAttempt): Promise<SurveyNetworkV1> {
     const req = SurveyNetworkImportRequest.parse(input)
+    attempt.stage = 'preparation'
     const prepared = prepareImportRequest(req)
+    attempt.stage = 'replay'
     const replay = this.replayImportNetwork(req, prepared)
     if (replay) {
+      this.importAudit.committed(attempt, true, replay.sourceFile?.disposition)
       // The SQLite record is authoritative. Replaying a request also gives a
       // previously failed sidecar projection an opportunity to recover, but
       // a secondary file or project-lookup error must never turn a durable
@@ -2870,10 +2896,12 @@ export class SurveyService {
       }
       return replay
     }
+    attempt.stage = 'project'
     const project = this.options.getProject?.(req.projectId)
     if (project && req.expectedRevision !== 0 && req.expectedRevision !== project.revision) throw new SurveyRevisionConflictError(`project revision conflict: expected ${req.expectedRevision}, actual ${project.revision}`)
     let network: SurveyNetworkV1
     let persistedRawOriginal = false
+    attempt.stage = 'parse'
     if (req.network) {
       // This read-only compatibility path keeps migrated records accessible.
       // It deliberately creates no original-byte ledger, so validation and
@@ -2914,12 +2942,16 @@ export class SurveyService {
     // projection. Never backfill it for legacy structured data: without the
     // original import evidence, that would silently promote a history row.
     const initialAdmission = persistedRawOriginal ? this.createSourceAdmissionRecord(parsed, parsed.createdAt) : null
+    attempt.stage = 'commit'
     const committed = this.db.transaction(() => {
       // Parsing and preserving the content-addressed source can happen before
       // this lock.  The durable state must not: another service may have
       // committed the same key while this request was parsing.
       const existing = this.replayImportNetwork(req, prepared)
-      if (existing) return existing
+      if (existing) {
+        this.importAudit.committed(attempt, true, existing.sourceFile?.disposition)
+        return existing
+      }
 
       // Recheck mutable project state only after acquiring the writer lock.
       // A successful earlier request remains replayable regardless of later
@@ -2940,6 +2972,7 @@ export class SurveyService {
       // IMMEDIATE transaction plus strict insert instead commits one complete
       // network/ledger/idempotency unit or rolls all of it back.
       this.rememberImportNetwork(req.idempotencyKey, prepared, parsed)
+      this.importAudit.committed(attempt, false, parsed.sourceFile?.disposition)
       return parsed
     }).immediate()
 
@@ -2947,6 +2980,7 @@ export class SurveyService {
     // it fails, this method rejects but the retry above replays the durable
     // result (and attempts the projection again) rather than creating a
     // second network or source ledger.
+    attempt.stage = 'projection'
     await this.persist(committed, 'networks', project?.workspace)
     return committed
   }

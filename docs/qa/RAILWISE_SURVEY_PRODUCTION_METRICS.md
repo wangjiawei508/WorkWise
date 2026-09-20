@@ -1,6 +1,6 @@
 # Survey 生产指标口径
 
-截至源码 `281dc87672509de147357efc3aabbeae0eb4dbcb`，2026-09-20。本文描述现有脚本的实际口径，列出尚未采集的生产分母；不新增埋点、不补造事件、不把候选验收换算成生产 KPI。
+更新于 2026-09-20。本次新增导入请求的持久事件和只读统计；旧的 `281dc87672509de147357efc3aabbeae0eb4dbcb` 及其他候选证据保持历史口径，不追溯补造事件、不把候选验收换算成生产 KPI。
 
 ## 数据与事件来源
 
@@ -10,12 +10,13 @@
 
 | 事实/事件 | 持久来源 | 真实含义与限制 |
 | --- | --- | --- |
-| 网络创建 | `survey_networks.data_json.createdAt` | 成功保存网络的时点。不是导入按钮点击、文件选择开始或首次请求；没有被拒绝导入记录。 |
+| 网络创建 | `survey_networks.data_json.createdAt` | 成功保存网络的时点。不是导入按钮点击、文件选择开始或首次请求；不能单独提供失败分母。 |
+| 导入请求生命周期 | `survey_import_attempt_events` | 服务入口先写 started；网络提交与 committed 同事务；请求返回前写 finished。鉴权后的 HTTP 无效 JSON、请求超限、读取异常、结构化网络拒绝分别记录为拒绝；正文读取期间崩溃不在服务入口分母中。 |
 | 平差完成 | `survey_adjustments.data_json.run.completedAt`，`run.status=completed`、`result.validation=valid` | 当前保存的运行与结果；需要网络/项目/输入hash/算法版本绑定。不是人工复核。 |
 | 草稿清单创建 | `engineering_manifests.data_json.createdAt`、`reviewStatus=draft` | 已保存草稿，非签认固化；清单包含成果引用不证明当前字节完好。 |
 | 复验终态 | `engineering_verification_attempts` | `EngineeringService.verifyDeliverable` 在成功、检查失败或捕获异常后保存的终态；序列、身份、时间、原JSON SHA-256及元数据绑定可核对。进程崩溃或审计写入失败没有此事件，不能进入已记录分母。 |
 
-指标时间统一为 UTC 半开区间 `[start, end)`；输入时间必须带时区。清单按 `createdAt` 入期，复验尝试按 `completedAt` 入期。`--cohort candidate-fixture` 与 `production` 必须分开；`production` 参数只是调用者标签，不认证数据来源，也不会自动过滤候选记录。
+指标时间统一为 UTC 半开区间 `[start, end)`；输入时间必须带时区。清单按 `createdAt` 入期，复验尝试按 `completedAt` 入期，导入请求按 started 入期并读取 end 前终态。`--cohort candidate-fixture` 与 `production` 必须分开；`production` 参数只是调用者标签，不认证数据来源，也不会自动过滤候选记录。
 
 ## 现有可计算统计
 
@@ -27,6 +28,8 @@
 | `importToFirstBoundDraftSeconds` | 保留历史中每项目最早合格草稿恰好在期内的项目；每项目一次 | 每份首草稿时间减去它所绑定网络的最早创建时间，取中位数，单位秒，同时报sampleSize与range；包括等待和人工操作 | 先读期前历史，防止重复交付误算首次。空样本为`value:null/status:no-samples`；删除过的历史不可探测。不是“首次有效正式成果”或操作净耗时。 |
 | `recordedStrictReverificationCoverage` | 创建时间入期且当前`reviewStatus=draft`的全部清单，以`(projectId,manifestId)`为唯一键；不只选曾成功或已有正确绑定的清单 | 分子为每个清单截止end前最后一条终态复验通过、完整检查通过且与本次快照元数据仍绑定的数量 | 缺事件或最后失败均不给分；后续失败覆盖旧成功。分母身份缺失/重复则不可测。无清单为no-samples。 |
 | `recordedVerificationAttemptSuccessRate` | `completedAt`入期的所有已记录终态尝试，包括passed/failed/error、未知清单查找错误和对期前清单的复验 | 分子是终态passed且仍通过当前快照元数据绑定检查的尝试数；同清单多次尝试各自计数 | 当前绑定失效的旧passed保留在分母但不进分子；`outcomes.passed`可能大于分子。无事件为no-samples。崩溃/未写入审计不在分母。 |
+| `recordedImportAttempts.counts` | started 入期的全部已记录调用 | 成功、拒绝、未完成、已提交、重放、身份无法识别、非文件请求分层计数 | 终态在 end 之后视为期末未完成。未完成不是拒绝；重放是独立调用，但不增加首次键分母。 |
+| `recordedImportAttempts.firstObservedFileRequestCompletionRate` | 保留历史每个项目/幂等键的最早 started，恰好入期、文件模式且不是首次见到的历史重放 | 分子为 end 前请求成功返回的首次调用，分母保留拒绝和未完成；后来的成功不能覆盖首次失败 | 这是可识别文件键子集的首次已记录请求完成率，不是全部首次任务成功率，也不是平差可用率。 |
 
 草稿绑定检查要求项目存在、非空adjustments及outputs、清单validation.valid，并对每个adjustment核对run/result/network的项目、网络、result ID、run ID、非空inputHash和algorithmVersion；要求 `network.createdAt <= run.completedAt <= manifest.createdAt`。首草稿排序读取所有end之前保留历史，只处理draft；不能把reviewed/approved/rejected当成首草稿或人审通过。
 
@@ -35,6 +38,24 @@
 复验分子要求原事件schema/SQL身份/精确序列化JSON摘要/时间一致；bindingStable、bindings.complete和verification.valid为true；checkedAt位于startedAt与completedAt之间；清单仍为draft；项目/清单/工程run/dataset/analysis及Survey network/result/deformation的集合和typed-json-sha256-v1摘要匹配，五项检查状态完整。没有Survey网络时surveyReplay/sources必须为not-applicable；其余应passed。脚本只核对记录元数据，不能证明原复验之后文件没有变化，因此 `strictReverificationCoverage`（当前重新复验）仍不可测。
 
 ## 无效样本与故障口径
+
+### 导入请求事件
+
+`SurveyService.importNetwork` 在契约校验、base64 解码、格式解析之前写入 started，随机 attempt ID 标识每次调用；文件模式和项目/幂等键组合的 SHA-256 用于分层和去重。没有合法有界键时 `taskHash=null`，仍进入全部尝试分母。项目 ID 超过 512 字符或幂等键不满足 8 至 200 字符的输入不参与键识别，不改变原导入契约。审计不保存键明文、项目名、文件名、原文、坐标、凭据或任意异常文本；拒绝原因为固定阶段枚举。
+
+每条事件保存精确 JSON 字节摘要和同一调用的前序摘要；SQLite 触发器禁止更新、删除和替换。指标脚本校验所有行的 SQL/JSON 身份、字段集合、摘要、前序链、阶段顺序和带时区时间；任一坏行使整个 `recordedImportAttempts` 不可测，不跳过坏行找旧成功。此本地完整性机制不等于不可伪造的外部签名或生产来源认证。
+
+网络、原始资料账本、来源准入、幂等预约和 committed 收据一起提交。started 写入失败则不进入导入；committed 写入失败则回滚网络事务；finished 写入失败则调用报错，已保存 started/committed 保留为未完成，禁止声称成功。若数据库故障连 started 都无法保存，该调用数不可从此库恢复，不能声称分母全覆盖。
+
+普通源文件保存/解析失败记录为拒绝；数据库提交成功后侧写失败记录 `committed + finished(rejected, projection)`，此时网络仍可恢复。重试保留原有幂等行为并新增 replay 收据；早先失败不会被后续成功覆盖。同键并发按 started 序列选择最早调用，只提交一个新网络；先开始但尚未结束的调用保留在首次子集分母。对于升级前已存在的成功导入，首次见到 replay 不补造原始尝试，不进入首次子集。
+
+HTTP 拒绝仅在现有 Runtime 鉴权之后记录：无效 JSON/超限/流读取错误没有可识别键，结构化请求是非文件模式。鉴权失败、服务不可用、正文尚未读完时进程崩溃不在该链路覆盖内。统计显式给出无法识别键、非文件请求及首次重放/非文件排除数，禁止只展示子集百分比而隐去这些分母。
+
+成功终态表示 `SurveyService.importNetwork` 完成，不代表其后 HTTP 响应附加读取、序列化、网络送达或界面渲染已完成。此边界写入统计输出，不能把该指标描述为端到端外业操作成功率。
+
+`successfulRequestSourceDispositions` 单列 `adjustment-ready`、`archive-only`、`converter-required`、`gnss-processing-required` 和 `legacy-unverified`。未知格式归档可以是请求完成，但不能算平差准入通过；即使 `adjustment-ready` 也只是提交时文件处置，不证明当前原始字节、整个网络校核或平差结果有效。
+
+### 其他统计
 
 1. `invalidManifestTime`统计全快照的无效清单创建时间；无法判断是否属于报告期，不能强塞入期内分母。
 2. `missingOrMismatchedBinding`、`invalidBoundInputTime`、`nonForwardTime`检查所有end之前的draft历史，含期前历史；不是仅期内失败数，也不是唯一项目数。每份草稿遇到首个失败后停止该草稿的输入检查，不能把这些计数相加当“全部缺陷数”。
@@ -50,7 +71,7 @@
 | --- | --- | --- |
 | 每月完整可追溯项目数 | 期内完成且唯一的真实项目ID，绑定完整交付、源数据、算法与可验证的人工批准/签名 | 当前草稿和reviewStatus文本不能证明正式批准；真实生产cohort来源与覆盖不明。 |
 | 首次有效成果耗时 | 预先固定的开始事件至首次合格签认交付事件，每项目一次；失败/中断项目保留审查名单 | 现有时间只是成功网络创建至首草稿，缺首次尝试和正式批准时点。 |
-| P0一次导入成功率 ≥85% | 每个事先定义的导入任务首次开始及终态，包括解析拒绝、崩溃/中断；成功任务数/全部首次任务数 | 持久网络没有拒绝分母和首次任务标识；“任务”按文件/批次的选择须先固定，不能事后按成功文件去重。 |
+| P0一次导入成功率 ≥85% | 每个事先定义的导入任务首次开始及终态，包括解析拒绝、崩溃/中断；成功任务数/全部首次任务数 | 已新增调用与可识别文件键的首次记录；业务任务按文件/批次的定义、身份未知请求归属、升级前历史及生产总体覆盖仍未认证，不能用子集完成率代替。 |
 | 中等水准网导入至固化中位时间 ≤30分钟 | 先定义网络规模、排除规则与生产cohort，再记录开始/签认固化及未完成样本 | 中等网络定义、正式固化事件和代表性样本缺失；首草稿秒数不能代替。 |
 | 数值可复现率 100% | 预先冻结的运行集合及每项严格重放终态；分子为输入/版本/输出条件一致并在声明数值规则下通过者 | 已存绑定与选定两样本参考比较不覆盖全部生产运行。 |
 | 规范依据可追溯率 100% | 预声明必须核查的规范判定项集合，逐项权威版本/条款/适用条件/数值证据 | 自由文本引用和有限条文试算不能证明全量逐项适用及验真。 |
@@ -79,4 +100,6 @@ python3 scripts/measure-survey-workflows.py \
   --start '2026-09-01T00:00:00Z' --end '2026-10-01T00:00:00Z'
 ```
 
-本次文档核对运行既有 `python3 scripts/test_measure_survey_workflows.py` 的14项回归，并复核上述已归档数值、6ff的60个归档哈希及新增文档相对链接；未采集或重测真实生产数据库。终态审计的现有服务回归位置为 [`engineering-verification-audit.test.ts`](../../kun/src/engineering/engineering-verification-audit.test.ts)，本次无产品代码变更，不重复全量构建。
+导入审计回归为 [`survey-import-audit.test.ts`](../../kun/src/engineering/survey-import-audit.test.ts)：真实服务/SQLite 的契约和源文件保存失败、归档处置、首次失败后重试、跨项目键、同键并发、侧写失败、三个阶段审计写入故障、事务故障、不可变保护、HTTP 拒绝，以及真实事件到 Python CLI 的只读链路。脚本回归 `python3 scripts/test_measure_survey_workflows.py` 共 26 项，包括首次/重试、未完成、跨期、历史重放、未知身份、归档处置与摘要/时序异常。没有采集或重测真实生产数据库。
+
+复验审计既有回归仍在 [`engineering-verification-audit.test.ts`](../../kun/src/engineering/engineering-verification-audit.test.ts)。历史归档的数值与哈希保持其原始提交和窗口，不因新增事件能力而变成新的验收结论。

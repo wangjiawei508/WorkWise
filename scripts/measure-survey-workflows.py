@@ -11,6 +11,7 @@ from datetime import datetime, timezone
 import json
 import hashlib
 import math
+import re
 from pathlib import Path
 import sqlite3
 import statistics
@@ -59,6 +60,104 @@ def readonly_database(path):
 
 def unavailable(reason):
     return {'value': None, 'status': 'not-measurable', 'reason': reason}
+
+
+def recorded_import_metrics(survey, start, end):
+    """First observed caller keys, not first production tasks or file validity."""
+    names = {row[0] for row in survey.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+    if 'survey_import_attempt_events' not in names:
+        return unavailable('No durable import attempt ledger; rejected requests cannot be inferred from networks.')
+    attempts = {}
+    reasons = {'validation', 'preparation', 'replay', 'project', 'parse', 'commit', 'projection',
+               'invalid-json', 'body-too-large', 'body-read', 'structured-http'}
+    dispositions = {'adjustment-ready', 'legacy-unverified', 'archive-only', 'gnss-processing-required', 'converter-required'}
+    try:
+        rows = survey.execute('SELECT sequence,attempt_id,phase,occurred_at,record_hash,data_json FROM survey_import_attempt_events ORDER BY sequence')
+        previous_sequence = 0
+        for sequence, identity, phase, occurred, digest, serialized in rows:
+            event = json.loads(serialized)
+            common = {'schemaVersion', 'attemptId', 'phase', 'occurredAt', 'previousHash'}
+            extra = {'started': {'taskHash', 'mode'}, 'committed': {'replay', 'sourceDisposition'},
+                     'finished': {'outcome', 'rejection'}}
+            if (sequence <= previous_sequence or not isinstance(identity, str) or not identity
+                    or phase not in extra or set(event) != common | extra[phase]
+                    or event.get('schemaVersion') != 1
+                    or any(event.get(k) != v for k, v in [('attemptId', identity), ('phase', phase), ('occurredAt', occurred)])
+                    or hashlib.sha256(serialized.encode('utf-8')).hexdigest() != digest):
+                raise ValueError('invalid import audit envelope')
+            previous_sequence = sequence
+            timestamp = instant(occurred)
+            if phase == 'started':
+                if (identity in attempts or event['previousHash'] is not None
+                        or event['mode'] not in {'file', 'legacy-structured', 'unclassified'}
+                        or (event['taskHash'] is not None and (not isinstance(event['taskHash'], str)
+                            or not re.fullmatch('[0-9a-f]{64}', event['taskHash'])))):
+                    raise ValueError('invalid import start')
+                attempts[identity] = {'started': event, 'sequence': sequence, 'time': timestamp, 'hash': digest,
+                                      'lastTime': timestamp, 'committed': None, 'finished': None}
+            else:
+                attempt = attempts.get(identity)
+                if (not attempt or attempt[phase] is not None or attempt['finished'] is not None
+                        or event['previousHash'] != attempt['hash'] or timestamp < attempt['lastTime']):
+                    raise ValueError('invalid import audit chain')
+                if phase == 'committed':
+                    if type(event['replay']) is not bool or event['sourceDisposition'] not in dispositions:
+                        raise ValueError('invalid import commit')
+                elif (event['outcome'] not in {'succeeded', 'rejected'}
+                      or (event['outcome'] == 'succeeded' and (event['rejection'] is not None or attempt['committed'] is None))
+                      or (event['outcome'] == 'rejected' and event['rejection'] not in reasons)
+                      or (event['outcome'] == 'rejected' and attempt['committed'] is not None and event['rejection'] != 'projection')):
+                    raise ValueError('invalid import terminal')
+                attempt[phase] = event
+                attempt['hash'], attempt['lastTime'] = digest, timestamp
+        # Only receipts before period end may finish an attempt in this snapshot.
+        history = []
+        for attempt in attempts.values():
+            if attempt['time'] >= end:
+                continue
+            for phase in ('committed', 'finished'):
+                if attempt[phase] and instant(attempt[phase]['occurredAt']) >= end:
+                    attempt[phase] = None
+            history.append(attempt)
+        selected = [a for a in history if a['time'] >= start]
+        def succeeded(a):
+            return a['finished'] is not None and a['finished']['outcome'] == 'succeeded'
+        def rejected(a):
+            return a['finished'] is not None and a['finished']['outcome'] == 'rejected'
+        first = {}
+        for attempt in history:
+            key = attempt['started']['taskHash']
+            if key is not None:
+                first.setdefault(key, attempt)
+        first_in_period = [a for a in first.values() if a['time'] >= start]
+        observed = [a for a in first_in_period if a['started']['mode'] == 'file'
+                    and not (a['committed'] and a['committed']['replay'])]
+        return {
+            'status': 'measured' if selected else 'no-samples',
+            'boundary': 'Service entry/completion plus authenticated HTTP rejections after body reading. Subsequent HTTP response assembly/delivery and UI completion are outside this boundary. Crashes during body reading and unavailable audit storage are not enumerable; no historical backfill.',
+            'counts': {
+                'startedInPeriod': len(selected), 'succeededByPeriodEnd': sum(map(succeeded, selected)),
+                'rejectedByPeriodEnd': sum(map(rejected, selected)),
+                'incompleteAtPeriodEnd': sum(a['finished'] is None for a in selected),
+                'committedRequests': sum(a['committed'] is not None for a in selected),
+                'replayRequests': sum(bool(a['committed'] and a['committed']['replay']) for a in selected),
+                'unidentifiableRequestKeys': sum(a['started']['taskHash'] is None for a in selected),
+                'nonFileRequests': sum(a['started']['mode'] != 'file' for a in selected),
+                'firstObservedKeysInPeriod': len(first_in_period),
+                'firstKeysExcludedAsReplayOrNonFile': len(first_in_period) - len(observed),
+                'firstObservedFileKeysIncomplete': sum(a['finished'] is None for a in observed)},
+            'firstObservedFileRequestCompletionRate': {
+                'value': sum(map(succeeded, observed)) / len(observed) if observed else None,
+                'status': 'measured' if observed else 'no-samples',
+                'numerator': sum(map(succeeded, observed)), 'denominator': len(observed),
+                'definition': 'Earliest recorded invocation per caller-declared project/idempotency key; file-mode subset only, excluding first observed replays. Incomplete first invocations stay in denominator; later retries never replace them. Service completion does not establish HTTP/UI completion, source eligibility, adjustment validity, production provenance or first-ever task success.'},
+            'successfulRequestSourceDispositions': {
+                disposition: sum(succeeded(a) and a['committed']['sourceDisposition'] == disposition for a in selected)
+                for disposition in sorted(dispositions)},
+            'rejectionStages': {reason: sum(rejected(a) and a['finished']['rejection'] == reason for a in selected)
+                                for reason in sorted(reasons)}}
+    except (ValueError, TypeError, KeyError, AttributeError, sqlite3.Error):
+        return unavailable('Import attempt ledger failed identity, digest, sequence, timestamp or lifecycle validation.')
 
 
 def snapshot_hash(value):
@@ -344,7 +443,8 @@ def measure(engineering, survey, cohort, start, end):
             'range': [min(durations), max(durations)] if durations else None},
         'approvedTraceableProductionProjects': unavailable('Current records lack verifiable human approval and digital signatures; draft counts are separate.'),
         'productionRepresentativeness': unavailable('The cohort label is a caller declaration; collection provenance and population coverage are not recorded.'),
-        'firstAttemptImportSuccessRate': unavailable('Persisted networks omit rejected attempts and do not identify first attempts; denominator is unavailable.'),
+        'firstAttemptImportSuccessRate': unavailable('Product-wide first tasks and population coverage are not certified. The recorded first-observed file-key subset is reported separately.'),
+        'recordedImportAttempts': recorded_import_metrics(survey, start, end),
         'mediumLeveling30MinuteTarget': unavailable('Medium-network size and representative production cohort have not been defined or collected.'),
         'numericalReproducibilityRate': unavailable('Requires explicit strict replay outcomes for every selected run; stored bindings are not replay.'),
         'strictReverificationCoverage': unavailable('Current strict validity requires re-reading output/source bytes and live replay. Recorded point-in-time checks are reported separately.'),

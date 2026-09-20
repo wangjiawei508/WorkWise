@@ -164,4 +164,138 @@ class MetricsTests(unittest.TestCase):
             self.assertEqual(json.loads(completed.stdout)['counts']['projectsInSnapshot'], 1)
             self.assertEqual([path.read_bytes() for path in paths], before)
 
+class ImportMetricsTests(unittest.TestCase):
+    def setUp(self):
+        self.db = sqlite3.connect(':memory:')
+        self.db.execute('CREATE TABLE survey_import_attempt_events (sequence INTEGER PRIMARY KEY AUTOINCREMENT, attempt_id TEXT, phase TEXT, occurred_at TEXT, record_hash TEXT, data_json TEXT)')
+        self.hashes = {}
+
+    def tearDown(self):
+        self.db.close()
+
+    def event(self, identity, phase, time='2026-09-19T00:00:00Z', **fields):
+        defaults = {'started': {'taskHash': 'a' * 64, 'mode': 'file'},
+                    'committed': {'replay': False, 'sourceDisposition': 'adjustment-ready'},
+                    'finished': {'outcome': 'succeeded', 'rejection': None}}
+        event = {'schemaVersion': 1, 'attemptId': identity, 'phase': phase, 'occurredAt': time,
+                 'previousHash': self.hashes.get(identity), **defaults[phase], **fields}
+        serialized = json.dumps(event)
+        digest = metrics.hashlib.sha256(serialized.encode()).hexdigest()
+        self.db.execute('INSERT INTO survey_import_attempt_events(attempt_id,phase,occurred_at,record_hash,data_json) VALUES (?,?,?,?,?)', (identity, phase, time, digest, serialized))
+        self.hashes[identity] = digest
+
+    def result(self, start='2026-09-19T00:00:00Z', end='2026-09-20T00:00:00Z'):
+        return metrics.recorded_import_metrics(self.db, metrics.instant(start), metrics.instant(end))
+
+    def success(self, identity, **start_fields):
+        self.event(identity, 'started', **start_fields)
+        self.event(identity, 'committed')
+        self.event(identity, 'finished')
+
+    def test_rejected_first_request_is_not_replaced_by_successful_retry(self):
+        self.event('first', 'started')
+        self.event('first', 'finished', outcome='rejected', rejection='parse')
+        self.success('retry')
+        result = self.result()
+        self.assertEqual(result['counts']['startedInPeriod'], 2)
+        self.assertEqual(result['counts']['rejectedByPeriodEnd'], 1)
+        self.assertEqual(result['firstObservedFileRequestCompletionRate']['value'], 0)
+        self.assertEqual(result['firstObservedFileRequestCompletionRate']['denominator'], 1)
+
+    def test_incomplete_first_is_in_denominator_even_after_concurrent_retry_succeeds(self):
+        self.event('first', 'started')
+        self.success('concurrent')
+        result = self.result()
+        self.assertEqual(result['counts']['incompleteAtPeriodEnd'], 1)
+        self.assertEqual(result['counts']['firstObservedFileKeysIncomplete'], 1)
+        self.assertEqual(result['firstObservedFileRequestCompletionRate']['value'], 0)
+
+    def test_unidentifiable_rejections_and_legacy_are_separate_from_file_subset(self):
+        self.event('unknown', 'started', taskHash=None, mode='unclassified')
+        self.event('unknown', 'finished', outcome='rejected', rejection='invalid-json')
+        self.success('legacy', taskHash='b' * 64, mode='legacy-structured')
+        self.success('file')
+        result = self.result()
+        self.assertEqual(result['counts']['startedInPeriod'], 3)
+        self.assertEqual(result['counts']['unidentifiableRequestKeys'], 1)
+        self.assertEqual(result['counts']['nonFileRequests'], 2)
+        self.assertEqual(result['counts']['firstKeysExcludedAsReplayOrNonFile'], 1)
+        self.assertEqual(result['firstObservedFileRequestCompletionRate']['denominator'], 1)
+        self.assertEqual(result['firstObservedFileRequestCompletionRate']['value'], 1)
+
+    def test_preexisting_replay_cannot_supply_a_first_request_success(self):
+        self.event('old', 'started')
+        self.event('old', 'committed', replay=True)
+        self.event('old', 'finished')
+        result = self.result()
+        self.assertEqual(result['counts']['replayRequests'], 1)
+        self.assertEqual(result['counts']['firstKeysExcludedAsReplayOrNonFile'], 1)
+        self.assertIsNone(result['firstObservedFileRequestCompletionRate']['value'])
+
+    def test_prior_period_first_remains_first_and_end_boundary_is_exclusive(self):
+        self.event('first', 'started', time='2026-09-18T23:59:59Z')
+        self.event('first', 'finished', outcome='rejected', rejection='parse')
+        self.success('retry')
+        self.event('at-end', 'started', time='2026-09-20T08:00:00+08:00', taskHash='b' * 64)
+        result = self.result()
+        self.assertEqual(result['counts']['startedInPeriod'], 1)
+        self.assertEqual(result['counts']['firstObservedKeysInPeriod'], 0)
+
+    def test_receipt_after_end_leaves_attempt_incomplete_at_end(self):
+        self.event('one', 'started')
+        self.event('one', 'committed')
+        self.event('one', 'finished', time='2026-09-20T00:00:00Z')
+        self.assertEqual(self.result()['counts']['incompleteAtPeriodEnd'], 1)
+
+    def test_projection_failure_has_committed_receipt_without_success(self):
+        self.event('one', 'started')
+        self.event('one', 'committed')
+        self.event('one', 'finished', outcome='rejected', rejection='projection')
+        result = self.result()
+        self.assertEqual(result['counts']['committedRequests'], 1)
+        self.assertEqual(result['counts']['succeededByPeriodEnd'], 0)
+        self.assertEqual(result['counts']['rejectedByPeriodEnd'], 1)
+
+    def test_archive_only_is_a_completed_request_but_its_disposition_is_retained(self):
+        self.event('one', 'started')
+        self.event('one', 'committed', sourceDisposition='archive-only')
+        self.event('one', 'finished')
+        result = self.result()
+        self.assertEqual(result['successfulRequestSourceDispositions']['archive-only'], 1)
+        self.assertEqual(result['successfulRequestSourceDispositions']['adjustment-ready'], 0)
+
+    def test_digest_tamper_invalidates_entire_ledger(self):
+        self.success('one')
+        self.db.execute("UPDATE survey_import_attempt_events SET record_hash='bad' WHERE phase='finished'")
+        self.assertEqual(self.result()['status'], 'not-measurable')
+
+    def test_lifecycle_and_schema_tamper_fail_without_leaking_arbitrary_values(self):
+        for fields in [{'outcome': 'succeeded', 'rejection': None},
+                       {'outcome': 'rejected', 'rejection': 'PRIVATE error'},
+                       {'outcome': 'rejected', 'rejection': 'parse', 'previousHash': 'bad'},
+                       {'outcome': 'rejected', 'rejection': 'parse', 'secret': 'PRIVATE'}]:
+            with self.subTest(fields=fields):
+                self.db.execute('DELETE FROM survey_import_attempt_events'); self.hashes.clear()
+                self.event('one', 'started')
+                self.event('one', 'finished', **fields)
+                result = self.result()
+                self.assertEqual(result['status'], 'not-measurable')
+                self.assertNotIn('PRIVATE', json.dumps(result))
+
+    def test_duplicate_or_backwards_or_naive_events_fail(self):
+        for time in ['2026-09-18T00:00:00Z', '2026-09-19T00:01:00']:
+            self.db.execute('DELETE FROM survey_import_attempt_events'); self.hashes.clear()
+            self.event('one', 'started')
+            self.event('one', 'finished', time=time, outcome='rejected', rejection='parse')
+            self.assertEqual(self.result()['status'], 'not-measurable')
+        self.db.execute('DELETE FROM survey_import_attempt_events'); self.hashes.clear()
+        self.event('one', 'started'); self.event('one', 'started')
+        self.assertEqual(self.result()['status'], 'not-measurable')
+
+    def test_missing_and_empty_audit_are_distinct(self):
+        self.assertEqual(self.result()['status'], 'no-samples')
+        self.db.execute('DROP TABLE survey_import_attempt_events')
+        self.assertEqual(self.result()['status'], 'not-measurable')
+
+
 if __name__=='__main__':unittest.main()
