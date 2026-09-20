@@ -6,7 +6,7 @@ const number = (value: number): string => Number(value.toPrecision(12)).toString
 const cell = 'break-words border-b border-ds-border-muted px-2 py-2 text-left align-top'
 const scroll = 'max-h-96 max-w-full overflow-auto rounded border border-ds-border-muted focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent'
 export const advancedOutcomeKeys: Record<string, string> = {
-  stationary: 'advancedStationary', evaluated: 'advancedEvaluated', 'rank-or-conditioning': 'advancedFunctionalRank',
+  calculated: 'advancedCalculated', stationary: 'advancedStationary', evaluated: 'advancedEvaluated', 'rank-or-conditioning': 'advancedFunctionalRank',
   resolved: 'advancedResolved', unavailable: 'advancedUnresolved', converged: 'advancedConverged',
   'invalid-input': 'advancedInvalidInput', 'functional-rank-or-conditioning': 'advancedFunctionalRank',
   'stochastic-rank-or-conditioning': 'advancedStochasticRank', 'numerical-boundary': 'advancedNumerical',

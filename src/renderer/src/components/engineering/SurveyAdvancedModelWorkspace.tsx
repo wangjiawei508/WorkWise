@@ -8,6 +8,7 @@ import {
   type AdvancedTrialRecord, type AdvancedTrialSummary
 } from '../../agent/survey-advanced-trials-client'
 import { advancedOutcomeKeys, GeneralizedWResult, VceTrialResult, HuberTrialResult, StatisticalFamilyResult } from './SurveyAdvancedModelResult'
+import { SurveyReferenceDatumResult } from './SurveyReferenceDatumResult'
 import { saveGeneratedWorkspaceFileAs } from '../../lib/generated-file-actions'
 
 const buttonClass = 'min-h-9 max-w-full rounded border border-ds-border px-3 py-2 text-left text-[12px] hover:bg-ds-hover focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent disabled:opacity-50'
@@ -22,9 +23,19 @@ type View = { record?: AdvancedTrialRecord; history?: AdvancedTrialHistory; expo
 type Operation = { kind: 'save' | 'read'; idempotencyKey?: string; run: (stillCurrent: () => boolean) => Promise<View> }
 type Props = { binding: AdvancedTrialBinding; runtimeReady: boolean }
 
-const methodKeys: Record<AdvancedTrialKind, string> = { 'generalized-w': 'advancedWMethod', vce: 'advancedVceMethod', huber: 'advancedHuberMethod', 'statistical-family': 'advancedStatisticalMethod' }
-const limitKeys: Record<AdvancedTrialKind, string> = { 'generalized-w': 'advancedWLimits', vce: 'advancedVceLimits', huber: 'advancedHuberLimits', 'statistical-family': 'advancedStatisticalLimits' }
+const methodKeys: Record<AdvancedTrialKind, string> = { 'generalized-w': 'advancedWMethod', vce: 'advancedVceMethod', huber: 'advancedHuberMethod', 'statistical-family': 'advancedStatisticalMethod', 'reference-datum': 'advancedReferenceMethod' }
+const limitKeys: Record<AdvancedTrialKind, string> = { 'generalized-w': 'advancedWLimits', vce: 'advancedVceLimits', huber: 'advancedHuberLimits', 'statistical-family': 'advancedStatisticalLimits', 'reference-datum': 'advancedReferenceLimits' }
 const examples: Record<AdvancedTrialKind, unknown> = {
+  'reference-datum': {
+    schemaVersion: 1, model: 'two-epoch-one-dimensional-declared-reference-datum', unit: 'mm', method: 'gls-reference-mean',
+    referenceDeclaration: 'caller-selected-reference-set-not-verified-stable', testingStrategy: 'none-datum-comparison-only',
+    firstEpoch: { id: 'epoch-1', sourceAnchor: 'synthetic-not-verified', sourceSha256: '0'.repeat(64), covarianceBasis: 'caller-declared-full-coordinate-covariance-not-cofactor',
+      points: [0, 10, 20].map((coordinate, i) => ({ id: ['a', 'b', 'c'][i], coordinate })), covariance: [[1,0,0],[0,1,0],[0,0,1]] },
+    secondEpoch: { id: 'epoch-2', sourceAnchor: 'synthetic-not-verified', sourceSha256: '0'.repeat(64), covarianceBasis: 'caller-declared-full-coordinate-covariance-not-cofactor',
+      points: [2, 14, 27].map((coordinate, i) => ({ id: ['a', 'b', 'c'][i], coordinate })), covariance: [[1,0,0],[0,1,0],[0,0,1]] },
+    mapping: ['a', 'b', 'c'].map(id => ({ id, firstPointId: id, secondPointId: id })), referenceIds: ['a', 'b'],
+    dependence: { kind: 'caller-declared-independent', sourceAnchor: 'synthetic-not-verified' }
+  },
   huber: {
     schemaVersion: 1, model: 'fixed-linear-full-column-rank', independenceDeclaration: 'caller-declared-independent-observations', residualConvention: 'observed-minus-fitted', observationUnit: 'm',
     parameterIds: ['position'], parameterUnits: ['m'], initialParameters: [0], scale: { kind: 'fixed-external', value: 1, unit: 'm', basisStatement: 'Synthetic fixed external scale.' }, loss: { kind: 'huber', k: 1 },
@@ -158,7 +169,7 @@ function AdvancedTrialSession({ binding, runtimeReady }: Props): ReactElement {
       <div className="flex flex-wrap gap-2"><button type="button" className={buttonClass} disabled={!ready} onClick={() => void execute({ kind: 'read', run: async stillCurrent => ({ record: await reverifyAdvancedTrial(binding, advancedTrialSummary(record), stillCurrent) }) })}>{t('advancedReverify')}</button><button type="button" className={buttonClass} disabled={!ready} onClick={() => exportRecord(record)}>{t('advancedExport')}</button></div>
       {view?.exportStatus ? <p role={view.exportStatus === 'failed' ? 'alert' : 'status'} className="break-all leading-5">{t(view.exportStatus === 'saved' ? 'advancedExportSaved' : view.exportStatus === 'cancelled' ? 'advancedExportCancelled' : 'advancedExportFailed', { path: view.exportPath })}</p> : null}
       <h5 className="font-medium">{t('advancedBasis')}</h5><p className="whitespace-pre-wrap break-words leading-5">{record.modelBasisStatement}</p>
-      {record.kind === 'generalized-w' ? <GeneralizedWResult result={record.result} /> : record.kind === 'huber' ? <HuberTrialResult result={record.result} /> : record.kind === 'statistical-family' ? <StatisticalFamilyResult result={record.result} /> : <>
+      {record.kind === 'reference-datum' ? <SurveyReferenceDatumResult result={record.result} /> : record.kind === 'generalized-w' ? <GeneralizedWResult result={record.result} /> : record.kind === 'huber' ? <HuberTrialResult result={record.result} /> : record.kind === 'statistical-family' ? <StatisticalFamilyResult result={record.result} /> : <>
         <div className="min-w-0 space-y-2" aria-label={t('advancedInitialGroups')}><h5 className="font-medium">{t('advancedInitialGroups')}</h5>{record.declaration.groups.map(group => <p key={group.id} className="break-all">{group.id} · {group.initialVariance} {record.declaration.unit}² · {group.sourceAnchor}</p>)}<p>{t('advancedStoppingPolicy', { iterations: record.declaration.maxIterations, tolerance: record.declaration.relativeTolerance })}</p></div>
         <VceTrialResult result={record.result} />
       </>}

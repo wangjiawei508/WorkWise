@@ -1,3 +1,4 @@
+export { SurveyReferenceDatumInputV1, SurveyReferenceDatumOutputV1 } from '../../kun/src/contracts/survey-reference-datum.js'
 // Data-only schemas. Runtime algorithms and node:crypto never enter the renderer.
 export { SurveyGeneralizedWRequestV1, SurveyGeneralizedWResultV1 } from '../../kun/src/contracts/survey-generalized-w.js'
 export { SurveyVceTrialInputV1, SurveyVceTrialOutputV1 } from '../../kun/src/contracts/survey-vce-trial.js'

@@ -1,4 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto'
+import { SurveyReferenceDatumInputV1 } from '../contracts/survey-reference-datum.js'
+import { compareSurveyReferenceDatumV1 } from './survey-reference-datum.js'
 import { mkdirSync } from 'node:fs'
 import { isAbsolute, join, resolve } from 'node:path'
 import Database from 'better-sqlite3'
@@ -79,6 +81,7 @@ export class SurveyAdvancedTrialsWorkspaceService {
     this.rates.set(pid, entry)
   }
   private chargeModel(pid: string, model: C.SurveyAdvancedTrialRecordV1['declaration']): void {
+    if ('mapping' in model) { this.charge(pid, Math.max(1, Math.ceil((2 * model.mapping.length) ** 3 / 16384))); return }
     if ('members' in model) { this.charge(pid, Math.max(1, Math.ceil(model.members.length / 16))); return }
     const n = model.observations.length
     const units = 'stopping' in model ? Math.ceil(n * model.parameterIds.length ** 2 * model.stopping.maxIterations / 327680)
@@ -90,6 +93,7 @@ export class SurveyAdvancedTrialsWorkspaceService {
     if (kind === 'generalized-w') return diagnoseGeneralizedW(declaration)
     if (kind === 'vce') return runSurveyVceTrial(declaration)
     if (kind === 'huber') return runSurveyHuberTrial(declaration)
+    if (kind === 'reference-datum') return compareSurveyReferenceDatumV1(declaration)
     return evaluateSurveyStatisticalFamilyV1(declaration)
   }
   private decode(raw: Uint8Array): string {
@@ -105,7 +109,7 @@ export class SurveyAdvancedTrialsWorkspaceService {
     try {
       const request = C.SurveyAdvancedTrialCreateV1.parse(parseAdvancedTrialJson(requestJson))
       const declared = parseAdvancedTrialJson(request.declarationJson)
-      const declaration = ({ 'generalized-w': SurveyGeneralizedWRequestV1, vce: SurveyVceTrialInputV1, huber: SurveyHuberTrialInputV1, 'statistical-family': SurveyStatisticalFamilyInputV1 })[request.kind].parse(declared)
+      const declaration = ({ 'generalized-w': SurveyGeneralizedWRequestV1, vce: SurveyVceTrialInputV1, huber: SurveyHuberTrialInputV1, 'statistical-family': SurveyStatisticalFamilyInputV1, 'reference-datum': SurveyReferenceDatumInputV1 })[request.kind].parse(declared)
       return { request, declaration, requestJson }
     } catch { return fail('validation') }
   }
@@ -185,7 +189,8 @@ export class SurveyAdvancedTrialsWorkspaceService {
         modelBasisStatement: request.modelBasisStatement, modelBasisSha256: sha(request.modelBasisStatement), modelBasisSizeBytes: Buffer.byteLength(request.modelBasisStatement),
         replayEnvironment, replayEnvironmentHash: digest(replayEnvironment),
         outcome: 'modelStatus' in result ? result.modelStatus : result.outcome,
-        ...('members' in declaration ? { observationCount: 0, parameterCount: 0, familyMemberCount: declaration.members.length }
+        ...('mapping' in declaration ? { observationCount: 0, parameterCount: 0, pointCount: declaration.mapping.length, referenceCount: declaration.referenceIds.length }
+          : 'members' in declaration ? { observationCount: 0, parameterCount: 0, familyMemberCount: declaration.members.length }
           : { observationCount: declaration.observations.length, parameterCount: declaration.parameterIds.length }), ...boundaries,
         requestJson, declarationJson: request.declarationJson, projectSnapshot: project, declaration, result }
       const record = C.SurveyAdvancedTrialRecordV1.parse({ ...unsigned, recordHash: digest(unsigned) })

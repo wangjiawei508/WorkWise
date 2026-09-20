@@ -144,3 +144,9 @@ Both kinds retain exact HTTP and declaration bytes, normalized models, basis tex
 ### Declared two-epoch reference datum
 
 A separate `declared-reference-datum-1` pure kernel accepts complete one-dimensional epoch coordinates/covariances, a full point bijection and explicit independent or cross-epoch covariance. Caller-selected GLS or equal-reference definitions propagate the original covariance without clipping or automatic fallback. Near-semidefinite checks remain numerically unresolved, source hashes are caller declarations, and no stable-point selection, significance test, formal mutation or professional approval is inferred. Runtime/UI binding is a separate task.
+
+### Reference workspace and declared quality scoring
+
+The reference kernel uses the independent advanced-trials record path with explicit point/reference counts rather than observation or fitted-parameter counts. Numerical qualification, method and dependence remain visible with full propagated covariance; the four earlier kinds retain unchanged serialized fields.
+
+GB/T 24356-2023 scoring uses a separate source/profile-bound kernel and exact bounded BigInt fractions. Planar-control points and height-control sections have fixed hierarchy weights. Declared checked/pending/excluded scope, strict multiple-accuracy >60, unrounded batch-rate boundaries and A/subelement vetoes remain distinct. Unsupported precision/coefficient branches stay unavailable. A separate scoring workspace will preserve declared-record trust; scores cannot authenticate source documents, classify defects or authorize delivery.

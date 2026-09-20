@@ -6,7 +6,7 @@ import { createHash } from 'node:crypto'
 import Database from 'better-sqlite3'
 import { SurveyAdvancedTrialsWorkspaceService } from './survey-advanced-trials-workspace.js'
 import * as C from '../contracts/survey-advanced-trials-workspace.js'
-import { advancedTrialTestRequest, maximumNewAdvancedTrialRequest } from './survey-advanced-trials-test-helpers.js'
+import { advancedTrialTestRequest, maximumNewAdvancedTrialRequest, maximumReferenceDatumRequest } from './survey-advanced-trials-test-helpers.js'
 import { parseAdvancedTrialJson } from './survey-advanced-trials-json.js'
 
 const cleanup: Array<() => Promise<void>> = []
@@ -49,7 +49,7 @@ function forge(db: Database.Database, id: string, mutate: (row: Record<string, u
 }
 
 describe('project-scoped immutable advanced trials', () => {
-  it.each(['generalized-w', 'vce', 'huber', 'statistical-family'] as const)('preserves exact UTF-8 and replays %s across restart with the same id', async kind => {
+  it.each(['generalized-w', 'vce', 'huber', 'statistical-family', 'reference-datum'] as const)('preserves exact UTF-8 and replays %s across restart with the same id', async kind => {
     const f = await fixture(), raw = Buffer.concat([Buffer.from(' \n'), f.raw(kind), Buffer.from('\r\n')])
     const summary = f.service.createTrial(f.pid, raw)
     expect(summary).toMatchObject({ kind, requestSha256: sha(raw), modelAssumptions: 'not-verified', formalResultsModified: false })
@@ -270,5 +270,60 @@ describe('project-scoped immutable advanced trials', () => {
     f.service.createTrial(f.pid, f.raw('vce', 'rate-key-9'))
     for (let i = 0; i < 6; i++) f.service.listTrials(f.pid)
     expect(() => f.service.listTrials(f.pid)).toThrow('rate-limit')
+  })
+})
+
+
+describe('declared reference datum integration', () => {
+  it('keeps point counts distinct and refuses new count fields on legacy kinds', async () => {
+    const f = await fixture(), summary = f.service.createTrial(f.pid, f.raw('reference-datum'))
+    expect(summary).toMatchObject({ pointCount: 3, referenceCount: 2, observationCount: 0, parameterCount: 0, outcome: 'calculated' })
+    expect(C.SurveyAdvancedTrialSummaryV1.safeParse({ ...summary, referenceCount: 4 }).success).toBe(false)
+    expect(C.SurveyAdvancedTrialSummaryV1.safeParse({ ...summary, familyMemberCount: 3 }).success).toBe(false)
+    const old = f.service.createTrial(f.pid, f.raw('vce', 'legacy-count-check'))
+    expect(old).not.toHaveProperty('pointCount')
+    expect(C.SurveyAdvancedTrialSummaryV1.safeParse({ ...old, pointCount: 3, referenceCount: 2 }).success).toBe(false)
+  })
+  it('retains GLS singular unavailability and requires an explicit equal-reference declaration', async () => {
+    const f = await fixture(), req = advancedTrialTestRequest('reference-datum')
+    const model = JSON.parse(req.declarationJson)
+    model.firstEpoch.covariance = model.secondEpoch.covariance = [[1,-1,0],[-1,1,0],[0,0,1]]
+    req.declarationJson = JSON.stringify(model)
+    const first = f.service.createTrial(f.pid, Buffer.from(JSON.stringify(req)))
+    expect(f.service.getTrial(f.pid, first.id).result).toMatchObject({ outcome: 'unavailable', code: 'reference-covariance-rank-or-conditioning' })
+    model.method = 'equal-reference-mean'; req.idempotencyKey = 'equal-reference-new'; req.declarationJson = JSON.stringify(model)
+    const second = f.service.createTrial(f.pid, Buffer.from(JSON.stringify(req)))
+    expect(f.service.getTrial(f.pid, second.id).result).toMatchObject({ outcome: 'calculated', covarianceCheck: { classification: 'semidefinite-or-unresolved-within-numerical-tolerance' }, referencePhysicalStability: 'not-evaluated' })
+    expect(f.service.listTrials(f.pid).trials).toHaveLength(2)
+  })
+  it('strictly replays ten complete 32-point cross-covariance records within the history budget', async () => {
+    const f = await fixture()
+    for (let i = 0; i < 10; i++) {
+      f.advance()
+      const summary = f.service.createTrial(f.pid, Buffer.from(JSON.stringify(maximumReferenceDatumRequest(`reference-maximum-${i}`))))
+      const record = f.service.getTrial(f.pid, summary.id)
+      expect(record.kind).toBe('reference-datum')
+      expect(Buffer.byteLength(JSON.stringify(record))).toBeLessThan(C.SURVEY_ADVANCED_TRIAL_LIMITS.recordBytes)
+    }
+    f.service.close()
+    const reopened = f.reopen()
+    expect(reopened.listTrials(f.pid).trials).toHaveLength(10)
+    const db = f.db()
+    const first = db.prepare('SELECT id FROM advanced_trials LIMIT 1').get() as { id: string }; db.close()
+    expect(reopened.getTrial(f.pid, first.id).outcome).toBe('calculated')
+    expect(reopened.getTrial(f.pid, first.id).outcome).toBe('calculated')
+    expect(() => reopened.getTrial(f.pid, first.id)).toThrow('rate-limit')
+  })
+  it('rejects rehashed reference output tampering while keeping healthy history', async () => {
+    const f = await fixture(), first = f.service.createTrial(f.pid, f.raw('reference-datum'))
+    const good = f.service.createTrial(f.pid, f.raw('huber', 'huber-stays-readable'))
+    const db = f.db()
+    try { forge(db, first.id, (_row, record) => {
+      if (record.kind !== 'reference-datum' || record.result.outcome !== 'calculated') throw new Error('Expected calculated reference')
+      record.result.displacements[2]! += .001
+      record.resultHash = digest(record.result)
+    }, true) } finally { db.close() }
+    expect(() => f.service.getTrial(f.pid, first.id)).toThrow('integrity')
+    expect(f.service.listTrials(f.pid)).toMatchObject({ trials: [good], unavailable: [{ id: first.id, reason: 'integrity' }] })
   })
 })

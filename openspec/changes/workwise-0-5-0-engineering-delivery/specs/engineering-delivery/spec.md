@@ -369,3 +369,22 @@ The system SHALL provide a versioned one-dimensional two-epoch pure comparison w
 - **WHEN** the joint covariance passes only within the numerical tolerance of a semidefinite boundary
 - **THEN** any returned propagation retains the unresolved classification and original matrix values
 - **AND** no result is described as proof of physical stability or an engineering acceptance decision
+
+
+### Requirement: Source-bound exact scoring of declared inspection records
+The system SHALL provide bounded exact-rational scoring for the declared plane-control point and height-control section profiles of GB/T 24356-2023, retaining the source digest, profile/version, inspection stage, evidence references and clause trace. Accuracy, defects, layered units, overview, samples, final-inspection batches and acceptance batches SHALL use their distinct rules. Missing inspection records SHALL NOT become exclusions or zero defects; failed subelements or A-class defects SHALL NOT be offset by aggregate averages. Calculations SHALL NOT authenticate declarations, imply signatures or modify formal results.
+
+#### Scenario: A declared scope is only partly inspected
+- **WHEN** some applicable leaves are pending and others explicitly excluded with their declared basis
+- **THEN** pending leaves remain unresolved and are not silently removed from the scope
+- **AND** a partial computable scope is labelled partial with weights normalized separately at each included hierarchy level
+
+#### Scenario: Precision aggregation reaches the strict sixty-point boundary
+- **WHEN** a single precision score is exactly 60
+- **THEN** that single-item score remains valid
+- **AND** a multiple-precision group containing that score remains unavailable under the reviewed strict-greater-than-60 rule
+
+#### Scenario: Batch percentages are near a grade threshold
+- **WHEN** complete declared final-inspection batch counts and prior qualification are supplied
+- **THEN** rates are compared as exact integer ratios without preliminary rounding
+- **AND** acceptance batches retain their distinct qualified/failed decision and distinguish overview not performed from pending or missing

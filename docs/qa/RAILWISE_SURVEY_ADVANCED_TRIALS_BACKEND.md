@@ -2,7 +2,7 @@
 
 ## 范围
 
-`generalized-w`、`vce`、`huber` 与 `statistical-family` 纯核通过独立 project-scoped 实验记录服务开放，不修改既有纯核，不依赖正式网形、正式相对权或平差结果写入接口。服务只接受用户显式提交的完整模型 JSON 和模型依据原文。广义 w 的绝对先验 C 必须由完整声明提供；不会将正式相对权、后验单位权方差或其他结果暗自转成已知绝对 C。
+`generalized-w`、`vce`、`huber`、`statistical-family` 与 `reference-datum` 纯核通过独立 project-scoped 实验记录服务开放，不修改既有纯核，不依赖正式网形、正式相对权或平差结果写入接口。服务只接受用户显式提交的完整模型 JSON 和模型依据原文。广义 w 的绝对先验 C 必须由完整声明提供；不会将正式相对权、后验单位权方差或其他结果暗自转成已知绝对 C。
 
 每条记录固定为 `trial-only`、`modelAssumptions=not-verified`、`engineeringDecision=not-evaluated`、`formalResultsModified=false`、`declarationTrust=caller-declared-not-authenticated`、`checkpointTrust=local-records-only`。成功保存可以包含纯核明确的非正分量、不可辨识或未收敛结果；保存成功不是计算通过或工程验收。
 
@@ -25,6 +25,12 @@
 统计结果的 `request.statistics` 按成员 ID 排序，保存的声明仍保持其归一化输入顺序；前端复验使用该明确规则，不改原声明字节。统计摘要使用 `familyMemberCount`，观测数/参数数为 0；旧类型摘要不新增该字段。输入 schema 可以规范化部分 VCE 标识符；原文与规范化模型分别保存并分别计算摘要，不以重新序列化模型替代原文字节。
 
 认证失败 401，未知项目/跨项目或未知记录 404，输入错误 400，过期/完整性/重放环境错误 409，体积或总配额 413，计算或写入速率超限 429（`Retry-After: 60`）。错误代码前缀 `advanced_trials_`，不会返回数据库原文、路径或内部异常。未知算法版本不进入计算，作为完整性不支持项保守不可用。
+
+## 指定参考集合的两历元比较
+
+`reference-datum` 是 2–32 个一维对应点的完整协方差比较，调用方显式声明两期坐标、双射点号映射、参考集合与独立/跨期协方差关系；可选 GLS 或等权参考定义。摘要独有 `pointCount/referenceCount`，观测数/参数数保持 0，旧四种摘要禁止新增这两个字段。原声明不排序或替换源摘要。
+
+界面保留所选方法、时期与依赖关系、参考点、原坐标差、参考权、位移、平移方差、平移–位移协方差，以及完整坐标差和位移协方差。单位与差分方向明确显示。近半正定结果保留未分辨说明，GLS 奇异只返回不可用，不回退等权。来源摘要仍为声明，物理稳定性、显著性与工程结论未判定。纯核源码不因接入改变。
 
 ## 持久化与绑定
 
@@ -61,12 +67,12 @@ Canonical 规则：数组保持顺序；对象键用 JavaScript `Object.keys().s
 - 模型声明 256 KiB、依据文本 16 KiB，均按真实 UTF-8 字节计数。
 - 完整记录 4 MiB；每项目最多 128 条、总 `data_json + request_bytes + declaration_bytes` 64 MiB（坏项也计入）。
 - 每项目持久化最多 8 个新记录/60 秒；重启服务不会清掉此写入计数。
-- 每进程、每项目 240 工作单位/分钟。create 基础 10、详情/重验/导出基础 5、列表基础 1 加实际每条记录 3（空页不按请求上限收费）；每次实际计算另扣模型额度：VCE `max(1,ceil(n²*maxIterations/81920))`，广义 w `max(1,ceil(n²*(p+directions)/65536))`，Huber `max(1,ceil(n*p²*maxIterations/327680))`，统计家族 `max(1,ceil(memberCount/16))`。
+- 每进程、每项目 240 工作单位/分钟。create 基础 10、详情/重验/导出基础 5、列表基础 1 加实际每条记录 3（空页不按请求上限收费）；每次实际计算另扣模型额度：VCE `max(1,ceil(n²*maxIterations/81920))`，广义 w `max(1,ceil(n²*(p+directions)/65536))`，Huber `max(1,ceil(n*p²*maxIterations/327680))`，统计家族 `max(1,ceil(memberCount/16))`，两历元参考 `max(1,ceil((2*pointCount)³/16384))`。
 - 内存速率桶最多 512 个活跃项目，过一分钟清理；列表遇速率限制整体返回 429，不把额度不足误标成记录损坏。
 
 最大维度真实 HTTP 验证：广义 w 64 观测/16 参数/64 偏差方向导出 121,066 bytes；VCE 128 观测/32 参数/8 组、100 轮上限的确定性输入实际迭代 55 轮，导出 333,063 bytes。两者均走真实 create/detail/export 和严格重算，未以伪结果验证响应上限。最大 VCE 的完整创建、写后复算及导出复算合计约 5 秒（开发机测试），不是生产性能保证。
 
-Huber 最大合成实例真实保留 201 状态、完整记录 2,924,991 bytes；统计家族 256 成员记录 482,097 bytes。十条历史页经独立 SQLite 重开/严格重算验证，分别计费 231/191，均在 240 工作单位内。界面仅展开当前 Huber 状态的观测表，统计成员显示自由度、声明先验尺度与完整双精度临界区间。详见[独立接入审查](./evidence/railwise-advanced-two-kernels/independent-review/REVIEW.md)。这些容量例不是生产 SLA。
+Huber 最大合成实例真实保留 201 状态、完整记录 2,924,991 bytes；统计家族 256 成员记录 482,097 bytes。十条历史页经独立 SQLite 重开/严格重算验证，分别计费 231/191，均在 240 工作单位内。界面仅展开当前 Huber 状态的观测表，统计成员显示自由度、声明先验尺度与完整双精度临界区间。详见[独立接入审查](./evidence/railwise-advanced-two-kernels/independent-review/REVIEW.md)。32 点完整跨期协方差参考记录及十条历史页也经真实 SQLite 重开/重算核对，最大页费用 191。以上容量例不是生产 SLA。
 
 ## 后端验证
 

@@ -2,7 +2,7 @@ import { z } from 'zod'
 import {
   SURVEY_ADVANCED_TRIAL_LIMITS as LIMITS, SurveyAdvancedTrialCreateV1, SurveyAdvancedTrialSummaryV1,
   SurveyAdvancedTrialRecordV1, SurveyAdvancedTrialListV1, SurveyAdvancedTrialVerificationV1,
-  SurveyGeneralizedWRequestV1, SurveyVceTrialInputV1, SurveyHuberTrialInputV1, SurveyStatisticalFamilyInputV1, runtimeSurveyAdvancedTrialsPath, parseAdvancedTrialJson
+  SurveyGeneralizedWRequestV1, SurveyVceTrialInputV1, SurveyHuberTrialInputV1, SurveyStatisticalFamilyInputV1, SurveyReferenceDatumInputV1, runtimeSurveyAdvancedTrialsPath, parseAdvancedTrialJson
 } from '@shared/survey-advanced-trials'
 import { rendererRuntimeClient } from './runtime-client'
 
@@ -37,7 +37,7 @@ function decode<T>(schema: z.ZodType<T>, value: unknown): T {
 }
 function parseDeclaration(kind: AdvancedTrialKind, raw: string): unknown {
   const parsed: unknown = parseAdvancedTrialJson(raw)
-  return ({ 'generalized-w': SurveyGeneralizedWRequestV1, vce: SurveyVceTrialInputV1, huber: SurveyHuberTrialInputV1, 'statistical-family': SurveyStatisticalFamilyInputV1 })[kind].parse(parsed)
+  return ({ 'generalized-w': SurveyGeneralizedWRequestV1, vce: SurveyVceTrialInputV1, huber: SurveyHuberTrialInputV1, 'statistical-family': SurveyStatisticalFamilyInputV1, 'reference-datum': SurveyReferenceDatumInputV1 })[kind].parse(parsed)
 }
 export function validateAdvancedTrialInput(binding: AdvancedTrialBinding, input: AdvancedTrialInput): boolean {
   try {
@@ -88,6 +88,10 @@ function checkResultBinding(record: AdvancedTrialRecord): void {
     if (!equal(record.result.request, record.declaration)) invalid()
     return
   }
+  if (record.kind === 'reference-datum') {
+    if (record.result.outcome === 'invalid-input' || !equal(record.result.request, record.declaration)) invalid()
+    return
+  }
   if (record.kind === 'statistical-family') {
     if (record.result.outcome !== 'evaluated' || !equal(record.result.request, statisticalResultRequest(record.declaration))) invalid()
     return
@@ -134,6 +138,7 @@ async function checkRecord(raw: unknown, binding: AdvancedTrialBinding, expected
   if (!equal(recordedHashes, expectedHashes)) invalid()
   if ((record.kind === 'generalized-w' || record.kind === 'huber') && record.result.requestHash !== await hash(JSON.stringify(record.declaration))) invalid()
   if (record.kind === 'statistical-family' && (record.result.outcome !== 'evaluated' || record.result.requestSha256 !== await hash(JSON.stringify(statisticalResultRequest(record.declaration))))) invalid()
+  if (record.kind === 'reference-datum' && (record.result.outcome === 'invalid-input' || record.result.requestSha256 !== await hash(JSON.stringify(record.declaration)))) invalid()
   checkResultBinding(record)
   return record
 }

@@ -113,4 +113,10 @@ These code and automated-test items do not close task 39: a successful real-mode
 ## P1 declared two-epoch reference datum
 
 - [x] Add the bounded 1D complete-covariance reference-definition pure kernel with explicit mapping/dependence, GLS/equal method boundaries and independent exact/high-precision/negative fixtures; do not infer stable points.
-- [ ] Bind this new reference trial to immutable project evidence and bilingual workspace controls, then verify its exact signed package; no existing trial acceptance covers this pure kernel.
+- [x] Bind the reference trial to immutable project evidence, authenticated Runtime/IPC and bilingual results with complete covariance, preserved numerical qualification and no method fallback; independently verify replay, scope, native-export payload and maximum history bounds.
+- [ ] Verify the reference workspace in its exact signed package; no existing trial acceptance covers this new interface.
+
+## P1 declared inspection scoring
+
+- [x] Implement the source-bound plane/height-control exact-rational scoring kernel for declared accuracy, defects, explicit layered scope, overview, samples and the two batch stages; independently verify strict thresholds, vetoes, missing evidence and unsupported branches without claiming full standard conformity.
+- [ ] Bind declared scoring to immutable project records, authenticated APIs and bilingual quality controls, then verify its exact signed package; evidence authenticity and human approval remain explicit separate responsibilities.

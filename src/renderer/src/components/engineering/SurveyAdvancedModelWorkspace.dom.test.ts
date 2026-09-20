@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { webcrypto } from 'node:crypto'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { advancedTrialTestRequest, maximumNewAdvancedTrialRequest } from '../../../../../kun/src/engineering/survey-advanced-trials-test-helpers'
+import { advancedTrialTestRequest, maximumNewAdvancedTrialRequest, maximumReferenceDatumRequest } from '../../../../../kun/src/engineering/survey-advanced-trials-test-helpers'
 import { SurveyAdvancedTrialsWorkspaceService } from '../../../../../kun/src/engineering/survey-advanced-trials-workspace'
 import { SurveyAdvancedModelWorkspace } from './SurveyAdvancedModelWorkspace'
 import { advancedTrialSummary, readAdvancedTrial, validateAdvancedTrialInput, type AdvancedTrialBinding, type AdvancedTrialInput } from '../../agent/survey-advanced-trials-client'
@@ -315,5 +315,57 @@ describe('declared advanced model desktop workflow', () => {
     await render({ binding: { ...binding, projectRevision: 2 } })
     await act(async () => wait.resolve(response(record))); await new Promise(resolve => setTimeout(resolve, 10))
     expect(saveWorkspaceFileAs).not.toHaveBeenCalled()
+  })
+})
+
+
+describe('reference datum desktop workflow', () => {
+  it('saves mapped epoch evidence and exposes the complete covariance without claiming stable points', async () => {
+    const req = advancedTrialTestRequest('reference-datum')
+    await render(); await save(input('reference-datum', JSON.parse(req.declarationJson)))
+    expect(host.textContent).toContain('physical stability is not evaluated')
+    expect(host.textContent).toContain('Reference shift 3 mm; shift variance 1 mm²')
+    expect(host.textContent).toContain('caller-declared independence')
+    expect(host.querySelector('[aria-label="Full displacement covariance"]')!.querySelectorAll('tbody td')).toHaveLength(9)
+    const table = host.querySelector('[aria-label="Point mapping, reference weights and displacements"]')!
+    expect([...table.querySelectorAll('tbody tr')].map(row => [...row.querySelectorAll('td')].map(x => x.textContent))).toEqual([['2','0.5','-1','0'],['4','0.5','1','0'],['7','0','4','-1']])
+    await click(button('Reverify and export JSON'))
+    await vi.waitFor(() => expect(saveWorkspaceFileAs).toHaveBeenCalledTimes(1))
+    const payload = saveWorkspaceFileAs.mock.calls[0]![0]
+    expect(payload.suggestedName).toBe('survey-reference-datum-trial.json')
+    const exported = JSON.parse(Buffer.from(payload.dataBase64, 'base64').toString())
+    expect(exported.declarationJson).toBe(input('reference-datum', JSON.parse(req.declarationJson)).declarationJson)
+    expect(exported.result.sourceRecordsVerified).toBe(false)
+    const summary = advancedTrialSummary(exported)
+    runtimeRequest.mockResolvedValue(response(exported))
+    vi.stubGlobal('Buffer', undefined)
+    expect(await readAdvancedTrial(binding, summary)).toEqual(exported)
+    await act(async () => i18n.changeLanguage('zh'))
+    expect(host.textContent).toContain('物理稳定性未判定')
+    expect(host.textContent).not.toMatch(/advancedReference[A-Z]/)
+  })
+  it('shows singular GLS failure and retained semidefinite qualification on an explicitly different method', async () => {
+    const model = JSON.parse(advancedTrialTestRequest('reference-datum').declarationJson)
+    model.firstEpoch.covariance = model.secondEpoch.covariance = [[1,-1,0],[-1,1,0],[0,0,1]]
+    await render(); await save(input('reference-datum', model))
+    expect(host.textContent).toContain('Reference covariance is singular, ill-conditioned or unresolved')
+    expect(host.querySelector('[aria-label="Full displacement covariance"]')).toBeNull()
+    model.method = 'equal-reference-mean'
+    await save(input('reference-datum', model))
+    expect(host.textContent).toContain('equal mean; no optimal-precision or stable-reference claim')
+    expect(host.textContent).toContain('semidefinite or unresolved within numerical tolerance')
+    expect(host.querySelector('[aria-label="Full displacement covariance"]')).not.toBeNull()
+  })
+  it('renders maximum cross-epoch covariance and mappings from a strictly replayed real record', async () => {
+    const req = maximumReferenceDatumRequest()
+    const { record } = stored(input('reference-datum', JSON.parse(req.declarationJson)))
+    await render(); await click(button('Trial history'))
+    await vi.waitFor(() => expect(host.textContent).toContain(record.id))
+    await click([...host.querySelectorAll('button')].find(b => b.textContent?.includes('Strictly verify and restore'))!)
+    await loaded()
+    expect(host.textContent).toContain('caller-declared full cross covariance')
+    expect(host.querySelector('[aria-label="Full displacement covariance"]')!.querySelectorAll('tbody td')).toHaveLength(1024)
+    expect(host.querySelector('[aria-label="Point mapping, reference weights and displacements"]')!.querySelectorAll('tbody tr')).toHaveLength(32)
+    expect(host.querySelector('[aria-label="Two-epoch comparison under declared references"]')!.textContent).not.toMatch(/NaN|Infinity|undefined|advancedReference[A-Z]/)
   })
 })

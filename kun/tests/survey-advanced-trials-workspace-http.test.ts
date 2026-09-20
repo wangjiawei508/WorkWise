@@ -29,7 +29,7 @@ async function fixture() {
 }
 
 describe('authenticated advanced trials HTTP', () => {
-  it.each(['generalized-w','vce','huber','statistical-family'] as const)('creates, restores, reverifies and exports %s with explicit declarations', async kind => {
+  it.each(['generalized-w','vce','huber','statistical-family','reference-datum'] as const)('creates, restores, reverifies and exports %s with explicit declarations', async kind => {
     const f = await fixture(), input = advancedTrialTestRequest(kind)
     const raw = `\n  ${JSON.stringify(input)}\n`
     const response = await f.raw('', 'POST', raw)

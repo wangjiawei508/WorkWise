@@ -1,7 +1,16 @@
 import type { SurveyAdvancedTrialKindV1 } from '../contracts/survey-advanced-trials-workspace.js'
 
 export function advancedTrialTestRequest(kind: SurveyAdvancedTrialKindV1, key = 'advanced-test-1') {
-  const declaration = kind === 'huber' ? {
+  const declaration = kind === 'reference-datum' ? {
+    schemaVersion: 1, model: 'two-epoch-one-dimensional-declared-reference-datum', unit: 'mm', method: 'gls-reference-mean',
+    referenceDeclaration: 'caller-selected-reference-set-not-verified-stable', testingStrategy: 'none-datum-comparison-only',
+    firstEpoch: { id: 'epoch-1', sourceAnchor: 'synthetic-not-verified', sourceSha256: '0'.repeat(64), covarianceBasis: 'caller-declared-full-coordinate-covariance-not-cofactor',
+      points: [0, 10, 20].map((coordinate, i) => ({ id: ['a', 'b', 'c'][i], coordinate })), covariance: [[1,0,0],[0,1,0],[0,0,1]] },
+    secondEpoch: { id: 'epoch-2', sourceAnchor: 'synthetic-not-verified', sourceSha256: '0'.repeat(64), covarianceBasis: 'caller-declared-full-coordinate-covariance-not-cofactor',
+      points: [2, 14, 27].map((coordinate, i) => ({ id: ['a', 'b', 'c'][i], coordinate })), covariance: [[1,0,0],[0,1,0],[0,0,1]] },
+    mapping: ['a', 'b', 'c'].map(id => ({ id, firstPointId: id, secondPointId: id })), referenceIds: ['a', 'b'],
+    dependence: { kind: 'caller-declared-independent', sourceAnchor: 'synthetic-not-verified' }
+  } : kind === 'huber' ? {
     schemaVersion: 1, model: 'fixed-linear-full-column-rank', independenceDeclaration: 'caller-declared-independent-observations',
     residualConvention: 'observed-minus-fitted', observationUnit: 'm', parameterIds: ['position'], parameterUnits: ['m'], initialParameters: [0],
     scale: { kind: 'fixed-external', value: 1, unit: 'm', basisStatement: 'Synthetic fixed external scale.' }, loss: { kind: 'huber', k: 1 },
@@ -44,6 +53,21 @@ export function maximumNewAdvancedTrialRequest(kind: 'huber' | 'statistical-fami
       scaleBasis: 'caller-declared-known-prior-standard-deviation', priorStandardDeviation: 1, scaleUnit: 'm' } }))
     model.statistics = model.members.map((member: { id: string }, i: number) => ({ memberId: member.id, status: 'available', value: 745 + i }))
   }
+  request.declarationJson = JSON.stringify(model)
+  return request
+}
+
+export function maximumReferenceDatumRequest(key = 'maximum-reference-trial') {
+  const request = advancedTrialTestRequest('reference-datum', key)
+  const model = JSON.parse(request.declarationJson)
+  const ids = Array.from({ length: 32 }, (_, i) => `${i}-参考点` + '测'.repeat(150))
+  const covariance = ids.map((_, i) => ids.map((_, j) => i === j ? 2 : .1))
+  model.firstEpoch.points = ids.map((id, i) => ({ id, coordinate: i * 100 }))
+  model.secondEpoch.points = ids.map((id, i) => ({ id, coordinate: i * 100 + i % 3 }))
+  model.firstEpoch.covariance = covariance; model.secondEpoch.covariance = covariance
+  model.mapping = ids.map(id => ({ id, firstPointId: id, secondPointId: id }))
+  model.referenceIds = ids
+  model.dependence = { kind: 'caller-declared-cross-covariance', sourceAnchor: 'synthetic-cross', firstToSecondCovariance: ids.map((_, i) => ids.map((_, j) => i === j ? .5 : 0)) }
   request.declarationJson = JSON.stringify(model)
   return request
 }
