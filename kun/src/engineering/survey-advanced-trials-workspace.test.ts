@@ -6,7 +6,7 @@ import { createHash } from 'node:crypto'
 import Database from 'better-sqlite3'
 import { SurveyAdvancedTrialsWorkspaceService } from './survey-advanced-trials-workspace.js'
 import * as C from '../contracts/survey-advanced-trials-workspace.js'
-import { advancedTrialTestRequest } from './survey-advanced-trials-test-helpers.js'
+import { advancedTrialTestRequest, maximumNewAdvancedTrialRequest } from './survey-advanced-trials-test-helpers.js'
 import { parseAdvancedTrialJson } from './survey-advanced-trials-json.js'
 
 const cleanup: Array<() => Promise<void>> = []
@@ -49,7 +49,7 @@ function forge(db: Database.Database, id: string, mutate: (row: Record<string, u
 }
 
 describe('project-scoped immutable advanced trials', () => {
-  it.each(['generalized-w', 'vce'] as const)('preserves exact UTF-8 and replays %s across restart with the same id', async kind => {
+  it.each(['generalized-w', 'vce', 'huber', 'statistical-family'] as const)('preserves exact UTF-8 and replays %s across restart with the same id', async kind => {
     const f = await fixture(), raw = Buffer.concat([Buffer.from(' \n'), f.raw(kind), Buffer.from('\r\n')])
     const summary = f.service.createTrial(f.pid, raw)
     expect(summary).toMatchObject({ kind, requestSha256: sha(raw), modelAssumptions: 'not-verified', formalResultsModified: false })
@@ -107,6 +107,8 @@ describe('project-scoped immutable advanced trials', () => {
     const out = f.service.createTrial(f.pid, Buffer.from(JSON.stringify(req)))
     const record = f.service.getTrial(f.pid, out.id)
     expect(record.declarationJson).toContain(' height ')
+    expect(record.kind).toBe('vce')
+    if (record.kind !== 'vce') throw new Error('Expected VCE record')
     expect(record.declaration.parameterIds).toEqual(['height'])
     expect(record.modelHash).toBe(digest(record.declaration))
     expect(record.declarationSha256).toBe(sha(req.declarationJson))
@@ -232,6 +234,33 @@ describe('project-scoped immutable advanced trials', () => {
     expect(page.trials).toHaveLength(10); expect(page.unavailable).toEqual([]); expect(page.nextOffset).toBeNull()
     // 1 + 10*(3+20) = 231 of 240 units: the maximum admitted page fits once.
     expect(() => f.service.getTrial(f.pid, page.trials[0]!.id)).toThrow('rate-limit')
+  })
+  it.each(['huber', 'statistical-family'] as const)('reads ten maximum-cost %s records and enforces the remaining replay budget', async kind => {
+    const f = await fixture()
+    for (let i = 0; i < 10; i++) {
+      f.advance()
+      f.service.createTrial(f.pid, Buffer.from(JSON.stringify(maximumNewAdvancedTrialRequest(kind, `maximum-new-${i}`))))
+    }
+    f.advance()
+    const page = f.service.listTrials(f.pid)
+    expect(page.trials).toHaveLength(10); expect(page.unavailable).toEqual([])
+    // Huber: 1+10*(3+20)=231; family: 1+10*(3+16)=191.
+    if (kind === 'huber') expect(() => f.service.getTrial(f.pid, page.trials[0]!.id)).toThrow('rate-limit')
+    else {
+      expect(f.service.getTrial(f.pid, page.trials[0]!.id).kind).toBe(kind)
+      expect(f.service.getTrial(f.pid, page.trials[0]!.id).kind).toBe(kind)
+      expect(() => f.service.getTrial(f.pid, page.trials[0]!.id)).toThrow('rate-limit')
+    }
+  }, 60_000)
+  it.each(['huber', 'statistical-family'] as const)('detects rehashed %s result substitution through numerical replay', async kind => {
+    const f = await fixture(), summary = f.service.createTrial(f.pid, f.raw(kind)), db = f.db()
+    try { forge(db, summary.id, (_row, record) => {
+      if (record.kind === 'huber') record.result.states[0]!.objective += 1
+      else if (record.kind === 'statistical-family' && record.result.outcome === 'evaluated') record.result.request.familyId = 'forged-family'
+      record.resultHash = digest(record.result)
+    }, true) } finally { db.close() }
+    expect(() => f.service.getTrial(f.pid, summary.id)).toThrow('integrity')
+    expect(f.service.listTrials(f.pid).unavailable).toEqual([{ id: summary.id, reason: 'integrity' }])
   })
   it('enforces persistent write rate and per-process bounded replay work', async () => {
     const f = await fixture()

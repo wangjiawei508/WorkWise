@@ -102,3 +102,15 @@ These code and automated-test items do not close task 39: a successful real-mode
 - [x] Add a versioned fixed-linear VCE trial for independent disjoint variance groups, preserving initial values, every candidate and explicit nonpositive/identifiability/numerical stops; verify exact and high-precision independent cases without replacing formal weights.
 - [x] Bind both advanced trials to immutable project-scoped input evidence, authenticated Runtime/IPC, strict replay, bounded history and bilingual manual UI; keep declared experimental models separate from validated production covariance.
 - [ ] Verify the advanced-trial integration in its exact signed private candidate, including damaged/stale records, restart, themes and keyboard access; obtain required human UI and professional confirmation before treating the broader advanced-adjustment task as complete.
+
+## P1 statistical-family and Huber increment
+
+- [x] Add explicitly declared normal/t/chi-square statistical families with complete-family Bonferroni correction, numerical boundaries and independent high-precision replay; do not silently use approximate upstream statistics as exact inputs.
+- [x] Add fixed-external-scale Huber QR/IRLS trials with retained observations, weights, objective/score history and explicit stopping/uniqueness limits; verify independent exact and high-precision cases.
+- [x] Extend immutable advanced-trial Runtime/IPC/history and bilingual UI for both kinds, preserving legacy records, raw bytes, bounded replay, exact distribution parameters and full critical interval display; verify independent service/client/DOM probes.
+- [ ] Verify these two new kinds in their exact signed candidate, including native export, restart, damaged records, themes/window sizes and required human confirmation; previous generalized-w/VCE package evidence does not cover them.
+
+## P1 declared two-epoch reference datum
+
+- [x] Add the bounded 1D complete-covariance reference-definition pure kernel with explicit mapping/dependence, GLS/equal method boundaries and independent exact/high-precision/negative fixtures; do not infer stable points.
+- [ ] Bind this new reference trial to immutable project evidence and bilingual workspace controls, then verify its exact signed package; no existing trial acceptance covers this pure kernel.

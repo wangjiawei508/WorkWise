@@ -5,6 +5,10 @@ import Database from 'better-sqlite3'
 import * as C from '../contracts/survey-advanced-trials-workspace.js'
 import { SurveyGeneralizedWRequestV1 } from '../contracts/survey-generalized-w.js'
 import { SurveyVceTrialInputV1 } from '../contracts/survey-vce-trial.js'
+import { SurveyHuberTrialInputV1 } from '../contracts/survey-huber-trial.js'
+import { SurveyStatisticalFamilyInputV1 } from '../contracts/survey-statistical-family.js'
+import { runSurveyHuberTrial } from './survey-huber-trial.js'
+import { evaluateSurveyStatisticalFamilyV1 } from './survey-statistical-family.js'
 import { diagnoseGeneralizedW } from './survey-generalized-w.js'
 import { runSurveyVceTrial } from './survey-vce-trial.js'
 import { parseAdvancedTrialJson } from './survey-advanced-trials-json.js'
@@ -75,10 +79,18 @@ export class SurveyAdvancedTrialsWorkspaceService {
     this.rates.set(pid, entry)
   }
   private chargeModel(pid: string, model: C.SurveyAdvancedTrialRecordV1['declaration']): void {
+    if ('members' in model) { this.charge(pid, Math.max(1, Math.ceil(model.members.length / 16))); return }
     const n = model.observations.length
-    const units = 'maxIterations' in model ? Math.ceil(n * n * model.maxIterations / 81920)
+    const units = 'stopping' in model ? Math.ceil(n * model.parameterIds.length ** 2 * model.stopping.maxIterations / 327680)
+      : 'maxIterations' in model ? Math.ceil(n * n * model.maxIterations / 81920)
       : Math.ceil(n * n * (model.parameterIds.length + model.biasDirections.length) / 65536)
     this.charge(pid, Math.max(1, units))
+  }
+  private evaluate(kind: C.SurveyAdvancedTrialKindV1, declaration: C.SurveyAdvancedTrialRecordV1['declaration']) {
+    if (kind === 'generalized-w') return diagnoseGeneralizedW(declaration)
+    if (kind === 'vce') return runSurveyVceTrial(declaration)
+    if (kind === 'huber') return runSurveyHuberTrial(declaration)
+    return evaluateSurveyStatisticalFamilyV1(declaration)
   }
   private decode(raw: Uint8Array): string {
     if (raw.byteLength > L.requestBytes) return fail('limit')
@@ -93,7 +105,7 @@ export class SurveyAdvancedTrialsWorkspaceService {
     try {
       const request = C.SurveyAdvancedTrialCreateV1.parse(parseAdvancedTrialJson(requestJson))
       const declared = parseAdvancedTrialJson(request.declarationJson)
-      const declaration = request.kind === 'generalized-w' ? SurveyGeneralizedWRequestV1.parse(declared) : SurveyVceTrialInputV1.parse(declared)
+      const declaration = ({ 'generalized-w': SurveyGeneralizedWRequestV1, vce: SurveyVceTrialInputV1, huber: SurveyHuberTrialInputV1, 'statistical-family': SurveyStatisticalFamilyInputV1 })[request.kind].parse(declared)
       return { request, declaration, requestJson }
     } catch { return fail('validation') }
   }
@@ -136,7 +148,7 @@ export class SurveyAdvancedTrialsWorkspaceService {
       if (digest(project) !== record.projectBindingHash) return fail('stale')
       if (digest(environment()) !== record.replayEnvironmentHash) return fail('replay-environment')
       this.chargeModel(pid, parsed.declaration)
-      const recomputed = record.kind === 'generalized-w' ? diagnoseGeneralizedW(parsed.declaration) : runSurveyVceTrial(parsed.declaration)
+      const recomputed = this.evaluate(record.kind, parsed.declaration)
       if (canonical(recomputed) !== canonical(record.result)) return fail('integrity')
       return record
     } catch (error) {
@@ -163,17 +175,18 @@ export class SurveyAdvancedTrialsWorkspaceService {
       const recent = this.db.prepare('SELECT count(*) AS count FROM advanced_trials WHERE project_id=? AND created_at>=?').get(pid, minuteAgo) as { count: number }
       if (recent.count >= 8) return fail('rate-limit')
       this.chargeModel(pid, declaration)
-      const result = request.kind === 'generalized-w' ? diagnoseGeneralizedW(declaration) : runSurveyVceTrial(declaration)
+      const result = this.evaluate(request.kind, declaration)
       const replayEnvironment = environment()
       const unsigned = { schemaVersion: 1, id: `advanced_trial_${randomUUID()}`, projectId: pid, projectRevision: project.revision,
         projectBindingHash: digest(project), kind: request.kind, acknowledged: true, idempotencyKey: request.idempotencyKey,
-        algorithmVersion: request.kind === 'generalized-w' ? 'fixed-linear-known-covariance-generalized-w-1' : 'disjoint-linear-vce-trial-1',
+        algorithmVersion: 'diagnosticsVersion' in result ? result.diagnosticsVersion : result.algorithmVersion,
         createdAt: now, requestSha256: sha(raw), declarationSha256: sha(request.declarationJson), modelHash: digest(declaration), resultHash: digest(result),
         requestSizeBytes: raw.byteLength, declarationSizeBytes: Buffer.byteLength(request.declarationJson), modelNormalization: 'schema-normalized',
         modelBasisStatement: request.modelBasisStatement, modelBasisSha256: sha(request.modelBasisStatement), modelBasisSizeBytes: Buffer.byteLength(request.modelBasisStatement),
         replayEnvironment, replayEnvironmentHash: digest(replayEnvironment),
-        outcome: 'modelStatus' in result ? result.modelStatus : result.outcome, observationCount: declaration.observations.length,
-        parameterCount: declaration.parameterIds.length, ...boundaries,
+        outcome: 'modelStatus' in result ? result.modelStatus : result.outcome,
+        ...('members' in declaration ? { observationCount: 0, parameterCount: 0, familyMemberCount: declaration.members.length }
+          : { observationCount: declaration.observations.length, parameterCount: declaration.parameterIds.length }), ...boundaries,
         requestJson, declarationJson: request.declarationJson, projectSnapshot: project, declaration, result }
       const record = C.SurveyAdvancedTrialRecordV1.parse({ ...unsigned, recordHash: digest(unsigned) })
       const serialized = JSON.stringify(record)

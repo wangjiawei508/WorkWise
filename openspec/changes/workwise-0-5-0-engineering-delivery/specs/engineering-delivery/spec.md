@@ -330,3 +330,42 @@ The initial workspace MUST permit only one first-round run per population and in
 #### Scenario: Change project while reading samples
 - **WHEN** the project, revision or Runtime readiness changes before a sampling response arrives
 - **THEN** the desktop clears obsolete presentation and ignores the late response
+
+### Requirement: Explicit statistical families
+Statistical trials MUST bind a complete caller-declared family, distribution parameters, tail, alpha, scalar inputs and correction policy. Missing or failed members MUST remain in the Bonferroni denominator. The Runtime MUST distinguish unsupported/numerically unresolved values from calculated probabilities, preserve boundary uncertainty, and MUST NOT infer verified distribution assumptions, actual predeclaration, outlier removal or engineering acceptance. It MUST NOT silently use approximate upstream statistics as exact inputs.
+
+#### Scenario: A member has no usable statistic
+- **WHEN** a member is missing, undetectable or outside the supported numerical domain
+- **THEN** its explicit state remains in the output and its membership still contributes to the correction denominator
+
+#### Scenario: Statistics are supplied in a different order
+- **WHEN** a valid declared family supplies the same statistic subset in a different order
+- **THEN** the exact original bytes remain preserved and recovery verifies the kernel's documented normalized request without falsely rejecting or rewriting the declaration
+
+### Requirement: Fixed external scale Huber trials
+Huber trials MUST use explicitly declared independent fixed linear observations, external scale, relative sigmas, loss parameter, initial parameters and stopping policy. Every finite iteration MUST retain objective, score, numerical budget, residuals and derived trial weights. Exhaustion or numerical failure MUST NOT expose accepted parameters. Stationarity MUST NOT imply engineering approval, Gaussian WLS precision or certified unique minimization. Formal observations and weights MUST remain unchanged.
+
+#### Scenario: Huber has a flat minimizer interval
+- **WHEN** a declared location model has observations [0,0,10,10] with unit scale and k=1
+- **THEN** a stationary point in [1,9] is labelled without established uniqueness and without Gaussian parameter covariance
+
+### Requirement: Additive advanced trial integration
+The authenticated advanced-trials Runtime, IPC and bilingual manual interface MUST support the new statistical and Huber kinds through immutable raw-byte preservation, strict replay, bounded history and fresh verified export. Existing generalized-w and VCE records MUST remain readable without hash changes or field backfills. Family members MUST NOT be mislabeled as measured observations. Scope changes and late responses MUST follow existing project/revision guards.
+
+#### Scenario: Read a maximum legal history page
+- **WHEN** a fresh project budget reads ten maximum-cost valid records
+- **THEN** the complete bounded page can be verified within the advertised per-minute work budget, while subsequent operations exceeding that budget are explicitly rate limited
+
+
+### Requirement: Explicit two-epoch reference definitions remain non-authoritative trials
+The system SHALL provide a versioned one-dimensional two-epoch pure comparison with complete coordinate covariance, explicit epoch dependence, a complete point mapping and a caller-selected reference set. The system SHALL propagate the original matrices, retain numerical qualification and SHALL NOT infer reference stability, authenticate source hashes, repair covariance or silently replace a requested GLS definition with an equal-reference method.
+
+#### Scenario: Singular reference covariance does not trigger an implicit fallback
+- **WHEN** the caller requests a GLS reference definition whose reference covariance is singular or numerically unresolved
+- **THEN** the result is unavailable with the specific numerical reason
+- **AND** an equal-reference method requires a separate explicit declaration
+
+#### Scenario: Near-semidefinite propagation retains uncertainty
+- **WHEN** the joint covariance passes only within the numerical tolerance of a semidefinite boundary
+- **THEN** any returned propagation retains the unresolved classification and original matrix values
+- **AND** no result is described as proof of physical stability or an engineering acceptance decision

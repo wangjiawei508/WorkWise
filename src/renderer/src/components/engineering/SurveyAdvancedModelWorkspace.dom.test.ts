@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { webcrypto } from 'node:crypto'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { advancedTrialTestRequest, maximumNewAdvancedTrialRequest } from '../../../../../kun/src/engineering/survey-advanced-trials-test-helpers'
 import { SurveyAdvancedTrialsWorkspaceService } from '../../../../../kun/src/engineering/survey-advanced-trials-workspace'
 import { SurveyAdvancedModelWorkspace } from './SurveyAdvancedModelWorkspace'
 import { advancedTrialSummary, readAdvancedTrial, validateAdvancedTrialInput, type AdvancedTrialBinding, type AdvancedTrialInput } from '../../agent/survey-advanced-trials-client'
@@ -97,6 +98,97 @@ describe('declared advanced model desktop workflow', () => {
     expect(host.querySelectorAll('[role="region"][tabindex="0"]').length).toBeGreaterThan(2)
     await act(async () => { await i18n.changeLanguage('zh') })
     expect(host.textContent).toContain('高级模型试算'); expect(host.textContent).toContain('不可探测或数值未分辨'); expect(host.textContent).not.toContain('advancedTitle')
+  })
+  it.each(['huber', 'statistical-family'] as const)('saves, restores, replays and exports %s with bilingual boundary information', async kind => {
+    const model = JSON.parse(advancedTrialTestRequest(kind).declarationJson), selected = input(kind, model)
+    await render(); await save(selected)
+    if (kind === 'huber') {
+      expect(host.textContent).toContain('Declared stopping conditions met')
+      expect(host.textContent).toContain('Derived IRLS weight'); expect(host.textContent).toContain('0.333333')
+      expect(host.querySelectorAll('[aria-label="Read-only Huber observation values"]')).toHaveLength(1)
+      expect(host.textContent).toContain('No covariance, Gaussian WLS precision')
+    } else {
+      expect(host.textContent).toContain('full denominator 3')
+      expect(host.textContent).toContain('No statistic supplied; retained in denominator')
+      expect(host.querySelector('[aria-label="All declared statistical family members"]')?.querySelectorAll('tbody tr')).toHaveLength(3)
+    }
+    await click(button('Reverify and replay')); await loaded()
+    await click(button('Reverify and export JSON')); await vi.waitFor(() => expect(saveWorkspaceFileAs).toHaveBeenCalledTimes(1))
+    const payload = saveWorkspaceFileAs.mock.calls[0]![0], exported = JSON.parse(Buffer.from(payload.dataBase64, 'base64').toString('utf8'))
+    expect(payload.suggestedName).toBe(`survey-${kind}-trial.json`)
+    expect(exported.kind).toBe(kind); expect(exported.declarationJson).toBe(selected.declarationJson)
+    await click(button('Trial history')); await vi.waitFor(() => expect(host.textContent).toContain('Strictly verify and restore'))
+    await click([...host.querySelectorAll('button')].find(item => item.textContent?.includes('Strictly verify and restore'))!); await loaded()
+    await act(async () => { await i18n.changeLanguage('zh') })
+    expect(host.textContent).toContain(kind === 'huber' ? 'Huber 试算结果' : '统计检验族结果')
+    expect(host.textContent).toContain(kind === 'huber' ? '派生 IRLS 权' : '完整分母 3')
+    expect(host.textContent).not.toContain('advancedHuber'); expect(host.textContent).not.toContain('advancedStatistical')
+  })
+  it('shows declared degrees of freedom beside distinct Student t probabilities and the chi-square prior scale', async () => {
+    const model = JSON.parse(advancedTrialTestRequest('statistical-family').declarationJson)
+    model.members = [1, 30].map(df => ({ id: `t-${df}`, sourceAnchor: `unaltered-t-source-${df}`, distribution: { kind: 'student-t', tail: 'two-sided', statisticBasis: 'externally-studentized', degreesOfFreedom: df } }))
+    model.members.push({ id: 'chi', sourceAnchor: 'unaltered-chi-source', distribution: { kind: 'chi-square', tail: 'upper', statisticBasis: 'quadratic-form-divided-by-known-prior-variance', degreesOfFreedom: 20, scaleBasis: 'caller-declared-known-prior-standard-deviation', priorStandardDeviation: 2, scaleUnit: 'mm' } })
+    model.statistics = [{ memberId: 't-1', status: 'available', value: 3 }, { memberId: 't-30', status: 'available', value: 3 }, { memberId: 'chi', status: 'available', value: 20 }]
+    await render(); await save(input('statistical-family', model))
+    const rows = host.querySelector('[aria-label="All declared statistical family members"]')!.querySelectorAll('tbody tr')
+    expect(rows[0]!.textContent).toContain('df 1'); expect(rows[1]!.textContent).toContain('df 30')
+    expect(Number(rows[0]!.querySelectorAll('td')[2]!.textContent)).toBeGreaterThan(.2)
+    expect(Number(rows[1]!.querySelectorAll('td')[2]!.textContent)).toBeLessThan(.006)
+    expect(rows[2]!.textContent).toContain('df 20'); expect(rows[2]!.textContent).toContain('Declared prior standard deviation 2 mm')
+    await act(async () => { await i18n.changeLanguage('zh') })
+    expect(host.textContent).toContain('自由度 30'); expect(host.textContent).toContain('声明先验标准差 2 mm')
+    expect(host.textContent).toContain('unaltered-t-source-30')
+  })
+  it('does not collapse a narrow statistical resolution interval through display rounding', async () => {
+    const selected = input('statistical-family', JSON.parse(maximumNewAdvancedTrialRequest('statistical-family').declarationJson))
+    const { record } = stored(selected)
+    if (record.kind !== 'statistical-family' || record.result.outcome !== 'evaluated') throw new Error('Expected evaluated family')
+    const narrow = record.result.results.find(member => member.status === 'calculated'
+      && member.numericalResolutionInterval[0].toPrecision(12) === member.numericalResolutionInterval[1].toPrecision(12))
+    if (!narrow || narrow.status !== 'calculated') throw new Error('Expected a narrow high-df interval')
+    const [lower, upper] = narrow.numericalResolutionInterval
+    expect(lower).toBeLessThan(upper)
+    await render(); await save(selected)
+    expect(host.textContent).toContain(`[${lower}, ${upper}]`)
+  })
+  it('restores reordered statistical subsets using the frozen kernel normalization while retaining raw evidence and family order', async () => {
+    const model = JSON.parse(advancedTrialTestRequest('statistical-family').declarationJson)
+    model.statistics.reverse(); model.members.reverse(); model.familyId = ' padded-family '; model.members[0].sourceAnchor = ' padded-source '
+    const selected = input('statistical-family', model), { summary, record } = stored(selected)
+    expect(record.kind).toBe('statistical-family')
+    if (record.kind !== 'statistical-family' || record.result.outcome !== 'evaluated') throw new Error('Expected evaluated statistical family')
+    expect(record.declaration.statistics.map(item => item.memberId)).toEqual(['c', 'a'])
+    expect(record.result.request.statistics.map(item => item.memberId)).toEqual(['a', 'c'])
+    expect(record.result.results.map(item => item.memberId)).toEqual(['c', 'b', 'a'])
+    expect(record.declarationJson).toBe(selected.declarationJson)
+    runtimeRequest.mockResolvedValue(response(record))
+    expect(await readAdvancedTrial(binding, summary)).toEqual(record)
+    runtimeRequest.mockImplementation(handle)
+    await render(); await save(selected); expect(host.textContent).toContain('padded-family')
+    await click(button('Reverify and export JSON')); await vi.waitFor(() => expect(saveWorkspaceFileAs).toHaveBeenCalledTimes(1))
+    const exported = JSON.parse(Buffer.from(saveWorkspaceFileAs.mock.calls[0]![0].dataBase64, 'base64').toString('utf8'))
+    expect(exported.declarationJson).toBe(selected.declarationJson)
+    expect(exported.declaration.statistics.map((item: { memberId: string }) => item.memberId)).toEqual(['c', 'a'])
+  })
+  it('keeps flat Huber uniqueness unestablished and exhausted iterates unaccepted', async () => {
+    const model = JSON.parse(advancedTrialTestRequest('huber').declarationJson)
+    model.observations[2].value = 10; model.initialParameters = [5]
+    await render(); await save(input('huber', model))
+    expect(host.textContent).toContain('Uniqueness is not established')
+    const exhausted = JSON.parse(advancedTrialTestRequest('huber').declarationJson); exhausted.stopping.maxIterations = 1
+    await save(input('huber', exhausted))
+    expect(host.textContent).toContain('Iteration limit')
+    expect(host.querySelector('[aria-label="Parameters"]')).toBeNull()
+  })
+  it.each(['huber', 'statistical-family'] as const)('rejects altered %s result requests before exposing a restored record', async kind => {
+    const { summary, record } = stored(input(kind, JSON.parse(advancedTrialTestRequest(kind).declarationJson)))
+    runtimeRequest.mockResolvedValue(response(record))
+    expect(await readAdvancedTrial(binding, summary)).toEqual(record)
+    const corrupted = structuredClone(record)
+    if (corrupted.kind === 'huber') corrupted.result.request!.initialParameters[0] = 999
+    else if (corrupted.kind === 'statistical-family' && corrupted.result.outcome === 'evaluated') corrupted.result.request.familyId = 'other-family'
+    runtimeRequest.mockResolvedValue(response(corrupted))
+    await expect(readAdvancedTrial(binding, summary)).rejects.toMatchObject({ reason: 'invalid-response' })
   })
   it('shows VCE normalization, initial groups, numerical convergence and the final refit without approval wording', async () => {
     await render(); await save(input('vce'))

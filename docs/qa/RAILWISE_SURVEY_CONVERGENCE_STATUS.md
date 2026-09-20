@@ -4,15 +4,23 @@
 
 代码实现、自动化通过、安装包验收和用户确认分别记录。总计划尚未完成，旧 OpenSpec 勾选数不代表本计划完成率。
 
-最新精确候选：[a3072e2 总体冻结与首轮抽样](./evidence/railwise-convergence-a3072e25ebc3/README.md)。签名/公证、真实私有 updater、同 ASAR 本机安装已核对；GUI 已验证 1,001 单位总体、过程全数与验收随机 80 项、同阶段拒绝重抽、分页、篡改拒绝、好坏历史分离、完整退出重启后的同 ID/同样本，以及三格式历史成果副标题。独立 Python 直接复算本包数据库的 1 总体 / 2 运行一致。中文浅色和英文深色常规/窄窗、中文最大化和有限键盘流程已检查；精确 960×640 高度尚未确认，整体验收仍为 partial。没有获得用户本人或专业确认，没有公开发布。
+最新精确候选：[7d8e92b 高级模型试算](./evidence/railwise-convergence-7d8e92b461b6/README.md)。签名/公证、真实私有 updater、本机同 ASAR 安装通过；无正式网络的三份合成/公开算例已实测广义 w、完整 Cvv、不可检测方向、VCE 两轮收敛和负分量停止。原生 JSON 取消/实际保存、完整退出重启原 ID、仅改声明空白后的拒绝、好坏历史分离及原字节恢复均通过，独立 Python 读取实际包数据库的三条记录复算一致。中文浅色常规/最大化和英文深色常规已查看；精确最小窗口及完整状态/a11y 未闭合，整体验收仍为 partial。用户本人/专业确认未完成；没有公开发布。后续统计家族、Huber 和参考基准增量不在此包内。
 
-后续源码已把[已知先验完整协方差的广义 w](RAILWISE_SURVEY_GENERALIZED_W.md)与[独立互斥分组 VCE 受限试算](./evidence/railwise-vce-trial/README.md)接入[项目范围的高级模型试算工作区](RAILWISE_SURVEY_ADVANCED_TRIALS_BACKEND.md)：保留 HTTP/声明原始 UTF-8、依据原文、项目修订与执行环境；独立 append-only SQLite 保存、认证 HTTP/IPC、严格重算、坏历史隔离、双语结果与原生 JSON 导出已实现。显式实验模型不从正式相对权推断已知绝对 C，不更改正式权或删除观测。不可检测、非正分量及未收敛保留为原结果。**这一增量尚不在 a3072e2 包中，新精确签名包和 GUI 验收待执行。**
+本轮新增源码已接入[统计家族与 Huber 工作区](./evidence/railwise-advanced-two-kernels/README.md)：显式固定外部尺度 Huber 保留逐步权、残差、目标与 score；预声明统计家族支持正态/t/卡方尾部与完整家族 Bonferroni，缺失成员保留分母。原始声明、不可变 SQLite、Runtime/IPC、双语结果、严格历史重算和原生导出桥全部接入，旧 w/VCE 记录兼容。独立 18 项服务/client/DOM 检查通过，发现的逆序统计项恢复故障已修复；自由度、先验尺度、临界区间完整 double 显示及 201 状态惰性展开另经复验。三份新包验收输入与独立 Python 已在真实开发 SQLite 通过，但不冒充包内 GUI。
+
+[指定参考集合两历元核](./evidence/railwise-reference-datum-20260920/survey-reference-datum-method.md)也已实现：完整一维坐标协方差、显式独立/跨期依赖、双射点号映射，以及用户选择的 GLS 或等权参考定义；传播完整位移协方差，不修补负方差或自动换方法。独立 108 模型/8,466 标量与 32 边界检查通过。此核尚未接工作区，不等于自动拟稳或真实稳定点认定。
+
+本轮整合验证：桌面 2,641 通过/2 跳过，Runtime 2,375 通过/3 跳过；双端类型、构建、strict OpenSpec 11/11 通过，lint 0 error/1 既有 warning。首轮桌面有两项旧技能安装 5 秒超时和临时目录清理错误，27 项单独复验及未改代码的全量重跑通过；失败保留在[检查记录](./evidence/railwise-statistical-huber-acceptance/integration-checks.json)。OpenSpec 当前细分为 53/68，仍不是总计划完成率。
+
+前一精确候选：[a3072e2 总体冻结与首轮抽样](./evidence/railwise-convergence-a3072e25ebc3/README.md)。签名/公证、真实私有 updater、同 ASAR 本机安装已核对；GUI 已验证 1,001 单位总体、过程全数与验收随机 80 项、同阶段拒绝重抽、分页、篡改拒绝、好坏历史分离、完整退出重启后的同 ID/同样本，以及三格式历史成果副标题。独立 Python 直接复算本包数据库的 1 总体 / 2 运行一致。中文浅色和英文深色常规/窄窗、中文最大化和有限键盘流程已检查；精确 960×640 高度尚未确认，整体验收仍为 partial。没有获得用户本人或专业确认，没有公开发布。
+
+后续源码已把[已知先验完整协方差的广义 w](RAILWISE_SURVEY_GENERALIZED_W.md)与[独立互斥分组 VCE 受限试算](./evidence/railwise-vce-trial/README.md)接入[项目范围的高级模型试算工作区](RAILWISE_SURVEY_ADVANCED_TRIALS_BACKEND.md)：保留 HTTP/声明原始 UTF-8、依据原文、项目修订与执行环境；独立 append-only SQLite 保存、认证 HTTP/IPC、严格重算、坏历史隔离、双语结果与原生 JSON 导出已实现。显式实验模型不从正式相对权推断已知绝对 C，不更改正式权或删除观测。不可检测、非正分量及未收敛保留为原结果。**这一增量已由顶部 7d8e92b 精确包完成限定 GUI 检查；剩余验收项按其报告保留，不以本轮通过替代用户确认。**
 
 [独立工作区审查](./evidence/railwise-advanced-workspace-review/README.md)25 项通过，覆盖重签摘要后的结果篡改、坏历史、跨项目、无 Buffer、64×64 残差协方差与 100 轮耗尽。审查发现的坏 SQL ID 遮蔽历史、重复 JSON 键、环境错误分类和 VCE 停止策略绑定均已修复。最大页重算计费修正为合法十项页面可在额度内完成，不把限流标成记录损坏。新增 17 个实际解析拒绝分支补齐英文提示，保留原始中文审计资料和点号等用户文本。
 
-最终整合树验证：桌面 **2,630 通过 / 2 跳过**，Runtime **1,991 通过 / 3 跳过**，双端类型检查、构建、strict OpenSpec **11/11** 通过；lint **0 error / 1 既有 warning**。详见[本轮整合检查](./evidence/railwise-advanced-workspace-acceptance/integration-checks.json)。已准备三份合成/公开算例与独立 Python Fraction 核算工具，开发 SQLite 三例通过；这不冒充真实安装包或生产验收。前一纯核提交 5a49e14 的两次 Quality 检查 [35473880524](https://github.com/wangjiawei508/WorkWise/actions/runs/35473880524)、[35473878397](https://github.com/wangjiawei508/WorkWise/actions/runs/35473878397)均成功，不覆盖本轮新源码。
+7d8e92b 历史整合树验证：桌面 **2,630 通过 / 2 跳过**，Runtime **1,991 通过 / 3 跳过**，双端类型检查、构建、strict OpenSpec **11/11** 通过；lint **0 error / 1 既有 warning**。详见[本轮整合检查](./evidence/railwise-advanced-workspace-acceptance/integration-checks.json)。已准备三份合成/公开算例与独立 Python Fraction 核算工具，开发 SQLite 三例通过；这不冒充真实安装包或生产验收。前一纯核提交 5a49e14 的两次 Quality 检查 [35473880524](https://github.com/wangjiawei508/WorkWise/actions/runs/35473880524)、[35473878397](https://github.com/wangjiawei508/WorkWise/actions/runs/35473878397)均成功，不覆盖本轮新源码。
 
-远端首轮 7d8e92b Quality 在最大 VCE HTTP 压力用例超时：共享 Linux 运行约 18 秒，超过该用例 15 秒预算；其余 1,990 项通过，Electron smoke 和 Windows 专项通过。现仅将这一最大规模正确性用例预算调整为 60 秒，保留原维度/55 轮真实计算和全部响应断言，本机 9 项 HTTP 回归通过。生产实现未改，新一轮远端验证待完成；7d8e92b 私有包继续按其精确源码留证。
+远端首轮 7d8e92b Quality 在最大 VCE HTTP 压力用例超时：共享 Linux 运行约 18 秒，超过该用例 15 秒预算；其余 1,990 项通过，Electron smoke 和 Windows 专项通过。d2803d5 仅将这一最大规模正确性用例预算调整为 60 秒，保留原维度/55 轮真实计算和全部响应断言，本机 9 项 HTTP 回归通过。修复后的两次远端 Quality [35475591625](https://github.com/wangjiawei508/WorkWise/actions/runs/35475591625)、[35475588831](https://github.com/wangjiawei508/WorkWise/actions/runs/35475588831)均成功。生产实现未改；7d8e92b 私有包继续按其精确源码留证，不将测试/文档修复提交冒认为包的源码。
 
 抽样工作区的总体冻结、服务认证、原字节保全、首轮规则、严格重放、HTTP/IPC、双语 GUI 和分页已实现。材料归集、评分、阶段完成及签认仍未实现，不能称为完整 GB/T 质检链。抽样首轮 DOM 检查因未等待异步哈希完成而失败，修正测试后通过；全量捕获的既有短随机 ID 碰撞已改为新建项使用 UUID，既有数据不迁移。可重建实际服务 fixture 与六项篡改负例脚本已归档，未用模拟复算代替实机数据库复算。
 
@@ -87,8 +95,8 @@ e1708d7 基线验证：Runtime 全量 1680 通过 / 3 跳过；桌面全量 2534
 - [ ] 运行重放：现已增加审查页只读成果复验（清单、输出、输入、严格 Survey 重算与来源），自动化覆盖篡改/跨项目/过期；1f2524b 精确包已完成正常/篡改/恢复 GUI 检查，最新 69e9728 仍待复验；监测重算未覆盖。
 - [ ] 数字签名与人工复核/审核/批准流程：未实现，不以哈希检查冒充签名。
 - [ ] 自由网与拟稳平差：一维自由水准网核已通过解析/Gama 对照，本轮增加服务、GUI 和独立历史证据；新包实机与专业确认、其他自由网策略及拟稳仍未完成。
-- [ ] 方差分量估计。
-- [ ] Baarda / t 检验与抗差估计。
+- [ ] 方差分量估计：独立互斥分组受限试算及工作区已实现，并在 7d8e92b 完成限定实测；正式模型连接、专业适用性及更一般协方差模型仍未完成。
+- [ ] Baarda / t 检验与抗差估计：广义 w、预声明统计家族和固定外部尺度 Huber 试算及工作区已实现；新增两项精确包、正式结果连接和专业解释仍未完成，不称完整自动异常判断。
 - [ ] 误差椭圆：算法、双语界面、三格式导出及独立特征分解已实现；精确包专业解释/界面验收未完成。
 - [ ] 增量平差：未实现。
 - [ ] 第二批格式逐项准入、授权/许可证据、金标准与真实项目验证；不能用扩展名识别代替验收。

@@ -2,7 +2,7 @@ import { z } from 'zod'
 import {
   SURVEY_ADVANCED_TRIAL_LIMITS as LIMITS, SurveyAdvancedTrialCreateV1, SurveyAdvancedTrialSummaryV1,
   SurveyAdvancedTrialRecordV1, SurveyAdvancedTrialListV1, SurveyAdvancedTrialVerificationV1,
-  SurveyGeneralizedWRequestV1, SurveyVceTrialInputV1, runtimeSurveyAdvancedTrialsPath, parseAdvancedTrialJson
+  SurveyGeneralizedWRequestV1, SurveyVceTrialInputV1, SurveyHuberTrialInputV1, SurveyStatisticalFamilyInputV1, runtimeSurveyAdvancedTrialsPath, parseAdvancedTrialJson
 } from '@shared/survey-advanced-trials'
 import { rendererRuntimeClient } from './runtime-client'
 
@@ -37,7 +37,7 @@ function decode<T>(schema: z.ZodType<T>, value: unknown): T {
 }
 function parseDeclaration(kind: AdvancedTrialKind, raw: string): unknown {
   const parsed: unknown = parseAdvancedTrialJson(raw)
-  return kind === 'generalized-w' ? SurveyGeneralizedWRequestV1.parse(parsed) : SurveyVceTrialInputV1.parse(parsed)
+  return ({ 'generalized-w': SurveyGeneralizedWRequestV1, vce: SurveyVceTrialInputV1, huber: SurveyHuberTrialInputV1, 'statistical-family': SurveyStatisticalFamilyInputV1 })[kind].parse(parsed)
 }
 export function validateAdvancedTrialInput(binding: AdvancedTrialBinding, input: AdvancedTrialInput): boolean {
   try {
@@ -78,9 +78,18 @@ export function advancedTrialSummary(record: AdvancedTrialRecord): AdvancedTrial
     modelBasisStatement: _modelBasis, projectSnapshot: _snapshot, replayEnvironment: _environment, ...summary } = record
   return SurveyAdvancedTrialSummaryV1.parse(summary)
 }
+// The frozen statistical-family-1 kernel sorts only the supplied statistic subset.
+// Preserve original declaration order/bytes and its model hash separately.
+function statisticalResultRequest(declaration: z.infer<typeof SurveyStatisticalFamilyInputV1>) {
+  return { ...declaration, statistics: [...declaration.statistics].sort((a, b) => a.memberId < b.memberId ? -1 : a.memberId > b.memberId ? 1 : 0) }
+}
 function checkResultBinding(record: AdvancedTrialRecord): void {
-  if (record.kind === 'generalized-w') {
+  if (record.kind === 'generalized-w' || record.kind === 'huber') {
     if (!equal(record.result.request, record.declaration)) invalid()
+    return
+  }
+  if (record.kind === 'statistical-family') {
+    if (record.result.outcome !== 'evaluated' || !equal(record.result.request, statisticalResultRequest(record.declaration))) invalid()
     return
   }
   const { declaration, result } = record
@@ -123,7 +132,8 @@ async function checkRecord(raw: unknown, binding: AdvancedTrialBinding, expected
   ])
   const recordedHashes = [record.requestSha256, record.declarationSha256, record.modelBasisSha256, record.modelHash, record.resultHash, record.replayEnvironmentHash, record.recordHash]
   if (!equal(recordedHashes, expectedHashes)) invalid()
-  if (record.kind === 'generalized-w' && record.result.requestHash !== await hash(JSON.stringify(record.declaration))) invalid()
+  if ((record.kind === 'generalized-w' || record.kind === 'huber') && record.result.requestHash !== await hash(JSON.stringify(record.declaration))) invalid()
+  if (record.kind === 'statistical-family' && (record.result.outcome !== 'evaluated' || record.result.requestSha256 !== await hash(JSON.stringify(statisticalResultRequest(record.declaration))))) invalid()
   checkResultBinding(record)
   return record
 }

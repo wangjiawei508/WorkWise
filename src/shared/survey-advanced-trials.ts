@@ -1,6 +1,8 @@
 // Data-only schemas. Runtime algorithms and node:crypto never enter the renderer.
 export { SurveyGeneralizedWRequestV1, SurveyGeneralizedWResultV1 } from '../../kun/src/contracts/survey-generalized-w.js'
 export { SurveyVceTrialInputV1, SurveyVceTrialOutputV1 } from '../../kun/src/contracts/survey-vce-trial.js'
+export { SurveyHuberTrialInputV1, SurveyHuberTrialOutputV1 } from '../../kun/src/contracts/survey-huber-trial.js'
+export { SurveyStatisticalFamilyInputV1, SurveyStatisticalFamilyOutputV1 } from '../../kun/src/contracts/survey-statistical-family.js'
 // This standalone lexer has no imports, Node APIs or numerical implementation.
 export { parseAdvancedTrialJson } from '../../kun/src/engineering/survey-advanced-trials-json.js'
 export {

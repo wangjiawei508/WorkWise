@@ -7,7 +7,7 @@ import {
   type AdvancedTrialBinding, type AdvancedTrialHistory, type AdvancedTrialInput, type AdvancedTrialKind,
   type AdvancedTrialRecord, type AdvancedTrialSummary
 } from '../../agent/survey-advanced-trials-client'
-import { advancedOutcomeKeys, GeneralizedWResult, VceTrialResult } from './SurveyAdvancedModelResult'
+import { advancedOutcomeKeys, GeneralizedWResult, VceTrialResult, HuberTrialResult, StatisticalFamilyResult } from './SurveyAdvancedModelResult'
 import { saveGeneratedWorkspaceFileAs } from '../../lib/generated-file-actions'
 
 const buttonClass = 'min-h-9 max-w-full rounded border border-ds-border px-3 py-2 text-left text-[12px] hover:bg-ds-hover focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent disabled:opacity-50'
@@ -22,7 +22,20 @@ type View = { record?: AdvancedTrialRecord; history?: AdvancedTrialHistory; expo
 type Operation = { kind: 'save' | 'read'; idempotencyKey?: string; run: (stillCurrent: () => boolean) => Promise<View> }
 type Props = { binding: AdvancedTrialBinding; runtimeReady: boolean }
 
+const methodKeys: Record<AdvancedTrialKind, string> = { 'generalized-w': 'advancedWMethod', vce: 'advancedVceMethod', huber: 'advancedHuberMethod', 'statistical-family': 'advancedStatisticalMethod' }
+const limitKeys: Record<AdvancedTrialKind, string> = { 'generalized-w': 'advancedWLimits', vce: 'advancedVceLimits', huber: 'advancedHuberLimits', 'statistical-family': 'advancedStatisticalLimits' }
 const examples: Record<AdvancedTrialKind, unknown> = {
+  huber: {
+    schemaVersion: 1, model: 'fixed-linear-full-column-rank', independenceDeclaration: 'caller-declared-independent-observations', residualConvention: 'observed-minus-fitted', observationUnit: 'm',
+    parameterIds: ['position'], parameterUnits: ['m'], initialParameters: [0], scale: { kind: 'fixed-external', value: 1, unit: 'm', basisStatement: 'Synthetic fixed external scale.' }, loss: { kind: 'huber', k: 1 },
+    observations: [0, 0, 0, 10].map((value, i) => ({ id: `o${i}`, value, coefficients: [1], relativeSigma: 1, sourceAnchor: 'synthetic-example' })),
+    stopping: { maxIterations: 200, standardizedPredictionStepTolerance: 1e-10, relativeObjectiveTolerance: 1e-10, normalizedScoreTolerance: 1e-10 }
+  },
+  'statistical-family': {
+    schemaVersion: 1, familyId: 'example-family', declaration: 'caller-declared-before-observing-statistics', statisticPrecision: 'caller-declared-exact-scalar-inputs-no-upstream-error-propagation', correction: 'bonferroni', alpha: .05,
+    members: ['a', 'b'].map(id => ({ id, sourceAnchor: 'synthetic-example', distribution: { kind: 'normal', tail: 'two-sided', statisticBasis: 'standardized-by-known-prior-scale', scaleBasis: 'caller-declared-known-prior-standard-deviation', priorStandardDeviation: 1, scaleUnit: 'm' } })),
+    statistics: [{ memberId: 'a', status: 'available', value: 3 }]
+  },
   'generalized-w': {
     schemaVersion: 1, model: 'fixed-linear-full-column-rank', purpose: 'declared-model-readonly-diagnostic', residualConvention: 'observed-minus-adjusted',
     observationUnit: 'm', observationIds: ['o1', 'o2', 'o3'], parameterIds: ['mean'], parameterUnits: ['m'],
@@ -120,9 +133,9 @@ function AdvancedTrialSession({ binding, runtimeReady }: Props): ReactElement {
     <p className="rounded border border-amber-300 bg-amber-50 p-3 leading-5 text-amber-950 dark:border-amber-600 dark:bg-amber-950 dark:text-amber-100">{t('advancedBoundary')}</p>
     <p className="break-all text-ds-muted">{t('advancedBinding', { id: binding.projectId, revision: binding.projectRevision })}</p>
     <div className="min-w-0 space-y-3 rounded border border-ds-border-muted bg-ds-card p-3">
-      <label className="block space-y-1"><span>{t('advancedMethod')}</span><select ref={kindControl} className={inputClass} value={kind} disabled={!formReady} onChange={event => resetDraft(event.target.value as AdvancedTrialKind | '')}><option value="">{t('advancedChooseMethod')}</option><option value="generalized-w">{t('advancedWMethod')}</option><option value="vce">{t('advancedVceMethod')}</option></select></label>
+      <label className="block space-y-1"><span>{t('advancedMethod')}</span><select ref={kindControl} className={inputClass} value={kind} disabled={!formReady} onChange={event => resetDraft(event.target.value as AdvancedTrialKind | '')}><option value="">{t('advancedChooseMethod')}</option>{(Object.entries(methodKeys) as Array<[AdvancedTrialKind, string]>).map(([value, key]) => <option key={value} value={value}>{t(key)}</option>)}</select></label>
       {kind ? <>
-        <p className="leading-5">{t(kind === 'generalized-w' ? 'advancedWLimits' : 'advancedVceLimits')}</p>
+        <p className="leading-5">{t(limitKeys[kind])}</p>
         <details><summary className="cursor-pointer py-2">{t('advancedExample')}</summary><p className="mb-2 leading-5 text-ds-muted">{t('advancedExampleWarning')}</p><pre className={preClass} tabIndex={0}>{JSON.stringify(examples[kind], null, 2)}</pre></details>
         <label className="block space-y-1"><span>{t('advancedBasis')}</span><textarea rows={4} className={inputClass} value={modelBasisStatement} disabled={!formReady} onChange={event => { setBasis(event.target.value); setAcknowledged(false); setView(null) }} /></label>
         <p className="leading-5 text-ds-muted">{t('advancedBasisHint', { limit: LIMITS.basisBytes / 1024 })}</p>
@@ -145,7 +158,7 @@ function AdvancedTrialSession({ binding, runtimeReady }: Props): ReactElement {
       <div className="flex flex-wrap gap-2"><button type="button" className={buttonClass} disabled={!ready} onClick={() => void execute({ kind: 'read', run: async stillCurrent => ({ record: await reverifyAdvancedTrial(binding, advancedTrialSummary(record), stillCurrent) }) })}>{t('advancedReverify')}</button><button type="button" className={buttonClass} disabled={!ready} onClick={() => exportRecord(record)}>{t('advancedExport')}</button></div>
       {view?.exportStatus ? <p role={view.exportStatus === 'failed' ? 'alert' : 'status'} className="break-all leading-5">{t(view.exportStatus === 'saved' ? 'advancedExportSaved' : view.exportStatus === 'cancelled' ? 'advancedExportCancelled' : 'advancedExportFailed', { path: view.exportPath })}</p> : null}
       <h5 className="font-medium">{t('advancedBasis')}</h5><p className="whitespace-pre-wrap break-words leading-5">{record.modelBasisStatement}</p>
-      {record.kind === 'generalized-w' ? <GeneralizedWResult result={record.result} /> : <>
+      {record.kind === 'generalized-w' ? <GeneralizedWResult result={record.result} /> : record.kind === 'huber' ? <HuberTrialResult result={record.result} /> : record.kind === 'statistical-family' ? <StatisticalFamilyResult result={record.result} /> : <>
         <div className="min-w-0 space-y-2" aria-label={t('advancedInitialGroups')}><h5 className="font-medium">{t('advancedInitialGroups')}</h5>{record.declaration.groups.map(group => <p key={group.id} className="break-all">{group.id} · {group.initialVariance} {record.declaration.unit}² · {group.sourceAnchor}</p>)}<p>{t('advancedStoppingPolicy', { iterations: record.declaration.maxIterations, tolerance: record.declaration.relativeTolerance })}</p></div>
         <VceTrialResult result={record.result} />
       </>}
@@ -157,7 +170,7 @@ function AdvancedTrialSession({ binding, runtimeReady }: Props): ReactElement {
       <h4 className="font-semibold">{t('advancedHistory')}</h4>
       {!page.trials.length && !page.unavailable.length ? <p>{t('advancedNoHistory')}</p> : null}
       {page.unavailable.map(item => <div role="status" key={item.id} className="break-all rounded border border-amber-300 p-3"><p>{t('advancedUnrestorable')} · {item.id}</p><p>{t(errorKeys[item.reason])}</p></div>)}
-      {page.trials.map(item => <button key={item.id} type="button" className={`${buttonClass} block w-full break-words`} disabled={!ready} onClick={() => restore(item)}><span className="block">{t('advancedRestore')} · {t(item.kind === 'generalized-w' ? 'advancedWMethod' : 'advancedVceMethod')} · {t(advancedOutcomeKeys[item.outcome])}</span><span className="mt-1 block break-all font-mono text-[11px]">{item.id} · {item.createdAt}</span></button>)}
+      {page.trials.map(item => <button key={item.id} type="button" className={`${buttonClass} block w-full break-words`} disabled={!ready} onClick={() => restore(item)}><span className="block">{t('advancedRestore')} · {t(methodKeys[item.kind])} · {t(advancedOutcomeKeys[item.outcome])}</span><span className="mt-1 block break-all font-mono text-[11px]">{item.id} · {item.createdAt}</span></button>)}
       <div className="flex flex-wrap gap-2"><button type="button" className={buttonClass} disabled={!ready || page.offset === 0} onClick={() => history(Math.max(0, page.offset - LIMITS.pageSize))}>{t('advancedPrevious')}</button><button type="button" className={buttonClass} disabled={!ready || page.nextOffset === null} onClick={() => { if (page.nextOffset !== null) history(page.nextOffset) }}>{t('advancedNext')}</button></div>
     </section> : null}
   </section>

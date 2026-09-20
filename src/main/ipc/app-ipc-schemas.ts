@@ -1,5 +1,5 @@
 import { SurveySamplingPopulationCreateV1, SurveySamplingRunCreateV1, SurveySamplingVerifyRequestV1, SURVEY_SAMPLING_WORKSPACE_LIMITS } from '../../shared/survey-quality-sampling-workspace'
-import { SurveyAdvancedTrialCreateV1, SurveyAdvancedTrialReverifyRequestV1, SURVEY_ADVANCED_TRIAL_LIMITS, SurveyGeneralizedWRequestV1, SurveyVceTrialInputV1, parseAdvancedTrialJson } from '../../shared/survey-advanced-trials'
+import { SurveyAdvancedTrialCreateV1, SurveyAdvancedTrialReverifyRequestV1, SURVEY_ADVANCED_TRIAL_LIMITS, SurveyGeneralizedWRequestV1, SurveyVceTrialInputV1, SurveyHuberTrialInputV1, SurveyStatisticalFamilyInputV1, parseAdvancedTrialJson } from '../../shared/survey-advanced-trials'
 import { z } from 'zod'
 import { SurveyFreeLevelingTrialRequestV1 } from '../../shared/survey-free-leveling'
 import { SurveyQualityPlanCreateV1, SurveyQualityEvidenceCreateV1, SurveyQualityRecordCreateV1, SurveyQualityCheckAppendV1 } from '../../shared/survey-quality-workspace'
@@ -369,7 +369,7 @@ export const runtimeRequestPayloadSchema = z
           if (advanced[1] === 'reverify') valid = SurveyAdvancedTrialReverifyRequestV1.safeParse(parseAdvancedTrialJson(payload.body)).success
           else if (url.pathname.endsWith('/advanced-trials')) {
             const body = SurveyAdvancedTrialCreateV1.safeParse(parseAdvancedTrialJson(payload.body))
-            valid = body.success && (body.data.kind === 'generalized-w' ? SurveyGeneralizedWRequestV1 : SurveyVceTrialInputV1).safeParse(parseAdvancedTrialJson(body.data.declarationJson)).success
+            valid = body.success && ({ 'generalized-w': SurveyGeneralizedWRequestV1, vce: SurveyVceTrialInputV1, huber: SurveyHuberTrialInputV1, 'statistical-family': SurveyStatisticalFamilyInputV1 })[body.data.kind].safeParse(parseAdvancedTrialJson(body.data.declarationJson)).success
           }
         } catch { valid = false }
       }

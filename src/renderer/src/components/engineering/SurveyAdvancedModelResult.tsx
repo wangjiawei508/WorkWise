@@ -1,11 +1,12 @@
-import type { ReactElement } from 'react'
+import { useState, type ReactElement } from 'react'
 import { useTranslation } from 'react-i18next'
-import type { SurveyGeneralizedWResultV1, SurveyVceTrialOutputV1 } from '@shared/survey-advanced-trials'
+import type { SurveyGeneralizedWResultV1, SurveyVceTrialOutputV1, SurveyHuberTrialOutputV1, SurveyStatisticalFamilyOutputV1 } from '@shared/survey-advanced-trials'
 
 const number = (value: number): string => Number(value.toPrecision(12)).toString()
 const cell = 'break-words border-b border-ds-border-muted px-2 py-2 text-left align-top'
 const scroll = 'max-h-96 max-w-full overflow-auto rounded border border-ds-border-muted focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent'
 export const advancedOutcomeKeys: Record<string, string> = {
+  stationary: 'advancedStationary', evaluated: 'advancedEvaluated', 'rank-or-conditioning': 'advancedFunctionalRank',
   resolved: 'advancedResolved', unavailable: 'advancedUnresolved', converged: 'advancedConverged',
   'invalid-input': 'advancedInvalidInput', 'functional-rank-or-conditioning': 'advancedFunctionalRank',
   'stochastic-rank-or-conditioning': 'advancedStochasticRank', 'numerical-boundary': 'advancedNumerical',
@@ -54,5 +55,50 @@ export function VceTrialResult({ result }: { result: SurveyVceTrialOutputV1 }): 
         <Values title={t('advancedResiduals', { unit: result.unit })} ids={result.observationIds} values={iteration.fit.residuals} />
       </div>
     </details>)}</div>
+  </section>
+}
+
+
+export function HuberTrialResult({ result }: { result: SurveyHuberTrialOutputV1 }): ReactElement {
+  const { t } = useTranslation('common'), request = result.request
+  const [selectedIteration, setSelectedIteration] = useState<number | null>(null)
+  const expandedIteration = selectedIteration ?? result.states.at(-1)?.iteration
+  const reasons: Record<string, string> = { 'initial-score': 'advancedHuberInitialScore', 'score-step-objective': 'advancedHuberScoreStep',
+    'invalid-input': 'advancedInvalidInput', 'input-design': 'advancedFunctionalRank', 'irls-design': 'advancedHuberIrlsRank',
+    'arithmetic-range': 'advancedNumerical', 'objective-increase': 'advancedHuberObjectiveIncrease', 'score-resolution': 'advancedHuberScoreResolution',
+    'stagnation-before-score': 'advancedHuberStagnation', 'max-iterations': 'advancedIterationLimit' }
+  return <section className="min-w-0 space-y-3" aria-label={t('advancedHuberResults')}>
+    <h4 className="font-semibold">{t('advancedHuberResults')}</h4><p role="status">{t(advancedOutcomeKeys[result.outcome])} · {t(reasons[result.reason])}</p>
+    <p className="leading-5 text-ds-muted">{t('advancedHuberNoDecision')}</p>
+    <p>{t(result.uniquenessAssessment === 'strict-inlier-full-rank-sufficient-condition' ? 'advancedHuberSufficientUniqueness' : 'advancedHuberNoUniqueness')}</p>
+    {request ? <><p>{t('advancedHuberScale', { scale: number(request.scale.value), unit: request.scale.unit, k: number(request.loss.k) })}</p><p className="whitespace-pre-wrap break-words">{request.scale.basisStatement}</p>
+      <p>{t('advancedHuberStopping', { iterations: request.stopping.maxIterations, score: request.stopping.normalizedScoreTolerance, step: request.stopping.standardizedPredictionStepTolerance, objective: request.stopping.relativeObjectiveTolerance })}</p>
+      {result.acceptedParameters ? <Values title={t('advancedParameters')} ids={request.parameterIds.map((id, i) => `${id} (${request.parameterUnits[i]})`)} values={result.acceptedParameters} /> : null}
+      <div className="space-y-2" aria-label={t('advancedIterationTrace')}>{result.states.map(state => <details key={state.iteration} className="min-w-0 rounded border border-ds-border-muted" open={state.iteration === expandedIteration} onToggle={event => {
+          if (event.currentTarget.open) setSelectedIteration(state.iteration)
+          else if (expandedIteration === state.iteration) setSelectedIteration(-1)
+        }}>
+        <summary className="cursor-pointer break-words px-3 py-2">{t('advancedHuberIteration', { index: state.iteration, objective: number(state.objective), score: number(state.normalizedScoreInfinity) })}</summary>
+        {state.iteration === expandedIteration ? <div className="min-w-0 space-y-3 px-3 pb-3"><p>{t('advancedHuberScoreBudget', { budget: number(state.scoreRoundoffEstimate), step: state.standardizedPredictionStep === null ? '—' : number(state.standardizedPredictionStep), change: state.relativeObjectiveChange === null ? '—' : number(state.relativeObjectiveChange) })}</p>
+          <div className={scroll} role="region" aria-label={t('advancedHuberObservations')} tabIndex={0}><table className="w-full text-[11px]"><thead><tr>{['advancedObservation', 'advancedHuberResidual', 'advancedHuberStandardized', 'advancedHuberMultiplier', 'advancedHuberWeight'].map(key => <th scope="col" className={cell} key={key}>{t(key)}{key === 'advancedHuberResidual' ? ` (${request.observationUnit})` : key === 'advancedHuberWeight' ? ` (${request.observationUnit}⁻²)` : ''}</th>)}</tr></thead><tbody>{request.observations.map((row, i) => <tr key={row.id}><th scope="row" className={cell}>{row.id}</th>{[state.residuals[i], state.standardizedResiduals[i], state.robustMultipliers[i], state.derivedIrlsWeights[i]].map((value, j) => <td key={j} className={`${cell} font-mono`}>{number(value!)}</td>)}</tr>)}</tbody></table></div>
+        </div> : null}
+      </details>)}</div></> : null}
+  </section>
+}
+
+export function StatisticalFamilyResult({ result }: { result: SurveyStatisticalFamilyOutputV1 }): ReactElement {
+  const { t } = useTranslation('common')
+  const statuses: Record<string, string> = { calculated: 'advancedCalculated', unavailable: 'advancedUnresolved', undetectable: 'advancedUndetectable', 'domain-failure': 'advancedStatisticalDomain', 'numerical-failure': 'advancedNumerical' }
+  const distributions: Record<string, string> = { normal: 'advancedDistributionNormal', 'student-t': 'advancedDistributionStudent', 'chi-square': 'advancedDistributionChiSquare' }
+  const failureKeys: Record<string, string> = { 'statistic-outside-supported-domain': 'advancedStatisticalDomain', 'probability-below-supported-range': 'advancedProbabilityBelowRange', 'iteration-limit': 'advancedIterationLimit', 'nonfinite-or-invalid-intermediate': 'advancedNumerical', 'critical-value-not-bracketed': 'advancedCriticalUnbracketed' }
+  const comparisons: Record<string, string> = { 'p-below-adjusted-alpha': 'advancedStatisticalBelow', 'p-above-adjusted-alpha': 'advancedStatisticalAbove', 'boundary-unresolved': 'advancedStatisticalBoundary' }
+  return <section className="min-w-0 space-y-3" aria-label={t('advancedStatisticalResults')}>
+    <h4 className="font-semibold">{t('advancedStatisticalResults')}</h4><p role="status">{t(advancedOutcomeKeys[result.outcome])}</p>
+    <p className="leading-5 text-ds-muted">{t('advancedStatisticalNoDecision')}</p>
+    {result.outcome === 'evaluated' ? <><p>{t('advancedStatisticalFamily', { id: result.request.familyId, count: result.denominator, alpha: number(result.request.alpha), memberAlpha: number(result.memberAlpha) })}</p>
+      <div className={scroll} role="region" aria-label={t('advancedStatisticalMembers')} tabIndex={0}><table className="w-full text-[11px]"><thead><tr>{['advancedStatisticalMember', 'advancedStatus', 'advancedDeclaredStatistic', 'advancedStatisticalP', 'advancedStatisticalAdjustedP', 'advancedStatisticalCritical', 'advancedStatisticalComparison'].map(key => <th scope="col" className={cell} key={key}>{t(key)}</th>)}</tr></thead><tbody>{result.results.map((member, i) => { const distribution = result.request.members[i]!.distribution; return <tr key={member.memberId}>
+        <th scope="row" className={cell}>{member.memberId}<span className="block font-normal">{t(distributions[distribution.kind])} · {result.request.members[i]!.sourceAnchor}</span>{'degreesOfFreedom' in distribution ? <span className="block font-normal">{t('advancedDistributionDf', { df: distribution.degreesOfFreedom })}</span> : null}{'priorStandardDeviation' in distribution ? <span className="block font-normal">{t('advancedDistributionPriorScale', { sigma: String(distribution.priorStandardDeviation), unit: distribution.scaleUnit })}</span> : null}</th><td className={cell}>{t(statuses[member.status])}{member.status !== 'calculated' ? <span className="block break-all">{'reason' in member ? member.reason === 'not-supplied' ? t('advancedStatisticalNotSupplied') : member.reason : t(failureKeys[member.code])}</span> : null}</td>
+        {member.status === 'calculated' ? <><td className={`${cell} font-mono`}>{number(member.statistic)}</td><td className={`${cell} font-mono`}>{number(member.pValue)}</td><td className={`${cell} font-mono`}>{number(member.adjustedPValue)}</td><td className={`${cell} font-mono`}>{String(member.criticalMagnitude)}<span className="block">[{member.numericalResolutionInterval.map(String).join(', ')}]</span></td><td className={cell}>{t(comparisons[member.comparison])}</td></> : <td colSpan={5} className={cell}>{t('advancedNotComputed')}</td>}
+      </tr> })}</tbody></table></div><p className="leading-5 text-ds-muted">{t('advancedStatisticalInterval')}</p></> : null}
   </section>
 }

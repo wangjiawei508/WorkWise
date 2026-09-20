@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { runtimeRequestPayloadSchema } from './app-ipc-schemas'
+import { advancedTrialTestRequest } from '../../../kun/src/engineering/survey-advanced-trials-test-helpers'
 
 const base = '/v1/engineering/projects/project-1/advanced-trials'
 const declaration = {
@@ -17,6 +18,14 @@ describe('advanced trial strict desktop IPC', () => {
       { path: `${base}?limit=10&offset=128` }, { path: `${base}/trial-1` }, { path: `${base}/trial-1/export` },
       { path: `${base}/trial-1/reverify`, method: 'POST', body: '{}' }
     ]) expect(runtimeRequestPayloadSchema.safeParse(payload).success).toBe(true)
+  })
+  it.each(['huber', 'statistical-family'] as const)('validates %s exact declarations and refuses cross-kind or inferred fields', kind => {
+    const request = advancedTrialTestRequest(kind)
+    const parse = (value: unknown) => runtimeRequestPayloadSchema.safeParse({ path: base, method: 'POST', body: JSON.stringify(value) }).success
+    expect(parse(request)).toBe(true)
+    expect(parse({ ...request, kind: kind === 'huber' ? 'statistical-family' : 'huber' })).toBe(false)
+    expect(parse({ ...request, declarationJson: JSON.stringify({ ...JSON.parse(request.declarationJson), approve: true }) })).toBe(false)
+    expect(parse({ ...request, acknowledged: false })).toBe(false)
   })
   it('rejects ambiguous or unbounded JSON and unknown model/approval fields before Runtime', () => {
     const bodies = [

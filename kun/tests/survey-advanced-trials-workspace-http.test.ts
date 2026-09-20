@@ -5,7 +5,7 @@ import Database from 'better-sqlite3'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { EngineeringService } from '../src/engineering/engineering-service.js'
 import { SurveyAdvancedTrialsWorkspaceService } from '../src/engineering/survey-advanced-trials-workspace.js'
-import { advancedTrialTestRequest } from '../src/engineering/survey-advanced-trials-test-helpers.js'
+import { advancedTrialTestRequest, maximumNewAdvancedTrialRequest } from '../src/engineering/survey-advanced-trials-test-helpers.js'
 import * as C from '../src/contracts/survey-advanced-trials-workspace.js'
 import { dispatchRequest } from '../src/server/http-server.js'
 import { buildHarness } from './http-server-test-harness.js'
@@ -29,7 +29,7 @@ async function fixture() {
 }
 
 describe('authenticated advanced trials HTTP', () => {
-  it.each(['generalized-w','vce'] as const)('creates, restores, reverifies and exports %s with explicit declarations', async kind => {
+  it.each(['generalized-w','vce','huber','statistical-family'] as const)('creates, restores, reverifies and exports %s with explicit declarations', async kind => {
     const f = await fixture(), input = advancedTrialTestRequest(kind)
     const raw = `\n  ${JSON.stringify(input)}\n`
     const response = await f.raw('', 'POST', raw)
@@ -133,10 +133,29 @@ describe('authenticated advanced trials HTTP', () => {
     expect(Buffer.byteLength(raw)).toBeLessThanOrEqual(C.SURVEY_ADVANCED_TRIAL_LIMITS.recordBytes)
     expect(record.observationCount).toBe(n); expect(record.parameterCount).toBe(p)
     if(record.kind==='generalized-w') expect(record.result.modelStatus).toBe('resolved')
-    else expect(record.result.iterations.length).toBeGreaterThan(1)
+    else if(record.kind==='vce') expect(record.result.iterations.length).toBeGreaterThan(1)
     console.info(`advanced-trial-size ${kind}: ${Buffer.byteLength(raw)} bytes; ${record.kind === 'vce' ? record.result.iterations.length : 0} iterations`)
   // CI runs the full suite concurrently on shared Linux CPUs. This is a
   // size/replay correctness probe, not a 15-second performance guarantee.
+  }, 60_000)
+  it.each(['huber', 'statistical-family'] as const)('exports a real maximum-size %s result within the response bound', async kind => {
+    const f = await fixture(), request = maximumNewAdvancedTrialRequest(kind)
+    const created = await f.send('', 'POST', request)
+    expect(created.status).toBe(201)
+    const summary = C.SurveyAdvancedTrialSummaryV1.parse(await created.json())
+    const exported = await f.send(`/${summary.id}/export`)
+    expect(exported.status).toBe(200)
+    const raw = await exported.text(), record = C.SurveyAdvancedTrialRecordV1.parse(JSON.parse(raw))
+    expect(Buffer.byteLength(raw)).toBeLessThanOrEqual(C.SURVEY_ADVANCED_TRIAL_LIMITS.recordBytes)
+    if (record.kind === 'huber') {
+      expect(record.result.states).toHaveLength(201); expect(record.result.acceptedParameters).toBeNull()
+      expect(record.observationCount).toBe(128); expect(record.parameterCount).toBe(16)
+    } else if (record.kind === 'statistical-family') {
+      expect(record.familyMemberCount).toBe(256); expect(record.observationCount).toBe(0); expect(record.parameterCount).toBe(0)
+      expect(record.result.outcome).toBe('evaluated')
+      if (record.result.outcome === 'evaluated') expect(record.result.results).toHaveLength(256)
+    }
+    console.info(`advanced-new-size ${kind}: ${Buffer.byteLength(raw)} bytes`)
   }, 60_000)
   it('returns 429 with a retry header when replay work is exhausted', async () => {
     const f = await fixture()

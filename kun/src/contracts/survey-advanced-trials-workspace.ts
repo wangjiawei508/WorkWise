@@ -1,6 +1,8 @@
 import { z } from 'zod'
 import { SurveyGeneralizedWRequestV1, SurveyGeneralizedWResultV1 } from './survey-generalized-w.js'
 import { SurveyVceTrialInputV1, SurveyVceTrialOutputV1 } from './survey-vce-trial.js'
+import { SurveyHuberTrialInputV1, SurveyHuberTrialOutputV1 } from './survey-huber-trial.js'
+import { SurveyStatisticalFamilyInputV1, SurveyStatisticalFamilyOutputV1 } from './survey-statistical-family.js'
 
 export const SURVEY_ADVANCED_TRIAL_LIMITS = Object.freeze({ requestBytes: 512 * 1024, declarationBytes: 256 * 1024,
   basisBytes: 16 * 1024, recordBytes: 4 * 1024 * 1024, trialsPerProject: 128, storedBytesPerProject: 64 * 1024 * 1024,
@@ -12,7 +14,7 @@ const hash = z.string().regex(/^[a-f0-9]{64}$/)
 const revision = z.number().int().positive().max(Number.MAX_SAFE_INTEGER)
 const time = z.iso.datetime({ offset: true })
 const text = (max: number) => z.string().min(1).max(max).refine(value => unicode(value) && new TextEncoder().encode(value).byteLength <= max)
-export const SurveyAdvancedTrialKindV1 = z.enum(['generalized-w', 'vce'])
+export const SurveyAdvancedTrialKindV1 = z.enum(['generalized-w', 'vce', 'huber', 'statistical-family'])
 export type SurveyAdvancedTrialKindV1 = z.infer<typeof SurveyAdvancedTrialKindV1>
 export const SurveyAdvancedTrialCreateV1 = z.object({
   kind: SurveyAdvancedTrialKindV1, acknowledged: z.literal(true), expectedProjectRevision: revision,
@@ -28,20 +30,29 @@ const boundaries = {
 const common = {
   schemaVersion: z.literal(1), id, projectId: id, projectRevision: revision, projectBindingHash: hash,
   kind: SurveyAdvancedTrialKindV1, acknowledged: z.literal(true), idempotencyKey: key,
-  algorithmVersion: z.enum(['fixed-linear-known-covariance-generalized-w-1', 'disjoint-linear-vce-trial-1']),
+  algorithmVersion: z.enum(['fixed-linear-known-covariance-generalized-w-1', 'disjoint-linear-vce-trial-1', 'fixed-scale-independent-huber-irls-1', 'declared-statistical-family-1']),
   createdAt: time, modelBasisSha256: hash, modelBasisSizeBytes: z.number().int().positive().max(SURVEY_ADVANCED_TRIAL_LIMITS.basisBytes), replayEnvironmentHash: hash, requestSha256: hash, declarationSha256: hash, modelHash: hash, resultHash: hash, recordHash: hash,
   requestSizeBytes: z.number().int().positive().max(SURVEY_ADVANCED_TRIAL_LIMITS.requestBytes),
   declarationSizeBytes: z.number().int().positive().max(SURVEY_ADVANCED_TRIAL_LIMITS.declarationBytes),
   modelNormalization: z.literal('schema-normalized'),
   outcome: z.enum(['resolved', 'unavailable', 'converged', 'invalid-input', 'functional-rank-or-conditioning',
-    'stochastic-rank-or-conditioning', 'numerical-boundary', 'nonpositive-component', 'iteration-limit']),
-  observationCount: z.number().int().min(1).max(128), parameterCount: z.number().int().min(1).max(32),
+    'stochastic-rank-or-conditioning', 'numerical-boundary', 'nonpositive-component', 'iteration-limit', 'stationary', 'rank-or-conditioning', 'evaluated']),
+  observationCount: z.number().int().min(0).max(128), parameterCount: z.number().int().min(0).max(32),
+  familyMemberCount: z.number().int().min(1).max(256).optional(),
   ...boundaries
 }
 export const SurveyAdvancedTrialSummaryV1 = z.object(common).strict().superRefine((v, ctx) => {
-  if (v.kind === 'generalized-w' ? v.algorithmVersion !== 'fixed-linear-known-covariance-generalized-w-1' || !['resolved', 'unavailable'].includes(v.outcome)
-    : v.algorithmVersion !== 'disjoint-linear-vce-trial-1' || ['resolved', 'unavailable', 'invalid-input'].includes(v.outcome)) {
-    ctx.addIssue({ code: 'custom', message: 'Trial kind, algorithm and outcome are inconsistent' })
+  const policies = {
+    'generalized-w': { algorithm: 'fixed-linear-known-covariance-generalized-w-1', outcomes: ['resolved', 'unavailable'] },
+    vce: { algorithm: 'disjoint-linear-vce-trial-1', outcomes: ['converged', 'functional-rank-or-conditioning', 'stochastic-rank-or-conditioning', 'numerical-boundary', 'nonpositive-component', 'iteration-limit'] },
+    huber: { algorithm: 'fixed-scale-independent-huber-irls-1', outcomes: ['stationary', 'rank-or-conditioning', 'numerical-boundary', 'iteration-limit'] },
+    'statistical-family': { algorithm: 'declared-statistical-family-1', outcomes: ['evaluated'] }
+  }
+  const policy = policies[v.kind]
+  if (v.algorithmVersion !== policy.algorithm || !policy.outcomes.includes(v.outcome)
+    || (v.kind === 'statistical-family' ? v.observationCount !== 0 || v.parameterCount !== 0 || v.familyMemberCount === undefined
+      : v.observationCount < 1 || v.parameterCount < 1 || v.familyMemberCount !== undefined)) {
+    ctx.addIssue({ code: 'custom', message: 'Trial kind, algorithm, dimensions and outcome are inconsistent' })
   }
 })
 export type SurveyAdvancedTrialSummaryV1 = z.infer<typeof SurveyAdvancedTrialSummaryV1>
@@ -55,13 +66,16 @@ const detail = {
 }
 export const SurveyAdvancedTrialRecordV1 = z.discriminatedUnion('kind', [
   z.object({ ...detail, kind: z.literal('generalized-w'), declaration: SurveyGeneralizedWRequestV1, result: SurveyGeneralizedWResultV1 }).strict(),
-  z.object({ ...detail, kind: z.literal('vce'), declaration: SurveyVceTrialInputV1, result: SurveyVceTrialOutputV1 }).strict()
+  z.object({ ...detail, kind: z.literal('vce'), declaration: SurveyVceTrialInputV1, result: SurveyVceTrialOutputV1 }).strict(),
+  z.object({ ...detail, kind: z.literal('huber'), declaration: SurveyHuberTrialInputV1, result: SurveyHuberTrialOutputV1 }).strict(),
+  z.object({ ...detail, kind: z.literal('statistical-family'), declaration: SurveyStatisticalFamilyInputV1, result: SurveyStatisticalFamilyOutputV1 }).strict()
 ]).superRefine((v, ctx) => {
-  const { requestJson, declarationJson, projectSnapshot, declaration, result, modelBasisStatement, replayEnvironment: _environment, ...summary } = v
+  const { requestJson, declarationJson, projectSnapshot, declaration: _declaration, result: _result, modelBasisStatement, replayEnvironment: _environment, ...summary } = v
   if (!SurveyAdvancedTrialSummaryV1.safeParse(summary).success || projectSnapshot.id !== v.projectId || projectSnapshot.revision !== v.projectRevision
     || new TextEncoder().encode(modelBasisStatement).byteLength !== v.modelBasisSizeBytes
     || new TextEncoder().encode(requestJson).byteLength !== v.requestSizeBytes || new TextEncoder().encode(declarationJson).byteLength !== v.declarationSizeBytes
-    || v.parameterCount !== declaration.parameterIds.length || v.observationCount !== declaration.observations.length
+    || (v.kind === 'statistical-family' ? v.familyMemberCount !== v.declaration.members.length
+      : v.parameterCount !== v.declaration.parameterIds.length || v.observationCount !== v.declaration.observations.length)
     || v.outcome !== (v.kind === 'generalized-w' ? v.result.modelStatus : v.result.outcome)
     || v.algorithmVersion !== (v.kind === 'generalized-w' ? v.result.diagnosticsVersion : v.result.algorithmVersion)) {
     ctx.addIssue({ code: 'custom', message: 'Trial record identity, dimensions, result or raw byte sizes are inconsistent' })
