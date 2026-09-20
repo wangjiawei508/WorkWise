@@ -170,7 +170,8 @@ export async function createKunServeRuntime(
     threadStore,
     sessionStore,
     nowIso,
-    spans: spanService
+    spans: spanService,
+    completionGuard: input => engineeringAi.assessCompletion(input)
   })
   const recoveredTasks = taskController.reconcileStartup()
   taskRepository.reconcileShellSessionsStartup(nowIso())
@@ -746,7 +747,7 @@ export async function createKunServeRuntime(
   }
   if (recoveredTasks.length > 0) {
     setImmediate(() => {
-      void resumeRecoveredTasks({ recoveredTasks, taskRepository, turnService, loop })
+      void resumeRecoveredTasks({ recoveredTasks, taskRepository, turnService, loop, engineeringAi, threadStore })
     })
   }
   if (delegationRuntime) {
@@ -778,6 +779,8 @@ async function resumeRecoveredTasks(input: {
   taskRepository: TaskRunRepository
   turnService: TurnService
   loop: AgentLoop
+  engineeringAi: EngineeringAiOrchestrator
+  threadStore: ThreadStore
 }): Promise<void> {
   for (const recovered of input.recoveredTasks) {
     if (recovered.parentTaskId) continue
@@ -790,8 +793,15 @@ async function resumeRecoveredTasks(input: {
         })
       }
       const checkpoint = input.taskRepository.latestCheckpoint(recovered.id)
+      const legacyPlan = !recovered.engineeringPlanId ? input.engineeringAi.planForTask(recovered.threadId, recovered.id) : null
+      if (legacyPlan) {
+        const thread = await input.threadStore.get(recovered.threadId)
+        if (thread?.domain !== 'engineering' || legacyPlan.projectId !== thread.projectId || legacyPlan.status !== 'started') throw new Error('engineering_plan_binding_missing')
+      }
       const started = await input.turnService.startTurn({
         threadId: recovered.threadId,
+        continuationTaskId: recovered.id,
+        engineeringPlanId: recovered.engineeringPlanId ?? legacyPlan?.id,
         request: {
           prompt: [
             'Continue the persisted task automatically after an application restart.',

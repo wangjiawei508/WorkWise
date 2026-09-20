@@ -73,7 +73,7 @@ describe('configured provider identity over real HTTP', () => {
       expect(caught).toBeInstanceOf(Error)
       expect(String(caught)).not.toContain('synthetic-private-key')
     }
-    expect(StartTurnRequest.parse({ prompt: '2+3', providerId: 'a', baseUrl: 'https://untrusted.example', apiKey: 'untrusted', continuationTaskId: 'another-task' })).toEqual({ prompt: '2+3', providerId: 'a', attachmentIds: [], workspaceReferences: [] })
+    expect(StartTurnRequest.parse({ prompt: '2+3', providerId: 'a', baseUrl: 'https://untrusted.example', apiKey: 'untrusted', continuationTaskId: 'another-task', engineeringExecution: true, engineeringPlanId: 'another-plan' })).toEqual({ prompt: '2+3', providerId: 'a', attachmentIds: [], workspaceReferences: [] })
   })
   it('prices the selected model rather than the first model of its provider', async () => {
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({ choices: [{ index: 0, message: { role: 'assistant', content: '5' }, finish_reason: 'stop' }], usage: { prompt_tokens: 1000, completion_tokens: 100, total_tokens: 1100 } }), { headers: { 'content-type': 'application/json' } }))

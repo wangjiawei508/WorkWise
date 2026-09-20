@@ -18,6 +18,8 @@ export function createTurnRecord(input: {
   prompt: string
   model?: string
   providerId?: string
+  engineeringExecution?: boolean
+  engineeringPlanId?: string
   reasoningEffort?: TurnReasoningEffort
   attachmentIds?: string[]
   workspaceReferences?: WorkspaceReference[]
@@ -46,6 +48,8 @@ export function createTurnRecord(input: {
     injectedMemoryIds: [],
     ...(model ? { model } : {}),
     ...(input.providerId ? { providerId: input.providerId } : {}),
+    ...(input.engineeringExecution ? { engineeringExecution: true } : {}),
+    ...(input.engineeringPlanId ? { engineeringPlanId: input.engineeringPlanId } : {}),
     ...(reasoningEffort ? { reasoningEffort } : {}),
     ...(input.guiPlan ? { guiPlan: input.guiPlan } : {}),
     ...(input.guiDesign ? { guiDesign: input.guiDesign } : {}),

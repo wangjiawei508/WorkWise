@@ -42,11 +42,14 @@ function runtimeErrorCode(payload: RuntimeErrorPayload | null, raw: string): str
   const message = stripIpcPrefix(payloadMessage(payload) || raw)
   // Older runtimes flattened this known failure into a generic conflict.
   if ((!fromCode || fromCode === 'conflict') && message === 'engineering context changed after approval; refresh context and replan') return 'engineering_plan_stale'
+  if ((!fromCode || fromCode === 'conflict') && /^engineering_plan_typed_resume_required(?::|$)/.test(message)) return 'engineering_plan_typed_resume_required'
   if (fromCode) return fromCode.toLowerCase()
   if (payload?.error && typeof payload.error === 'object' && typeof payload.error.code === 'string') return payload.error.code.trim().toLowerCase()
   const fromError = typeof payload?.error === 'string' ? payload.error.trim() : ''
   if (fromError) return fromError.toLowerCase()
   const lowered = stripIpcPrefix(payloadMessage(payload) || raw).toLowerCase()
+  if (/^engineering_plan_steps_incomplete(?::|$)/.test(lowered)) return 'engineering_plan_steps_incomplete'
+  if (/^engineering_plan_binding_missing(?::|$)/.test(lowered)) return 'engineering_plan_binding_missing'
   if (lowered.includes('model_provider_unavailable')) return 'model_provider_unavailable'
   if (lowered.includes('fetch failed')) return 'fetch_failed'
   if (lowered.includes('runtime unhealthy')) return 'runtime_unhealthy'
@@ -85,6 +88,9 @@ function detailString(value: unknown): string {
 function localizedRuntimeSummary(code: string | null, text: string): string | null {
   const lowered = text.toLowerCase()
   if (code === 'engineering_plan_stale') return i18n.t('common:runtimeEngineeringPlanStale')
+  if (code === 'engineering_plan_steps_incomplete') return i18n.t('common:runtimeEngineeringPlanStepsIncomplete')
+  if (code === 'engineering_plan_binding_missing') return i18n.t('common:runtimeEngineeringPlanBindingMissing')
+  if (code === 'engineering_plan_typed_resume_required') return i18n.t('common:runtimeEngineeringPlanTypedResumeRequired')
   if (code === 'model_provider_unavailable' || lowered.includes('model_provider_unavailable')) {
     return i18n.t('common:runtimeModelProviderUnavailable')
   }

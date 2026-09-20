@@ -62,7 +62,7 @@ describe('Reviewed Survey plan execution', () => {
   it('propagates provider/model/effort on typed start and inherits saved selection on resume', async () => {
     const selection = { model: 'shared-model', providerId: 'provider-b', reasoningEffort: 'off' as const }
     const task = { id: 'task', threadId: 'thread', revision: 1, ...selection }
-    const tasks = { activeTask: vi.fn(() => task), prepareResume: vi.fn(() => task) }
+    const tasks = { activeTask: vi.fn(() => task), getTask: vi.fn(() => task), prepareResume: vi.fn(() => task) }
     orchestrator = new EngineeringAiOrchestrator({ context: new EngineeringContextService(engineering, undefined, survey), repository,
       threadStore: { get: async () => ({ domain: 'engineering', projectId, workspace: root, turns: [] }) } as never,
       turns: turns as never, tasks: tasks as never, runTurn: vi.fn() })
@@ -74,6 +74,9 @@ describe('Reviewed Survey plan execution', () => {
     const calls = turns.startTurn.mock.calls.length
     expect(await orchestrator.resumePlan(plan.id, { expectedRevision: plan.revision, contextHash: plan.contextHash, idempotencyKey: 'provider-resume' })).toEqual(resumed)
     expect(turns.startTurn).toHaveBeenCalledTimes(calls)
+    tasks.activeTask.mockReturnValue({ ...task, id: 'unrelated-task' })
+    await expect(orchestrator.resumePlan(plan.id, { expectedRevision: resumed.plan.revision, contextHash: resumed.plan.contextHash, idempotencyKey: 'wrong-task-resume' })).rejects.toMatchObject({ code: 'engineering_task_missing' })
+    expect(tasks.prepareResume).toHaveBeenCalledTimes(1)
   })
 
   it('runs the actual deterministic tool chain with approved literals and persisted predecessor handles', async () => {
@@ -96,6 +99,7 @@ describe('Reviewed Survey plan execution', () => {
     expect(repository.stepEvidence(plan.id, 'review-survey-quality')!.parameters.adjustmentId).toBe(adjusted.handles['run.id'])
     expect(adjusted.parameters.expectedRevision).toBe(repository.stepEvidence(plan.id, 'inspect-survey-network')!.handles['network.revision'])
     expect(survey.listAdjustments(projectId)).toHaveLength(1)
+    expect(orchestrator.getPlan(plan.id)?.execution).toEqual({ complete: true, completedStepIds: plan.steps.map(step => step.id), pendingStepIds: [] })
     const adjustmentStep = plan.steps[1]!
     await host.execute({ callId: 'repeat', toolName: adjustmentStep.tool, arguments: resolvedStepParameters(adjustmentStep, id => repository.stepEvidence(plan.id, id)?.handles ?? null) }, context)
     expect(survey.listAdjustments(projectId)).toHaveLength(1)
@@ -113,6 +117,24 @@ describe('Reviewed Survey plan execution', () => {
     await expect(orchestrator.authorizeToolCall('thread', 'other-turn', 'survey_network_validate', { networkId, expectedRevision: 1 })).rejects.toThrow(/no executable/)
     expect(survey.getNetwork(networkId)?.revision).toBe(1)
     expect(survey.listAdjustments(projectId)).toHaveLength(0)
+  })
+
+  it('does not accept a receipt with parameters different from the reviewed step', async () => {
+    const plan = await startedPlan()
+    const step = plan.steps[0]!
+    repository.recordStepEvidence(plan.id, step.id, { ...step.parameters, expectedRevision: 999, idempotencyKey: `engineering-plan:${plan.id}:${step.id}` }, { 'network.id': networkId, 'network.revision': 2 })
+    expect(orchestrator.getPlan(plan.id)?.execution).toEqual({ complete: false, completedStepIds: [], pendingStepIds: plan.steps.map(item => item.id) })
+  })
+
+  it('accepts a successful read-only receipt with an empty handles object', async () => {
+    const draft = await orchestrator.createPlan({ threadId: 'thread', projectId, goal: 'Prepare a citation placeholder', idempotencyKey: 'empty-handle-plan', steps: [{ id: 'cite', title: 'Citation', tool: 'standard_query', risk: 'read', dependsOn: [], inputHash: 'draft', approval: 'pending', parameters: { source: 'Synthetic source citation' } }] })
+    const approved = orchestrator.approvePlan(draft.plan.id, { expectedRevision: draft.plan.revision, contextHash: draft.plan.contextHash, stepIds: draft.approval.stepIds, token: draft.approval.token, idempotencyKey: 'empty-handle-approval' })
+    const { plan } = await orchestrator.startPlan(approved.id, { expectedRevision: approved.revision, contextHash: approved.contextHash, idempotencyKey: 'empty-handle-start' })
+    const host = new LocalToolHost({ tools: buildRailwiseToolProviders(engineering, survey, () => orchestrator).flatMap(provider => provider.tools) })
+    const result = await host.execute({ callId: 'citation', toolName: 'standard_query', arguments: { source: 'Synthetic source citation' } }, { threadId: 'thread', turnId: 'turn', workspace: root, approvalPolicy: 'auto', awaitApproval: async () => 'deny', abortSignal: new AbortController().signal })
+    expect(result.item).not.toMatchObject({ isError: true })
+    expect(repository.stepEvidence(plan.id, 'cite')?.handles).toEqual({})
+    expect(orchestrator.getPlan(plan.id)?.execution).toEqual({ complete: true, completedStepIds: ['cite'], pendingStepIds: [] })
   })
 
   it('chooses the default adjustment tool from the selected network instead of goal keywords', async () => {

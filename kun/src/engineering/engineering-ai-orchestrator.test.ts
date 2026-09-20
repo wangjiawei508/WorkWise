@@ -262,7 +262,7 @@ describe('Engineering AI orchestration', () => {
     const restored = await reopened.latestPlan({ threadId: 'restart-thread', projectId: project.id })
     const replay = await reopened.createPlan({ threadId: 'restart-thread', projectId: project.id, goal: '生成只读复核计划', idempotencyKey: 'restart-plan-001' })
 
-    expect(restored?.plan).toEqual(created.plan)
+    expect(restored?.plan).toEqual({ ...created.plan, execution: { complete: false, completedStepIds: [], pendingStepIds: created.plan.steps.map(step => step.id) } })
     expect(restored?.approval?.token).toBe(created.approval.token)
     expect(replay).toEqual(created)
     reopenedRepository.close()

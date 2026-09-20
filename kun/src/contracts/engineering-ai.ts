@@ -155,6 +155,15 @@ export const EngineeringRunPlanV1 = z.object({
 }).strict()
 export type EngineeringRunPlanV1 = z.infer<typeof EngineeringRunPlanV1>
 
+/** Read-only projection from Runtime-owned successful step receipts. */
+export const EngineeringPlanExecutionEvidenceV1 = z.object({
+  complete: z.boolean(),
+  completedStepIds: z.array(z.string().min(1)).max(32),
+  pendingStepIds: z.array(z.string().min(1)).max(32)
+}).strict()
+export type EngineeringPlanExecutionEvidenceV1 = z.infer<typeof EngineeringPlanExecutionEvidenceV1>
+export type EngineeringRunPlanViewV1 = EngineeringRunPlanV1 & { execution: EngineeringPlanExecutionEvidenceV1 }
+
 export const EngineeringApprovalV1 = z.object({
   schemaVersion: z.literal(EngineeringAiSchemaVersion),
   planId: z.string().min(1),

@@ -85,7 +85,31 @@ afterEach(async () => {
 })
 
 describe('Engineering AI session recovery states', () => {
-  it.each(['completed', 'failed', 'cancelled'])('refreshes authoritative project data once when execution becomes %s', async status => {
+  it.each(['en', 'zh'])('shows only verified step receipts as complete and keeps historical false completion visible in %s', async language => {
+    await i18n.changeLanguage(language)
+    const steps = ['validate', 'adjust', 'read', 'report'].map(id => ({ ...refreshedPlan.steps[0], id, title: id }))
+    let plan: typeof refreshedPlan & { taskId: string; execution?: { complete: boolean; completedStepIds: string[]; pendingStepIds: string[] } } = { ...refreshedPlan, status: 'completed', taskId: 'historical-task', steps }
+    Object.assign(window.workwise, { getTaskRun: vi.fn(async () => ({ id: 'historical-task', status: 'completed' })) })
+    runtimeRequest.mockImplementation(async path => response(200, path.startsWith('/v1/engineering/ai/plans?') ? { plan } : { cards: [] }))
+    await render(); await settle()
+    const states = () => [...container.querySelectorAll('[data-step-state]')].map(node => node.getAttribute('data-step-state'))
+    expect(states()).toEqual(['blocked', 'blocked', 'blocked', 'blocked'])
+    expect(container.textContent).toContain(i18n.t('engineeringStatusNeedsAttention'))
+    expect(container.querySelector('[data-testid="engineering-plan-incomplete-evidence"]')?.textContent).toContain(i18n.t('engineeringPlanExecutionIncomplete', { completed: 0, total: 4 }))
+    plan = { ...plan, status: 'needs_attention', execution: { complete: false, completedStepIds: ['validate'], pendingStepIds: ['adjust', 'read', 'report'] } }
+    await act(async () => useChatStore.setState({ lastSeq: 1 })); await settle()
+    expect(states()).toEqual(['done', 'blocked', 'blocked', 'blocked'])
+    expect(container.textContent).toContain(i18n.t('engineeringStatusNeedsAttention'))
+    expect(container.textContent).toContain(i18n.t('engineeringPlanStepReceiptConfirmed'))
+    plan = { ...plan, status: 'completed', execution: { complete: true, completedStepIds: steps.map(step => step.id), pendingStepIds: [] } }
+    await act(async () => useChatStore.setState({ lastSeq: 2 })); await settle()
+    expect(states()).toEqual(['done', 'done', 'done', 'done'])
+    expect(container.textContent).toContain(i18n.t('engineeringStatusCompleted'))
+    expect(container.querySelector('[data-testid="engineering-plan-incomplete-evidence"]')).toBeNull()
+    expect(runtimeRequest.mock.calls.every(([, method]) => !method || method === 'GET')).toBe(true)
+  })
+
+  it.each(['completed', 'failed', 'cancelled', 'stalled', 'waiting_user', 'waiting_approval'])('refreshes authoritative project data once when execution becomes %s', async status => {
     const plan = { ...refreshedPlan, status: 'started', taskId: 'task-1', executionTurnId: 'execution-1' }
     const getTaskRun = vi.fn().mockResolvedValueOnce({ id: 'task-1', status: 'running' }).mockResolvedValue({ id: 'task-1', status })
     Object.assign(window.workwise, { getTaskRun })
@@ -100,6 +124,31 @@ describe('Engineering AI session recovery states', () => {
     await settle()
     await act(async () => useChatStore.setState({ lastSeq: 2 }))
     await settle()
+    expect(onRefresh).toHaveBeenCalledOnce()
+    expect(runtimeRequest.mock.calls.every(([, method]) => !method || method === 'GET')).toBe(true)
+  })
+
+  it('refreshes verified partial results when the execution stalls without replaying any tool', async () => {
+    const steps = ['validate', 'adjust', 'report'].map(id => ({ ...refreshedPlan.steps[0], id, title: id }))
+    let reads = 0
+    const getTaskRun = vi.fn().mockResolvedValueOnce({ id: 'partial-task', status: 'running' }).mockResolvedValue({ id: 'partial-task', status: 'stalled', stalledReason: 'engineering_plan_steps_incomplete: adjust, report' })
+    Object.assign(window.workwise, { getTaskRun })
+    runtimeRequest.mockImplementation(async path => {
+      if (!path.startsWith('/v1/engineering/ai/plans?')) return response(200, { cards: [] })
+      reads += 1
+      return response(200, { plan: { ...refreshedPlan, steps, status: 'started', taskId: 'partial-task', executionTurnId: 'partial-turn',
+        execution: { complete: false, completedStepIds: reads > 1 ? ['validate'] : [], pendingStepIds: reads > 1 ? ['adjust', 'report'] : steps.map(step => step.id) } } })
+    })
+    await render(); await settle()
+    expect(onRefresh).not.toHaveBeenCalled()
+    await act(async () => useChatStore.setState({ busy: true })); await settle()
+    expect(onRefresh).toHaveBeenCalledOnce()
+    await act(async () => useChatStore.setState({ busy: false })); await settle()
+    expect([...container.querySelectorAll('[data-step-state]')].map(node => node.getAttribute('data-step-state'))).toEqual(['done', 'blocked', 'blocked'])
+    expect(container.textContent).toContain(i18n.t('engineeringStatusStalled'))
+    expect(container.textContent).toContain(i18n.t('runtimeEngineeringPlanStepsIncomplete'))
+    expect(container.textContent).not.toContain('engineering_plan_steps_incomplete:')
+    expect(reads).toBeGreaterThan(1)
     expect(onRefresh).toHaveBeenCalledOnce()
     expect(runtimeRequest.mock.calls.every(([, method]) => !method || method === 'GET')).toBe(true)
   })

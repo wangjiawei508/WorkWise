@@ -113,6 +113,7 @@ export class TurnService {
     threadId: string
     request: StartTurnRequest
     engineeringExecution?: boolean
+    engineeringPlanId?: string
     continuationTaskId?: string
   }): Promise<StartTurnResponse> {
     const previous = this.startQueues.get(input.threadId) ?? Promise.resolve()
@@ -425,6 +426,7 @@ export class TurnService {
     threadId: string
     request: StartTurnRequest
     engineeringExecution?: boolean
+    engineeringPlanId?: string
     continuationTaskId?: string
   }): Promise<StartTurnResponse> {
     const thread = await this.deps.threadStore.get(input.threadId)
@@ -457,6 +459,8 @@ export class TurnService {
       })
     }
     const selection = this.deps.tasks?.continuationSelection(thread, input.request, input.engineeringExecution, input.continuationTaskId)
+    const engineeringPlanId = input.engineeringPlanId ?? selection?.engineeringPlanId
+    input = { ...input, engineeringPlanId, engineeringExecution: input.engineeringExecution || Boolean(engineeringPlanId) }
     input = { ...input, request: { ...input.request,
       model: input.request.model ?? selection?.model,
       providerId: input.request.providerId ?? selection?.providerId,
@@ -481,6 +485,8 @@ export class TurnService {
       id: turnId,
       threadId: input.threadId,
       prompt: input.request.prompt,
+      engineeringExecution: input.engineeringExecution,
+      engineeringPlanId: input.engineeringPlanId,
       model: input.request.model,
       providerId: input.request.providerId,
       reasoningEffort: input.request.reasoningEffort,
@@ -535,7 +541,7 @@ export class TurnService {
       turnId
       })
       this.deps.steering.setTurn(turnId)
-      this.deps.tasks?.ensureTask({ thread, turnId, request: input.request, engineeringExecution: input.engineeringExecution, continuationTaskId: input.continuationTaskId })
+      this.deps.tasks?.ensureTask({ thread, turnId, request: input.request, engineeringExecution: input.engineeringExecution, engineeringPlanId: input.engineeringPlanId, continuationTaskId: input.continuationTaskId })
       return { threadId: input.threadId, turnId, userMessageItemId: userItem.id }
     } catch (error) {
       if (persisted && turnId) {

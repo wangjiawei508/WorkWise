@@ -516,3 +516,25 @@ Deliverable verification MUST independently commit a start event before entering
 - **WHEN** old terminal records have no corresponding durable start
 - **THEN** they remain readable and are counted separately without fabricated lifecycle events
 - **AND** missing lifecycle tables, empty start cohorts and corrupt lifecycle bindings respectively produce not-measurable, no-samples with null rates, and an unavailable lifecycle statistic
+
+### Requirement: Receipt-bound typed plan completion
+Task completion for an approved engineering plan MUST require successful persisted receipts for every approved step, with parameters and dependency bindings matching that plan. A model-authored completion statement MUST NOT substitute for missing execution evidence. The internal execution marker and plan identity MUST survive task continuation without being accepted as arbitrary public request fields.
+
+#### Scenario: A model declares success without completing the approved steps
+- **WHEN** the model returns final text with zero or only some successful step receipts
+- **THEN** the existing bounded retry or stalled path handles the incomplete task
+- **AND** neither the task nor the interface claims all approved work completed
+
+#### Scenario: An execution loses its plan binding
+- **WHEN** an internally marked engineering execution has no matching approved plan for its thread, task and turn
+- **THEN** completion is refused instead of treating the turn as ordinary consultation
+
+#### Scenario: A historical task was completed without receipts
+- **WHEN** a read projects a historical completed task whose approved steps lack valid receipts
+- **THEN** its displayed execution needs attention and only steps with valid receipts appear completed
+- **AND** reading neither rewrites history nor executes missing operations
+
+#### Scenario: An incomplete execution is resumed
+- **WHEN** the user resumes the bound task from its checkpoint
+- **THEN** the continuation preserves its plan identity and reports successful and pending steps
+- **AND** existing successful writes retain their original idempotency identities

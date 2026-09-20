@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type ReactElement } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useShallow } from 'zustand/react/shallow'
-import { AlertTriangle, Bot, ChevronDown, ClipboardList, Compass, FileCheck2, Loader2, LocateFixed, MessageSquareText, Play, Plus, RefreshCw, Upload } from 'lucide-react'
+import { AlertTriangle, Bot, CheckCircle2, ChevronDown, Circle, ClipboardList, Compass, FileCheck2, Loader2, LocateFixed, MessageSquareText, Play, Plus, RefreshCw, Upload } from 'lucide-react'
 import type { TaskRunStatus, TaskRunV1 } from '@shared/agent-workbench'
 import appI18n from '../../i18n'
 import { formatRuntimeError } from '../../lib/format-runtime-error'
@@ -24,6 +24,7 @@ type AiPlan = {
   id: string; projectId: string; contextHash: string; revision: number; goal: string; status: string; taskId?: string; executionTurnId?: string
   steps: Array<{ id: string; title: string; tool: string; risk: string; approval: string; parameters?: Record<string, unknown>; parameterBindings?: Array<{ parameter: string; stepId: string; output: string; asArray?: boolean }>; expectedOutputs?: string[]; reversibility?: string }>
   approval?: { token: string; stepIds: string[]; expiresAt: string }
+  execution?: { complete: boolean; completedStepIds: string[]; pendingStepIds: string[] }
 }
 type Props = {
   workspaceRoot: string; runtimeReady: boolean; project: Project | null; dataset: Dataset | null; analysis: Analysis | null
@@ -55,15 +56,25 @@ function phaseLabel(status: string, t: Translate): string {
   }
   return keys[status] ? t(keys[status]) : status
 }
-export function projectAiPlanSteps(plan: AiPlan, taskStatus?: TaskRunStatus, t?: Translate): PlanStep[] {
+function hasCompleteExecutionEvidence(plan: AiPlan): boolean {
+  return plan.execution?.complete === true && plan.execution.pendingStepIds.length === 0
+    && plan.steps.length > 0 && plan.steps.every(step => plan.execution?.completedStepIds.includes(step.id))
+}
+
+export function projectAiPlanStatus(plan: AiPlan, taskStatus?: TaskRunStatus): string {
+  if (['needs_attention', 'stale'].includes(plan.status)) return plan.status
   const status = taskStatus ?? plan.status
+  return status === 'completed' && !hasCompleteExecutionEvidence(plan) ? 'needs_attention' : status
+}
+
+export function projectAiPlanSteps(plan: AiPlan, taskStatus?: TaskRunStatus, t?: Translate): PlanStep[] {
+  const status = projectAiPlanStatus(plan, taskStatus)
   const blocked = ['stalled', 'waiting_user', 'waiting_approval', 'failed', 'cancelled', 'needs_attention', 'stale'].includes(status)
-  const running = ['started', 'queued', 'running', 'retrying'].includes(status)
   const translate = t ?? appI18n.t.bind(appI18n)
-  return plan.steps.map((step, index) => ({
+  return plan.steps.map((step) => ({
     title: step.title,
     detail: `${step.tool} · ${step.risk === 'read' ? translate('engineeringRiskRead') : translate('engineeringRiskApproval')} · ${step.approval === 'approved' ? translate('engineeringApproved') : translate('engineeringPendingApproval')}`,
-    state: status === 'completed' ? 'done' : blocked ? 'blocked' : running && index === 0 ? 'active' : 'ready', tool: step.tool
+    state: plan.execution?.completedStepIds.includes(step.id) ? 'done' : blocked ? 'blocked' : 'ready', tool: step.tool
   }))
 }
 
@@ -103,10 +114,11 @@ export function EngineeringAiCommandCenter({ workspaceRoot, runtimeReady, projec
   refreshRef.current = onExecutionSettled ?? onRefresh
   const refreshedExecutions = useRef(new Set<string>())
   const notifyExecutionSettled = useCallback((plan: AiPlan, status: string): void => {
-    if (!timelineThreadId || plan.projectId !== projectId || !['completed', 'failed', 'cancelled'].includes(status)) return
+    if (!timelineThreadId || plan.projectId !== projectId || !['completed', 'failed', 'cancelled', 'needs_attention', 'stalled', 'waiting_user', 'waiting_approval'].includes(status)) return
     const key = JSON.stringify([workspaceRoot, projectId, timelineThreadId, plan.id, plan.executionTurnId ?? plan.taskId, status])
     if (refreshedExecutions.current.has(key)) return
     refreshedExecutions.current.add(key)
+    setSessionReadRevision((value) => value + 1)
     refreshRef.current()
   }, [workspaceRoot, projectId, timelineThreadId])
   const timelineHasActivity = timelineBlocks.length > 0 || (engineeringThreadActive && (busy || Boolean(liveReasoning || liveAssistant)))
@@ -215,7 +227,10 @@ export function EngineeringAiCommandCenter({ workspaceRoot, runtimeReady, projec
   }
   const retryRuntime = useCallback((): void => { void probeRuntime('user') }, [probeRuntime])
   const retrySessionRead = useCallback((): void => { setSessionReadRevision((revision) => revision + 1) }, [])
-  const planStatus = taskRun?.id === scopedPlan?.taskId ? taskRun?.status : scopedPlan?.status
+  const scopedTaskStatus = taskRun?.id === scopedPlan?.taskId ? taskRun?.status : undefined
+  const planStatus = scopedPlan ? projectAiPlanStatus(scopedPlan, scopedTaskStatus) : undefined
+  const planSteps = scopedPlan ? projectAiPlanSteps(scopedPlan, scopedTaskStatus, t) : []
+  const completedStepCount = planSteps.filter(step => step.state === 'done').length
   const planReviewComplete = scopedPlan?.steps.every(step => step.parameters && step.parameterBindings && step.expectedOutputs?.length && step.reversibility)
   const needsApproval = scopedPlan?.status === 'awaiting_approval' && planReviewComplete
   const riskConfirmed = scopedPlan?.steps.every((step) => step.risk === 'read' || approvedSteps.includes(step.id))
@@ -265,11 +280,15 @@ export function EngineeringAiCommandCenter({ workspaceRoot, runtimeReady, projec
       <button type="button" aria-expanded={showPlan} onClick={() => setShowPlan(!showPlan)} className="flex min-h-10 w-full items-center gap-2 px-3 text-left text-[12px]"><ClipboardList className="h-4 w-4 shrink-0 text-accent" /><span className="min-w-0 flex-1 truncate">{t('engineeringTypedPlan')}</span><span className="text-ds-muted">{phaseLabel(planStatus ?? scopedPlan.status, t)}</span><ChevronDown className={`h-4 w-4 ${showPlan ? 'rotate-180' : ''}`} /></button>
       {showPlan ? <div className="space-y-2 px-3 pb-3">
         <p className="break-words text-[12px] font-medium">{scopedPlan.goal}</p>
-        {scopedPlan.steps.map((step) => <div key={step.id} className="border-b border-ds-border-muted pb-2 text-[12px]" data-testid="engineering-plan-step-review">
+        {scopedPlan.steps.map((step, index) => <div key={step.id} className="border-b border-ds-border-muted pb-2 text-[12px]" data-testid="engineering-plan-step-review" data-step-id={step.id} data-step-state={planSteps[index]?.state}>
           <label className="flex items-start gap-2">
             {needsApproval && step.risk !== 'read' ? <input type="checkbox" checked={approvedSteps.includes(step.id)} onChange={(event) => setApprovedSteps((current) => event.target.checked ? [...current, step.id] : current.filter((id) => id !== step.id))} className="mt-0.5" /> : null}
             <span className="min-w-0 break-words">{surveyLegacyDiagnosticText(step.title, i18n.language)}<span className="ml-2 text-[11px] text-ds-muted">{step.risk === 'read' ? t('engineeringRiskRead') : t('engineeringRiskApproval')}</span></span>
           </label>
+          <p className={`mt-1 flex items-center gap-1 text-[11px] ${planSteps[index]?.state === 'done' ? 'text-green-700 dark:text-green-300' : planSteps[index]?.state === 'blocked' ? 'text-amber-700 dark:text-amber-300' : 'text-ds-muted'}`}>
+            {planSteps[index]?.state === 'done' ? <CheckCircle2 className="h-3.5 w-3.5 shrink-0" /> : planSteps[index]?.state === 'blocked' ? <AlertTriangle className="h-3.5 w-3.5 shrink-0" /> : <Circle className="h-3.5 w-3.5 shrink-0" />}
+            {t(planSteps[index]?.state === 'done' ? 'engineeringPlanStepReceiptConfirmed' : planSteps[index]?.state === 'blocked' ? 'engineeringPlanStepReceiptMissing' : 'engineeringPlanStepReceiptPending')}
+          </p>
           <dl className="mt-2 space-y-1 break-words text-[11px]">
             <div><dt className="inline text-ds-muted">{t('engineeringPlanTool')}: </dt><dd className="inline font-mono">{step.tool}</dd></div>
             <div><dt className="text-ds-muted">{t('engineeringPlanParameters')}</dt><dd><pre className="whitespace-pre-wrap break-all">{step.parameters ? JSON.stringify(step.parameters, null, 2) : t('engineeringPlanDetailsMissing')}</pre>{step.parameterBindings?.map(binding => <p key={binding.parameter} className="break-all font-mono">{binding.parameter} ← {binding.stepId}.{binding.output}{binding.asArray ? ' []' : ''}</p>)}</dd></div>
@@ -278,9 +297,10 @@ export function EngineeringAiCommandCenter({ workspaceRoot, runtimeReady, projec
           </dl>
           {navigationButton(navigationContext && scopedPlan.status !== 'stale' ? planStepNavigationTarget(navigationContext, scopedPlan.projectId, step) : null)}
         </div>)}
-        {!planReviewComplete || scopedPlan.status === 'needs_attention' ? <p role="status" className="text-[11px] text-amber-700 dark:text-amber-300">{t('engineeringPlanDetailsMissing')}</p> : null}
+        {!planReviewComplete ? <p role="status" className="text-[11px] text-amber-700 dark:text-amber-300">{t('engineeringPlanDetailsMissing')}</p> : null}
+        {planStatus === 'needs_attention' && !hasCompleteExecutionEvidence(scopedPlan) ? <p role="status" data-testid="engineering-plan-incomplete-evidence" className="text-[11px] text-amber-700 dark:text-amber-300">{t('engineeringPlanExecutionIncomplete', { completed: completedStepCount, total: scopedPlan.steps.length })}</p> : null}
         <p className="break-all font-mono text-[10px] text-ds-faint">{scopedPlan.id} · {scopedPlan.contextHash.slice(0, 22)}</p>
-        {taskRun?.stalledReason || taskRun?.waitingReason ? <p className="break-words text-[11px] text-amber-700 dark:text-amber-300">{taskRun.stalledReason || taskRun.waitingReason}</p> : null}
+        {taskRun?.stalledReason || taskRun?.waitingReason ? <p className="break-words text-[11px] text-amber-700 dark:text-amber-300">{formatRuntimeError(new Error(taskRun.stalledReason || taskRun.waitingReason), t('engineeringStatusNeedsAttention'))}</p> : null}
         {planReviewComplete && (needsApproval || scopedPlan.status === 'approved') ? <button type="button" onClick={() => void approveAndStartPlan()} disabled={planBusy || busy || !connected || !engineeringThreadActive || (needsApproval && !riskConfirmed)} className="inline-flex h-8 items-center gap-2 rounded-md bg-accent px-3 text-[12px] font-medium text-white disabled:opacity-50">{planBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />}{t('engineeringApproveAndStart')}</button> : null}
         {!planReviewComplete || ['stale', 'needs_attention'].includes(scopedPlan.status) ? <button type="button" data-testid="engineering-replan" onClick={() => void replanStalePlan()} disabled={planBusy || busy || !connected || !engineeringThreadActive} className="inline-flex h-8 items-center gap-2 rounded-md bg-accent px-3 text-[12px] font-medium text-white disabled:opacity-50">{planBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}{planBusy ? t('engineeringReplanning') : t('engineeringReplan')}</button> : null}
       </div> : null}

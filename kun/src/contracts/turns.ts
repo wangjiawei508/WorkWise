@@ -78,6 +78,8 @@ export const TurnSchema = z.object({
   prompt: z.string(),
   model: z.string().optional(),
   providerId: z.string().trim().min(1).max(200).optional(),
+  engineeringExecution: z.boolean().optional(),
+  engineeringPlanId: z.string().min(1).max(200).optional(),
   reasoningEffort: TurnReasoningEffortSchema.optional(),
   /** Steered text queued by the user mid-turn. Cleared on completion. */
   steering: z.array(z.string()).default([]),

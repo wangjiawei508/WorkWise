@@ -184,3 +184,13 @@ Focused verification: Runtime audit 14 tests and Python measurement 37 tests pas
 - [x] Verify modification approval, stale suggestion/plan refusal, replan approval reset and a real model-driven four-tool run in the exact fbb88ea signed package; independently verify deterministic results, three output files, restart persistence and temporary relay cleanup without claiming final manifest approval or acceptance of subsequent source changes.
 
 Source integration: desktop 2780 passed/2 skipped; Runtime 2795 passed/22 skipped, with the first-run assertion failure retained separately. Typechecks, build and strict OpenSpec passed; lint has 0 errors and 1 existing Hook warning. Exact fbb evidence is in `docs/qa/evidence/railwise-convergence-fbb88ea71557/README.md`; source migration and validation are in `docs/qa/RAILWISE_SURVEY_MODEL_FOLLOWTHROUGH.md`. New provider, effort, localization and refresh changes require their own signed candidate. The 17 unchecked aggregate tasks are not closed by these narrow checks.
+
+## Receipt-bound execution completion
+
+- [x] Reject typed-plan completion without every approved step's matching success receipt, preserve internal plan binding through continuation, and verify zero-step, partial, tool-error, successful and resume cases without regressing ordinary consultation.
+- [x] Project real completed/pending steps in Runtime and the bilingual UI; show historical false-completed records as needing attention without rewriting them or automatically repeating side effects.
+- [ ] Verify the completion guard in the exact signed package, together with the provider/model, effort, localization and terminal-refresh changes introduced after fbb; retain the failing baseline separately.
+
+The pre-fix independent synthetic counterexample is retained in `docs/qa/evidence/railwise-plan-completion-guard/`. Adding these concrete checks does not close the 17 existing aggregate gates.
+
+Frozen source verification: desktop 2790 passed/2 skipped; Runtime 2807 passed/22 skipped; both typechecks, build, strict OpenSpec 11/11 and lint passed (1 existing Hook warning). Independent review additionally identified and verified fixes for legacy restart recovery and generic retry/resume bypass. Raw final logs are retained with the completion-guard evidence. The new exact-package task remains open.

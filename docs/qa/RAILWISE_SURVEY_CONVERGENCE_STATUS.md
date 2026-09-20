@@ -4,6 +4,10 @@
 
 代码实现、自动化通过、安装包验收和用户确认分别记录。总计划尚未完成，旧 OpenSpec 勾选数不代表本计划完成率。
 
+## 2026-09-20 完成守卫修复与待包验收
+
+独立 Runtime 及实际签名安装包均确认 `9974e69` 存在 P1：四步审批后，模型只给完成文字、工具调用为0、四步回执均为空，Task/Turn 仍可 completed。记录见[完成守卫证据](./evidence/railwise-plan-completion-guard/README.md)。现已修复 Runtime 终结校验、按真实回执显示的界面、旧记录重启恢复与通用重试绕过，独立复查无新增确定问题；Runtime 最终全量 2807 通过/22 跳过，构建通过。新修复签名包仍需实际验收，9974 仅保留为[缺陷基线](./evidence/railwise-convergence-9974e69c65e2/README.md)。既有 fbb 四步真实调用与文件审计仍有效，但不能覆盖此反例。宽泛验收门禁继续未完成。
+
 ## 最新精确包：fbb88ea 审批与生命周期部分验收
 
 2026-09-20 新增 [fbb88ea 签名候选](./evidence/railwise-convergence-fbb88ea71557/README.md)，版本仍为 `0.5.0`。云端真实私有 updater、签名/公证、目标重启及数据哨兵保留通过，本机安装同一 ZIP/ASAR。云端 Gatekeeper 启用，本机原状态 disabled，不能混同。包内独立合成服务探针验证复验 started/finished、错误终态、旧表兼容及非审计字节不变。

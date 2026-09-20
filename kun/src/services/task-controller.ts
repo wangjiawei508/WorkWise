@@ -47,6 +47,7 @@ export type TaskControllerDeps = {
   nowIso: () => string
   ownerId?: string
   spans?: RuntimeSpanService
+  completionGuard?: (input: { thread?: ThreadRecord; turn?: Turn; task: TaskRun }) => { reason: string; fingerprint: string } | null
 }
 
 export class TaskController {
@@ -56,6 +57,7 @@ export class TaskController {
   private readonly nowIso: () => string
   private readonly ownerId: string
   private readonly spans?: RuntimeSpanService
+  private readonly completionGuard?: TaskControllerDeps['completionGuard']
 
   constructor(deps: TaskControllerDeps) {
     this.repository = deps.repository
@@ -64,6 +66,7 @@ export class TaskController {
     this.nowIso = deps.nowIso
     this.ownerId = deps.ownerId ?? `runtime-${process.pid}-${randomUUID()}`
     this.spans = deps.spans
+    this.completionGuard = deps.completionGuard
   }
 
   ensureTask(input: {
@@ -71,6 +74,7 @@ export class TaskController {
     turnId: string
     request: StartTurnRequest
     engineeringExecution?: boolean
+    engineeringPlanId?: string
     continuationTaskId?: string
   }): TaskRun {
     const active = this.repository.findActiveByThread(input.thread.id)
@@ -86,6 +90,7 @@ export class TaskController {
         model: input.request.model ?? current.model,
         providerId: input.request.providerId ?? current.providerId,
         reasoningEffort: input.request.reasoningEffort ?? current.reasoningEffort,
+        engineeringPlanId: input.engineeringPlanId ?? current.engineeringPlanId,
         updatedAt: now
       }), {
         key: `turn-attached:${input.turnId}`,
@@ -116,6 +121,7 @@ export class TaskController {
       agentId: input.thread.agentId,
       model: selectedModel,
       providerId: input.request.providerId,
+      engineeringPlanId: input.engineeringPlanId,
       reasoningEffort: input.request.reasoningEffort,
       budget: {
         maxAttempts: profile?.budget.maxAttempts ?? DEFAULT_MAX_ATTEMPTS,
@@ -146,17 +152,19 @@ export class TaskController {
     return created
   }
 
-  continuationSelection(thread: ThreadRecord, request: StartTurnRequest, engineeringExecution?: boolean, continuationTaskId?: string): Pick<StartTurnRequest, 'model' | 'providerId' | 'reasoningEffort'> {
+  continuationSelection(thread: ThreadRecord, request: StartTurnRequest, engineeringExecution?: boolean, continuationTaskId?: string): Pick<StartTurnRequest, 'model' | 'providerId' | 'reasoningEffort'> & { engineeringPlanId?: string } {
     if (!continuationTaskId && thread.domain === 'engineering' && !engineeringExecution) return {}
     if (!continuationTaskId && !shouldContinueActiveTask(request.prompt)) return {}
     const task = this.repository.findActiveByThread(thread.id)
     if (continuationTaskId && task?.id !== continuationTaskId) throw Object.assign(new Error('the task to resume is no longer active for this thread'), { code: 'invalid_state' })
-    return task ? { model: task.model, providerId: task.providerId, reasoningEffort: task.reasoningEffort } : {}
+    return task ? { model: task.model, providerId: task.providerId, reasoningEffort: task.reasoningEffort, engineeringPlanId: task.engineeringPlanId } : {}
   }
 
   activeTask(threadId: string): TaskRun | null {
     return this.repository.findActiveByThread(threadId)
   }
+
+  getTask(taskId: string): TaskRun | null { return this.repository.get(taskId) }
 
   beginAttempt(threadId: string, turnId: string): TaskRun | null {
     const task = this.repository.findActiveByThread(threadId)
@@ -214,6 +222,8 @@ export class TaskController {
     const turnItems = items.filter((item) => item.turnId === turnId)
     const pendingReason = pendingWorkReason(turnItems)
     if (pendingReason) return this.retry(task, pendingReason, fingerprint(turnItems), turnId)
+    const blocked = this.completionGuard?.({ thread: thread ?? undefined, turn, task })
+    if (blocked) return this.retry(task, blocked.reason, blocked.fingerprint, turnId)
 
     const finalResponse = latestAssistantText(turn, turnItems)
     if (task.acceptance.requireFinalResponse && !finalResponse.trim()) {

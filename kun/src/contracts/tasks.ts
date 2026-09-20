@@ -94,6 +94,7 @@ export const TaskRunSchema = z.object({
   agentId: z.string().min(1),
   model: z.string().optional(),
   providerId: z.string().trim().min(1).max(200).optional(),
+  engineeringPlanId: z.string().min(1).max(200).optional(),
   reasoningEffort: z.enum(['auto', 'off', 'low', 'medium', 'high', 'max']).optional(),
   budget: z.object({
     maxAttempts: z.number().int().positive(),

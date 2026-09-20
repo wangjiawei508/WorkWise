@@ -136,6 +136,11 @@ export class EngineeringAiRepository {
     return row ? EngineeringRunPlanV1.parse(JSON.parse(row.data_json)) : null
   }
 
+  planForTask(threadId: string, taskId: string): EngineeringRunPlan | null {
+    const row = this.db.prepare(`SELECT data_json FROM engineering_ai_plans WHERE thread_id = ? AND json_extract(data_json, '$.taskId') = ? ORDER BY updated_at DESC LIMIT 1`).get(threadId, taskId) as JsonRow | undefined
+    return row ? EngineeringRunPlanV1.parse(JSON.parse(row.data_json)) : null
+  }
+
   approvalForPlan(planId: string, planRevision: number): EngineeringApproval | null {
     const row = this.db.prepare(`
       SELECT data_json FROM engineering_ai_approvals
