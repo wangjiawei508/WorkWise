@@ -1,0 +1,33 @@
+{
+  "sourceHead": "281dc87672509de147357efc3aabbeae0eb4dbcb",
+  "kind": "installed-candidate-screenshots",
+  "locale": "zh-CN",
+  "theme": "light",
+  "data": "synthetic plane-control network; 4 points, 1 station, 5 observations; no real project data",
+  "released": false,
+  "capturedAt": "2026-09-20",
+  "captureTimePrecision": "day",
+  "packageVersion": "0.5.0",
+  "bundleId": "com.wangjiawei508.workwise.candidate.head281dc8767250",
+  "packageAsarSha256": "55daa373c28d3bf1ff2b6d98a9af403da7e405c54df500a4bfcaddc09f1ac807",
+  "acceptanceStatus": "partial-not-release-approval",
+  "liveModelAcceptance": "not-performed",
+  "evidence": "docs/qa/evidence/railwise-convergence-281dc8767250/README.md",
+  "screenshots": [
+    {
+      "path": "04-survey-candidate-zh-light.jpg",
+      "sourceCapture": "33-marketing-survey-zh-light.jpg",
+      "sha256": "454d6756a9615bbc9e4b3c015e1aeaad6130b905d5ba6a5c4e04425e97938d9e"
+    },
+    {
+      "path": "05-survey-candidate-delivery.jpg",
+      "sourceCapture": "32-marketing-deliverables-zh-light.jpg",
+      "sha256": "c6f2bc61afe051bf24bd4c31cfe8ec3cc23bd30db579943948b19b6063d188b2"
+    },
+    {
+      "path": "06-candidate-model-settings.jpg",
+      "sourceCapture": "34-marketing-model-settings-zh-light.jpg",
+      "sha256": "1f85a22a761f47c7ed1d3cc7d7c24536ba062f3dd66b146f3e1b765c089c7f86"
+    }
+  ]
+}
