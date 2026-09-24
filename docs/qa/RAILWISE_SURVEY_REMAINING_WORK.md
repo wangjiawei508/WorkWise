@@ -1,6 +1,8 @@
 # RAILWISE AI / Survey 总计划未完成清单
 
-原审计日期：2026-09-20；进展更新：2026-09-21。原审计源码：`43689493ab586c8d65bae729cfd291f3c813f679`。依据为用户提供的《RAILWISE AI ｜ Survey 产品收敛与命名迁移总计划》、[OpenSpec 任务](../../openspec/changes/workwise-0-5-0-engineering-delivery/tasks.md)、源码与[执行台账](RAILWISE_SURVEY_CONVERGENCE_STATUS.md)。下表保留原审计任务编号；后续源码进展另列，不追溯改变旧包验收。审查身份为 AI 智能体，不是专业人员签章或用户验收。
+原审计日期：2026-09-20；进展更新：2026-09-24。原审计源码：`43689493ab586c8d65bae729cfd291f3c813f679`。依据为用户提供的《RAILWISE AI ｜ Survey 产品收敛与命名迁移总计划》、[OpenSpec 任务](../../openspec/changes/workwise-0-5-0-engineering-delivery/tasks.md)、源码与[执行台账](RAILWISE_SURVEY_CONVERGENCE_STATUS.md)。下表保留原审计任务编号；后续源码进展另列，不追溯改变旧包验收。审查身份为 AI 智能体，不是专业人员签章或用户验收。
+
+2026-09-24：[声明整改链](RAILWISE_SURVEY_QUALITY_WORKFLOW.md)的持久化、Runtime/IPC/client 和双语人工界面已通过源码检查，自己的签名包验收未完成。`3f0dbf1` 旧候选已真实进入中文浅色 Survey 并显式发送两次，均因上游 401 鉴权失败，零模型工具调用；精确成果追问的真实读回仍未通过，详见[失败证据](evidence/railwise-result-questions-gui-20260924/README.md)。OpenSpec 当前 107 项、87 项完成、20 项未完成。
 
 最近已验监测候选状态：`partial-not-release-approval`。[b193fc7监测复算包](evidence/railwise-monitoring-replay-package-b193fc7/README.md)已完成签名公证、隔离安装、私有真实updater、CSV/XLSX原件复算、历史缺源、失败恢复及重启独立审计；该限定验收不覆盖全矩阵与人审。复选项计数**不是总计划完成率**，也不是互不重叠的功能缺陷数。
 
@@ -39,7 +41,7 @@
 
 ## 明确的软件缺口
 
-1. **规范与质量生产链。** [规范依据服务](../../kun/src/engineering/survey-standard-basis.ts)明确目录没有进入受信谓词集合；[质量工作区](../../kun/src/engineering/survey-quality-workspace.ts)仍输出 `evidence-retention-only`、`humanSignatureVerification=not-evaluated`。已有材料保全、首轮抽样、限定声明评分和关联评估；缺受信规则登记/适用性/撤销、真实缺陷分类及材料核验、完整组织阶段、整改后重新抽样、认证签名/批准和交付门禁。[交付服务](../../kun/src/engineering/engineering-service.ts)仍生成 `reviewStatus: draft`。
+1. **规范与质量生产链。** [规范依据服务](../../kun/src/engineering/survey-standard-basis.ts)明确目录没有进入受信谓词集合；[质量工作区](../../kun/src/engineering/survey-quality-workspace.ts)仍输出 `evidence-retention-only`、`humanSignatureVerification=not-evaluated`。已有材料保全、首轮抽样、限定声明评分和关联评估；[声明整改链增量](RAILWISE_SURVEY_QUALITY_WORKFLOW.md)将检查、问题、整改与复查接入独立持久化服务和桌面，源码验证通过、包验收未完成。仍缺受信规则登记/适用性/撤销、真实缺陷分类及材料语义核验、完整组织阶段、整改后重新抽样、认证签名/批准和交付门禁。[交付服务](../../kun/src/engineering/engineering-service.ts)仍生成 `reviewStatus: draft`。
 2. **高级方法生产接线。** 已有一维自由水准、固定线性广义 w、独立互斥组 VCE、固定外部尺度 Huber、预声明统计族、一维参考定义、固定模型静态追加和标准椭圆。仍缺一般自由网/拟稳稳定点决策、正式网随机模型到统计家族/权重的审计接线及适用范围内完整专业判读。静态追加不支持旧观测编辑/删除、参数/基准改变、相关/非线性/动态模型；总计划未逐一定义这些扩展，须明确承诺范围，不能把整个高级方法勾完，也不能无限扩大范围。依据：[方法合同](RAILWISE_SURVEY_ALGORITHM_REVIEW.md)。
 3. **监测严格重算的剩余范围。** b193fc7 已通过自己的签名包限定验收，原4368949五项复验仍不含此功能。缺原件或不支持的历史算法明确未评估，不用重新导入覆盖旧成果；全状态/键盘矩阵、专业适用性与生产批准不由选定算例通过代替。见[实现及验收合同](RAILWISE_MONITORING_REPLAY_ACCEPTANCE.md)。
 4. **结果到 AI 的包内实际读回。** [Q10–Q17 历史静态缺口](RAILWISE_SURVEY_UI_EVIDENCE_COVERAGE.md)已由 `353d407` 补齐对应源码入口及精确只读工具，记录身份/修订/摘要和行选择绑定已回归；仍缺新签名包中的实际发送、模型工具调用及正确回答证据。Q01–Q09 也须实际读回验证，不能把按钮数量当成功率。
@@ -60,4 +62,4 @@
 OpenSpec 命名段落已在 `2cc2f48` 同步用户的新品牌基线。旧[规则内核说明](RAILWISE_SURVEY_STANDARD_RULES.md)和[质检接入审计](RAILWISE_SURVEY_QUALITY_INTEGRATION_AUDIT.md)保留原始结论，并在开头提供当前实现索引。历史“无服务/无评分”不能再当作整个产品现状，后加功能也不能倒填为旧包已经实现。本清单不修改历史勾选、原始成果、公开版本或发布状态。
 # 2026-09-21 状态更新
 
-私有候选 `3f0dbf1024577b5d28db1fe1570fe2e3173ae52a` 的签名安装、updater round-trip 和包内 26 项精确引用审计已经完成。仍未关闭的门禁只有真实候选 GUI/模型读回（含截图、错误/离线/过期/恢复、主题/窄窗/键盘/a11y 和重启）、候选安装包的用户本人确认，以及随后才允许进行的公开发布、GitHub Release、stable feed 和官网正式下载更新。不能用 headless 合成审计、旧包证据或代理意见替代这些门禁。
+私有候选 `3f0dbf1024577b5d28db1fe1570fe2e3173ae52a` 的签名安装、updater round-trip 和包内 26 项精确引用审计已经完成。该精确成果追问增量仍缺真实候选 GUI/模型读回（含截图、错误/离线/过期/恢复、主题/窄窗/键盘/a11y 和重启）及用户本人确认。公开发布、GitHub Release、stable feed 和官网正式下载更新仍受完整发布门禁约束。这里仅描述该候选增量，不代表总计划只剩 GUI；上文 P1/P2 软件缺口、真实生产资料和专业签认仍然未完成。不能用 headless 合成审计、旧包证据或代理意见替代这些门禁。

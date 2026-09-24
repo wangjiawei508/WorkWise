@@ -1,3 +1,9 @@
+## P1 declared correction workflow follow-through
+
+- [x] Persist caller-declared checks, issues, corrections and rechecks in a separate bounded append-only workspace, binding real retained materials and exact project/retention heads; verify idempotency, stale sources, corruption, restart and unchanged legacy retention semantics.
+- [x] Expose authenticated Runtime routes, strict desktop IPC/client validation and bilingual manual controls with source selection, scope cancellation, retry and history; never promote recorded declarations to professional approval or standard conformity.
+- [ ] Verify this increment in its own signed installed candidate, including complete correction/recheck flow, source changes, restart, languages/themes/window sizes and keyboard access; obtain required human UI/professional confirmation separately.
+
 ## Contracts and Runtime
 
 - [x] Add monitoring contracts and export them from `kun/src/contracts/index.ts`.

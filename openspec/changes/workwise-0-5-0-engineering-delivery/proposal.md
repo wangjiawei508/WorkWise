@@ -21,6 +21,8 @@ WorkWise already has the Electron shell, Kun Runtime, attachments, Flow, Design,
 
 ## Capabilities
 
+The P1 quality-chain continuation adds a separate declared correction workflow over exact retained material records. It persists checks, issues, correction targets and rechecks without changing the legacy evidence-retention verification API, draft deliverables, professional identities or release approval gates. Software validation and installed-candidate/human acceptance remain separate tasks.
+
 ### New Capabilities
 
 - `engineering-delivery`: AI-first engineering-survey sessions, deterministic survey adjustment and monitoring analysis, reviewed specialist Skills, and traceable DOCX/PDF/XLSX/manifest delivery.

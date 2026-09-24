@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type ReactElement } from 'react'
 import { useTranslation } from 'react-i18next'
+import { SurveyQualityWorkflowWorkspace } from './SurveyQualityWorkflowWorkspace'
 import { EngineeringEvidenceQuestion, EngineeringSelectedEvidence } from './EngineeringEvidenceQuestion'
 import {
   QualityRequestError, freezeQualityPlan, readQualityPlan, listQualityPlans, createQualityRecord,
@@ -132,6 +133,7 @@ export function SurveyQualityWorkspace({ binding, runtimeReady }: { binding: Qua
         })}</ul>
         <button type="button" className={buttonClass} disabled={!ready} onClick={() => void execute(async () => ({ plan, record: await verifyQualityRecord(binding, plan, record) }))}>{t('qualityWorkspaceReverify')}</button>
         <details><summary className="cursor-pointer">{t('qualityWorkspaceAudit')}</summary><p className="mt-2 break-all font-mono text-[10px]">{t('qualityWorkspaceHeadHash')}: {record.verification.headHash}</p><p>{t('qualityWorkspaceEventCount', { count: record.events.length })}</p><ol className="mt-2 space-y-2">{record.events.map((event, index) => <li key={event.id} className="break-all font-mono text-[10px]">#{event.sequence} · {event.id} · {formatDate(event.occurredAt)} · {t('qualityWorkspaceSystemActor')}<EngineeringEvidenceQuestion label={event.id} selector={{ path: ['events', index], identity: { id: event.id, sequence: event.sequence, thisHash: event.thisHash } }} disabled={!ready} /><span className="block">{event.thisHash}</span></li>)}</ol></details>
+        <SurveyQualityWorkflowWorkspace binding={binding} plan={plan} record={record} runtimeReady={runtimeReady && !busy} />
       </div></EngineeringSelectedEvidence> : null}
     </section> : null}
   </details>

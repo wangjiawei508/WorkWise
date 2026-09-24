@@ -1,5 +1,27 @@
 ## ADDED Requirements
 
+### Requirement: Retained-material declared correction workflow
+
+The Runtime SHALL persist caller-declared quality checks, opened issues, corrections and rechecks separately from legacy technical retention checks. Creation SHALL freeze the exact project revision/workspace, retention plan, record, head and artifact. Every event SHALL reference an actually retained same-project evidence member. Correction and recheck targets SHALL be resolved from retained records rather than accepted as unverified hash strings. The service SHALL generate chain metadata, enforce bounded append-only storage, head concurrency and payload-bound idempotency, and revalidate sources and the complete chain when reading. No declaration SHALL grant delivery approval, authenticate a professional signature, assert standard conformity or rewrite an existing deliverable.
+
+#### Scenario: Persist a declared correction and recheck
+
+- **WHEN** an authenticated request records a nonpassing check, opens an issue, selects a different retained correction artifact and declares a recheck
+- **THEN** the service preserves ordered immutable events and exact source bindings across restart
+- **AND** a resolved declaration remains distinct from professional acceptance and does not change legacy retention results
+
+#### Scenario: Reject stale, forged or conflicting workflow evidence
+
+- **WHEN** the project or retention head changes, a material is missing or altered, a correction is unchanged, a recheck names the wrong correction, or an idempotency key conflicts
+- **THEN** the service rejects the operation without rewriting prior events or substituting a current artifact
+- **AND** failed and corrupted history remains explicitly unavailable
+
+#### Scenario: Restore manual workflow safely
+
+- **WHEN** the desktop loads history or submits a declaration while project, revision, selected retention record or Runtime readiness changes
+- **THEN** late responses cannot populate the new scope or trigger a subsequent write there
+- **AND** controls present the declared-only boundary in both supported languages and preserve the same request identity for an explicit transport retry
+
 ### Requirement: Exact recorded evidence questions
 
 The Engineering UI MUST prepare scoped question drafts from the selected recorded evidence across existing Survey, quality and monitoring result surfaces. It MUST preserve an existing question and attachments, retain legacy reference compatibility, and MUST NOT send a model request, execute a calculation or mutate Runtime records merely when preparing the question. The model MUST have a bounded read-only tool that verifies the exact requested record against its project, workspace, revision, version and hashes using the corresponding strict record reader. A selected row MUST be bound by its actual identity or immutable coordinates within the hashed result, not only its current display position. Failed, stale, cross-project, unsupported or oversized evidence MUST be explicit and MUST NOT be replaced with the latest result or silently truncated as complete evidence.

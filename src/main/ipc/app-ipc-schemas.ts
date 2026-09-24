@@ -6,6 +6,7 @@ import { z } from 'zod'
 import { RUNTIME_STANDARD_BASIS_PATH, STANDARD_BASIS_QUERY_KEYS, SurveyStandardBasisReferenceV1 } from '../../shared/survey-standard-basis'
 import { SurveyFreeLevelingTrialRequestV1 } from '../../shared/survey-free-leveling'
 import { SurveyQualityPlanCreateV1, SurveyQualityEvidenceCreateV1, SurveyQualityRecordCreateV1, SurveyQualityCheckAppendV1 } from '../../shared/survey-quality-workspace'
+import { QUALITY_WORKFLOW_LIMITS, SurveyQualityWorkflowCreateV1, SurveyQualityWorkflowAppendV1, parseQualityWorkflowJson } from '../../shared/survey-quality-workflow'
 import {
   RUNTIME_ENGINEERING_FREE_LEVELING_TRIALS_TEMPLATE,
   RUNTIME_ENGINEERING_FREE_LEVELING_TRIAL_TEMPLATE,
@@ -216,6 +217,12 @@ const QUALITY_ENDPOINTS = [
   { suffix: 'quality-records/{recordId}/verify', methods: ['POST'], schema: z.object({}).strict(), paginated: false }
 ].map(entry => ({ ...entry, endpoint: compileEndpoint(`/v1/engineering/projects/{id}/${entry.suffix}`, entry.methods, entry.paginated ? ['limit', 'offset'] : []) }))
 
+const QUALITY_WORKFLOW_ENDPOINTS = [
+  { suffix: 'quality-workflows', methods: ['GET', 'POST'], schema: SurveyQualityWorkflowCreateV1, paginated: true },
+  { suffix: 'quality-workflows/{id}', methods: ['GET'], paginated: false },
+  { suffix: 'quality-workflows/{id}/events', methods: ['POST'], schema: SurveyQualityWorkflowAppendV1, paginated: false }
+].map(entry => ({ ...entry, endpoint: compileEndpoint(`/v1/engineering/projects/{id}/${entry.suffix}`, entry.methods, entry.paginated ? ['limit', 'offset'] : []) }))
+
 const SAMPLING_ENDPOINTS = [
   { suffix: 'sampling-populations', methods: ['GET', 'POST'], schema: SurveySamplingPopulationCreateV1, paginated: true },
   { suffix: 'sampling-populations/{populationId}', methods: ['GET'], paginated: false },
@@ -244,6 +251,7 @@ const ENDPOINTS: readonly EndpointTemplate[] = [
   compileEndpoint('/v1/engineering/projects/{id}/advanced-trials/{trialId}/reverify', ['POST'], []),
   compileEndpoint('/v1/engineering/projects/{id}/advanced-trials/{trialId}/export', ['GET'], []),
   ...QUALITY_ENDPOINTS.map(entry => entry.endpoint),
+  ...QUALITY_WORKFLOW_ENDPOINTS.map(entry => entry.endpoint),
   ...SAMPLING_ENDPOINTS.map(entry => entry.endpoint),
   compileEndpoint(RUNTIME_HEALTH_TEMPLATE, ['GET']),
   compileEndpoint(RUNTIME_INFO_TEMPLATE, ['GET']),
@@ -466,6 +474,20 @@ export const runtimeRequestPayloadSchema = z
         try { valid = quality.schema.safeParse(JSON.parse(payload.body ?? '')).success } catch { valid = false }
       }
       if (!valid) context.addIssue({ code: 'custom', message: 'invalid quality workspace request' })
+    }
+    const workflow = QUALITY_WORKFLOW_ENDPOINTS.find(entry => entry.endpoint.match(url.pathname))
+    if (workflow) {
+      const method = payload.method ?? 'GET'
+      let valid = method === 'GET' && payload.body === undefined
+      for (const [key, value] of url.searchParams) {
+        if (key === 'limit' && (!/^[1-9]\d*$/.test(value) || Number(value) > QUALITY_WORKFLOW_LIMITS.pageSize)) valid = false
+        if (key === 'offset' && (!/^(0|[1-9]\d*)$/.test(value) || Number(value) > QUALITY_WORKFLOW_LIMITS.workflowsPerProject)) valid = false
+      }
+      if (method === 'POST' && !url.search && workflow.schema && payload.body !== undefined
+        && Buffer.byteLength(payload.body, 'utf8') <= QUALITY_WORKFLOW_LIMITS.requestBytes) {
+        try { valid = workflow.schema.safeParse(parseQualityWorkflowJson(payload.body)).success } catch { valid = false }
+      }
+      if (!valid) context.addIssue({ code: 'custom', message: 'invalid quality workflow request' })
     }
     if (compileEndpoint(RUNTIME_ENGINEERING_FREE_LEVELING_TRIALS_TEMPLATE, ['GET', 'POST']).match(url.pathname)) {
       const method = payload.method ?? 'GET'

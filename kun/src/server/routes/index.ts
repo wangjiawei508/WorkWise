@@ -7,6 +7,7 @@ import * as freeLevelingRoutes from './survey-free-leveling.js'
 import { registerSurveyAdvancedTrialsWorkspaceRoutes } from './survey-advanced-trials-workspace.js'
 import { registerSurveySamplingWorkspaceRoutes } from './survey-sampling-workspace.js'
 import { registerSurveyQualityWorkspaceRoutes } from './survey-quality-workspace.js'
+import { registerSurveyQualityWorkflowRoutes } from './survey-quality-workflow.js'
 import { healthJsonResponse } from './health.js'
 import {
   buildWorkspaceStatusResponse,
@@ -103,6 +104,7 @@ import * as engineeringAiRoutes from './engineering-ai.js'
  */
 export function buildRouter(runtime: ServerRuntime): Router {
   const router = new Router()
+  registerSurveyQualityWorkflowRoutes(router, { getService: () => runtime.surveyQualityWorkflowService, authorize: request => authorize(request, runtime) })
   registerSurveyStandardBasisRoutes(router, { authorize: request => authorize(request, runtime) })
   registerSurveyQualityAssessmentRoutes(router, { getService: () => runtime.surveyQualityAssessmentService, authorize: request => authorize(request, runtime) })
   registerSurveyQualityWorkspaceRoutes(router, {

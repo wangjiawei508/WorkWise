@@ -78,12 +78,20 @@ describe('declared advanced model desktop workflow', () => {
     useEngineeringConversationDrafts.setState({ drafts: {} })
     await act(async () => root.render(createElement(EngineeringEvidenceQuestions, { scope: { workspace: binding.workspaceRoot, projectId: binding.projectId, projectRevision: binding.projectRevision, ready: true, focus }, children: createElement(SurveyQualityScoringWorkspace, { binding, runtimeReady: true }) })))
     await click(button('Scoring record history'))
+    await vi.waitFor(async () => {
+      await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)) })
+      expect([...host.querySelectorAll('button')].some(item => item.textContent?.includes(selected.record.id))).toBe(true)
+    })
     await click([...host.querySelectorAll('button')].find(item => item.textContent?.includes(selected.record.id))!); await loaded()
     const row = selected.record.result.trace[0]!
     runtimeRequest.mockClear(); await click(host.querySelector('tbody tr button')!)
     expect(runtimeRequest).not.toHaveBeenCalled(); expect(saveWorkspaceFileAs).not.toHaveBeenCalled(); expect(focus).toHaveBeenCalledOnce()
     expect(useEngineeringConversationDrafts.getState().drafts[JSON.stringify([binding.workspaceRoot, binding.projectId])]?.evidenceContext?.typedEvidence).toEqual({ schemaVersion: 1, projectId: binding.projectId, projectRevision: binding.projectRevision, kind: 'scoring', recordId: selected.record.id, recordHash: selected.record.recordHash, selector: { path: ['result', 'trace', 0], identity: { nodeId: row.nodeId, clause: row.clause } } })
-    await click(button('Scoring record history')); expect(host.querySelector('tbody tr button')).toBeNull()
+    await click(button('Scoring record history'))
+    await vi.waitFor(async () => {
+      await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)) })
+      expect(host.querySelector('tbody tr button')).toBeNull()
+    })
   })
 
   it('has complete Chinese and English messages for all displayed rules and static controls', () => {

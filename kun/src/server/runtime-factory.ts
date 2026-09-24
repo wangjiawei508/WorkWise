@@ -97,6 +97,7 @@ import { SurveyService } from '../engineering/survey-service.js'
 import { SurveyAdvancedTrialsWorkspaceService } from '../engineering/survey-advanced-trials-workspace.js'
 import { SurveySamplingWorkspaceService } from '../engineering/survey-sampling-workspace.js'
 import { SurveyQualityWorkspaceService } from '../engineering/survey-quality-workspace.js'
+import { SurveyQualityWorkflowService } from '../engineering/survey-quality-workflow.js'
 
 export type KunServeRuntimeOptions = {
   host: string
@@ -388,6 +389,13 @@ export async function createKunServeRuntime(
     rootDir: join(options.dataDir, 'engineering'), nowIso,
     getProject: (projectId) => engineeringService.getProject(projectId)
   })
+  const surveyQualityWorkflowService = new SurveyQualityWorkflowService({
+    rootDir: join(options.dataDir, 'engineering'), nowIso,
+    sources: Object.freeze({
+      getProject: (projectId: string) => engineeringService.getProject(projectId),
+      retentionSnapshot: (pid: string, plan: string, record: string) => surveyQualityWorkspaceService.getAssessmentSnapshot(pid, plan, record)
+    })
+  })
   const surveyAdvancedTrialsWorkspaceService = new SurveyAdvancedTrialsWorkspaceService({
     rootDir: join(options.dataDir, 'engineering'), nowIso,
     getProject: (projectId) => engineeringService.getProject(projectId)
@@ -665,6 +673,7 @@ export async function createKunServeRuntime(
     engineeringAi,
     surveyService,
     surveyQualityAssessmentService,
+    surveyQualityWorkflowService,
     surveyQualityWorkspaceService,
     surveyQualityScoringWorkspaceService,
     surveyAdvancedTrialsWorkspaceService,
@@ -739,6 +748,7 @@ export async function createKunServeRuntime(
           await engineeringService.flush()
           surveyService.close()
           surveyQualityAssessmentService.close()
+          surveyQualityWorkflowService.close()
           surveyQualityWorkspaceService.close()
           surveyQualityScoringWorkspaceService.close()
           surveyAdvancedTrialsWorkspaceService.close()

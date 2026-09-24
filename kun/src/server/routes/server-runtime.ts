@@ -1,4 +1,5 @@
 import type { SurveyQualityAssessmentService } from '../../engineering/survey-quality-assessment.js'
+import type { SurveyQualityWorkflowService } from '../../engineering/survey-quality-workflow.js'
 import type { SurveyQualityScoringWorkspaceService } from '../../engineering/survey-quality-scoring-workspace.js'
 import type { ThreadService } from '../../services/thread-service.js'
 import type { TurnService } from '../../services/turn-service.js'
@@ -82,6 +83,7 @@ export type ServerRuntime = {
   engineeringAi?: EngineeringAiOrchestrator
   surveyService?: SurveyService
   surveyQualityAssessmentService?: SurveyQualityAssessmentService
+  surveyQualityWorkflowService?: SurveyQualityWorkflowService
   surveyQualityWorkspaceService?: SurveyQualityWorkspaceService
   surveyQualityScoringWorkspaceService?: SurveyQualityScoringWorkspaceService
   surveyAdvancedTrialsWorkspaceService?: SurveyAdvancedTrialsWorkspaceService
