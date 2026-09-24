@@ -14,13 +14,13 @@
       "default": 10
     },
     "reportPeriod": {},
-    "workspace": "/private/tmp/railwise-quality-workflow-package-audit/service-audit-002/workspace",
+    "workspace": "<isolated-tmp>/service-audit-002/workspace",
     "revision": 1,
     "createdAt": "2026-09-24T09:00:00.000Z",
     "updatedAt": "2026-09-24T09:00:00.000Z"
   },
-  "runtime": "/private/tmp/railwise-quality-workflow-package-audit/service-audit-002/runtime",
-  "workspace": "/private/tmp/railwise-quality-workflow-package-audit/service-audit-002/workspace",
+  "runtime": "<isolated-tmp>/service-audit-002/runtime",
+  "workspace": "<isolated-tmp>/service-audit-002/workspace",
   "original": {
     "label": "original",
     "source": "monitoringItem,point,time,value,unit\nsettlement,P1,2026-09-01T00:00:00Z,0,mm\nsettlement,P1,2026-09-02T00:00:00Z,5,mm",

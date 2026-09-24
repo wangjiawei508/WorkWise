@@ -1,6 +1,6 @@
 {
   "fixtureOnly": true,
-  "workspace": "/private/tmp/railwise-quality-workflow-package-audit/service-audit-002/workspace",
+  "workspace": "<isolated-tmp>/service-audit-002/workspace",
   "projectId": "project_184765f7-4009-4b34-9d46-c093499b20a9",
   "originalManifestId": "manifest_b77ddea6-c228-4a41-bdbf-ccfb2253d39e",
   "correctedManifestId": "manifest_29716d88-c8e7-4aa4-b3dc-3c5f17599e6a",

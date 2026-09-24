@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "outcome": "passed",
   "sourceHead": "b9ea004b668d68b34a7d82ece6674ef2273a9bc3",
-  "app": "/private/tmp/railwise-survey-b9ea004/Applications/RAILWISE AI Candidate b9ea004b668d.app",
+  "app": "<isolated-tmp>/Applications/RAILWISE AI Candidate b9ea004b668d.app",
   "targetZipSha256": "db63b72181d41c2020fd1175201270fd43ac9b73dc8fded041bddfe01f32243b",
   "asarSha256": "a8aa1bd0c4a07faf4b5903bd308faf9cd3c849a46e7014497f3ee5bcf49ac71c",
   "checks": [
@@ -11,8 +11,8 @@
       "args": [
         "-x",
         "-k",
-        "/private/tmp/railwise-survey-b9ea004/artifacts/private-updater-target-arm64-b9ea004b668d68b34a7d82ece6674ef2273a9bc3/WorkWise-Candidate-b9ea004b668d-0.5.0-mac-arm64.zip",
-        "/private/tmp/railwise-survey-b9ea004/Applications"
+        "<isolated-tmp>/artifacts/private-updater-target-arm64-b9ea004b668d68b34a7d82ece6674ef2273a9bc3/WorkWise-Candidate-b9ea004b668d-0.5.0-mac-arm64.zip",
+        "<isolated-tmp>/Applications"
       ],
       "status": 0,
       "stdout": "",
@@ -24,7 +24,7 @@
         "--verify",
         "--deep",
         "--strict",
-        "/private/tmp/railwise-survey-b9ea004/Applications/RAILWISE AI Candidate b9ea004b668d.app"
+        "<isolated-tmp>/Applications/RAILWISE AI Candidate b9ea004b668d.app"
       ],
       "status": 0,
       "stdout": "",
@@ -35,10 +35,10 @@
       "args": [
         "stapler",
         "validate",
-        "/private/tmp/railwise-survey-b9ea004/Applications/RAILWISE AI Candidate b9ea004b668d.app"
+        "<isolated-tmp>/Applications/RAILWISE AI Candidate b9ea004b668d.app"
       ],
       "status": 0,
-      "stdout": "Processing: /private/tmp/railwise-survey-b9ea004/Applications/RAILWISE AI Candidate b9ea004b668d.app\nThe validate action worked!\n",
+      "stdout": "Processing: <isolated-tmp>/Applications/RAILWISE AI Candidate b9ea004b668d.app\nThe validate action worked!\n",
       "stderr": ""
     },
     {
@@ -57,11 +57,11 @@
         "--type",
         "execute",
         "--verbose=2",
-        "/private/tmp/railwise-survey-b9ea004/Applications/RAILWISE AI Candidate b9ea004b668d.app"
+        "<isolated-tmp>/Applications/RAILWISE AI Candidate b9ea004b668d.app"
       ],
       "status": 0,
       "stdout": "",
-      "stderr": "/private/tmp/railwise-survey-b9ea004/Applications/RAILWISE AI Candidate b9ea004b668d.app: accepted\nsource=Notarized Developer ID\noverride=security disabled\n"
+      "stderr": "<isolated-tmp>/Applications/RAILWISE AI Candidate b9ea004b668d.app: accepted\nsource=Notarized Developer ID\noverride=security disabled\n"
     },
     {
       "command": "/usr/bin/plutil",
@@ -71,7 +71,7 @@
         "raw",
         "-o",
         "-",
-        "/private/tmp/railwise-survey-b9ea004/Applications/RAILWISE AI Candidate b9ea004b668d.app/Contents/Info.plist"
+        "<isolated-tmp>/Applications/RAILWISE AI Candidate b9ea004b668d.app/Contents/Info.plist"
       ],
       "status": 0,
       "stdout": "0.5.0\n",
@@ -85,7 +85,7 @@
         "raw",
         "-o",
         "-",
-        "/private/tmp/railwise-survey-b9ea004/Applications/RAILWISE AI Candidate b9ea004b668d.app/Contents/Info.plist"
+        "<isolated-tmp>/Applications/RAILWISE AI Candidate b9ea004b668d.app/Contents/Info.plist"
       ],
       "status": 0,
       "stdout": "com.wangjiawei508.workwise.candidate.headb9ea004b668d\n",

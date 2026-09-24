@@ -1,6 +1,6 @@
 {
   "fixtureOnly": true,
-  "workspace": "/private/tmp/railwise-survey-b9ea004/workspace/synthetic-quality-workflow",
+  "workspace": "<isolated-tmp>/workspace/synthetic-quality-workflow",
   "projectId": "project_7bf2907b-7805-4d45-8317-d1c5d285fb12",
   "originalManifestId": "manifest_494f9734-1223-4040-aed5-3d0ac1bf7b11",
   "correctedManifestId": "manifest_913c12be-25d0-4c38-8e24-94266af1c4f7",

@@ -9,7 +9,7 @@ const run = promisify(execFile)
 const [artifactId, sizeText, destinationArg, expectedZip] = process.argv.slice(2)
 assert(/^\d+$/.test(artifactId) && /^\d+$/.test(sizeText) && /^[a-f0-9]{64}$/.test(expectedZip))
 const size = Number(sizeText), destination = resolve(destinationArg)
-assert(destination.startsWith('/private/tmp/railwise-survey-') && destination.includes('/artifacts/'))
+assert(destination.startsWith('/private/tmp/') && destination.includes('/artifacts/'))
 mkdirSync(destination, { recursive: true, mode: 0o700 })
 const endpoint = `repos/wangjiawei508/WorkWise/actions/artifacts/${artifactId}/zip`
 async function range(start, end) {

@@ -6,8 +6,8 @@ import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSy
 import { join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 
-const AUDIT = '/private/tmp/railwise-quality-workflow-package-audit'
-const CANDIDATE = '/private/tmp/railwise-survey-b9ea004'
+const AUDIT = process.env.WORKWISE_AUDIT_ROOT ?? '/private/tmp/workwise-audit'
+const CANDIDATE = process.env.WORKWISE_CANDIDATE_ROOT ?? '/private/tmp/workwise-candidate'
 const HEAD = 'b9ea004b668d68b34a7d82ece6674ef2273a9bc3'
 const [appArg, expectedAsar, runName, ...flags] = process.argv.slice(2)
 const guiSeed = flags.length === 1 && flags[0] === '--prepare-gui'

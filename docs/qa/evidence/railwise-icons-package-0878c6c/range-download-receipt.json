@@ -9,7 +9,7 @@
     "offset": 299872465
   },
   "targetZipSha256": "5d37da574e3a0ff07642ec081f91d2ac5c36a0f42ef8fe793138d0a8772e402a",
-  "path": "/private/tmp/railwise-survey-0878c6c/artifacts/private-updater-target-arm64-0878c6cc932c6f7e85855b2ad5be199d7aee67d7/WorkWise-Candidate-0878c6cc932c-0.5.0-mac-arm64.zip",
+  "path": "<isolated-tmp>/artifacts/private-updater-target-arm64-0878c6cc932c6f7e85855b2ad5be199d7aee67d7/WorkWise-Candidate-0878c6cc932c-0.5.0-mac-arm64.zip",
   "outcome": "passed",
   "fullOuterArtifactDownloaded": false
 }

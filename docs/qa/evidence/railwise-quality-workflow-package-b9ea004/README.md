@@ -9,7 +9,7 @@ This candidate includes the declared quality remediation workflow. **It does not
 - Bundle ID: `com.wangjiawei508.workwise.candidate.headb9ea004b668d`
 - Expected target ZIP SHA-256: `db63b72181d41c2020fd1175201270fd43ac9b73dc8fded041bddfe01f32243b`
 - Expected target ASAR SHA-256: `a8aa1bd0c4a07faf4b5903bd308faf9cd3c849a46e7014497f3ee5bcf49ac71c`
-- Isolated candidate root: `/private/tmp/railwise-survey-b9ea004`
+- Isolated candidate root: `<isolated-tmp>`
 
 ## Hosted Evidence
 
@@ -17,11 +17,11 @@ The authenticated private updater report records signature and stapled notarizat
 
 ## Local Results
 
-Local installation completed with `ditto` into `/private/tmp/railwise-survey-b9ea004/Applications/RAILWISE AI Candidate b9ea004b668d.app`. Both target ZIP and installed ASAR matched the exact hosted report digests. `codesign --verify --deep --strict` and `xcrun stapler validate` passed. Local Gatekeeper is disabled; local `spctl` explicitly reported `override=security disabled`, so it is not evidence of acceptance with Gatekeeper enabled. The enabled-Gatekeeper evidence belongs to the hosted run.
+Local installation completed with `ditto` into `<isolated-tmp>/Applications/RAILWISE AI Candidate b9ea004b668d.app`. Both target ZIP and installed ASAR matched the exact hosted report digests. `codesign --verify --deep --strict` and `xcrun stapler validate` passed. Local Gatekeeper is disabled; local `spctl` explicitly reported `override=security disabled`, so it is not evidence of acceptance with Gatekeeper enabled. The enabled-Gatekeeper evidence belongs to the hosted run.
 
 `service-audit-002` passed using that application's own Electron 43.1.1 / Node 24.18.0 and packaged compiled services. It generated actual synthetic Survey leveling networks/adjustments, Engineering monitoring imports/analyses, and complete DOCX/PDF/XLSX/trend outputs; actual frozen plans and records were then used to create the four-event declared remediation chain. Exact idempotent retries, stale/cross-project refusal, unchanged-artifact correction refusal, single-byte corrected-source tamper refusal, restoration, service close/reopen, unchanged original retention records, and identical original business-table/file snapshots passed. Resolved declarations remain `deliveryApproval: not-granted`, and signature/conformity remain not evaluated.
 
-`gui-seed-001` passed and prepared the Chinese-named synthetic project `合成整改链验收` in `/private/tmp/railwise-survey-b9ea004/workspace/synthetic-quality-workflow`. The candidate business store contains two complete draft deliveries with retained plans/records and **zero declared remediation workflows**. The GUI was not started by this audit. Exact navigation IDs are in `gui-seed-001-gui-instructions.json`; GUI interactions, user confirmation and theme/window acceptance remain separate work.
+`gui-seed-001` passed and prepared the Chinese-named synthetic project `合成整改链验收` in `<isolated-tmp>/workspace/synthetic-quality-workflow`. The candidate business store contains two complete draft deliveries with retained plans/records and **zero declared remediation workflows**. The GUI was not started by this audit. Exact navigation IDs are in `gui-seed-001-gui-instructions.json`; GUI interactions, user confirmation and theme/window acceptance remain separate work.
 
 The original failed `service-audit-001` and its original script are retained. Its first assertion incorrectly required exactly three output files; the actual service also retained a trend image, producing four outputs. The correction checks presence of the required DOCX/PDF/XLSX media types while preserving extra members. The corrected script ran in a new directory; no failing dataset or report was overwritten, and no application source fix was necessary.
 

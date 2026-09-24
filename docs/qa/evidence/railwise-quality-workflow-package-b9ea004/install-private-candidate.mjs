@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto'
 import { spawnSync } from 'node:child_process'
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-const root = '/private/tmp/railwise-survey-b9ea004'
+const root = process.env.WORKWISE_CANDIDATE_ROOT ?? '/private/tmp/workwise-candidate'
 const head = 'b9ea004b668d68b34a7d82ece6674ef2273a9bc3'
 const report = JSON.parse(readFileSync(join(root, 'updater-evidence', 'private-updater.json'), 'utf8'))
 assert.equal(report.status, 'passed'); assert.equal(report.sourceHead, head); assert.equal(report.targetVersion, '0.5.0')

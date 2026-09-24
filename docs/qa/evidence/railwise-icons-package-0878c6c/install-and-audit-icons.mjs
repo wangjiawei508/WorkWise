@@ -4,8 +4,8 @@ import { execFileSync, spawnSync } from 'node:child_process'
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
-const ROOT = '/private/tmp/railwise-survey-0878c6c'
-const REPO = '/Users/wangjiawei/Documents/WorkWise'
+const ROOT = process.env.WORKWISE_CANDIDATE_ROOT ?? '/private/tmp/workwise-candidate'
+const REPO = process.env.WORKWISE_REPOSITORY ?? process.cwd()
 const HEAD = '0878c6cc932c6f7e85855b2ad5be199d7aee67d7'
 const updater = JSON.parse(readFileSync(join(ROOT, 'updater-evidence/private-updater.json'), 'utf8'))
 assert.equal(updater.status, 'passed'); assert.equal(updater.sourceHead, HEAD); assert.equal(updater.productionTouched, false); assert.equal(updater.publicFeedUploaded, false)
