@@ -135,6 +135,18 @@
   user-select: none;
 }
 
+.ds-work-logo .ds-brand-dark {
+  display: none;
+}
+
+[data-theme='dark'] .ds-work-logo .ds-brand-dark {
+  display: block;
+}
+
+[data-theme='dark'] .ds-work-logo .ds-brand-light {
+  display: none;
+}
+
 .ds-work-logo-image {
   /* Keep the small activity mark crisp. The old stacked glow/echo layers
      produced jagged ghost strokes on some Chromium/Electron GPUs. */

@@ -1,5 +1,6 @@
 import type { ReactElement } from 'react'
-import workwiseLogo from '../../../../asset/img/workwise.svg'
+import workwiseLogo from '../../../../asset/img/workwise-dark.png'
+import workwiseLightLogo from '../../../../asset/img/workwise-light.png'
 
 /** Compact RAILWISE AI activity mark used in the conversation timeline. */
 export function AnimatedWorkLogo({
@@ -34,10 +35,12 @@ export function AnimatedWorkLogo({
       <span className="ds-work-logo-scan" />
       <span className="ds-work-logo-spark ds-work-logo-spark-a" />
       <span className="ds-work-logo-spark ds-work-logo-spark-b" />
-      <img className="ds-work-logo-echo" src={workwiseLogo} alt="" draggable={false} decoding="async" />
+      <img className="ds-work-logo-echo ds-brand-dark" src={workwiseLogo} alt="" draggable={false} decoding="async" />
+      <img className="ds-work-logo-echo ds-brand-light" src={workwiseLightLogo} alt="" draggable={false} decoding="async" />
       <span className="ds-work-logo-track">
         <span className="ds-work-logo-body">
-          <img className="ds-work-logo-image" src={workwiseLogo} alt="" draggable={false} decoding="async" />
+          <img className="ds-work-logo-image ds-brand-dark" src={workwiseLogo} alt="" draggable={false} decoding="async" />
+          <img className="ds-work-logo-image ds-brand-light" src={workwiseLightLogo} alt="" draggable={false} decoding="async" />
         </span>
       </span>
     </span>

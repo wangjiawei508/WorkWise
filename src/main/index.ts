@@ -12,6 +12,8 @@ import {
 import { applySettingsApplicationTransaction } from './settings-application-transaction'
 import workwiseLogoPng from '../asset/img/workwise.png?url'
 import workwiseDockPng from '../asset/img/workwise_dock.png?url'
+import workwiseDockDarkPng from '../asset/img/workwise_dock_dark.png?url'
+import workwiseLightPng from '../asset/img/workwise-light.png?url'
 import workwiseTrayPng from '../asset/img/workwise_tray.png?url'
 import { createAppIcon, pickTrayIcon } from './app-icon'
 import { configureChromiumUserDataPath, configureLinuxWaylandImeSwitches } from './app-command-line'
@@ -393,6 +395,7 @@ function refreshWindowAppearance(): void {
   if (!appearanceChanged && dark === currentWindowDark) return
   currentWindowAppearance = next
   currentWindowDark = dark
+  refreshDockIcon()
 
   if (mainWindow && !mainWindow.isDestroyed()) {
     try {
@@ -522,7 +525,16 @@ function installDevPreviewWebviewGuards(): void {
 
 const appIcon = createAppIcon(workwiseLogoPng)
 const dockIcon = createAppIcon(workwiseDockPng)
+const dockDarkIcon = createAppIcon(workwiseDockDarkPng)
+const lightIcon = createAppIcon(workwiseLightPng)
 const trayIcon = createAppIcon(workwiseTrayPng)
+function refreshDockIcon(): void {
+  if (process.platform !== 'darwin') return
+  const selected = nativeTheme.shouldUseDarkColors ? dockDarkIcon : dockIcon
+  const fallback = nativeTheme.shouldUseDarkColors ? appIcon : lightIcon
+  const icon = selected.isEmpty() ? fallback : selected
+  if (!icon.isEmpty()) app.dock?.setIcon(icon)
+}
 traceStartup('app icon loaded', { source: workwiseLogoPng.startsWith('data:') ? 'data-url' : 'path' })
 const guiUpdaterAcceptanceLaunch = isGuiUpdaterAcceptanceLaunch(process.argv, app.getPath('userData'))
 const gotSingleInstanceLock = runningClawScheduleMcpServer ||
@@ -1239,10 +1251,7 @@ app.whenReady().then(async () => {
   installDevPreviewWebviewGuards()
   traceStartup('install webview guards:done')
 
-  if (process.platform === 'darwin') {
-    const dockSource = dockIcon.isEmpty() ? appIcon : dockIcon
-    if (!dockSource.isEmpty()) app.dock?.setIcon(dockSource)
-  }
+  refreshDockIcon()
 
   store = new JsonSettingsStore(app.getPath('userData'), {
     workwiseHome: candidateRuntimePaths?.workwiseHome
@@ -1281,7 +1290,8 @@ app.whenReady().then(async () => {
       dark: currentWindowDark,
       version: app.getVersion(),
       locale: initial.locale,
-      logoDataUrl: appIcon.isEmpty() ? undefined : appIcon.toDataURL()
+      logoDataUrl: (currentWindowDark ? appIcon : lightIcon).isEmpty()
+        ? undefined : (currentWindowDark ? appIcon : lightIcon).toDataURL()
     })
   }
   nativeTheme.on('updated', refreshWindowAppearance)

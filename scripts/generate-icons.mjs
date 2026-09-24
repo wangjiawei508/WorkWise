@@ -3,11 +3,11 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-// Pure SVG rasterization: no application launch, hidden browser or screenshot.
-// Keep the WorkWise resource paths for installer and runtime compatibility.
+// Preserve the supplied bitmap artwork; SVG only crops/masks and rasterizes it.
+// Keep historical resource paths for installer and runtime compatibility.
 const projectRoot = resolve(fileURLToPath(new URL('..', import.meta.url)))
 const iconDir = resolve(projectRoot, 'src/asset/img')
-const sourcePath = resolve(process.argv[2] || resolve(iconDir, 'workwise.svg'))
+const sourcePath = resolve(process.argv[2] || resolve(iconDir, 'railwise-icon-source.png'))
 const macIconScale = 0.8
 
 function renderPng(svg, size, scale = 1) {
@@ -57,15 +57,27 @@ function buildIcns(svg) {
   return Buffer.concat([header, body])
 }
 
-const svg = await readFile(sourcePath, 'utf8')
+const bitmap = await readFile(sourcePath)
+if (bitmap.readUInt32BE(16) !== 1774 || bitmap.readUInt32BE(20) !== 887) {
+  throw new Error('Expected the approved 1774 x 887 light/dark icon artwork')
+}
+const artwork = bitmap.toString('base64')
+function croppedIcon(x, y, width, height, radius) {
+  return `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="1024" height="1024" viewBox="0 0 1024 1024"><title>RAILWISE AI</title><desc>User-supplied ribbon monogram, cropped from the approved light/dark artwork.</desc><svg width="1024" height="1024" viewBox="${x} ${y} ${width} ${height}" preserveAspectRatio="none"><defs><clipPath id="tile"><rect x="${x}" y="${y}" width="${width}" height="${height}" rx="${radius}"/></clipPath></defs><image width="1774" height="887" xlink:href="data:image/png;base64,${artwork}" clip-path="url(#tile)"/></svg></svg>`
+}
+const light = croppedIcon(113, 87, 663, 663, 166)
+const dark = croppedIcon(997, 99, 670, 653, 160)
 await mkdir(iconDir, { recursive: true })
 const outputs = {
-  'workwise.svg': svg,
-  'workwise.png': renderPng(svg, 1024),
-  'workwise_tray.png': renderPng(svg, 512),
-  'workwise_dock.png': renderPng(svg, 1024, macIconScale),
-  'workwise.ico': buildIco([16, 24, 32, 48, 64, 128, 256].map((size) => renderPng(svg, size))),
-  'workwise.icns': buildIcns(svg)
+  'workwise.svg': dark,
+  'workwise.png': renderPng(dark, 1024),
+  'workwise-light.png': renderPng(light, 1024),
+  'workwise-dark.png': renderPng(dark, 1024),
+  'workwise_tray.png': renderPng(dark, 512),
+  'workwise_dock.png': renderPng(light, 1024, macIconScale),
+  'workwise_dock_dark.png': renderPng(dark, 1024, macIconScale),
+  'workwise.ico': buildIco([16, 24, 32, 48, 64, 128, 256].map((size) => renderPng(dark, size))),
+  'workwise.icns': buildIcns(light)
 }
 for (const [name, content] of Object.entries(outputs)) {
   await writeFile(resolve(iconDir, name), content)
