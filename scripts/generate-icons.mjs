@@ -67,12 +67,13 @@ function croppedIcon(x, y, width, height, radius) {
 }
 const light = croppedIcon(113, 87, 663, 663, 166)
 const dark = croppedIcon(997, 99, 670, 653, 160)
+const darkPng = renderPng(dark, 1024)
 await mkdir(iconDir, { recursive: true })
 const outputs = {
-  'workwise.svg': dark,
-  'workwise.png': renderPng(dark, 1024),
+  'workwise.svg': `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="1024" height="1024" viewBox="0 0 1024 1024"><title>RAILWISE AI</title><image width="1024" height="1024" xlink:href="data:image/png;base64,${darkPng.toString('base64')}"/></svg>`,
+  'workwise.png': darkPng,
   'workwise-light.png': renderPng(light, 1024),
-  'workwise-dark.png': renderPng(dark, 1024),
+  'workwise-dark.png': darkPng,
   'workwise_tray.png': renderPng(dark, 512),
   'workwise_dock.png': renderPng(light, 1024, macIconScale),
   'workwise_dock_dark.png': renderPng(dark, 1024, macIconScale),
