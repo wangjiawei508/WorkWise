@@ -14,6 +14,10 @@ function renderPng(svg, size, scale = 1) {
   const inset = 1024 * (1 - scale) / 2
   const source = scale === 1 ? svg : `<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024"><g transform="translate(${inset} ${inset}) scale(${scale})">${svg.replace(/<\?xml[^>]*\?>/g, '')}</g></svg>`
   const rendered = new Resvg(source, { fitTo: { mode: 'width', value: size }, font: { loadSystemFonts: false } }).render()
+  for (const fraction of [0.25, 0.5, 0.75]) {
+    const alpha = rendered.pixels[(Math.floor(size / 2) * size + Math.floor(size * fraction)) * 4 + 3]
+    if (alpha !== 255) throw new Error(`Unexpected clipping in ${size}px icon at ${fraction}`)
+  }
   const png = Buffer.from(rendered.asPng())
   if (png.readUInt32BE(16) !== size || png.readUInt32BE(20) !== size || png[25] !== 6) {
     throw new Error(`Invalid ${size}px RGBA icon`)
@@ -63,14 +67,14 @@ if (bitmap.readUInt32BE(16) !== 1774 || bitmap.readUInt32BE(20) !== 887) {
 }
 const artwork = bitmap.toString('base64')
 function croppedIcon(x, y, width, height, radius) {
-  return `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="1024" height="1024" viewBox="0 0 1024 1024"><title>RAILWISE AI</title><desc>User-supplied ribbon monogram, cropped from the approved light/dark artwork.</desc><svg width="1024" height="1024" viewBox="${x} ${y} ${width} ${height}" preserveAspectRatio="none"><defs><clipPath id="tile"><rect x="${x}" y="${y}" width="${width}" height="${height}" rx="${radius}"/></clipPath></defs><image width="1774" height="887" xlink:href="data:image/png;base64,${artwork}" clip-path="url(#tile)"/></svg></svg>`
+  return `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="1024" height="1024" viewBox="0 0 1024 1024"><title>RAILWISE AI</title><desc>User-supplied ribbon monogram, cropped from the approved light/dark artwork.</desc><defs><clipPath id="tile"><rect width="${width}" height="${height}" rx="${radius}"/></clipPath></defs><g transform="scale(${1024 / width} ${1024 / height})"><g clip-path="url(#tile)"><image x="${-x}" y="${-y}" width="1774" height="887" xlink:href="data:image/png;base64,${artwork}"/></g></g></svg>`
 }
 const light = croppedIcon(113, 87, 663, 663, 166)
 const dark = croppedIcon(997, 99, 670, 653, 160)
 const darkPng = renderPng(dark, 1024)
 await mkdir(iconDir, { recursive: true })
 const outputs = {
-  'workwise.svg': `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="1024" height="1024" viewBox="0 0 1024 1024"><title>RAILWISE AI</title><image width="1024" height="1024" xlink:href="data:image/png;base64,${darkPng.toString('base64')}"/></svg>`,
+  'workwise.svg': `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="1024" height="1024" viewBox="0 0 1024 1024"><title>RAILWISE AI</title><image width="1024" height="1024" xlink:href="data:image/png;base64,${renderPng(dark, 512).toString('base64')}"/></svg>`,
   'workwise.png': darkPng,
   'workwise-light.png': renderPng(light, 1024),
   'workwise-dark.png': darkPng,

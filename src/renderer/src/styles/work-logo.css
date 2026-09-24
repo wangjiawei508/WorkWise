@@ -139,7 +139,7 @@
   display: none;
 }
 
-[data-theme='dark'] .ds-work-logo .ds-brand-dark {
+[data-theme='dark'] .ds-work-logo .ds-work-logo-image.ds-brand-dark {
   display: block;
 }
 

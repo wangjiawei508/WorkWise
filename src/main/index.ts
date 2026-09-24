@@ -1290,8 +1290,8 @@ app.whenReady().then(async () => {
       dark: currentWindowDark,
       version: app.getVersion(),
       locale: initial.locale,
-      logoDataUrl: (currentWindowDark ? appIcon : lightIcon).isEmpty()
-        ? undefined : (currentWindowDark ? appIcon : lightIcon).toDataURL()
+      logoDataUrl: lightIcon.isEmpty() ? undefined : lightIcon.toDataURL(),
+      logoDarkDataUrl: appIcon.isEmpty() ? undefined : appIcon.toDataURL()
     })
   }
   nativeTheme.on('updated', refreshWindowAppearance)

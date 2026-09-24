@@ -25,6 +25,7 @@ type SplashWindowOptions = {
   version: string
   locale: 'zh' | 'en'
   logoDataUrl?: string
+  logoDarkDataUrl?: string
 }
 
 function escapeHtml(value: string): string {
@@ -65,8 +66,9 @@ export function splashProgressLabel(
 
 export function buildSplashHtml(options: SplashWindowOptions, initial: SplashProgress): string {
   const progress = clampProgress(initial.progress)
+  const hasDarkLogo = options.logoDarkDataUrl?.startsWith('data:image/')
   const logo = options.logoDataUrl?.startsWith('data:image/')
-    ? `<img class="logo" src="${escapeHtml(options.logoDataUrl)}" alt="" />`
+    ? `<img class="logo${hasDarkLogo ? ' logo-light' : ''}" src="${escapeHtml(options.logoDataUrl)}" alt="" />${hasDarkLogo ? `<img class="logo logo-dark" src="${escapeHtml(options.logoDarkDataUrl!)}" alt="" />` : ''}`
     : '<div class="logo-fallback" aria-hidden="true">W</div>'
   const theme = options.dark ? 'dark' : 'light'
   const material = escapeHtml(options.appearance.material)
@@ -111,6 +113,9 @@ export function buildSplashHtml(options: SplashWindowOptions, initial: SplashPro
     }
     html[data-theme="dark"][data-material="solid"] .splash { background: #151517; }
     .logo { width: 44px; height: 44px; object-fit: contain; }
+    .logo-dark { display: none; }
+    html[data-theme="dark"] .logo-dark { display: block; }
+    html[data-theme="dark"] .logo-light { display: none; }
     .logo-fallback {
       display: grid;
       width: 44px;
