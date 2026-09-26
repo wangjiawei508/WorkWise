@@ -1,13 +1,13 @@
 import { Resvg } from '@resvg/resvg-js'
-import { mkdir, readFile, writeFile } from 'node:fs/promises'
+import { readFile, writeFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-// Preserve the supplied bitmap artwork; SVG only crops/masks and rasterizes it.
+// Preserve the approved PNG artwork; only macOS outer padding is rasterized.
 // Keep historical resource paths for installer and runtime compatibility.
 const projectRoot = resolve(fileURLToPath(new URL('..', import.meta.url)))
 const iconDir = resolve(projectRoot, 'src/asset/img')
-const sourcePath = resolve(process.argv[2] || resolve(iconDir, 'railwise-icon-source.png'))
+const sourceDir = resolve(iconDir, 'railwise-logo-pack-v1')
 const macIconScale = 0.8
 
 function renderPng(svg, size, scale = 1) {
@@ -61,27 +61,31 @@ function buildIcns(svg) {
   return Buffer.concat([header, body])
 }
 
-const bitmap = await readFile(sourcePath)
-if (bitmap.readUInt32BE(16) !== 1774 || bitmap.readUInt32BE(20) !== 887) {
-  throw new Error('Expected the approved 1774 x 887 light/dark icon artwork')
+async function suppliedPng(theme, size) {
+  const png = await readFile(resolve(sourceDir, `RAILWISE_AI_app_${theme}_${size}.png`))
+  if (png.readUInt32BE(16) !== size || png.readUInt32BE(20) !== size || png[25] !== 6) {
+    throw new Error(`Invalid supplied ${theme} ${size}px RGBA icon`)
+  }
+  return png
 }
-const artwork = bitmap.toString('base64')
-function croppedIcon(x, y, width, height, radius) {
-  return `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="1024" height="1024" viewBox="0 0 1024 1024"><title>RAILWISE AI</title><desc>User-supplied ribbon monogram, cropped from the approved light/dark artwork.</desc><defs><clipPath id="tile"><rect width="${width}" height="${height}" rx="${radius}"/></clipPath></defs><g transform="scale(${1024 / width} ${1024 / height})"><g clip-path="url(#tile)"><image x="${-x}" y="${-y}" width="1774" height="887" xlink:href="data:image/png;base64,${artwork}"/></g></g></svg>`
+
+function embeddedSvg(png) {
+  return `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="1024" height="1024" viewBox="0 0 1024 1024"><title>RAILWISE AI</title><desc>Approved RAILWISE AI logo pack v1 artwork.</desc><image width="1024" height="1024" xlink:href="data:image/png;base64,${png.toString('base64')}"/></svg>`
 }
-const light = croppedIcon(113, 87, 663, 663, 166)
-const dark = croppedIcon(997, 99, 670, 653, 160)
-const darkPng = renderPng(dark, 1024)
-await mkdir(iconDir, { recursive: true })
+
+const lightPng = await suppliedPng('light', 1024)
+const darkPng = await suppliedPng('dark', 1024)
+const light = embeddedSvg(lightPng)
+const dark = embeddedSvg(darkPng)
 const outputs = {
-  'workwise.svg': `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="1024" height="1024" viewBox="0 0 1024 1024"><title>RAILWISE AI</title><image width="1024" height="1024" xlink:href="data:image/png;base64,${renderPng(dark, 512).toString('base64')}"/></svg>`,
+  'workwise.svg': embeddedSvg(await suppliedPng('dark', 512)),
   'workwise.png': darkPng,
-  'workwise-light.png': renderPng(light, 1024),
+  'workwise-light.png': lightPng,
   'workwise-dark.png': darkPng,
-  'workwise_tray.png': renderPng(dark, 512),
+  'workwise_tray.png': await suppliedPng('dark', 512),
   'workwise_dock.png': renderPng(light, 1024, macIconScale),
   'workwise_dock_dark.png': renderPng(dark, 1024, macIconScale),
-  'workwise.ico': buildIco([16, 24, 32, 48, 64, 128, 256].map((size) => renderPng(dark, size))),
+  'workwise.ico': buildIco(await Promise.all([16, 24, 32, 48, 64, 128, 256].map((size) => suppliedPng('dark', size)))),
   'workwise.icns': buildIcns(light)
 }
 for (const [name, content] of Object.entries(outputs)) {

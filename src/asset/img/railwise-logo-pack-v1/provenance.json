@@ -1,0 +1,24 @@
+{
+  "source": "RAILWISE-AI-LOGO-PACK-v1.zip",
+  "sourceSha256": "899f168d3ab90544e5722809c51e0bb91e40dce0083fb1c52fa36ac594234f9f",
+  "files": {
+    "RAILWISE_AI_app_light_16.png": "419a8f8f162eb8a88457e8b78a0bb11088fb8a3cc44e5a744dd099679db139ab",
+    "RAILWISE_AI_app_light_24.png": "a71d8d7f1995c5b6f672a6efca3f39f67a26b50c224ccc82d9bd30343529900d",
+    "RAILWISE_AI_app_light_32.png": "fac7ba2873c60b6ecdaf8e19078587d415ac7616bd67c7ab7010c6523c2baf95",
+    "RAILWISE_AI_app_light_48.png": "45180e3dee866c70c42f2b019994cbce6b844e6cb1a872b5e289178b8a142198",
+    "RAILWISE_AI_app_light_64.png": "222139cc85e49347b54dbdd8e0f2cd949af4d797125086cf8936a630a5ec2776",
+    "RAILWISE_AI_app_light_128.png": "ca90fa704af07459e3370ff7126a7e58bd151fd435c9d99239e1b10807d02007",
+    "RAILWISE_AI_app_light_256.png": "04de8c91bb8ba58a9ba04c67999fef62ac2014f5211e59303710dfc1a8526fbc",
+    "RAILWISE_AI_app_light_512.png": "08c9005e031e402ea3d609c284dbb57607d41c21c1ceba5a3aabd16b18449071",
+    "RAILWISE_AI_app_light_1024.png": "114d51b0d78c89659a068b673ff00a1fd44bb89d5acadcf728a2eacdf5e527a2",
+    "RAILWISE_AI_app_dark_16.png": "bab41191a9f95b31bea7af49305bfba8b89084e86b5e96617d650a238aebe33a",
+    "RAILWISE_AI_app_dark_24.png": "7dbcba9f8785039921b5cb5da386d77760cb26b0c50b5dfc79235868c7a2bc97",
+    "RAILWISE_AI_app_dark_32.png": "d98454ad2f21e8507f66640a78fe040e37b666474076e2f69f5131c01dea4a6f",
+    "RAILWISE_AI_app_dark_48.png": "b3f25900279489964932c86daef36153c895f39af8e5d5f61ba690771e7b05f8",
+    "RAILWISE_AI_app_dark_64.png": "452feab97bfda9a1c8d3ef1b0cd259073cdc0e9def7aa2e0d3c1a132f809955a",
+    "RAILWISE_AI_app_dark_128.png": "59cb8f758ac9a542d70c6215622a1d5df2d5a353b77573d5ea4726a962c1c529",
+    "RAILWISE_AI_app_dark_256.png": "f9afe67c20d1a97c4c5d74dd8627db908627c98fb9452cabf1ad24fbd5353e00",
+    "RAILWISE_AI_app_dark_512.png": "2a5b5a70476c7c4f97e02ea4e581042fe8ff496172ab45fcc181132ab2bbe699",
+    "RAILWISE_AI_app_dark_1024.png": "b9373067b86c5e349e7eb08e2d3e6df297ba841088e00a5ea7a2d5ae6a9aa41b"
+  }
+}

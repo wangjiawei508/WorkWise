@@ -69,7 +69,7 @@ export function buildSplashHtml(options: SplashWindowOptions, initial: SplashPro
   const hasDarkLogo = options.logoDarkDataUrl?.startsWith('data:image/')
   const logo = options.logoDataUrl?.startsWith('data:image/')
     ? `<img class="logo${hasDarkLogo ? ' logo-light' : ''}" src="${escapeHtml(options.logoDataUrl)}" alt="" />${hasDarkLogo ? `<img class="logo logo-dark" src="${escapeHtml(options.logoDarkDataUrl!)}" alt="" />` : ''}`
-    : '<div class="logo-fallback" aria-hidden="true">W</div>'
+    : '<div class="logo-fallback" aria-hidden="true">R</div>'
   const theme = options.dark ? 'dark' : 'light'
   const material = escapeHtml(options.appearance.material)
   const lang = options.locale === 'zh' ? 'zh-CN' : 'en'
@@ -112,14 +112,14 @@ export function buildSplashHtml(options: SplashWindowOptions, initial: SplashPro
       box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08), 0 24px 72px rgba(0, 0, 0, 0.44);
     }
     html[data-theme="dark"][data-material="solid"] .splash { background: #151517; }
-    .logo { width: 44px; height: 44px; object-fit: contain; }
+    .logo { width: 56px; height: 56px; object-fit: contain; }
     .logo-dark { display: none; }
     html[data-theme="dark"] .logo-dark { display: block; }
     html[data-theme="dark"] .logo-light { display: none; }
     .logo-fallback {
       display: grid;
-      width: 44px;
-      height: 44px;
+      width: 56px;
+      height: 56px;
       place-items: center;
       border-radius: 8px;
       background: #0088ff;
@@ -176,7 +176,7 @@ export class SplashWindowController {
     this.current = { ...initial, progress: clampProgress(initial.progress) }
     this.browserWindow = new BrowserWindow({
       width: 360,
-      height: 208,
+      height: 232,
       frame: false,
       show: false,
       resizable: false,
