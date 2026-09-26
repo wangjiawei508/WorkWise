@@ -15,6 +15,7 @@ import workwiseDockPng from '../asset/img/workwise_dock.png?url'
 import workwiseDockDarkPng from '../asset/img/workwise_dock_dark.png?url'
 import workwiseLightPng from '../asset/img/workwise-light.png?url'
 import workwiseTrayPng from '../asset/img/workwise_tray.png?url'
+import workwiseSymbolPng from '../asset/img/railwise-logo-pack-v2/RAILWISE_AI_symbol_color_512.png?url'
 import { createAppIcon, pickTrayIcon } from './app-icon'
 import { configureChromiumUserDataPath, configureLinuxWaylandImeSwitches } from './app-command-line'
 import { configureAppIdentity } from './app-identity'
@@ -1290,8 +1291,8 @@ app.whenReady().then(async () => {
       dark: currentWindowDark,
       version: app.getVersion(),
       locale: initial.locale,
-      logoDataUrl: lightIcon.isEmpty() ? undefined : lightIcon.toDataURL(),
-      logoDarkDataUrl: appIcon.isEmpty() ? undefined : appIcon.toDataURL()
+      logoDataUrl: workwiseSymbolPng,
+      logoDarkDataUrl: workwiseSymbolPng
     })
   }
   nativeTheme.on('updated', refreshWindowAppearance)

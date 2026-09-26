@@ -69,23 +69,37 @@ async function suppliedPng(theme, size) {
   return png
 }
 
+const symbolPng = await readFile(resolve(sourceDir, 'RAILWISE_AI_symbol_color_1024.png'))
+const symbolData = symbolPng.toString('base64')
+const symbolSvgSource = await readFile(resolve(sourceDir, 'RAILWISE_AI_symbol_color.svg'), 'utf8')
+const symbolSvg = symbolSvgSource
+  .replace('<svg xmlns="http://www.w3.org/2000/svg" width="2048" height="2048" viewBox="0 0 2048 2048">', '<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024"><title>RAILWISE AI</title>')
+
+function appTile(theme) {
+  const background = theme === 'light' ? '#F7FAFC' : '#06152D'
+  // The v2 transparent master has a deliberate square canvas. Enlarging the
+  // placed master by 8% keeps the clean ribbon prominent while retaining a
+  // safe margin for Finder, Dock, and Windows shell masks.
+  return `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="1024" height="1024" viewBox="0 0 1024 1024"><title>RAILWISE AI</title><desc>RAILWISE AI clean asset pack v2 artwork.</desc><rect width="1024" height="1024" rx="166" fill="${background}"/><image x="-32" y="-32" width="1088" height="1088" xlink:href="data:image/png;base64,${symbolData}"/></svg>`
+}
+
 function embeddedSvg(png) {
   return `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="1024" height="1024" viewBox="0 0 1024 1024"><title>RAILWISE AI</title><desc>Approved RAILWISE AI logo pack v1 artwork.</desc><image width="1024" height="1024" xlink:href="data:image/png;base64,${png.toString('base64')}"/></svg>`
 }
 
-const lightPng = await suppliedPng('light', 1024)
-const darkPng = await suppliedPng('dark', 1024)
-const light = embeddedSvg(lightPng)
-const dark = embeddedSvg(darkPng)
+const light = appTile('light')
+const dark = appTile('dark')
+const lightPng = renderPng(light, 1024)
+const darkPng = renderPng(dark, 1024)
 const outputs = {
-  'workwise.svg': embeddedSvg(await suppliedPng('dark', 512)),
+  'workwise.svg': symbolSvg,
   'workwise.png': darkPng,
   'workwise-light.png': lightPng,
   'workwise-dark.png': darkPng,
-  'workwise_tray.png': await suppliedPng('dark', 512),
+  'workwise_tray.png': renderPng(dark, 512),
   'workwise_dock.png': renderPng(light, 1024, macIconScale),
   'workwise_dock_dark.png': renderPng(dark, 1024, macIconScale),
-  'workwise.ico': buildIco(await Promise.all([16, 24, 32, 48, 64, 128, 256].map((size) => suppliedPng('dark', size)))),
+  'workwise.ico': buildIco(await Promise.all([16, 24, 32, 48, 64, 128, 256].map((size) => renderPng(dark, size)))),
   'workwise.icns': buildIcns(light)
 }
 for (const [name, content] of Object.entries(outputs)) {
