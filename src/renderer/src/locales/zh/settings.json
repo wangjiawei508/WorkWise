@@ -193,7 +193,7 @@
   "helpAuthorTitle": "作者与维护者",
   "helpAuthorBody": "{{productName}} 由 wangjiawei508 维护，面向工程、基础设施、城市更新与企业运营场景持续开发。GitHub 用于源码协作、问题反馈和开发者交流。",
   "helpAuthorItemMaintainer": "维护者主页：https://github.com/wangjiawei508",
-  "helpAuthorItemFork": "项目主页：https://github.com/wangjiawei508/WorkWise。",
+  "helpAuthorItemFork": "项目主页：https://github.com/railwise-cn/WorkWise。",
   "helpAuthorItemContributors": "贡献者信息以 GitHub 提交记录、Issues、PR 和 README 致谢为准。",
   "helpUpdateTitle": "在线更新",
   "helpUpdateBody": "{{productName}} 默认从官方 GitHub Releases 检查更新。发现新版本后会在工作台提醒；支持的安装包可在应用内更新，不支持时会打开版本下载页。",

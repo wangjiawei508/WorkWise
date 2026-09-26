@@ -107,7 +107,7 @@ const hasGenericUpdateFeed = true
 const updateProvider = (
   process.env.WORKWISE_UPDATE_PROVIDER || (hasGenericUpdateFeed ? 'generic' : 'github')
 ).trim().toLowerCase()
-const configuredGithubRepo = (process.env.WORKWISE_GITHUB_REPO || 'wangjiawei508/WorkWise').trim()
+const configuredGithubRepo = (process.env.WORKWISE_GITHUB_REPO || 'railwise-cn/WorkWise').trim()
 const githubRepoMatch = configuredGithubRepo.match(/^([\w.-]+)\/([\w.-]+)$/)
 const genericUpdateUrl = explicitUpdateUrl
   ? explicitUpdateUrl.replace(/\{channel\}/g, updateChannel).replace(/\/?$/, '/')

@@ -280,10 +280,10 @@ describe('gui updater source helpers', () => {
       process.env.WORKWISE_UPDATE_PROVIDER = 'github'
       expect(module._internals.resolveUpdateFeedConfig('stable')).toMatchObject({
         kind: 'github',
-        owner: 'wangjiawei508',
+        owner: 'railwise-cn',
         repo: 'WorkWise'
       })
-      expect(module._internals.downloadPageUrl()).toBe('https://github.com/wangjiawei508/WorkWise/releases')
+      expect(module._internals.downloadPageUrl()).toBe('https://github.com/railwise-cn/WorkWise/releases')
     } finally {
       for (const [key, value] of Object.entries(previous)) {
         if (value === undefined) {

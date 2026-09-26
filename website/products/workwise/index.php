@@ -181,7 +181,7 @@ require_once __DIR__ . '/../../includes/header.php';
             <span class="pd-eyebrow dark">WORKWISE <?php echo htmlspecialchars($workwiseVersion); ?> · AVAILABLE NOW</span>
             <h3>统一默认模型 deepseek-flash</h3>
             <p>首次启动只需配置 DeepSeek API Key 和可选服务地址。0.5.0 的主 Agent、Write、定时任务和其他 Agent 默认使用官方模型 ID <code>deepseek-flash</code>；<code>deepseek-v4-pro</code> 可作为显式兼容选择，旧 Flash ID 仅为迁移保留。</p>
-            <a href="https://github.com/wangjiawei508/WorkWise/blob/main/docs/product-introduction.zh-CN.md" target="_blank" rel="noopener" class="cli-inline-link">查看 WorkWise 软件介绍 <i class="fas fa-arrow-up-right-from-square"></i></a>
+            <a href="https://github.com/railwise-cn/WorkWise/blob/main/docs/product-introduction.zh-CN.md" target="_blank" rel="noopener" class="cli-inline-link">查看 WorkWise 软件介绍 <i class="fas fa-arrow-up-right-from-square"></i></a>
           </div>
         </div>
       </article>
@@ -276,7 +276,7 @@ require_once __DIR__ . '/../../includes/header.php';
         </div>
       <?php endforeach; ?>
     </div>
-    <p><a href="https://github.com/wangjiawei508/WorkWise/blob/codex/railwise-survey-convergence/docs/qa/evidence/railwise-convergence-281dc8767250/README.md" target="_blank" rel="noopener" class="cli-inline-link">查看候选实机验收记录 <i class="fas fa-arrow-up-right-from-square"></i></a></p>
+    <p><a href="https://github.com/railwise-cn/WorkWise/blob/codex/railwise-survey-convergence/docs/qa/evidence/railwise-convergence-281dc8767250/README.md" target="_blank" rel="noopener" class="cli-inline-link">查看候选实机验收记录 <i class="fas fa-arrow-up-right-from-square"></i></a></p>
   </div>
 </section>
 

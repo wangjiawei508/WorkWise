@@ -3,11 +3,11 @@ import type { MenuItemConstructorOptions } from 'electron'
 import type { AppSettingsV1 } from '../shared/app-settings'
 import type { ApplicationMenuAction } from '../shared/workwise-api'
 
-export const WORKWISE_GITHUB_URL = 'https://github.com/wangjiawei508/WorkWise'
+export const WORKWISE_GITHUB_URL = 'https://github.com/railwise-cn/WorkWise'
 export const WORKWISE_PRODUCT_URL = 'https://www.railwise.cn/products/workwise/'
 export const WORKWISE_AUTHOR_URL = 'https://github.com/wangjiawei508'
 export const WORKWISE_PRODUCT_INTRO_URL =
-  'https://github.com/wangjiawei508/WorkWise/blob/main/docs/product-introduction.zh-CN.md'
+  'https://github.com/railwise-cn/WorkWise/blob/main/docs/product-introduction.zh-CN.md'
 export const WORKWISE_RELEASES_URL = `${WORKWISE_GITHUB_URL}/releases`
 
 export type ApplicationMenuActions = {

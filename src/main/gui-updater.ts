@@ -28,7 +28,7 @@ import {
 const DEFAULT_OFFICIAL_RELEASE_PREFIX = 'workwise'
 const DEFAULT_OFFICIAL_UPDATE_BASE_URL = 'https://www.railwise.cn/downloads'
 const DEFAULT_PRODUCT_PAGE_URL = 'https://www.railwise.cn/products/workwise/'
-const DEFAULT_GITHUB_REPO = 'wangjiawei508/WorkWise'
+const DEFAULT_GITHUB_REPO = 'railwise-cn/WorkWise'
 const UPDATE_REQUEST_HEADERS = {
   'Cache-Control': 'no-cache',
   Pragma: 'no-cache'

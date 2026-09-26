@@ -7,8 +7,8 @@
   "publishedAt": "2026-09-14",
   "releaseCommit": "5f585b4e9e7595dc8acf3eb96fc5bffe7b408662",
   "releaseChannel": "stable",
-  "releaseUrl": "https://github.com/wangjiawei508/WorkWise/releases/tag/v0.5.0",
-  "repositoryUrl": "https://github.com/wangjiawei508/WorkWise",
+  "releaseUrl": "https://github.com/railwise-cn/WorkWise/releases/tag/v0.5.0",
+  "repositoryUrl": "https://github.com/railwise-cn/WorkWise",
   "lastReviewedAt": "2026-09-14",
   "platforms": [
     {
@@ -88,7 +88,7 @@
     "design": "https://kb.railwise.cn/products/workwise/design-workspace/",
     "writeExport": "https://kb.railwise.cn/products/workwise/write-export/",
     "skills": "https://kb.railwise.cn/products/workwise/templates/",
-    "harness": "https://github.com/wangjiawei508/WorkWise/blob/main/docs/DEEPSEEK_HARNESS.zh-CN.md",
+    "harness": "https://github.com/railwise-cn/WorkWise/blob/main/docs/DEEPSEEK_HARNESS.zh-CN.md",
     "security": "https://kb.railwise.cn/products/workwise/security-data/",
     "faq": "https://kb.railwise.cn/products/workwise/faq/",
     "changelog": "https://kb.railwise.cn/products/workwise/changelog/"

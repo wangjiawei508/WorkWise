@@ -70,7 +70,7 @@ function validateSource(sourceDirectory, version) {
 
   const manifest = JSON.parse(readFileSync(files[2].source, 'utf8'))
   if (manifest.version !== version) throw new Error(`Manifest version is ${manifest.version}, expected ${version}.`)
-  if (manifest.releaseUrl !== `https://github.com/wangjiawei508/WorkWise/releases/tag/v${version}`) {
+  if (manifest.releaseUrl !== `https://github.com/railwise-cn/WorkWise/releases/tag/v${version}`) {
     throw new Error('Manifest Release URL does not match the requested version.')
   }
 

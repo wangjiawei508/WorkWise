@@ -193,7 +193,7 @@
   "helpAuthorTitle": "Author and maintainers",
   "helpAuthorBody": "{{productName}} is maintained by wangjiawei508 for engineering, infrastructure, urban renewal, and business operations workflows. GitHub is used for source collaboration, issue tracking, and developer discussion.",
   "helpAuthorItemMaintainer": "Maintainer profile: https://github.com/wangjiawei508",
-  "helpAuthorItemFork": "Project home: https://github.com/wangjiawei508/WorkWise.",
+  "helpAuthorItemFork": "Project home: https://github.com/railwise-cn/WorkWise.",
   "helpAuthorItemContributors": "Contributor information follows GitHub commits, issues, PRs, and README acknowledgements.",
   "helpUpdateTitle": "Online updates",
   "helpUpdateBody": "{{productName}} checks official GitHub Releases by default. The workbench shows a reminder when a new version is available; supported packages update in app and other builds open the release page.",

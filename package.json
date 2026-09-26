@@ -149,9 +149,9 @@
     }
   },
   "author": "WorkWise Contributors",
-  "homepage": "https://github.com/wangjiawei508/WorkWise",
+  "homepage": "https://github.com/railwise-cn/WorkWise",
   "repository": {
     "type": "git",
-    "url": "https://github.com/wangjiawei508/WorkWise.git"
+    "url": "https://github.com/railwise-cn/WorkWise.git"
   }
 }
