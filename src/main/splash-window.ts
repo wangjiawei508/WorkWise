@@ -112,7 +112,7 @@ export function buildSplashHtml(options: SplashWindowOptions, initial: SplashPro
       box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08), 0 24px 72px rgba(0, 0, 0, 0.44);
     }
     html[data-theme="dark"][data-material="solid"] .splash { background: #151517; }
-    .logo { width: 96px; height: 96px; object-fit: contain; }
+    .logo { width: 112px; height: 64px; flex-shrink: 0; object-fit: contain; }
     .logo-dark { display: none; }
     html[data-theme="dark"] .logo-dark { display: block; }
     html[data-theme="dark"] .logo-light { display: none; }
@@ -176,7 +176,7 @@ export class SplashWindowController {
     this.current = { ...initial, progress: clampProgress(initial.progress) }
     this.browserWindow = new BrowserWindow({
       width: 360,
-      height: 280,
+      height: 248,
       frame: false,
       show: false,
       resizable: false,

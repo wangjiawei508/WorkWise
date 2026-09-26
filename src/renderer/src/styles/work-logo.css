@@ -90,7 +90,9 @@
 }
 
 .ds-claw-empty-work-logo.ds-work-logo {
-  transform: translateZ(0) scale(1.2);
+  width: 64px;
+  height: 34px;
+  transform: translateZ(0);
 }
 
 .ds-work-logo::after {
@@ -133,26 +135,6 @@
   object-fit: contain;
   pointer-events: none;
   user-select: none;
-}
-
-/* The clean v2 transparent master carries its own canvas. Give the mark a
-   larger visual footprint inside the compact activity slot. */
-.ds-work-logo-image,
-.ds-work-logo-echo {
-  height: 140%;
-  width: 140%;
-}
-
-.ds-work-logo .ds-brand-dark {
-  display: none;
-}
-
-[data-theme='dark'] .ds-work-logo .ds-work-logo-image.ds-brand-dark {
-  display: block;
-}
-
-[data-theme='dark'] .ds-work-logo .ds-brand-light {
-  display: none;
 }
 
 .ds-work-logo-image {
@@ -380,7 +362,9 @@
 }
 
 .ds-runtime-wake-logo.ds-work-logo {
-  transform: translateZ(0) scale(var(--runtime-logo-scale, 1.7));
+  height: calc(var(--runtime-logo-width, 64px) * 0.52);
+  width: var(--runtime-logo-width, 64px);
+  transform: translateZ(0);
   z-index: 2;
 }
 

@@ -15,7 +15,7 @@ import workwiseDockPng from '../asset/img/workwise_dock.png?url'
 import workwiseDockDarkPng from '../asset/img/workwise_dock_dark.png?url'
 import workwiseLightPng from '../asset/img/workwise-light.png?url'
 import workwiseTrayPng from '../asset/img/workwise_tray.png?url'
-import workwiseSymbolPng from '../asset/img/railwise-logo-pack-v2/RAILWISE_AI_symbol_color_512.png?url'
+import workwiseSymbolPng from '../asset/img/workwise-symbol.png?url'
 import { createAppIcon, pickTrayIcon } from './app-icon'
 import { configureChromiumUserDataPath, configureLinuxWaylandImeSwitches } from './app-command-line'
 import { configureAppIdentity } from './app-identity'
@@ -529,6 +529,7 @@ const dockIcon = createAppIcon(workwiseDockPng)
 const dockDarkIcon = createAppIcon(workwiseDockDarkPng)
 const lightIcon = createAppIcon(workwiseLightPng)
 const trayIcon = createAppIcon(workwiseTrayPng)
+const splashIcon = createAppIcon(workwiseSymbolPng)
 function refreshDockIcon(): void {
   if (process.platform !== 'darwin') return
   const selected = nativeTheme.shouldUseDarkColors ? dockDarkIcon : dockIcon
@@ -1291,8 +1292,7 @@ app.whenReady().then(async () => {
       dark: currentWindowDark,
       version: app.getVersion(),
       locale: initial.locale,
-      logoDataUrl: workwiseSymbolPng,
-      logoDarkDataUrl: workwiseSymbolPng
+      logoDataUrl: splashIcon.isEmpty() ? undefined : splashIcon.toDataURL()
     })
   }
   nativeTheme.on('updated', refreshWindowAppearance)

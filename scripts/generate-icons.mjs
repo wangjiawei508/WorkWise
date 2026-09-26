@@ -3,12 +3,13 @@ import { readFile, writeFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-// Preserve the approved PNG artwork; only macOS outer padding is rasterized.
+// Use the user-selected clean SVG artwork. Remove canvas whitespace without
+// changing the ribbon pixels, then place it consistently across app surfaces.
 // Keep historical resource paths for installer and runtime compatibility.
 const projectRoot = resolve(fileURLToPath(new URL('..', import.meta.url)))
 const iconDir = resolve(projectRoot, 'src/asset/img')
 const sourceDir = resolve(iconDir, 'railwise-logo-pack-v2')
-const macIconScale = 0.8
+const macIconScale = 0.84
 
 function renderPng(svg, size, scale = 1) {
   const inset = 1024 * (1 - scale) / 2
@@ -61,30 +62,30 @@ function buildIcns(svg) {
   return Buffer.concat([header, body])
 }
 
-async function suppliedPng(theme, size) {
-  const png = await readFile(resolve(sourceDir, `RAILWISE_AI_app_${theme}_${size}.png`))
-  if (png.readUInt32BE(16) !== size || png.readUInt32BE(20) !== size || png[25] !== 6) {
-    throw new Error(`Invalid supplied ${theme} ${size}px RGBA icon`)
-  }
-  return png
-}
-
-const symbolPng = await readFile(resolve(sourceDir, 'RAILWISE_AI_symbol_color_1024.png'))
-const symbolData = symbolPng.toString('base64')
 const symbolSvgSource = await readFile(resolve(sourceDir, 'RAILWISE_AI_symbol_color.svg'), 'utf8')
-const symbolSvg = symbolSvgSource
-  .replace('<svg xmlns="http://www.w3.org/2000/svg" width="2048" height="2048" viewBox="0 0 2048 2048">', '<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024"><title>RAILWISE AI</title>')
+const master = new Resvg(symbolSvgSource, { font: { loadSystemFonts: false } }).render()
+let left = master.width, top = master.height, right = -1, bottom = -1
+const pixels = master.pixels
+for (let y = 0; y < master.height; y++) {
+  for (let x = 0; x < master.width; x++) {
+    if (pixels[(y * master.width + x) * 4 + 3] === 0) continue
+    left = Math.min(left, x); right = Math.max(right, x)
+    top = Math.min(top, y); bottom = Math.max(bottom, y)
+  }
+}
+if (right < left || bottom < top) throw new Error('Selected symbol is empty')
+// Two source pixels protect the antialiased edge. The original source stays intact.
+left = Math.max(0, left - 2); top = Math.max(0, top - 2)
+right = Math.min(master.width - 1, right + 2); bottom = Math.min(master.height - 1, bottom + 2)
+const markWidth = right - left + 1, markHeight = bottom - top + 1
+const symbolSvg = symbolSvgSource.replace(/<svg\b[^>]*>/, `<svg xmlns="http://www.w3.org/2000/svg" width="${markWidth}" height="${markHeight}" viewBox="${left} ${top} ${markWidth} ${markHeight}"><title>RAILWISE AI</title>`)
+const symbolPng = Buffer.from(new Resvg(symbolSvg, { fitTo: { mode: 'width', value: 1024 }, font: { loadSystemFonts: false } }).render().asPng())
+const symbolData = symbolPng.toString('base64')
 
 function appTile(theme) {
   const background = theme === 'light' ? '#F7FAFC' : '#06152D'
-  // The v2 transparent master has a deliberate square canvas. Enlarging the
-  // placed master by 8% keeps the clean ribbon prominent while retaining a
-  // safe margin for Finder, Dock, and Windows shell masks.
-  return `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="1024" height="1024" viewBox="0 0 1024 1024"><title>RAILWISE AI</title><desc>RAILWISE AI clean asset pack v2 artwork.</desc><rect width="1024" height="1024" rx="166" fill="${background}"/><image x="-32" y="-32" width="1088" height="1088" xlink:href="data:image/png;base64,${symbolData}"/></svg>`
-}
-
-function embeddedSvg(png) {
-  return `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="1024" height="1024" viewBox="0 0 1024 1024"><title>RAILWISE AI</title><desc>Approved RAILWISE AI logo pack v1 artwork.</desc><image width="1024" height="1024" xlink:href="data:image/png;base64,${png.toString('base64')}"/></svg>`
+  const width = 832, height = width * markHeight / markWidth
+  return `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="1024" height="1024" viewBox="0 0 1024 1024"><title>RAILWISE AI</title><desc>User-selected clean v2 ribbon; canvas whitespace removed.</desc><rect width="1024" height="1024" rx="230" fill="${background}"/><image x="${(1024-width)/2}" y="${(1024-height)/2}" width="${width}" height="${height}" xlink:href="data:image/png;base64,${symbolData}"/></svg>`
 }
 
 const light = appTile('light')
@@ -92,14 +93,16 @@ const dark = appTile('dark')
 const lightPng = renderPng(light, 1024)
 const darkPng = renderPng(dark, 1024)
 const outputs = {
-  'workwise.svg': symbolSvg,
+  'workwise.svg': dark,
+  'workwise-symbol.svg': symbolSvg,
+  'workwise-symbol.png': symbolPng,
   'workwise.png': darkPng,
   'workwise-light.png': lightPng,
   'workwise-dark.png': darkPng,
   'workwise_tray.png': renderPng(dark, 512),
   'workwise_dock.png': renderPng(light, 1024, macIconScale),
   'workwise_dock_dark.png': renderPng(dark, 1024, macIconScale),
-  'workwise.ico': buildIco(await Promise.all([16, 24, 32, 48, 64, 128, 256].map((size) => renderPng(dark, size)))),
+  'workwise.ico': buildIco([16, 24, 32, 48, 64, 128, 256].map((size) => renderPng(dark, size))),
   'workwise.icns': buildIcns(light)
 }
 for (const [name, content] of Object.entries(outputs)) {
