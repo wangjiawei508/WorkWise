@@ -1,6 +1,6 @@
 import type { ReactElement } from 'react'
-import workwiseLogo from '../../../../asset/img/workwise-dark.png'
-import workwiseLightLogo from '../../../../asset/img/workwise-light.png'
+import workwiseLogo from '../../../../asset/img/railwise-logo-pack-v2/RAILWISE_AI_symbol_color_1024.png'
+import workwiseLightLogo from '../../../../asset/img/railwise-logo-pack-v2/RAILWISE_AI_symbol_color_1024.png'
 
 /** Compact RAILWISE AI activity mark used in the conversation timeline. */
 export function AnimatedWorkLogo({

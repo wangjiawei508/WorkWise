@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url'
 // Keep historical resource paths for installer and runtime compatibility.
 const projectRoot = resolve(fileURLToPath(new URL('..', import.meta.url)))
 const iconDir = resolve(projectRoot, 'src/asset/img')
-const sourceDir = resolve(iconDir, 'railwise-logo-pack-v1')
+const sourceDir = resolve(iconDir, 'railwise-logo-pack-v2')
 const macIconScale = 0.8
 
 function renderPng(svg, size, scale = 1) {
