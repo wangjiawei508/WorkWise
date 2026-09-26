@@ -74,6 +74,8 @@ function createCandidatePackagingRepo(): { repo: string; sourceHead: string } {
   const repo = join(fixtureRoot, 'repo')
   mkdirSync(join(repo, 'kun'), { recursive: true })
   mkdirSync(join(repo, 'scripts'), { recursive: true })
+  mkdirSync(join(repo, 'src', 'shared'), { recursive: true })
+  copyFileSync(join(process.cwd(), 'src/shared/product-brand.json'), join(repo, 'src/shared/product-brand.json'))
   mkdirSync(join(repo, 'src', 'asset', 'agent-packs', 'metro-monitoring-agent-pack'), { recursive: true })
   copyFileSync(join(process.cwd(), 'electron-builder.cjs'), join(repo, 'electron-builder.cjs'))
   copyFileSync(join(process.cwd(), 'kun', 'package-lock.json'), join(repo, 'kun', 'package-lock.json'))
@@ -371,10 +373,10 @@ describe('electron-builder WorkWise packaging', () => {
       updateChannel: 'frontier'
     })
     expect(config.appId).toBe(`com.wangjiawei508.workwise.candidate.head${shortHead}`)
-    expect(config.productName).toBe(`WorkWise Candidate ${shortHead}`)
+    expect(config.productName).toBe(`RAILWISE AI Candidate ${shortHead}`)
     expect(config.artifactName).toContain(`WorkWise-Candidate-${shortHead}-`)
-    expect(config.nsis.shortcutName).toBe(`WorkWise Candidate ${shortHead}`)
-    expect(config.nsis.uninstallDisplayName).toBe(`WorkWise Candidate ${shortHead}`)
+    expect(config.nsis.shortcutName).toBe(`RAILWISE AI Candidate ${shortHead}`)
+    expect(config.nsis.uninstallDisplayName).toBe(`RAILWISE AI Candidate ${shortHead}`)
     expect(config.publish).toEqual([
       { provider: 'generic', url: 'https://127.0.0.1/' }
     ])

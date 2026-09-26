@@ -288,9 +288,9 @@ describe('PluginMarketplaceView unified catalog', () => {
     if (!(managed instanceof HTMLButtonElement)) throw new Error('Managed connector was not rendered.')
     await act(async () => managed.click())
 
-    expect(container.textContent).toContain('WorkWise managed connector')
-    expect(container.textContent).toContain('installed · WorkWise managed')
-    expect(container.textContent).toContain('Managed with WorkWise releases')
+    expect(container.textContent).toContain('RAILWISE AI managed connector')
+    expect(container.textContent).toContain('installed · RAILWISE AI managed')
+    expect(container.textContent).toContain('Managed with RAILWISE AI releases')
     expect(container.textContent).not.toContain('not installed')
   })
 
