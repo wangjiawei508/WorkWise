@@ -372,7 +372,7 @@
 }
 
 .ds-runtime-wake-logo.ds-work-logo {
-  transform: translateZ(0) scale(1.35);
+  transform: translateZ(0) scale(var(--runtime-logo-scale, 1.7));
   z-index: 2;
 }
 
