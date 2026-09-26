@@ -1,7 +1,7 @@
 {
   "name": "workwise",
   "productName": "WorkWise",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "description": "AI workbench for engineering, infrastructure, and operations workflows",
   "license": "MIT",
   "engines": {
@@ -149,9 +149,9 @@
     }
   },
   "author": "WorkWise Contributors",
-  "homepage": "https://github.com/railwise-cn/WorkWise",
+  "homepage": "https://github.com/railwise-cn/railwise-ai",
   "repository": {
     "type": "git",
-    "url": "https://github.com/railwise-cn/WorkWise.git"
+    "url": "https://github.com/railwise-cn/railwise-ai.git"
   }
 }

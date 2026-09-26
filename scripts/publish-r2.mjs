@@ -801,7 +801,7 @@ async function promoteRelease({ flags, dryRun }) {
       tag,
       releaseDate,
       generatedAt: new Date().toISOString(),
-      githubReleaseUrl: `https://github.com/railwise-cn/WorkWise/releases/tag/${tag}`,
+      githubReleaseUrl: `https://github.com/railwise-cn/railwise-ai/releases/tag/${tag}`,
       updateBaseUrl: joinUrl(config.publicBaseUrl, target.basePath, 'latest') + '/',
       updateMetadata: Object.fromEntries(
         platformManifests.map((manifest) => [

@@ -18,7 +18,7 @@
 从已经验证的分支提交启动：
 
 ```sh
-gh workflow run release.yml --repo wangjiawei508/WorkWise \
+gh workflow run release.yml --repo railwise-cn/railwise-ai \
   --ref codex/railwise-survey-convergence \
   -f private_updater_acceptance=true -f candidate_only=true
 ```

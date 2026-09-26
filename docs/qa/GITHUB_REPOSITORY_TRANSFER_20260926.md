@@ -23,3 +23,9 @@ Verified after transfer:
 | Application identity and audit provenance | Preserved | Bundle IDs, package name, data directories, historical source commits and signed audit records are not renamed. |
 
 This change prepares the new repository address for the separately authorized 0.5.1 release. It does not claim that 0.5.1 has been built, accepted or published.
+
+## Follow-up rename — 2026-09-26
+
+The owner web session renamed the same repository to `railwise-cn/railwise-ai`. The GitHub API confirms repository ID `1268259206` is unchanged and the existing CLI account retains push permission. Local origin now targets `railwise-cn/railwise-ai.git` through the existing SSH host alias. Current README/help/catalog/updater/build/website-source URLs follow the new address; historical evidence and pinned specialist provenance remain unchanged. PR #28 is now https://github.com/railwise-cn/railwise-ai/pull/28.
+
+Desktop and internal Runtime manifests and lockfiles prepare version **0.5.1**. This is release preparation, not a public release or acceptance result.

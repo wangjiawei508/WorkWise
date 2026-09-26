@@ -88,7 +88,7 @@ env:
   WORKWISE_DOWNLOAD_URL: https://www.railwise.cn/products/workwise/
   WORKWISE_UPDATE_PROVIDER: generic
   WORKWISE_UPDATE_BASE_URL: https://www.railwise.cn/downloads
-  WORKWISE_GITHUB_REPO: railwise-cn/WorkWise
+  WORKWISE_GITHUB_REPO: railwise-cn/railwise-ai
 
 jobs:
   private-updater-acceptance:
